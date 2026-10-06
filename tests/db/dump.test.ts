@@ -89,6 +89,43 @@ describe("db/dump", () => {
     expect(a).toBe(b);
   });
 
+  it("restores a fractional REAL bit-exactly, including one SQLite misparses in shortest form", async () => {
+    const client = await seeded();
+    await client.execute("CREATE TABLE reals (x REAL)");
+    const values = [
+      0.3118957494450251,
+      0.1,
+      -2.5e-300,
+      1 / 3,
+      1.576466077749328e298,
+      -5.832970865081373e110,
+    ];
+    for (const v of values)
+      await client.execute({ sql: "INSERT INTO reals VALUES (?)", args: [v] });
+    const sql = await dumpDatabase(wrap(client), "2026-08-26T00:00:00.000Z");
+    const restored = createClient({ url: ":memory:" });
+    await restored.executeMultiple(sql);
+    const back = (await restored.execute("SELECT x FROM reals ORDER BY rowid")).rows.map(
+      (r) => r.x,
+    );
+    expect(back).toEqual(values);
+  });
+
+  it("restores a whole-number REAL past 2^53 in an untyped column as the same double", async () => {
+    const client = await seeded();
+    await client.execute("CREATE TABLE loose (x)");
+    const values = [2 ** 60, 287954582613673664, 89508622084877072, -(2 ** 63)];
+    for (const v of values) {
+      await client.execute({ sql: "INSERT INTO loose VALUES (CAST(? AS REAL))", args: [v] });
+    }
+    const sql = await dumpDatabase(wrap(client), "2026-08-26T00:00:00.000Z");
+    const restored = createClient({ url: ":memory:" });
+    await restored.executeMultiple(sql);
+    const back = await restored.execute("SELECT x, typeof(x) AS t FROM loose ORDER BY rowid");
+    expect(back.rows.map((r) => r.x)).toEqual(values);
+    expect(back.rows.map((r) => r.t)).toEqual(["real", "real", "real", "real"]);
+  });
+
   it("escapes literals correctly, and round-trips a NUL byte", () => {
     expect(sqlLiteral(null)).toBe("NULL");
     expect(sqlLiteral(5)).toBe("5");
@@ -116,7 +153,7 @@ describe("db verify-dump (CLI)", () => {
     const r = await runDbCommand("verify-dump", { file: await dumpToFile() });
     expect(r.code).toBe(0);
     expect(r.output).toMatch(
-      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ mismatches=0/,
+      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ hashed=11 mismatches=0/,
     );
   });
 
@@ -156,6 +193,39 @@ describe("db verify-dump (CLI)", () => {
     const r = await runDbCommand("verify-dump", { file });
     expect(r.code).toBe(1);
     expect(r.output).toMatch(/header_image bytes: origin=\d+ restored=\d+/);
+  });
+
+  it("FAILS when one blob byte is corrupted but its length is not", async () => {
+    const file = await dumpToFile((sql) => {
+      expect(sql).toContain("X'0001ff10'");
+      return sql.replace("X'0001ff10'", "X'0001ff11'");
+    });
+    const r = await runDbCommand("verify-dump", { file });
+    expect(r.code).toBe(1);
+    expect(r.output).toMatch(/✗ sites: content hash origin=[0-9a-f]{64} restored=[0-9a-f]{64}/);
+  });
+
+  it("FAILS when one character of a text cell changes in a table with no blobs", async () => {
+    const file = await dumpToFile((sql) => {
+      expect(sql).toContain("'a@b.co'");
+      return sql.replace("'a@b.co'", "'a@b.cp'");
+    });
+    const r = await runDbCommand("verify-dump", { file });
+    expect(r.code).toBe(1);
+    expect(r.output).toMatch(/✗ submissions: content hash/);
+    expect(r.output).not.toMatch(/✗ sites:/);
+  });
+
+  it("FAILS a dump whose manifest carries no content hashes rather than skipping the check", async () => {
+    const file = await dumpToFile((sql) => {
+      const [first, ...rest] = sql.split("\n");
+      const m = JSON.parse(first!.slice(MANIFEST_PREFIX.length));
+      delete m.hashes;
+      return [MANIFEST_PREFIX + JSON.stringify(m), ...rest].join("\n");
+    });
+    const r = await runDbCommand("verify-dump", { file });
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("content hashes absent");
   });
 
   it("REFUSES a dump with no manifest rather than falling back to self-comparison", async () => {
