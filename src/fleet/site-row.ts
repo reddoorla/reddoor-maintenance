@@ -97,6 +97,7 @@ export type WebsiteRow = {
   seoScore: number | null;
   /** ISO timestamp set by `audit lighthouse --write-back` when scores were last refreshed. */
   lastLighthouseAuditAt: string | null;
+  lighthouseFailingAudits: string | null;
   /** Last-known counts from non-lighthouse audits, written by
    *  `audit --write-back`. `null` = never audited (or this audit
    *  type was skipped on the last run). 0 = audited, clean. */

@@ -614,4 +614,8 @@ export const MIGRATIONS: Migration[] = [
     id: "0039_reports_withdrawn_by",
     sql: `ALTER TABLE reports ADD COLUMN withdrawn_by TEXT;`,
   },
+  {
+    id: "0040_site_health_lighthouse_failing_audits",
+    sql: `ALTER TABLE site_health ADD COLUMN lighthouse_failing_audits TEXT;`,
+  },
 ];

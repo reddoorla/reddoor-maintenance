@@ -88,6 +88,7 @@ const RICH: RawRecord = {
     bpScore: 96,
     seoScore: 92,
     "Last lighthouse audit at": "2026-08-23T04:00:00.000Z",
+    "Lighthouse failing audits": "best-practices/deprecations:w5:3/3",
     "A11y Violations": 0,
     "A11y Routes Scanned": 1,
     "A11y Routes Total": 2,
