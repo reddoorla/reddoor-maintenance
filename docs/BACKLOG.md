@@ -2957,6 +2957,35 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     test, and until #1205 lands the nightly cannot name the audits behind a
     score. Land with `node scripts/land-prs.mjs 1205`.
 
+90. **CalTex: publish release `asUDwhIAAMIrgcs0` ("AED Programs labels
+    (Erik 2026-10-06)"), then paste Erik his reply (new 2026-10-06, Erik
+    in #caltex 13:43Z).** The code half is live:
+    [caltex-landing#76](https://github.com/reddoorla/caltex-landing/pull/76)
+    merged 10-06 14:45Z as `d3dd1c0`. It renders a newline in an icon
+    label as a line break and changes nothing else on the page. The
+    release holds two documents:
+    - **`aed-programs`**: the two labels without their "double spaces", and
+      `No long-term commitment,` + newline + `12‑month terms.` (U+2011).
+    - **`home`**: the same three labels, plus 7 cleaned fields that no page
+      renders.
+
+    The "double spaces" were U+2028, an invisible line separator, not
+    spaces. There were 15 in 12 fields. Before and after at 1440 and 390:
+    https://claude.ai/artifact/VgQriRLsE6Yf9Tdyc8S4zQ. At 390 "terms."
+    still wraps under "12‑month", because the text column is 140 px wide.
+    Keeping the two words together pushed them 13 px past the card's edge.
+    _Ask:_ publish the release, then paste this in #caltex:
+
+    > Done! Those double spaces were actually hidden line-break characters from the original copy, so I cleaned them out of both lines (and a few other spots that had the same thing). "No long-term commitment," now ends its line with "12-month terms." under it, and 12-month won't split anymore. On phones the cards are narrow, so "terms." can still drop to its own line, but 12-month stays together.
+
+    _Worker's pick:_ publish as is. One thing is unchecked. Prismic's
+    single-line Key Text input might drop the stored newline the next time
+    someone saves that label by hand. If it does, the label wraps on its own
+    again, as it did before.
+    Separately, on the live site the cards' longest words ("replacements")
+    already run past the card's right edge at 320, 360 and 768 px. That
+    predates this change and has no item yet.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
