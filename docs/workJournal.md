@@ -8911,3 +8911,11 @@ Getting #208 onto the fix took one detour. By the time #260 merged, #208 was DIR
 Option (c), resolving `none` inside `src/audits/a11y.ts`, was not done. The gate was right that the contrast was unmeasured, and the brief forbids softening it. But its remedy text, "write 0 for none in the oklab() token", points at a token no site has; the `none` here was synthesised from sRGB `#000`. That is BACKLOG P1-31, together with a fleet survey of who else turns red on the 0.102+ bump.
 
 Not verified here: the cockpit item clearing. That happens on the next sweep. The staging → main promotion is the operator's.
+
+## 2026-10-05 — One Routine, two fires; and the five October sends held for Best Practices (#1179 `cfc706a7`, #1197 `f262effd`)
+
+The operator wanted one chat to click as the cockpit rather than two Routines, so the evening pass (#1162) did not become a second Routine. The existing "Reddoor Project Manager" Routine fires at `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4` and picks the morning or evening pass from the Pacific clock. Putting the zone in the cron also fixes the 11-01 drift that item 77 named. The evening pass moved from 17:18 to 17:48 PT, because one cron line needs one minute for both fires. Whether a Routine can reuse one session across fires was not checked; each fire is a fresh session, and the newest is the cockpit.
+
+At about 00:20Z on 10-06 the operator held the five October Maintenance sends until the Best Practices 78 is cleared. Four drafts store 78: Data Dynamiq, Espada, Revogen and Vineyard; LAHI stores 100. A direct Lighthouse 12.6.1 run on datadynamiq.com read 100 with both the mobile and desktop presets. The nightly reads 78, but its log says only "1 assertion(s) failed", so the failing audit is unknown. A worker session is on it, and P0-4 records the hold.
+
+Both PRs lost the race with other sessions' journal appends three and two times. Each one landed only after its journal entry was removed, and this entry is the result. A PR that touches the journal waits about 10 minutes for CI, and on a busy day another session appends inside that window almost every time. A docs PR that must land should keep its journal line in a separate PR, or land outside the busy hours.
