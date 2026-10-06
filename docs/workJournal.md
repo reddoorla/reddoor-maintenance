@@ -8946,4 +8946,4 @@ The fix is to run the cleanup with `sudo`, or to `chown` the output first. It is
 
 ## 2026-10-05 — Evening pass
 
-Headline: #1143 waits on item 72 (narrow review or land), item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.
+Headline: item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). #1143 landed while this pass ran, so item 72 is closed. `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.

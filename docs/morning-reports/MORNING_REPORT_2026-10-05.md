@@ -257,7 +257,7 @@ rollout is per-repo PRs (🔴 as a mass push), not part of this item.
 
 ## Evening
 
-**Headline: #1143 waits on your answer to item 72.** Do you want one narrow review of `5a46bd67`, or should it land now? Also new tonight: one ask that exists only on a branch (item 87, #1199). `time-travel` is red, and a worker has claimed it (#1171 → #1193). [M]
+**Headline: one ask exists only on a branch, item 87 (#1199).** Should dead letters wait two replay cycles (12 h) before they alarm? The worker's pick is (a). `time-travel` is red, and a worker has claimed it (#1171 → #1193). #1143 landed at 00:53:53Z (`7132170b`), after your narrow review answer, so item 72 is closed [M].
 
 Evening pass, 2026-10-05 17:49 PT (00:49Z 10-06). `<since>` = #1151 merged_at, 2026-10-05T12:07:33Z.
 
@@ -270,7 +270,7 @@ Evening pass, 2026-10-05 17:49 PT (00:49Z 10-06). `<since>` = #1151 merged_at, 2
 5. **Item 81: Roalson release `asP91BIAAH8K23X-`.** Upload `hwy-46-at-spencer-ranch-feature.jpg` and `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library, or tell a session where they are. Then publish the release. Nothing on `main` records that it was published [I].
 6. **Item 82: two Roalson aerials** (Loop 1604 at Dove Canyon, 5930 Bandera Road). (a) ask Matt for landscape aerials, (b) letterbox them, or (c) accept a trimmed outline. Pick: (a).
 7. **Item 85: merge caltex-landing `staging` into `main`.** That is the production deploy, and it puts editors on slices. Worker's pick: merge it as is.
-8. **Item 72: #1143, the D1 pull-sync split.** (a) authorise one narrow review of `5a46bd67` (the two blocker fixes), and land if it comes back clean; or (b) land now, with the first scheduled run as the instrument. Pick: (a). Since 00:32Z the PR head has had `main` merged in three times (now `138cbd0a`), so a live session is keeping it current [I]. Also from item 72, still yours: decide whether to rotate the-pointe-burbank's `PRISMIC_WRITE_TOKEN`, which round 3's demo printed into a session transcript (🔴).
+8. **Item 72 is closed:** #1143 merged at 00:53:53Z as `7132170b` [M, API], after a clean narrow review (#1202). One ask is still yours, and #1202 does not settle it: decide whether to rotate the-pointe-burbank's `PRISMIC_WRITE_TOKEN`, which round 3's demo printed into a session transcript (🔴). The first scheduled `fleet-prismic-sync` run is the instrument still to prove.
 9. **Item 87, asked only on a branch** (`claude/sleepy-allen-vhbrwu`, open #1199), verbatim:
    > 87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05, from issue #1190's inventory.)** … - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed row's `received_at`) before alarming, for a slug that resolves to a site; (b) keep alarming from the first row. - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at once either way: replay cannot place it.
 10. **Unprotected branch `claude/jolly-keller-9h8tzh`** (3 commits not on `main`, no PR, last commit 23.3 h ago: "docs: resolve the BACKLOG and journal merge with main; prettier on the journal table"). Open a PR from it, or say it can go. The morning report reported it without asking.
@@ -301,4 +301,4 @@ No nightly is pending. Issues opened since `<since>`: #1171 (time-travel, open) 
 
 **Merged since 12:07Z: 42 PRs.** All are the operator account's sessions except #1140 (renovate). Code: #1164 (P1-27, the audit port retry), #1160 and #1178 (analytics-tag; Data Dynamiq GA4 live), #1157 (P1-25, the Prismic toolbar CSP), #1194 (P1-24, the smoke `data-hydrated` marker), #1195 (`verify-dump` hashes contents), #1162 (the evening pass and its script), #1140 (release). The rest are docs and BACKLOG: #1152–#1154, #1158, #1159, #1161, #1163, #1165–#1170, #1172–#1177, #1179–#1182, #1184–#1186, #1188, #1189, #1191, #1192, #1196–#1198 and #1200.
 
-**Open PRs, 00:5xZ:** #1183 release (CI in progress); #1143 (CI in progress, item 72); #1193 (time-travel fix, CI in progress); #1199 (item 87, CI in progress); #1187 (docs, post kit, green). None is a draft and none has a failing check [M].
+**Open PRs, 01:03Z:** #1143 merged 00:53Z. #1183 release (CI in progress); #1193 (time-travel fix, CI in progress); #1199 (item 87, CI in progress); #1187 (docs, post kit, green). None is a draft and none has a failing check [M].
