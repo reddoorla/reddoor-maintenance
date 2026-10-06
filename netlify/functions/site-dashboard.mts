@@ -1,8 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
-import { countUnreplayedDeadLettersForSlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listSubmissionsForSite, countNotifyBouncedForSite } from "../../src/db/submissions.js";
+import { listSubmissionsForSite } from "../../src/db/submissions.js";
 import { screenOutTotalsForSite, screenOutsSince } from "../../src/db/screenouts.js";
 import {
   requireOperator,
@@ -14,10 +13,7 @@ import {
   handlerError,
   resolveDashboardBaseUrl,
 } from "../../src/dashboard/handler-helpers.js";
-import { buildSiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
-import type { SiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
-import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
-import { readDigestState } from "../../src/db/digest-state.js";
+import { loadSiteAlarmContext } from "../../src/dashboard/site-alarm.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -131,72 +127,15 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       // panel simply absent — never blank the page
     }
 
-    // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
-    // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
-    // a Turso blip drops just the bounce chip; any collector throw drops the strip.
-    //
-    // The collectors take fleet-shaped maps, so each read is wrapped in a
-    // one-entry map here rather than changing their signatures — the site page
-    // and the cockpit keep running the identical collector code, which is the
-    // property `buildSiteAlarmContext` exists to preserve. An empty map on
-    // failure still means "no signal", exactly as before.
-    let notifyBounces: ReadonlyMap<
-      string,
-      import("../../src/db/submissions.js").NotifyBounceCounts
-    > = new Map();
-    try {
-      const counts = await countNotifyBouncedForSite(
-        db,
-        site.id,
-        screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS),
-      );
-      // A site with nothing to raise drops out of the map, matching what the
-      // fleet-wide GROUP BY handed the collectors before.
-      if (counts.total > 0) notifyBounces = new Map([[site.id, counts]]);
-    } catch {
-      // bounce chip simply absent
-    }
-    // #645. Dead-letter rows for THIS site's slug reach its own page the same way.
-    //
-    // `slug` is the URL's — the same value `getSiteBySlug` matched on, and the
-    // same value `form-ingest` writes into `submission_deadletter.site_slug`.
-    //
-    // This also narrows what the page shows, and the narrowing is the point: the
-    // fleet-wide map made EVERY dead-lettered slug in the fleet an alarm item on
-    // EVERY site's page, nearly all of them rendered by the collector's
-    // unresolvable-slug branch as "(unknown site: …)" because `sites` here is
-    // just this one site. A site's page now raises a dropped-lead alarm for its
-    // own leads. The fleet-wide view of the same queue is unchanged — that is
-    // what the cockpit on `/` is for.
-    let deadLetters: ReadonlyMap<string, number> = new Map();
-    try {
-      const n = await countUnreplayedDeadLettersForSlug(db, slug);
-      if (n > 0) deadLetters = new Map([[slug, n]]);
-    } catch {
-      // dead-letter chip simply absent
-    }
-    // The digest snapshot dates each item's first flag, which decides whether a
-    // waiting item has escalated. A blip reads every item as first flagged today.
-    let prior: Awaited<ReturnType<typeof readDigestState>> = {};
-    try {
-      prior = await readDigestState(db);
-    } catch {
-      // waiting items simply read as new
-    }
-    let alarm: SiteAlarmContext | null = null;
-    try {
-      alarm = buildSiteAlarmContext(
-        site,
-        reports,
-        resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
-        new Date(),
-        notifyBounces,
-        deadLetters,
-        prior,
-      );
-    } catch (e) {
-      console.error(`[site-dashboard] alarm context failed: ${String(e)}`);
-    }
+    // Cockpit alarm verdict for the header chip strip (see loadSiteAlarmContext).
+    const alarm = await loadSiteAlarmContext(
+      db,
+      site,
+      slug,
+      reports,
+      resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
+      new Date(),
+    );
 
     return html(
       renderSiteDashboardHtml(

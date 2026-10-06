@@ -967,9 +967,11 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   it("keeps a vuln Renovate is still inside its wait for off the verdict (2026-10-05)", () => {
     // The operator's rule: a "just wait" item is not a watch item until waiting fails.
     const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "v", name: "Patch", securityVulnsHigh: 1, securityAutoFixAttempts: 1 }),
-      ]),
+      model(
+        [siteRow({ id: "v", name: "Patch", securityVulnsHigh: 1, securityAutoFixAttempts: 1 })],
+        [],
+        { "vuln:v": { metric: 1, firstFlaggedAt: "2026-06-10" } },
+      ),
     );
     expect(html).toContain("✓ All clear");
     expect(html).not.toContain('class="verdict watch"');

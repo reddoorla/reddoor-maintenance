@@ -45,7 +45,7 @@ function gitHubSignalsStale(swept: string | null, now: Date): boolean {
 }
 
 /** Renovate auto-fix dispatches for one vuln episode before it's "exhausted" (manual fix needed). */
-const AUTO_FIX_EXHAUSTED_CYCLES = 3;
+export const AUTO_FIX_EXHAUSTED_CYCLES = 3;
 
 /**
  * One attention item per site carrying current critical+high vulns (medium/low omitted

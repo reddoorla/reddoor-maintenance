@@ -67,13 +67,13 @@ describe("markWaiting — transitive-only vuln", () => {
   });
 
   it("waits until the threshold", () => {
-    const [out] = markWaiting([item], flagged("2026-09-27"), justBefore(at));
+    const [out] = markWaiting([item], flagged("2026-09-27"), justBefore(at), true);
     expect(out!.waiting).toBe(true);
     expect(out!.title).toBe(item.title);
   });
 
   it("stops waiting at the threshold and names the window it outlived", () => {
-    const [out] = markWaiting([item], flagged("2026-09-27"), at);
+    const [out] = markWaiting([item], flagged("2026-09-27"), at, true);
     expect(out!.waiting).toBeUndefined();
     expect(out!.title).toBe(
       "3 critical/high vulns — transitive-only, still present after the 2026-09-28 lockfile window",
@@ -92,19 +92,29 @@ describe("markWaiting — direct vuln", () => {
   });
 
   it("waits until the threshold", () => {
-    expect(markWaiting([item], flagged("2026-10-01"), justBefore(at))[0]!.waiting).toBe(true);
+    expect(markWaiting([item], flagged("2026-10-01"), justBefore(at), true)[0]!.waiting).toBe(true);
   });
 
   it("stops waiting at the threshold and says since when", () => {
-    const [out] = markWaiting([item], flagged("2026-10-01"), at);
+    const [out] = markWaiting([item], flagged("2026-10-01"), at, true);
     expect(out!.waiting).toBeUndefined();
     expect(out!.title).toBe("3 critical/high vulns — Renovate has not fixed it since 2026-10-01");
+  });
+
+  it("is badged WORSE on the day it escalates, and not after", () => {
+    const tagged = vuln({ status: "standing" });
+    expect(markWaiting([tagged], flagged("2026-10-01"), at, true)[0]!.status).toBe("worse");
+    const dayLater = new Date(at.getTime() + MS_PER_DAY);
+    expect(markWaiting([tagged], flagged("2026-10-01"), dayLater, true)[0]!.status).toBe(
+      "standing",
+    );
+    expect(markWaiting([vuln()], flagged("2026-10-01"), at, true)[0]!.status).toBeUndefined();
   });
 
   it("never waits once Renovate's auto-fix is exhausted, however fresh", () => {
     const exhausted = vuln({ autoFixExhausted: true });
     const now = new Date("2026-10-01T01:00:00Z");
-    expect(markWaiting([exhausted], flagged("2026-10-01"), now)[0]).toEqual(exhausted);
+    expect(markWaiting([exhausted], flagged("2026-10-01"), now, true)[0]).toEqual(exhausted);
   });
 });
 
@@ -126,17 +136,23 @@ describe("markWaiting — what never waits", () => {
 
   it.each(kinds)("a fresh %s item needs the operator now", (kind) => {
     const it = vuln({ kind, key: `${kind}:s` });
-    expect(markWaiting([it], flagged("2026-10-05", it.key), now)[0]).toEqual(it);
+    expect(markWaiting([it], flagged("2026-10-05", it.key), now, true)[0]).toEqual(it);
+  });
+
+  it("nothing waits when the prior snapshot was not read", () => {
+    const fresh = flagged("2026-10-05");
+    expect(markWaiting([vuln()], fresh, now, false)[0]!.waiting).toBeUndefined();
+    expect(markWaiting([vuln()], fresh, now, true)[0]!.waiting).toBe(true);
   });
 
   it("a vuln with no first-flagged day is not muted", () => {
-    expect(markWaiting([vuln()], {}, now)[0]!.waiting).toBeUndefined();
+    expect(markWaiting([vuln()], {}, now, true)[0]!.waiting).toBeUndefined();
   });
 
   it("a vuln with an unparseable first-flagged day is not muted", () => {
-    expect(markWaiting([vuln()], flagged("someday"), now)[0]!.waiting).toBeUndefined();
+    expect(markWaiting([vuln()], flagged("someday"), now, true)[0]!.waiting).toBeUndefined();
     const t = vuln({ transitiveOnly: true });
-    expect(markWaiting([t], flagged("someday"), now)[0]!.waiting).toBeUndefined();
+    expect(markWaiting([t], flagged("someday"), now, true)[0]!.waiting).toBeUndefined();
   });
 });
 
@@ -194,6 +210,12 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
   });
 
   it("first seen today, with no snapshot entry yet, it waits", () => {
-    expect(feedFor({})).toEqual([]);
+    expect(feedFor(flagged("2026-10-05", "ci:other"))).toEqual([]);
+  });
+
+  it("an unread or empty snapshot never hides it", () => {
+    expect(feedFor({}).map((r) => r.group)).toEqual(["watch"]);
+    const m = buildCockpitModel([erp()], [], {}, BASE, NOW);
+    expect(m.cards[0]!.items.map((i) => i.kind)).toEqual(["vuln"]);
   });
 });

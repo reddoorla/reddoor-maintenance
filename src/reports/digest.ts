@@ -668,7 +668,7 @@ export async function runDigest(
     // only the site page shows it. Filter the EMAIL list only: `next` (written below)
     // must keep every waiting key so its `firstFlaggedAt` keeps counting, and so the
     // exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
-    const needsAttention = markWaiting(diffed.tagged, next, today)
+    const needsAttention = markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0)
       .filter((it) => it.waiting !== true)
       .map((it) => {
         const since = next[it.key]?.firstFlaggedAt;

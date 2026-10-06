@@ -546,7 +546,6 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     // (A launch-period site with a PIERCING alarm arrives as tier "attention" —
     // assignTier re-tiers it — so genuine pre-launch breaks do reach the feed.)
     if (card.tier === "attention") {
-      const live = card.items.filter((it) => it.waiting !== true);
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
       // break. A site with any hard break is broken and its self-patching vulns are not
@@ -554,8 +553,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       // partitions can never drift out of lockstep.
       const isSelfPatchingVuln = (it: AttentionItem): boolean =>
         it.kind === "vuln" && it.autoFixExhausted !== true;
-      const hardBroken = live.filter((it) => !isSelfPatchingVuln(it));
-      const selfPatchingVulns = live.filter(isSelfPatchingVuln);
+      const hardBroken = card.items.filter((it) => !isSelfPatchingVuln(it));
+      const selfPatchingVulns = card.items.filter(isSelfPatchingVuln);
       if (hardBroken.length > 0) {
         const a = get(card.site.name);
         for (const it of hardBroken) {
@@ -687,8 +686,8 @@ export function buildSiteAlarmContext(
   notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(),
   deadLetters: ReadonlyMap<string, number> = new Map(),
   // The digest snapshot, read only for each key's `firstFlaggedAt`, so a waiting
-  // item escalates here on the same day it does on the cockpit. Absent, every item
-  // reads as first flagged today.
+  // item escalates here on the same day it does on the cockpit. Absent or empty,
+  // nothing waits (markWaiting: missing data never mutes).
   priorSnapshot: DigestSnapshot = {},
 ): SiteAlarmContext {
   const sites = [site];
@@ -703,7 +702,7 @@ export function buildSiteAlarmContext(
     deadLetters,
   );
   const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
-  const items = markWaiting(raw, next, now).sort(
+  const items = markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0).sort(
     (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
   );
   const {
@@ -812,7 +811,12 @@ export function buildCockpitModel(
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves
   // the cards (tiers, chips, the Needs-you feed) and stays on the site's own page.
   const diffed = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
-  const tagged = markWaiting(diffed.tagged, diffed.next, now);
+  const tagged = markWaiting(
+    diffed.tagged,
+    diffed.next,
+    now,
+    Object.keys(priorSnapshot).length > 0,
+  );
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
   // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if
@@ -902,7 +906,7 @@ export function buildCockpitModel(
   // so this is exactly the set that the siteName grouping above dropped on the
   // floor — today, the `(unknown site: <slug>)` dead letters.
   const cardedNames = new Set(cards.map((c) => c.site.name));
-  const cardless = tagged.filter((it) => it.waiting !== true && !cardedNames.has(it.siteName));
+  const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
 
   const summary: CockpitSummary = {
     attention: cards.filter((c) => c.tier === "attention").length,

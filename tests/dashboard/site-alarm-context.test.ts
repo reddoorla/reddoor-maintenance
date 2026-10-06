@@ -80,10 +80,11 @@ describe("buildSiteAlarmContext", () => {
 
   it("keeps a waiting vuln on the page as information without raising the tier", () => {
     const s = site({ id: "a", name: "Bad", securityVulnsCritical: 2, securityVulnsHigh: 1 });
-    const alarm = buildSiteAlarmContext(s, [], BASE, NOW);
+    const prior: DigestSnapshot = { "vuln:a": { metric: 3, firstFlaggedAt: "2026-06-10" } };
+    const alarm = buildSiteAlarmContext(s, [], BASE, NOW, NO_BOUNCES, NO_DEADLETTERS, prior);
     expect(alarm.tier).toBe("healthy");
     expect(alarm.items.map((i) => [i.kind, i.waiting])).toEqual([["vuln", true]]);
-    expect(cockpitItemKeys(s)).toEqual([]);
+    expect(cockpitItemKeys(s, NO_BOUNCES, prior)).toEqual([]);
     const html = renderSiteDashboardHtml(s, [], [], null, NOW, alarm);
     expect(html).toContain("chip waiting");
     expect(html).not.toContain("Needs attention");
@@ -91,7 +92,7 @@ describe("buildSiteAlarmContext", () => {
 
   it("escalates on the page the same day the cockpit does, from the same snapshot", () => {
     const s = site({ id: "a", name: "Bad", securityVulnsCritical: 1 });
-    const prior: DigestSnapshot = { "vuln:a": { metric: 1, firstFlaggedAt: "2026-06-04" } };
+    const prior: DigestSnapshot = { "vuln:a": { metric: 1, firstFlaggedAt: "2026-06-07" } };
     const before = new Date("2026-06-10T23:59:59Z");
     const after = new Date("2026-06-11T00:00:00Z");
     const page = (now: Date) =>
