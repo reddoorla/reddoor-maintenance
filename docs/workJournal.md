@@ -7977,6 +7977,32 @@ Follow-on to the earlier entry today, "P1-26 privacy page: starter held at decis
 
 **Left open.** Most of this is listed under BACKLOG Done (P1-26). roalson-interests#258 holds the three per-site values and two wording details. The proxy refused deleting roalson's `claude/privacy-page` branch after the merge, so it is still on GitHub.
 
+## 2026-10-04 — D1 pull-sync built, held at Operator decisions 57 after two dirty rounds (#1143, draft, unmerged)
+
+Plan §8's brief: a Type Builder edit has to reach the repo as a PR, and `--pull` could not do it. `pullRemoteOnly` adopts only models that exist only in Prismic, and the pilot's edit was a changed placeholder on an existing type. `writeModelFile` already had a same-id refresh path, but only at the path it derives (`pascal(id)`), and 6 of the fleet's 132 slice directories differ from that. Refreshing through it would have written a duplicate file, which local.ts then refuses as a duplicate id. So the new capability, `refreshChangedModel`, writes to `local.path`, the file local.ts actually read. It never creates a file, and it refuses an id or kind mismatch, an identical model, and a file edited since it was read. The atomic replace moved into a shared `replaceAtomically`, so the capability guard's four pinned mutating call sites did not change.
+
+The fleet side, `prismic-sync --fleet turso --open-prs`, avoids a force-push. Each night it builds the tree fresh (default branch plus Prismic) and commits it with `commit-tree`. The parents are the old branch head and, when `main` moved, `main`'s head. The tree is always exactly tonight's result, the push is a fast-forward, and the test origin has `receive.denyNonFastForwards` on.
+
+**Beliefs corrected on contact.**
+
+- Runbook §2 advised "reorder in the dashboard, then `--pull`". `--pull` never carried any edit to an existing model, so that advice could not have worked. §2 and §7 are corrected on the branch.
+- Git strips credentials from URLs in its own error messages, so my first redaction test passed with redaction removed. It was rewritten to feed a real secret through.
+- The first patch that added the `held` guard silently failed to apply: a Python `replace` ran after prettier had reformatted the target line. The `held` test went red on its first run, which is how it was found. Every later scripted replace asserts its match count.
+- Mutation M25 survived because `git add -A` had reset the planted prettier's exec bit, so the test planted nothing that could run. The fixture now asserts mode `100755`.
+
+**Review.**
+
+- Round 1 found four majors: the token sat in the clone URL and in the environment of site code; human commits on the branch were silently reverted; a closed PR was reopened nightly; and a branch dispatch opened real PRs. All four were fixed in `22527096`.
+- Round 2 found two safety blockers, both from running a client's own toolchain beside an org-wide token:
+  - a committed `node_modules/.bin/prettier` ran during the model writes with the full environment;
+  - site code can write `$HOME/.gitconfig`, and through it make a later push run a helper that receives the token via `GIT_CONFIG_PARAMETERS`.
+
+  Both are fixed on the branch (`65a2658`, `9b9e325`) but not re-reviewed. Round 2 also found two correctness majors, not fixed: `declined` is keyed on a commit sha, and "Update branch" causes a silent permanent `held`.
+
+- The two-dirty-rounds rule stopped it there. The ask (Operator decisions 57) is to split the workflow, so that no job both runs client code and holds the token.
+
+**Not verified.** No live run: this session has no App key or Prismic tokens. Signed-commit rulesets and pnpm 11's handling of each site's `packageManager` are unknown. Phase 4's session owned the site repos today; this one touched none.
+
 ## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 70)
 
 The brief said Lighthouse probably failed in the cloud because Chrome refuses

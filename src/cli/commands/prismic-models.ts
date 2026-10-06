@@ -64,11 +64,13 @@ import { siteLabel } from "../../util/site.js";
 import { noWorkingTreeFailure } from "../../util/working-tree.js";
 import type { Site } from "../../types.js";
 import {
+  describeDiff,
   diffModels,
   localModels,
   prismicTokenEnvName,
   pushModels,
   readPrismicConfig,
+  refreshChangedModel,
   remoteModels as remoteModelsImpl,
   resolvePrismicToken,
   sendModel as sendModelImpl,
@@ -889,6 +891,103 @@ async function pullRemoteOnly(
   }
   // A refusal is a real finding the operator must act on, so it must not exit 0.
   return { output: lines.join("\n"), code: refused > 0 ? 1 : 0 };
+}
+
+/** One model the sync wrote, and what changed, for the sync PR's body. */
+export type SyncedModel = {
+  kind: "customtype" | "slice";
+  id: string;
+  path: string;
+  formatted: boolean;
+  /** `describeDiff(local, remote)`: the drift report's own lines, in its push
+   *  direction. Empty for an adopted (remote-only) model. */
+  lines: string[];
+};
+
+/** The outcome of {@link syncSiteModels} for one checkout. */
+export type SiteSync =
+  | { ok: false; failure: SiteCheck }
+  | {
+      ok: true;
+      repositoryName: string;
+      changed: SyncedModel[];
+      adopted: SyncedModel[];
+      refused: Array<{ kind: "customtype" | "slice"; id: string; reason: string }>;
+      /** Models only in the repo. Reported, never touched: there is no delete path. */
+      localOnly: Array<{ kind: "customtype" | "slice"; id: string; path: string }>;
+    };
+
+/**
+ * The D1 pull-sync (operator decision, 2026-10-01): bring Prismic's copy of
+ * every model into this working tree, so a Type Builder edit reaches the repo
+ * as a reviewed PR.
+ *
+ * Two separately named capabilities, each with its own guards, and nothing
+ * else: {@link refreshChangedModel} for a model both sides hold that differs
+ * (`toUpdate`), and {@link writeModelFile} for a model only Prismic holds
+ * (`remoteOnly`), exactly as `--pull` uses it. A model only the repo holds is
+ * listed and left alone. Nothing is written to Prismic.
+ *
+ * The same reads and refusals as every other mode, through `readSiteInputs`.
+ */
+export async function syncSiteModels(
+  repoRoot: string,
+  deps: PrismicModelsDeps,
+  opts: { allowGenericToken: boolean },
+): Promise<SiteSync> {
+  const inputs = await readSiteInputs(repoRoot, deps, {
+    allowGenericToken: opts.allowGenericToken,
+    noEffect: "Nothing was synced and nothing was written",
+  });
+  if (!inputs.ok) return { ok: false, failure: inputs.failure };
+  const { cfg, local, remote } = inputs;
+  const diff = diffModels(local, remote);
+  const format: FormatModelFile = (root, paths, fmtOpts) =>
+    formatWithPrettier(deps.spawn, root, paths, fmtOpts);
+
+  const changed: SyncedModel[] = [];
+  const adopted: SyncedModel[] = [];
+  const refused: Array<{ kind: "customtype" | "slice"; id: string; reason: string }> = [];
+
+  for (const pair of diff.toUpdate) {
+    const { kind, id } = pair.local;
+    try {
+      const res = await refreshChangedModel(format, repoRoot, pair.local, pair.remote);
+      changed.push({
+        kind,
+        id,
+        path: res.path,
+        formatted: res.formatted,
+        lines: describeDiff(pair.local.model, pair.remote.model),
+      });
+    } catch (e) {
+      refused.push({ kind, id, reason: describeThrown(e) });
+    }
+  }
+  const library = cfg.libraries[0] ?? "";
+  for (const entry of diff.remoteOnly) {
+    try {
+      const res = await writeModelFile(format, repoRoot, entry, library);
+      adopted.push({
+        kind: entry.kind,
+        id: entry.id,
+        path: res.path,
+        formatted: res.formatted,
+        lines: [],
+      });
+    } catch (e) {
+      refused.push({ kind: entry.kind, id: entry.id, reason: describeThrown(e) });
+    }
+  }
+
+  return {
+    ok: true,
+    repositoryName: cfg.repositoryName,
+    changed,
+    adopted,
+    refused,
+    localOnly: diff.toCreate.map((l) => ({ kind: l.kind, id: l.id, path: l.path })),
+  };
 }
 
 /** Exit code for a fleet sweep. Non-zero when failures are the MAJORITY of the
