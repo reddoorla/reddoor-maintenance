@@ -9075,6 +9075,10 @@ Each repo's privacy test was rewritten to assert the name, the date and the rema
 
 Search Console's verification meta also went onto la-homelessness-initiative (#49), the repo that owns `www.lahomelessnessawareness.org`. la-homelessness-youth has no custom domain to verify.
 
+## 2026-10-06 — Cockpit: four answers recorded, #1205 landed, CalTex ask queued
+
+The operator answered item 88 (a), which queued a worker card for the five cookie PRs, and deferred the [TEST] verdicts until the best-practices scores improve. They said to land #1205: `land-prs` updated its branch and watched it go green, and the operator merged it at 14:16Z (`6728d61a`). Its follow-up is P1-32. Erik's Discord ask on CalTex's orange lines is item 90, with a worker card. The double spaces are in the Prismic content (Key Text labels), so the requested line break also needs a code change on `main` and `staging`.
+
 ## 2026-10-06 — CalTex's "double spaces" were U+2028; icon labels take a line break (caltex-landing#76, `d3dd1c0`; release `asUDwhIAAMIrgcs0` handed off)
 
 Erik asked in #caltex at 13:43Z for three fixes to the orange labels on AED Programs: remove the double spaces in two of them, put a hard return after the comma in "No long-term commitment, 12-month terms.", and stop "12-month" splitting.
