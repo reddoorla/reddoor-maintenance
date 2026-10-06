@@ -40,6 +40,11 @@ The prompt lives here so it can be changed by PR, like everything else.
 7. **Time budget: about 45 minutes.** The nightlies fire 3–8 h after their
    cron minute, so some will still be pending at 05:00 PT. List them by name
    as pending; do not wait for them.
+8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
+   archive this session." or "Not yet safe to archive: …") does not apply
+   to a Routine session, morning or evening, nor to its cockpit replies for
+   the rest of the day (the operator, 2026-10-06). Each fire is a fresh
+   session, and the operator does not archive on it.
 
 ## The pass, in order
 
