@@ -9075,6 +9075,10 @@ Each repo's privacy test was rewritten to assert the name, the date and the rema
 
 Search Console's verification meta also went onto la-homelessness-initiative (#49), the repo that owns `www.lahomelessnessawareness.org`. la-homelessness-youth has no custom domain to verify.
 
+## 2026-10-06 — Cockpit: four answers recorded, #1205 landed, CalTex ask queued
+
+The operator answered item 88 (a), which queued a worker card for the five cookie PRs, and deferred the [TEST] verdicts until the best-practices scores improve. They said to land #1205: `land-prs` updated its branch and watched it go green, and the operator merged it at 14:16Z (`6728d61a`). Its follow-up is P1-32. Erik's Discord ask on CalTex's orange lines is item 90, with a worker card. The double spaces are in the Prismic content (Key Text labels), so the requested line break also needs a code change on `main` and `staging`.
+
 ## 2026-10-06 — Mantis P5: the chrome, both home carousels and the project galleries land; the home release waits on a publish (mantis-landscaping #29 `fa96aa7`, #30 `1150d1a`, #32 `9569aac`)
 
 P1-30 matching round 1 on `/` closed with three site PRs. Its detail and measurements are in mantis-landscaping's own journal (#33).
