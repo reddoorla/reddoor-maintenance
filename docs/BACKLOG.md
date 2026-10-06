@@ -2961,6 +2961,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       held rows is still open, and the sends stay held until the scores
       improve.
 
+    **Done 2026-10-06 16:03Z [M]:** five PRs, all merged:
+    espada#80, medical-solutions-of-texas#73 and revogen#92 (the operator,
+    15:51Z), then vineyard-custom-homes#73 and erp-industrial#70
+    (`land-prs.mjs`, 16:00Z). Each was merged at the head that had gone
+    green. Live best practices reads 100 on all five, 3 of 3 runs each,
+    15:57–16:03Z, against 78 in 3 of 3 runs before. The runs used the
+    nightly's deployed-mode settings, and Data Dynamiq read 100 first as
+    the control. `VimeoGate.svelte` (the four Vimeo repos) mounts every
+    Vimeo iframe only after a pointerdown, pointermove, wheel, keydown or
+    touchstart, page-wide. The `app.html` `prismic.js` tag is deleted on
+    Vineyard and ERP. Deploy previews read 96, not 100, because Netlify's
+    own preview drawer (`/.netlify/scripts/cdp`, previews only) sets an
+    `app.netlify.com` cookie. With it blocked, every preview read 100,
+    while production under the same block still read 78. Turso's
+    `site_health.bp_score` keeps 78 until the next nightly re-stamps it.
+    The held October drafts still store 78 (last bullet above, the
+    operator's call). ERP still carries a Vimeo `Hero` and `SlideOverlay`
+    that its home page does not render. If a page that renders one is
+    ever audited, it will set `__cf_bm` again.
+
 89. **#1205, the nightly names failing Lighthouse audits: held after two
     review rounds (new 2026-10-06, branch
     `claude/trusting-brahmagupta-413csl`, head `49cc0133`, CI green).** It
