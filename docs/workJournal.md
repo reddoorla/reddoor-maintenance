@@ -9019,6 +9019,42 @@ The first scheduled backup with #1195's content hashes ran green with `hashed=11
 
 Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.
 
+## 2026-10-05 — "Just wait" leaves Watch: a vuln Renovate is still fixing waits off the cockpit and the digest (#1199, `24183c06`)
+
+The operator's rule, verbatim: "anything where the action is 'just wait' shouldn't be a watch item until it gets to a point where it actually requires my intervention." The instance was ERP Industrials on Watch with "3 critical/high vulns — transitive-only, fix rides the weekly lockfile window": the action the item names is to wait.
+
+**The inventory.** Of the 25-odd signals the cockpit and digest raise, two kinds turned out to be "just wait" and unthresholded.
+
+- **Vulns Renovate has not given up on.** A direct vuln before auto-fix exhaustion was amber Watch on the cockpit (the digest already muted it). A transitive-only vuln never escalated at all, on any surface.
+- **Dead letters.** `forms-deadletter-replay.yml` drains them every 6h, yet they alarm CRITICAL from the first row.
+
+Everything with a sweep behind it (Prismic, url-probe, GitHub signals, the Turnstile verdict) already had a staleness gate, which is this same idea under another name. The rest are roster gaps, deadlines or real breaks.
+
+**The design.** `markWaiting` runs after `diffAttention` and reads the snapshot's `firstFlaggedAt`, which the daily digest has been persisting per key all along. No new column was needed.
+
+- **Transitive-only.** It waits until two days after the first Monday 18:00 UTC lock-file window that opens after the flag day, read from `reddoorla/.github` `renovate-config.json`.
+- **Direct.** It waits `AUTO_FIX_EXHAUSTED_CYCLES + 1` = 4 nights.
+- **Where a waiting item goes.** It stays on `/s/<slug>` as a chip and leaves the cockpit's tiers, the Needs-you feed and the digest.
+- **Escalation.** Past its threshold it returns badged WORSE, and it now also reaches the digest email, which before showed only exhausted vulns.
+
+**Beliefs corrected on contact.**
+
+- **"Waiting" defaults to safe.** The first build did not. With an empty snapshot (a Turso blip, a missing row), every key reads as first flagged today, so every vuln waits, and an escalated vuln vanished on a read error. Both round-1 reviewers found it independently. The rule now is: nothing waits on an unread or empty snapshot.
+- **"7 days for a direct vuln."** That number came from nowhere. Vulnerability PRs ignore Renovate's Monday schedule and dispatch nightly, so exhaustion lands after 3 nights; 4 is the schedule's own answer.
+- **The settle-days comment.** It first said a lock-file PR is merged on Renovate's next run. That is false: the global Monday schedule also gates the merge, so a missed window waits a week. The 2 days covers only the Tuesday 06:00 security sweep re-measuring a merge that happened. A missed window is a failed wait, which is the point.
+- **The pm-pass text.** It first claimed the code enforced the rule for every kind of waiting. It does for vulns only.
+
+**Not done, and why.** Dead letters went to Operator decision 87 rather than into the code. A real threshold needs the oldest unreplayed row's `received_at`, which changes the query-plan-gated count queries. And muting a CRITICAL lost-lead alarm for 12h is the operator's call, not a worker's. Turnstile-unverified with a null verdict and prismic-unknown stay (i), each for a reason:
+
+- **Turnstile-unverified, null verdict:** nothing dates when Require Turnstile was switched on, so "overdue" has no clock.
+- **prismic-unknown:** it includes a dead write token, which is an expiring credential.
+
+**Unverified.** ERP's real `firstFlaggedAt` could not be read, because production reads were denied in this cloud session. If it is 09-27 or earlier, ERP stays on Watch today, now titled with the 09-28 window it outlived, and that is the rule working. If it is 09-28 to 10-04, ERP leaves Watch and returns at 10-07 18:00Z if the vuln is still present. The live cockpit could not be checked from here either.
+
+**Process slip.** The round-2 test reviewer mutated files in my worktree while I committed a docs fix, and `git add -A` swept its mutation (the WORSE badge switched off) into `3447fe91`. The reviewer caught it in its own report, and `9d8567a8` restored the file byte-for-byte from the reviewed commit. The lesson: a reviewer that mutates code gets its own worktree, or the author does not commit while one runs.
+
+**Mutations.** The brief's four (remove the threshold, invert it, reclassify CI-red as waiting, leak into the digest) plus three more each turned tests red; the table is in #1199. The reviewers ran 37 more across both rounds; the only survivors were two dead filters, since removed, and an untested handler path, since extracted and tested.
+
 ## 2026-10-06 — CalTex's slice version is live (caltex-landing#75, Operator decision 85 done)
 
 The operator asked for a Netlify preview before merging. Netlify builds
