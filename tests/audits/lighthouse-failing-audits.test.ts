@@ -61,12 +61,16 @@ function spawnWith(runs: Run[], assertions: object[]): SpawnFn {
 }
 
 const BP_FAILED = {
-  name: "categories:best-practices",
-  actual: 0.78,
+  name: "minScore",
   expected: 0.9,
+  actual: 0.78,
+  values: [0.78, 0.78, 0.78],
   operator: ">=",
   passed: false,
+  auditProperty: "best-practices",
+  auditId: "categories",
   level: "error",
+  url: "https://www.datadynamiq.com/",
 };
 
 async function audit(runs: Run[], assertions: object[]): Promise<AuditResult> {
@@ -85,7 +89,14 @@ const THREE_FAILING: Run[] = [
 describe("lighthouse names the audits behind a failed category assertion", () => {
   it("lists each weighted audit that scored below 1, with how many runs it failed in", async () => {
     const result = await audit(THREE_FAILING, [BP_FAILED]);
-    const details = result.details as { failingAudits: unknown[] };
+    const details = result.details as {
+      failingAudits: unknown[];
+      assertions: Array<{ category: string; message: string }>;
+    };
+    expect(details.assertions[0]).toMatchObject({
+      category: "best-practices",
+      message: "categories:best-practices minScore >= 0.9 (actual: 0.78)",
+    });
     expect(details.failingAudits).toEqual([
       { category: "best-practices", id: "third-party-cookies", weight: 5, runs: 3, of: 3 },
       { category: "best-practices", id: "inspector-issues", weight: 1, runs: 2, of: 3 },

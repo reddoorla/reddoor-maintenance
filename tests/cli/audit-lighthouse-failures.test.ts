@@ -28,7 +28,7 @@ for (let i = 0; i < 3; i++) {
   }));
 }
 writeFileSync(join(dir, "assertion-results.json"), JSON.stringify([
-  { name: "categories:best-practices", actual: 0.78, expected: 0.9, operator: ">=", passed: false, level: "error" },
+  { name: "minScore", expected: 0.9, actual: 0.78, values: [0.78, 0.78, 0.78], operator: ">=", passed: false, auditProperty: "best-practices", auditId: "categories", level: "error", url: "https://x.example/" },
 ]));
 process.exit(1);
 `;

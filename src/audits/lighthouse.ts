@@ -148,7 +148,7 @@ function averageSummaries(entries: ManifestEntry[]): Record<string, number> {
 }
 
 function categoryFromAssertion(a: AssertionResult): string {
-  // `name` looks like "categories:accessibility" or "audits:uses-http2".
+  if (a.auditId === "categories" && a.auditProperty) return a.auditProperty;
   const colonIdx = a.name.indexOf(":");
   return colonIdx >= 0 ? a.name.slice(colonIdx + 1) : a.name;
 }
@@ -158,7 +158,11 @@ function messageForAssertion(a: AssertionResult): string {
   // missing value (not a number) would make `.toFixed` throw and crash the whole
   // audit. Guard it and fall back to a readable string instead.
   const actual = typeof a.actual === "number" ? a.actual.toFixed(2) : "n/a";
-  return `${a.name} ${a.operator} ${a.expected} (actual: ${actual})`;
+  const subject =
+    a.auditId === "categories" && a.auditProperty
+      ? `categories:${a.auditProperty} ${a.name}`
+      : a.name;
+  return `${subject} ${a.operator} ${a.expected} (actual: ${actual})`;
 }
 
 function describeLhciFailure(raw: SpawnResult): string {
@@ -219,7 +223,11 @@ async function parseLhciResults(
     expected: a.expected,
   }));
   const failingAudits = failingAuditsFor(
-    new Set(failed.filter((a) => a.name.startsWith("categories:")).map(categoryFromAssertion)),
+    new Set(
+      failed
+        .filter((a) => a.auditId === "categories" || a.name.startsWith("categories:"))
+        .map(categoryFromAssertion),
+    ),
     manifest,
   );
 
