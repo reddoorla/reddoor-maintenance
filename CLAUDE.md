@@ -257,7 +257,13 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 - **When the task is done, tell the operator it is safe to archive the
   session.** Archiving reclaims the container and ends the session's arc of
   work: the operator archives on that line instead of re-reading the
-  transcript. So "safe" means two things, and both must hold:
+  transcript. So "safe" means three things, and all must hold:
+  - **Every original ask is cleared, checked against the live result.**
+    Re-read the ask the session started from: the brief, and the client's
+    own message if there is one. Go through it item by item against what a
+    visitor sees now, not against merged PRs or staged releases. A fix
+    whose code is live but whose content sits in an unpublished release is
+    not cleared. Name it in the archive line instead.
   - **Nothing lives only in the container.**
     - Every commit is pushed, in every repo the session touched. The stop
       hook checks only the checkout it runs in.
@@ -270,6 +276,15 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
     work, such as "yes, merge it" leading to a land. Handing that to a fresh
     session throws away the context. The same goes for a follow-up the
     session itself started and is best placed to finish.
+
+  **One session, one task** (the operator, 2026-10-06). A session exists
+  for the ask it was started with. A new ask that arrives mid-session, from
+  the operator or the client, goes to its own session or worker card unless
+  the operator says to fold it in. Do not quietly pick it up, and do not let
+  it change what "done" means for this session. On 2026-10-05 one CalTex
+  session ran from Erik's copy changes into a full slice migration. On
+  10-06 it declared itself done while Erik's next ask, a worker's
+  unpublished release, still had not reached the site.
 
   End the final message with one line, "Safe to archive this session.", or
   name what still holds it open: "Not yet safe to archive: #1234 is waiting

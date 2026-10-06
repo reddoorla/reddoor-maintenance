@@ -9121,3 +9121,18 @@ Erik asked in #caltex at 13:43Z for three fixes to the orange labels on AED Prog
 **Found and left:** on the live site every card's longest word already overruns the card at 320, 360 and 768 px ("replacements" by 50 px at 320). The 128 px icon plus `p-11`/`gap-11` leave the text column too narrow at those widths.
 
 **Handed off, as for item 79:** publishing the release is the operator's (Operator decisions 90, with Erik's reply ready to paste). One adversarial review found no blocker; its two nits (the count above, and the journal entry not yet committed on the PR branch) were folded in before the land. Its two unverified notes are recorded in the item: whether the editor's single-line input keeps the `\n` on a manual re-save, and the U+2011 glyph on Mac Helvetica, which the Our Story copy answers.
+
+## 2026-10-06 — "Safe to archive" now requires every original ask checked against the live site; one session, one task (CLAUDE.md)
+
+The CalTex session said "Safe to archive this session." while Erik's
+13:43Z ask was still missing from the site. He had asked for a hard return
+after the comma in "No long-term commitment, 12-month terms." and for the
+double spaces to go. The item 90 worker had merged the code (caltex-landing#76) and
+staged the content in release `asUDwhIAAMIrgcs0`, but nobody had published
+it. The session had read item 90 minutes earlier, while resolving a merge
+conflict, and even corrected where its labels live. It still checked its
+own PRs, not the live page. The operator caught it and set two rules, now
+in CLAUDE.md's archive section. First, a session is not finished until
+every original ask has been checked item by item against what a visitor
+sees, not against merged or staged work. Second, each session is one task:
+a new ask goes to its own session unless the operator folds it in.
