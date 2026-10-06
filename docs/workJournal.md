@@ -9074,3 +9074,7 @@ Each repo's privacy test was rewritten to assert the name, the date and the rema
 **Later the same day: the contacts were ruled on.** The operator ruled that the policy's contact is whoever receives the site's report. Resolved the way the sender resolves it (`report_recipients_to`, then `point_of_contact`, `src/reports/send/orchestrate.ts:216`), that gives `robbie.greenquist@gmail.com`, `benhalbach@gmail.com` and `MatthewB@worthe.com`, landed in data-dynamiq#61, 1836dig#26 and 29-navy#75. Two of the three are personal Gmail addresses, and Data Dynamiq's is not the `rgreenquist@datadynamiq.com` the site publishes. Both follow the ruling, not the site. 29 Navy's moves from the shared `29navy@worthe.com` to a named person.
 
 Search Console's verification meta also went onto la-homelessness-initiative (#49), the repo that owns `www.lahomelessnessawareness.org`. la-homelessness-youth has no custom domain to verify.
+
+## 2026-10-06 — Cockpit: four answers recorded, #1205 landed, CalTex ask queued
+
+The operator answered item 88 (a), which queued a worker card for the five cookie PRs, and deferred the [TEST] verdicts until the best-practices scores improve. They said to land #1205: `land-prs` updated its branch and watched it go green, and the operator merged it at 14:16Z (`6728d61a`). Its follow-up is P1-32. Erik's Discord ask on CalTex's orange lines is item 90, with a worker card. The double spaces are in the Prismic content (Key Text labels), so the requested line break also needs a code change on `main` and `staging`.
