@@ -56,7 +56,7 @@ function lhr(run: Run): object {
   };
 }
 
-function spawnWith(runs: Run[], assertions: object[] | null): SpawnFn {
+function spawnWith(runs: Run[], assertions: object[] | null, code?: number): SpawnFn {
   return async (_cmd, _args, opts) => {
     const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
     await mkdir(dir, { recursive: true });
@@ -66,7 +66,11 @@ function spawnWith(runs: Run[], assertions: object[] | null): SpawnFn {
     if (assertions !== null) {
       await writeFile(join(dir, "assertion-results.json"), JSON.stringify(assertions), "utf-8");
     }
-    return { code: assertions && assertions.length > 0 ? 1 : 0, stdout: "", stderr: "" };
+    return {
+      code: code ?? (assertions && assertions.length > 0 ? 1 : 0),
+      stdout: "",
+      stderr: "",
+    };
   };
 }
 
@@ -88,10 +92,14 @@ function categoryAssertion(category: string, over: Record<string, unknown>): obj
 
 const BP_FAILED = categoryAssertion("best-practices", {});
 
-async function audit(runs: Run[], assertions: object[] | null): Promise<AuditResult> {
+async function audit(
+  runs: Run[],
+  assertions: object[] | null,
+  code?: number,
+): Promise<AuditResult> {
   return lighthouseAudit({
     site: { path: "/x", name: "Data Dynamiq", deployedUrl: "https://www.datadynamiq.com/" },
-    spawn: spawnWith(runs, assertions),
+    spawn: spawnWith(runs, assertions, code),
   });
 }
 
@@ -257,6 +265,18 @@ describe("lighthouse names the audits behind a failed category assertion", () =>
       results: [await audit([{}], [])],
     });
     expect(passing.summary.fields).toHaveProperty("Lighthouse failing audits", null);
+  });
+
+  it("warns, not passes, when lhci exited non-zero without writing assertion results", async () => {
+    const crashed = await audit([{ bp: 0.7 }, { bp: 0.7 }], null, 1);
+    expect(crashed.status).toBe("warn");
+    expect(crashed.summary).toBe(
+      "lighthouse: no assertion results (exit 1) — scores from 2 run(s) were not checked",
+    );
+    const unasserted = await audit([{ bp: 0.7 }], null, 0);
+    expect(unasserted.status).toBe("pass");
+    const asserted = await audit([{ bp: 1 }], [], 1);
+    expect(asserted.status).toBe("pass");
   });
 
   it("leaves the stored list alone when lhci wrote no assertion results", async () => {

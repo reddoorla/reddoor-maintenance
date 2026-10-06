@@ -159,8 +159,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy` | Remedy test pins the shape; the fleet list is in this row or an issue |
 
-| P1-32 | The Lighthouse audit reports `pass` and "all categories passing" when lhci dies mid-collect, leaving one or two lhr files and no `assertion-results.json`, so nothing was asserted (item 89, round 2 of #1205). Return `warn` when no assertions were read and lhci exited non-zero, with a test a mutation turns red. _Verify:_ `grep -n "assertion-results" src/audits/lighthouse.ts` | 🟢 | S | `src/audits/lighthouse.ts` (the assertion-file read) | A test with lhr files and no assertion file gets `warn`, and goes red with the fix removed |
-
 ### Blocked behind another PR (do not start early)
 
 - **P1-30 · Mantis Landscaping: Blux → native Reddoor stack (#1107) 🟡/🔴.
@@ -3100,6 +3098,10 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-06 — P1-32: a Lighthouse run whose lhci exited non-zero without
+  writing assertion results reports `warn` ("no assertion results … were not
+  checked") instead of "all categories passing" (#1213, item 89's
+  follow-up).
 - 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
   (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
   a transitive-only one until two days after the first Monday lock-file
