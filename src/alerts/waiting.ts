@@ -100,7 +100,7 @@ export function markWaiting(
     ...it,
     title,
     ...(it.status !== undefined && now.getTime() - at.getTime() < MS_PER_DAY
-      ? {}
+      ? { status: "worse" as const }
       : {}),
   });
   return items.map((it) => {
