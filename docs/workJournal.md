@@ -9079,6 +9079,17 @@ Search Console's verification meta also went onto la-homelessness-initiative (#4
 
 The operator answered item 88 (a), which queued a worker card for the five cookie PRs, and deferred the [TEST] verdicts until the best-practices scores improve. They said to land #1205: `land-prs` updated its branch and watched it go green, and the operator merged it at 14:16Z (`6728d61a`). Its follow-up is P1-32. Erik's Discord ask on CalTex's orange lines is item 90, with a worker card. The double spaces are in the Prismic content (Key Text labels), so the requested line break also needs a code change on `main` and `staging`.
 
+## 2026-10-06 — CalTex's slice version is live (caltex-landing#75, Operator decision 85 done)
+
+The operator asked for a Netlify preview before merging. Netlify builds
+previews only for PRs into `main`, so a draft PR from `staging` to `main`
+(#75) produced deploy-preview-75, which was pixel-identical to live on all
+14 shots. The operator merged it at 14:19Z. Within a minute the live
+site carried the slice markers. Against the morning's capture of the
+hand-built version it stayed pixel-identical on all 14 shots, with the same
+301s, 404 and sitemap URLs. The old `home` fields `s1`–`s8` are now
+unrendered; deleting them is an optional manual Prismic edit.
+
 ## 2026-10-06 — Mantis P5: the chrome, both home carousels and the project galleries land; the home release waits on a publish (mantis-landscaping #29 `fa96aa7`, #30 `1150d1a`, #32 `9569aac`)
 
 P1-30 matching round 1 on `/` closed with three site PRs. Its detail and measurements are in mantis-landscaping's own journal (#33).
