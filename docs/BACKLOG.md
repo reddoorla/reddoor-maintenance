@@ -118,7 +118,7 @@ These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 | hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. **HELD by the operator 2026-10-06 ~00:20Z: do not approve or send until the Best Practices 78 is cleared.** Four drafts store `lighthouse_best_practices` 78 (Data Dynamiq, Espada, Revogen, Vineyard; LAHI 100) [M, report rows]. A direct Lighthouse run on datadynamiq.com scores 100, so the 78 may be the nightly's instrument [I]; a worker session is on it. Not overdue while held. |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. **HELD by the operator 2026-10-06 ~00:20Z: do not approve or send until the Best Practices 78 is cleared.** Four drafts store `lighthouse_best_practices` 78 (Data Dynamiq, Espada, Revogen, Vineyard; LAHI 100) [M, report rows]. A direct Lighthouse run on datadynamiq.com scores 100, so the 78 may be the nightly's instrument [I]; a worker session is on it. Not overdue while held. **2026-10-06 ~02:00Z [M]: the 78 is real, not the instrument** — two third-party cookies, item 88. Data Dynamiq's live score is 100 since data-dynamiq#59, so only its stored draft is stale; Espada, Revogen and Vineyard stay at 78 until item 88's PRs deploy. |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -2885,7 +2885,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at
       once either way: replay cannot place it.
 
-87. **Best-practices 78 on five maintained sites: roll the starter's two
+88. **Best-practices 78 on five maintained sites: roll the starter's two
     fixes out as five per-repo PRs (new 2026-10-06, from the bp-78 worker,
     branch `claude/trusting-brahmagupta-413csl`).** Every 78 is the same two
     audits: `third-party-cookies` (weight 5) and `inspector-issues` (weight
@@ -2920,6 +2920,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       MSOT (`color-contrast`, `heading-order`) and Vineyard (`image-alt`,
       `color-contrast`) also fail accessibility, which the same nightly now
       names; that is separate work.
+    - **This is what the held October sends (P0-4) wait on.** Data Dynamiq
+      reads 100 live, so pressing "refresh preview" on its draft clears its
+      78 now. Espada, Revogen and Vineyard read 78 until their PRs deploy
+      and a nightly re-stamps them.
+
+89. **#1205, the nightly names failing Lighthouse audits: held after two
+    review rounds (new 2026-10-06, branch
+    `claude/trusting-brahmagupta-413csl`, head `49cc0133`, CI green).** It
+    adds the `LIGHTHOUSE_FAILURES` line, `site_health.lighthouse_failing_audits`
+    (migration 0040, already applied to live Turso by its branch dispatches)
+    and a dashboard line; it is the evidence behind item 88. Round 1 found two
+    defects (an errored audit was dropped, a missing assertion file cleared
+    the column) and seven test gaps; all fixed, and 22 of 22 mutations go
+    red. Round 2 found no blocker or major and one minor that predates the
+    PR: when lhci dies mid-collect, leaving one or two lhr files and no
+    `assertion-results.json`, the audit reports `pass` and "all categories
+    passing" even though nothing was asserted. The PR now leaves the stored
+    list alone in that case, so the dashboard can show an old list under a
+    fresh "Last audited" while the log says pass.
+    _Ask:_ (a) land #1205 as it is and fix the status in a follow-up
+    (`warn` when no assertions were read and lhci exited non-zero); or (b)
+    fix it in #1205 and run a third round. _Worker's pick:_ (a). The defect
+    is older than this PR, the follow-up is a three-line change with its own
+    test, and until #1205 lands the nightly cannot name the audits behind a
+    score. Land with `node scripts/land-prs.mjs 1205`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
