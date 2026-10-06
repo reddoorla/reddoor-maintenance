@@ -469,6 +469,12 @@ function alarmSection(alarm: SiteAlarmContext | null): string {
   if (!alarm) return "";
   const chips: string[] = [];
   for (const it of alarm.items) {
+    if (it.waiting === true) {
+      chips.push(
+        `<span class="chip waiting" title="A scheduled job is still fixing this; it reaches the cockpit only if that fails">waiting: ${escapeHtml(it.title)}</span>`,
+      );
+      continue;
+    }
     const cls = it.autoFixExhausted
       ? "chip critical stuck"
       : it.severity === "critical"
@@ -866,6 +872,7 @@ button.trigger-renovate:disabled { opacity: 0.6; cursor: default; }
 .chip.critical { background: #fdecea; color: #b00; }
 .chip.stuck { border: 1px solid #b00; font-weight: 600; }
 .chip.accepted { background: transparent; border: 1px dashed #bbb; color: #888; }
+.chip.waiting { background: transparent; border: 1px dotted #bbb; color: #777; }
 @media (prefers-color-scheme: dark) { .chip.accepted { border-color: #444; } .chip.critical { background: #2a0f0d; color: #ff8a80; } }
 `;
 

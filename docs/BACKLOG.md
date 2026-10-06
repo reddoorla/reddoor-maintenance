@@ -2870,6 +2870,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       ~00:05Z: apply the fix, then land.** Every number that is not a safe
       integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
       test that three mutations turn red. Landed with `land-prs.mjs`.
+87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05,
+    from issue #1190's inventory.)** A dead letter on a site the fleet knows
+    is a CRITICAL cockpit and digest item from its first row, and the ask
+    says "run `db replay-deadletters`". Since MED-10(a),
+    `forms-deadletter-replay.yml` drains the queue every 6h on its own, so
+    under the 2026-10-05 "just wait" rule it is a (iii) signal. It was left
+    as (i) in #1190 because muting a lost-lead alarm is the operator's call,
+    and the threshold needs the oldest unreplayed row's `received_at`, which
+    changes the query-plan-gated dead-letter count queries.
+    - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed
+      row's `received_at`) before alarming, for a slug that resolves to a
+      site; (b) keep alarming from the first row.
+    - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at
+      once either way: replay cannot place it.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2930,6 +2944,17 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
+  (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
+  a transitive-only one until two days after the first Monday lock-file
+  window that opens after it was first flagged, a direct one for four days
+  (one night past auto-fix exhaustion's own schedule). A waiting item stays
+  on the site's own page and leaves the cockpit's tiers, the Needs-you feed
+  and the digest's asks; an unread or empty digest snapshot mutes nothing.
+  The rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
+  transitive-only vulns were the instance; whether ERP is off Watch today
+  depends on its real first-flag date, unread (see the PR). Dead letters (auto-replayed every
+  6h) are the one other (iii) signal and wait on Operator decision 87.
 - 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
   recipe half): landed in two PRs. reddoor-starter#184: the root layout's
   `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
