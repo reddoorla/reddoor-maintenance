@@ -3002,8 +3002,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     live at 14:19Z, these cards render from the `aed-programs` page
     document (`asQvOxIAAC0AgEpz`), Icon Grid slice, `cards[].label`, not
     from Home's `s2_icons`; editing Home changes nothing on the site. The
-    "double spaces" are U+2028 line separators (`Life-Saving \u2028AED
-    Customized \u2028to your needs.`), copied byte for byte from Home, which
+    "double spaces" are U+2028 line separators, not spaces (for example
+    `Battery and \u2028electrode`), copied byte for byte from Home, which
     the browser draws as a gap. `staging` is merged, so the line break is
     code on `main` only (`src/lib/slices/IconGrid/index.svelte`).
 
