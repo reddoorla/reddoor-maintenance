@@ -1,6 +1,6 @@
 # Backlog — what to work on next, in order
 
-**Last full re-rank: 2026-10-05 ~12:00Z** (the Monday PM pass, `claude/youthful-turing-ad6g2n`: P1 re-ordered from scratch, Fleet snapshot rewritten from live Turso, the week's morning-report claims put through `refute-claims`). Before that: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z.
+**Last full re-rank: 2026-10-05 ~12:00Z** (the Monday PM pass, `claude/youthful-turing-ad6g2n`: P1 re-ordered from scratch, Fleet snapshot rewritten from live Turso, the week's morning-report claims put through `refute-claims`). Before that: 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z and 2026-10-06 ~12:00Z (the Tuesday PM pass, `claude/happy-clarke-1cjx2r`: no re-rank, P0-4 and items 80, 81, 84, 85 re-read).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -112,13 +112,13 @@ mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
 
 These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
 
-| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----- | --------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. |
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. **HELD by the operator 2026-10-06 ~00:20Z: do not approve or send until the Best Practices 78 is cleared.** Four drafts store `lighthouse_best_practices` 78 (Data Dynamiq, Espada, Revogen, Vineyard; LAHI 100) [M, report rows]. A direct Lighthouse run on datadynamiq.com scores 100, so the 78 may be the nightly's instrument [I]; a worker session is on it. Not overdue while held. **2026-10-06 ~02:00Z [M]: the 78 is real, not the instrument** — two third-party cookies, item 88. Data Dynamiq's live score is 100 since data-dynamiq#59, but its draft stores 78 and "refresh preview" does not re-read Lighthouse; Espada, Revogen and Vineyard stay at 78 until item 88's PRs deploy. **10-06 11:55Z [M, SELECT-only client that refused an `UPDATE` first]:** all five still pending approval; the stored `bestPractices` reads 78 for four and 100 for LAHI. Live `site_health.bp_score` (stamped 10-06 00:41Z by the bp-78 branch's dispatch, not a scheduled run) reads 100 for Data Dynamiq and LAHI and 78 for Espada, Revogen, Vineyard, ERP and MSOT, each with `lighthouse_failing_audits` naming `third-party-cookies` and `inspector-issues`. `preflightSite` finds nothing for any of the five (control: Espada with recipients and contact blanked → `recipients-missing`). Nothing else is due before 10-20. |
 
 **Settled — do not flag again (operator, 2026-09-29, after being asked
 several times):** the report recipients are correct as they are. MSOT and
@@ -155,9 +155,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                         | Done when                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy` | Remedy test pins the shape; the fleet list is in this row or an issue |
 
 ### Blocked behind another PR (do not start early)
 
@@ -254,19 +254,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       matching gate is the fifth, and needs the laptop: Operator
       decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
-- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
-  answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
-  scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
-  together with the a11y spec waiting for a bundle-only marker
-  (`html[data-hydrated]`, set in the root layout's onMount as roalson #57 does)
-  before the reveal pass. Measured on roalson: preview alone 208 in 12 of 14
-  cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
-  Starter first, then the recipe, then the fleet. Blocked only on the 25 site
-  PRs for #948's guard flag landing first (see Done, #948).
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
 
+- **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
+  P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
+  scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
+  spec (`src/audits/a11y.ts`) does not wait for `html[data-hydrated]` before
+  its scan, so its 191-vs-208 race stays on sites that write the marker;
+  (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
+  and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
+  `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
+  form-e2e can wait on the marker before it injects.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2423,6 +2423,69 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         session. Whether to rotate it is yours (🔴). Its first probe also
         created a local user `probeu` in the container. Removing it was
         refused, and it dies with the container.
+    - **Answered 2026-10-05 ~22:45Z: (a), split the workflow.** Built on
+      #1143 (draft, unmerged), head `5a46bd67`. The nightly is now three
+      jobs. **fetch** holds the Prismic tokens and a read-only App token
+      and runs no site code. **build** is one leg per site, with no token,
+      and runs the site's install, prettier and codegen only inside
+      `docker run --rm`. **publish** holds the write token, runs no site
+      code, and builds each commit itself from `baseHead` plus the plan's
+      named paths. It takes a formatted model only when it still equals
+      Prismic's. Round 3's three majors are addressed (HEAD-move gone by
+      construction, "Update with rebase" accepted, `held`/`declined` warn).
+      19 of 19 named mutations go red. The split's one review (security,
+      correctness, operations) at `06207ce2` was **dirty: 2 blockers, 0
+      majors**:
+      - a link the container left in its output would be followed by the
+        host's `upload-artifact`, carrying another site's tree or the
+        upload step's `ACTIONS_RUNTIME_TOKEN` into the artifact and then
+        into the attacker's own PR;
+      - on a night with exactly one site to build, `download-artifact` v8
+        extracts straight into `path`, so publish found no result and
+        failed that site every night.
+
+      Both are fixed in `5a46bd67`, unreviewed. The host deletes anything
+      in the output that is not a plain file or a directory before the
+      upload, and each leg keeps only its own site's tree. Legs upload
+      `built/`, and publish downloads with `merge-multiple`. MB1–MB3 go
+      red; MB4 is a second layer. The 13 minors (CRLF and mode on
+      committed files, key order, one failed leg stops the whole publish,
+      the rebase committer identity, and others) are listed in #1143's
+      body. Nothing has run live; the first scheduled run is the
+      instrument.
+      - _Ask:_ (a) authorise one narrow review of `5a46bd67` alone (the
+        two fixes); land #1143 if it is clean, else back here. Or (b) land
+        #1143 now, with the first scheduled run as the instrument. _Pick:_
+        (a). The security fix closes a route to other clients' source and
+        a runner token, which is the class this PR exists to remove, and
+        a review of two small workflow steps is cheap. When the answer
+        comes, this session lands it, with
+        `node scripts/land-prs.mjs 1143` from a worktree detached at
+        `origin/main`. Adding `fleet-prismic-sync.yml` adds a scheduled
+        workflow whose first run is the instrument still to prove.
+
+    - **Answered 2026-10-06 ~00:00Z (AskUserQuestion): (a), the narrow
+      review, then land.** The review of `5a46bd67` was clean in all three
+      lenses (no blocker, no major). **#1143 landed 2026-10-06 ~00:35Z as
+      `7132170b`; item 72 is closed.** Still to prove: the first
+      scheduled `fleet-prismic-sync` run after a drift sweep on `main`.
+      Watch it end to end: the container build, `prismic gen` inside the
+      image, the artifact hand-off, the App's push, and whether GitHub's
+      "Update with rebase" committer really is `noreply@github.com`.
+      Follow-ups the review left as minors, none of them built:
+      - the cleanup step runs as `runner` over files the container wrote
+        as root, so a link planted inside a container-made directory
+        cannot be deleted. The leg fails, and one hostile site then stops
+        the whole night's publish. It fails closed. Fix: `sudo find …
+-delete`, or `sudo chown -R` first, plus a test with a root-owned
+        tree;
+      - `merge-multiple` gave up the per-artifact directory as a layer;
+        the comment on publish's gate overstates what it refuses;
+      - from the first review: CRLF and mode on committed files, key
+        order in the model check, a dry run that says `would-open` too
+        early, codegen output at unlisted paths dropped silently, one
+        failed leg stopping every site, and an in-sync site closing a held
+        branch's PR.
 
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
@@ -2694,6 +2757,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Worker's pick:_ (a). The unreviewed change is one selector, with its
       own red-on-mutation test. The carousels batch (branch
       `claude/p5-matching-r1-carousels`) is the next round either way.
+    - **Closed [M, 2026-10-06, mantis-landscaping `main`]:** #29 landed
+      10-05 23:37Z as `fa96aa7`, and the carousels round as #30 (`1150d1a`,
+      10-06 00:00Z).
 
 81. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
     map pin corrections") after linking two files (new 2026-10-05, Erik's
@@ -2717,6 +2783,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     type; flood plain, where the survey says part is in zone A; Tract 2;
     and others) are in the package PR. _Pick:_ publish once the two files
     are linked; the questions don't block it.
+    **10-06 ~11:58Z [M, `list_releases` on `roalson-interests`]:** still
+    unpublished; it is the repository's only release.
 
 82. **Two Roalson aerials cannot show the whole parcel in the existing card
     frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
@@ -2752,6 +2820,142 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     worker's own. _Ask:_ (a) land without a third round; (b) a third round;
     (c) the menu should point somewhere else. _Pick:_ (a), with
     `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`. **Landed 10-05 23:26Z as `1595756` [M, roalson-interests
+    `main`].**
+
+85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+    operator's ask the same evening).** The site now renders every page from
+    slices on caltex-landing's `staging` branch
+    ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
+    The models went to `main` in caltex-landing#73, inert, because
+    `prismic-models` pushes only from `main`. The content is published as
+    release `asQvEBIAAHEPgEox`, and the live site was unchanged by it,
+    measured before and after. `staging` against live `main`: 14 screenshots
+    (five pages at 1440 and 390, plus the open nav) are pixel-identical, and
+    text, images and alt text, links, ids, titles, meta and nav hrefs match.
+    The sitemap lists the same five URLs, adding `lastmod`. That comparison
+    is a clean build of `staging` at `23763ef`: Netlify deploys neither the
+    `staging` branch nor previews for PRs into it, so there is no hosted
+    staging URL to look at. _Ask:_ merge
+    `staging` into `main` when you want editors working in slices; it is the
+    production deploy. _Worker's pick:_ merge it as is. After the merge, the
+    old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
+    model edit in Prismic, optional and not urgent.
+    **10-06 ~11:58Z [M, `git ls-remote`]:** still open. `staging` is at
+    `23763ef` and `main` at `f4d5291`, which does not contain it.
+
+86. **#1195, the backup verify now checks contents: held after two dirty
+    review rounds (new 2026-10-05, from the refute-claims critic's
+    `blob_bytes` question).** `verify-dump` compared row counts and summed
+    `header_image` length only. On a real production dump, one flipped blob
+    byte verified clean on `main` (`mismatches=0`, exit 0). #1195 (branch
+    `claude/compassionate-hypatia-jtydgw`, head `9a93374`) adds a sha256 per
+    table to the manifest and compares it on restore, and that same dump now
+    goes red. The unchanged `blob_bytes` from 10-01 to 10-05 was real: no
+    header image was written between sonder's (09-30 21:02Z) and today's
+    five (18:37Z).
+    - Round 1 found two latent minors, neither reachable with today's data.
+      SQLite misparses some shortest-form doubles by one ULP, which would red
+      the hash every night; fixed by writing fractional REALs with 17 digits.
+      A whole-number REAL of 2^53 or more in an untyped column would crash
+      the verify loudly; left as is, because the only such column holds
+      bytes.
+    - Round 2 found that the fix missed integer-valued doubles of 2^63 or
+      more. That is fixed in `9a93374` with a test that a mutation turns red,
+      but the fix is unreviewed.
+    - _Ask:_ (a) land #1195 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). Both rounds' defects are false-RED paths that
+      need REAL values the fleet does not store (every REAL is rounded or an
+      integer sum, and a fresh production dump verifies clean). The
+      unreviewed change is one bound with its own test. Land with
+      `node scripts/land-prs.mjs 1195`.
+    - **Answered 2026-10-05 ~23:40Z: (b), a third round.** Round 3 found no
+      blocker. Its one minor: past 2^53, `String(v)` is not the double's
+      digits (`String(2 ** 60)` is `1152921504606847000`), so a whole-number
+      REAL in an untyped column restored as a different INTEGER. **Answered
+      ~00:05Z: apply the fix, then land.** Every number that is not a safe
+      integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
+      test that three mutations turn red. Landed with `land-prs.mjs`.
+87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05,
+    from issue #1190's inventory.)** A dead letter on a site the fleet knows
+    is a CRITICAL cockpit and digest item from its first row, and the ask
+    says "run `db replay-deadletters`". Since MED-10(a),
+    `forms-deadletter-replay.yml` drains the queue every 6h on its own, so
+    under the 2026-10-05 "just wait" rule it is a (iii) signal. It was left
+    as (i) in #1190 because muting a lost-lead alarm is the operator's call,
+    and the threshold needs the oldest unreplayed row's `received_at`, which
+    changes the query-plan-gated dead-letter count queries.
+    - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed
+      row's `received_at`) before alarming, for a slug that resolves to a
+      site; (b) keep alarming from the first row.
+    - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at
+      once either way: replay cannot place it.
+
+88. **Best-practices 78 on five maintained sites: roll the starter's two
+    fixes out as five per-repo PRs (new 2026-10-06, from the bp-78 worker,
+    branch `claude/trusting-brahmagupta-413csl`).** Every 78 is the same two
+    audits: `third-party-cookies` (weight 5) and `inspector-issues` (weight
+    1), 6 of 27 points, failing in 3 of 3 runs [M: the branch's new
+    `LIGHTHOUSE_FAILURES` lines on fleet-lighthouse run 37393496930, and the
+    same result from a container run of the nightly's exact lhci config]. Two
+    third-party cookies set them, and the starter already fixes both:
+    - **Vimeo's Cloudflare `__cf_bm`** on Espada, MSOT, Revogen and
+      Vineyard. Their `ScreenWidthImage`/`ScreenWidthMedia`/`TwoCol`/
+      `ContentWidthMedia` render the `player.vimeo.com` iframe on load. The
+      starter's `VimeoBanner.svelte` (and Vida's `VimeoBackground.svelte`)
+      creates it only after a real pointer, wheel, key or touch event, which
+      no audit produces. 29 Navy and Vida were never controls for this: their
+      audited homepages request no Vimeo player at all.
+    - **The Prismic toolbar's `io.prismic.previewSession`** (about 21
+      cookies) on ERP and Vineyard. Both hard-code
+      `<script src="https://static.cdn.prismic.io/prismic.js?...">` in
+      `src/app.html`, outside the `isPreviewSession` gate that already wraps
+      `<PrismicPreview>` in their layouts. Deleting the tag is the fix; real
+      previews still get the toolbar through the gated component.
+    - **Data Dynamiq is already fixed.** data-dynamiq#59 (merged 21:02Z)
+      deleted `player.vimeo.com/api/player.js` from `app.html`; the branch's
+      dispatches and a direct run read 100. The PM pass ruled #59 out because
+      it merged after the 78 run; it was in fact the fix.
+    - _Ask:_ (a) a worker opens the five per-repo PRs (Espada, MSOT, Revogen:
+      Vimeo; Vineyard: Vimeo and the `app.html` tag; ERP: the `app.html`
+      tag), each checked by a deploy-preview Lighthouse run before merge; or
+      (b) leave them and accept "best practices" per site in the cockpit.
+      _Worker's pick:_ (a). Each change is one component swap or one deleted
+      tag, the starter's components are already proven in production on
+      Vida, and 78 sits only three points above the cockpit's floor of 75.
+      MSOT (`color-contrast`, `heading-order`) and Vineyard (`image-alt`,
+      `color-contrast`) also fail accessibility, which the same nightly now
+      names; that is separate work.
+    - **This is what the held October sends (P0-4) wait on.** Data Dynamiq
+      reads 100 live, but its draft keeps 78: "refresh preview" re-renders
+      from the report row's stored `lighthouse` scores
+      (`src/reports/send/render-from-row.ts:67`), not from `site_health`. So
+      clearing a stored 78 takes a re-draft once the live score is right, for
+      Data Dynamiq now and for the other three after their PRs deploy and a
+      nightly re-stamps them. How to re-draft a held row is your call.
+
+89. **#1205, the nightly names failing Lighthouse audits: held after two
+    review rounds (new 2026-10-06, branch
+    `claude/trusting-brahmagupta-413csl`, head `49cc0133`, CI green).** It
+    adds the `LIGHTHOUSE_FAILURES` line, `site_health.lighthouse_failing_audits`
+    (migration 0040, already applied to live Turso by its branch dispatches)
+    and a dashboard line; it is the evidence behind item 88. Round 1 found two
+    defects (an errored audit was dropped, a missing assertion file cleared
+    the column) and seven test gaps; all fixed, and 22 of 22 mutations go
+    red. Round 2 found no blocker or major and one minor that predates the
+    PR: when lhci dies mid-collect, leaving one or two lhr files and no
+    `assertion-results.json`, the audit reports `pass` and "all categories
+    passing" even though nothing was asserted. The PR now leaves the stored
+    list alone in that case, so the dashboard can show an old list under a
+    fresh "Last audited" while the log says pass.
+    _Ask:_ (a) land #1205 as it is and fix the status in a follow-up
+    (`warn` when no assertions were read and lhci exited non-zero); or (b)
+    fix it in #1205 and run a third round. _Worker's pick:_ (a). The defect
+    is older than this PR, the follow-up is a three-line change with its own
+    test, and until #1205 lands the nightly cannot name the audits behind a
+    score. Land with `node scripts/land-prs.mjs 1205`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2811,6 +3015,30 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
+  (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
+  a transitive-only one until two days after the first Monday lock-file
+  window that opens after it was first flagged, a direct one for four days
+  (one night past auto-fix exhaustion's own schedule). A waiting item stays
+  on the site's own page and leaves the cockpit's tiers, the Needs-you feed
+  and the digest's asks; an unread or empty digest snapshot mutes nothing.
+  The rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
+  transitive-only vulns were the instance; whether ERP is off Watch today
+  depends on its real first-flag date, unread (see the PR). Dead letters (auto-replayed every
+  6h) are the one other (iii) signal and wait on Operator decision 87.
+- 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
+  recipe half): landed in two PRs. reddoor-starter#184: the root layout's
+  `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
+  it for up to 20 s, and a no-JS `@smoke` control plus two unit tests prove it
+  is absent without script and not written before mount. This repo's smoke
+  recipe now scaffolds `hydrationMarker: "html[data-hydrated]"` where a
+  site's Svelte source writes the marker, and falls back to `footer`, `main`
+  or `body` otherwise, with a note that this proves paint, not hydration.
+  `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
+  mutations and four more each turn a test red (tables in both PRs). The
+  a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
+  open under "Watching", unranked.
 
 - 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
   (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`

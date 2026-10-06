@@ -1,0 +1,334 @@
+name: fleet-prismic-sync
+
+# Nightly, after the drift sweep: the D1 pull-sync (operator decision,
+# 2026-10-01). An edit made in Prismic's Type Builder lands in Prismic first;
+# this brings it back to each site's repo as ONE pull request on the fixed
+# branch `prismic-sync`, opened by the reddoor-renovate App (identity chosen
+# 2026-10-04). The PR is for review and is never merged automatically: a
+# difference can also mean the repo is AHEAD (its last apply failed), and only a
+# human can tell which. See docs/runbooks/prismic-model-delivery.md §12.
+#
+# What it can write: one branch per site repo (pushed fast-forward only, never
+# forced) and that branch's one PR (opened, updated, or closed when the site is
+# back in sync). What it cannot: write to Prismic, delete a model, or merge.
+#
+# THREE JOBS, SO NO SITE'S CODE EVER SHARES A JOB WITH A CREDENTIAL (operator
+# decision 72, answered (a) on 2026-10-05). A site's install, prettier and
+# `prismic` CLI can read anything its own user can, including /proc/<pid>/environ
+# of the process that started it, so removing secrets from its environment
+# isolated nothing (round 3 of #1143). So:
+#   fetch    Prismic tokens and a READ-only App token. Runs no site code.
+#   build    One leg per site, no secret, no token, no cache. The site's tools
+#            run only inside `docker run --rm`.
+#   publish  The write token. Runs no site code: it builds each commit itself
+#            and takes from the build only the files the plan names.
+# No job restores or saves a cache: a cache written where site code ran could
+# be restored where a token is.
+on:
+  workflow_run:
+    workflows: [fleet-prismic-drift]
+    types: [completed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-prismic-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    # The drift sweep's own branch runs never speak for main.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      ids: ${{ steps.plan.outputs.ids }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Read-only: this job clones every site repo and reads nothing else.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: read-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+          permission-contents: read
+
+      # The PRISMIC_TOKEN_* list is fleet-prismic-drift.yml's, kept identical by
+      # tests/build/fleet-prismic-sync-workflow.test.ts. Fleet mode refuses the
+      # generic PRISMIC_WRITE_TOKEN, as the drift sweep does.
+      - name: Read each site's models from Prismic
+        id: plan
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          PRISMIC_TOKEN_29_NAVY: ${{ secrets.PRISMIC_TOKEN_29_NAVY }}
+          PRISMIC_TOKEN_48BB12D1: ${{ secrets.PRISMIC_TOKEN_48BB12D1 }}
+          PRISMIC_TOKEN_ALAMO_ANATOMY: ${{ secrets.PRISMIC_TOKEN_ALAMO_ANATOMY }}
+          PRISMIC_TOKEN_CALTEX_LANDING: ${{ secrets.PRISMIC_TOKEN_CALTEX_LANDING }}
+          PRISMIC_TOKEN_ERP_INDUSTRIAL: ${{ secrets.PRISMIC_TOKEN_ERP_INDUSTRIAL }}
+          PRISMIC_TOKEN_ESPADA: ${{ secrets.PRISMIC_TOKEN_ESPADA }}
+          PRISMIC_TOKEN_GALLERYSONDER: ${{ secrets.PRISMIC_TOKEN_GALLERYSONDER }}
+          PRISMIC_TOKEN_HEDLOC: ${{ secrets.PRISMIC_TOKEN_HEDLOC }}
+          PRISMIC_TOKEN_MSOT: ${{ secrets.PRISMIC_TOKEN_MSOT }}
+          PRISMIC_TOKEN_REDDOOR_LA: ${{ secrets.PRISMIC_TOKEN_REDDOOR_LA }}
+          PRISMIC_TOKEN_REDDOOR_WIREFRAMER: ${{ secrets.PRISMIC_TOKEN_REDDOOR_WIREFRAMER }}
+          PRISMIC_TOKEN_REVOGEN: ${{ secrets.PRISMIC_TOKEN_REVOGEN }}
+          PRISMIC_TOKEN_THE_POINTE: ${{ secrets.PRISMIC_TOKEN_THE_POINTE }}
+          PRISMIC_TOKEN_THE_POINTE_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_POINTE_BURBANK }}
+          PRISMIC_TOKEN_THE_TOWER_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_TOWER_BURBANK }}
+          PRISMIC_TOKEN_VIDA_LEGACY: ${{ secrets.PRISMIC_TOKEN_VIDA_LEGACY }}
+          PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES: ${{ secrets.PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES }}
+          PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION }}
+          PRISMIC_TOKEN_WILLIAMSON_HOMES: ${{ secrets.PRISMIC_TOKEN_WILLIAMSON_HOMES }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/prismic-sync-plan"
+          node dist/cli/bin.js prismic-sync --fleet turso --stage fetch \
+            --out "$out" --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic-sync"
+          cp scripts/prismic-sync-build.mjs "$out/prismic-sync-build.mjs"
+          echo "ids=$(cat "$out/matrix.json")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prismic-sync-plan
+          path: ${{ runner.temp }}/prismic-sync-plan
+          if-no-files-found: error
+          retention-days: 3
+
+  build:
+    needs: fetch
+    if: needs.fetch.outputs.ids != '[]' && needs.fetch.outputs.ids != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # No token at all: this is where each site's own code runs.
+    permissions: {}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        id: ${{ fromJSON(needs.fetch.outputs.ids) }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: prismic-sync-plan
+          path: ${{ runner.temp }}/plan
+
+      # The site's install, prettier and codegen, inside a container that
+      # sees only its own tree, the runner script (read-only) and the output
+      # directory. Anything it leaves running dies with the container.
+      - name: Build the site in a container
+        timeout-minutes: 30
+        env:
+          SITE_ID: ${{ matrix.id }}
+        run: |
+          case "$SITE_ID" in s[0-9]*) ;; *) echo "::error::unexpected site id"; exit 1 ;; esac
+          plan="${RUNNER_TEMP}/plan"
+          out="${RUNNER_TEMP}/built/${SITE_ID}"
+          mkdir -p "$out"
+          # This leg needs only its own site's tree on the host.
+          find "$plan/sites" -mindepth 1 -maxdepth 1 ! -name "$SITE_ID" -exec rm -rf {} +
+          docker run --rm \
+            -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+            -v "$plan/prismic-sync-build.mjs:/runner/build.mjs:ro" \
+            -v "$plan/sites/${SITE_ID}:/in:ro" \
+            -v "$out:/out" \
+            node:24-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4 \
+            node /runner/build.mjs --in /in --out /out --work /w
+
+      # The container wrote the output as root, and the site's code can leave
+      # anything there. upload-artifact follows a link and uploads its target,
+      # so a link to any host file would carry that file out. Only plain files
+      # and directories survive. (A hard link cannot cross the bind mount, so
+      # it can only name a file the container itself wrote there.)
+      - name: Keep only plain files from the container
+        env:
+          SITE_ID: ${{ matrix.id }}
+        run: |
+          out="${RUNNER_TEMP}/built"
+          odd=$(find "$out" -mindepth 1 ! -type f ! -type d -print)
+          if [ -n "$odd" ]; then
+            echo "::warning::${SITE_ID}: removed what the build left that is not a plain file: $(echo "$odd" | tr '\n' ' ')"
+            find "$out" -mindepth 1 ! -type f ! -type d -delete
+          fi
+          left=$(find "$out" -mindepth 1 ! -type f ! -type d -print)
+          if [ -n "$left" ]; then
+            echo "::error::${SITE_ID}: could not remove $left"
+            exit 1
+          fi
+
+      # The artifact's root holds <id>/, so publish's merged download puts each
+      # site at built/<id> however many legs there were.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prismic-sync-built-${{ matrix.id }}
+          path: ${{ runner.temp }}/built
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [fetch, build]
+    # Runs after a failed or skipped build too, so a red run anywhere files
+    # the tracking issue below; its first step refuses to publish then.
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      issues: write # open/close the nightly-failure tracking issue
+    steps:
+      # Every build leg must have succeeded. A leg's own upload fails when its
+      # artifact name is already taken, so this is also what refuses a build
+      # output that one site tried to plant for another.
+      - name: Require the fetch and every build leg
+        env:
+          FETCH: ${{ needs.fetch.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          if [ "$FETCH" != "success" ]; then
+            echo "::error::the fetch job ended $FETCH, so nothing was published"
+            exit 1
+          fi
+          if [ "$BUILD" != "success" ] && [ "$BUILD" != "skipped" ]; then
+            echo "::error::a build leg ended $BUILD, so nothing was published"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: prismic-sync-plan
+          path: ${{ runner.temp }}/plan
+
+      # Merged: with one matching artifact, download-artifact extracts it
+      # straight into `path` rather than a directory named after it, so only a
+      # merge gives the same built/<id> layout for one leg as for many.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: prismic-sync-built-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/built
+
+      # Org-wide, because every site repo is a different repository. Installation
+      # tokens die at 60 minutes, hence the step's 45-minute timeout below.
+      # Digest-pinned: this mints a fleet-write token (same rule as renovate.yml).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+          # Push a branch and open a PR: nothing more. Without these the token
+          # carries every permission the App holds.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Sync each site's models from Prismic
+        timeout-minutes: 45
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/prismic-sync.out"
+
+          # Only main's own code may push into client repos. A dispatch from any
+          # other branch is a dry run: it reports what each PR would hold.
+          open_prs=""
+          if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
+            open_prs="--open-prs"
+          else
+            echo "::notice::dispatched from ${GITHUB_REF:-an unknown ref}, not main: a dry run, no branch pushed and no PR opened"
+          fi
+
+          rc=0
+          node dist/cli/bin.js prismic-sync \
+            --fleet turso --stage publish \
+            $open_prs \
+            --plan "${RUNNER_TEMP:-/tmp}/plan" --built "${RUNNER_TEMP:-/tmp}/built" \
+            --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic-sync" | tee "$out" || rc=$?
+
+          # No summary line means the run reached no verdict at all, so its exit
+          # code is a claim about nothing.
+          summary=$(grep -oE "PRISMIC_SYNC_SUMMARY .*" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            refusal=$(grep -m1 "⛔" "$out" || true)
+            echo "::error::the Prismic pull-sync printed no PRISMIC_SYNC_SUMMARY line, so it established nothing: ${refusal:-see the run output above}"
+            exit 1
+          fi
+          echo "$summary"
+
+          # Green, but a site the sync is not reaching: say so on the run.
+          grep -E "^(held|declined) " "$out" | while IFS= read -r line; do
+            echo "::warning::${line}"
+          done || true
+
+          if [ "$rc" -ne 0 ]; then
+            failed=$(grep -E "^failed " "$out" | head -n5 || true)
+            echo "::error::the Prismic pull-sync exited $rc: at least one site could not be synced. ${failed}"
+            exit 1
+          fi
+
+      - name: Open/update the nightly-failure tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic pull-sync failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-prismic-sync** run failed, so at least one site did not get tonight'"'"'s sync PR.\n\nA `failed` line in the run names each site and why: a refused model (the PR would have been wrong, so nothing was committed), a missing token, an unreadable site, or a push or PR call GitHub refused. If the run printed no PRISMIC_SYNC_SUMMARY line it stopped early (a timeout, or a fleet it could not resolve): sites before that point may already have had their branch pushed and PR updated.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic pull-sync failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly Prismic pull-sync is green again." && echo "closed #$n"
+          done

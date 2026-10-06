@@ -811,43 +811,116 @@ describe("runDigest", () => {
 
   // ── vuln mute until Renovate auto-fix is exhausted ───────────────────────────
 
-  it("mutes a pre-exhaustion vuln: no email (no-noise skip), but its key still snapshots", async () => {
-    // Renovate has only been dispatched once — the fleet is still self-patching, so
-    // the operator hears nothing. The snapshot must STILL carry the vuln key (sans
-    // exhausted flag) so the cockpit's diff agrees and the later flip badges WORSE.
+  it("mutes a vuln inside its wait: no email (no-noise skip), but its key still snapshots", async () => {
+    // First flagged yesterday, Renovate dispatched once — the fleet is still
+    // self-patching, so the operator hears nothing. The snapshot must STILL carry the
+    // vuln key (sans exhausted flag, first-flagged day kept) so the cockpit's diff
+    // agrees, the wait keeps counting, and the later flip badges WORSE.
     const tables = {
       Reports: [],
       Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 1 })],
     };
     const { client, captured } = captureClient();
-    const store = memoryDigestState();
+    const store = memoryDigestState({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-10-04" },
+    });
     const result = await runDigest({
       digestState: store,
       ...io(tables),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
+      now: new Date("2026-10-05T09:23:00Z"),
     });
     expect(result.output).toMatch(/skipped/i);
     expect(captured).toHaveLength(0); // no email at all
     const snap = await store.read();
-    expect(snap["vuln:rec_site_acme"]).toMatchObject({ metric: 1 });
+    expect(snap["vuln:rec_site_acme"]).toMatchObject({ metric: 1, firstFlaggedAt: "2026-10-04" });
     expect(snap["vuln:rec_site_acme"]!.exhausted).toBeUndefined();
   });
 
-  it("a pre-exhaustion vuln does not ride along in an otherwise-sending digest", async () => {
-    const tables = {
-      Reports: [bouncedReport()],
-      Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 0 })],
-    };
+  async function digestWithDirectVuln(firstFlaggedAt: string) {
+    const { client, captured } = captureClient();
+    await runDigest({
+      digestState: memoryDigestState({ "vuln:rec_site_acme": { metric: 1, firstFlaggedAt } }),
+      ...io({
+        Reports: [bouncedReport()],
+        Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 0 })],
+      }),
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      now: new Date("2026-10-05T09:23:00Z"),
+    });
+    expect(captured).toHaveLength(1); // delivery failure still sends
+    return captured[0]!.html;
+  }
+
+  it("a vuln inside its wait does not ride along in an otherwise-sending digest", async () => {
+    expect(await digestWithDirectVuln("2026-10-02")).not.toMatch(/critical\/high vuln/);
+  });
+
+  it("a direct vuln past its wait rides along, badged WORSE on the day it escalates", async () => {
+    const html = await digestWithDirectVuln("2026-10-01");
+    expect(html).toContain("Renovate has not fixed it since 2026-10-01");
+    expect(html).toMatch(/\bWORSE\b/);
+  });
+
+  it("an empty prior snapshot mutes nothing", async () => {
     const { client, captured } = captureClient();
     await runDigest({
       digestState: memoryDigestState(),
-      ...io(tables),
+      ...io({ Reports: [], Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 0 })] }),
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
+      now: new Date("2026-10-05T09:23:00Z"),
     });
-    expect(captured).toHaveLength(1); // delivery failure still sends
-    expect(captured[0]!.html).not.toMatch(/critical\/high vuln/);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toMatch(/critical\/high vuln/);
+  });
+
+  // ── waiting items stay out of the asks until waiting has failed (2026-10-05) ──
+
+  const TRANSITIVE_ADVISORIES = JSON.stringify([
+    {
+      module: "a",
+      severity: "critical",
+      title: "",
+      cves: [],
+      url: null,
+      relationship: "transitive",
+    },
+  ]);
+  const DIGEST_NOW = new Date("2026-10-05T09:23:00Z");
+
+  async function digestWithTransitiveVuln(firstFlaggedAt: string) {
+    const { client, captured } = captureClient();
+    await runDigest({
+      digestState: memoryDigestState({ "vuln:rec_site_acme": { metric: 1, firstFlaggedAt } }),
+      ...io({
+        Reports: [bouncedReport()],
+        Websites: [
+          vulnSiteRow({
+            "Security Auto-Fix Attempts": 0,
+            "Security advisories": TRANSITIVE_ADVISORIES,
+            "URL Checked At": DIGEST_NOW.toISOString(),
+          }),
+        ],
+      }),
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      now: DIGEST_NOW,
+    });
+    expect(captured).toHaveLength(1);
+    return captured[0]!.html;
+  }
+
+  it("keeps a transitive-only vuln out while its lockfile window is still ahead", async () => {
+    const html = await digestWithTransitiveVuln("2026-10-02");
+    expect(html).not.toMatch(/critical\/high vuln/);
+  });
+
+  it("asks about a transitive-only vuln that outlived its lockfile window", async () => {
+    const html = await digestWithTransitiveVuln("2026-09-27");
+    expect(html).toContain("still present after the 2026-09-28 lockfile window");
   });
 
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {

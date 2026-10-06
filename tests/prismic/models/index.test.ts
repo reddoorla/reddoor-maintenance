@@ -16,6 +16,7 @@ describe("prismic/models public surface", () => {
         "prismicTokenEnvName",
         "pushModels",
         "readPrismicConfig",
+        "refreshChangedModel",
         "remoteModels",
         "resolvePrismicToken",
         "sameModel",
@@ -401,7 +402,7 @@ describe("the module-wide capability guard", () => {
     "./push.js": ["pushModels"],
     "./remote.js": ["CUSTOM_TYPES_API", "remoteModels", "sendModel"],
     "./token.js": ["prismicTokenEnvName", "resolvePrismicToken"],
-    "./write.js": ["modelFilePath", "writeModelFile"],
+    "./write.js": ["modelFilePath", "refreshChangedModel", "writeModelFile"],
     "./types.js": [], // type-only, erased at runtime
     // NOTHING outside this module's own directory and the two node builtins
     // above. `../../audits/util/spawn.js` and `../../recipes/_prettier.js` used

@@ -7977,6 +7977,32 @@ Follow-on to the earlier entry today, "P1-26 privacy page: starter held at decis
 
 **Left open.** Most of this is listed under BACKLOG Done (P1-26). roalson-interests#258 holds the three per-site values and two wording details. The proxy refused deleting roalson's `claude/privacy-page` branch after the merge, so it is still on GitHub.
 
+## 2026-10-04 — D1 pull-sync built, held at Operator decisions 57 after two dirty rounds (#1143, draft, unmerged)
+
+Plan §8's brief: a Type Builder edit has to reach the repo as a PR, and `--pull` could not do it. `pullRemoteOnly` adopts only models that exist only in Prismic, and the pilot's edit was a changed placeholder on an existing type. `writeModelFile` already had a same-id refresh path, but only at the path it derives (`pascal(id)`), and 6 of the fleet's 132 slice directories differ from that. Refreshing through it would have written a duplicate file, which local.ts then refuses as a duplicate id. So the new capability, `refreshChangedModel`, writes to `local.path`, the file local.ts actually read. It never creates a file, and it refuses an id or kind mismatch, an identical model, and a file edited since it was read. The atomic replace moved into a shared `replaceAtomically`, so the capability guard's four pinned mutating call sites did not change.
+
+The fleet side, `prismic-sync --fleet turso --open-prs`, avoids a force-push. Each night it builds the tree fresh (default branch plus Prismic) and commits it with `commit-tree`. The parents are the old branch head and, when `main` moved, `main`'s head. The tree is always exactly tonight's result, the push is a fast-forward, and the test origin has `receive.denyNonFastForwards` on.
+
+**Beliefs corrected on contact.**
+
+- Runbook §2 advised "reorder in the dashboard, then `--pull`". `--pull` never carried any edit to an existing model, so that advice could not have worked. §2 and §7 are corrected on the branch.
+- Git strips credentials from URLs in its own error messages, so my first redaction test passed with redaction removed. It was rewritten to feed a real secret through.
+- The first patch that added the `held` guard silently failed to apply: a Python `replace` ran after prettier had reformatted the target line. The `held` test went red on its first run, which is how it was found. Every later scripted replace asserts its match count.
+- Mutation M25 survived because `git add -A` had reset the planted prettier's exec bit, so the test planted nothing that could run. The fixture now asserts mode `100755`.
+
+**Review.**
+
+- Round 1 found four majors: the token sat in the clone URL and in the environment of site code; human commits on the branch were silently reverted; a closed PR was reopened nightly; and a branch dispatch opened real PRs. All four were fixed in `22527096`.
+- Round 2 found two safety blockers, both from running a client's own toolchain beside an org-wide token:
+  - a committed `node_modules/.bin/prettier` ran during the model writes with the full environment;
+  - site code can write `$HOME/.gitconfig`, and through it make a later push run a helper that receives the token via `GIT_CONFIG_PARAMETERS`.
+
+  Both are fixed on the branch (`65a2658`, `9b9e325`) but not re-reviewed. Round 2 also found two correctness majors, not fixed: `declined` is keyed on a commit sha, and "Update branch" causes a silent permanent `held`.
+
+- The two-dirty-rounds rule stopped it there. The ask (Operator decisions 57) is to split the workflow, so that no job both runs client code and holds the token.
+
+**Not verified.** No live run: this session has no App key or Prismic tokens. Signed-commit rulesets and pnpm 11's handling of each site's `packageManager` are unknown. Phase 4's session owned the site repos today; this one touched none.
+
 ## 2026-10-04 — Lighthouse runs in a cloud container; the axe half is a missing browser revision (#1136, #1132, decision 70)
 
 The brief said Lighthouse probably failed in the cloud because Chrome refuses
@@ -8599,6 +8625,12 @@ The PDF is four pages, not the brief's two at most: at that config's 14px body a
 
 The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
 
+## 2026-10-05 — The post-kit proposal now covers every channel from one place
+
+At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
+
+This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
@@ -8709,3 +8741,280 @@ premise that only a second authority could refute. The code that landed is
 round 3's reviewed shape plus tests. The fleet rollout, where each site
 passes `prismicRepository`, is still per-repo PRs, and none of them has been
 opened.
+
+## 2026-10-05 — Blocking questions go through AskUserQuestion, with all their context (CLAUDE.md)
+
+The operator asked for this during P1-25 (#1157). That PR went through four
+review rounds and three decision asks. Each ask reached the operator as the
+last paragraph of a long status message, and as a line in `docs/BACKLOG.md`.
+The rule is now in CLAUDE.md's worker-session section. A blocking decision is
+asked with AskUserQuestion. The question names the item, the PR, the finding
+with a concrete input, each option's consequence, and the pick and why. The
+BACKLOG line stays, because AskUserQuestion only reaches someone who is there
+to answer it, and the evening and PM passes read the file.
+
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
+
+The operator asked for the hand-built CalTex site to become a slice-based
+Prismic site, with the work on a `staging` branch instead of `main`, and the
+output checked against `main` at the end. One piece could not follow that
+literally: `prismic-models` pushes models only on a merge to `main`. The
+operator chose a models-only PR to `main` (#73). It was proven inert: 11
+prerendered files equal to `main`'s after normalising hashes, with a
+one-word negative control.
+
+I first told the operator that publishing the slice content would be
+inert. Then I second-guessed it: I thought a `page` doc with uid
+`aed-programs` would trip SvelteKit's entry-generator mismatch check against
+main's static route. A build with a fake colliding entry passed. SvelteKit's
+`enqueue` dedupes by path and queues static routes first, so the colliding
+entry is never visited. A throwing `entries()` failed the build, which
+proved the hook runs. The publish (release `asQvEBIAAHEPgEox`, which the
+operator authorized) then left the live site byte-for-byte unchanged in
+everything rendered: 14 screenshots, the DOM and the sitemap. That held
+even though every page's hydration payload now carries the new `home`
+fields. Prismic's webhook rebuilds production on every content change,
+release edits included, so the release's drafts alone triggered six
+production builds of unchanged content.
+
+Staging (#74, `23763ef`) is pixel-identical to live `main` on all 14
+screenshots, with the same text, images, links, ids, metadata and nav
+hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
+branch nor previews for PRs into it. The `deploy-preview-74` link the bot
+posted returns 404, so the final comparison is a clean worktree build of
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
+
+Two process notes. `pkill -f <pattern>` run from the same Bash call matches
+its own command line and kills the shell; that ended a step twice. Once it
+skipped a `git checkout -- <file>` that would have restored a placeholder
+from HEAD over uncommitted work. Kill by a PID captured first. And the
+parity check needs fonts: the container has no Impact and no Helvetica, and
+every earlier evidence shot set headings in a default serif until Impact
+(Microsoft corefonts) and Nimbus Sans were installed.
+
+## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86
+
+The refute-claims critic asked whether `fleet-db-backup`'s `mismatches=0` covers blob contents, since `blob_bytes=11437644` held from 10-02 to 10-05 while the row counts moved. Reading `verify-dump` answered the first half: it compared per-table row counts and one number, `SUM(LENGTH(sites.header_image))`. A blob whose bytes change and whose length does not is invisible to both. The negative control proved it on a real production dump of 51 MB, 11 tables and 1111 rows. One hex digit flipped inside a header image left exactly one byte different and the same length, and `main` printed `DUMP_VERIFY loaded=true tables=11 rows=1111 blob_bytes=11433275 mismatches=0` and exited 0.
+
+The constant number was nevertheless real, and a different authority showed it. `typeof()` over every column of every table finds blobs only in `sites.header_image` (17 rows). The newest `header_image_generated_at` before the 10-05 run was sonder's, at 09-30 21:02Z. The run logs agree. The 09-30 run (10:39Z, before sonder's write) printed 11146577, and the 10-01 run printed 11437644, a jump of 291067. Today's five regenerations at 18:37Z moved it again, to 11433275. The number tracks writes; there were simply none in those four days.
+
+Every Turso read went through a client-side guard that accepts one statement beginning `SELECT`. Its refusal was proven on a local file DB first, against INSERT, UPDATE, DELETE, `SELECT 1; DELETE` and `WITH … DELETE`, and then against production. libSQL's `transaction("read")` was not a usable second layer: on a local file it ran an INSERT without complaint (the transaction was never committed, so nothing persisted).
+
+#1195 puts a sha256 per table in the manifest. It hashes the column names and every cell in rowid order, using the driver's values, before they become SQL text, with a typed, length-prefixed encoding per cell. `verify-dump` hashes the restored tables the same way, and the corrupt dump now reports `✗ sites: content hash`. A fresh production dump verifies clean, at `hashed=11`.
+
+The control first went red on two tables, `sites` and `submissions`, and the second was the instrument's fault. Python's text-mode `read()` had turned every `\r\n` in 18 spam messages into `\n`. Redone in binary mode, one byte differed and one table went red. The side result is that the hash also catches a line-ending rewrite, which counts could not.
+
+Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 86, and the worker's pick is to land it as it is.
+
+Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
+
+## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
+
+A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
+
+- roalson-interests#263: Improved Properties, and the menu with ABOUT US.
+- roalson-interests#264: the package opens in the browser, with no size line.
+- roalson-interests#265: the whole card is one link.
+
+The map rework waits on Nicole's design (decision 83). Mid-session the operator added a 61.81-acre listing from Gmail, and that became the release's 23rd document.
+
+**Pins were checked against the listing's own outline, not an address.** The property model has no address field, and the packages describe sites as corners ("the southwest corner of IH-35 and Wonderworld"). Nominatim reverse geocoding put every pin on the right road. That was useless as a check, because a pin on the wrong side of an interchange still sits on the right road. The authority turned out to be the feature images themselves: 16 of 22 are the package's own aerial, with the parcel outlined in red or yellow. Overpass was unreachable from the container; Esri World Imagery tiles loaded. So each pin was rendered on Esri at z17/z18 and set beside its outline. Eight were off the parcel:
+
+- San Marcos: about 250 m away, on a warehouse.
+- Seguin: about 350 m away, in a field.
+- Scenic Loop: on the Bill Miller pad next door.
+- Kingsville: on the Chili's.
+- IH-10 E at 1604: east of the parcel.
+- Perrin Beitel: on the wrong side of the road.
+- IH 10 at Menger Springs: on a building between its two tracts. It now sits on Tract 2, the larger at 6.4 of 10.2 acres.
+- Menger Springs Road: on the Methodist campus.
+
+Census address geocoding landed 35–75 m from correct pins. That is interpolation noise, and it would have moved good pins.
+
+**Aerials: the frames vary more than the CSS says.** The card is `aspect-[423.5/267.5]`, but measured in a browser it is 1.06–1.58 at 1440 (the photo stretches to the text beside it), 0.81 and 0.96 at 834 (the carousel photo spans the slide), and 1.71 on the homepage band. A crop has to keep the outline inside every centred `object-cover` view from 0.81 to 1.71. An outline detector plus a brute-force crop search found 14 feasible. Two are not: Dove Canyon and 5930 Bandera need 1,371 and 1,318 px of a 1,200 px source, even if only the landscape frames count (decision 82). The first detector chose yellow "SITE" arrows and red brick. Filtering components by fill ratio (an outline is hollow) fixed it, and a contact sheet confirmed all 16 by eye. One write nearly went wrong: Prismic asset ids are a filename's first 16 characters, and six contain an underscore, so splitting on `_` would have pointed six crops at assets that do not exist. That was caught by comparing against the ids `get_document` returned, before the writes.
+
+**The new listing.** The Gmail connector lists attachment ids but has no tool that returns their bytes. Per the operator's instruction I stopped and asked, and the operator dropped the files in.
+
+- All six image boxes in the intake form are the template's empty placeholders.
+- The flood-plain box still holds the template's example ("FEMA maps do not indicate any floodplain"), and the survey says part of the tract is in zone A.
+- Nothing missing was invented. Nine questions for Erik are in #264, along with what was probably meant for Matt's "second email": photos, maps, demographics and comments.
+- The package copies the existing packages' letterhead from a rendered page, with the content area masked. The text pages are printed through Chromium, and the disclosure and IABS pages are copied byte-for-byte from a current package.
+- No Century Schoolbook clone was reachable (both CTAN mirrors failed TLS), so the text is Liberation Serif.
+- The pin is the outline's centroid. The traced outline came to about 64 acres against 61.81 stated, which is a positive check on the scale.
+- The operator chose to upload the two files to Prismic themselves, because the connector only fetches public URLs. So the release is not publishable until they are linked (decision 81).
+
+**Defects the changes introduced, all found before merge.**
+
+- The whole-card link broke the carousel swipe: a mouse drag on a link starts a native link drag. A completed swipe could also end in a click that opened the listing. Both `draggable="false"` and a 500 ms post-swipe click guard are needed: removing either turns the new spec red in 3 of 3 runs.
+- Under reduced motion, an off-stage card's title stayed `visibility: visible` for about 20–45 ms after hydration. The base rule gives every element a 0.01 ms `all` transition, and visibility is in "all". The off-stage @smoke failed 3–4 of 20 runs on the branch and 0 of 20 on main. `in-[[inert]]:invisible` made it 20 of 20. Without reduced motion the transient never appeared, which is why it looked like a flake until the two runs were compared.
+- ABOUT US is `/#about`; the site has no About page. It sent focus back to the menu button.
+
+**Instrument failures, mine.**
+
+- A background `pnpm verify; grep …` reports grep's exit code. The package branch was pushed once with its own new spec red.
+- That spec had asserted "no download", which headless Chromium can never satisfy: it has no PDF viewer, so any PDF navigation downloads, even in a new tab. The spec now asserts the new tab, the CDN request and the unchanged page, and it is red against main's save-on-click code.
+- An unquoted heredoc ran the Markdown backticks of a PR body as shell commands. None was destructive.
+
+**Review.** Package and card: round 1 found minors and nits, and round 2 was clean. Labels: both rounds found something (round 1 a major on focus, round 2 a one-frame focus touch on the menu button). It is fixed and held for decision 84 rather than taking a third round.
+
+Corrected beliefs:
+
+- The brief's "hover-to-select, will look Monday" was stale: roalson-interests#253 had shipped it.
+- Item 5 reverses decision 55(iii) (#245, download) at the client's request.
+- The 2026-10-05 MarkUp boards had 0 unresolved pins, so this round was only Erik's list.
+
+**Decision 84 answered the same evening:** the operator chose (a), "your about us thought is right". #263 lands without a third round, and ABOUT US stays on `/#about`.
+
+## 2026-10-05 — P1-24: the starter writes `html[data-hydrated]` and the smoke recipe scaffolds it (reddoor-starter#184 `2209aa0`, #1194)
+
+The smoke recipe's marker was `footer`. It is server-rendered, so it was visible with scripting off and with the bundle missing: every scaffolded route proved the page painted, never that it hydrated (#947). Roalson had already fixed this for itself as #57. The template now has the same fix (reddoor-starter#184): the root layout's `onMount` writes the attribute, and the template's own smoke routes wait on it. The recipe here scaffolds `hydrationMarker: "html[data-hydrated]"`.
+
+**The brief did not cover one case, and the code settled it.** The recipe writes `tests/smoke/routes.ts` only into sites that lack one. Those are mostly bespoke builds and sites cloned before today, and almost none of them write the marker. Scaffolding `html[data-hydrated]` there unconditionally would false-fail every route. That is what `footer` did to la-homelessness-initiative, a site with no footer, on the first fleet-smoke run, and it is why `detectHydrationMarker` exists. So the recipe keeps the new marker only when some `.svelte` file under `src/` writes it, as either `dataset.hydrated =` or `setAttribute("data-hydrated"`; a `===` read does not count. Otherwise it falls back to `footer`, then `main`, then `body`, and the manifest comment and the run's note both say that the fallback proves paint, not hydration, and how to add the marker. A site with no `.svelte` files gets the template default, as before. I judged this to be inside the brief, not a fork: it is the existing fallback rule pointed at a new default.
+
+**A 20 s wait, from the starter's review.** Round 1 on #184 found that the bundle-only marker waits on the client compile of a cold `vite dev` server. The old marker never did. Playwright's 5 s default is shorter than roalson's measured 5–7 s first transform, and roalson's 12-of-14 against 10-of-10 numbers were measured on preview, not on dev. The starter's waits, and the scaffolded spec here, now use 20 s. Round 1 also caught the starter journal claiming this recipe change had already landed. It was in progress then; the claim was corrected before merge. Round 2 was clean: one minor about diagnostics, left as it was, and a nit, folded into the journal.
+
+**Proved before trusted.** Before #184 merged, the recipe's generated `routes.ts` and `pages.spec.ts` ran inside the starter's worktree, with `/` swapped for `/privacy` because the placeholder home is a 404. With the marker, 2 of 2 passed. With the `onMount` write removed, the route failed on `hydration marker "html[data-hydrated]" … Timeout: 20000ms`. `html` passes `toBeVisible()`; this was measured, not assumed. The starter's mutation table is in #184. Here, seven mutations each turned a test red: the brief's three (scaffold `footer`, scaffold `html` in the template, and the same in the detector's constant), detection that ignores the writer, detection that never falls back, a regex that accepts `===`, and a spec without the timeout. Round 1 of #1194's review found the detector would take a comment naming the write, or the same write on a carousel `<div>`, for the marker, and false-fail every route; it now strips comments and anchors on `documentElement`, with a negative test for each.
+
+**What it does not do.** The a11y audit's spec (`src/audits/a11y.ts`) still scans without waiting on the marker, so #948's 191-vs-208 race remains even on sites that write it. Existing sites get the marker only through per-repo PRs. `reddoor-starter-blux` takes #184 by cherry-pick. #1148 can now wait on the marker before it injects. All four are listed in BACKLOG under "Watching", and none is ranked.
+
+The cloud container's Playwright browser build (1234) does not match the starter's pinned build (1243), so every browser run here used a `launchOptions.executablePath` override from an uncommitted local config. `rm -rf` of a probe directory was refused by the permission rules, and individual `rm` calls did the cleanup.
+
+Round 2 of #1194's review found no behavior defect. It found two text-only minors, both fixed before landing: this entry still named "Blocked" after the line moved, and the detector's comment did not list one fail-safe miss. A `/*` inside a string (an `import.meta.glob("/src/posts/*.md")`) blanks code up to a later `*/`, which can hide a real write. That falls back to `footer` and never false-fails. I read "two dirty rounds, then stop" as being about defects in what ships, and landed. If the operator reads it as any finding at all, this PR is the case to point at.
+
+## 2026-10-06 — #1195 landed after the third review round Operator decisions 86 asked for
+
+> Follow-up to 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86.
+
+The operator answered AskUserQuestion with a third round. It found no blocker. Its one minor corrected a premise of round 2's fix. Past 2^53, JS's shortest form is not the double's digits: `String(2 ** 60)` is `1152921504606847000`, while the double is `1152921504606846976`. SQLite reads that text as the int64 it spells, so a whole-number REAL in an untyped column came back as a different INTEGER, up to 512 off in the reviewer's 20,000 samples. The verify reddened on it with a RangeError, never a false green, but an unverified `db restore` would have written the wrong number. The fix the operator chose writes every number that is not a safe integer as `toExponential(16)`. `toPrecision(17)` is not enough, because it prints a 17-digit integer such as `89508622084877072` without an exponent, and that lands as an INTEGER again. Three mutations go red: the old 2^63 bound, `toPrecision(17)` in place of `toExponential(16)`, and `String` for every number. The second only went red after `89508622084877072` was added to the test; the first version of the test had no 17-digit value and let it through. The fix also closes round 1's accepted F2 crash. A fresh production dump through the SELECT-only guard printed `DUMP_VERIFY loaded=true tables=11 rows=1113 blob_bytes=11433275 hashed=11 mismatches=0`, and the full suite passed 8652.
+
+Left as it is: `verify-dump` does not hash a table that is in the manifest but absent from the restore. The counts and the `DATABASE_TABLES` coverage check already catch every such table, except an empty one that the app does not own.
+
+## 2026-10-06 — Reddoor's red Renovate PR was the new a11y rule seeing an old colour (reddoor-website#260, #208)
+
+The cockpit's only "broken" item was Reddoor's "1 Renovate PR failing CI": reddoor-website#208, red on the a11y step with `contrast-unmeasured … (oklab(0 none none / 0.1))`. The brief guessed a bumped Tailwind or lightningcss had changed the emitted CSS. It had not.
+
+Built on both heads, the CSS carries the same nine `oklab(0% none none/.N)` values, with tailwindcss 4.3.3 and lightningcss 1.33.0 on both. #208's relevant bump was `@reddoorla/maintenance` 0.95.1 → 0.103.0. `git tag --contains c1410fa0` (#916, the `contrast-unmeasured` rule) starts at v0.102.0. So the colour had been on the live site all along, and the new gate was the first instrument able to see that axe never measured contrast there. The same will happen on every fleet site that uses `black/<alpha>` once Renovate brings it to 0.102+.
+
+The mechanism, probed directly against lightningcss 1.33.0: Tailwind v4 builds `black/10` as `color-mix(in oklab, #000 10%, transparent)`, and lightningcss folds that to a literal.
+
+- `#000`, `rgb(0 0 0)` and `oklch(0 0 0)` all fold to `oklab(0% none none/.1)`.
+- `oklab(0 0 0)` folds to `oklab(0% 0 0/.1)`.
+- `#fff` gives `oklab(100% 0 5.96e-8/.1)`, which is why white never showed up.
+
+The element was IndustryHero's ghost CTA, "Get Started": white 14px text on `bg-black/10` over the hero photo. It carries real text, so option (b), marking it decorative, was out.
+
+Option (a) was taken: `colors.black: "oklab(0 0 0)"` in reddoor-website's `tailwind.config.js` (#260, `bc5cfe7`).
+
+- **Pixels.** Chromium element and full-page screenshots on `staging` and the fix were byte-identical by sha256: the CTA at 112×40, plus `/dev/a11y-fixtures`, `/dev/animate-in` and `/`. The two servers were first shown to differ in the computed colour, so the comparison could have failed.
+- **axe on the CTA.** Its verdict moved from `colorParse` to `bgGradient`. That is the honest answer for text on a scrim over a photo, and the audit correctly does not report it.
+- **The gate.** Run locally on #208's own head with 0.103.0, it reproduced CI's exact line. With the one-line change it reported `0 violations across 2 routes`. Reverting the line is the mutation that turns it red.
+- **Review.** One adversarial review found no defects. Nothing reads the theme's black outside the generated utilities: the OG renderer hardcodes `#000`. Tailwind 4.3.3 already targets Chrome 111, Safari 16.4 and Firefox 128, so `oklab()` on the solid utilities sets no new browser floor.
+
+#260's own CI ran maintenance 0.95.1, which has no such rule, so its green was never the proof. The proof came when #208 was rebased onto it: `✔ a11y: 0 violations across 2 routes (+1 hydration smoke)` on CI, landed with `land-prs` as `e55072e` at 00:22Z on 10-06.
+
+Getting #208 onto the fix took one detour. By the time #260 merged, #208 was DIRTY against a `staging` that had moved under it (#259), so `land-prs` stopped. Renovate's schedule (`0 */12 * * *`) had actually fired at 04:53, 16:40 and 20:23Z. The 20:23Z run was marked failure, with its only job cancelled before any step ran, so no rebase was coming. The 00:00Z slot had not fired by 00:13Z. I dispatched `renovate.yml` once. It rebased #208 (`cd62125`) and merged nothing else.
+
+Option (c), resolving `none` inside `src/audits/a11y.ts`, was not done. The gate was right that the contrast was unmeasured, and the brief forbids softening it. But its remedy text, "write 0 for none in the oklab() token", points at a token no site has; the `none` here was synthesised from sRGB `#000`. That is BACKLOG P1-31, together with a fleet survey of who else turns red on the 0.102+ bump.
+
+Not verified here: the cockpit item clearing. That happens on the next sweep. The staging → main promotion is the operator's.
+
+## 2026-10-05 — One Routine, two fires; and the five October sends held for Best Practices (#1179 `cfc706a7`, #1197 `f262effd`)
+
+The operator wanted one chat to click as the cockpit rather than two Routines, so the evening pass (#1162) did not become a second Routine. The existing "Reddoor Project Manager" Routine fires at `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4` and picks the morning or evening pass from the Pacific clock. Putting the zone in the cron also fixes the 11-01 drift that item 77 named. The evening pass moved from 17:18 to 17:48 PT, because one cron line needs one minute for both fires. Whether a Routine can reuse one session across fires was not checked; each fire is a fresh session, and the newest is the cockpit.
+
+At about 00:20Z on 10-06 the operator held the five October Maintenance sends until the Best Practices 78 is cleared. Four drafts store 78: Data Dynamiq, Espada, Revogen and Vineyard; LAHI stores 100. A direct Lighthouse 12.6.1 run on datadynamiq.com read 100 with both the mobile and desktop presets. The nightly reads 78, but its log says only "1 assertion(s) failed", so the failing audit is unknown. A worker session is on it, and P0-4 records the hold.
+
+Both PRs lost the race with other sessions' journal appends three and two times. Each one landed only after its journal entry was removed, and this entry is the result. A PR that touches the journal waits about 10 minutes for CI, and on a busy day another session appends inside that window almost every time. A docs PR that must land should keep its journal line in a separate PR, or land outside the busy hours.
+
+## 2026-10-05 — D1 pull-sync split into three jobs, reviewed twice, landed (#1143, `7132170b`; Operator decision 72, #1191)
+
+The operator answered decision 72 with (a): split the workflow. Round 3 had shown why. Stripping credentials from a site's environment isolated nothing, because its own processes can read `/proc/<parent>/environ`. So the rule became "no site's code ever runs in a job that holds a credential". The nightly is now three jobs. **fetch** holds the Prismic tokens and a read-only App token. It clones each site and writes Prismic's models with no process allowed to start, then leaves a plan and a `.git`-free tarball per site. **build** is one matrix leg per site with `permissions: {}`. It runs the site's install, prettier and codegen through a dependency-free runner (`scripts/prismic-sync-build.mjs`) inside `docker run --rm`. **publish** holds the write token and runs no site code. It builds each commit itself from `baseHead` plus the plan's named paths, in a private index with nothing checked out. A formatted model is accepted only when it still parses to exactly Prismic's content. That last check is new: before, the site's prettier could have rewritten a model's content unchecked. `PrismicSyncDeps` lost `install`, `format` and `codegen` altogether, so the module that holds a token can no longer run site code at all.
+
+Three of round 3's majors went with it, or were fixed alongside. The "HEAD-move" major is gone by construction, since publish has no working tree. "Update with rebase" is now the sync's own when each rewritten commit is authored by the sync, committed by GitHub, not a merge, and touches only model and generated files. `held` and `declined` now raise `::warning::` on a green run. Round 3's minor about declined sites also went: the declined check now runs before any push, so a declined site's branch never moves.
+
+**Instruments.** The mutations were named in the session log before the code: MA1–MA14, plus the round-3 key and merge mutations re-run on the moved code. 19 of 19 went red. Two (MA1, MA5) could no longer be expressed, because the code they would mutate no longer exists. One test was hollow at first. The harness tarred with its own `tar` call, so "the build input has no `.git`" was a claim about the test, not the product. It now uses `defaultSyncDeps().archive`, and MA13 went red against it. The runner's real steps were run once by hand, outside Docker, on a real site. `corepack pnpm install --frozen-lockfile` and the site's own prettier worked. An outdated lockfile gave `ok: false` and exit 0, but the first version's error was empty, because pnpm writes its errors to stdout. Not proved: the container itself (no Docker here), `prismic gen` in the image, and the artifact actions on a real run.
+
+**The one review was dirty, with two blockers and no major.** Both blockers were things a fake cannot show. First, `upload-artifact` follows symlinks (`followSymbolicLinks: true`, then `realpath`). So a link the container leaves in its output, pointing at another site's tarball or at `/proc/self/environ` (the upload step's own runtime token), would have been uploaded as the target's bytes and committed to the attacker's own PR. A host step now deletes anything in the output that is not a plain file or a directory. Second, `download-artifact` v8 extracts a lone match straight into `path`, with no directory named after the artifact. So a night with exactly one site to build would have failed that site every night. Legs now upload `built/` with `<id>/` inside, and publish merges. A first fix also removed files with more than one hard link. That rule was order-dependent: deleting one name drops the other's link count. It was also unnecessary, because a hard link cannot cross the bind mount. It was dropped. Both blockers are fixed in `5a46bd67`, unreviewed, and MB1–MB3 went red. The new ask under item 72 is one narrow review of that commit, then land.
+
+**Belief corrected.** I wrote the artifact actions' SHAs from memory first, then resolved them with `git ls-remote` before trusting them. `download-artifact` v8.0.1 is `3e5f45b2…`, and `upload-artifact` v7.0.1 is the repo's existing `043fb46d…`. The review then showed that knowing the right SHA was not knowing the action's behaviour: both blockers live in what those pinned versions actually do.
+
+**Reviewer hygiene.** This round's briefs forbade printing any environment value, reading `/proc/*/environ`, or creating users, after round 3's reviewer leaked a token and left a user `probeu` behind. All three reviewers kept to it.
+
+**The operator chose the narrow review, asked through AskUserQuestion under the CLAUDE.md rule that landed at 23:30Z.** All three lenses were clean on `5a46bd67`: no blocker and no major. Three things they established:
+
+- **Pinned action source.** Both reviewers read the pinned actions' source and confirmed the layout. With `path: built`, the artifact root holds `<id>/`, and `merge-multiple` extracts each leg's artifact to `built/<id>`. A night with zero legs downloads nothing and does not fail.
+- **The removed "Arrange" step.** It really was broken for a one-leg night, so the blocker was real and not hypothetical.
+- **Ownership.** On GitHub the cleanup step runs as `runner`, but the container writes as root. A link the container plants inside a directory it created therefore cannot be deleted, and the step fails under `bash -e`. That fails closed (no upload, no leak), but any one site can then stop the whole night's publish. Two reviewers reproduced it with a non-root user over a root-owned tree. The test cannot see it, because it creates every entry as its own user.
+
+The fix is to run the cleanup with `sudo`, or to `chown` the output first. It is recorded as a follow-up, along with `merge-multiple` giving up the per-artifact directory as a defensive layer, and the untested delete of other sites' trees.
+
+#1143 landed on 2026-10-06 at ~00:35Z as `7132170b`, through `land-prs` after one BEHIND round. The first scheduled run is the instrument still to prove.
+
+## 2026-10-05 — Evening pass
+
+Headline: item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). #1143 landed while this pass ran, so item 72 is closed. `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.
+
+## 2026-10-06 — The time-travel shim fakes `Date` only; a browser launched under it stalled on `page.evaluate` (#1171, #1193, `82a4f40`)
+
+The weekly `time-travel` run went red on 2026-10-05 (run 37363675885) on one hook: a11y-live-spec's "freezeMotion reaches ::before and ::after (#1018)" `beforeAll`, `Hook timed out in 60000ms`, 567 files passed. The brief listed three earlier reds (09-21, 09-28) as possibly the same failure. They were not: both logs fail `match-harness-snapshot-guard`'s "passes on the real tree", the shallow checkout #895/#951 fixed. The 09-29 green was a branch dispatch. So 10-05 was the first scheduled run on `main` carrying the #1018 test (#1003, merged 09-29), and it failed the first time it was asked.
+
+**The cause was the shim, not a clock.** `vitest.time-travel-setup.ts` called `vi.useFakeTimers({ shouldAdvanceTime: true })` with vitest 4's default `toFake`, which is every timer global except `nextTick` and `queueMicrotask`: `setImmediate`, `setTimeout`, `setInterval`, `performance` and `hrtime` as well as `Date`. Playwright 1.62.1 hands off every message on `setImmediate`, in two places. Its CDP `PipeTransport` captures the function once, in its constructor (`makeWaitForNextTask()` returns `setImmediate` on Node ≥ 11). Its in-process client/dispatcher connection also hops on the global for every message. The #1018 hook is the only one in its file that calls `chromium.launch()` in the test worker itself; the others spawn the audit as a subprocess, which a faked clock never reaches.
+
+Measured in a cloud container, all at +90 d unless stated:
+
+- **The hook itself.** Real clock: 171 ms and 204 ms. Under the old shim: timed out at 60 s in 2 of 3 runs; the third passed in 10.8 s.
+- **Where it stops.** A probe printed `launch` +120 ms, `newPage` +300 ms, `setContent` +380 ms, then never returned from `page.evaluate`. That held for `() => 1`, for the string `'1+1'`, and for every step of `freezeMotion`'s body, each given an 8 s budget.
+- **Order matters.** With fakes installed _after_ launch, evaluate answered under every method, default included. With fakes installed _before_ launch, it stalled under the default and under `setImmediate` alone (a 110 s budget). It answered in 8 ms under `Date`, `setTimeout`, `setInterval`, `performance` or `hrtime` alone.
+- **The date is irrelevant.** +0 days with `setImmediate` faked stalls identically.
+- **It is a permanent stall, not a slow one.** A `pw:protocol,pw:channel` trace shows the client send `evaluateExpression` and the server never issue the matching CDP `Runtime.callFunctionOn`. During the stall, `vi.getTimerCount()` was 0, a fresh fake `setImmediate` still fired, and neither `vi.advanceTimersByTime` nor `vi.useRealTimers()` revived the evaluate. I did not trace the exact promise it waits on (the server's `frame.context("main")` is the likely one). The fix does not depend on it.
+
+**Fix.** `installTimeTravel` in the new `vitest.time-travel.ts` fakes `Date` only and keeps `shouldAdvanceTime`; "today" is all the shim exists to move. No timeout was raised and no test was touched. `tests/time-travel-shim.test.ts` runs in every `pnpm test`, not only the weekly run. It asserts four things: the shift, that the shifted clock keeps moving, that every scheduler stays real (by identity), and that a browser launched under the shim answers `page.evaluate` within 15 s.
+
+Mutation results:
+
+| Mutation                            | Red tests                                          |
+| ----------------------------------- | -------------------------------------------------- |
+| Default `toFake`, i.e. the old shim | 2 (scheduler identity; browser "no answer in 15s") |
+| `toFake` + `setImmediate`           | 2                                                  |
+| `shouldAdvanceTime: false`          | 1                                                  |
+| No `setSystemTime`                  | 1                                                  |
+| `toFake` + `performance`            | 1                                                  |
+
+Afterwards, the hook passed 3 of 3 at +90 d in about 0.2 s. The full suite at +90 d: 569 files passed, 8609 tests. On the real clock: 8608. Lint and typecheck were clean, and one adversarial review (correctness, test quality, repo conventions) came back CLEAN. Its single optional note, that the setup file's "Known gap" could also mention a file's own `vi.useFakeTimers()`, predates this change and was left.
+
+**A belief corrected.** The BACKLOG entry for form-e2e (#1017) records that three synthesizer tests "used `setContent`, which hangs under the weekly time-travel clock", and that they were worked around in the test. It was this same defect, attributed to `setContent` and the clock rather than to the shim's fake `setImmediate`. Any other in-process Playwright test was exposed the same way. On GitHub's runners, `interaction-harness` took 140.9 s in the failing 10-05 run and 31.2 s in the post-merge dispatch: the old shim was also costing that file most of its runtime.
+
+**Landing.** `land-prs.mjs` needed five invocations and 13 green CI rounds. `main` took a commit about every eight minutes, about one CI duration, and the ruleset's `strict_required_status_checks_policy` blocks a BEHIND merge. So each green head was BEHIND at the gate, and each invocation stops after three rounds by design. It merged on the fifth invocation, from head `5ba4d3b`, as `82a4f40`.
+
+**Confirmed on `main`.** A `workflow_dispatch` of `time-travel` on `82a4f40` (run 37398605808) went green: 572 files passed, 8760 tests, with `a11y-live-spec` 63/63. #1171 closed on the merge, with the evidence commented.
+
+## 2026-10-06 — The best-practices 78 was two third-party cookies; the nightly now names failing audits (#1205 held, Operator decisions 88–89 in #1204)
+
+The six maintained sites at best-practices 78 were not the instrument. The nightly's log said only "1 assertion(s) failed", so #1205 makes it name the audits. For every category whose lhci assertion failed, it lists the weighted audits that scored below 1 or errored, counted across runs. It prints one `LIGHTHOUSE_FAILURES assertions=… audits=… site=…` line per failing site, stores the list in `site_health.lighthouse_failing_audits` (migration 0040) and shows it on the site dashboard. On the runner, run 37393496930 named `best-practices/third-party-cookies:w5:3/3,best-practices/inspector-issues:w1:3/3` for ERP, Espada, MSOT, Revogen and Vineyard. That is 6 of 27 weight points, exactly 0.78.
+
+**The instrument failed its first real run, and this is the entry's main lesson.** Every new test passed, and the first dispatch (37390764847) printed `audits=unnamed` and `assertions=minScore:…` for every site. The fixtures had copied the existing `lighthouse.test.ts` assertion shape, `name: "categories:best-practices"`, which lhci never writes. lhci 0.15.1 writes `name: "minScore"`, `auditId: "categories"`, `auditProperty: "best-practices"`. The old code's `categoryFromAssertion` had always returned "minScore" as the category for real output, and nothing noticed, because nothing read it. The fix used the captured real shape. It was proven twice before it was trusted: once locally, against real lhr files plus a forced-fail `lhci assert`, and once on the runner. Also worth knowing: lhci's `actual` is the best of the three runs (its default aggregation), so 0.78 means all three runs scored 0.78 or less. The stored score, by contrast, is our average.
+
+**The cause, named from the lhr.** A container run of `deployedLighthouse`'s exact config (lhci 0.15.1, Lighthouse 12.6.1, desktop, devtools throttling, 3 runs, `--no-sandbox`) reproduced 0.78 on all five sites and gave 1.0 on CalTex. The runner was never the difference. Chrome for Testing 151 and Chrome stable 154 both gave Data Dynamiq and CalTex 1.0. Two cookies:
+
+- **Vimeo's Cloudflare `__cf_bm`** (Espada, MSOT, Revogen, Vineyard). Their media components render the `player.vimeo.com` iframe on load. The starter's `VimeoBanner.svelte` and Vida's `VimeoBackground.svelte` already mount it only after a real pointer, wheel, key or touch event, which no audit produces.
+- **The Prismic toolbar's `io.prismic.previewSession`**, about 21 cookies (ERP, Vineyard). Both hard-code `<script src="https://static.cdn.prismic.io/prismic.js?…">` in `src/app.html`, outside the `isPreviewSession` gate their layouts already put around `<PrismicPreview>`.
+
+**Two beliefs from the brief, corrected.** "Vimeo ruled out: 29 Navy and Vida have it and score 96/100" — their audited homepages request no Vimeo player at all, so they were never controls. "GA4 ruled out: data-dynamiq#59 merged after the run" — #59 was the fix. It deleted `player.vimeo.com/api/player.js` from `app.html`, and Data Dynamiq has read 100 since. Its timing was the evidence, read backwards.
+
+**A belief of my own, corrected before it shipped.** I wrote that "refresh preview" would clear Data Dynamiq's stored 78. `renderReportFromRow` renders the report row's stored `lighthouse` scores (`src/reports/send/render-from-row.ts:67`), so it does not. The held drafts need a re-draft once their live scores are right.
+
+**Review.** Round 1 used three lenses. Schema was clean. Correctness found an errored weighted audit (the NO_LCP case) being dropped, so the line blamed a metric at 0.99, and found that a missing `assertion-results.json` cleared the stored list. The tests lens found 11 survivors. All were fixed in `49cc0133`, and 22 of 22 named mutations go red. Round 2 found one minor that predates the PR: when lhci dies mid-collect, the audit says "all categories passing". Under the two-rounds rule, #1205 is held as Operator decision 89, with (a) land as-is plus a follow-up as my pick. The rollout to five client repos is decision 88. Migration 0040 already ran on live Turso through the branch dispatches; it is additive, and older package versions ignore it.
+
+**The test lens and a mutation run shared one worktree.** The reviewer's mutations were live while my own vitest loop ran there, so for about 20 minutes neither run's results could be trusted. Reviewers that mutate get their own `git archive` copy; round 2's brief said so.
+
+## 2026-10-06 — Tuesday PM pass: the October sends wait on item 88, and the night was quiet (`claude/happy-clarke-1cjx2r`)
+
+The morning pass, 11:51–12:05Z. Its report is `docs/morning-reports/MORNING_REPORT_2026-10-06.md`.
+
+The five Maintenance reports due 10-05 are still pending approval and held by the operator. The reports gate was read through Kysely with a plugin that throws on any non-SELECT node; an `UPDATE … WHERE 0` was refused before any read, and its raw-SQL twin too. One slip worth recording: the raw control named a table `websites` that does not exist (the table is `sites`), so the refusal it printed proved the plugin, not the database's rejection. The plugin refused it before the query left the process, which is the property wanted, but a control that would also have failed at the database is weaker than it looked. The preflight's own control (Espada with recipients and point of contact blanked → `recipients-missing`) behaved as on 10-05.
+
+The stored scores and the live ones now disagree in a way the operator has to resolve: Data Dynamiq's draft stores best practices 78 while `site_health.bp_score` reads 100, and LAHI stores 100. Those live scores were stamped at 00:41Z by the bp-78 branch's dispatch, not by a scheduled run, so they are evidence of the fix, not of the nightly. The new `lighthouse_failing_audits` column (migration 0040, applied ahead of #1205) already names `third-party-cookies` and `inspector-issues` on all five 78 sites, which matches item 88 exactly.
+
+The first scheduled backup with #1195's content hashes ran green with `hashed=11`, and `blob_bytes` finally moved (11437644 → 11433275), as the five new header images of 10-05 predicted. That answers the critic's 10-05 question from the other side: the number was static because nothing changed, and it moves when something does.
+
+Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.

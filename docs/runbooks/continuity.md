@@ -91,11 +91,11 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
 at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into four
-tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:39`) —
+tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:40`) —
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:180`, `:373–375`).
+(`fleet-cockpit.ts:183`, `:376–378`).
 
 **The "Needs you" feed** is real and is the thing to read first
 (`src/dashboard/fleet-cockpit.ts:487–510`, rendered by `renderNeedsYouFeed`,
@@ -234,7 +234,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:176`).
+`.github/workflows/fleet-db-backup.yml:178`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
