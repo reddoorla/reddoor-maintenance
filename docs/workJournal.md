@@ -9089,3 +9089,19 @@ site carried the slice markers. Against the morning's capture of the
 hand-built version it stayed pixel-identical on all 14 shots, with the same
 301s, 404 and sitemap URLs. The old `home` fields `s1`–`s8` are now
 unrendered; deleting them is an optional manual Prismic edit.
+
+## 2026-10-06 — Mantis P5: the chrome, both home carousels and the project galleries land; the home release waits on a publish (mantis-landscaping #29 `fa96aa7`, #30 `1150d1a`, #32 `9569aac`)
+
+P1-30 matching round 1 on `/` closed with three site PRs. Its detail and measurements are in mantis-landscaping's own journal (#33).
+
+**The two-dirty-rounds rule did its job twice, and the operator asked for third rounds both times.**
+
+- #29: round 1 found focus inside the stuck nav scrolling the page by about 420px. Round 2 found the skip link landing `main` under the nav. That made OD 80, and the answer was (b).
+- #30: round 1 found the pause control resuming on a padding press. Round 2 found inactive dots painted transparent: the token they used existed only on #29's branch. The operator again chose (b).
+- Both third rounds came back clean, and both PRs landed through `land-prs.mjs --repo reddoorla/mantis-landscaping`.
+
+**#32 replaced the project pages' scroll strips with the site's shared `Slider`,** as the operator asked ("use the prebuilt component for logic"). Its review found every dot was a tab stop: 63 tab stops on edible-gardens. A roving tabindex in `Slider` brought it to 33. On the live mirror after deploy, edible-gardens shows 8 carousels and water-wise-gardens 5.
+
+**Belief corrected.** The reference's carousel breakpoints were taken in SPEC as viewport widths. Blux's `sliderAt` actually compares the grid's own `offsetWidth`, so the real switch points are a viewport of ≤978 and ≤652, not 900 and 600. A Blux "below N px" is worth checking against `sliderAt` on every Blux rebuild.
+
+**Waiting on the operator:** Prismic release `asQ6NhIAAIoP2_HX` (home: pillars 900, values 600 with autoplay 2000) is staged and presented. Until it is published, the live `/` keeps the grid at every width.
