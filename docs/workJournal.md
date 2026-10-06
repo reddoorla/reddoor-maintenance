@@ -8893,3 +8893,7 @@ The operator wanted one chat to click as the cockpit rather than two Routines, s
 At about 00:20Z on 10-06 the operator held the five October Maintenance sends until the Best Practices 78 is cleared. Four drafts store 78: Data Dynamiq, Espada, Revogen and Vineyard; LAHI stores 100. A direct Lighthouse 12.6.1 run on datadynamiq.com read 100 with both the mobile and desktop presets. The nightly reads 78, but its log says only "1 assertion(s) failed", so the failing audit is unknown. A worker session is on it, and P0-4 records the hold.
 
 Both PRs lost the race with other sessions' journal appends three and two times. Each one landed only after its journal entry was removed, and this entry is the result. A PR that touches the journal waits about 10 minutes for CI, and on a busy day another session appends inside that window almost every time. A docs PR that must land should keep its journal line in a separate PR, or land outside the busy hours.
+
+## 2026-10-05 — Evening pass
+
+Headline: #1143 waits on item 72 (narrow review or land), item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.

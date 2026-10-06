@@ -254,3 +254,51 @@ rollout is per-repo PRs (🔴 as a mass push), not part of this item.
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry in `docs/workJournal.md`, landed before the session ends.
 ```
+
+## Evening
+
+**Headline: #1143 waits on your answer to item 72.** Do you want one narrow review of `5a46bd67`, or should it land now? Also new tonight: one ask that exists only on a branch (item 87, #1199). `time-travel` is red, and a worker has claimed it (#1171 → #1193). [M]
+
+Evening pass, 2026-10-05 17:49 PT (00:49Z 10-06). `<since>` = #1151 merged_at, 2026-10-05T12:07:33Z.
+
+### Asks (all dated 2026-10-05, in the order they were written)
+
+1. **Five October Maintenance drafts, held by you for the Best Practices 78 (P0-4, #1197).** Data Dynamiq, Espada, LA Homelessness Initiative, Revogen and Vineyard Custom Homes are drafted and pending approval [M, Turso SELECT]. Don't approve them until the BP worker clears the 78. After that, approve on `/s/data-dynamiq`, `/s/espada`, `/s/la-homelessness-initiative`, `/s/revogen` and `/s/vineyard-custom-homes`, and each one sends with the next run. LAHI stores 100, so the hold on it is yours to lift separately [M, journal #1197].
+2. **Verdict on the five [TEST] sends from 22:47Z** (Data Dynamiq, Espada, LAHI, Revogen, Vineyard; Clean-send streak table). Reply `clean` or say what was wrong. The streak stays at 1 until you answer [M].
+3. **Item 79 leftovers (CalTex):** tell Erik that Our Story and AED Programs are live. Then delete the stray asset `_t3eeXeDKfYMiE5v` in caltex-landing's Prismic media library [M, BACKLOG].
+4. **Item 80: mantis-landscaping#29.** (a) land it as it is, or (b) run a third review round. Worker's pick: (a).
+5. **Item 81: Roalson release `asP91BIAAH8K23X-`.** Upload `hwy-46-at-spencer-ranch-feature.jpg` and `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library, or tell a session where they are. Then publish the release. Nothing on `main` records that it was published [I].
+6. **Item 82: two Roalson aerials** (Loop 1604 at Dove Canyon, 5930 Bandera Road). (a) ask Matt for landscape aerials, (b) letterbox them, or (c) accept a trimmed outline. Pick: (a).
+7. **Item 85: merge caltex-landing `staging` into `main`.** That is the production deploy, and it puts editors on slices. Worker's pick: merge it as is.
+8. **Item 72: #1143, the D1 pull-sync split.** (a) authorise one narrow review of `5a46bd67` (the two blocker fixes), and land if it comes back clean; or (b) land now, with the first scheduled run as the instrument. Pick: (a). Since 00:32Z the PR head has had `main` merged in three times (now `138cbd0a`), so a live session is keeping it current [I]. Also from item 72, still yours: decide whether to rotate the-pointe-burbank's `PRISMIC_WRITE_TOKEN`, which round 3's demo printed into a session transcript (🔴).
+9. **Item 87, asked only on a branch** (`claude/sleepy-allen-vhbrwu`, open #1199), verbatim:
+   > 87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05, from issue #1190's inventory.)** … - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed row's `received_at`) before alarming, for a slug that resolves to a site; (b) keep alarming from the first row. - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at once either way: replay cannot place it.
+10. **Unprotected branch `claude/jolly-keller-9h8tzh`** (3 commits not on `main`, no PR, last commit 23.3 h ago: "docs: resolve the BACKLOG and journal merge with main; prettier on the journal table"). Open a PR from it, or say it can go. The morning report reported it without asking.
+11. **Release PR #1183** (`chore(release): version packages`, opened 22:32Z, CI in progress) is yours to land, as always.
+
+Still yours from earlier answers, not re-asked: item 74 (the Williamson poster frames, by hand) and item 78 (the Mantis matching gate, laptop only).
+
+### Evidence
+
+`EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30 now=2026-10-06T00:50:09.149Z` [M]. The scan covered 13 branches, so the check ran. The other branch-only decision lines are `jolly-keller`'s status notes, which are not asks. The seven `older` unprotected branches are known residue: `a11y-blend-mode-unmeasured`, `a11y-browser-missing-csp-r3`, `blissful-feynman-xxghob`, `digest-send-exact-rule`, `nifty-dirac-2zmegy`, `pm-0930-answers` and `practical-ride-kbipzv`.
+
+**Nightlies, scheduled, created ≥ 10-05 00:50Z** [M, Actions API and job logs]:
+
+| Run | Result | FLEET_WRITE_SUMMARY |
+| --- | --- | --- |
+| fleet-db-backup | success | (no line; not a fleet write) |
+| fleet-prismic-drift | success | wrote=15 failed=0 total=15 |
+| fleet-security | success | wrote=15 failed=0 total=15 |
+| fleet-lighthouse | success | wrote=15 failed=0 total=15; wrote=23 failed=0 total=23 |
+| daily-reports | success | 5 drafted; digest sent |
+| fleet-smoke | success | wrote=15 failed=0 total=15 |
+| fleet-form-e2e | success | wrote=15 failed=0 total=15 |
+| time-travel | **failure** | 1 file failed: `tests/audits/a11y-live-spec.test.ts` "freezeMotion reaches ::before and ::after (#1018)"; 8602 tests passed. Issue #1171, claimed 23:09Z, fix in #1193 |
+| release-health | success | — |
+| renovate ×2, forms-deadletter-replay ×3 | success | — |
+
+No nightly is pending. Issues opened since `<since>`: #1171 (time-travel, open) and #1190 (cockpit "just wait", open). Closed: #1155 and #1156.
+
+**Merged since 12:07Z: 42 PRs.** All are the operator account's sessions except #1140 (renovate). Code: #1164 (P1-27, the audit port retry), #1160 and #1178 (analytics-tag; Data Dynamiq GA4 live), #1157 (P1-25, the Prismic toolbar CSP), #1194 (P1-24, the smoke `data-hydrated` marker), #1195 (`verify-dump` hashes contents), #1162 (the evening pass and its script), #1140 (release). The rest are docs and BACKLOG: #1152–#1154, #1158, #1159, #1161, #1163, #1165–#1170, #1172–#1177, #1179–#1182, #1184–#1186, #1188, #1189, #1191, #1192, #1196–#1198 and #1200.
+
+**Open PRs, 00:5xZ:** #1183 release (CI in progress); #1143 (CI in progress, item 72); #1193 (time-travel fix, CI in progress); #1199 (item 87, CI in progress); #1187 (docs, post kit, green). None is a draft and none has a failing check [M].
