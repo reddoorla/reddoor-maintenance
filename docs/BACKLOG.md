@@ -2464,6 +2464,29 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `origin/main`. Adding `fleet-prismic-sync.yml` adds a scheduled
         workflow whose first run is the instrument still to prove.
 
+    - **Answered 2026-10-06 ~00:00Z (AskUserQuestion): (a), the narrow
+      review, then land.** The review of `5a46bd67` was clean in all three
+      lenses (no blocker, no major). **#1143 landed 2026-10-06 ~00:35Z as
+      `7132170b`; item 72 is closed.** Still to prove: the first
+      scheduled `fleet-prismic-sync` run after a drift sweep on `main`.
+      Watch it end to end: the container build, `prismic gen` inside the
+      image, the artifact hand-off, the App's push, and whether GitHub's
+      "Update with rebase" committer really is `noreply@github.com`.
+      Follow-ups the review left as minors, none of them built:
+      - the cleanup step runs as `runner` over files the container wrote
+        as root, so a link planted inside a container-made directory
+        cannot be deleted. The leg fails, and one hostile site then stops
+        the whole night's publish. It fails closed. Fix: `sudo find …
+-delete`, or `sudo chown -R` first, plus a test with a root-owned
+        tree;
+      - `merge-multiple` gave up the per-artifact directory as a layer;
+        the comment on publish's gate overstates what it refuses;
+      - from the first review: CRLF and mode on committed files, key
+        order in the model check, a dry run that says `would-open` too
+        early, codegen output at unlisted paths dropped silently, one
+        failed leg stopping every site, and an in-sync site closing a held
+        branch's PR.
+
 73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
     45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
     through review. Round 1 (three lenses) found one major, an every-page
