@@ -14,7 +14,7 @@ import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 type ManifestEntry = {
   url: string;
   summary: Record<string, number>;
-  failing: Array<{ category: string; id: string; weight: number }>;
+  failing: Array<{ category: string; id: string; weight: number; errored: boolean }>;
   htmlPath?: string;
   jsonPath?: string;
 };
@@ -25,6 +25,7 @@ export type FailingAudit = {
   weight: number;
   runs: number;
   of: number;
+  errored: boolean;
 };
 
 type AssertionResult = {
@@ -49,6 +50,7 @@ type NormalizedLhciResult = {
     expected: number;
   }>;
   failingAudits: FailingAudit[];
+  assertionsRead: boolean;
 };
 
 async function readJsonMaybe<T>(path: string): Promise<T | null> {
@@ -67,7 +69,7 @@ type LhrFile = {
     string,
     { score: number | null; auditRefs?: Array<{ id: string; weight: number }> }
   >;
-  audits?: Record<string, { score: number | null }>;
+  audits?: Record<string, { score: number | null; scoreDisplayMode?: string }>;
 };
 
 function failingAuditsOf(lhr: LhrFile): ManifestEntry["failing"] {
@@ -75,9 +77,10 @@ function failingAuditsOf(lhr: LhrFile): ManifestEntry["failing"] {
   for (const [category, c] of Object.entries(lhr.categories)) {
     for (const ref of c?.auditRefs ?? []) {
       if (!(ref.weight > 0)) continue;
-      const score = lhr.audits?.[ref.id]?.score;
-      if (typeof score === "number" && score < 1) {
-        out.push({ category, id: ref.id, weight: ref.weight });
+      const audit = lhr.audits?.[ref.id];
+      const errored = audit?.scoreDisplayMode === "error";
+      if (errored || (typeof audit?.score === "number" && audit.score < 1)) {
+        out.push({ category, id: ref.id, weight: ref.weight, errored });
       }
     }
   }
@@ -91,8 +94,10 @@ function failingAuditsFor(categories: Set<string>, entries: ManifestEntry[]): Fa
       if (!categories.has(f.category)) continue;
       const key = `${f.category}/${f.id}`;
       const prior = byKey.get(key);
-      if (prior) prior.runs += 1;
-      else byKey.set(key, { ...f, runs: 1, of: entries.length });
+      if (prior) {
+        prior.runs += 1;
+        prior.errored ||= f.errored;
+      } else byKey.set(key, { ...f, runs: 1, of: entries.length });
     }
   }
   return [...byKey.values()].sort(
@@ -211,8 +216,10 @@ async function parseLhciResults(
     };
   }
 
-  const assertionResults =
-    (await readJsonMaybe<AssertionResult[]>(join(resultsDir, "assertion-results.json"))) ?? [];
+  const assertionFile = await readJsonMaybe<AssertionResult[]>(
+    join(resultsDir, "assertion-results.json"),
+  );
+  const assertionResults = Array.isArray(assertionFile) ? assertionFile : [];
 
   const failed = assertionResults.filter((a) => !a.passed);
   const assertions = failed.map((a) => ({
@@ -240,9 +247,12 @@ async function parseLhciResults(
     assertionsFailed: failed.length,
     assertions,
     failingAudits,
+    assertionsRead: Array.isArray(assertionFile),
   };
 
-  const named = failingAudits.map((f) => `${f.category}/${f.id} (${f.runs}/${f.of})`).join(", ");
+  const named = failingAudits
+    .map((f) => `${f.category}/${f.id} (${f.runs}/${f.of}${f.errored ? ", errored" : ""})`)
+    .join(", ");
   const summary =
     status === "pass"
       ? "lighthouse: all categories passing"

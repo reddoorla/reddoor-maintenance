@@ -115,7 +115,8 @@ export function planAuditWrite(args: {
   if (lhResult && lhHasScores) {
     const scores = lighthouseScoresFromResult(lhResult);
     audits.scores = scores;
-    audits.lighthouseFailingAudits = lighthouseFailingAuditsFromResult(lhResult);
+    const failingAudits = lighthouseFailingAuditsFromResult(lhResult);
+    if (failingAudits !== undefined) audits.lighthouseFailingAudits = failingAudits;
     writes.push({ audit: "lighthouse", counts: scores });
   }
 

@@ -58,6 +58,7 @@ export function lighthouseScoresFromResult(result: AuditResult): LighthouseScore
 type LighthouseFailureDetails = {
   assertions?: Array<{ category: string; actual: number | null; expected: number }>;
   failingAudits?: FailingAudit[];
+  assertionsRead?: boolean;
 };
 
 function failureDetails(result: AuditResult): LighthouseFailureDetails {
@@ -65,12 +66,15 @@ function failureDetails(result: AuditResult): LighthouseFailureDetails {
 }
 
 function auditTokens(audits: FailingAudit[]): string {
-  return audits.map((f) => `${f.category}/${f.id}:w${f.weight}:${f.runs}/${f.of}`).join(",");
+  return audits
+    .map((f) => `${f.category}/${f.id}:w${f.weight}:${f.runs}/${f.of}${f.errored ? ":error" : ""}`)
+    .join(",");
 }
 
-export function lighthouseFailingAuditsFromResult(result: AuditResult): string | null {
-  if (result.audit !== "lighthouse") return null;
-  const { assertions = [], failingAudits = [] } = failureDetails(result);
+export function lighthouseFailingAuditsFromResult(result: AuditResult): string | null | undefined {
+  if (result.audit !== "lighthouse") return undefined;
+  const { assertions = [], failingAudits = [], assertionsRead } = failureDetails(result);
+  if (assertionsRead === false) return undefined;
   if (assertions.length === 0) return null;
   return failingAudits.length > 0 ? auditTokens(failingAudits) : "unnamed";
 }

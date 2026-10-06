@@ -38,13 +38,12 @@ describe("cli: audit names the failing Lighthouse audits", () => {
     if (!existsSync(binPath)) throw new Error("run `pnpm build` first");
   });
 
-  it("prints a LIGHTHOUSE_FAILURES line for a site whose assertion failed", async () => {
+  async function runAudit(extra: string[]): Promise<string> {
     const bin = await mkdtemp(join(tmpdir(), "fake-npx-"));
     await writeFile(join(bin, "npx"), FAKE_LHCI, "utf-8");
     await chmod(join(bin, "npx"), 0o755);
-    let stdout: string;
     try {
-      stdout = execFileSync(
+      return execFileSync(
         process.execPath,
         [
           binPath,
@@ -54,6 +53,7 @@ describe("cli: audit names the failing Lighthouse audits", () => {
           "lighthouse",
           "--url",
           "https://x.example/",
+          ...extra,
         ],
         {
           encoding: "utf-8",
@@ -62,10 +62,22 @@ describe("cli: audit names the failing Lighthouse audits", () => {
         },
       );
     } catch (err) {
-      stdout = (err as { stdout?: string }).stdout ?? "";
+      return (err as { stdout?: string }).stdout ?? "";
     }
-    expect(stdout).toMatch(
+  }
+
+  it("prints a LIGHTHOUSE_FAILURES line for a site whose assertion failed", async () => {
+    expect(await runAudit([])).toMatch(
       /^LIGHTHOUSE_FAILURES assertions=best-practices:0\.78<0\.9 audits=best-practices\/deprecations:w5:3\/3 site=\S/m,
     );
+  });
+
+  it("keeps --json output parseable, with the audits in the result details", async () => {
+    const stdout = await runAudit(["--json"]);
+    expect(stdout).not.toContain("LIGHTHOUSE_FAILURES");
+    const [result] = JSON.parse(stdout) as Array<{
+      details: { failingAudits: Array<{ id: string }> };
+    }>;
+    expect(result!.details.failingAudits.map((f) => f.id)).toEqual(["deprecations"]);
   });
 });
