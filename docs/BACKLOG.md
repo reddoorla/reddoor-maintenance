@@ -155,9 +155,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
+| #   | Item | Tier | Effort | Start here | Done when |
+| --- | ---- | ---- | ------ | ---------- | --------- |
 
 ### Blocked behind another PR (do not start early)
 
@@ -254,19 +253,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       matching gate is the fifth, and needs the laptop: Operator
       decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
-- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
-  answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
-  scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
-  together with the a11y spec waiting for a bundle-only marker
-  (`html[data-hydrated]`, set in the root layout's onMount as roalson #57 does)
-  before the reveal pass. Measured on roalson: preview alone 208 in 12 of 14
-  cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
-  Starter first, then the recipe, then the fleet. Blocked only on the 25 site
-  PRs for #948's guard flag landing first (see Done, #948).
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
 
+- **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
+  P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
+  scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
+  spec (`src/audits/a11y.ts`) does not wait for `html[data-hydrated]` before
+  its scan, so its 191-vs-208 race stays on sites that write the marker;
+  (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
+  and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
+  `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
+  form-e2e can wait on the marker before it injects.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2752,6 +2751,75 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     worker's own. _Ask:_ (a) land without a third round; (b) a third round;
     (c) the menu should point somewhere else. _Pick:_ (a), with
     `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`.
+
+85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+    operator's ask the same evening).** The site now renders every page from
+    slices on caltex-landing's `staging` branch
+    ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
+    The models went to `main` in caltex-landing#73, inert, because
+    `prismic-models` pushes only from `main`. The content is published as
+    release `asQvEBIAAHEPgEox`, and the live site was unchanged by it,
+    measured before and after. `staging` against live `main`: 14 screenshots
+    (five pages at 1440 and 390, plus the open nav) are pixel-identical, and
+    text, images and alt text, links, ids, titles, meta and nav hrefs match.
+    The sitemap lists the same five URLs, adding `lastmod`. That comparison
+    is a clean build of `staging` at `23763ef`: Netlify deploys neither the
+    `staging` branch nor previews for PRs into it, so there is no hosted
+    staging URL to look at. _Ask:_ merge
+    `staging` into `main` when you want editors working in slices; it is the
+    production deploy. _Worker's pick:_ merge it as is. After the merge, the
+    old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
+    model edit in Prismic, optional and not urgent.
+
+86. **#1195, the backup verify now checks contents: held after two dirty
+    review rounds (new 2026-10-05, from the refute-claims critic's
+    `blob_bytes` question).** `verify-dump` compared row counts and summed
+    `header_image` length only. On a real production dump, one flipped blob
+    byte verified clean on `main` (`mismatches=0`, exit 0). #1195 (branch
+    `claude/compassionate-hypatia-jtydgw`, head `9a93374`) adds a sha256 per
+    table to the manifest and compares it on restore, and that same dump now
+    goes red. The unchanged `blob_bytes` from 10-01 to 10-05 was real: no
+    header image was written between sonder's (09-30 21:02Z) and today's
+    five (18:37Z).
+    - Round 1 found two latent minors, neither reachable with today's data.
+      SQLite misparses some shortest-form doubles by one ULP, which would red
+      the hash every night; fixed by writing fractional REALs with 17 digits.
+      A whole-number REAL of 2^53 or more in an untyped column would crash
+      the verify loudly; left as is, because the only such column holds
+      bytes.
+    - Round 2 found that the fix missed integer-valued doubles of 2^63 or
+      more. That is fixed in `9a93374` with a test that a mutation turns red,
+      but the fix is unreviewed.
+    - _Ask:_ (a) land #1195 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). Both rounds' defects are false-RED paths that
+      need REAL values the fleet does not store (every REAL is rounded or an
+      integer sum, and a fresh production dump verifies clean). The
+      unreviewed change is one bound with its own test. Land with
+      `node scripts/land-prs.mjs 1195`.
+    - **Answered 2026-10-05 ~23:40Z: (b), a third round.** Round 3 found no
+      blocker. Its one minor: past 2^53, `String(v)` is not the double's
+      digits (`String(2 ** 60)` is `1152921504606847000`), so a whole-number
+      REAL in an untyped column restored as a different INTEGER. **Answered
+      ~00:05Z: apply the fix, then land.** Every number that is not a safe
+      integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
+      test that three mutations turn red. Landed with `land-prs.mjs`.
+87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05,
+    from issue #1190's inventory.)** A dead letter on a site the fleet knows
+    is a CRITICAL cockpit and digest item from its first row, and the ask
+    says "run `db replay-deadletters`". Since MED-10(a),
+    `forms-deadletter-replay.yml` drains the queue every 6h on its own, so
+    under the 2026-10-05 "just wait" rule it is a (iii) signal. It was left
+    as (i) in #1190 because muting a lost-lead alarm is the operator's call,
+    and the threshold needs the oldest unreplayed row's `received_at`, which
+    changes the query-plan-gated dead-letter count queries.
+    - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed
+      row's `received_at`) before alarming, for a slug that resolves to a
+      site; (b) keep alarming from the first row.
+    - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at
+      once either way: replay cannot place it.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -2821,7 +2889,20 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   and the digest's asks; an unread or empty digest snapshot mutes nothing.
   The rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
   transitive-only vulns were the instance. Dead letters (auto-replayed every
-  6h) are the one other (iii) signal and wait on an operator decision.
+  6h) are the one other (iii) signal and wait on Operator decision 87.
+- 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
+  recipe half): landed in two PRs. reddoor-starter#184: the root layout's
+  `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
+  it for up to 20 s, and a no-JS `@smoke` control plus two unit tests prove it
+  is absent without script and not written before mount. This repo's smoke
+  recipe now scaffolds `hydrationMarker: "html[data-hydrated]"` where a
+  site's Svelte source writes the marker, and falls back to `footer`, `main`
+  or `body` otherwise, with a note that this proves paint, not hydration.
+  `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
+  mutations and four more each turn a test red (tables in both PRs). The
+  a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
+  open under "Watching", unranked.
+
 - 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
   (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
   and the one html2canvas file in `script-src`; a new `prismicRepository`
