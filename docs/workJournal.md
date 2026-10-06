@@ -9194,3 +9194,16 @@ The `wheel` and `pointermove` tests came from the adversarial review. Before the
 - The held October drafts still store 78; re-drafting them is the operator's call.
 - ERP still renders Vimeo from `Hero` (via `@vimeo/player`) and `SlideOverlay` wherever a page uses them. Its home page does not, so its score is clean today. If it ever does, `__cf_bm` returns on that page.
 - Reduced motion is not honoured by `VimeoGate`, and was not before. The fleet Playwright config runs with `reducedMotion: "reduce"`, so adding the check would turn these specs red. That is worth knowing before anyone adds it.
+
+## 2026-10-06 — CalTex: every ask from Erik checked on the live site and cleared (release `asUDwhIAAMIrgcs0`)
+
+The operator published the item 90 worker's release, and the session ran the
+new archive check. That meant Erik's two #caltex messages, item by item,
+against www.caltexmedical.com as a visitor sees it, at 19:50Z. 10-06: no
+U+2028 is left on `/aed-programs`, and the last card renders "No long-term
+commitment," / "12‑month terms." at 1440. At 390, "12‑month" stays whole
+after the break and only "terms." wraps. 10-05: AED Programs and Our Story in
+the nav, h1s and titles; "Leasing" on no page; `/leasing` and `/purchases`
+301; the founder copy matches his message character for character, with
+all four U+2011; the family photo with its alt; the copy at 24px between
+28 and 16; the bullets gone at the operator's ask, and the button kept.
