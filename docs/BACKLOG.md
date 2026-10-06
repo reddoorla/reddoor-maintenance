@@ -2888,7 +2888,8 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   on the site's own page and leaves the cockpit's tiers, the Needs-you feed
   and the digest's asks; an unread or empty digest snapshot mutes nothing.
   The rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
-  transitive-only vulns were the instance. Dead letters (auto-replayed every
+  transitive-only vulns were the instance; whether ERP is off Watch today
+  depends on its real first-flag date, unread (see the PR). Dead letters (auto-replayed every
   6h) are the one other (iii) signal and wait on Operator decision 87.
 - 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
   recipe half): landed in two PRs. reddoor-starter#184: the root layout's
