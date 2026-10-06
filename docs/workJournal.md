@@ -9080,6 +9080,7 @@ Search Console's verification meta also went onto la-homelessness-initiative (#4
 P1-30 matching round 1 on `/` closed with three site PRs. Its detail and measurements are in mantis-landscaping's own journal (#33).
 
 **The two-dirty-rounds rule did its job twice, and the operator asked for third rounds both times.**
+
 - #29: round 1 found focus inside the stuck nav scrolling the page by about 420px. Round 2 found the skip link landing `main` under the nav. That made OD 80, and the answer was (b).
 - #30: round 1 found the pause control resuming on a padding press. Round 2 found inactive dots painted transparent: the token they used existed only on #29's branch. The operator again chose (b).
 - Both third rounds came back clean, and both PRs landed through `land-prs.mjs --repo reddoorla/mantis-landscaping`.
