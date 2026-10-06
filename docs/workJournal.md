@@ -9105,3 +9105,18 @@ P1-30 matching round 1 on `/` closed with three site PRs. Its detail and measure
 **Belief corrected.** The reference's carousel breakpoints were taken in SPEC as viewport widths. Blux's `sliderAt` actually compares the grid's own `offsetWidth`, so the real switch points are a viewport of ≤978 and ≤652, not 900 and 600. A Blux "below N px" is worth checking against `sliderAt` on every Blux rebuild.
 
 **Waiting on the operator:** Prismic release `asQ6NhIAAIoP2_HX` (home: pillars 900, values 600 with autoplay 2000) is staged and presented. Until it is published, the live `/` keeps the grid at every width.
+
+## 2026-10-06 — "Safe to archive" now requires every original ask checked against the live site; one session, one task (CLAUDE.md)
+
+The CalTex session said "Safe to archive this session." while Erik's
+13:43Z ask was still missing from the site. He had asked for a hard return
+after the comma in "No long-term commitment, 12-month terms." and for the
+double spaces to go. The item 90 worker had merged the code (caltex-landing#76) and
+staged the content in release `asUDwhIAAMIrgcs0`, but nobody had published
+it. The session had read item 90 minutes earlier, while resolving a merge
+conflict, and even corrected where its labels live. It still checked its
+own PRs, not the live page. The operator caught it and set two rules, now
+in CLAUDE.md's archive section. First, a session is not finished until
+every original ask has been checked item by item against what a visitor
+sees, not against merged or staged work. Second, each session is one task:
+a new ask goes to its own session unless the operator folds it in.
