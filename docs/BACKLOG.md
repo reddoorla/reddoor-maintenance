@@ -2752,6 +2752,54 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     worker's own. _Ask:_ (a) land without a third round; (b) a third round;
     (c) the menu should point somewhere else. _Pick:_ (a), with
     `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`.
+
+85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+    operator's ask the same evening).** The site now renders every page from
+    slices on caltex-landing's `staging` branch
+    ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
+    The models went to `main` in caltex-landing#73, inert, because
+    `prismic-models` pushes only from `main`. The content is published as
+    release `asQvEBIAAHEPgEox`, and the live site was unchanged by it,
+    measured before and after. `staging` against live `main`: 14 screenshots
+    (five pages at 1440 and 390, plus the open nav) are pixel-identical, and
+    text, images and alt text, links, ids, titles, meta and nav hrefs match.
+    The sitemap lists the same five URLs, adding `lastmod`. That comparison
+    is a clean build of `staging` at `23763ef`: Netlify deploys neither the
+    `staging` branch nor previews for PRs into it, so there is no hosted
+    staging URL to look at. _Ask:_ merge
+    `staging` into `main` when you want editors working in slices; it is the
+    production deploy. _Worker's pick:_ merge it as is. After the merge, the
+    old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
+    model edit in Prismic, optional and not urgent.
+
+86. **#1195, the backup verify now checks contents: held after two dirty
+    review rounds (new 2026-10-05, from the refute-claims critic's
+    `blob_bytes` question).** `verify-dump` compared row counts and summed
+    `header_image` length only. On a real production dump, one flipped blob
+    byte verified clean on `main` (`mismatches=0`, exit 0). #1195 (branch
+    `claude/compassionate-hypatia-jtydgw`, head `9a93374`) adds a sha256 per
+    table to the manifest and compares it on restore, and that same dump now
+    goes red. The unchanged `blob_bytes` from 10-01 to 10-05 was real: no
+    header image was written between sonder's (09-30 21:02Z) and today's
+    five (18:37Z).
+    - Round 1 found two latent minors, neither reachable with today's data.
+      SQLite misparses some shortest-form doubles by one ULP, which would red
+      the hash every night; fixed by writing fractional REALs with 17 digits.
+      A whole-number REAL of 2^53 or more in an untyped column would crash
+      the verify loudly; left as is, because the only such column holds
+      bytes.
+    - Round 2 found that the fix missed integer-valued doubles of 2^63 or
+      more. That is fixed in `9a93374` with a test that a mutation turns red,
+      but the fix is unreviewed.
+    - _Ask:_ (a) land #1195 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). Both rounds' defects are false-RED paths that
+      need REAL values the fleet does not store (every REAL is rounded or an
+      integer sum, and a fresh production dump verifies clean). The
+      unreviewed change is one bound with its own test. Land with
+      `node scripts/land-prs.mjs 1195`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 

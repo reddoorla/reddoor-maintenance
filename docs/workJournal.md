@@ -8599,6 +8599,12 @@ The PDF is four pages, not the brief's two at most: at that config's 14px body a
 
 The first version also proposed a weekly kit on a schedule, emailed every Monday. That followed the brief, not the operator, who had said on 10-02 that "the impetus should come from a person." The operator caught it in the PDF. Now a person starts each kit with a project and a one-line seed (why this one, why now), and nothing runs on a timer. The only schedule left is the separate reminder digest, which Tim asked for himself.
 
+## 2026-10-05 — The post-kit proposal now covers every channel from one place
+
+At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
+
+This entry sits next to the other post-kit entries rather than at the end of the file, at the operator's choice. Its PR (#1187) passed checks four times and was blocked by a merge conflict every time. Other sessions were appending to this file every 10–15 minutes, while checks take 15–20, and two branches that both append at the end of the same file always conflict.
+
 ## 2026-10-05 — D1 pull-sync round 3: both majors fixed, the review is dirty with a security blocker (#1143, draft, unmerged; Operator decision 72, #1173)
 
 The operator answered decision 72 with (b): keep one job, fix the two correctness majors, and review once more. The branch took `origin/main` as a merge commit (`68382a43`). The only conflict was the work journal, where both sides had appended. The item-57 ask the branch had written into its own BACKLOG was dropped in favour of main's item 72, which carries the same ask.
@@ -8710,6 +8716,125 @@ round 3's reviewed shape plus tests. The fleet rollout, where each site
 passes `prismicRepository`, is still per-repo PRs, and none of them has been
 opened.
 
-## 2026-10-05 — The post-kit proposal now covers every channel from one place
+## 2026-10-05 — Blocking questions go through AskUserQuestion, with all their context (CLAUDE.md)
 
-At the operator's ask, the proposal in `docs/proposals/2026-10-05-instagram-post-kit.md` (path kept) now covers Instagram, Facebook and LinkedIn instead of Instagram alone. reddoorla.com links only Instagram and LinkedIn; Facebook comes in through the Page that Tim's Meta ads need. The target, also the operator's, is under an hour from idea to "live everywhere and looks right", and the budget comes to 30–40 minutes. The kit now carries a caption for each channel, a 1080×1080 square of each image for LinkedIn, and tracked links. The recommended way to publish to all three at once is a third-party scheduler, which is already approved by Meta and LinkedIn, so we skip both app reviews. Whether a scheduler can take drafts from our own command is marked "to verify", not promised. One crop defect turned up: the square crop of the Design Series cover cut off its title, so that square is now set on white.
+The operator asked for this during P1-25 (#1157). That PR went through four
+review rounds and three decision asks. Each ask reached the operator as the
+last paragraph of a long status message, and as a line in `docs/BACKLOG.md`.
+The rule is now in CLAUDE.md's worker-session section. A blocking decision is
+asked with AskUserQuestion. The question names the item, the PR, the finding
+with a concrete input, each option's consequence, and the pick and why. The
+BACKLOG line stays, because AskUserQuestion only reaches someone who is there
+to answer it, and the evening and PM passes read the file.
+
+## 2026-10-05 — CalTex moved onto Prismic slices, held on `staging` (caltex-landing#73, #74, Operator decision 85)
+
+The operator asked for the hand-built CalTex site to become a slice-based
+Prismic site, with the work on a `staging` branch instead of `main`, and the
+output checked against `main` at the end. One piece could not follow that
+literally: `prismic-models` pushes models only on a merge to `main`. The
+operator chose a models-only PR to `main` (#73). It was proven inert: 11
+prerendered files equal to `main`'s after normalising hashes, with a
+one-word negative control.
+
+I first told the operator that publishing the slice content would be
+inert. Then I second-guessed it: I thought a `page` doc with uid
+`aed-programs` would trip SvelteKit's entry-generator mismatch check against
+main's static route. A build with a fake colliding entry passed. SvelteKit's
+`enqueue` dedupes by path and queues static routes first, so the colliding
+entry is never visited. A throwing `entries()` failed the build, which
+proved the hook runs. The publish (release `asQvEBIAAHEPgEox`, which the
+operator authorized) then left the live site byte-for-byte unchanged in
+everything rendered: 14 screenshots, the DOM and the sitemap. That held
+even though every page's hydration payload now carries the new `home`
+fields. Prismic's webhook rebuilds production on every content change,
+release edits included, so the release's drafts alone triggered six
+production builds of unchanged content.
+
+Staging (#74, `23763ef`) is pixel-identical to live `main` on all 14
+screenshots, with the same text, images, links, ids, metadata and nav
+hrefs, and the same sitemap URLs. Netlify deploys neither the `staging`
+branch nor previews for PRs into it. The `deploy-preview-74` link the bot
+posted returns 404, so the final comparison is a clean worktree build of
+`origin/staging`. Merging `staging` to `main` is Operator decision 85.
+
+Two process notes. `pkill -f <pattern>` run from the same Bash call matches
+its own command line and kills the shell; that ended a step twice. Once it
+skipped a `git checkout -- <file>` that would have restored a placeholder
+from HEAD over uncommitted work. Kill by a PID captured first. And the
+parity check needs fonts: the container has no Impact and no Helvetica, and
+every earlier evidence shot set headings in a default serif until Impact
+(Microsoft corefonts) and Nimbus Sans were installed.
+
+## 2026-10-05 — The backup's restore rehearsal never compared blob contents; #1195 makes it, held at Operator decisions 86
+
+The refute-claims critic asked whether `fleet-db-backup`'s `mismatches=0` covers blob contents, since `blob_bytes=11437644` held from 10-02 to 10-05 while the row counts moved. Reading `verify-dump` answered the first half: it compared per-table row counts and one number, `SUM(LENGTH(sites.header_image))`. A blob whose bytes change and whose length does not is invisible to both. The negative control proved it on a real production dump of 51 MB, 11 tables and 1111 rows. One hex digit flipped inside a header image left exactly one byte different and the same length, and `main` printed `DUMP_VERIFY loaded=true tables=11 rows=1111 blob_bytes=11433275 mismatches=0` and exited 0.
+
+The constant number was nevertheless real, and a different authority showed it. `typeof()` over every column of every table finds blobs only in `sites.header_image` (17 rows). The newest `header_image_generated_at` before the 10-05 run was sonder's, at 09-30 21:02Z. The run logs agree. The 09-30 run (10:39Z, before sonder's write) printed 11146577, and the 10-01 run printed 11437644, a jump of 291067. Today's five regenerations at 18:37Z moved it again, to 11433275. The number tracks writes; there were simply none in those four days.
+
+Every Turso read went through a client-side guard that accepts one statement beginning `SELECT`. Its refusal was proven on a local file DB first, against INSERT, UPDATE, DELETE, `SELECT 1; DELETE` and `WITH … DELETE`, and then against production. libSQL's `transaction("read")` was not a usable second layer: on a local file it ran an INSERT without complaint (the transaction was never committed, so nothing persisted).
+
+#1195 puts a sha256 per table in the manifest. It hashes the column names and every cell in rowid order, using the driver's values, before they become SQL text, with a typed, length-prefixed encoding per cell. `verify-dump` hashes the restored tables the same way, and the corrupt dump now reports `✗ sites: content hash`. A fresh production dump verifies clean, at `hashed=11`.
+
+The control first went red on two tables, `sites` and `submissions`, and the second was the instrument's fault. Python's text-mode `read()` had turned every `\r\n` in 18 spam messages into `\n`. Redone in binary mode, one byte differed and one table went red. The side result is that the hash also catches a line-ending rewrite, which counts could not.
+
+Review round 1 found that SQLite's text-to-double parse misreads about one shortest-form double in ten thousand by one ULP: 0.3118957494450251 loads as 0.31189574944502513. That predates this change. It was a quiet fidelity loss in the backup, and the hash would have turned it into a permanent nightly red. Writing fractional REALs with `toPrecision(17)` fixed it. Round 2 found that integer-valued doubles of 2^63 or more take the same parse path (59 misreads in 300k at 1e16–1e305). The bound is fixed on the branch, but the fix is unreviewed. Neither path is reachable today, because every REAL the fleet writes is rounded or an integer sum. The two-dirty-rounds rule still holds the PR, so it waits on Operator decisions 86, and the worker's pick is to land it as it is.
+
+Seven mutations, each red: hashes never compared, blob bytes unhashed, text bytes unhashed, absent hashes tolerated, manifest written without hashes, REALs back to `String`, and the 2^63 bound dropped. Adding two comment lines to the workflow shifted `continuity.md`'s citation of `overages: false` from line 176 to 178, and `runbook-anchors` caught it.
+
+## 2026-10-05 — Roalson's final round: 8 pins moved, 14 aerials cropped, a new listing packaged, three PRs (roalson-interests#263, #264, #265; Operator decisions 81–84, #1185)
+
+A worker brief from Erik's 19:11Z list. Items 1 and 2 (pins and aerials) are Prismic content, staged in release `asP91BIAAH8K23X-`. Items 3–6 are code:
+
+- roalson-interests#263: Improved Properties, and the menu with ABOUT US.
+- roalson-interests#264: the package opens in the browser, with no size line.
+- roalson-interests#265: the whole card is one link.
+
+The map rework waits on Nicole's design (decision 83). Mid-session the operator added a 61.81-acre listing from Gmail, and that became the release's 23rd document.
+
+**Pins were checked against the listing's own outline, not an address.** The property model has no address field, and the packages describe sites as corners ("the southwest corner of IH-35 and Wonderworld"). Nominatim reverse geocoding put every pin on the right road. That was useless as a check, because a pin on the wrong side of an interchange still sits on the right road. The authority turned out to be the feature images themselves: 16 of 22 are the package's own aerial, with the parcel outlined in red or yellow. Overpass was unreachable from the container; Esri World Imagery tiles loaded. So each pin was rendered on Esri at z17/z18 and set beside its outline. Eight were off the parcel:
+
+- San Marcos: about 250 m away, on a warehouse.
+- Seguin: about 350 m away, in a field.
+- Scenic Loop: on the Bill Miller pad next door.
+- Kingsville: on the Chili's.
+- IH-10 E at 1604: east of the parcel.
+- Perrin Beitel: on the wrong side of the road.
+- IH 10 at Menger Springs: on a building between its two tracts. It now sits on Tract 2, the larger at 6.4 of 10.2 acres.
+- Menger Springs Road: on the Methodist campus.
+
+Census address geocoding landed 35–75 m from correct pins. That is interpolation noise, and it would have moved good pins.
+
+**Aerials: the frames vary more than the CSS says.** The card is `aspect-[423.5/267.5]`, but measured in a browser it is 1.06–1.58 at 1440 (the photo stretches to the text beside it), 0.81 and 0.96 at 834 (the carousel photo spans the slide), and 1.71 on the homepage band. A crop has to keep the outline inside every centred `object-cover` view from 0.81 to 1.71. An outline detector plus a brute-force crop search found 14 feasible. Two are not: Dove Canyon and 5930 Bandera need 1,371 and 1,318 px of a 1,200 px source, even if only the landscape frames count (decision 82). The first detector chose yellow "SITE" arrows and red brick. Filtering components by fill ratio (an outline is hollow) fixed it, and a contact sheet confirmed all 16 by eye. One write nearly went wrong: Prismic asset ids are a filename's first 16 characters, and six contain an underscore, so splitting on `_` would have pointed six crops at assets that do not exist. That was caught by comparing against the ids `get_document` returned, before the writes.
+
+**The new listing.** The Gmail connector lists attachment ids but has no tool that returns their bytes. Per the operator's instruction I stopped and asked, and the operator dropped the files in.
+
+- All six image boxes in the intake form are the template's empty placeholders.
+- The flood-plain box still holds the template's example ("FEMA maps do not indicate any floodplain"), and the survey says part of the tract is in zone A.
+- Nothing missing was invented. Nine questions for Erik are in #264, along with what was probably meant for Matt's "second email": photos, maps, demographics and comments.
+- The package copies the existing packages' letterhead from a rendered page, with the content area masked. The text pages are printed through Chromium, and the disclosure and IABS pages are copied byte-for-byte from a current package.
+- No Century Schoolbook clone was reachable (both CTAN mirrors failed TLS), so the text is Liberation Serif.
+- The pin is the outline's centroid. The traced outline came to about 64 acres against 61.81 stated, which is a positive check on the scale.
+- The operator chose to upload the two files to Prismic themselves, because the connector only fetches public URLs. So the release is not publishable until they are linked (decision 81).
+
+**Defects the changes introduced, all found before merge.**
+
+- The whole-card link broke the carousel swipe: a mouse drag on a link starts a native link drag. A completed swipe could also end in a click that opened the listing. Both `draggable="false"` and a 500 ms post-swipe click guard are needed: removing either turns the new spec red in 3 of 3 runs.
+- Under reduced motion, an off-stage card's title stayed `visibility: visible` for about 20–45 ms after hydration. The base rule gives every element a 0.01 ms `all` transition, and visibility is in "all". The off-stage @smoke failed 3–4 of 20 runs on the branch and 0 of 20 on main. `in-[[inert]]:invisible` made it 20 of 20. Without reduced motion the transient never appeared, which is why it looked like a flake until the two runs were compared.
+- ABOUT US is `/#about`; the site has no About page. It sent focus back to the menu button.
+
+**Instrument failures, mine.**
+
+- A background `pnpm verify; grep …` reports grep's exit code. The package branch was pushed once with its own new spec red.
+- That spec had asserted "no download", which headless Chromium can never satisfy: it has no PDF viewer, so any PDF navigation downloads, even in a new tab. The spec now asserts the new tab, the CDN request and the unchanged page, and it is red against main's save-on-click code.
+- An unquoted heredoc ran the Markdown backticks of a PR body as shell commands. None was destructive.
+
+**Review.** Package and card: round 1 found minors and nits, and round 2 was clean. Labels: both rounds found something (round 1 a major on focus, round 2 a one-frame focus touch on the menu button). It is fixed and held for decision 84 rather than taking a third round.
+
+Corrected beliefs:
+
+- The brief's "hover-to-select, will look Monday" was stale: roalson-interests#253 had shipped it.
+- Item 5 reverses decision 55(iii) (#245, download) at the client's request.
+- The 2026-10-05 MarkUp boards had 0 unresolved pins, so this round was only Erik's list.
+
+**Decision 84 answered the same evening:** the operator chose (a), "your about us thought is right". #263 lands without a third round, and ABOUT US stays on `/#about`.
