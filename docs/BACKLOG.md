@@ -2956,6 +2956,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     is older than this PR, the follow-up is a three-line change with its own
     test, and until #1205 lands the nightly cannot name the audits behind a
     score. Land with `node scripts/land-prs.mjs 1205`.
+    **Answered 2026-10-06 ~14:05Z: (a).** #1205 landed as `6728d61a`. The
+    status follow-up is on `claude/lh-no-assertions-warn`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
