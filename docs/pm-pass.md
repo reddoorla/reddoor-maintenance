@@ -1,8 +1,9 @@
 # The daily PM pass
 
 One scheduled Routine ("Reddoor Project Manager") fires twice a day, Monday to
-Thursday, the operator's work week: `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4`,
-so 04:48 and 17:48 PT all year. Each fire starts a fresh cloud session and gives
+Thursday, the operator's work week: `CRON_TZ=America/Los_Angeles 48 4,12 * * 1-4`,
+so 04:48 and 12:48 PT all year (the second fire was at 17:48 until
+2026-10-07; the operator moved it after the 2026-10-06 review). Each fire starts a fresh cloud session and gives
 it this file. Before 12:00 PT it runs the morning pass; from 12:00 PT it runs
 the evening pass, below. Either session then stays open as the operator's
 cockpit for the rest of that half-day (set up by the operator 2026-10-05; until
@@ -20,9 +21,11 @@ The prompt lives here so it can be changed by PR, like everything else.
 
 1. Read `CLAUDE.md`, `AUTONOMY.md` and `docs/BACKLOG.md` first. Every rule
    there applies: work in a worktree, never commit from the main checkout,
-   prove an instrument before trusting its verdict, and append a journal entry.
+   prove an instrument before trusting its verdict, and write a journal entry
+   (one new file under `docs/journal/`).
 2. **Docs only.** The PR may touch `docs/BACKLOG.md`,
-   `docs/morning-reports/MORNING_REPORT_<date>.md`, `docs/workJournal.md`, and
+   `docs/morning-reports/MORNING_REPORT_<date>.md`, one new file under
+   `docs/journal/`, and
    this file. If a code fix is obvious, write it up as a backlog item with a
    "start here" and leave it for a worker session.
 3. **Never dispatch `daily-reports`** (`--send-ready` emails clients) and never
@@ -115,7 +118,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    need an operator decision is not ready: put the decision under "Operator
    decisions" instead.
 
-7. **Journal entry**, then the PR, then land it.
+7. **Journal entry** (a new file under `docs/journal/`), then the PR, then land it.
 8. **Finish by posting the one-line verdict and the operator's top three
    items** as the session's last message, so the notification carries them.
 
@@ -139,13 +142,17 @@ minutes instead of 45:
 
 ## The evening pass
 
-The Routine's 17:48 PT fire (Monday to Thursday) runs this pass, in a fresh
-cloud session at dinnertime.
+The Routine's 12:48 PT fire (Monday to Thursday) runs this pass, in a fresh
+cloud session in the operator's afternoon. It fired at 17:48 PT until
+2026-10-07. The 2026-10-06 review found that none of 42 operator session starts
+or 40 answers since 09-29 fell near that read, that 11:00–15:00 PT is when he
+answers most, and that by 19:48Z most of the day's nightlies have finished
+(release-health on 3 of 4 measured days).
 The operator reads its one notification, then at most the day's `## Evening`
 section, then stops: ten to fifteen minutes. The morning pass ranks the day;
 the evening pass answers one question, **what needs the operator before
 tomorrow morning that the morning report could not see?** Most of the day's
-nightlies, the `daily-reports` drafts (about 15:00Z) and every worker
+nightlies, the `daily-reports` drafts (which start between about 14:20Z and 18:40Z) and every worker
 session's ending all happen after the morning pass has finished.
 
 It exists because of three misses on 2026-10-05. A worker held #1143 and
@@ -157,15 +164,17 @@ nightly was still pending, so the morning pass could not report any of them.
 ### Rules that bind the evening pass
 
 0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
-   everywhere in this section. The pass fires at 17:48 PT, which is 00:48Z
-   (01:48Z in winter), so the UTC date has already moved on. Read the clock
+   everywhere in this section. The pass fires at 12:48 PT, which is 19:48Z
+   (20:48Z in winter), so the UTC date still matches. Until 2026-10-07 it
+   fired at 17:48 PT, after the UTC date had moved on, and a late or hand-run
+   pass can still cross it. Read the clock
    with `date -u` beside it, as `CLAUDE.md` asks.
 
 1. Everything under "Rules that bind this session" above applies, except
    that the pass is **read-only** apart from one docs-only PR. That PR may
    touch only today's `docs/morning-reports/MORNING_REPORT_<date>.md`, where
-   it appends a `## Evening` section, and `docs/workJournal.md`, where it
-   adds one line, not a full entry. It never edits `docs/BACKLOG.md`: it
+   it appends a `## Evening` section, and one new file under `docs/journal/`
+   holding one line, not a full entry. It never edits `docs/BACKLOG.md`: it
    lifts what it finds into the report, and the next morning pass re-ranks.
 2. **It never acts on what it finds.** It does not open a PR for an
    unprotected branch, comment on a worker's PR, re-run a job or merge
@@ -256,8 +265,9 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
    exact: what to click or answer, and where); then the evidence (the
    summary line, the nightlies table, merged PRs, open red or held PRs). Tag
    every claim [M] or [I] as the morning report does.
-7. **Journal line, PR, land.** Add one line to `docs/workJournal.md` under a
-   heading of the form `## <date> — Evening pass`, giving the
+7. **Journal line, PR, land.** Write
+   `docs/journal/<YYYY-MM-DD-HHMM>-evening-pass.md` (the name from `date -u`):
+   a heading of the form `## <date> — Evening pass` and one line giving the
    headline and the summary line. Open the docs-only PR and land it with
    `node scripts/land-prs.mjs <pr>`.
 8. **The notification.** The session's last message is the notification. Its
@@ -274,7 +284,7 @@ One Routine, set up by the operator on 2026-10-05:
 
 - **Name:** "Reddoor Project Manager".
 - **Repository:** `reddoorla/reddoor-maintenance`.
-- **Schedule:** `CRON_TZ=America/Los_Angeles 48 4,17 * * 1-4`. The zone is
+- **Schedule:** `CRON_TZ=America/Los_Angeles 48 4,12 * * 1-4`. The zone is
   written into the cron, so it does not drift when daylight saving ends on
   11-01, and the minute stays off :00 and :30.
 - **Session:** a fresh session for each fire. The newest one is the cockpit.
@@ -283,7 +293,7 @@ The text below is the prompt as written for the operator to paste. If the
 Routine's copy is edited, this one should be updated in a PR.
 
 ```text
-Daily PM pass for reddoorla/reddoor-maintenance. This Routine fires twice a day, Monday to Thursday, at 04:48 and 17:48 America/Los_Angeles, each run in a fresh session.
+Daily PM pass for reddoorla/reddoor-maintenance. This Routine fires twice a day, Monday to Thursday, on its schedule, each run in a fresh session.
 
 Set up first:
 1. reddoorla/reddoor-maintenance should already be checked out. If not, call add_repo (owner reddoorla, repo reddoor-maintenance, access push) and clone it as the result says. If neither works, stop with: "NO REPOSITORY: the Routine needs reddoorla/reddoor-maintenance selected as its repository."

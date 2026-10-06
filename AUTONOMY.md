@@ -86,6 +86,11 @@ clean — including behavior-changing `feat`s — **except**:
 - `chore(release): version packages` / any release PR → **always human**.
 - Any PR that itself performs a RED action → **always human**.
 
+A third path exists: the operator may tell a session to **land with a
+reviewed finding still open**, on his word, after two dirty review rounds. It
+has happened at least 8 times; the PR body names the open finding and his
+decision (the operator, 2026-10-06, answering the two-touch review).
+
 Land with `node scripts/land-prs.mjs`, which picks squash, merge or rebase per
 the base branch's rules (GitHub deletes the head branch; the cloud proxy
 refuses branch deletes), and append a journal entry. Patch/`fix` PRs need
@@ -118,7 +123,7 @@ safe:
    gap in recent work).
 3. **Small, single-purpose PRs** — one concern each, so any one is revertable
    without unwinding the arc.
-4. **Journal** — append what + why to [`docs/workJournal.md`](docs/workJournal.md)
+4. **Journal** — write what + why as a new file in [`docs/journal/`](docs/journal/)
    so the whole run is reviewable fast.
 
 ## Permissions & sandbox
