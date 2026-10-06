@@ -8954,6 +8954,71 @@ The fix is to run the cleanup with `sudo`, or to `chown` the output first. It is
 
 Headline: item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). #1143 landed while this pass ran, so item 72 is closed. `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.
 
+## 2026-10-06 — The time-travel shim fakes `Date` only; a browser launched under it stalled on `page.evaluate` (#1171, #1193, `82a4f40`)
+
+The weekly `time-travel` run went red on 2026-10-05 (run 37363675885) on one hook: a11y-live-spec's "freezeMotion reaches ::before and ::after (#1018)" `beforeAll`, `Hook timed out in 60000ms`, 567 files passed. The brief listed three earlier reds (09-21, 09-28) as possibly the same failure. They were not: both logs fail `match-harness-snapshot-guard`'s "passes on the real tree", the shallow checkout #895/#951 fixed. The 09-29 green was a branch dispatch. So 10-05 was the first scheduled run on `main` carrying the #1018 test (#1003, merged 09-29), and it failed the first time it was asked.
+
+**The cause was the shim, not a clock.** `vitest.time-travel-setup.ts` called `vi.useFakeTimers({ shouldAdvanceTime: true })` with vitest 4's default `toFake`, which is every timer global except `nextTick` and `queueMicrotask`: `setImmediate`, `setTimeout`, `setInterval`, `performance` and `hrtime` as well as `Date`. Playwright 1.62.1 hands off every message on `setImmediate`, in two places. Its CDP `PipeTransport` captures the function once, in its constructor (`makeWaitForNextTask()` returns `setImmediate` on Node ≥ 11). Its in-process client/dispatcher connection also hops on the global for every message. The #1018 hook is the only one in its file that calls `chromium.launch()` in the test worker itself; the others spawn the audit as a subprocess, which a faked clock never reaches.
+
+Measured in a cloud container, all at +90 d unless stated:
+
+- **The hook itself.** Real clock: 171 ms and 204 ms. Under the old shim: timed out at 60 s in 2 of 3 runs; the third passed in 10.8 s.
+- **Where it stops.** A probe printed `launch` +120 ms, `newPage` +300 ms, `setContent` +380 ms, then never returned from `page.evaluate`. That held for `() => 1`, for the string `'1+1'`, and for every step of `freezeMotion`'s body, each given an 8 s budget.
+- **Order matters.** With fakes installed _after_ launch, evaluate answered under every method, default included. With fakes installed _before_ launch, it stalled under the default and under `setImmediate` alone (a 110 s budget). It answered in 8 ms under `Date`, `setTimeout`, `setInterval`, `performance` or `hrtime` alone.
+- **The date is irrelevant.** +0 days with `setImmediate` faked stalls identically.
+- **It is a permanent stall, not a slow one.** A `pw:protocol,pw:channel` trace shows the client send `evaluateExpression` and the server never issue the matching CDP `Runtime.callFunctionOn`. During the stall, `vi.getTimerCount()` was 0, a fresh fake `setImmediate` still fired, and neither `vi.advanceTimersByTime` nor `vi.useRealTimers()` revived the evaluate. I did not trace the exact promise it waits on (the server's `frame.context("main")` is the likely one). The fix does not depend on it.
+
+**Fix.** `installTimeTravel` in the new `vitest.time-travel.ts` fakes `Date` only and keeps `shouldAdvanceTime`; "today" is all the shim exists to move. No timeout was raised and no test was touched. `tests/time-travel-shim.test.ts` runs in every `pnpm test`, not only the weekly run. It asserts four things: the shift, that the shifted clock keeps moving, that every scheduler stays real (by identity), and that a browser launched under the shim answers `page.evaluate` within 15 s.
+
+Mutation results:
+
+| Mutation                            | Red tests                                          |
+| ----------------------------------- | -------------------------------------------------- |
+| Default `toFake`, i.e. the old shim | 2 (scheduler identity; browser "no answer in 15s") |
+| `toFake` + `setImmediate`           | 2                                                  |
+| `shouldAdvanceTime: false`          | 1                                                  |
+| No `setSystemTime`                  | 1                                                  |
+| `toFake` + `performance`            | 1                                                  |
+
+Afterwards, the hook passed 3 of 3 at +90 d in about 0.2 s. The full suite at +90 d: 569 files passed, 8609 tests. On the real clock: 8608. Lint and typecheck were clean, and one adversarial review (correctness, test quality, repo conventions) came back CLEAN. Its single optional note, that the setup file's "Known gap" could also mention a file's own `vi.useFakeTimers()`, predates this change and was left.
+
+**A belief corrected.** The BACKLOG entry for form-e2e (#1017) records that three synthesizer tests "used `setContent`, which hangs under the weekly time-travel clock", and that they were worked around in the test. It was this same defect, attributed to `setContent` and the clock rather than to the shim's fake `setImmediate`. Any other in-process Playwright test was exposed the same way. On GitHub's runners, `interaction-harness` took 140.9 s in the failing 10-05 run and 31.2 s in the post-merge dispatch: the old shim was also costing that file most of its runtime.
+
+**Landing.** `land-prs.mjs` needed five invocations and 13 green CI rounds. `main` took a commit about every eight minutes, about one CI duration, and the ruleset's `strict_required_status_checks_policy` blocks a BEHIND merge. So each green head was BEHIND at the gate, and each invocation stops after three rounds by design. It merged on the fifth invocation, from head `5ba4d3b`, as `82a4f40`.
+
+**Confirmed on `main`.** A `workflow_dispatch` of `time-travel` on `82a4f40` (run 37398605808) went green: 572 files passed, 8760 tests, with `a11y-live-spec` 63/63. #1171 closed on the merge, with the evidence commented.
+
+## 2026-10-06 — The best-practices 78 was two third-party cookies; the nightly now names failing audits (#1205 held, Operator decisions 88–89 in #1204)
+
+The six maintained sites at best-practices 78 were not the instrument. The nightly's log said only "1 assertion(s) failed", so #1205 makes it name the audits. For every category whose lhci assertion failed, it lists the weighted audits that scored below 1 or errored, counted across runs. It prints one `LIGHTHOUSE_FAILURES assertions=… audits=… site=…` line per failing site, stores the list in `site_health.lighthouse_failing_audits` (migration 0040) and shows it on the site dashboard. On the runner, run 37393496930 named `best-practices/third-party-cookies:w5:3/3,best-practices/inspector-issues:w1:3/3` for ERP, Espada, MSOT, Revogen and Vineyard. That is 6 of 27 weight points, exactly 0.78.
+
+**The instrument failed its first real run, and this is the entry's main lesson.** Every new test passed, and the first dispatch (37390764847) printed `audits=unnamed` and `assertions=minScore:…` for every site. The fixtures had copied the existing `lighthouse.test.ts` assertion shape, `name: "categories:best-practices"`, which lhci never writes. lhci 0.15.1 writes `name: "minScore"`, `auditId: "categories"`, `auditProperty: "best-practices"`. The old code's `categoryFromAssertion` had always returned "minScore" as the category for real output, and nothing noticed, because nothing read it. The fix used the captured real shape. It was proven twice before it was trusted: once locally, against real lhr files plus a forced-fail `lhci assert`, and once on the runner. Also worth knowing: lhci's `actual` is the best of the three runs (its default aggregation), so 0.78 means all three runs scored 0.78 or less. The stored score, by contrast, is our average.
+
+**The cause, named from the lhr.** A container run of `deployedLighthouse`'s exact config (lhci 0.15.1, Lighthouse 12.6.1, desktop, devtools throttling, 3 runs, `--no-sandbox`) reproduced 0.78 on all five sites and gave 1.0 on CalTex. The runner was never the difference. Chrome for Testing 151 and Chrome stable 154 both gave Data Dynamiq and CalTex 1.0. Two cookies:
+
+- **Vimeo's Cloudflare `__cf_bm`** (Espada, MSOT, Revogen, Vineyard). Their media components render the `player.vimeo.com` iframe on load. The starter's `VimeoBanner.svelte` and Vida's `VimeoBackground.svelte` already mount it only after a real pointer, wheel, key or touch event, which no audit produces.
+- **The Prismic toolbar's `io.prismic.previewSession`**, about 21 cookies (ERP, Vineyard). Both hard-code `<script src="https://static.cdn.prismic.io/prismic.js?…">` in `src/app.html`, outside the `isPreviewSession` gate their layouts already put around `<PrismicPreview>`.
+
+**Two beliefs from the brief, corrected.** "Vimeo ruled out: 29 Navy and Vida have it and score 96/100" — their audited homepages request no Vimeo player at all, so they were never controls. "GA4 ruled out: data-dynamiq#59 merged after the run" — #59 was the fix. It deleted `player.vimeo.com/api/player.js` from `app.html`, and Data Dynamiq has read 100 since. Its timing was the evidence, read backwards.
+
+**A belief of my own, corrected before it shipped.** I wrote that "refresh preview" would clear Data Dynamiq's stored 78. `renderReportFromRow` renders the report row's stored `lighthouse` scores (`src/reports/send/render-from-row.ts:67`), so it does not. The held drafts need a re-draft once their live scores are right.
+
+**Review.** Round 1 used three lenses. Schema was clean. Correctness found an errored weighted audit (the NO_LCP case) being dropped, so the line blamed a metric at 0.99, and found that a missing `assertion-results.json` cleared the stored list. The tests lens found 11 survivors. All were fixed in `49cc0133`, and 22 of 22 named mutations go red. Round 2 found one minor that predates the PR: when lhci dies mid-collect, the audit says "all categories passing". Under the two-rounds rule, #1205 is held as Operator decision 89, with (a) land as-is plus a follow-up as my pick. The rollout to five client repos is decision 88. Migration 0040 already ran on live Turso through the branch dispatches; it is additive, and older package versions ignore it.
+
+**The test lens and a mutation run shared one worktree.** The reviewer's mutations were live while my own vitest loop ran there, so for about 20 minutes neither run's results could be trusted. Reviewers that mutate get their own `git archive` copy; round 2's brief said so.
+
+## 2026-10-06 — Tuesday PM pass: the October sends wait on item 88, and the night was quiet (`claude/happy-clarke-1cjx2r`)
+
+The morning pass, 11:51–12:05Z. Its report is `docs/morning-reports/MORNING_REPORT_2026-10-06.md`.
+
+The five Maintenance reports due 10-05 are still pending approval and held by the operator. The reports gate was read through Kysely with a plugin that throws on any non-SELECT node; an `UPDATE … WHERE 0` was refused before any read, and its raw-SQL twin too. One slip worth recording: the raw control named a table `websites` that does not exist (the table is `sites`), so the refusal it printed proved the plugin, not the database's rejection. The plugin refused it before the query left the process, which is the property wanted, but a control that would also have failed at the database is weaker than it looked. The preflight's own control (Espada with recipients and point of contact blanked → `recipients-missing`) behaved as on 10-05.
+
+The stored scores and the live ones now disagree in a way the operator has to resolve: Data Dynamiq's draft stores best practices 78 while `site_health.bp_score` reads 100, and LAHI stores 100. Those live scores were stamped at 00:41Z by the bp-78 branch's dispatch, not by a scheduled run, so they are evidence of the fix, not of the nightly. The new `lighthouse_failing_audits` column (migration 0040, applied ahead of #1205) already names `third-party-cookies` and `inspector-issues` on all five 78 sites, which matches item 88 exactly.
+
+The first scheduled backup with #1195's content hashes ran green with `hashed=11`, and `blob_bytes` finally moved (11437644 → 11433275), as the five new header images of 10-05 predicted. That answers the critic's 10-05 question from the other side: the number was static because nothing changed, and it moves when something does.
+
+Overnight was otherwise quiet: four scheduled runs, all green; no branch-only asks; Discord has no open mention in 14 days (the 21-day positive control still finds Erik's 09-17 lines). Mantis #29 and Roalson #263 landed on their repos last night, closing items 80 and 84; CalTex's `staging` (item 85) and Roalson's release (item 81) are still the operator's. No re-rank: nothing in P1 moved but the evidence for P1-31, and #1148 became startable because its marker exists.
+
 ## 2026-10-05 — "Just wait" leaves Watch: a vuln Renovate is still fixing waits off the cockpit and the digest (#1199, `24183c06`)
 
 The operator's rule, verbatim: "anything where the action is 'just wait' shouldn't be a watch item until it gets to a point where it actually requires my intervention." The instance was ERP Industrials on Watch with "3 critical/high vulns — transitive-only, fix rides the weekly lockfile window": the action the item names is to wait.

@@ -7,7 +7,11 @@ import {
   siteSlug,
   type FieldSet,
 } from "../fleet/site-fields.js";
-import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-fields.js";
+import {
+  hasRealScores,
+  lighthouseFailingAuditsFromResult,
+  lighthouseScoresFromResult,
+} from "./lighthouse-fields.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-fields.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-fields.js";
 import {
@@ -111,6 +115,8 @@ export function planAuditWrite(args: {
   if (lhResult && lhHasScores) {
     const scores = lighthouseScoresFromResult(lhResult);
     audits.scores = scores;
+    const failingAudits = lighthouseFailingAuditsFromResult(lhResult);
+    if (failingAudits !== undefined) audits.lighthouseFailingAudits = failingAudits;
     writes.push({ audit: "lighthouse", counts: scores });
   }
 
