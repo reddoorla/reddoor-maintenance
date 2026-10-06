@@ -2960,6 +2960,18 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       ("Roll out the two best-practices cookie fixes"). How to re-draft the
       held rows is still open, and the sends stay held until the scores
       improve.
+    - **2026-10-06 ~16:00Z [M]: three shipped, two open.** The queued
+      worker's PRs (branch `claude/modest-sagan-w1n4h6`) were landed by the
+      bp-78 session at the operator's "ship them all": espada#80
+      (`e912bd6f`), medical-solutions-of-texas#73 (`1e071df1`) and revogen#92
+      (`ab87ca16`). Production read through the nightly's exact lhci config
+      after the deploys: best-practices 1.0 on Espada and Revogen (3 of 3
+      runs) and on MSOT (3 of 3, re-run at 15:58Z; an earlier run caught a
+      deploy switchover 502). The previews read 0.96, all of it Netlify's
+      preview drawer cookie. **Vineyard and ERP are not merged:** this
+      session could not attach those repos (add_repo refused). The same
+      branch holds their fixes, and ERP's deploy-preview-70 reads 0.96 with no
+      third-party cookie. MSOT accessibility is still 0.92 (separate).
 
 89. **#1205, the nightly names failing Lighthouse audits: held after two
     review rounds (new 2026-10-06, branch
