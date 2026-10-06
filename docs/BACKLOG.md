@@ -2968,10 +2968,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       after the deploys: best-practices 1.0 on Espada and Revogen (3 of 3
       runs) and on MSOT (3 of 3, re-run at 15:58Z; an earlier run caught a
       deploy switchover 502). The previews read 0.96, all of it Netlify's
-      preview drawer cookie. **Vineyard and ERP are not merged:** this
-      session could not attach those repos (add_repo refused). The same
-      branch holds their fixes, and ERP's deploy-preview-70 reads 0.96 with no
-      third-party cookie. MSOT accessibility is still 0.92 (separate).
+      preview drawer cookie. MSOT accessibility is still 0.92 (separate).
+    - **2026-10-06 16:19Z [M]: all five read 100.** vineyard-custom-homes#73
+      (`b73d59b`) and erp-industrial#70 (`b3d7671`) were merged at
+      15:56–15:57Z from another session. fleet-lighthouse run 37492146619
+      wrote `bp_score` 100 for Data Dynamiq, ERP, Espada, MSOT, Revogen and
+      Vineyard; its only `LIGHTHOUSE_FAILURES` lines are MSOT's and
+      Vineyard's accessibility. The held October drafts still store 78 and
+      need a re-draft.
 
     **Done 2026-10-06 16:03Z [M]:** five PRs, all merged:
     espada#80, medical-solutions-of-texas#73 and revogen#92 (the operator,
