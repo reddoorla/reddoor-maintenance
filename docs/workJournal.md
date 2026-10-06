@@ -8949,3 +8949,7 @@ Three of round 3's majors went with it, or were fixed alongside. The "HEAD-move"
 The fix is to run the cleanup with `sudo`, or to `chown` the output first. It is recorded as a follow-up, along with `merge-multiple` giving up the per-artifact directory as a defensive layer, and the untested delete of other sites' trees.
 
 #1143 landed on 2026-10-06 at ~00:35Z as `7132170b`, through `land-prs` after one BEHIND round. The first scheduled run is the instrument still to prove.
+
+## 2026-10-05 — Evening pass
+
+Headline: item 87 is asked only on #1199's branch, and time-travel is red but claimed (#1193). #1143 landed while this pass ran, so item 72 is closed. `EVENING_BRANCHES_SUMMARY main_decision_lines=507 asks=1 decision_lines=2 stale=8 stale_fresh=1 scanned=13 older_skipped=30`.
