@@ -104,6 +104,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     searchConsoleOutcome: null,
     searchConsoleResolved: null,
     searchConsoleCheckedAt: null,
+    lighthouseFailingAudits: null,
     nextMaintenanceAt: null,
     nextTestingAt: null,
     statusRaw: null,

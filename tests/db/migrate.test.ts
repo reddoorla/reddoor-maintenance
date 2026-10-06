@@ -46,6 +46,7 @@ describe("runMigrations", () => {
       "0037_site_health_search_console_checked_at",
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
+      "0040_site_health_lighthouse_failing_audits",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -103,6 +104,7 @@ describe("runMigrations", () => {
       "0037_site_health_search_console_checked_at",
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
+      "0040_site_health_lighthouse_failing_audits",
     ]);
   });
 
@@ -164,6 +166,7 @@ describe("runMigrations", () => {
       "0037_site_health_search_console_checked_at",
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
+      "0040_site_health_lighthouse_failing_audits",
     ]);
   });
 
@@ -228,6 +231,7 @@ describe("runMigrations", () => {
       "0037_site_health_search_console_checked_at",
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
+      "0040_site_health_lighthouse_failing_audits",
     ]);
   });
 });

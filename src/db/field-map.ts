@@ -134,6 +134,7 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   bpScore: "bp_score",
   seoScore: "seo_score",
   "Last lighthouse audit at": "lighthouse_at",
+  "Lighthouse failing audits": "lighthouse_failing_audits",
   "A11y Violations": "a11y_violations",
   "A11y Routes Scanned": "a11y_routes_scanned",
   "A11y Routes Total": "a11y_routes_total",

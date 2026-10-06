@@ -1774,3 +1774,17 @@ describe("refresh-preview button", () => {
     expect(html).not.toContain('data-rerender-url="/api/reports/recSENT/rerender"');
   });
 });
+
+describe("renderSiteDashboardHtml — Lighthouse failing audits", () => {
+  it("names the stored failing audits, escaped, and shows nothing when none are stored", () => {
+    const named = renderSiteDashboardHtml(
+      makeWebsiteRow({ lighthouseFailingAudits: "best-practices/deprecations:w5:3/3<x>" }),
+      [],
+    );
+    expect(named).toContain(
+      "Lighthouse failing audits: <code>best-practices/deprecations:w5:3/3&lt;x&gt;</code>",
+    );
+    const none = renderSiteDashboardHtml(makeWebsiteRow({ lighthouseFailingAudits: null }), []);
+    expect(none).not.toContain("Lighthouse failing audits");
+  });
+});

@@ -919,6 +919,9 @@ export function renderSiteDashboardHtml(
   const auditedLine = site.lastLighthouseAuditAt
     ? `<div class="audited">Last audited ${escapeHtml(relativeTimeFromNow(site.lastLighthouseAuditAt))}</div>`
     : "";
+  const failingAuditsLine = site.lighthouseFailingAudits
+    ? `<div class="audited">Lighthouse failing audits: <code>${escapeHtml(site.lighthouseFailingAudits)}</code></div>`
+    : "";
 
   // The report-history TABLE is the only place the "recent 6" slice belongs:
   // long enough to show a quarter of monthly reports plus the latest testing
@@ -952,6 +955,7 @@ export function renderSiteDashboardHtml(
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
+  ${failingAuditsLine}
   ${setupSection(site, now)}
   ${alarmSection(alarm)}
   ${pendingSection(reports, site, now)}
