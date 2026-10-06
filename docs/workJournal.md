@@ -8885,7 +8885,3 @@ Getting #208 onto the fix took one detour. By the time #260 merged, #208 was DIR
 Option (c), resolving `none` inside `src/audits/a11y.ts`, was not done. The gate was right that the contrast was unmeasured, and the brief forbids softening it. But its remedy text, "write 0 for none in the oklab() token", points at a token no site has; the `none` here was synthesised from sRGB `#000`. That is BACKLOG P1-31, together with a fleet survey of who else turns red on the 0.102+ bump.
 
 Not verified here: the cockpit item clearing. That happens on the next sweep. The staging → main promotion is the operator's.
-
-## 2026-10-06 — The five October sends are held for the Best Practices 78
-
-The operator chose to let the five Maintenance sends slip rather than send scores they doubt. Four of the five stored drafts carry `lighthouse_best_practices` 78, which comes from the 10-05 nightly. Six sites read exactly 78 there, while a direct Lighthouse 12.6.1 run on datadynamiq.com (mobile and desktop presets) reads 100. The nightly logs only "1 assertion(s) failed", so which audit it is remains unknown, and a worker session is on it. P0-4 now records the hold so the evening and morning passes do not report the drafts as overdue. Still open inside that work: whether "refresh preview" re-pulls the stored scores or only re-checks health evidence.
