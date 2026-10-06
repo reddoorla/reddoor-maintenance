@@ -155,9 +155,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                         | Tier | Effort | Start here                                                      | Done when                                                                  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| P1-24 | #947 (starter and recipe half) + #948's residual race: add a bundle-only hydration marker (`html[data-hydrated]`, set in the root layout's onMount, as roalson #57 does) to `reddoor-starter`, then make `src/recipes/smoke-suite/template.ts:32` scaffold it instead of `hydrationMarker: "footer"`. Unblocked: the 25 guard PRs merged 09-30. The fleet rollout is per-repo PRs (🔴 as a mass push), not part of this item | 🟡   | M      | `src/recipes/smoke-suite/template.ts:32`, roalson-interests #57 | Starter PR and central recipe PR landed; the recipe's test pins the marker |
+| #   | Item | Tier | Effort | Start here | Done when |
+| --- | ---- | ---- | ------ | ---------- | --------- |
 
 ### Blocked behind another PR (do not start early)
 
@@ -254,19 +253,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
       matching gate is the fifth, and needs the laptop: Operator
       decisions 78. **Next:** P6 (DNS, OD 61) and 78.
 
-- **#947 (recipe half) + #948's residual race: unblocked 2026-09-30; ranked as P1-24 by the 09-30 PM pass** (item 35
-  answered "(b) now, (a) after"). `src/recipes/smoke-suite/template.ts:32`
-  scaffolds `hydrationMarker: "footer"`, which cannot prove hydration. Do it
-  together with the a11y spec waiting for a bundle-only marker
-  (`html[data-hydrated]`, set in the root layout's onMount as roalson #57 does)
-  before the reveal pass. Measured on roalson: preview alone 208 in 12 of 14
-  cold runs (217 twice, mid-hydration); preview + that wait 208 in 10 of 10.
-  Starter first, then the recipe, then the fleet. Blocked only on the 25 site
-  PRs for #948's guard flag landing first (see Done, #948).
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
 
+- **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
+  P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
+  scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
+  spec (`src/audits/a11y.ts`) does not wait for `html[data-hydrated]` before
+  its scan, so its 191-vs-208 race stays on sites that write the marker;
+  (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
+  and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
+  `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
+  form-e2e can wait on the marker before it injects.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2899,6 +2898,19 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
+  recipe half): landed in two PRs. reddoor-starter#184: the root layout's
+  `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
+  it for up to 20 s, and a no-JS `@smoke` control plus two unit tests prove it
+  is absent without script and not written before mount. This repo's smoke
+  recipe now scaffolds `hydrationMarker: "html[data-hydrated]"` where a
+  site's Svelte source writes the marker, and falls back to `footer`, `main`
+  or `body` otherwise, with a note that this proves paint, not hydration.
+  `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
+  mutations and four more each turn a test red (tables in both PRs). The
+  a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
+  open under "Watching", unranked.
 
 - 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
   (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
