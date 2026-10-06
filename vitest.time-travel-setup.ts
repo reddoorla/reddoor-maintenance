@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { installTimeTravel } from "./vitest.time-travel.js";
 
 /**
  * Shift the suite's wall clock forward by `REDDOOR_TIME_TRAVEL_DAYS`, so a test that
@@ -42,12 +42,10 @@ if (!raw || !Number.isFinite(days) || days <= 0) {
   );
 }
 
-const target = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-
-// `shouldAdvanceTime` keeps timers ticking, so async tests that await a real delay still
-// settle instead of hanging the suite.
-vi.useFakeTimers({ shouldAdvanceTime: true });
-vi.setSystemTime(target);
+// Only `Date` is faked (#1171). The default fakes every scheduler, and Playwright hands
+// each CDP and in-process message off on `setImmediate`, so a browser launched under it
+// could stall on its first `page.evaluate` forever. "Today" is all this shim moves.
+const target = installTimeTravel(days);
 
 // Raw fd: vitest swallows `console` from setup files, and a silent shim is untrustworthy.
 process.stderr.write(`[time-travel] +${days}d — tests see ${target.toISOString()}\n`);
