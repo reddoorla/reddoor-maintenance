@@ -90,6 +90,53 @@ The prompt lives here so it can be changed by PR, like everything else.
    the same way. A worker that writes its ask only on its own branch is
    invisible to a read of `main` (#1143, 2026-10-05).
 
+   **Status lines are not new asks.** A `Closed`, `Dropped` or `_Due:` line
+   added under an existing item records an answer or a date, and is not lifted
+   as a new ask.
+
+   **Asks, open asks, and when each was first asked.** The morning report's
+   open-asks line and the Monday "Do, date or drop" step count with these
+   definitions. Until the cutover's decision files make an ask's state
+   machine-readable, whether one is open can only be read, so every count
+   lists its item numbers and anyone can check it.
+   - **An ask** is each `_Ask…:_` line under "Operator decisions", or each
+     sub-bullet that asks the operator for something. Letters inside one
+     `_Ask:_` are options of one ask. An item with no separate asks is one
+     ask. An ask's id is the item number plus its own label or a short name:
+     `57(a)`, `18 #773`.
+   - **Open** means the operator has not answered it, or has answered but the
+     chore is still the operator's and is not recorded done (74's poster
+     frames, 78's laptop gate, 79's "tell Erik"). An open ask is not on
+     "Settled answers" below and has no `Closed` or `Dropped` line under it.
+     Read the item to judge it, and grep the backlog for its number too: an
+     answer can sit in a P0/P1 row instead (61.1 and 61.7 are answered in
+     P1-30, while item 61 still reads "waiting on her answers").
+   - **First asked.** An `asked <UTC time>` written on the ask wins; a date
+     with no time counts as 00:00Z of that date. Otherwise run
+     `git log -G'^ ?[0-9]+\. \*\*<prefix>' --reverse --format=%cI origin/main -- docs/BACKLOG.md | head -1`,
+     where `<prefix>` is the start of the item's bold title, regex-escaped,
+     and convert the result to UTC (`%cI` prints the commit's own offset). A
+     retitled item can give a later date for a longer prefix, so run it with
+     the first 3, 4 and 5 words of the title and take the earliest. A sub-ask
+     added later dates from its own words: when the item records an answer
+     or a decision above the ask (as 15's laptop ask follows "decided
+     2026-09-29", and 18's #672 and #674 follow their first answers), or the
+     ask has its own label, date it with
+     `git log -S'<a phrase that does not wrap>' --reverse --format=%cI origin/main -- docs/BACKLOG.md | head -1`.
+     2026-09-29 06:53:39Z is the backlog's own creation (#958), so print the
+     age of an ask dated then as `≥ N h`. An override with a one-line note is
+     allowed: 7 was asked in Discord on 09-17, and 72 on its branch at
+     2026-10-04 22:20Z.
+   - **Controls, every run.** `git rev-parse --is-shallow-repository` prints
+     `false`, and item 13 dates to 2026-09-29T06:53:39Z. If either fails,
+     print "first-asked dates unavailable", never an empty list. A shallow
+     clone gives wrong dates.
+   - **`_Due:`.** On or after the `_Due:` date written on an
+     "Operator decisions" ask, the ask goes into the top of stack as a dated
+     item. It says "on or after" because the passes run only Monday to
+     Thursday. A `_Due:` in a P0/P1 row is an agent's scheduling note and is
+     not lifted.
+
    **[H] items** are the ones the operator builds by hand. Rank them with
    everything else, but list them in their own "Yours to build [H]" section of
    the morning report, never recommend a worker for one, and never write a
@@ -100,6 +147,10 @@ The prompt lives here so it can be changed by PR, like everything else.
    `docs/morning-reports/`: one-line verdict, top of stack for the operator
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
+   `.github/workflows/pm-pass-watch.yml` emails the operator when a pass has
+   not landed by its due time, and it keys on the `## One-line verdict` and
+   `## Evening` headings, so renaming either needs a change to
+   `scripts/pm-pass-watch.mjs` in the same PR.
 
    **The clean-send streak.** Read the table under "Clean-send streak" in
    `docs/BACKLOG.md` and put one line near the top of the report: "clean
@@ -108,6 +159,25 @@ The prompt lives here so it can be changed by PR, like everything else.
    [TEST] <site> <report> sent <date>: clean, or what was wrong". Never
    write a verdict yourself; only the operator can see what the email looked
    like.
+
+   **The open-asks line.** Beside the streak line, one line:
+   `Open asks: N (items a, b, …); oldest: item X, ≥Y h [I]`. N counts the
+   items with at least one open ask, by reading, under the definitions in
+   "Backlog diff". The age is from the first-asked rule there. Listing the numbers
+   lets anyone diff the set. **Its control:** item 3, a settled answer, is
+   absent, and every item on the previous report's line is present, or this
+   report names the line or PR that closed it. If the control fails, the line
+   says so instead of giving a number.
+
+   **What the daily top of stack holds.** Only dated asks (including any whose
+   `_Due:` date has come), [TEST] verdicts, approvals, and asks new since the
+   last report. Every other open "Operator decisions" ask appears only in the
+   open-asks line, and on Mondays in the "Do, date or drop" section, whatever
+   heading the last report gave it ("Undated", "Undated, still open",
+   "Undated, unchanged", "Asked earlier, still open", "Still yours from
+   earlier answers"). Copying the last report's shape does not carry those
+   lists forward. P1-35's `(undated)` cockpit reasons are a different thing,
+   and this rule leaves them alone.
 
    **Next for agents ends with briefs.** For each item you recommend starting
    today (one to three, none of them [H], none claimed), paste a filled-in
@@ -124,21 +194,132 @@ The prompt lives here so it can be changed by PR, like everything else.
 
 ## Mondays: the heavier pass
 
-On a Monday the pass does three more things, inside a budget of about 75
-minutes instead of 45:
+On a Monday the pass does more, inside a budget of about 75 minutes instead
+of 45:
 
+- **Do, date or drop.** Written as the report section `## Do, date or drop`,
+  after the top of stack. The asks, "open" and "first asked" are as defined in
+  "Backlog diff" above, and its controls run first.
+  1. **Close first.** Close any open ask the pass can verify done, whenever it
+     was done, with a `Closed <YYYY-MM-DD>: <evidence>` line under it. An ask
+     that a dated P0/P1 row explicitly carries closes as
+     `Closed <YYYY-MM-DD>: carried by <row> (dated)`; a passing mention such as
+     "waits on 74" does not count. Delete nothing.
+  2. **List** every open ask with no `_Due:` that was first asked at least
+     168 h before the pass started, by `date -u`. Order them oldest first;
+     ties go to the lower item number, then to the ask's position in the
+     item. The first Monday pass on or after 2026-10-12 also lists every ask
+     in item 97, the eight chores that had no item, whatever their age. Each
+     line gives the ask's id, its first-asked date, the exact ask, the
+     cheapest route, its minutes (as `~N min [I]` or `minutes: unknown`,
+     never as measured), and "listed since <the first Monday it was
+     listed>".
+  3. **The operator answers each line** with one of: done; a date; or drop,
+     with a reason.
+  4. **Recording.** The session that receives the answer records it in its
+     own docs PR: the cockpit session that holds the answer (the morning
+     fire's or the afternoon fire's, once its pass has landed), or else the
+     next morning pass. Never inside the evening pass itself, whose PR does
+     not edit the backlog.
+     The forms are `_Due: YYYY-MM-DD_` on the ask;
+     `Closed <date>: done (operator)`; or `Dropped <date>: <reason>` plus one
+     bullet under
+     "Settled answers" below. A closed or dropped ask that stays in the
+     section does not break the "Settled answers" rule.
+  5. **When more than half of a Monday's lines were already listed on an
+     earlier Monday,** the pass says so once in that report, rather than
+     adding reminders.
 - **Fresh reads, not a diff.** Every open issue, not only those touched since
   the last report, and the live fleet state from Turso (SELECT only): row
   counts by status, cockpit attention and watch, staleness of each sweep, and
   unread form submissions. Rewrite BACKLOG's "Fleet snapshot" from them.
-- **Refute the week's claims.** Run the `refute-claims` skill over the
-  morning reports from the previous seven days. Every [M] claim in them was
-  measured once and then carried forward; this is the one place a wrong one is
-  caught. A refuted claim gets a forward pointer in that report (the one edit
-  an old document may take, as in the journal rule) and a corrected line in
-  today's.
+- **Refute the week's claims.** Run the `refute-claims` workflow
+  (`.claude/workflows/refute-claims.workflow.js`) over the morning reports
+  from the previous seven days. Every [M] claim in them was measured once and
+  then carried forward; this is the one place a wrong one is caught. A
+  refuted claim gets a forward pointer in that report (the one edit an old
+  document may take, as in the journal rule) and a corrected line in today's.
+
+  **Then fact-check `CLAUDE.md`, by hand, up to 10 lines.** False lines in it
+  have lived 8 to 42 days (the 2026-10-06 review). The workflow wants 10 or
+  more claims with their evidence on disk and never returns `confirmed` for a
+  behaviour claim, so this part is done by hand.
+  - **Which lines:** those added or changed on `main` since the last
+    fact-check that ran. That check's report line records the head it listed
+    to. The first time, or if that head is unknown, use the 7 days before the
+    pass started, to the minute.
+  - **Listing them:** fix the head when the pass starts,
+    `HEAD_SHA=$(git rev-parse origin/main)`, because `main` moves during a
+    pass (on 2026-10-07 #1232 changed `CLAUDE.md` mid-day and took the list
+    from 94 lines to 110). Set
+    `BASE=$(git rev-list -1 --first-parent --before=<that time, with its minutes and Z> origin/main)`,
+    or the recorded head itself, then keep the added lines of
+    `git diff -U0 $BASE..$HEAD_SHA -- CLAUDE.md`. A midnight cut-off gives a
+    different base from the 11:48Z one. Line numbers come from the hunk
+    headers, and `--word-diff` tells a re-wrap from an edit.
+  - **Pre-filter** on digits, `#NNN`, any backticked token (a path, a flag
+    such as `--no-sandbox`, a name) and number words (one to twelve, twice,
+    half). A digit-only filter missed "two weeks", and a paths-only filter
+    missed a line about `--no-sandbox`. Then pick by reading, preferring
+    lines that other rules or scripts lean on, then the newest. A behaviour
+    claim with no number is found only by reading.
+  - **Its blind spot:** a line that was true when written and went stale
+    later (`CLAUDE.md`'s "Two real collisions", written 09-05 and found stale
+    by the 2026-10-06 review) is never in a week's diff. This step does not catch those; the
+    reports' refute and a reader's doubt do.
+  - **Checking:** check each line against a second authority (a REST read, a
+    git command, a file other than `CLAUDE.md`), never against the source it
+    cites. The verdicts are `confirmed`, `refuted` and `untested`; "refuted
+    as stated" counts as `refuted`, with its note. A quoted code line
+    confirms a claim about what that code does only when it is the code path
+    the claim names, so say which path it is: refute-claims' c03 was a real
+    quote backing a wrong claim.
+  - **Reporting:** one report line names the head listed to and the verdict
+    counts. A refuted line goes into the report with its evidence and its
+    corrected wording, and into "Next for agents" as a one-line docs fix
+    with a brief. The pass never edits `CLAUDE.md` itself.
+
 - **Full re-rank.** Re-order P0/P1 from scratch rather than editing the
   previous order, and say so in the header's "Last full re-rank" line.
+- **The first Monday pass on or after 2026-10-12: the two-week check.** A
+  one-time section of that report, `## Two-week check`, measuring the
+  operating model that began on 09-29. A baseline row is judged in the
+  keep-or-cut ask only if its method reproduced the baseline before it was
+  used; for a count recorded as a floor ("27", "at least 10"), reaching it
+  counts as reproducing it.
+
+  | Measure                                         | Baseline, and how it is re-measured                                                                                                                                                                                                                                                                                                                                                                    | Judged? |
+  | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+  | Minutes per morning                             | Dropped: the check never asks the operator for minutes.                                                                                                                                                                                                                                                                                                                                                | no      |
+  | Days a zero-blocker report waited for its click | "not measured: no instrument", never an estimate.                                                                                                                                                                                                                                                                                                                                                      | no      |
+  | Discord asks older than two days, per report    | 1, 1, 0, 0, 0 for 09-30, 10-01, 10-04, 10-05 and 10-06 (the review's evidence digest); add each later report's "Waiting on you (Discord)" count.                                                                                                                                                                                                                                                       | yes     |
+  | Duplicate-work incidents                        | 6 since 09-29. The grep below returned 7 headings on `a969d0ce` and on `ce197bbb`; one ("reviewed twice", #1143) is a false hit, so read each heading.                                                                                                                                                                                                                                                 | yes     |
+  | Two-dirty-round escalations                     | 27 at `6ea7c10`: the digest's 25, plus 47 and 84, which it missed. Re-count with the digest's method: read the first 700 characters of each item for two dirty rounds or a hold after round 2. A literal phrase grep returns only 9, so it is not the method. P1-33(b)'s re-count on `6ea7c10` gave 28, or 26 without 10 (#918/#920, before the rule) and 29 (#1014's escalation, seen through #1035). | yes     |
+  | PRs that ran a third review round               | At least 10 at `6ea7c10` (the review). Re-count the items that record a round 3 that ran; P1-33(b)'s re-count gave 10 (10, 27, 29, 32, 34, the second 53, 64, 72, 75, 86).                                                                                                                                                                                                                             | yes     |
+  | Open asks                                       | 18 items (24 asks) at `6ea7c10`, read under the "Backlog diff" definitions by P1-33(b): 13, 14, 15, 18, 31, 33, 45, 57, 61, 67, 72, 74, 78, 79, 81, 82, 87, 88. Not the review's 11, which used a narrower reading. Compare with 10-12's N, and diff the two sets.                                                                                                                                     | yes     |
+  | Release-PR wait                                 | Median of `created_at`→`merged_at` for `changeset-release/main` PRs merged from 09-29T07:00Z: 15.56 h, n=7 (#952 to #1183; re-measured 2026-10-07). Re-measure through 10-12 with `gh api 'repos/reddoorla/reddoor-maintenance/pulls?state=all&head=reddoorla:changeset-release/main&per_page=100'`, page 1 only, because `--paginate` fails through the cloud proxy.                                  | yes     |
+  | [TEST] verdicts awaiting                        | 5 on 10-06, 0 on 10-07 (#1229); re-read the "Clean-send streak" table.                                                                                                                                                                                                                                                                                                                                 | yes     |
+  | Asks answered, and their latency                | 66 answered, median 1.9 h, frozen at 10-06 (repository latency, with no committed instrument).                                                                                                                                                                                                                                                                                                         | no      |
+  | Fix-of-fix PRs and reverts                      | "not measured". There is no definition, and no commit on `main` has ever had a `Revert` subject, so a grep has no positive control.                                                                                                                                                                                                                                                                    | no      |
+
+  The duplicate-work grep:
+
+  ```sh
+  grep -h -E '^## 2026-(09-(29|30)|10-).*(twice|collid|already done|taken over|silently reverted)' docs/workJournal.md docs/journal/*.md
+  ```
+
+  The check ends with one keep-or-cut ask: "keep what moved, cut what did
+  not". That pass also writes the ask as an "Operator decisions" line, then
+  deletes this bullet in its own PR.
+
+**When the budget runs short**, keep the work in this order and drop from the
+end:
+
+1. The daily steps, which are never cut.
+2. Do, date or drop and, the first time, the two-week check.
+3. The fresh reads, the reports' refute and the full re-rank.
+4. The `CLAUDE.md` fact-check. It is the first thing dropped, and the report
+   says "`CLAUDE.md` fact-check: not run: budget".
 
 ## The evening pass
 
@@ -212,7 +393,9 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
    these sections:
    - **Lines added under "Operator decisions" on `main` since `<since>`.** These
      are every decision line workers landed today. Each new ask goes in the
-     evening section, with the PR it came from.
+     evening section, with the PR it came from. A `Closed`, `Dropped` or
+     `_Due:` line added under an existing item is a status line, not a new
+     ask, and is not lifted.
    - **Asks only on a branch.** A branch that is neither merged nor at the
      head of a merged PR, and that adds an `_Ask:_`, `_Pick:_` or question
      line under "Operator decisions" which `main` lacks. This is failure 1.
@@ -324,7 +507,10 @@ After that, this session is the operator's cockpit and project manager for the r
 The operator has answered these, some of them more than once. Asking again
 costs trust and time. Do not put any of them in the morning report, in
 "Operator decisions", or in a question. A new fact that changes one of them
-is written up as new evidence, never as the old ask.
+is written up as new evidence, never as the old ask. An ask the operator drops
+in a Monday "Do, date or drop" list gets one bullet here, with its date and
+reason; the `Dropped` line it also carries in "Operator decisions" is a
+record, not a re-ask.
 
 - **Report recipients are correct as they are** (2026-09-29). This covers MSOT
   and Revogen sharing `accounting@revogenbiologics.com`, and 29 Navy's send

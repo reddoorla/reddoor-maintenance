@@ -15,7 +15,7 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    this file in the same PR.
 2. **Claim before you start.** Comment on the item's issue ("Claimed by
    session `<branch>`") and check for fresh `claude/*` / `fix/*` branches and
-   open PRs touching the same files (`CLAUDE.md` → Concurrent sessions). If an
+   open PRs touching the same files (`CLAUDE.md` → "Concurrent sessions"). If an
    item has no issue, open one and put its number here.
 3. **Keep the tiers.** Every item is tagged 🟢 GREEN (agent may do and merge),
    🟡 YELLOW (agent may do; feat → 3-lens review before merge), or 🔴 RED
@@ -31,8 +31,8 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    recommends a worker for it and never writes a brief for it, and no agent
    starts it. Only the operator adds or removes the tag.
 7. **Workers ask a blocking question once.** A worker that reaches a stop
-   condition asks with AskUserQuestion and also adds one line under _Operator
-   decisions_ (the exact ask, its own pick, the branch or PR); see `CLAUDE.md`
+   condition writes one line under _Operator decisions_ (the exact ask, its
+   own pick, the branch or PR) and asks, in the order given by `CLAUDE.md`
    → "Worker sessions ask a blocking question once, with all its context" (the operator, 2026-10-05, #1188). Briefs for starting a worker are in `docs/worker-brief.md`.
 
 Ranking is (client impact × confidence) ÷ effort, with two overrides: an
@@ -155,11 +155,11 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here                                                                        | Done when                                                                                   |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy`                | Remedy test pins the shape; the fleet list is in this row or an issue                       |
-| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (write the line, push, then ask); (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, and the daily report keeps one 'N open asks; oldest X h' line; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask; (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1); then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections; one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. |
-| P1-34 | **"Refresh preview" re-reads the site's live Lighthouse scores into an unsent, unapproved report (Operator decisions 91, answered (a) 2026-10-07).** Four held October drafts (Data Dynamiq, Espada, Revogen, Vineyard) store best practices 78; their site rows read 100 [M, 10-07]. `rerenderReport` re-ticks evidence from the live site but renders the row's stored `lighthouse`. _Verify:_ `grep -n retickEvidence src/reports/send/rerender.ts` shows line 98 and no `bpScore`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 🟡   | S      | `src/reports/send/rerender.ts:72`, `src/reports/draft.ts:161` `scoresFromWebsite` | The four rows read 100 after a refresh; a sent or approved row is untouched; tests pin both |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Tier | Effort | Start here                                                         | Done when                                                                   |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy` | Remedy test pins the shape; the fleet list is in this row or an issue       |
+| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1); then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections; one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day. |
+| P1-35 | **The daily PM pass reads the cockpit's Needs-you and Watch state (operator, 2026-10-07, queued to a worker card from the PM cockpit).** The weekday pass reads it only on Mondays, so a site-level signal that leaves every nightly green never reaches the morning report: Data Dynamiq's `search_console_outcome = no-property` was the example [M, 10-07]. A SELECT-only `scripts/pm-cockpit.mjs` builds `buildCockpitModel` from the inputs `netlify/functions/fleet-homepage.mts` loads, and a new pass step lists new Needs-you items as asks. Overlaps P1-33's queued `scripts/pm-facts.mjs`, which can absorb it. _Verify:_ `grep -n 'cockpit attention' docs/pm-pass.md` shows only the Monday section.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:514,726`                           | The pass prints `PM_COCKPIT_SUMMARY` and the morning report lists new items |
 
 ### Blocked behind another PR (do not start early)
 
@@ -259,6 +259,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **Data Dynamiq Search Console (operator, 2026-10-07; worker card queued from the PM cockpit).** The operator created the property and gave an HTML-tag verification. The worker adds the tag to data-dynamiq's `src/app.html`, then asks him to press Verify, add `reports@reddoorla.com`, and name the property, and records `search_console_property` on the row. Before: `search_console_property` NULL, `search_console_outcome` `no-property`, and no tag on `https://www.datadynamiq.com/` [M, 10-07 ~12:30Z].
 
 - **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
   P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
@@ -3104,6 +3106,330 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     **Answered 2026-10-07 ~12:10Z (operator, to the PM cockpit): (a).**
     Queued as P1-34, with a brief in the 10-07 morning report's cockpit
     section. The sends stay held until the four rows read their live scores.
+    **P1-34 landed 2026-10-07 (issue #1236).** The workflow builds from
+    `main`, so no release is needed. **Next, for you:** press "refresh
+    preview" on the `/s/<slug>` pages for Data Dynamiq, Espada and Revogen.
+    The button only says "Queued"; after about two minutes, "draft preview ▸"
+    shows best practices 100 (the preview is no longer cached). The
+    report-rerender run's log in Actions names the change
+    (`scores=refreshed scores_change=…bp:78→100`). The refresh takes all four
+    of the site's current scores, so any other score that moved since the
+    draft moves too, and the log names it. Then approve them. **Vineyard is not in
+    this:** its row was approved from the dashboard at 15:21:53Z with 78.
+    A refresh keeps an approved row's scores (`scores=locked`), and you
+    chose on 10-07 ~15:30Z to let it send at 78 in the 10-08 09:23Z run.
+
+92. **#1232, P1-33(a) directive-citation check: held after two dirty review
+    rounds (new 2026-10-07, #1230).** #1232 (branch
+    `claude/p1-33a-directive-refs`, head `305b5422`) adds
+    `scripts/directive-refs.mjs` and its test, the asking rule's new order
+    in `CLAUDE.md`, and the "land as is" line. On `413bb029` it lists exactly
+    the three dead citations #1224 fixed by hand; on `main` it exits 0; all
+    11 mutations go red.
+    - Round 1 found no blocker; its latent false FAILs were fixed in
+      `305b5422`.
+    - Round 2 found two minors, both reproduced through
+      `node scripts/directive-refs.mjs --root <fixture>`: (1) a regression
+      from round 1: a citation of a dead heading written with curly quotes
+      (→ “Gone rule”) or as a link (→ [Gone rule](x)) is no longer counted,
+      so the run exits 0 where round 1 exited 1, and the test comment
+      wrongly says such citations fail loudly; (2) in a blockquoted list,
+      a valid unquoted citation followed by a second `> -` item is reported
+      dead as "Concurrent sessions - next item", because the list-item test
+      runs before the `>` is stripped. Neither bites the real tree today
+      (10 citations, all resolve).
+    - _Ask:_ (a) fix both (about five lines: put `“` and `[` back in reach of
+      the unquoted shape, or read them as quoted and link shapes; strip `>`
+      before the list-item test), add a fixture and a mutation for each, and
+      land without a third review round; (b) land as is and file both as a
+      follow-up; (c) fix both and run a third round.
+    - _Pick:_ (a). Both fixes are local to one function each and each gets
+      a fixture that goes red without it; the rule bars "land as is" as the
+      worker's pick while (1) is a reproduced false PASS.
+      **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
+    - Round 3 (`e1910c2c`, the round-2 fixes) found two majors and three
+      minors, no blocker. Both majors are false PASSes of the same class as
+      round 2's: a citation spelled in a shape the reader does not know is
+      not counted at all, so a dead heading in it passes. Examples: emphasis
+      around the quote (→ **"Gone"**), § with curly quotes, a bracket with
+      no URL, mismatched quotes, and an unquoted name cut short at `*`
+      (→ A _gone_ rule resolves as "A"). Minors: a link with emphasised
+      text is a false FAIL; the table-row fixture passes for the wrong
+      reason; CLAUDE.md step 4's answer form wraps onto column 0.
+    - _Ask 2:_ each round has added shapes and each added shape has opened
+      a new gap, so: (a) invert the default. Any `CLAUDE.md` or
+      `AUTONOMY.md` code span followed by → or § must read as exactly
+      → "Heading", → Heading (plain words ending at punctuation) or
+      §"Heading"; anything else fails as "cannot read this citation". Curly,
+      link and emphasis forms are dropped. Prototyped, not pushed: all 21 of
+      round 3's probe inputs now fail loudly or resolve correctly, none
+      passes silently, and the real tree still reads 10 of 10. Fix the
+      three minors too, then land without a fourth round. (b) the same, plus
+      a fourth round. (c) land `e1910c2c` as is, with the gaps listed as a
+      follow-up.
+    - _Pick 2:_ (a). The inversion removes the class rather than another
+      instance of it, and its cost is that a valid citation in an unusual
+      spelling fails loudly with the fix in the message; none exists in the
+      tree today.
+      **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+    - Round 4 (`133bbbab`, the inverted reader) found two majors, no
+      blocker. (1) An unquoted name stops at a comma or colon and only the
+      part before it is checked, so → Before a fleet sweep, check the
+      archive list (a heading that does not exist) resolves against
+      "Before a fleet sweep, ask which repos…". Two real headings contain a
+      comma, so this is the #1188 rename shape again. (2) A quoted citation
+      of only spaces resolves, because the empty string prefixes every
+      heading. Minors, none present in the tree: other spellings between
+      the code span and the arrow are not counted, a wrapped line starting
+      `#932` or `2.` splits a paragraph, a `## ` line inside an HTML comment
+      or a nested fence counts as a heading, the word boundary is
+      ASCII-only, and the real-tree test asserts at least 8 rather than
+      exactly 10.
+    - _Ask 3:_ (a) drop the unquoted shape: only → "Heading" and §"Heading"
+      read, and the two unquoted citations in the tree
+      (`docs/BACKLOG.md:18`, `docs/worker-brief.md:76-77`) get quotes;
+      reject a blank quote; split paragraphs only on real CommonMark
+      starts (`# ` with a space, a list starting at 1, a row); assert
+      exactly 10 in the real tree; list the remaining minors in the test's
+      "cannot see" comment; land without a fifth round. (b) the same plus a
+      fifth round. (c) land `133bbbab` as is with a follow-up.
+    - _Pick 3:_ (a). The unquoted shape cannot tell where a heading that
+      contains punctuation ends, so it is removed rather than patched, as
+      round 3's shapes were; every remaining minor fails loudly or needs a
+      spelling the tree does not use.
+      **Answered 2026-10-07 15:38Z (AskUserQuestion): (b), quotes only, then a fifth review round.**
+    - Round 5 (`f68c564e`, quotes only) found one major, no blocker. A
+      quote inside the heading ends the citation early, so only the text
+      before it is checked. A real heading already has one: `AUTONOMY.md`'s
+      "Merge authority (current policy: "everything but releases")". If the
+      policy were renamed, the old full citation would still resolve,
+      because only "Merge authority (current policy:" is compared. Minors:
+      a second → or § after the same code span is not counted; two
+      mutations survive (no fixture cites from inside `AUTONOMY.md`, and
+      none has a tab or two spaces around the arrow); the exact-10 pin in
+      the real-tree test turns red on any PR that adds a valid citation;
+      CLAUDE.md step 1 gives a wrong reason (evening-branches does read
+      work branches; the real reason is the line's own PR to `main`).
+    - _Ask 4:_ (a) refuse a quote whose closing mark is followed by a word
+      character (the inner-quote case becomes "cannot read"), add the two
+      repros and the two missing fixtures, list chained citations under
+      "cannot see", correct step 1's reason, keep the exact-10 pin as
+      chosen in ask 3, and land without a sixth round; (b) the same plus a
+      sixth round; (c) land `f68c564e` as is with a follow-up.
+    - _Pick 4:_ (a). The fix is one lookahead, and each round since the
+      quotes-only change has found a narrower gap than the last.
+      **Answered 2026-10-07 17:29Z (AskUserQuestion): (b), fix, then a sixth review round.**
+    - Round 6 (`5cca9ca3`) found one major, no blocker: the round-5
+      lookahead only refuses an inner quote followed by an ASCII letter or
+      digit. Followed by a space, punctuation, a backtick or an accented
+      letter (→ "The "--force" flag", → "The "(x)" gone"), the citation is
+      still cut to the words before the inner quote, and "The" resolves
+      against any heading starting with it. The only quoted heading in the
+      two targets is still caught, so the hazard is a future heading with
+      a quoted flag or code span. Minors: the header says "a letter" where
+      the code means an ASCII letter; the § form's lookahead has no test.
+    - _Ask 5:_ (a) also refuse a quoted capture that begins or ends with
+      whitespace (every one of the seven repros does, since an inner
+      opening quote follows a space; a patched copy keeps the real tree at
+      10 of 10 and fails all seven loudly), make the lookahead
+      Unicode-aware, add a § inner-quote case, and land without a seventh
+      round; (b) the same plus a seventh round; (c) land `5cca9ca3` as is
+      with a follow-up.
+    - _Pick 5:_ (a). Six rounds have each found a narrower case than the
+      last; this one needs a heading the tree does not have.
+      **Answered 2026-10-07 17:56Z (AskUserQuestion): (a), fix and land, no seventh round.**
+
+93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
+    property form (new 2026-10-07, operator ask in the PM cockpit).** The
+    verification tag shipped in data-dynamiq#62 (`0e5f8dd`), and the
+    production home page carries exactly one copy at 15:31Z, where it
+    carried none before the merge [M, 2026-10-07, curl + grep -c]. The Turso row
+    (`data-dynamiq`, `maintained`) still has `search_console_property`
+    NULL, and `site_health.search_console_outcome` is `no-property`
+    (checked 10-05 18:36Z) [M, SELECT-only].
+    _Ask:_ (a) press **Verify** for the property in Search Console;
+    (b) Settings → Users and permissions → add `reports@reddoorla.com`
+    (Restricted is enough); (c) say which form the property is: URL-prefix
+    `https://www.datadynamiq.com/` or domain `datadynamiq.com`.
+    _Pick:_ only (c) is a choice. A worker then records the answer with
+    `setSiteDetail` (`searchConsoleProperty`), reads it back, and the next
+    nightly's lookup should stop reading `no-property`.
+    **Answered 2026-10-07 ~15:45Z (operator, AskUserQuestion): (c)
+    URL-prefix.** Recorded with `setSiteDetail` at 15:46Z; the row reads
+    back `search_console_property` = `https://www.datadynamiq.com/`
+    [M, SELECT]. **Still open:** the lookup now finds the property but
+    Google refuses it: `report data-dynamiq --preview --enrich` gives
+    "User does not have sufficient permission for site
+    'https://www.datadynamiq.com/'" as `tucker@` and as `reports@`, while
+    the same command resolves Espada under both subjects [M, 15:47Z]. So
+    (a) or (b) has not taken effect for this property. The next nightly
+    will read `soft-fail`, not `resolved`, until it does.
+    **Re-checked 2026-10-07 17:59Z, after the operator said (a) and (b)
+    were done: still refused, and Google's own `sites.list` says why.**
+    `tucker@reddoorla.com` lists `https://www.datadynamiq.com/` as
+    `siteUnverifiedUser`; `reports@reddoorla.com` lists no datadynamiq
+    property at all; both list `https://espadarealestate.com/` and resolve
+    it [M, service account + DWD, `webmasters/v3/sites`]. The page serves
+    the tag once with a 200, also to a Googlebot user agent [M, curl]. So
+    Verify has not succeeded on this property, and `reports@` was never
+    added to it (Search Console only lets a verified owner add users).
+    _Next (operator):_ open the property signed in as the account that
+    generated this tag's token (an HTML-tag token is per account), press
+    Verify, then add `reports@reddoorla.com`. If the verified property sits
+    under another account, also add `tucker@reddoorla.com`: it is the
+    cloud environment's `GA_SUBJECT`. Nothing to change on the site or in
+    Turso; the next nightly or `report data-dynamiq --preview --enrich`
+    shows whether it took.
+    **Resolved 2026-10-07 19:08Z.** The operator verified the property
+    and added both accounts. `sites.list` now gives `tucker@` `siteOwner`
+    and `reports@` `siteFullUser` on `https://www.datadynamiq.com/`.
+    `report data-dynamiq --preview --enrich` resolves under each subject,
+    with no permission error [M]. It reports no brand-query data yet,
+    which is expected for a property verified today. The first nightly
+    after this should record `search_console_outcome` = `resolved`.
+
+94. **#1244, P1-35 `scripts/pm-cockpit.mts`: held after two dirty review
+    rounds (new 2026-10-07, #1241).** #1244 (branch
+    `claude/stoic-cerf-g7f0du`, head `2f58f632`) adds a SELECT-only script
+    that prints the cockpit's Needs-you and Watch state, and a step 2 in
+    `docs/pm-pass.md`. The live run on 10-07 lists Data Dynamiq and LAHI
+    (`no-property`) on Watch and four pending drafts, which matches a direct
+    SELECT. All 5 mutations go red.
+    - Round 1: two blockers, both fixed in this head. An exhausted vuln was
+      dated by its first flag, and card-less dead letters were dropped.
+    - Round 2: one docs-vs-code defect. A vuln past its wait but not
+      exhausted sits in the **Watch** group and can show `NEW` (`escalated
+<day>`), but step 2 says Watch reasons are never `NEW` and sends only
+      Needs-you items to the top of stack, so the pass would put the moment
+      a vuln needs the operator into the one-line Watch list. There are
+      three minors. A pending approval merged into a broken entry prints
+      `(undated)` and trips the "broken with an undated reason" rule every
+      day. Added entries sort to the end of the broken group. "Dated today"
+      for a new exhaustion rarely fires, because the digest records the
+      exhaustion first.
+    - _Ask:_ (a) fix the docs (step 2 sends every `NEW` Watch site to the
+      top of stack, and exempts escalated vulns from "never `NEW`"),
+      exclude `… ready` reasons from the undated-broken rule, sort the added
+      entries critical-first then A–Z, and land without a third round;
+      (b) land as is and file the four as a follow-up; (c) fix and run a
+      third review round.
+    - _Pick:_ (a). The defect is wording in one docs paragraph. The code's
+      behaviour is the right one, and a test already pins it. The sort is a
+      one-line comparator with a test.
+
+95. **#1235, P1-33(d) PM-pass watcher: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1235 (branch `claude/p1-33d-pm-pass-watch`,
+    head `a2fb6ab2`) adds `scripts/pm-pass-watch.mjs` and
+    `.github/workflows/pm-pass-watch.yml`. When a PM pass's report has not
+    reached `main` by its due time, it emails `vars.OPERATOR_EMAIL`. On the
+    real history it reads 10-06 and 10-07 morning `ran` and 09-29 and 10-05
+    `not-covered`. All ten mutations in the brief go red.
+    - Round 1 found no blocker, and five minors, all fixed in `e1c3ab98`:
+      - a dispatch with `date=2026-11-31` was accepted;
+      - a dry run or a `PM_WATCH=off` run closed the failure issue;
+      - `dry_run` plus `test_send` still sent;
+      - a second `test_send` on the same day was replayed;
+      - a second pass due after midnight was dropped from the window.
+    - Round 2 confirmed all five fixes and found two minors, both fixed in
+      `a2fb6ab2`:
+      - "Re-run jobs" on a `test_send` keeps the run id, so Resend replayed
+        the key and nothing went out;
+      - nothing tested the `unverified=` output that the close step reads.
+        Neither affects a scheduled run.
+    - _Ask:_ (a) land `a2fb6ab2` without a third review round; (b) run a
+      third round first.
+    - _Pick:_ (a). Each round-2 fix is under ten lines and has a test that
+      goes red without it. Neither touches the slot verdicts or the emails
+      a scheduled run sends.
+    - Once it lands, the watcher will probably email "PM pass missed:
+      2026-10-07 second" at 22:41Z. `docs/pm-pass.md` declares `48 4,12`,
+      but the Routine read `48 4,17` at 14:31Z. If so, the alarm is correct.
+      **Answered 2026-10-07 ~15:36Z (AskUserQuestion): (b), run a third
+      round.** Round 3 (`a2fb6ab2`) found no code defect and three test gaps,
+      fixed in `585b3adc`: the run attempt in the test key was not pinned,
+      an empty `RESEND_API_KEY` was untested, and the live CLI test could
+      reach the real Resend if verdicts regressed.
+
+96. **#1238, P1-33(d) digest subject: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1238 (branch `claude/p1-33d-digest-subject`,
+    head `3ea38339`). Round 1 found no blocker and one medium: a send caused
+    only by a non-critical line getting worse read "no change since …". A
+    `<N> worse — <title>` case now covers it; the brief's step 4 had assumed
+    only heartbeats reach that point. Round 1 also found CR/LF unflattened
+    and no length cap, now capped at a 150-char suffix. Round 2 found one
+    minor: the cap could leave half an emoji. Fixed, with a test.
+    - _Ask:_ (a) run a third round; (b) land without one.
+    - _Pick:_ (a), as on #1235.
+      **Answered 2026-10-07 ~15:44Z (AskUserQuestion): (a).** Round 3 on
+      `3ea38339` was clean.
+
+97. **Eight operator-only chores that had no item (new 2026-10-07, P1-33(b),
+    #1249).** Each was written down in a meta-week or operating-model file and
+    never reached this section, so no morning report could carry it. The
+    first Monday pass on or after 2026-10-12 lists all eight in its "Do, date
+    or drop" section whatever their age; after that they follow the 168 h
+    rule like any other ask. Minutes are estimates [I], from the source where it
+    gives one, never measured. Each `asked` is the UTC time of the source
+    line's first commit unless noted. Checked
+    on `ce197bbb`: none was already done.
+    - **97(a) Org-wide secret scanning and push protection** (asked
+      2026-09-13T01:21:28Z). _Ask:_ in org Settings → Code security, enable
+      both for all existing repositories and by default for new ones, ~3 min
+      [I] (the source: "Enabling it org-wide is a one-time setting"; scanning
+      was off on public repos such as `29-navy` and `vida-legacy-foundation`). Unverified on the org's
+      plan: `GET orgs/reddoorla` answers 403 from a cloud session, and the
+      repo's `security_and_analysis` comes back empty. Done here also closes
+      the scanning half of 33(d), whose two repos already exist, only if
+      "all existing repositories" was applied. The Mantis build that failed on a committed
+      Blux key (Watching, #754) is what push protection stops. Source
+      `docs/meta-week/08-second-pass.md:54`.
+    - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
+      the
+      `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
+      `.env`, delete `DROPBOX_ACCESS_TOKEN`, `GOOGLE_SEARCH_API_KEY` and
+      `TURNSTILE_SECRET_KEY_1`, which nothing reads, and **keep
+      `FIGMA_PAT`**, which every starter-generated site reads (#874); remove
+      the eleven legacy `<SITE>_PRISMIC` names there (the cloud environment's
+      own `<SITE>_PRISMIC` variables are live and stay); say where
+      `report-edit.env`'s two keys belong; and remove the dead `GITHUB_TOKEN`
+      PAT if it is still in `credentials.env` (#650 left it as "an operator
+      chore"; the code fix is #808). "Ten minutes" [I]. Source
+      `docs/meta-week/06-priorities-system.md:629-638`.
+    - **97(c) `src/blux`, `src/webflow` and canvas-starter: keep, fold or
+      archive?** (asked 2026-09-13T01:21:28Z). _Ask:_ one decision per name. `src/blux`
+      was "a 30-minute operator decision" [I], but its premise has moved:
+      Mantis ran `blux convert` on 10-01 (item 60), so it has a consumer now.
+      `src/webflow` is last touched 2026-07-28 (#466) and the 10-19
+      conversions did not use it. canvas-starter last changed 2026-09-30
+      (canvas-starter#30). Minutes: unknown for the other two. Sources
+      `06-priorities-system.md:685-686`, `08-second-pass.md:184-189`.
+    - **97(d) What is `#trinity-law-school`?** (asked 2026-09-13T01:21:28Z). _Ask:_ say
+      what the channel is and whether fleet output should reach anyone in it.
+      `#roalson-interests`, asked in the same line, is answered (a tracked
+      fleet site). "Ten minutes" [I]. Source
+      `docs/meta-week/07-priorities-workflow.md:441-447`.
+    - **97(e) B7, the team note** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ post the note in
+      `docs/operating-model-rollout.md:60-66` in Discord, or say it is
+      posted (not read: this check had no Discord access). Minutes: unknown.
+      Source `operating-model-rollout.md:26`.
+    - **97(f) B8, the vendor filters** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ add the four
+      Gmail filters in `operating-model-rollout.md:68-79`. Not done [M,
+      2026-10-07]: the mailbox has no `Vendor` label, which every filter
+      applies. Minutes: unknown. Source `operating-model-rollout.md:27`.
+    - **97(g) An off-GitHub copy of the nightly backup** (asked
+      2026-09-13T01:21:28Z).
+      _Ask:_ add one off-GitHub destination for the backup, keeping one copy
+      a month. Today it is a 30-day Actions artifact only
+      (`retention-days: 30` in
+      `.github/workflows/fleet-db-backup.yml:112-118`). The source's first
+      step, finding `BACKUP_PASSPHRASE` in 1Password ("two minutes"), is
+      done: `docs/runbooks/continuity.md:272-274` (#791) places it in a
+      Personal vault. Minutes: unknown. Source
+      `06-priorities-system.md:658-664`.
+    - **97(h) The Rick Garcia lead thread** (asked 2026-09-17T00:11:43Z, the
+      thread's last message). _Ask:_ reply or close. Two messages, with no reply
+      from us since [M, 2026-10-07]. Minutes: unknown. Source
+      `docs/operating-model-review-2026-09-29.md:207-208`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
@@ -3175,6 +3501,14 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   Re-read on 10-08; a figure under 25 is an ask.
 
 ## Done (move items here when they land)
+
+- 2026-10-07 — P1-34: "refresh preview" (`report --rerender`) writes the
+  site row's current four Lighthouse scores to an unsent, unapproved report
+  and renders with them; the result line names the change
+  (`scores=refreshed scores_change=bp:78→100`). An approved report keeps its
+  stored scores (`scores=locked`), and a site row with a null score leaves
+  the stored ones alone (`scores=site-missing`). Operator decisions 91 (a);
+  issue #1236.
 
 - 2026-10-06 — P1-32: a Lighthouse run whose lhci exited non-zero without
   writing assertion results reports `warn` ("no assertion results … were not
