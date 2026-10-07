@@ -3264,6 +3264,22 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     the same command resolves Espada under both subjects [M, 15:47Z]. So
     (a) or (b) has not taken effect for this property. The next nightly
     will read `soft-fail`, not `resolved`, until it does.
+    **Re-checked 2026-10-07 17:59Z, after the operator said (a) and (b)
+    were done: still refused, and Google's own `sites.list` says why.**
+    `tucker@reddoorla.com` lists `https://www.datadynamiq.com/` as
+    `siteUnverifiedUser`; `reports@reddoorla.com` lists no datadynamiq
+    property at all; both list `https://espadarealestate.com/` and resolve
+    it [M, service account + DWD, `webmasters/v3/sites`]. The page serves
+    the tag once with a 200, also to a Googlebot user agent [M, curl]. So
+    Verify has not succeeded on this property, and `reports@` was never
+    added to it (Search Console only lets a verified owner add users).
+    _Next (operator):_ open the property signed in as the account that
+    generated this tag's token (an HTML-tag token is per account), press
+    Verify, then add `reports@reddoorla.com`. If the verified property sits
+    under another account, also add `tucker@reddoorla.com`: it is the
+    cloud environment's `GA_SUBJECT`. Nothing to change on the site or in
+    Turso; the next nightly or `report data-dynamiq --preview --enrich`
+    shows whether it took.
 
 94. **#1244, P1-35 `scripts/pm-cockpit.mts`: held after two dirty review
     rounds (new 2026-10-07, #1241).** #1244 (branch
