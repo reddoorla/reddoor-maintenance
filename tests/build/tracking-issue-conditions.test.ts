@@ -300,6 +300,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-security.yml › Open/update the nightly-failure tracking issue",
       "fleet-smoke.yml › Open/update the nightly-smoke-failure tracking issue",
       "forms-deadletter-replay.yml › Open/update the replay-failure tracking issue",
+      "pm-pass-watch.yml › Open/update the pm-pass-watch-failing tracking issue",
       "release-health.yml › Open/update the npm-drift tracking issue",
       "release-health.yml › Open/update the release-failing tracking issue",
       "release-health.yml › Open/update the release-health-run-failing tracking issue",
@@ -320,6 +321,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-security.yml › Close the nightly-failure issue on recovery",
       "fleet-smoke.yml › Close the nightly-smoke-failure issue on recovery",
       "forms-deadletter-replay.yml › Close the replay-failure issue on recovery",
+      "pm-pass-watch.yml › Close the pm-pass-watch-failing issue on recovery",
       "release-health.yml › Close the drift issue once npm catches up",
       "release-health.yml › Close the release-failing issue once it goes green",
       "release-health.yml › Close the release-health-run-failing issue on recovery",
@@ -746,8 +748,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 18 open steps", () => {
-    expect(opens(all)).toHaveLength(18);
+  it("finds all 19 open steps", () => {
+    expect(opens(all)).toHaveLength(19);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
@@ -999,7 +1001,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
   });
 
-  it("finds all sixteen workflows", async () => {
+  it("finds all seventeen workflows", async () => {
     expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
       "ci.yml",
       "daily-reports.yml",
@@ -1012,6 +1014,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
       "fleet-security.yml",
       "fleet-smoke.yml",
       "forms-deadletter-replay.yml",
+      "pm-pass-watch.yml",
       "release-health.yml",
       "release.yml",
       "renovate.yml",

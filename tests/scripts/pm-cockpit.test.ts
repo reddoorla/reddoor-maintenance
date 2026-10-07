@@ -119,6 +119,26 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
     expect(out).toContain("latest production deploy error (undated)");
   });
 
+  it("orders Needs-you as the cockpit does: broken critical-first, then A to Z, then approvals", () => {
+    const dead = site({
+      id: "recDEP",
+      name: "Alpha Deploy",
+      url: "https://alpha.example.com",
+      deployStatus: "error",
+    });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({ websites: [HEALTHY, BROKEN, dead], deadLetters: new Map([["ghost-site", 4]]) }),
+        NOW,
+      ),
+    );
+    const order = out
+      .split("\n")
+      .filter((l) => l.startsWith("- "))
+      .map((l) => l.split(" · ")[0]);
+    expect(order).toEqual(["- (unknown site: ghost-site)", "- Alpha Deploy", "- Broken Co"]);
+  });
+
   it("lists a dead letter for a slug no site owns", () => {
     const out = formatPmCockpit(
       buildPmCockpit(

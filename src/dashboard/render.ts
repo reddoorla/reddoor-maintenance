@@ -282,7 +282,7 @@ function recipientsLine(site: WebsiteRow): string {
 function rerenderButton(r: ReportRow): string {
   if (r.sentAt !== null) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
-  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence against the latest site audits (runs in Actions; takes a minute or two)">refresh preview</button>`;
+  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores (runs in Actions; takes a minute or two)">refresh preview</button>`;
 }
 
 /** The dashboard's own preview route for a report body (served from Turso). */
@@ -315,7 +315,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   // the dashboard's own `/api/reports/:id/preview` route. `renderedHtmlAttachment`
   // gates the link: it is how we know a body was ever rendered at all.
   const preview = r.renderedHtmlAttachment
-    ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
+    ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time or at the last refresh preview; edits since then show after the next refresh">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
   return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${rerenderButton(r)} ${approveButton(r, blocked)} ${withdrawButton(r)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;

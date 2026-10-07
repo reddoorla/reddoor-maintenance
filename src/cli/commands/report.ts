@@ -176,8 +176,13 @@ export async function runReportCommand(
     const { rerenderReport, formatRerenderResult } = await import("../../reports/send/rerender.js");
     const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const { getReportById, getSiteById, storeRenderedHtml, storeChecklistEvidence } =
-      await import("../../db/fleet-state.js");
+    const {
+      getReportById,
+      getSiteById,
+      storeRenderedHtml,
+      storeChecklistEvidence,
+      storeLighthouseScores,
+    } = await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     const { fetchSearch } = await import("../../reports/draft.js");
     const db = await openDb(readDbConfig());
@@ -190,6 +195,7 @@ export async function runReportCommand(
         store: (id, html) => storeRenderedHtml(db, id, html),
         storeEvidence: (id, checklist, autoEvidence, search) =>
           storeChecklistEvidence(db, id, checklist, autoEvidence, search),
+        storeScores: (id, scores) => storeLighthouseScores(db, id, scores),
         measureSearch: (site, start, end) => fetchSearch(site, start, end),
         now: () => new Date(),
       },

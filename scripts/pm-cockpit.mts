@@ -153,7 +153,16 @@ export type PmEntry = {
   url: string;
   reasons: DatedReason[];
   isNew: boolean;
+  hasCritical: boolean;
 };
+
+const GROUP_RANK: Record<NeedsYouItem["group"], number> = { broken: 0, watch: 1, approval: 2 };
+
+export function comparePmEntries(a: PmEntry, b: PmEntry): number {
+  if (GROUP_RANK[a.group] !== GROUP_RANK[b.group]) return GROUP_RANK[a.group] - GROUP_RANK[b.group];
+  if (a.group === "broken" && a.hasCritical !== b.hasCritical) return a.hasCritical ? -1 : 1;
+  return a.siteName.toLowerCase().localeCompare(b.siteName.toLowerCase());
+}
 
 export type PmCockpit = {
   now: string;
@@ -218,7 +227,15 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     const reasons = f.reasons.map(
       (text) => dated.get(`${f.slug}\u0000${text}`) ?? { text, day: null, how: null },
     );
-    return { ...f, reasons, isNew: isNew(reasons) };
+    return {
+      group: f.group,
+      siteName: f.siteName,
+      slug: f.slug,
+      url: f.url,
+      reasons,
+      isNew: isNew(reasons),
+      hasCritical: f.hasCritical,
+    };
   });
 
   for (const card of model.cards) {
@@ -242,6 +259,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
         url: `/s/${slug}`,
         reasons: [reason],
         isNew: false,
+        hasCritical: false,
       });
   }
 
@@ -255,8 +273,10 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
       url: "(no site page)",
       reasons,
       isNew: isNew(reasons),
+      hasCritical: it.severity === "critical",
     });
   }
+  entries.sort(comparePmEntries);
 
   const waitingKeys: string[] = [];
   for (const site of inputs.websites.filter(isDashboardVisible)) {
@@ -276,9 +296,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     now: now.toISOString(),
     since: since ?? null,
     sites: model.cards.length,
-    needsYou: entries
-      .filter((e) => e.group !== "watch")
-      .sort((a, b) => (a.group === b.group ? 0 : a.group === "broken" ? -1 : 1)),
+    needsYou: entries.filter((e) => e.group !== "watch"),
     watch: entries.filter((e) => e.group === "watch"),
     waitingKeys: waitingKeys.sort(),
   };

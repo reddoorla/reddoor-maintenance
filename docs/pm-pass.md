@@ -69,18 +69,25 @@ The prompt lives here so it can be changed by PR, like everything else.
    then "Needs you" (each site, its group, every reason, `/s/<slug>`) and
    "Watch". It exists because the nightlies can all be green while a site
    needs the operator: Data Dynamiq's Search Console `no-property` (2026-10-07)
-   reached no morning report. Put every `NEW` Needs-you item, and every
-   `broken` one with an `(undated)` reason, into the top of stack as an exact ask ("on `/s/<slug>`, <what to do>"), and list the Watch
-   sites in one line. Beyond the cockpit's own feed it also lists, as
-   broken, a site whose only problem is a failed production deploy and a
-   dead letter for a slug no site owns. `NEW` comes from the digest
-   snapshot: an item's first-flagged day, a vuln's escalation day, or today
-   for a vuln whose auto-fix the snapshot has not yet recorded as exhausted.
-   It is compared by day, so an item flagged on the `<since>` day can show
-   `NEW` on two mornings. Watch reasons, approvals, failed deploys and a vuln
-   already recorded as exhausted print `(undated)` and are never `NEW`: none
-   has a first-seen time. That includes Search Console `no-property`, so
-   read the Watch line each day rather than waiting for a `NEW`. Approvals
+   reached no morning report. Into the top of stack, each as an exact ask
+   ("on `/s/<slug>`, <what to do>"), go every `NEW` site, in either
+   section, and every `broken` site with an `(undated)` reason other than
+   `… ready`. List the other Watch sites in one line. Beyond the cockpit's
+   own feed the script also lists, as broken, a site whose only problem is
+   a failed production deploy and a dead letter for a slug no site owns.
+
+   `NEW` comes from the digest snapshot: an item's first-flagged day; for a
+   vuln Renovate has not fixed in time, the day its wait failed (that vuln
+   sits in Watch, and its `NEW` morning is the morning it first needs the
+   operator); and today for a vuln whose auto-fix the snapshot has not yet
+   recorded as exhausted. The digest usually records an exhaustion before
+   the pass runs, so such a vuln mostly prints `(undated)` under `broken`,
+   which the rule above still sends to the top of stack. Dates are compared
+   by day, so an item flagged on the `<since>` day can show `NEW` on two
+   mornings. Other Watch reasons, approvals, failed deploys and an
+   already-exhausted vuln print `(undated)` and are never `NEW`: none has a
+   first-seen time. That includes Search Console `no-property`, so read the
+   Watch line each day rather than waiting for a `NEW`. Approvals (`… ready`)
    are step 3's. "Just wait" items are already left out, and their count is
    printed as `just_wait_left_out`. An empty digest snapshot, or a failed
    read, stops the script
@@ -131,6 +138,10 @@ The prompt lives here so it can be changed by PR, like everything else.
    `docs/morning-reports/`: one-line verdict, top of stack for the operator
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
+   `.github/workflows/pm-pass-watch.yml` emails the operator when a pass has
+   not landed by its due time, and it keys on the `## One-line verdict` and
+   `## Evening` headings, so renaming either needs a change to
+   `scripts/pm-pass-watch.mjs` in the same PR.
 
    **The clean-send streak.** Read the table under "Clean-send streak" in
    `docs/BACKLOG.md` and put one line near the top of the report: "clean
