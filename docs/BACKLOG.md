@@ -3105,6 +3105,25 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     Queued as P1-34, with a brief in the 10-07 morning report's cockpit
     section. The sends stay held until the four rows read their live scores.
 
+92. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
+    property form (new 2026-10-07, operator ask in the PM cockpit).** The
+    verification tag shipped in data-dynamiq#62 (`0e5f8dd`), and the
+    production home page carries exactly one copy at 15:31Z, where it
+    carried none before the merge [M, 2026-10-07, curl + grep -c]. The Turso row
+    (`data-dynamiq`, `maintained`) still has `search_console_property`
+    NULL, and `site_health.search_console_outcome` is `no-property`
+    (checked 10-05 18:36Z) [M, SELECT-only].
+    _Ask:_ (a) press **Verify** for the property in Search Console;
+    (b) Settings → Users and permissions → add `reports@reddoorla.com`
+    (Restricted is enough); (c) say which form the property is: URL-prefix
+    `https://www.datadynamiq.com/` or domain `datadynamiq.com`.
+    _Pick:_ only (c) is a choice. A worker then records the answer with
+    `setSiteDetail` (`searchConsoleProperty`), reads it back, and the next
+    nightly's lookup should stop reading `no-property`. Without (b) it keeps
+    reading `no-property` even with the property recorded: the lookup only
+    matches properties the reports account can see
+    (`src/reports/draft.ts:550`).
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
