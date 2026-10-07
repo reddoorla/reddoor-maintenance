@@ -3280,6 +3280,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     cloud environment's `GA_SUBJECT`. Nothing to change on the site or in
     Turso; the next nightly or `report data-dynamiq --preview --enrich`
     shows whether it took.
+    **Resolved 2026-10-07 19:08Z.** The operator verified the property
+    and added both accounts. `sites.list` now gives `tucker@` `siteOwner`
+    and `reports@` `siteFullUser` on `https://www.datadynamiq.com/`.
+    `report data-dynamiq --preview --enrich` resolves under each subject,
+    with no permission error [M]. It reports no brand-query data yet,
+    which is expected for a property verified today. The first nightly
+    after this should record `search_console_outcome` = `resolved`.
 
 94. **#1244, P1-35 `scripts/pm-cockpit.mts`: held after two dirty review
     rounds (new 2026-10-07, #1241).** #1244 (branch
