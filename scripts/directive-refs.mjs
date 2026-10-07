@@ -18,7 +18,6 @@ const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 const ATTEMPT = /`(CLAUDE\.md|AUTONOMY\.md)`\s*(→|§)/g;
 const QUOTED = /^\s*"([^"]+)"/;
 const SECTION = /^"([^"]+)"/;
-const BARE = /^\s*([^\s,.;:)?!|—–"“”'*_[\]`(][^,.;:)?!|—–"“”*_[\]`(]*?)\s*(?=[,.;:)?!|—–]|$)/;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };
@@ -60,7 +59,7 @@ export function paragraphs(text) {
       return;
     }
     const isRow = /^\s*\|/.test(body);
-    const isHeading = /^\s*#/.test(body);
+    const isHeading = /^\s{0,3}#{1,6}(?:\s|$)/.test(body);
     const isItem = /^\s*(?:[-*+]|\d+[.)])\s/.test(body);
     if (isRow || isHeading || isItem || current === null) {
       current = { text: "", offsets: [] };
@@ -87,8 +86,7 @@ export function citations(text) {
       const [, target, symbol] = m;
       const rest = p.text.slice(m.index + m[0].length);
       const quoted = (symbol === "§" ? SECTION : QUOTED).exec(rest);
-      const bare = symbol === "→" && quoted === null ? BARE.exec(rest) : null;
-      const read = quoted ?? bare;
+      const read = quoted !== null && collapse(quoted[1]) !== "" ? quoted : null;
       const cited = read === null ? null : collapse(read[1]);
       const length = m[0].length + (read === null ? 0 : read[0].trimEnd().length);
       const start = lineAt(p.offsets, m.index);
@@ -96,7 +94,7 @@ export function citations(text) {
       const shown =
         cited === null
           ? `\`${target}\` ${symbol}${rest.slice(0, 40)}`
-          : `\`${target}\` ${symbol === "§" ? `§"${cited}"` : bare ? `→ ${cited}` : `→ "${cited}"`}`;
+          : `\`${target}\` ${symbol === "§" ? `§"${cited}"` : `→ "${cited}"`}`;
       out.push({ target, cited, start, end, shown });
     }
   }

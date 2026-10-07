@@ -15,7 +15,7 @@ Tags: **[M]** measured that morning (query, probe, log line or file:line),
    this file in the same PR.
 2. **Claim before you start.** Comment on the item's issue ("Claimed by
    session `<branch>`") and check for fresh `claude/*` / `fix/*` branches and
-   open PRs touching the same files (`CLAUDE.md` → Concurrent sessions). If an
+   open PRs touching the same files (`CLAUDE.md` → "Concurrent sessions"). If an
    item has no issue, open one and put its number here.
 3. **Keep the tiers.** Every item is tagged 🟢 GREEN (agent may do and merge),
    🟡 YELLOW (agent may do; feat → 3-lens review before merge), or 🔴 RED

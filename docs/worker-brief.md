@@ -72,7 +72,7 @@ on two consecutive days, and a test pins it">
 **Landing.**
 
 1. `git fetch` the fresh `claude/*` and `fix/*` branches (`CLAUDE.md` →
-   Concurrent sessions); if one under a day old touches these files, stop.
+   "Concurrent sessions"); if one under a day old touches these files, stop.
 2. Claim on #<issue>. Worktree from `origin/main`. Red test first.
 3. Repo checks (`pnpm lint`, `pnpm typecheck`, the changed tests), then the
    review this tier needs, with the mutations table in the PR body.

@@ -13,31 +13,32 @@ import { fileURLToPath } from "node:url";
  * hand-typed line break, so no line-by-line grep ever saw one whole.
  *
  * `scripts/directive-refs.mjs` joins each paragraph's lines, then reads every `CLAUDE.md` or
- * `AUTONOMY.md` code span followed by → or § as a citation. It must be one of three shapes:
+ * `AUTONOMY.md` code span followed by → or § as a citation. It must be one of two shapes:
  *
- *   - quoted arrow:     `CLAUDE.md` → "Heading"
- *   - unquoted arrow:   `CLAUDE.md` → Heading   (plain words, ending at , . ; : ) ? ! | — – or
- *                       the paragraph's end)
- *   - quoted section:   `CLAUDE.md` §"Heading"
+ *   - arrow:     `CLAUDE.md` → "Heading"
+ *   - section:   `CLAUDE.md` §"Heading"
  *
- * Anything else after the → or § fails as "cannot read this citation": curly quotes, a link,
- * emphasis, mismatched or unclosed quotes, a space after §, or an unquoted name broken by `*`,
- * `_`, `[`, `(` or a quote. Three review rounds each added shapes to read, and each added shape
- * left a neighbour that was silently not counted, so a dead heading in it passed. Refusing what
- * it cannot read closes that class: the cost is that a valid citation in an unusual spelling
- * fails loudly, with the spelling to use in the message.
+ * Anything else after the → or § fails as "cannot read this citation": no quotes, curly
+ * quotes, a link, emphasis, mismatched, unclosed or blank quotes, or a space after §. Four
+ * review rounds shaped this. The first three each added spellings to read, and each one left a
+ * neighbour that was silently not counted, so a dead heading in it passed. The fourth found
+ * that an unquoted name cannot say where it ends: two real headings contain a comma, and
+ * `→ Before a fleet sweep, check …` was checked only up to the comma, so a heading that does
+ * not exist resolved. Requiring the quotes, and refusing everything else, closes both. The
+ * cost is that a valid citation in another spelling fails loudly, with the spelling to use in
+ * the message.
  *
- * Paragraphs are joined after `>` blockquote prefixes are stripped, and a heading, a table row
- * or a list item (inside a blockquote too) starts a new one.
+ * Paragraphs are joined after `>` blockquote prefixes are stripped. A heading (`#` to `######`
+ * followed by a space), a table row or a list item (inside a blockquote too) starts a new one.
  *
  * A citation resolves when some `##` or `###` heading of the target, outside code fences,
  * starts with the cited text and the match ends on a word boundary, so a short name such as
- * §"Before a fleet sweep" still resolves and "Concurrent sess" does not.
- * Fences are skipped when reading headings (`CLAUDE.md` has a `## ` line inside a shell block)
- * but not when reading citations: the brief template in `docs/worker-brief.md` is a fenced
- * block, and it is the text every brief is copied from.
+ * §"Before a fleet sweep" still resolves and "Concurrent sess" does not. Fences are skipped
+ * when reading headings (`CLAUDE.md` quotes a journal heading inside a fenced markdown
+ * example) but not when reading citations: the brief template in `docs/worker-brief.md` is a
+ * fenced block, and it is the text every brief is copied from.
  *
- * What it cannot see, all of which resolve today and are left to a reader:
+ * What it cannot see, all of which resolve today or do not occur in the tree:
  *
  *   - a parenthetical with no arrow or §, such as `CLAUDE.md` ("Prove the instrument", …;
  *   - a citation with no file named, such as (see "Prove the instrument", above) inside
@@ -46,14 +47,18 @@ import { fileURLToPath } from "node:url";
  *     `docs/pm-pass.md`, a table row in `docs/meta-week/`);
  *   - files it does not scan: history (`docs/workJournal.md`, `docs/journal/`,
  *     `docs/morning-reports/`, `docs/meta-week/`, `docs/superpowers/`), which records what was
- *     true then and is never corrected in place, and code (`scripts/land-prs.mjs` cites
- *     `AUTONOMY.md` by heading in comments);
- *   - a target not written as the bare code span: `->` for →, `./CLAUDE.md`, or a markdown
- *     link as the target. These are not counted at all. An unquoted name that runs on without
- *     punctuation ("→ Concurrent sessions and then…") fails loudly rather than passing, as does
- *     a citation written inside a longer code span as a format example;
- *   - `####` headings, setext headings and indented headings, none of which the two targets
- *     use;
+ *     true then and is never corrected in place; subdirectories of `docs/runbooks/` and
+ *     `docs/briefs/`; and code (`scripts/land-prs.mjs` cites `AUTONOMY.md` by heading in
+ *     comments);
+ *   - anything other than whitespace between the code span and the arrow or §, which is not
+ *     counted at all: `->`, `=>` or `⟶` for →, a comma, a parenthesis or emphasis before the
+ *     arrow, a zero-width space, `./CLAUDE.md`, a double-backtick span, or a link as the
+ *     target. A citation written inside a longer code span as a format example is counted and
+ *     fails loudly;
+ *   - in the targets: `####`, setext and indented headings, a `## ` line inside an HTML
+ *     comment or a fence that nests another fence (counted as a heading), and CRLF line ends
+ *     (no heading is read, so every citation fails loudly). The word boundary is ASCII, so
+ *     "Caf" resolves against "Café rules";
  *   - a heading that still exists but has come to mean something else.
  *
  * The instrument is proved before it is trusted (CLAUDE.md, "Prove the instrument before you
@@ -86,7 +91,7 @@ const AUTONOMY_MD = ["# Autonomy contract", "", "## Merge authority", ""].join("
 const GOOD = [
   'See `CLAUDE.md` → "Concurrent sessions" and `CLAUDE.md` §"Before a fleet sweep".',
   "",
-  "Also (`CLAUDE.md` → Concurrent sessions), and `AUTONOMY.md` → Merge authority.",
+  'Also (`CLAUDE.md` → "Concurrent  sessions"), and `AUTONOMY.md` → "Merge authority".',
   "",
   '- the asking rule (`CLAUDE.md` → "Worker sessions ask a blocking question',
   '  once, with all its context").',
@@ -177,15 +182,15 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     ]);
   });
 
-  it("catches a dead unquoted citation ending at )", () => {
+  it("catches a dead arrow citation that wraps after the arrow", () => {
     const r = run(
       makeRoot({
-        "docs/worker-brief.md": "1. Fetch (`CLAUDE.md` →\n   Lonely sessions); then go.\n",
+        "docs/worker-brief.md": '1. Fetch (`CLAUDE.md` →\n   "Lonely sessions"); then go.\n',
       }),
     );
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
-      expect.stringMatching(/^dead docs\/worker-brief\.md:1-2 .*→ Lonely sessions$/),
+      expect.stringMatching(/^dead docs\/worker-brief\.md:1-2 .*→ "Lonely sessions"$/),
     ]);
   });
 
@@ -205,7 +210,7 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
 
   it("still reads a source's fenced block, where the brief template lives", () => {
     const md =
-      "## Template\n\n```markdown\n1. Fetch (`CLAUDE.md` →\n   Lonely sessions); stop.\n```\n";
+      '## Template\n\n```markdown\n1. Fetch (`CLAUDE.md` →\n   "Lonely sessions"); stop.\n```\n';
     const r = run(makeRoot({ "docs/worker-brief.md": md }));
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
@@ -213,28 +218,36 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     ]);
   });
 
-  it("ends a paragraph at a heading, a table row and a list item", () => {
+  it("ends a paragraph at a heading, a table row and a list item, and not at #932", () => {
     const md = [
-      "### Why `CLAUDE.md` → Concurrent sessions",
-      "Next line text",
-      "| x | see `CLAUDE.md` → Concurrent sessions",
-      "and more",
-      "Para `CLAUDE.md` → Concurrent sessions",
-      "- next item",
-      '> See `CLAUDE.md` → "Concurrent',
-      '> sessions".',
+      '### Why `CLAUDE.md` → "Concurrent',
+      'sessions"',
+      '| x | see `CLAUDE.md` → "Concurrent',
+      'sessions" |',
+      'Para `CLAUDE.md` → "Concurrent',
+      '- sessions"',
+      '> - see `CLAUDE.md` → "Concurrent',
+      '> - sessions"',
+      'Wrapped `CLAUDE.md` → "Concurrent',
+      '#932 sessions" end.',
       "",
     ].join("\n");
     const r = run(makeRoot({ "docs/pm-pass.md": md }));
-    expect(deadLines(r.stdout)).toEqual([]);
-    expect(r.stdout).toMatch(/\b4 citations\b/);
-    expect(r.status).toBe(0);
+    expect(r.status).toBe(1);
+    const dead = deadLines(r.stdout);
+    expect(dead.map((l) => /^dead docs\/pm-pass\.md:(\d+)/.exec(l)?.[1])).toEqual([
+      "1",
+      "3",
+      "5",
+      "7",
+      "9",
+    ]);
+    expect(dead.slice(0, 4).every((l) => l.includes("cannot read this citation"))).toBe(true);
+    expect(dead[4]).toMatch(/:9-10 .*"Concurrent #932 sessions"$/);
   });
 
-  it("ends an unquoted citation at a dash, and matches whole words only", () => {
-    const md =
-      "A `CLAUDE.md` → Concurrent sessions — the rule.\n\n" +
-      'C `CLAUDE.md` → "Concurrent sess".\n';
+  it("matches whole words only", () => {
+    const md = 'A `CLAUDE.md` → "Concurrent".\n\nC `CLAUDE.md` → "Concurrent sess".\n';
     const r = run(makeRoot({ "docs/pm-pass.md": md }));
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
@@ -244,14 +257,17 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
 
   it("fails every spelling it cannot read, valid heading or not", () => {
     const spellings = [
+      "→ Concurrent sessions",
+      "→ Before a fleet sweep, check the archive list",
       "→ “Concurrent sessions”",
       "→ [Concurrent sessions](../CLAUDE.md#x)",
       "→ [**Concurrent sessions**](../CLAUDE.md#x)",
       "→ [Gone heading][ref]",
       '→ **"Concurrent sessions"**',
       "→ **Concurrent sessions**",
-      "→ A *gone* rule here",
       '→ “Gone heading"',
+      '→ " "',
+      '§"  "',
       "§“Concurrent sessions”",
       '§ "Concurrent sessions"',
       "§Concurrent sessions",
@@ -264,20 +280,10 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     for (const line of dead) expect(line).toContain("cannot read this citation");
   });
 
-  it("splits a blockquoted list at each item", () => {
-    const md =
-      "> - see `CLAUDE.md` → Concurrent sessions\n> - next item\n>\n> `CLAUDE.md` → Gone rule\n";
-    const r = run(makeRoot({ "docs/pm-pass.md": md }));
-    expect(r.status).toBe(1);
-    expect(deadLines(r.stdout)).toEqual([
-      expect.stringMatching(/^dead docs\/pm-pass\.md:4 .*→ Gone rule$/),
-    ]);
-  });
-
   it("catches a citation in CLAUDE.md itself, and every citation of a missing target", () => {
     const root = makeRoot({
       "CLAUDE.md": `${CLAUDE_MD}\nSee \`CLAUDE.md\` §"Nope".\n`,
-      "docs/pm-pass.md": "Per `AUTONOMY.md` → Merge authority.\n",
+      "docs/pm-pass.md": 'Per `AUTONOMY.md` → "Merge authority".\n',
     });
     rmSync(join(root, "AUTONOMY.md"));
     const r = run(root);
@@ -296,7 +302,6 @@ describe("the real tree", () => {
     const r = run();
     expect(deadLines(r.stdout)).toEqual([]);
     expect(r.status).toBe(0);
-    const count = Number(/\b(\d+) citations\b/.exec(r.stdout)?.[1] ?? "0");
-    expect(count).toBeGreaterThanOrEqual(8);
+    expect(r.stdout).toMatch(/\b10 citations, all resolve\b/);
   });
 });
