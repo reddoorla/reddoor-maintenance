@@ -25,6 +25,7 @@ import {
   ageLabel,
   daysBetween,
   decideDigestSend,
+  digestChanges,
   nextSent,
   LIGHTHOUSE_WORSE_POINTS,
   type DigestLine,
@@ -32,6 +33,7 @@ import {
   EMPTY_SEND_LOG,
   DIGEST_HEARTBEAT_DAYS,
   type DigestSendLog,
+  type DigestChanges,
 } from "../alerts/digest-send.js";
 import { escapeHtml as esc } from "../util/html.js";
 import { operatorEmail } from "../util/operator.js";
@@ -103,16 +105,26 @@ function attentionBadge(status?: AttentionStatus): string {
   return "";
 }
 
+export function orderAttention(items: readonly AttentionItem[]): AttentionItem[] {
+  const bySite = new Map<string, AttentionItem[]>();
+  for (const it of items) {
+    const bucket = bySite.get(it.siteName);
+    if (bucket) bucket.push(it);
+    else bySite.set(it.siteName, [it]);
+  }
+  return [...bySite.values()].flatMap((siteItems) =>
+    [...siteItems].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]),
+  );
+}
+
 function attentionSection(items: AttentionItem[]): string {
   const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
   if (items.length === 0) {
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">All clear — nothing needs attention.</p>`;
   }
 
-  // Group by siteName, preserving first-seen site order; sort within a site by
-  // severity (critical first).
   const bySite = new Map<string, AttentionItem[]>();
-  for (const it of items) {
+  for (const it of orderAttention(items)) {
     const bucket = bySite.get(it.siteName);
     if (bucket) bucket.push(it);
     else bySite.set(it.siteName, [it]);
@@ -120,10 +132,7 @@ function attentionSection(items: AttentionItem[]): string {
 
   const groups = [...bySite.entries()]
     .map(([siteName, siteItems]) => {
-      const sorted = [...siteItems].sort(
-        (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
-      );
-      const rows = sorted
+      const rows = siteItems
         .map((it) => {
           const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
           const titleHtml = safeUrl
@@ -183,6 +192,40 @@ function submissionsSection(s: SubmissionsDigestSection | null | undefined): str
 }
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
+
+function touchedBy(it: AttentionItem, keys: readonly string[]): boolean {
+  return keys.some((k) => k === it.key || k.startsWith(`${it.key}#`));
+}
+
+export function digestSubject(input: {
+  date: string;
+  readyForYourYes: readonly ReadyItem[];
+  needsAttention: readonly AttentionItem[];
+  changes: DigestChanges;
+  lastSentOn: string | null;
+}): string {
+  const prefix = `Your fleet — ${input.date}: `;
+  const ordered = orderAttention(input.needsAttention);
+  const changed = [...input.changes.added, ...input.changes.worse];
+  const critical = ordered.filter((it) => it.severity === "critical" && touchedBy(it, changed));
+  if (critical.length > 0) {
+    const first = critical[0]!;
+    const ask = first.ask ? `: ${first.ask}` : "";
+    const more = critical.length > 1 ? ` (+${critical.length - 1} more)` : "";
+    return `${prefix}Act: ${first.siteName} — ${first.title}${ask}${more}`;
+  }
+  const n = input.readyForYourYes.length;
+  if (n > 0) {
+    const oldest = Math.max(...input.readyForYourYes.map((r) => r.ageDays ?? 0));
+    const age = ageLabel(oldest);
+    return `${prefix}${n} ${n === 1 ? "report" : "reports"} ready for your yes${age ? ` — oldest ${age}` : ""}`;
+  }
+  const added = ordered.filter((it) => touchedBy(it, input.changes.added));
+  if (added.length > 0) return `${prefix}${added.length} new — ${added[0]!.title}`;
+  return input.lastSentOn
+    ? `${prefix}no change since ${input.lastSentOn}`
+    : `${prefix}first digest`;
+}
 
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
 function digestDateKey(d: Date): string {
@@ -740,14 +783,19 @@ export async function runDigest(
     const html = renderDigestHtml({ readyForYourYes, needsAttention, submissions });
     const client = options.resend ?? defaultResendClient();
     const to = [operatorEmail()];
-    const n = readyForYourYes.length;
-    const reportWord = n === 1 ? "report" : "reports";
+    const subject = digestSubject({
+      date: digestDateKey(today),
+      readyForYourYes,
+      needsAttention,
+      changes: digestChanges(digestLines, sendLog),
+      lastSentOn: sendLog.sentOn,
+    });
     let result: Awaited<ReturnType<typeof client.send>>;
     try {
       result = await client.send({
         from: FROM_ADDRESS,
         to,
-        subject: `Your fleet — ${digestDateKey(today)}: ${n} ${reportWord} ready for your yes`,
+        subject,
         html,
         idempotencyKey: `digest-${digestDateKey(today)}`,
       });

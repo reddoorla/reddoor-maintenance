@@ -55,19 +55,28 @@ export function flattenLines(lines: readonly DigestLine[]): Map<string, Flat> {
   return out;
 }
 
+export type DigestChanges = { added: string[]; worse: string[] };
+
+export function digestChanges(lines: readonly DigestLine[], log: DigestSendLog): DigestChanges {
+  const added: string[] = [];
+  const worse: string[] = [];
+  for (const [k, f] of flattenLines(lines)) {
+    const was = log.sent[k];
+    if (was === undefined) added.push(k);
+    else if (f.metric > was.metric + f.tolerance) worse.push(k);
+  }
+  return { added, worse };
+}
+
 export function decideDigestSend(
   lines: readonly DigestLine[],
   log: DigestSendLog,
   today: string,
 ): SendDecision {
   if (log.sentOn === null) return { send: true, reason: "first" };
-  const now = flattenLines(lines);
-  for (const k of now.keys()) {
-    if (!(k in log.sent)) return { send: true, reason: "added" };
-  }
-  for (const [k, f] of now) {
-    if (f.metric > log.sent[k]!.metric + f.tolerance) return { send: true, reason: "worse" };
-  }
+  const changes = digestChanges(lines, log);
+  if (changes.added.length > 0) return { send: true, reason: "added" };
+  if (changes.worse.length > 0) return { send: true, reason: "worse" };
   if (daysBetween(log.sentOn, today) >= DIGEST_HEARTBEAT_DAYS) {
     return { send: true, reason: "heartbeat" };
   }
