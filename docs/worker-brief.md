@@ -5,9 +5,8 @@ each backlog item it recommends starting (`docs/pm-pass.md`, step 6), so the
 operator's part is copy and paste. A brief is complete enough that the worker
 rarely has to ask the operator anything mid-flight. If it must, it follows
 `CLAUDE.md` → "Worker sessions ask a blocking question once, with all its
-context": it asks with AskUserQuestion and writes the decision under "Operator
-decisions" too; that is the brief's defect, and
-the next PM pass fixes the template or the item.
+context", in the order given there. A question the brief should have answered
+is the brief's defect, and the next PM pass fixes the template or the item.
 
 The template is below. Every part is required; write "none" rather than leaving
 one out, so a missing part reads as a decision and not an oversight.
@@ -30,11 +29,9 @@ one out, so a missing part reads as a decision and not an oversight.
   catch. The worker runs every one and puts the table in the PR body.
 - **Stop conditions.** `AUTONOMY.md`'s six always apply. This part adds the
   item's own: the fork that would change what the feature is, the file owned by
-  another session, the RED step that follows.
-  Whatever the stop, its "Operator decisions" line lands on `main` as its own
-  docs-only PR. #1143 (2026-10-05) is why: its worker held the PR after two
-  dirty rounds and wrote the ask on the PR's own branch, so `main`, which is
-  what the PM pass reads, asked the operator nothing for 13 hours.
+  another session, the RED step that follows. Whatever the stop, the worker
+  asks as `CLAUDE.md`'s asking rule says, in its order; the rule also carries
+  why (#1143, 2026-10-05).
 - **Landing.** The same every time, so it is short.
 
 ## Template
@@ -66,10 +63,11 @@ on two consecutive days, and a test pins it">
 
 - <the product fork this item could hit, stated as the question>
 - <files owned by another session today: do not edit>
-- Two dirty review rounds → "Operator decisions", not a third round.
-- At any stop condition: the "Operator decisions" line lands on `main` as its
-  own docs-only PR (`land-prs.mjs`), never only on this work's branch or held
-  PR. Then push the work branch and end.
+- Two dirty review rounds → "Operator decisions", not a third round; your pick
+  there follows `CLAUDE.md`'s two-rounds rule (never "land as is" while a
+  reproduced behaviour defect is unfixed).
+- At any stop condition: ask as `CLAUDE.md` → "Worker sessions ask a blocking
+  question once, with all its context" says, in its order.
 
 **Landing.**
 
@@ -81,10 +79,9 @@ on two consecutive days, and a test pins it">
 4. Move the item to BACKLOG's Done section in the same PR.
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
-7. Stopped instead of landing? The "Operator decisions" line still lands on
-   `main` as a docs-only PR (step 5), and the work branch is pushed. A
-   branch with no PR, or a question only on a branch, is what the evening
-   pass flags.
+7. Stopped instead of landing? Follow `CLAUDE.md`'s asking rule, in its
+   order. A branch with no PR, or a question only on a branch, is what the
+   evening pass flags.
 ```
 
 ## An example

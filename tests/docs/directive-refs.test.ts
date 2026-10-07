@@ -1,0 +1,223 @@
+import { describe, it, expect, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Docs cite the rules in `CLAUDE.md` and `AUTONOMY.md` by heading, and until this file nothing
+ * checked that the heading still existed. On 2026-10-05 #1188 renamed "Worker sessions never
+ * ask mid-flight"; three citations of the old name, in `docs/BACKLOG.md`, `docs/pm-pass.md` and
+ * `docs/worker-brief.md`, stayed dead until #1224 fixed them by hand. All three wrapped across a
+ * hand-typed line break, so no line-by-line grep ever saw one whole.
+ *
+ * `scripts/directive-refs.mjs` joins each paragraph's lines, then reads three shapes whose
+ * target is `CLAUDE.md` or `AUTONOMY.md`:
+ *
+ *   - quoted arrow:     `CLAUDE.md` → "Heading"
+ *   - unquoted arrow:   `CLAUDE.md` → Heading   (ends at , . ; : ) or the paragraph's end)
+ *   - quoted section:   `CLAUDE.md` §"Heading"
+ *
+ * A citation resolves when some `##` or `###` heading of the target, outside code fences,
+ * starts with the cited text, so a short name such as §"Before a fleet sweep" still resolves.
+ * Fences are skipped when reading headings (`CLAUDE.md` has a `## ` line inside a shell block)
+ * but not when reading citations: the brief template in `docs/worker-brief.md` is a fenced
+ * block, and it is the text every brief is copied from.
+ *
+ * What it cannot see, all of which resolve today and are left to a reader:
+ *
+ *   - a parenthetical with no arrow or §, such as `CLAUDE.md` ("Prove the instrument", …;
+ *   - a citation with no file named, such as (see "Prove the instrument", above) inside
+ *     `CLAUDE.md` or (see "The evening pass") in `docs/pm-pass.md`;
+ *   - any citation of a file other than `CLAUDE.md` or `AUTONOMY.md` (`README.md`,
+ *     `docs/pm-pass.md`, a table row in `docs/meta-week/`);
+ *   - files it does not scan: history (`docs/workJournal.md`, `docs/journal/`,
+ *     `docs/morning-reports/`, `docs/meta-week/`, `docs/superpowers/`), which records what was
+ *     true then and is never corrected in place, and code (`scripts/land-prs.mjs` cites
+ *     `AUTONOMY.md` by heading in comments);
+ *   - a heading that still exists but has come to mean something else.
+ *
+ * The instrument is proved before it is trusted (CLAUDE.md, "Prove the instrument before you
+ * trust its verdict"): every fixture below has a known-good citation beside its known-bad one,
+ * and the root that holds only good citations must exit 0.
+ */
+
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const SCRIPT = join(REPO_ROOT, "scripts/directive-refs.mjs");
+
+const CLAUDE_MD = [
+  "# CLAUDE.md",
+  "",
+  "## Prove the instrument before you trust its verdict",
+  "",
+  "## Concurrent sessions",
+  "",
+  "## Before a fleet sweep, ask which repos can receive a push",
+  "",
+  "### Worker sessions ask a blocking question once, with all its context",
+  "",
+  "```sh",
+  "## Fenced not a heading",
+  "```",
+  "",
+].join("\n");
+
+const AUTONOMY_MD = ["# Autonomy contract", "", "## Merge authority", ""].join("\n");
+
+const GOOD = [
+  'See `CLAUDE.md` → "Concurrent sessions" and `CLAUDE.md` §"Before a fleet sweep".',
+  "",
+  "Also (`CLAUDE.md` → Concurrent sessions), and `AUTONOMY.md` → Merge authority.",
+  "",
+  '- the asking rule (`CLAUDE.md` → "Worker sessions ask a blocking question',
+  '  once, with all its context").',
+  "",
+].join("\n");
+
+const roots: string[] = [];
+
+function makeRoot(files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "directive-refs-"));
+  roots.push(root);
+  const all = { "CLAUDE.md": CLAUDE_MD, "AUTONOMY.md": AUTONOMY_MD, ...files };
+  for (const [path, body] of Object.entries(all)) {
+    const full = join(root, path);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, body);
+  }
+  return root;
+}
+
+function run(root?: string): { status: number | null; stdout: string; stderr: string } {
+  const args = root === undefined ? [SCRIPT] : [SCRIPT, "--root", root];
+  const r = spawnSync(process.execPath, args, { encoding: "utf8" });
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+function deadLines(stdout: string): string[] {
+  return stdout.split("\n").filter((l) => l.startsWith("dead "));
+}
+
+afterAll(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+});
+
+describe("scripts/directive-refs.mjs on fixture roots", () => {
+  it("exits 0 on a root whose citations all resolve (PASS control)", () => {
+    const r = run(makeRoot({ "docs/pm-pass.md": GOOD, "docs/runbooks/x.md": GOOD }));
+    expect(r.stdout + r.stderr).not.toContain("dead ");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/\b10 citations\b/);
+  });
+
+  it("catches a dead quoted citation in docs/pm-pass.md", () => {
+    const r = run(makeRoot({ "docs/pm-pass.md": `${GOOD}\nSee \`CLAUDE.md\` → "Gone rule".\n` }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/pm-pass\.md:8 .*Gone rule/),
+    ]);
+  });
+
+  it("ignores the same dead citation in docs/workJournal.md and docs/journal/", () => {
+    const dead = 'See `CLAUDE.md` → "Gone rule".\n';
+    const r = run(
+      makeRoot({
+        "docs/pm-pass.md": GOOD,
+        "docs/workJournal.md": dead,
+        "docs/journal/x.md": dead,
+        "docs/morning-reports/x.md": dead,
+        "docs/meta-week/x.md": dead,
+        "docs/superpowers/x.md": dead,
+      }),
+    );
+    expect(deadLines(r.stdout)).toEqual([]);
+    expect(r.status).toBe(0);
+  });
+
+  it("catches a dead citation wrapped across lines, naming both lines", () => {
+    const md =
+      'Intro.\n\n7. **Rule.** It ends; see `CLAUDE.md` → "Worker\n   sessions never ask\n   mid-flight").\n';
+    const r = run(makeRoot({ "docs/BACKLOG.md": md }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/BACKLOG\.md:3-5 .*"Worker sessions never ask mid-flight"/),
+    ]);
+  });
+
+  it('passes a valid prefix such as §"Before a fleet sweep"', () => {
+    const r = run(makeRoot({ "docs/runbooks/x.md": '(`CLAUDE.md` §"Before a fleet sweep")\n' }));
+    expect(deadLines(r.stdout)).toEqual([]);
+    expect(r.status).toBe(0);
+  });
+
+  it('catches a dead §"…" citation', () => {
+    const r = run(makeRoot({ "docs/runbooks/x.md": '(`CLAUDE.md` §"Before a fleet walk")\n' }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/runbooks\/x\.md:1 .*Before a fleet walk/),
+    ]);
+  });
+
+  it("catches a dead unquoted citation ending at )", () => {
+    const r = run(
+      makeRoot({
+        "docs/worker-brief.md": "1. Fetch (`CLAUDE.md` →\n   Lonely sessions); then go.\n",
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/worker-brief\.md:1-2 .*→ Lonely sessions$/),
+    ]);
+  });
+
+  it("catches a dead citation of an AUTONOMY.md heading", () => {
+    const r = run(makeRoot({ "docs/briefs/b.md": 'Per `AUTONOMY.md` → "Merge policy".\n' }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/briefs\/b\.md:1 .*AUTONOMY\.md.*Merge policy/),
+    ]);
+  });
+
+  it("does not count a ## line inside a code fence as a heading", () => {
+    const r = run(makeRoot({ "docs/pm-pass.md": 'See `CLAUDE.md` → "Fenced not a heading".\n' }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toHaveLength(1);
+  });
+
+  it("still reads a source's fenced block, where the brief template lives", () => {
+    const md =
+      "## Template\n\n```markdown\n1. Fetch (`CLAUDE.md` →\n   Lonely sessions); stop.\n```\n";
+    const r = run(makeRoot({ "docs/worker-brief.md": md }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/worker-brief\.md:4-5 /),
+    ]);
+  });
+
+  it("catches a citation in CLAUDE.md itself, and every citation of a missing target", () => {
+    const root = makeRoot({
+      "CLAUDE.md": `${CLAUDE_MD}\nSee \`CLAUDE.md\` §"Nope".\n`,
+      "docs/pm-pass.md": "Per `AUTONOMY.md` → Merge authority.\n",
+    });
+    rmSync(join(root, "AUTONOMY.md"));
+    const r = run(root);
+    expect(r.status).toBe(1);
+    const dead = deadLines(r.stdout);
+    expect(dead).toHaveLength(2);
+    expect(dead.some((l) => l.startsWith("dead CLAUDE.md:"))).toBe(true);
+    expect(dead.some((l) => l.startsWith("dead docs/pm-pass.md:1") && l.includes("missing"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("the real tree", () => {
+  it("has no dead CLAUDE.md or AUTONOMY.md citation", () => {
+    const r = run();
+    expect(deadLines(r.stdout)).toEqual([]);
+    expect(r.status).toBe(0);
+    const count = Number(/\b(\d+) citations\b/.exec(r.stdout)?.[1] ?? "0");
+    expect(count).toBeGreaterThanOrEqual(8);
+  });
+});
