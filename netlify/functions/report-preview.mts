@@ -49,10 +49,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       status: 200,
       headers: {
         "content-type": "text/html; charset=utf-8",
-        // The body is a finished artifact rendered at draft time — never index,
-        // never cache across operators.
+        // Never index. Never cache: "refresh preview" rewrites the body, and a
+        // cached copy would show the old scores for minutes after it (P1-34).
         "x-robots-tag": "noindex",
-        "cache-control": "private, max-age=300",
+        "cache-control": "no-store",
       },
     });
   } catch (err) {
