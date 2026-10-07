@@ -3228,6 +3228,52 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       behaviour is the right one, and a test already pins it. The sort is a
       one-line comparator with a test.
 
+95. **#1235, P1-33(d) PM-pass watcher: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1235 (branch `claude/p1-33d-pm-pass-watch`,
+    head `a2fb6ab2`) adds `scripts/pm-pass-watch.mjs` and
+    `.github/workflows/pm-pass-watch.yml`. When a PM pass's report has not
+    reached `main` by its due time, it emails `vars.OPERATOR_EMAIL`. On the
+    real history it reads 10-06 and 10-07 morning `ran` and 09-29 and 10-05
+    `not-covered`. All ten mutations in the brief go red.
+    - Round 1 found no blocker, and five minors, all fixed in `e1c3ab98`:
+      - a dispatch with `date=2026-11-31` was accepted;
+      - a dry run or a `PM_WATCH=off` run closed the failure issue;
+      - `dry_run` plus `test_send` still sent;
+      - a second `test_send` on the same day was replayed;
+      - a second pass due after midnight was dropped from the window.
+    - Round 2 confirmed all five fixes and found two minors, both fixed in
+      `a2fb6ab2`:
+      - "Re-run jobs" on a `test_send` keeps the run id, so Resend replayed
+        the key and nothing went out;
+      - nothing tested the `unverified=` output that the close step reads.
+        Neither affects a scheduled run.
+    - _Ask:_ (a) land `a2fb6ab2` without a third review round; (b) run a
+      third round first.
+    - _Pick:_ (a). Each round-2 fix is under ten lines and has a test that
+      goes red without it. Neither touches the slot verdicts or the emails
+      a scheduled run sends.
+    - Once it lands, the watcher will probably email "PM pass missed:
+      2026-10-07 second" at 22:41Z. `docs/pm-pass.md` declares `48 4,12`,
+      but the Routine read `48 4,17` at 14:31Z. If so, the alarm is correct.
+      **Answered 2026-10-07 ~15:36Z (AskUserQuestion): (b), run a third
+      round.** Round 3 (`a2fb6ab2`) found no code defect and three test gaps,
+      fixed in `585b3adc`: the run attempt in the test key was not pinned,
+      an empty `RESEND_API_KEY` was untested, and the live CLI test could
+      reach the real Resend if verdicts regressed.
+
+96. **#1238, P1-33(d) digest subject: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1238 (branch `claude/p1-33d-digest-subject`,
+    head `3ea38339`). Round 1 found no blocker and one medium: a send caused
+    only by a non-critical line getting worse read "no change since …". A
+    `<N> worse — <title>` case now covers it; the brief's step 4 had assumed
+    only heartbeats reach that point. Round 1 also found CR/LF unflattened
+    and no length cap, now capped at a 150-char suffix. Round 2 found one
+    minor: the cap could leave half an emoji. Fixed, with a test.
+    - _Ask:_ (a) run a third round; (b) land without one.
+    - _Pick:_ (a), as on #1235.
+      **Answered 2026-10-07 ~15:44Z (AskUserQuestion): (a).** Round 3 on
+      `3ea38339` was clean.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
