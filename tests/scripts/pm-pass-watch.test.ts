@@ -177,6 +177,7 @@ describe("parseArgs", () => {
       dryRun: true,
     });
     expect(() => parseArgs(["--date", "10/06"])).toThrow(/YYYY-MM-DD/);
+    expect(() => parseArgs(["--date", "2026-11-31"])).toThrow(/YYYY-MM-DD/);
     expect(() => parseArgs(["--pass", "evening"])).toThrow(/--pass/);
     expect(() => parseArgs(["--now", "2026-10-06T00:00:00"])).toThrow(/Z/);
   });
@@ -254,6 +255,21 @@ describe("watch — misses", () => {
     const r = await run(dir, { date: "2026-10-06" }, "2026-10-06T13:00:00Z");
     expect(verdicts(r)).toEqual(["2026-10-06 morning not-due", "2026-10-06 second not-due"]);
     expect(r.calls).toEqual([]);
+  });
+});
+
+describe("watch — a second pass due after midnight", () => {
+  it("is still checked once now − window has crossed into D+1", async () => {
+    const dir = fixture([
+      BASE,
+      { at: "2026-10-06T08:00:00Z", files: { [PM]: pmPass("30 4,23 * * 1-4") } },
+      { at: "2026-10-07T12:00:00Z", files: { [report("2026-10-07")]: MORNING } },
+    ]);
+    const r = await run(dir, {}, "2026-10-09T03:10:00Z");
+    expect(r.lines).toContain(
+      `PM_WATCH date=2026-10-07 pass=second schedule="30 4,23 * * 1-4" read=${r.slots.find((x) => x.date === "2026-10-07")!.read} due=2026-10-08T07:30:00Z verdict=missed`,
+    );
+    expect(r.calls.map((c) => c.body.subject)).toContain("PM pass missed: 2026-10-07 second");
   });
 });
 
@@ -382,6 +398,17 @@ describe("watch — blind, never silent", () => {
     );
   });
 
+  it("a known-good line that does not read 48 4,17 is blind", async () => {
+    const dir = fixture([
+      { at: "2026-10-05T23:00:00Z", files: { [PM]: pmPass("48 4,12 * * 1-4") } },
+      { at: "2026-10-06T12:05:00Z", files: { [report("2026-10-06")]: MORNING } },
+    ]);
+    const r = await run(dir, { date: "2026-10-06", pass: "morning" }, "2026-10-07T12:00:00Z");
+    expect(verdicts(r)).toEqual(["2026-10-06 morning blind"]);
+    expect(r.code).toBe(1);
+    expect(String(r.calls[0]!.body.subject)).toMatch(/does not read 48 4,17$/);
+  });
+
   it("a covered date whose line does not parse is blind, not not-covered", async () => {
     const dir = fixture([
       BASE,
@@ -458,6 +485,50 @@ describe("watch — sending", () => {
     );
     expect(r.calls.map((c) => c.body.subject)).toEqual([
       "[TEST] PM pass watch: the send path works",
+    ]);
+  });
+
+  it("dry_run wins over test_send", async () => {
+    const r = await run(
+      missedDir(),
+      { date: "2026-10-06", testSend: true, dryRun: true },
+      "2026-10-07T12:00:00Z",
+    );
+    expect(r.calls).toEqual([]);
+  });
+
+  it("each test_send carries its run id in the key, so a second one is not replayed", async () => {
+    const r = await run(
+      missedDir(),
+      { date: "2026-10-06", testSend: true },
+      "2026-10-07T12:00:00Z",
+      {
+        env: { GITHUB_RUN_ID: "123" },
+      },
+    );
+    expect(r.calls[0]!.headers["Idempotency-Key"]).toBe("pm-pass-watch-test-2026-10-07-123");
+  });
+
+  it("only a live run that finished is verified, so only it may close the failure issue", async () => {
+    const live = await run(missedDir(), { date: "2026-10-06" }, "2026-10-07T12:00:00Z");
+    const dry = await run(
+      missedDir(),
+      { date: "2026-10-06", dryRun: true },
+      "2026-10-07T12:00:00Z",
+    );
+    const test = await run(
+      missedDir(),
+      { date: "2026-10-06", testSend: true },
+      "2026-10-07T12:00:00Z",
+    );
+    const off = await run(missedDir(), { date: "2026-10-06" }, "2026-10-07T12:00:00Z", {
+      env: { PM_WATCH: "off" },
+    });
+    expect([live, dry, test, off].map((r) => r.verified === true)).toEqual([
+      true,
+      false,
+      false,
+      false,
     ]);
   });
 

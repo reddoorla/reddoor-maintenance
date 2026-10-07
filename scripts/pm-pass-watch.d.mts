@@ -81,6 +81,7 @@ export interface WatchResult {
   lines: string[];
   sent: SentEmail[];
   slots: Slot[];
+  verified?: boolean;
 }
 
 export function parseArgs(argv: string[]): Options;
@@ -97,10 +98,10 @@ export function formatSlot(s: Slot): string;
 export function planSlots(
   o: Options,
   now: number,
-): { dates: string[]; passes: Pass[]; windowed: boolean };
+): { dates: string[]; passes: Pass[]; windowed: boolean; earliest?: string };
 export function missedEmail(s: Slot): Email;
 export function blindEmail(today: string, reasons: string[]): Email;
-export function testEmail(today: string): Email;
+export function testEmail(today: string, runId?: string): Email;
 export function sendEmail(
   email: Email,
   opts: { apiKey: string; to: string; fetchImpl?: FetchLike },

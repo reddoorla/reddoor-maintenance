@@ -53,6 +53,7 @@ jobs:
           node-version: "24"
 
       - name: Watch the PM pass
+        id: watch
         timeout-minutes: 5
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -95,7 +96,7 @@ jobs:
           fi
 
       - name: Close the pm-pass-watch-failing issue on recovery
-        if: success() && github.ref == 'refs/heads/main'
+        if: success() && steps.watch.outputs.unverified != 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

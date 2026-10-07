@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
+import { appendFileSync, realpathSync } from "node:fs";
 
 export const LA = "America/Los_Angeles";
 export const PM_PASS = "docs/pm-pass.md";
@@ -42,7 +42,8 @@ export function parseArgs(argv) {
     if (a === "--ref") o.ref = next();
     else if (a === "--date") {
       const v = next();
-      if (!DATE_RE.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`)))
+      const t = Date.parse(`${v}T00:00:00Z`);
+      if (!DATE_RE.test(v) || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v)
         throw new Error(`--date needs YYYY-MM-DD, got ${v}`);
       o.date = v;
     } else if (a === "--pass") {
@@ -244,9 +245,9 @@ export function planSlots(o, now) {
   if (o.pass !== "both") return { dates: [localDate(now)], passes, windowed: false };
   const today = localDate(now);
   const earliest = localDate(now - WINDOW_HOURS * 3_600_000);
-  const dates =
-    earliest === today ? [today] : [addDays(today, -1), today].filter((d) => d >= earliest);
-  return { dates, passes, windowed: true };
+  const dates = [];
+  for (let d = addDays(earliest, -1); d <= today; d = addDays(d, 1)) dates.push(d);
+  return { dates, passes, windowed: true, earliest };
 }
 
 export function missedEmail(s) {
@@ -283,9 +284,9 @@ export function blindEmail(today, reasons) {
   };
 }
 
-export function testEmail(today) {
+export function testEmail(today, runId = "") {
   return {
-    key: `pm-pass-watch-test-${today}`,
+    key: `pm-pass-watch-test-${today}${runId ? `-${runId}` : ""}`,
     subject: "[TEST] PM pass watch: the send path works",
     text: "A hand-dispatched test of the PM pass watcher's send path. Nothing was missed; no action needed.",
   };
@@ -320,9 +321,10 @@ export async function watch(o, deps = {}) {
     return { code: 0, lines, sent, slots: [] };
   }
   const dry = o.dryRun || o.testSend;
+  const testSend = o.testSend && !o.dryRun;
   const to = (env.OPERATOR_EMAIL ?? "").trim();
   const apiKey = (env.RESEND_API_KEY ?? "").trim();
-  if (!o.dryRun || o.testSend) {
+  if (!o.dryRun) {
     if (!to) {
       log("PM_WATCH error: OPERATOR_EMAIL is empty, refusing to guess a recipient");
       return { code: 1, lines, sent, slots: [] };
@@ -359,6 +361,7 @@ export async function watch(o, deps = {}) {
       if (s.verdict === "no-pass") continue;
       if (plan.windowed && s.dueMs !== undefined && s.dueMs <= now - WINDOW_HOURS * 3_600_000)
         continue;
+      if (plan.windowed && s.dueMs === undefined && date < plan.earliest) continue;
       slots.push(s);
       log(formatSlot(s));
     }
@@ -374,7 +377,7 @@ export async function watch(o, deps = {}) {
   );
 
   try {
-    if (o.testSend) await send(testEmail(today));
+    if (testSend) await send(testEmail(today, (env.GITHUB_RUN_ID ?? "").trim()));
     if (!dry) {
       if (blindReasons.length) await send(blindEmail(today, blindReasons));
       for (const s of slots.filter((x) => x.verdict === "missed")) await send(missedEmail(s));
@@ -387,7 +390,7 @@ export async function watch(o, deps = {}) {
     for (const r of blindReasons) log(`PM_WATCH blind: ${r}`);
     return { code: 1, lines, sent, slots };
   }
-  return { code: 0, lines, sent, slots };
+  return { code: 0, lines, sent, slots, verified: !dry };
 }
 
 async function main() {
@@ -401,6 +404,8 @@ async function main() {
   }
   const r = await watch(o);
   process.stdout.write(r.lines.join("\n") + "\n");
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(process.env.GITHUB_OUTPUT, `unverified=${r.verified ? "no" : "yes"}\n`);
   process.exitCode = r.code;
 }
 
