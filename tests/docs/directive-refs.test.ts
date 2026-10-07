@@ -19,7 +19,12 @@ import { fileURLToPath } from "node:url";
  *   - section:   `CLAUDE.md` §"Heading"
  *
  * Anything else after the → or § fails as "cannot read this citation": no quotes, curly
- * quotes, a link, emphasis, mismatched, unclosed or blank quotes, or a space after §. Four
+ * quotes, a link, emphasis, mismatched, unclosed or blank quotes, a space after §, or a
+ * closing quote followed directly by a letter. The last is a quote inside the heading:
+ * `AUTONOMY.md` has `## Merge authority (current policy: "everything but releases")`, and
+ * reading up to the first inner quote checked only "Merge authority (current policy:", so the
+ * old full name would have passed after the policy changed (round 5). Cite such a heading by
+ * the words before its first quote. Four
  * review rounds shaped this. The first three each added spellings to read, and each one left a
  * neighbour that was silently not counted, so a dead heading in it passed. The fourth found
  * that an unquoted name cannot say where it ends: two real headings contain a comma, and
@@ -42,7 +47,8 @@ import { fileURLToPath } from "node:url";
  *
  *   - a parenthetical with no arrow or §, such as `CLAUDE.md` ("Prove the instrument", …;
  *   - a citation with no file named, such as (see "Prove the instrument", above) inside
- *     `CLAUDE.md` or (see "The evening pass") in `docs/pm-pass.md`;
+ *     `CLAUDE.md` or (see "The evening pass") in `docs/pm-pass.md`, including a second → or §
+ *     after the same code span (`AUTONOMY.md` §"A", §"B" checks only "A");
  *   - any citation of a file other than `CLAUDE.md` or `AUTONOMY.md` (`README.md`,
  *     `docs/pm-pass.md`, a table row in `docs/meta-week/`);
  *   - files it does not scan: history (`docs/workJournal.md`, `docs/journal/`,
@@ -86,7 +92,12 @@ const CLAUDE_MD = [
   "",
 ].join("\n");
 
-const AUTONOMY_MD = ["# Autonomy contract", "", "## Merge authority", ""].join("\n");
+const AUTONOMY_MD = [
+  "# Autonomy contract",
+  "",
+  '## Merge authority (current policy: "nothing without the operator")',
+  "",
+].join("\n");
 
 const GOOD = [
   'See `CLAUDE.md` → "Concurrent sessions" and `CLAUDE.md` §"Before a fleet sweep".',
@@ -278,6 +289,35 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     const dead = deadLines(r.stdout);
     expect(dead).toHaveLength(spellings.length);
     for (const line of dead) expect(line).toContain("cannot read this citation");
+  });
+
+  it("refuses a citation that a quote inside the heading would cut short", () => {
+    const md = [
+      'Per `AUTONOMY.md` → "Merge authority (current policy: "everything but releases")".',
+      "",
+      'And `CLAUDE.md` → "The "evening pass" rule".',
+      "",
+      'But `AUTONOMY.md` → "Merge authority (current policy:" resolves.',
+      "",
+    ].join("\n");
+    const r = run(makeRoot({ "docs/pm-pass.md": md }));
+    expect(r.status).toBe(1);
+    const dead = deadLines(r.stdout);
+    expect(dead).toHaveLength(2);
+    for (const line of dead) expect(line).toContain("cannot read this citation");
+    expect(r.stdout).toMatch(/\b2 of 3 citations dead\b/);
+  });
+
+  it("reads a citation inside AUTONOMY.md, with tabs and extra spaces around the arrow", () => {
+    const root = makeRoot({
+      "AUTONOMY.md": `${AUTONOMY_MD}\nSee \`CLAUDE.md\`\t→  "Concurrent sessions" and \`CLAUDE.md\`  →\t"Gone".\n`,
+    });
+    const r = run(root);
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead AUTONOMY\.md:\d+ .*→ "Gone"$/),
+    ]);
+    expect(r.stdout).toMatch(/\b1 of 2 citations dead\b/);
   });
 
   it("catches a citation in CLAUDE.md itself, and every citation of a missing target", () => {

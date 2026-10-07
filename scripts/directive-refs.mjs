@@ -16,8 +16,8 @@ export const SOURCE_DIRS = ["docs/runbooks", "docs/briefs"];
 const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 
 const ATTEMPT = /`(CLAUDE\.md|AUTONOMY\.md)`\s*(→|§)/g;
-const QUOTED = /^\s*"([^"]+)"/;
-const SECTION = /^"([^"]+)"/;
+const QUOTED = /^\s*"([^"]+)"(?!\w)/;
+const SECTION = /^"([^"]+)"(?!\w)/;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };

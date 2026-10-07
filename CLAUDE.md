@@ -142,8 +142,8 @@ a long status message. So a worker started from a backlog item or a brief
   AskUserQuestion has no timeout in a cloud session, so everything the
   operator must see is on GitHub before the ask:
   1. Write the line on its own `claude/*` branch cut from `origin/main`, never
-     on the work's branch, so `scripts/evening-branches.mjs` sees it. Commit
-     it, push it, and open its docs-only PR.
+     on the work's branch, so it reaches `main` on its own PR whatever happens
+     to the work. Commit it, push it, and open its docs-only PR.
   2. Push the work branch.
   3. Ask with AskUserQuestion.
   4. Land the docs-only PR with `node scripts/land-prs.mjs`. If an answer
