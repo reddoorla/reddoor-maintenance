@@ -3187,6 +3187,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       round 3's shapes were; every remaining minor fails loudly or needs a
       spelling the tree does not use.
       **Answered 2026-10-07 15:38Z (AskUserQuestion): (b), quotes only, then a fifth review round.**
+    - Round 5 (`f68c564e`, quotes only) found one major, no blocker. A
+      quote inside the heading ends the citation early, so only the text
+      before it is checked. A real heading already has one: `AUTONOMY.md`'s
+      "Merge authority (current policy: "everything but releases")". If the
+      policy were renamed, the old full citation would still resolve,
+      because only "Merge authority (current policy:" is compared. Minors:
+      a second → or § after the same code span is not counted; two
+      mutations survive (no fixture cites from inside `AUTONOMY.md`, and
+      none has a tab or two spaces around the arrow); the exact-10 pin in
+      the real-tree test turns red on any PR that adds a valid citation;
+      CLAUDE.md step 1 gives a wrong reason (evening-branches does read
+      work branches; the real reason is the line's own PR to `main`).
+    - _Ask 4:_ (a) refuse a quote whose closing mark is followed by a word
+      character (the inner-quote case becomes "cannot read"), add the two
+      repros and the two missing fixtures, list chained citations under
+      "cannot see", correct step 1's reason, keep the exact-10 pin as
+      chosen in ask 3, and land without a sixth round; (b) the same plus a
+      sixth round; (c) land `f68c564e` as is with a follow-up.
+    - _Pick 4:_ (a). The fix is one lookahead, and each round since the
+      quotes-only change has found a narrower gap than the last.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
