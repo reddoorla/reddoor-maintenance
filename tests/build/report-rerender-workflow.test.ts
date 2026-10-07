@@ -74,6 +74,8 @@ describe("report-rerender workflow gate", () => {
       headerSource: "turso",
       evidence: "reticked",
       search: "measured",
+      scores: "refreshed",
+      scoresChange: "bp:78→100",
     });
     expect((await runGate({ out: `${real}\n` })).code).toBe(0);
   });
@@ -97,6 +99,8 @@ describe("report-rerender workflow gate", () => {
       reportId: "recREP",
       evidence: "reticked",
       search: "skipped",
+      scores: "unchanged",
+      scoresChange: null,
     });
     expect((await runGate({ out: `${refused}\n`, exit: 0 })).code).not.toBe(0);
   });
