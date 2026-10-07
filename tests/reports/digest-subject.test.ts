@@ -113,6 +113,16 @@ describe("digestSubject", () => {
     expect(s.endsWith("…")).toBe(true);
   });
 
+  it("never cuts an emoji in half at the cap", () => {
+    const needsAttention = [
+      item({ key: "c", siteName: "S", severity: "critical", title: "a".repeat(139) + "🔥🔥🔥" }),
+    ];
+    const s = subject({ needsAttention, changes: { added: ["c"], worse: [] } });
+    expect(s).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(() => encodeURIComponent(s)).not.toThrow();
+    expect(s.endsWith("a…")).toBe(true);
+  });
+
   it("says no change on a heartbeat, and first digest with nothing behind it", () => {
     const needsAttention = [item({ key: "a" })];
     expect(subject({ needsAttention })).toBe("Your fleet — 2026-10-07: no change since 2026-10-01");

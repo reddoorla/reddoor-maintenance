@@ -203,7 +203,10 @@ function clipSuffix(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= DIGEST_SUBJECT_SUFFIX_MAX
     ? flat
-    : `${flat.slice(0, DIGEST_SUBJECT_SUFFIX_MAX - 1).trimEnd()}…`;
+    : `${flat
+        .slice(0, DIGEST_SUBJECT_SUFFIX_MAX - 1)
+        .replace(/[\uD800-\uDBFF]$/, "")
+        .trimEnd()}…`;
 }
 
 export function digestSubject(input: {
