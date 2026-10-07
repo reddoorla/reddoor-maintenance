@@ -3172,6 +3172,72 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       spelling fails loudly with the fix in the message; none exists in the
       tree today.
       **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+    - Round 4 (`133bbbab`, the inverted reader) found two majors, no
+      blocker. (1) An unquoted name stops at a comma or colon and only the
+      part before it is checked, so → Before a fleet sweep, check the
+      archive list (a heading that does not exist) resolves against
+      "Before a fleet sweep, ask which repos…". Two real headings contain a
+      comma, so this is the #1188 rename shape again. (2) A quoted citation
+      of only spaces resolves, because the empty string prefixes every
+      heading. Minors, none present in the tree: other spellings between
+      the code span and the arrow are not counted, a wrapped line starting
+      `#932` or `2.` splits a paragraph, a `## ` line inside an HTML comment
+      or a nested fence counts as a heading, the word boundary is
+      ASCII-only, and the real-tree test asserts at least 8 rather than
+      exactly 10.
+    - _Ask 3:_ (a) drop the unquoted shape: only → "Heading" and §"Heading"
+      read, and the two unquoted citations in the tree
+      (`docs/BACKLOG.md:18`, `docs/worker-brief.md:76-77`) get quotes;
+      reject a blank quote; split paragraphs only on real CommonMark
+      starts (`# ` with a space, a list starting at 1, a row); assert
+      exactly 10 in the real tree; list the remaining minors in the test's
+      "cannot see" comment; land without a fifth round. (b) the same plus a
+      fifth round. (c) land `133bbbab` as is with a follow-up.
+    - _Pick 3:_ (a). The unquoted shape cannot tell where a heading that
+      contains punctuation ends, so it is removed rather than patched, as
+      round 3's shapes were; every remaining minor fails loudly or needs a
+      spelling the tree does not use.
+      **Answered 2026-10-07 15:38Z (AskUserQuestion): (b), quotes only, then a fifth review round.**
+    - Round 5 (`f68c564e`, quotes only) found one major, no blocker. A
+      quote inside the heading ends the citation early, so only the text
+      before it is checked. A real heading already has one: `AUTONOMY.md`'s
+      "Merge authority (current policy: "everything but releases")". If the
+      policy were renamed, the old full citation would still resolve,
+      because only "Merge authority (current policy:" is compared. Minors:
+      a second → or § after the same code span is not counted; two
+      mutations survive (no fixture cites from inside `AUTONOMY.md`, and
+      none has a tab or two spaces around the arrow); the exact-10 pin in
+      the real-tree test turns red on any PR that adds a valid citation;
+      CLAUDE.md step 1 gives a wrong reason (evening-branches does read
+      work branches; the real reason is the line's own PR to `main`).
+    - _Ask 4:_ (a) refuse a quote whose closing mark is followed by a word
+      character (the inner-quote case becomes "cannot read"), add the two
+      repros and the two missing fixtures, list chained citations under
+      "cannot see", correct step 1's reason, keep the exact-10 pin as
+      chosen in ask 3, and land without a sixth round; (b) the same plus a
+      sixth round; (c) land `f68c564e` as is with a follow-up.
+    - _Pick 4:_ (a). The fix is one lookahead, and each round since the
+      quotes-only change has found a narrower gap than the last.
+      **Answered 2026-10-07 17:29Z (AskUserQuestion): (b), fix, then a sixth review round.**
+    - Round 6 (`5cca9ca3`) found one major, no blocker: the round-5
+      lookahead only refuses an inner quote followed by an ASCII letter or
+      digit. Followed by a space, punctuation, a backtick or an accented
+      letter (→ "The "--force" flag", → "The "(x)" gone"), the citation is
+      still cut to the words before the inner quote, and "The" resolves
+      against any heading starting with it. The only quoted heading in the
+      two targets is still caught, so the hazard is a future heading with
+      a quoted flag or code span. Minors: the header says "a letter" where
+      the code means an ASCII letter; the § form's lookahead has no test.
+    - _Ask 5:_ (a) also refuse a quoted capture that begins or ends with
+      whitespace (every one of the seven repros does, since an inner
+      opening quote follows a space; a patched copy keeps the real tree at
+      10 of 10 and fails all seven loudly), make the lookahead
+      Unicode-aware, add a § inner-quote case, and land without a seventh
+      round; (b) the same plus a seventh round; (c) land `5cca9ca3` as is
+      with a follow-up.
+    - _Pick 5:_ (a). Six rounds have each found a narrower case than the
+      last; this one needs a heading the tree does not have.
+      **Answered 2026-10-07 17:56Z (AskUserQuestion): (a), fix and land, no seventh round.**
 
 93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
     property form (new 2026-10-07, operator ask in the PM cockpit).** The
