@@ -198,6 +198,7 @@ describe("refresh preview (rerender through renderReportFromRow)", () => {
           stored.push(html);
         },
         storeEvidence: async () => true,
+        storeScores: async () => true,
         now: () => NOW,
       },
       "recREP",
@@ -206,5 +207,39 @@ describe("refresh preview (rerender through renderReportFromRow)", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0]).not.toContain("CMS Checked");
     expect(stored[0]).toContain("Uptime Checked");
+  });
+});
+
+describe("refresh preview takes the site row's current scores (P1-34)", () => {
+  const bestPracticesCell = (html: string) => {
+    const at = html.indexOf("Best Practices");
+    return html.slice(at, at + 2000).match(/>\s*(\d{1,3})\s*</)?.[1];
+  };
+  const refresh = async (live: Partial<WebsiteRow>) => {
+    const stored: string[] = [];
+    await rerenderReport(
+      {
+        getReport: async () =>
+          report({
+            lighthouse: { performance: 98, accessibility: 100, bestPractices: 78, seo: 92 },
+          }),
+        getSite: async () => site(live),
+        loadHeaderPlate: async () => PLATE,
+        render: (s, rep, plate) => renderReportFromRow(s, rep, plate),
+        store: async (_id, html) => void stored.push(html),
+        storeEvidence: async () => true,
+        storeScores: async () => true,
+        now: () => new Date("2026-09-28T12:00:00Z"),
+      },
+      "recREP",
+    );
+    return stored[0]!;
+  };
+
+  it("renders the site's 100, where a site row with no scores keeps the stored 78", async () => {
+    expect(bestPracticesCell(await refresh({}))).toBe("78");
+    expect(
+      bestPracticesCell(await refresh({ pScore: 98, rScore: 100, bpScore: 100, seoScore: 92 })),
+    ).toBe("100");
   });
 });

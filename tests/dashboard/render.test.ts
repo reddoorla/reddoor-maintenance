@@ -1484,7 +1484,7 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
     expect(pending).toContain("/preview");
     expect(pending).not.toContain("files.example/dl");
     expect(pending).toContain("draft preview");
-    expect(pending).toContain("rendered at draft time");
+    expect(pending).toContain("rendered at draft time or at the last refresh preview");
   });
 
   it("notes when there is no preview attachment", () => {

@@ -1,0 +1,109 @@
+name: pm-pass-watch
+
+on:
+  schedule:
+    - cron: "41 3,9,15,22 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "America/Los_Angeles date to check (YYYY-MM-DD); empty scans the look-back window"
+        required: false
+        default: ""
+        type: string
+      pass:
+        description: "Which pass to check"
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - morning
+          - second
+      dry_run:
+        description: "Print the verdicts and send nothing"
+        required: false
+        default: false
+        type: boolean
+      test_send:
+        description: "Send exactly one [TEST] email to the operator, nothing else"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: pm-pass-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Watch the PM pass
+        id: watch
+        timeout-minutes: 5
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
+          PM_WATCH: ${{ vars.PM_WATCH }}
+          WATCH_DATE: ${{ inputs.date }}
+          WATCH_PASS: ${{ inputs.pass }}
+          WATCH_DRY_RUN: ${{ inputs.dry_run }}
+          WATCH_TEST_SEND: ${{ inputs.test_send }}
+        run: |
+          args=(--ref origin/main)
+          [ -n "${WATCH_DATE:-}" ] && args+=(--date "$WATCH_DATE")
+          [ -n "${WATCH_PASS:-}" ] && args+=(--pass "$WATCH_PASS")
+          [ "${WATCH_DRY_RUN:-}" = "true" ] && args+=(--dry-run)
+          [ "${WATCH_TEST_SEND:-}" = "true" ] && args+=(--test-send)
+          node scripts/pm-pass-watch.mjs "${args[@]}"
+
+      - name: Open/update the pm-pass-watch-failing tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="PM pass watch failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The **pm-pass-watch** run failed, so nothing is checking whether the PM pass landed.\n\nA missed pass is reported by email, never by this issue. This issue means the watcher itself could not answer: it was blind (no history before 2026-10-06, or a Schedule line in docs/pm-pass.md that does not parse), OPERATOR_EMAIL or RESEND_API_KEY was empty, or Resend refused a send. The run log names which; look for its `PM_WATCH` lines.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the pm-pass-watch-failing issue on recovery
+        if: success() && steps.watch.outputs.unverified != 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="PM pass watch failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered. The PM pass watcher is green again." && echo "closed #$n"
+          done
