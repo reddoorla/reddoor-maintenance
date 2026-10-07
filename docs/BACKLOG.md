@@ -3219,6 +3219,24 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Pick 4:_ (a). The fix is one lookahead, and each round since the
       quotes-only change has found a narrower gap than the last.
       **Answered 2026-10-07 17:29Z (AskUserQuestion): (b), fix, then a sixth review round.**
+    - Round 6 (`5cca9ca3`) found one major, no blocker: the round-5
+      lookahead only refuses an inner quote followed by an ASCII letter or
+      digit. Followed by a space, punctuation, a backtick or an accented
+      letter (→ "The "--force" flag", → "The "(x)" gone"), the citation is
+      still cut to the words before the inner quote, and "The" resolves
+      against any heading starting with it. The only quoted heading in the
+      two targets is still caught, so the hazard is a future heading with
+      a quoted flag or code span. Minors: the header says "a letter" where
+      the code means an ASCII letter; the § form's lookahead has no test.
+    - _Ask 5:_ (a) also refuse a quoted capture that begins or ends with
+      whitespace (every one of the seven repros does, since an inner
+      opening quote follows a space; a patched copy keeps the real tree at
+      10 of 10 and fails all seven loudly), make the lookahead
+      Unicode-aware, add a § inner-quote case, and land without a seventh
+      round; (b) the same plus a seventh round; (c) land `5cca9ca3` as is
+      with a follow-up.
+    - _Pick 5:_ (a). Six rounds have each found a narrower case than the
+      last; this one needs a heading the tree does not have.
 
 93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
     property form (new 2026-10-07, operator ask in the PM cockpit).** The
