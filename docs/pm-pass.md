@@ -55,17 +55,55 @@ The prompt lives here so it can be changed by PR, like everything else.
    filtered to `event == "schedule"`. For each fleet run, read the job log for
    its `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line; a green run with
    `failed>0` is not green. Note which tracking issues opened or closed.
-2. **Reports due in the next 14 days.** Run the pre-send gate the way
+2. **The cockpit's Needs-you and Watch state.** From a worktree detached at
+   `origin/main`, with `<since>` the `merged_at` of the previous morning
+   report's PR (UTC, with its `Z`):
+
+   ```sh
+   pnpm tsx scripts/pm-cockpit.mts --since <since>
+   ```
+
+   It builds the live cockpit's model from Turso over a SELECT-only
+   connection, which must refuse an UPDATE before the first read, and prints
+   one `PM_COCKPIT_SUMMARY broken=N watch=N approval=N sites=N new=N` line,
+   then "Needs you" (each site, its group, every reason, `/s/<slug>`) and
+   "Watch". It exists because the nightlies can all be green while a site
+   needs the operator: Data Dynamiq's Search Console `no-property` (2026-10-07)
+   reached no morning report. Into the top of stack, each as an exact ask
+   ("on `/s/<slug>`, <what to do>"), go every `NEW` site, in either
+   section, and every `broken` site with an `(undated)` reason other than
+   `… ready`. List the other Watch sites in one line. Beyond the cockpit's
+   own feed the script also lists, as broken, a site whose only problem is
+   a failed production deploy and a dead letter for a slug no site owns.
+
+   `NEW` comes from the digest snapshot: an item's first-flagged day; for a
+   vuln Renovate has not fixed in time, the day its wait failed (that vuln
+   sits in Watch, and its `NEW` morning is the morning it first needs the
+   operator); and today for a vuln whose auto-fix the snapshot has not yet
+   recorded as exhausted. The digest usually records an exhaustion before
+   the pass runs, so such a vuln mostly prints `(undated)` under `broken`,
+   which the rule above still sends to the top of stack. Dates are compared
+   by day, so an item flagged on the `<since>` day can show `NEW` on two
+   mornings. Other Watch reasons, approvals, failed deploys and an
+   already-exhausted vuln print `(undated)` and are never `NEW`: none has a
+   first-seen time. That includes Search Console `no-property`, so read the
+   Watch line each day rather than waiting for a `NEW`. Approvals (`… ready`)
+   are step 3's. "Just wait" items are already left out, and their count is
+   printed as `just_wait_left_out`. An empty digest snapshot, or a failed
+   read, stops the script
+   with an error; the report then says so, never "nothing needs you".
+
+3. **Reports due in the next 14 days.** Run the pre-send gate the way
    `docs/runbooks/continuity.md` describes and list each due report with its
    blockers, in date order. This is the operator's top-of-stack.
-3. **PRs.** Every open PR: author, age, CI state, mergeable state, and whether
+4. **PRs.** Every open PR: author, age, CI state, mergeable state, and whether
    it is a release PR (`chore(release): version packages`, always the
    operator's). A Renovate PR that is green and unmerged is usually a rule
    working (`automerge: false` on `@reddoorla/maintenance`); name the rule
    before calling it stuck.
-4. **Issues.** Everything opened, closed or commented since the last report.
+5. **Issues.** Everything opened, closed or commented since the last report.
 
-   **Discord open asks** (part of step 4). GET only, never post: the bot token is
+   **Discord open asks** (part of step 5). GET only, never post: the bot token is
    `DISCORD_BOT_KEY`, guild `1199077765144662046`, REST at
    `https://discord.com/api/v10`. For each text channel with a message in the
    last 14 days, read its recent messages and list every message that
@@ -78,7 +116,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    credentials, codes, addresses or phone numbers that appear in messages.
    There are no clients in the guild; everyone in it is Reddoor staff.
 
-5. **Backlog diff.** For each P0/P1 item: still true? done? claimed? Move done
+6. **Backlog diff.** For each P0/P1 item: still true? done? claimed? Move done
    items to the Done section with the PR number. Add what the day's evidence
    surfaced. Re-rank. Update the "Last full re-rank" line. Read every line
    added under "Operator decisions" since the last report: workers write their
@@ -143,7 +181,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    brief for one. A worker that finds an [H] item already started by the
    operator leaves it alone, as it would another session's branch.
 
-6. **Morning report.** Copy the shape of the most recent file in
+7. **Morning report.** Copy the shape of the most recent file in
    `docs/morning-reports/`: one-line verdict, top of stack for the operator
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
@@ -188,8 +226,8 @@ The prompt lives here so it can be changed by PR, like everything else.
    need an operator decision is not ready: put the decision under "Operator
    decisions" instead.
 
-7. **Journal entry** (a new file under `docs/journal/`), then the PR, then land it.
-8. **Finish by posting the one-line verdict and the operator's top three
+8. **Journal entry** (a new file under `docs/journal/`), then the PR, then land it.
+9. **Finish by posting the one-line verdict and the operator's top three
    items** as the session's last message, so the notification carries them.
 
 ## Mondays: the heavier pass
@@ -231,7 +269,9 @@ of 45:
      adding reminders.
 - **Fresh reads, not a diff.** Every open issue, not only those touched since
   the last report, and the live fleet state from Turso (SELECT only): row
-  counts by status, cockpit attention and watch, staleness of each sweep, and
+  counts by status, cockpit attention and watch (read with
+  `scripts/pm-cockpit.mts`, as in step 2, without `--since`), staleness of
+  each sweep, and
   unread form submissions. Rewrite BACKLOG's "Fleet snapshot" from them.
 - **Refute the week's claims.** Run the `refute-claims` workflow
   (`.claude/workflows/refute-claims.workflow.js`) over the morning reports
