@@ -16,8 +16,8 @@ export const SOURCE_DIRS = ["docs/runbooks", "docs/briefs"];
 const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 
 const ATTEMPT = /`(CLAUDE\.md|AUTONOMY\.md)`\s*(→|§)/g;
-const QUOTED = /^\s*"([^"]+)"(?!\w)/;
-const SECTION = /^"([^"]+)"(?!\w)/;
+const QUOTED = /^\s*"([^"]+)"(?=[\s,.;:)\]!?—–]|$)/;
+const SECTION = /^"([^"]+)"(?=[\s,.;:)\]!?—–]|$)/;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };
@@ -86,7 +86,7 @@ export function citations(text) {
       const [, target, symbol] = m;
       const rest = p.text.slice(m.index + m[0].length);
       const quoted = (symbol === "§" ? SECTION : QUOTED).exec(rest);
-      const read = quoted !== null && collapse(quoted[1]) !== "" ? quoted : null;
+      const read = quoted !== null && quoted[1] === quoted[1].trim() ? quoted : null;
       const cited = read === null ? null : collapse(read[1]);
       const length = m[0].length + (read === null ? 0 : read[0].trimEnd().length);
       const start = lineAt(p.offsets, m.index);

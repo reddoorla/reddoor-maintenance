@@ -19,19 +19,23 @@ import { fileURLToPath } from "node:url";
  *   - section:   `CLAUDE.md` §"Heading"
  *
  * Anything else after the → or § fails as "cannot read this citation": no quotes, curly
- * quotes, a link, emphasis, mismatched, unclosed or blank quotes, a space after §, or a
- * closing quote followed directly by a letter. The last is a quote inside the heading:
+ * quotes, a link, emphasis, mismatched, unclosed or blank quotes, a space after §, quoted
+ * text that begins or ends with a space, or a closing quote followed by anything but a space,
+ * one of , . ; : ) ] ! ? — – or the end of the paragraph. The cost is that a valid citation in another spelling fails loudly,
+ * with the spelling to use in the message.
+ *
+ * Six review rounds shaped this. The first three each added spellings to read, and each one
+ * left a neighbour that was silently not counted, so a dead heading in it passed; refusing
+ * what it cannot read closed that class. The fourth found that an unquoted name cannot say
+ * where it ends: two real headings contain a comma, and `→ Before a fleet sweep, check …` was
+ * checked only up to the comma, so a heading that does not exist resolved; quotes became
+ * required. The fifth and sixth found the same cut at a quote inside the heading:
  * `AUTONOMY.md` has `## Merge authority (current policy: "everything but releases")`, and
  * reading up to the first inner quote checked only "Merge authority (current policy:", so the
- * old full name would have passed after the policy changed (round 5). Cite such a heading by
- * the words before its first quote. Four
- * review rounds shaped this. The first three each added spellings to read, and each one left a
- * neighbour that was silently not counted, so a dead heading in it passed. The fourth found
- * that an unquoted name cannot say where it ends: two real headings contain a comma, and
- * `→ Before a fleet sweep, check …` was checked only up to the comma, so a heading that does
- * not exist resolved. Requiring the quotes, and refusing everything else, closes both. The
- * cost is that a valid citation in another spelling fails loudly, with the spelling to use in
- * the message.
+ * old full name would pass after the policy changed. The character after an inner opening
+ * quote is the start of the quoted words, a dash or a bracket, none of which may follow a
+ * closing quote, and an inner quote preceded by a space leaves the cut text ending in one.
+ * Cite such a heading by the words before its first quote.
  *
  * Paragraphs are joined after `>` blockquote prefixes are stripped. A heading (`#` to `######`
  * followed by a space), a table row or a list item (inside a blockquote too) starts a new one.
@@ -81,6 +85,8 @@ const CLAUDE_MD = [
   "## Prove the instrument before you trust its verdict",
   "",
   "## Concurrent sessions",
+  "",
+  "## The work journal",
   "",
   "## Before a fleet sweep, ask which repos can receive a push",
   "",
@@ -297,15 +303,35 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
       "",
       'And `CLAUDE.md` → "The "evening pass" rule".',
       "",
-      'But `AUTONOMY.md` → "Merge authority (current policy:" resolves.',
+      'And `CLAUDE.md` → "The "--force" flag".',
+      "",
+      'And `CLAUDE.md` → "The "(x)" gone".',
+      "",
+      'And `CLAUDE.md` → "The " x" gone".',
+      "",
+      'And `CLAUDE.md` → "The ", "work"".',
+      "",
+      'And `CLAUDE.md` → "The "été" rule".',
+      "",
+      'And `CLAUDE.md` → "The work journal"él.',
+      "",
+      'And `CLAUDE.md` §"The "evening pass" rule".',
+      "",
+      'And `CLAUDE.md` §"The "--force" flag".',
+      "",
+      'And `CLAUDE.md` → "The ("--force") flag".',
+      "",
+      'And `CLAUDE.md` §"The ("--force") flag".',
+      "",
+      'But `AUTONOMY.md` → "Merge authority (current policy:" and `CLAUDE.md` §"The work" resolve.',
       "",
     ].join("\n");
     const r = run(makeRoot({ "docs/pm-pass.md": md }));
     expect(r.status).toBe(1);
     const dead = deadLines(r.stdout);
-    expect(dead).toHaveLength(2);
+    expect(dead).toHaveLength(12);
     for (const line of dead) expect(line).toContain("cannot read this citation");
-    expect(r.stdout).toMatch(/\b2 of 3 citations dead\b/);
+    expect(r.stdout).toMatch(/\b12 of 14 citations dead\b/);
   });
 
   it("reads a citation inside AUTONOMY.md, with tabs and extra spaces around the arrow", () => {
