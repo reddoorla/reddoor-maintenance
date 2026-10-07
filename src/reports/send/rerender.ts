@@ -183,9 +183,11 @@ async function refreshScores(
   const live = siteLighthouseScores(site);
   if (!live) return { ...unchanged, scores: "site-missing" };
   const stored = report.lighthouse;
-  const change = SCORE_LABELS.filter(([k]) => stored?.[k] !== live[k])
-    .map(([k, label]) => `${label}:${stored?.[k] ?? "none"}→${live[k]}`)
-    .join(",");
+  const change = stored
+    ? SCORE_LABELS.filter(([k]) => stored[k] !== live[k])
+        .map(([k, label]) => `${label}:${stored[k]}→${live[k]}`)
+        .join(",")
+    : `none→${SCORE_LABELS.map(([k, label]) => `${label}:${live[k]}`).join(",")}`;
   if (!change) return { ...unchanged, scores: "unchanged" };
   if (!(await deps.storeScores(reportId, live))) return { ...unchanged, scores: "not-written" };
   return { report: { ...report, lighthouse: live }, scores: "refreshed", scoresChange: change };

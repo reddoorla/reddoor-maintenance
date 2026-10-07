@@ -3106,8 +3106,12 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     **P1-34 landed 2026-10-07 (issue #1236).** The workflow builds from
     `main`, so no release is needed. **Next, for you:** press "refresh
     preview" on the `/s/<slug>` pages for Data Dynamiq, Espada and Revogen.
-    Each run's line should read `scores=refreshed scores_change=…bp:78→100`,
-    and the preview shows 100. Then approve them. **Vineyard is not in
+    The button only says "Queued"; after about two minutes, "draft preview ▸"
+    shows best practices 100 (the preview is no longer cached). The
+    report-rerender run's log in Actions names the change
+    (`scores=refreshed scores_change=…bp:78→100`). The refresh takes all four
+    of the site's current scores, so any other score that moved since the
+    draft moves too, and the log names it. Then approve them. **Vineyard is not in
     this:** its row was approved from the dashboard at 15:21:53Z with 78.
     A refresh keeps an approved row's scores (`scores=locked`), and you
     chose on 10-07 ~15:30Z to let it send at 78 in the 10-08 09:23Z run.

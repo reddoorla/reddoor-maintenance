@@ -509,6 +509,24 @@ describe("rerenderReport — Lighthouse scores (P1-34)", () => {
     expect(r).toMatchObject({ status: "rendered", scores: "site-missing", scoresChange: null });
   });
 
+  it("fills a row whose stored scores read as none, and says so once", async () => {
+    let wrote = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => report({ lighthouse: null }),
+        getSite: async () => LIVE_SITE,
+        storeScores: async () => (wrote = true),
+      }),
+      "recREP",
+    );
+    expect(wrote).toBe(true);
+    expect(r).toMatchObject({
+      status: "rendered",
+      scores: "refreshed",
+      scoresChange: "none→p:100,a:100,bp:100,seo:100",
+    });
+  });
+
   it("writes nothing when the stored scores already match the site row", async () => {
     let wrote = false;
     const live = { performance: 100, accessibility: 100, bestPractices: 100, seo: 100 };
