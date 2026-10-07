@@ -746,6 +746,17 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => fleetState.storeChecklistEvidence(db, "recA", {}, {}),
     },
     {
+      name: "storeLighthouseScores (preview refresh takes the site's current scores)",
+      covers: ["storeLighthouseScores"],
+      run: (db) =>
+        fleetState.storeLighthouseScores(db, "recA", {
+          performance: 1,
+          accessibility: 1,
+          bestPractices: 1,
+          seo: 1,
+        }),
+    },
+    {
       name: "mirrorHealthFields (nightly audit write-through)",
       covers: ["mirrorHealthFields"],
       run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),
