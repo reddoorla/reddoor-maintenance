@@ -174,3 +174,63 @@ hydration was not proven.
 **Landing.** As in the P1-31 brief, steps 1–6; close #1148 and move its
 Watching bullet (4) to Done.
 ```
+
+## Cockpit, after the pass
+
+**~12:10Z, the operator answered two asks.**
+
+- **Item 91: (a).** It is queued as P1-34, and the brief is below. The four 78 drafts stay held until a refresh stores their live scores. Each site row already reads 100 [M, 12:08Z, SELECT-only]: Data Dynamiq 100/98/100/100, Espada 100/100/100/100, Revogen 90/99/100/92, Vineyard 100/88/100/92 (performance, accessibility, best practices, SEO). LA Homelessness Initiative stores 100 and can be approved now.
+- **The 10-05 [TEST] sends: "they looked good other than bp".** LA Homelessness Initiative is recorded as `clean`. The other four are recorded as "looked good other than the best-practices 78". The streak counts from the bottom row, Vineyard, so it reads **0**.
+
+### Brief
+
+```markdown
+## Worker brief — P1-34: "refresh preview" re-reads live Lighthouse scores into an unsent report
+
+**Item.** P1-34 · Operator decisions 91, answered (a) · 🟡 YELLOW (behaviour change → 3-lens review) · effort S
+Four October Maintenance drafts (Data Dynamiq, Espada, Revogen, Vineyard; due 10-05, held) store
+`lighthouse.bestPractices` 78. Their site rows read 100 since fleet-lighthouse 10-06 16:19Z.
+`rerenderReport` re-ticks the checklist evidence from the live site, but it renders the
+row's stored `lighthouse` (`render-from-row.ts:67`, `requireLighthouse(report)`), so a refresh never fixes a score.
+
+**Verify first.** `grep -n 'retickEvidence\|lighthouse\|bpScore' src/reports/send/rerender.ts`
+Expect: `retickEvidence` at 4 and 98, and no `lighthouse` or `bpScore` [M, 2026-10-07 12:08Z].
+Then, with a SELECT-only client: the four rows `report_01M46NNZ…`, `report_01M46NPA…`, `report_01M46NQ1…` and `report_01M46NQF…`
+store `bestPractices` 78, `approvedToSend` false, `sentAt` null.
+
+**Start here.**
+
+- `src/reports/send/rerender.ts:72` — `rerenderReport`; the evidence re-tick at 98–118 is the pattern to follow
+- `src/reports/draft.ts:161` — `scoresFromWebsite`, the draft's own read of the site row's four scores (export it, do not copy it)
+- `src/reports/send/render-from-row.ts:67` — where the stored scores are rendered
+- `tests/reports/send/rerender.test.ts`
+
+**Done when.** A refresh of an unsent, unapproved report writes the site row's current four
+scores to the report row and renders with them. The result names the change (for example `scores: 78→100 bp`).
+An approved or sent report keeps its stored scores, and a site row with a null score leaves
+the stored ones alone and says so. All three are pinned by tests. After landing (and the
+release, if the dashboard's dispatch runs the published CLI; check which `report-rerender`
+builds), the operator presses "refresh preview" on the four `/s/<slug>` pages and sees 100.
+
+**Mutations I will run** (each must turn a test red):
+
+1. Skip the score re-read (today's behaviour).
+2. Re-read for an approved row too.
+3. Overwrite with nulls when the site row has a missing score.
+4. Re-read the scores but render the old ones (drop them from `current`).
+
+**Stop conditions** (beyond AUTONOMY.md's six):
+
+- If a refreshed report should not take today's scores for a reason in the code (for example, the period's scores are meant to be frozen at draft), stop and ask under Operator decisions.
+- Do not write to the four live rows yourself; the operator refreshes them.
+- Two dirty review rounds → "Operator decisions", landed on `main` as a docs-only PR, not a third round.
+
+**Landing.**
+
+1. `git fetch` the fresh `claude/*` and `fix/*` branches (`CLAUDE.md` → Concurrent sessions); if one under a day old touches these files, stop.
+2. Open and claim an issue. Worktree from `origin/main`. Red test first.
+3. `pnpm lint`, `pnpm typecheck`, the changed tests, a changeset, the 3-lens review, the mutations table in the PR body.
+4. Move P1-34 to BACKLOG's Done section in the same PR, and say in item 91 what the operator presses next.
+5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
+6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
+```
