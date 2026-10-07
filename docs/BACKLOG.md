@@ -3105,6 +3105,60 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     Queued as P1-34, with a brief in the 10-07 morning report's cockpit
     section. The sends stay held until the four rows read their live scores.
 
+92. **#1232, P1-33(a) directive-citation check: held after two dirty review
+    rounds (new 2026-10-07, #1230).** #1232 (branch
+    `claude/p1-33a-directive-refs`, head `305b5422`) adds
+    `scripts/directive-refs.mjs` and its test, the asking rule's new order
+    in `CLAUDE.md`, and the "land as is" line. On `413bb029` it lists exactly
+    the three dead citations #1224 fixed by hand; on `main` it exits 0; all
+    11 mutations go red.
+    - Round 1 found no blocker; its latent false FAILs were fixed in
+      `305b5422`.
+    - Round 2 found two minors, both reproduced through
+      `node scripts/directive-refs.mjs --root <fixture>`: (1) a regression
+      from round 1: a citation of a dead heading written with curly quotes
+      (→ “Gone rule”) or as a link (→ [Gone rule](x)) is no longer counted,
+      so the run exits 0 where round 1 exited 1, and the test comment
+      wrongly says such citations fail loudly; (2) in a blockquoted list,
+      a valid unquoted citation followed by a second `> -` item is reported
+      dead as "Concurrent sessions - next item", because the list-item test
+      runs before the `>` is stripped. Neither bites the real tree today
+      (10 citations, all resolve).
+    - _Ask:_ (a) fix both (about five lines: put `“` and `[` back in reach of
+      the unquoted shape, or read them as quoted and link shapes; strip `>`
+      before the list-item test), add a fixture and a mutation for each, and
+      land without a third review round; (b) land as is and file both as a
+      follow-up; (c) fix both and run a third round.
+    - _Pick:_ (a). Both fixes are local to one function each and each gets
+      a fixture that goes red without it; the rule bars "land as is" as the
+      worker's pick while (1) is a reproduced false PASS.
+      **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
+    - Round 3 (`e1910c2c`, the round-2 fixes) found two majors and three
+      minors, no blocker. Both majors are false PASSes of the same class as
+      round 2's: a citation spelled in a shape the reader does not know is
+      not counted at all, so a dead heading in it passes. Examples: emphasis
+      around the quote (→ **"Gone"**), § with curly quotes, a bracket with
+      no URL, mismatched quotes, and an unquoted name cut short at `*`
+      (→ A _gone_ rule resolves as "A"). Minors: a link with emphasised
+      text is a false FAIL; the table-row fixture passes for the wrong
+      reason; CLAUDE.md step 4's answer form wraps onto column 0.
+    - _Ask 2:_ each round has added shapes and each added shape has opened
+      a new gap, so: (a) invert the default. Any `CLAUDE.md` or
+      `AUTONOMY.md` code span followed by → or § must read as exactly
+      → "Heading", → Heading (plain words ending at punctuation) or
+      §"Heading"; anything else fails as "cannot read this citation". Curly,
+      link and emphasis forms are dropped. Prototyped, not pushed: all 21 of
+      round 3's probe inputs now fail loudly or resolve correctly, none
+      passes silently, and the real tree still reads 10 of 10. Fix the
+      three minors too, then land without a fourth round. (b) the same, plus
+      a fourth round. (c) land `e1910c2c` as is, with the gaps listed as a
+      follow-up.
+    - _Pick 2:_ (a). The inversion removes the class rather than another
+      instance of it, and its cost is that a valid citation in an unusual
+      spelling fails loudly with the fix in the message; none exists in the
+      tree today.
+      **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
