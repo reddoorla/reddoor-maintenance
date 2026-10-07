@@ -3139,7 +3139,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       not counted at all, so a dead heading in it passes. Examples: emphasis
       around the quote (→ **"Gone"**), § with curly quotes, a bracket with
       no URL, mismatched quotes, and an unquoted name cut short at `*`
-      (→ A *gone* rule resolves as "A"). Minors: a link with emphasised
+      (→ A _gone_ rule resolves as "A"). Minors: a link with emphasised
       text is a false FAIL; the table-row fixture passes for the wrong
       reason; CLAUDE.md step 4's answer form wraps onto column 0.
     - _Ask 2:_ each round has added shapes and each added shape has opened
