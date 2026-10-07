@@ -3133,6 +3133,30 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       a fixture that goes red without it; the rule bars "land as is" as the
       worker's pick while (1) is a reproduced false PASS.
       **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
+    - Round 3 (`e1910c2c`, the round-2 fixes) found two majors and three
+      minors, no blocker. Both majors are false PASSes of the same class as
+      round 2's: a citation spelled in a shape the reader does not know is
+      not counted at all, so a dead heading in it passes. Examples: emphasis
+      around the quote (→ **"Gone"**), § with curly quotes, a bracket with
+      no URL, mismatched quotes, and an unquoted name cut short at `*`
+      (→ A *gone* rule resolves as "A"). Minors: a link with emphasised
+      text is a false FAIL; the table-row fixture passes for the wrong
+      reason; CLAUDE.md step 4's answer form wraps onto column 0.
+    - _Ask 2:_ each round has added shapes and each added shape has opened
+      a new gap, so: (a) invert the default. Any `CLAUDE.md` or
+      `AUTONOMY.md` code span followed by → or § must read as exactly
+      → "Heading", → Heading (plain words ending at punctuation) or
+      §"Heading"; anything else fails as "cannot read this citation". Curly,
+      link and emphasis forms are dropped. Prototyped, not pushed: all 21 of
+      round 3's probe inputs now fail loudly or resolve correctly, none
+      passes silently, and the real tree still reads 10 of 10. Fix the
+      three minors too, then land without a fourth round. (b) the same, plus
+      a fourth round. (c) land `e1910c2c` as is, with the gaps listed as a
+      follow-up.
+    - _Pick 2:_ (a). The inversion removes the class rather than another
+      instance of it, and its cost is that a valid citation in an unusual
+      spelling fails loudly with the fix in the message; none exists in the
+      tree today.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
