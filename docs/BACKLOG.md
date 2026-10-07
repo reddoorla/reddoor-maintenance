@@ -3199,6 +3199,35 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     (a) or (b) has not taken effect for this property. The next nightly
     will read `soft-fail`, not `resolved`, until it does.
 
+94. **#1244, P1-35 `scripts/pm-cockpit.mts`: held after two dirty review
+    rounds (new 2026-10-07, #1241).** #1244 (branch
+    `claude/stoic-cerf-g7f0du`, head `2f58f632`) adds a SELECT-only script
+    that prints the cockpit's Needs-you and Watch state, and a step 2 in
+    `docs/pm-pass.md`. The live run on 10-07 lists Data Dynamiq and LAHI
+    (`no-property`) on Watch and four pending drafts, which matches a direct
+    SELECT. All 5 mutations go red.
+    - Round 1: two blockers, both fixed in this head. An exhausted vuln was
+      dated by its first flag, and card-less dead letters were dropped.
+    - Round 2: one docs-vs-code defect. A vuln past its wait but not
+      exhausted sits in the **Watch** group and can show `NEW` (`escalated
+<day>`), but step 2 says Watch reasons are never `NEW` and sends only
+      Needs-you items to the top of stack, so the pass would put the moment
+      a vuln needs the operator into the one-line Watch list. There are
+      three minors. A pending approval merged into a broken entry prints
+      `(undated)` and trips the "broken with an undated reason" rule every
+      day. Added entries sort to the end of the broken group. "Dated today"
+      for a new exhaustion rarely fires, because the digest records the
+      exhaustion first.
+    - _Ask:_ (a) fix the docs (step 2 sends every `NEW` Watch site to the
+      top of stack, and exempts escalated vulns from "never `NEW`"),
+      exclude `… ready` reasons from the undated-broken rule, sort the added
+      entries critical-first then A–Z, and land without a third round;
+      (b) land as is and file the four as a follow-up; (c) fix and run a
+      third review round.
+    - _Pick:_ (a). The defect is wording in one docs paragraph. The code's
+      behaviour is the right one, and a test already pins it. The sort is a
+      one-line comparator with a test.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
