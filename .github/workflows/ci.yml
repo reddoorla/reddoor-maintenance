@@ -16,6 +16,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       # fetch-depth: 0 so the tags are present. `pnpm
       # check:match-harness-snapshots` compares every shipped match-harness body
@@ -50,6 +51,7 @@ jobs:
       # a stranger's contact form. A test that guards a side effect has to run
       # where the merge is decided.
       - name: Install the browser the Tier 4 abort harness drives
+        timeout-minutes: 15
         run: pnpm exec playwright install --with-deps chromium
 
       # These steps ARE `pnpm verify`, listed individually so a failure is
