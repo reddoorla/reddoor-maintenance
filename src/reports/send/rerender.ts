@@ -3,6 +3,8 @@ import type { ReportRow } from "../report-fields.js";
 import type { AutoTickSignals, EvidenceRecord } from "../auto-tick.js";
 import { retickEvidence, type SearchColumns } from "../retick.js";
 import { searchEnrolled } from "../search-enrolled.js";
+import { siteLighthouseScores } from "../draft.js";
+import type { LighthouseScores } from "../types.js";
 
 /**
  * Refresh a report's stored HTML body on demand (#539 Phase 4 report review).
@@ -38,6 +40,8 @@ export type RerenderDeps = {
     autoEvidence: Record<string, EvidenceRecord>,
     search: SearchColumns | null,
   ) => Promise<boolean>;
+  /** Conditional on the row still being unsent and unapproved, like `storeEvidence`. */
+  storeScores: (reportId: string, scores: LighthouseScores) => Promise<boolean>;
   /** The draft's own Search Console fetch over the report's period (`fetchSearch`).
    *  Called only for an unapproved report on a search-enrolled site. */
   measureSearch?: (
@@ -55,6 +59,12 @@ export type SearchStatus = "measured" | "unavailable" | "skipped";
 
 export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written";
 
+/** Whether this refresh took the site row's current Lighthouse scores (P1-34):
+ *  `refreshed` (written and rendered), `unchanged` (already equal), `locked`
+ *  (approved), `site-missing` (a site score is null, stored ones kept),
+ *  `not-written` (the conditional write matched nothing). */
+export type ScoresStatus = "refreshed" | "unchanged" | "locked" | "site-missing" | "not-written";
+
 export type RerenderResult =
   | {
       status: "rendered";
@@ -63,10 +73,19 @@ export type RerenderResult =
       headerSource: "turso";
       evidence: EvidenceStatus;
       search: SearchStatus;
+      scores: ScoresStatus;
+      scoresChange: string | null;
     }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
-  | { status: "no-header"; reportId: string; evidence: EvidenceStatus; search: SearchStatus }
+  | {
+      status: "no-header";
+      reportId: string;
+      evidence: EvidenceStatus;
+      search: SearchStatus;
+      scores: ScoresStatus;
+      scoresChange: string | null;
+    }
   | { status: "not-found"; reportId: string };
 
 export async function rerenderReport(
@@ -118,11 +137,17 @@ export async function rerenderReport(
     evidence = retick.status;
   }
 
+  const refresh = await refreshScores(deps, reportId, site, current);
+  current = refresh.report;
+  const { scores, scoresChange } = refresh;
+
   const plate = await deps.loadHeaderPlate(site.id);
   // Named, not rendered around: a report with no header is already blocked at
   // approve, and a preview that quietly omitted it would disagree with both
   // the email and that block.
-  if (!plate) return { status: "no-header", reportId, evidence, search: searchStatus };
+  if (!plate) {
+    return { status: "no-header", reportId, evidence, search: searchStatus, scores, scoresChange };
+  }
 
   const { html } = await deps.render(site, current, plate);
   await deps.store(reportId, html);
@@ -133,7 +158,39 @@ export async function rerenderReport(
     headerSource: "turso",
     evidence,
     search: searchStatus,
+    scores,
+    scoresChange,
   };
+}
+
+const SCORE_LABELS: Array<[keyof LighthouseScores, string]> = [
+  ["performance", "p"],
+  ["accessibility", "a"],
+  ["bestPractices", "bp"],
+  ["seo", "seo"],
+];
+
+/** An unsent, unapproved report takes the site row's current scores, the same
+ *  read the draft makes. An approved one keeps what was approved. */
+async function refreshScores(
+  deps: RerenderDeps,
+  reportId: string,
+  site: WebsiteRow,
+  report: ReportRow,
+): Promise<{ report: ReportRow; scores: ScoresStatus; scoresChange: string | null }> {
+  const unchanged = { report, scoresChange: null };
+  if (report.approvedToSend) return { ...unchanged, scores: "locked" };
+  const live = siteLighthouseScores(site);
+  if (!live) return { ...unchanged, scores: "site-missing" };
+  const stored = report.lighthouse;
+  const change = stored
+    ? SCORE_LABELS.filter(([k]) => stored[k] !== live[k])
+        .map(([k, label]) => `${label}:${stored[k]}→${live[k]}`)
+        .join(",")
+    : `none→${SCORE_LABELS.map(([k, label]) => `${label}:${live[k]}`).join(",")}`;
+  if (!change) return { ...unchanged, scores: "unchanged" };
+  if (!(await deps.storeScores(reportId, live))) return { ...unchanged, scores: "not-written" };
+  return { report: { ...report, lighthouse: live }, scores: "refreshed", scoresChange: change };
 }
 
 /** Google Indexed is measured only where the draft would measure it: an unapproved
@@ -155,9 +212,13 @@ async function measureSearch(
 export function formatRerenderResult(r: RerenderResult): string {
   const suffix =
     r.status === "rendered"
-      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence} search=${r.search}`
+      ? ` bytes=${r.bytes} header=${r.headerSource} evidence=${r.evidence} search=${r.search}${scoresSuffix(r)}`
       : r.status === "no-header"
-        ? ` evidence=${r.evidence} search=${r.search}`
+        ? ` evidence=${r.evidence} search=${r.search}${scoresSuffix(r)}`
         : "";
   return `REPORT_RERENDER report=${r.reportId} status=${r.status}${suffix}`;
+}
+
+function scoresSuffix(r: { scores: ScoresStatus; scoresChange: string | null }): string {
+  return ` scores=${r.scores}${r.scoresChange ? ` scores_change=${r.scoresChange}` : ""}`;
 }

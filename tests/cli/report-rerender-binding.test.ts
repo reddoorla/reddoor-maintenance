@@ -7,6 +7,10 @@ const SITE = makeWebsiteRow({
   name: "Acme Co",
   url: "https://acme.com",
   searchConsoleProperty: "https://acme.com/",
+  pScore: 100,
+  rScore: 100,
+  bpScore: 100,
+  seoScore: 100,
 });
 const GOOGLE = "Maint: Google Indexed";
 const REPORT = {
@@ -22,6 +26,7 @@ const REPORT = {
   autoEvidence: { [GOOGLE]: { result: "unknown", checkedAt: null, note: "Not yet measured" } },
   searchFoundPage1: null,
   searchPosition: null,
+  lighthouse: { performance: 100, accessibility: 100, bestPractices: 78, seo: 100 },
 } as unknown as ReportRow;
 
 vi.mock("../../src/db/client.js", () => ({
@@ -39,8 +44,10 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   getSiteById: async () => SITE,
   storeRenderedHtml: async () => {},
   storeChecklistEvidence: vi.fn(async () => true),
+  storeLighthouseScores: vi.fn(async () => true),
 }));
-vi.mock("../../src/reports/draft.js", () => ({
+vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/reports/draft.js")>()),
   fetchSearch: vi.fn(async () => ({
     value: { foundOnPage1: true, position: 2, propertyFound: true },
     softFailed: false,
@@ -49,7 +56,7 @@ vi.mock("../../src/reports/draft.js", () => ({
 }));
 
 import { runReportCommand } from "../../src/cli/commands/report.js";
-import { storeChecklistEvidence } from "../../src/db/fleet-state.js";
+import { storeChecklistEvidence, storeLighthouseScores } from "../../src/db/fleet-state.js";
 import { fetchSearch } from "../../src/reports/draft.js";
 
 describe("report --rerender binds the Google Indexed re-measure to the real IO", () => {
@@ -68,5 +75,17 @@ describe("report --rerender binds the Google Indexed re-measure to the real IO",
     const call = vi.mocked(storeChecklistEvidence).mock.calls[0]!;
     expect(call[3][GOOGLE]!.result).toBe("pass");
     expect(call[4]).toEqual({ searchFoundPage1: true, searchPosition: 2 });
+  });
+});
+
+describe("report --rerender binds the score refresh to the real IO (P1-34)", () => {
+  it("stores the site row's current scores on the report it was asked to refresh", async () => {
+    const out = await runReportCommand(undefined, { rerender: "report_X" });
+    expect(out.output).toContain("scores=refreshed scores_change=bp:78→100");
+    expect(vi.mocked(storeLighthouseScores).mock.calls.at(-1)).toEqual([
+      {},
+      "report_X",
+      { performance: 100, accessibility: 100, bestPractices: 100, seo: 100 },
+    ]);
   });
 });

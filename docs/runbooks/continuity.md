@@ -332,7 +332,7 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
 page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
-(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:102–103`). Form
+(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:103–104`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 
