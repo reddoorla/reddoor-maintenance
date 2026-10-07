@@ -3177,7 +3177,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - "Re-run jobs" on a `test_send` keeps the run id, so Resend replayed
         the key and nothing went out;
       - nothing tested the `unverified=` output that the close step reads.
-      Neither affects a scheduled run.
+        Neither affects a scheduled run.
     - _Ask:_ (a) land `a2fb6ab2` without a third review round; (b) run a
       third round first.
     - _Pick:_ (a). Each round-2 fix is under ten lines and has a test that
