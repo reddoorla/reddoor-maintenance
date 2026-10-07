@@ -234,3 +234,45 @@ builds), the operator presses "refresh preview" on the four `/s/<slug>` pages an
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
 ```
+
+## Evening
+
+**Headline: four October Maintenance drafts are still pending approval, two days past due, and three of them (Data Dynamiq, Espada, Revogen) still store best practices 78. P1-34 landed at 16:24Z, so press "refresh preview" on those three, check for 100, then approve all four. Vineyard sent at 78 in today's run, as you chose. #1244's CI build has been running for 1 h 30 min. Every scheduled run is green, and no ask sits only on a branch.**
+
+Evening pass, 2026-10-07 12:49 PDT (19:49Z) [M, `date -u`]. `<since>` = #1228 merged_at, 2026-10-07T12:04:39Z. The Routine fired at 12:48 PT, so its trigger now runs `48 4,12`. That answers this morning's ask 6, except whether the prompt text was pasted too [I].
+
+### Asks (ordered by date)
+
+1. **Due 10-05: four Maintenance drafts pending approval** [M, Turso SELECT at ~19:52Z: `draft_ready=1`, not approved, not sent, not withdrawn]. `daily-reports` 16:41Z skipped all five as "already drafted 2026-10", sent Vineyard Custom Homes (approved 15:21Z, at 78, item 91) and skipped the digest ("unchanged since 2026-10-05").
+   - **Data Dynamiq** (`report_01M46NNZ…`, bp 78), **Espada** (`report_01M46NPA…`, bp 78), **Revogen** (`report_01M46NQ1…`, bp 78): press "refresh preview" on `/s/data-dynamiq`, `/s/espada` and `/s/revogen`. After about two minutes, "draft preview ▸" should show best practices 100, and the report-rerender log names the change (`bp:78→100`). Then approve; each sends with tomorrow's 09:23Z run.
+   - **LA Homelessness Initiative** (`report_01M46NPK…`, bp 100): approve on `/s/la-homelessness-initiative`; it sends with tomorrow's run.
+   - The `reports` table has no preflight column, and this pass did not re-run `preflightSite`. This morning it found nothing for any of the five [M, morning report].
+2. **#1244 (P1-35, `scripts/pm-cockpit.mts`), item 94 answered (a):** the head is `0d93f295`, a merge of `main` at 18:21Z. Its `build` and `ci` show `in_progress` from 18:21:41Z to 19:51Z [M, check-runs, clock 19:51:39Z]. That merge predates #1250 (19:33Z, which bounds the browser install and skips the stalling apt mirror). _Ask:_ if that worker session is still yours, have it merge `main` into #1244 and land it. If it has ended, say so, and tomorrow's morning pass queues the finish.
+3. **#1222, `sharp` 0.35.4 → 0.35.5 [security]** (GHSA-wq5f-xc86-pv6w): `build` and `ci` are green on `721e5c57` (15:20Z) [M]. "Automerge: Disabled by config" (the fleet preset) [M, PR body]. _Ask (this morning's 3):_ merge it.
+4. **Release PR #1214** (`chore(release): version packages`, open since 10-06 14:35Z): it was rebased at 19:49Z, and `build`/`ci` were in progress at 19:51Z [M]. It now also carries today's code: #1235, #1238 and #1243. Yours to merge once green.
+5. **New on `main`, item 97 (#1249): eight operator-only chores**, from org secret scanning (97a) to the Rick Garcia thread (97h). Nothing tonight: the Mon 10-12 pass lists all eight under "Do, date or drop".
+
+Still open from this morning and not asked again tonight: the verdict on the 10-05 [TEST] sends (ask 2), Williamson Construction D0/D6/D7 before the 10-14 cutover, and items 81, 87, 82, 72's token, 79's leftovers. Settled today: 91 (P1-34 landed, #1243), 92 (#1232 landed after round 6, answer (a)), 93 (Data Dynamiq Search Console verified, 19:08Z, #1252), 95 (#1235 landed) and 96 (#1238 landed).
+
+### Evidence
+
+`EVENING_BRANCHES_SUMMARY main_decision_lines=321 asks=0 decision_lines=2 stale=3 stale_fresh=0 scanned=4 older_skipped=35 now=2026-10-07T19:49:39.028Z` [M]. Four branches were scanned, so the check ran. The 321 decision lines added on `main` are items 91–97 and their answers. Every `_Ask:_` among them is answered or resolved, except 94's finish (ask 2) and 97's chores (ask 5). The two branch-only decision lines are on `claude/stoic-cerf-g7f0du`, which is #1244 (open), and `main` already names it as item 94. No `NEW` unprotected branch. Three `older` branches are known residue: `jolly-keller-9h8tzh`, `pm-0930-answers` and `practical-ride-kbipzv`.
+
+**Nightlies: scheduled runs created ≥ 10-06 19:49Z, 12 runs** [M, Actions API and job logs]:
+
+| Run | Result | FLEET_WRITE_SUMMARY |
+| --- | --- | --- |
+| fleet-db-backup | success | (no line; not a fleet write) |
+| fleet-prismic-drift | success | wrote=15 failed=0 total=15 |
+| fleet-security | success | wrote=15 failed=0 total=15 |
+| fleet-lighthouse | success | wrote=15 failed=0 total=15 |
+| daily-reports | success | 0 drafted (5 already drafted); sent Vineyard; digest skipped |
+| fleet-smoke | success | wrote=15 failed=0 total=15 |
+| fleet-form-e2e | success | wrote=15 failed=0 total=15 |
+| renovate ×2, forms-deadletter-replay ×3 | success | — |
+
+**Pending:** `release-health` (cron 14:30Z, with no run created yet at 19:50Z) and the 18:47Z `forms-deadletter-replay` slot (not yet created). `pm-pass-watch` landed at 16:40Z, and its first scheduled slot is 22:41Z. This PR has to reach `main` before that slot, or the slot reads this pass as missed. No tracking issue was opened since `<since>`. Work issues #1236 (P1-34) and #1246 (P1-33b) closed; #1241 (P1-35) opened and is still open.
+
+**Merged since 12:04Z: 19 PRs**, all from the operator account's sessions. Code: #1243 (P1-34, refresh preview re-reads live scores), #1235 (pm-pass-watch), #1238 (digest subject), #1232 (directive-citation check) and #1250 (CI browser install bounded). Docs: #1228, #1229, #1233, #1234, #1237, #1239, #1240, #1242, #1245, #1247, #1248, #1249, #1251 and #1252.
+
+**Open PRs:** #1244 (worker, build running 1 h 30 min), #1222 (Renovate security, green, held by the preset's automerge rule) and #1214 (release, CI running). None is a draft.
