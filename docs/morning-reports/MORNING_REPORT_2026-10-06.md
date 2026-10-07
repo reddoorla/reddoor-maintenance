@@ -212,3 +212,45 @@ rule for client repos. Two dirty review rounds → Operator decisions.
 **Landing.** Per repo, `node scripts/land-prs.mjs <pr> --repo reddoorla/<site>`;
 then re-drafting the held October rows is yours (item 88's last bullet).
 ```
+
+## Evening
+
+**Headline: the five October Maintenance reports are a day past due and still pending approval. Item 88's fix is live, but four of the drafts still store 78, so the ask now is how to re-draft them. LAHI stores 100 and can go. A green Renovate security PR (#1222, sharp/librsvg) and release PR #1214 wait on you. Every scheduled run was green, and no ask sits only on a branch.**
+
+Evening pass, 2026-10-06 17:49 PDT (00:49Z 10-07) [M, `date -u`]. `<since>` = #1207 merged_at, 2026-10-06T12:05:43Z.
+
+### Asks (ordered by date)
+
+1. **Due 10-05: the five October Maintenance drafts, all still pending approval** [M, Turso SELECT at ~00:55Z: `draft_ready=1`, not approved, not sent, not withdrawn; control: 27 rows in `reports`; nothing sent since 10-06]. `daily-reports` 16:02Z skipped all five as "already drafted 2026-10" and sent nothing.
+   - **LA Homelessness Initiative** stores best practices 100. Approve it on `/s/la-homelessness-initiative` and it sends with tomorrow's run.
+   - **Data Dynamiq, Espada, Revogen, Vineyard Custom Homes** store 78, but live reads 100 after item 88's fixes (fleet-lighthouse 14:51Z wrote `bp_score` 100 for all four [M, BACKLOG item 88]). _Ask (item 88's last bullet):_ how should a held row be re-drafted? "Refresh preview" does not re-read Lighthouse (morning report, ask 1). Approve each one on `/s/<slug>` only after its re-draft shows 100, or approve now with 78 if you accept that.
+2. **#1222: `sharp` 0.35.4 → 0.35.5 [security]** (GHSA-wq5f-xc86-pv6w, an RCE in the bundled librsvg on glibc Linux). Renovate opened it at 17:28Z. `build` is green on `82c185f9` [M]. Renovate says "Automerge: Disabled by config", so the fleet preset holds this PR for a human. I did not read the preset itself tonight [I]. _Ask:_ merge it.
+3. **Release PR #1214** (`chore(release): version packages`, opened 14:35Z): `build` green on `55aac492` [M]. It is yours to merge, as always. Since #1183, it carries #1205 and #1213 (the nightly names the audits behind a failed category, and reports "warn" instead of "pass" when lhci exits non-zero without assertion results) [I, from merged titles].
+
+Still open from this morning and not asked again tonight: the verdict on the 10-05 [TEST] sends, Williamson Construction D0/D6/D7 before the 10-14 cutover, and items 87, 81, 82, 72's token, 79's leftovers and 57. Tomorrow's morning pass re-checks them. Settled today: 85 (CalTex `staging` is live), 89 (#1205 landed), 90 (the CalTex release was published and checked live at 19:50Z, journal #1223), and 88's rollout (all five sites read 100).
+
+### Evidence
+
+`EVENING_BRANCHES_SUMMARY main_decision_lines=115 asks=0 decision_lines=2 stale=5 stale_fresh=0 scanned=6 older_skipped=33 now=2026-10-07T00:49:47.872Z` [M]. Six branches were scanned, so the check ran. The 115 decision lines added on `main` are today's worker notes on items 49, 83, 85, 88, 89 and 90. The only `_Ask:_` among them, item 90's CalTex release, was published and verified (#1223). No `NEW` unprotected branch. The five `older` ones are known residue: `a11y-blend-mode-unmeasured`, `a11y-browser-missing-csp-r3`, `jolly-keller-9h8tzh`, `pm-0930-answers` and `practical-ride-kbipzv`. `jolly-keller` was asked twice and is not asked again.
+
+The Mantis home release `asQ6NhIAAIoP2_HX` (journal, Mantis P5) no longer appears in `list_releases` for `mantis-landscaping`, so it was published or deleted [M]. The control is Roalson: the same call lists `asP91BIAAH8K23X-` (item 81), which is still unpublished.
+
+**Nightlies: scheduled runs created ≥ 10-06 00:49Z, 13 runs** [M, Actions API and job logs]:
+
+| Run | Result | FLEET_WRITE_SUMMARY |
+| --- | --- | --- |
+| fleet-db-backup | success | (no line; not a fleet write) |
+| fleet-prismic-drift | success | wrote=15 failed=0 total=15 |
+| fleet-security | success | wrote=15 failed=0 total=15 |
+| fleet-lighthouse | success | wrote=15 failed=0 total=15; wrote=23 failed=0 total=23 |
+| daily-reports | success | 0 drafted (5 already drafted for 2026-10); "No reports ready to send." |
+| fleet-smoke | success | wrote=15 failed=0 total=15 |
+| fleet-form-e2e | success | wrote=15 failed=0 total=15 |
+| release-health | success | — |
+| renovate ×2, forms-deadletter-replay ×3 | success | — |
+
+No nightly is pending. No tracking issue was opened or closed since `<since>`. Only #754 and #490 (the Dependency Dashboard) were updated.
+
+**Merged since 12:05Z: 18 PRs**, all by the operator account's sessions except #1183 (the release, `0.105.0`). Code: #1205 (lighthouse names the failing audits) and #1213 (lhci "warn" instead of "pass"). Docs: #1208–#1212, #1215–#1221, #1223, #1224 and #1226.
+
+**Open PRs:** #1214 (release, green), #1222 (Renovate security, green, held by config) and #1225 (operator-session docs, green, not held).
