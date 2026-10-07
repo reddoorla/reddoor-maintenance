@@ -126,33 +126,50 @@ then. A question that does reach the operator gets buried if it is one line in
 a long status message. So a worker started from a backlog item or a brief
 (`docs/worker-brief.md`) follows three rules:
 
-- **At a stop condition, ask with the AskUserQuestion tool, and write the
-  question down.** The operator asked for this on 2026-10-05: a blocking
-  decision goes through AskUserQuestion, not the closing message, so it
-  cannot be buried. The question must stand alone, because the operator reads
-  it without scrolling back. Name the item and its PR or branch, and say what
-  was built. State the finding with a concrete input and what it does, give
-  each option with its consequence, and put your pick first with the reason.
-  Ask only what is genuinely the operator's: a product or design fork, a stop
-  condition, or a red action. Never ask for permission to do what the brief
-  already settled. Write the same question down as well, in case nobody is
-  there to answer: any of `AUTONOMY.md`'s stop conditions, or a fork the brief
-  did not settle, becomes one line under "Operator decisions" in
-  `docs/BACKLOG.md`. That line holds the exact ask, what you would pick and
-  why, and the branch or PR that holds the work so far.
-  Land that line on `main` as its own docs-only PR, never only on the work's
-  own branch: #1143's worker wrote its ask on its held PR's branch, and `main`
-  asked the operator nothing for 13 hours (2026-10-05). Push the work branch
-  too. If the AskUserQuestion answer does not come, or the tool is not
-  available, end the session. The evening pass and the next morning's PM pass
-  then put the line in front of the operator.
+- **At a stop condition, write the question down, then ask it with the
+  AskUserQuestion tool.** The operator asked for this on 2026-10-05: a
+  blocking decision goes through AskUserQuestion, not the closing message, so
+  it cannot be buried. The question must stand alone, because the operator
+  reads it without scrolling back. Name the item and its PR or branch, and say
+  what was built. State the finding with a concrete input and what it does,
+  give each option with its consequence, and put your pick first with the
+  reason. Ask only what is genuinely the operator's: a product or design fork,
+  a stop condition, or a red action. Never ask for permission to do what the
+  brief already settled. Any of `AUTONOMY.md`'s stop conditions, or a fork the
+  brief did not settle, becomes one line under "Operator decisions" in
+  `docs/BACKLOG.md`: the exact ask, what you would pick and why, and the branch
+  or PR that holds the work so far. Do it in this order, because
+  AskUserQuestion has no timeout in a cloud session, so everything the
+  operator must see is on GitHub before the ask:
+  1. Write the line on its own `claude/*` branch cut from `origin/main`, never
+     on the work's branch, so it reaches `main` on its own PR whatever happens
+     to the work. Commit it, push it, and open its docs-only PR.
+  2. Push the work branch.
+  3. Ask with AskUserQuestion.
+  4. Land the docs-only PR with `node scripts/land-prs.mjs`. If an answer
+     came, record it on the line first, in the form the backlog's answered
+     items use: `**Answered <date> (AskUserQuestion): …**`. If
+     AskUserQuestion is not available, land it and end the session.
+
+  The line reaches `main` as its own PR because #1143's worker wrote its ask
+  on its held PR's branch, and `main` asked the operator nothing for 13 hours
+  (2026-10-05). Landing before the ask was considered and rejected: it would
+  put a CI cycle and the landing race in front of every question. If the
+  session ends before step 4, the evening pass and the next morning's PM pass
+  find the line on its branch and put it in front of the operator.
+
 - **Two dirty review rounds, then stop.** If the second adversarial review of
   the same PR still finds a real defect, the PR goes to "Operator decisions"
   with the findings of both rounds, not into a third round. #918 and #920
   reached a sixth round with majors before anyone asked whether the design was
   right; this rule would have put them in front of the operator about six days
   earlier (#918's second round was on 09-23; it reached the backlog on 09-29). Review finding bugs is the process working; the cost is the third
-  and fourth round.
+  and fourth round. At the hold the worker still gives its own pick, but that
+  pick may not be "land as is" while a reproduced behaviour defect is unfixed:
+  reproduced means a concrete input and the wrong output it produces, shown
+  through the entry point production uses. A third round tested that pick 4
+  times, #1017's lead leak among them, and it was wrong all 4 times (2026-10-06
+  review). The operator can still choose "land as is".
 - **The mutations are named before the code.** A brief lists the mutations the
   worker commits to running against its own tests. Run each, record whether a
   test went red, and put the table in the PR body. A test no mutation turns
