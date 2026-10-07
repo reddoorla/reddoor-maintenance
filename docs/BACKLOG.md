@@ -3158,6 +3158,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       spelling fails loudly with the fix in the message; none exists in the
       tree today.
       **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+    - Round 4 (`133bbbab`, the inverted reader) found two majors, no
+      blocker. (1) An unquoted name stops at a comma or colon and only the
+      part before it is checked, so → Before a fleet sweep, check the
+      archive list (a heading that does not exist) resolves against
+      "Before a fleet sweep, ask which repos…". Two real headings contain a
+      comma, so this is the #1188 rename shape again. (2) A quoted citation
+      of only spaces resolves, because the empty string prefixes every
+      heading. Minors, none present in the tree: other spellings between
+      the code span and the arrow are not counted, a wrapped line starting
+      `#932` or `2.` splits a paragraph, a `## ` line inside an HTML comment
+      or a nested fence counts as a heading, the word boundary is
+      ASCII-only, and the real-tree test asserts at least 8 rather than
+      exactly 10.
+    - _Ask 3:_ (a) drop the unquoted shape: only → "Heading" and §"Heading"
+      read, and the two unquoted citations in the tree
+      (`docs/BACKLOG.md:18`, `docs/worker-brief.md:76-77`) get quotes;
+      reject a blank quote; split paragraphs only on real CommonMark
+      starts (`# ` with a space, a list starting at 1, a row); assert
+      exactly 10 in the real tree; list the remaining minors in the test's
+      "cannot see" comment; land without a fifth round. (b) the same plus a
+      fifth round. (c) land `133bbbab` as is with a follow-up.
+    - _Pick 3:_ (a). The unquoted shape cannot tell where a heading that
+      contains punctuation ends, so it is removed rather than patched, as
+      round 3's shapes were; every remaining minor fails loudly or needs a
+      spelling the tree does not use.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
