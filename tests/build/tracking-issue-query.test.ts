@@ -348,8 +348,9 @@ describe("no tracking-issue query anywhere in .github/workflows is unbounded", (
     // 13 open/close pairs, two more since P1-15 (release-health's run-failing
     // issue and time-travel's outside-the-suite issue), two more since P1-12
     // (fleet-config-drift's finding and run-failure issues), two more for
-    // fleet-prismic-sync's run-failure issue.
-    expect(sites.length).toBe(36);
+    // fleet-prismic-sync's run-failure issue, two more for pm-pass-watch's
+    // run-failure issue (P1-33d).
+    expect(sites.length).toBe(38);
     expect(sites.filter((s) => !s.includes("--limit "))).toEqual([]);
     expect(sites.filter((s) => !s.includes("--search "))).toEqual([]);
   });

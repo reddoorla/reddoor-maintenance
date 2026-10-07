@@ -158,15 +158,23 @@ export type DraftResult = {
   supersededIds: string[];
 };
 
-function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
+/** The site row's four Lighthouse scores, or null when any is missing. The draft
+ *  throws on null (`scoresFromWebsite`); a preview refresh keeps the stored ones. */
+export function siteLighthouseScores(siteRow: WebsiteRow): LighthouseScores | null {
   const { pScore, rScore, bpScore, seoScore } = siteRow;
-  if (pScore === null || rScore === null || bpScore === null || seoScore === null) {
+  if (pScore === null || rScore === null || bpScore === null || seoScore === null) return null;
+  return { performance: pScore, accessibility: rScore, bestPractices: bpScore, seo: seoScore };
+}
+
+function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
+  const scores = siteLighthouseScores(siteRow);
+  if (!scores) {
     throw new Error(
       `Site '${siteRow.name}' is missing one or more Lighthouse scores on the Websites row (pScore, rScore, bpScore, seoScore). ` +
         `Run 'reddoor-maint audit lighthouse --write-back' from the site's checkout, then retry.`,
     );
   }
-  return { performance: pScore, accessibility: rScore, bestPractices: bpScore, seo: seoScore };
+  return scores;
 }
 
 function daysAgo(today: Date, n: number): Date {

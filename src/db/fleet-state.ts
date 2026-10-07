@@ -41,6 +41,7 @@ import {
 } from "../reports/report-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
 import type { EvidenceRecord } from "../reports/auto-tick.js";
+import type { LighthouseScores } from "../reports/types.js";
 import { canonicalizeStatus } from "../fleet/site-status.js";
 import { toSearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import {
@@ -850,6 +851,28 @@ export async function storeChecklistEvidence(
             search_position: search.searchPosition,
           }
         : {}),
+    })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-34: the site row's current Lighthouse scores into an unsent, unapproved
+ *  report, guarded like `storeChecklistEvidence`. Returns whether a row matched. */
+export async function storeLighthouseScores(
+  db: Db,
+  reportId: string,
+  scores: LighthouseScores,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({
+      lighthouse_performance: scores.performance,
+      lighthouse_accessibility: scores.accessibility,
+      lighthouse_best_practices: scores.bestPractices,
+      lighthouse_seo: scores.seo,
     })
     .where("id", "=", reportId)
     .where("sent_at", "is", null)

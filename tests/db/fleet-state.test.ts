@@ -25,6 +25,7 @@ import {
   mirrorReportInsert,
   storeRenderedHtml,
   storeChecklistEvidence,
+  storeLighthouseScores,
   getReportById,
   getReportHtml,
   listAllReports,
@@ -802,6 +803,55 @@ describe("storeChecklistEvidence (#890)", () => {
       expect((await getReportById(db, id))!.autoEvidence).toEqual(before.autoEvidence);
     }
     expect(await storeChecklistEvidence(db, "recNOPE", {}, EVIDENCE)).toBe(false);
+  });
+});
+
+describe("storeLighthouseScores (P1-34)", () => {
+  const insert = async (
+    db: Awaited<ReturnType<typeof seeded>>,
+    id: string,
+    over: { approved_to_send?: number; sent_at?: string | null } = {},
+  ) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "LH",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+        lighthouse_performance: 93,
+        lighthouse_accessibility: 100,
+        lighthouse_best_practices: 78,
+        lighthouse_seo: 100,
+        ...over,
+      })
+      .execute();
+  const LIVE = { performance: 100, accessibility: 99, bestPractices: 100, seo: 92 };
+
+  it("writes all four scores where the reader reads them back", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recLH1");
+    expect(await storeLighthouseScores(db, "recLH1", LIVE)).toBe(true);
+    expect((await getReportById(db, "recLH1"))!.lighthouse).toEqual(LIVE);
+  });
+
+  it("refuses an approved or a sent row, leaving it as it was", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recLH2", { approved_to_send: 1 });
+    await insert(db, "recLH3", { sent_at: "2026-09-20T09:23:00.000Z" });
+    for (const id of ["recLH2", "recLH3"]) {
+      expect(await storeLighthouseScores(db, id, LIVE)).toBe(false);
+      expect((await getReportById(db, id))!.lighthouse).toEqual({
+        performance: 93,
+        accessibility: 100,
+        bestPractices: 78,
+        seo: 100,
+      });
+    }
+    expect(await storeLighthouseScores(db, "recNOPE", LIVE)).toBe(false);
   });
 });
 

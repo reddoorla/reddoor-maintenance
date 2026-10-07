@@ -1,0 +1,24 @@
+## 2026-10-07 — A PM pass that misses its due time now emails the operator, and the digest subject names its news (#1235, #1238)
+
+P1-33(d), from the 10-06 operating review. On 09-30 the scheduled morning pass died at bootstrap, and nothing said so. A person noticed about 7 hours later. A green Routine status means only that the infrastructure did not error, and the safety-net wake meant to catch a miss was tied to a session and died with it. The alarm now lives in GitHub Actions, where nothing depends on a session. Separately, the digest is the one channel the operator reads Friday to Sunday, but its subject always said "N reports ready for your yes", even on a day whose real news was a critical item.
+
+**The watcher (#1235).** `scripts/pm-pass-watch.mjs` and `.github/workflows/pm-pass-watch.yml` run four times a day (`41 3,9,15,22 * * *`) against a 20 h look-back.
+
+- **Schedule.** For each Los Angeles date it reads the stored-prompt `Schedule:` line as of 00:00 PT that day. A retime takes effect the next day; reading at the due time instead would be circular. On 10-06 that case is real: #1225 moved the line at 01:44Z, four minutes before that evening's slot was due.
+- **Verdict.** It computes each pass's due time with the zone's real offset, then looks on `main` as of that time for `## One-line verdict` or `## Evening`.
+- **Blind check first.** Before anything else it proves it can see history: a commit before 2026-10-06T07:00Z whose line reads `48 4,17`. A depth-1 clone makes `rev-list --before` print nothing and exit 0, and without this check every date would read "not covered".
+- **Real history.** Dispatched dry on `main`, it reads 10-06 both passes and 10-07 morning as `ran`, and 09-29 and 10-05 as `not-covered`. The one test send went out at 16:41Z.
+
+**The digest subject (#1238).** `digestChanges` returns the added and worse keys that `decideDigestSend` now decides from, so the subject and the send decision cannot disagree. The subject leads with `Act: <site> — <title>: <ask>` for a new or worse critical line. Failing that, it shows the reports waiting with the oldest one's age, then what is new, then what got worse, then "no change since". On the test world, day one reads `Act: 29 Navy — Approved Maintenance will fail at send — recipients-missing: set Report recipients (To) on /s/29-navy, then it sends on the next run`, where it used to read "1 report ready for your yes".
+
+**Beliefs corrected on contact.**
+
+- **The brief's step 4 assumed only heartbeats reach "no change".** A send caused only by a non-critical line getting worse also reaches it, and the subject would have denied the change that sent the email. Review round 1 found this, and a `<N> worse — <title>` case now covers it.
+- **The brief's own test for mutation 1 does not catch it.** The test is a scheduled scan at 17:30 PT Thursday. Because the scan covers today and yesterday, the UTC pair "Friday, Thursday" still includes Thursday, so the mutation survives. The mutation is caught by the dispatch path that defaults to "today".
+- **`concurrency` without `cancel-in-progress` still cancels.** GitHub keeps one pending run per group and cancels the older one. Three of five back-to-back dispatches were cancelled while queued. They ran no steps and filed nothing.
+
+**Review cost, honestly.** Both PRs went three rounds. After each second dirty round the operator chose a third round over landing (Operator decisions 95 and 96, #1242). Round 1 on #1235 found five real minors, including a dry run that could close the failure issue and an impossible `--date 2026-11-31` that would have sent real emails. Round 2 found two more: a re-run attempt replayed the test key so no email went out, and the `GITHUB_OUTPUT` wiring was untested. Round 3 found no code defects, only three test gaps. On #1238, round 2's one find was a 150-char cap that could cut an emoji in half; round 3 was clean. All the PRs' mutations went red, the brief's ten on #1235 and three on #1238, plus the ones each round added.
+
+**Friction that cost time.** For about eight minutes, every `git push` through the proxy got an HTTP 500, including a push of a fresh branch name, while REST reads worked. It cleared on its own. Landing took four attempts across two PRs, because other sessions edit `docs/BACKLOG.md` every few minutes. #1242 conflicted twice, and two other sessions had independently taken item numbers 93 and 94, so these became 95 and 96. Two concurrent `land-prs` runs also knocked each other out of date. Run them one at a time.
+
+**Expected next, not yet seen.** `docs/pm-pass.md` declares `48 4,12`, but the Routine's cron read `48 4,17` at 14:31Z. If it is unchanged, the 22:41Z scheduled run should email "PM pass missed: 2026-10-07 second". That would be the first real `missed`, and it would be correct. The fix is the operator's cron edit, never an agent's.
