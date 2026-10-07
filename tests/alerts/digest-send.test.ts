@@ -4,6 +4,7 @@ import {
   coerceSendLog,
   daysBetween,
   decideDigestSend,
+  digestChanges,
   nextReadySince,
   DIGEST_HEARTBEAT_DAYS,
   EMPTY_SEND_LOG,
@@ -271,5 +272,38 @@ describe("coerceSendLog", () => {
       sent: { a: { metric: 2, gone: "2026-10-01" }, d: { metric: 1 } },
       readySince: { x: "d" },
     });
+  });
+});
+
+describe("digestChanges — the keys behind decideDigestSend's reason", () => {
+  it("lists added keys, ask sub-keys included, and worse keys past tolerance", () => {
+    const log = sent([line("a", 2), { key: "lh", metric: 10, tolerance: 5 }, line("b", 1, ["x"])]);
+    const now = [
+      line("a", 3),
+      { key: "lh", metric: 14, tolerance: 5 },
+      line("b", 1, ["x", "y"]),
+      line("c"),
+    ];
+    expect(digestChanges(now, log)).toEqual({ added: ["b#y", "c"], worse: ["a"] });
+    expect(digestChanges([line("a", 2)], log)).toEqual({ added: [], worse: [] });
+  });
+
+  it("agrees with decideDigestSend's reason", () => {
+    const log = sent([line("a", 2), line("b")]);
+    const cases: DigestLine[][] = [
+      [line("a", 2), line("b")],
+      [line("a", 3)],
+      [line("a"), line("z")],
+    ];
+    expect(cases.map((c) => decideDigestSend(c, log, "2026-09-21").reason)).toEqual([
+      "unchanged",
+      "worse",
+      "added",
+    ]);
+    expect(cases.map((c) => digestChanges(c, log))).toEqual([
+      { added: [], worse: [] },
+      { added: [], worse: ["a"] },
+      { added: ["z"], worse: [] },
+    ]);
   });
 });

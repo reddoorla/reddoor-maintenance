@@ -1189,6 +1189,24 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(3);
   });
 
+  it("the subject names the new critical ask, then the waiting reports, then the new line", async () => {
+    const w = world();
+    await run(w, navy, day(0));
+    for (let n = 1; n <= 7; n++) await run(w, navy, day(n));
+    const changed = { Reports: [...navy.Reports, bouncedReport()], Websites: navy.Websites };
+    await run(w, changed, day(9));
+    const w2 = world();
+    await run(w2, { Reports: [readyReport()], Websites: navy.Websites }, day(0));
+    await run(w2, { Reports: [bouncedReport()], Websites: navy.Websites }, day(2));
+    expect([...w.captured, ...w2.captured].map((c) => c.subject)).toEqual([
+      "Your fleet — 2026-09-18: Act: 29 Navy — Approved Maintenance will fail at send — recipients-missing: set Report recipients (To) on /s/29-navy, then it sends on the next run",
+      "Your fleet — 2026-09-25: 1 report ready for your yes — oldest 7 days",
+      "Your fleet — 2026-09-27: 1 report ready for your yes — oldest 9 days",
+      "Your fleet — 2026-09-18: 1 report ready for your yes",
+      "Your fleet — 2026-09-20: 1 new — A sent report bounced",
+    ]);
+  });
+
   it("an item mailed, gone for two runs and back is mailed again", async () => {
     const w = world();
     const withBounce = {
