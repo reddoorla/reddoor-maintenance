@@ -1,5 +1,7 @@
 # Operating-model review — 2026-09-29
 
+> Superseded in part by 2026-10-07 — P1-33(b): the two-week check and the live list of open operator asks now live in `docs/pm-pass.md` ("Mondays: the heavier pass", and the morning report's open-asks line), with the asks themselves under "Operator decisions" in `docs/BACKLOG.md`.
+
 **Status: recommendations for the operator, written the day before a month on the
 East Coast.** Built from three read-only surveys made this afternoon: the repo's
 operating setup and every September journal entry (60 entries), the operator's
