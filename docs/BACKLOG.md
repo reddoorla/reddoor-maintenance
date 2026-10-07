@@ -3237,6 +3237,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       with a follow-up.
     - _Pick 5:_ (a). Six rounds have each found a narrower case than the
       last; this one needs a heading the tree does not have.
+      **Answered 2026-10-07 17:56Z (AskUserQuestion): (a), fix and land, no seventh round.**
 
 93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
     property form (new 2026-10-07, operator ask in the PM cockpit).** The
