@@ -3207,6 +3207,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       sixth round; (c) land `f68c564e` as is with a follow-up.
     - _Pick 4:_ (a). The fix is one lookahead, and each round since the
       quotes-only change has found a narrower gap than the last.
+      **Answered 2026-10-07 17:29Z (AskUserQuestion): (b), fix, then a sixth review round.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
