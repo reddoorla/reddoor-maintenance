@@ -108,15 +108,20 @@ The prompt lives here so it can be changed by PR, like everything else.
      chore is still the operator's and is not recorded done (74's poster
      frames, 78's laptop gate, 79's "tell Erik"). An open ask is not on
      "Settled answers" below and has no `Closed` or `Dropped` line under it.
-     Read the item to judge it.
-   - **First asked.** An `asked YYYY-MM-DD` written on the ask wins.
-     Otherwise run
+     Read the item to judge it, and grep the backlog for its number too: an
+     answer can sit in a P0/P1 row instead (61.1 and 61.7 are answered in
+     P1-30, while item 61 still reads "waiting on her answers").
+   - **First asked.** An `asked <UTC time>` written on the ask wins; a date
+     with no time counts as 00:00Z of that date. Otherwise run
      `git log -G'^ ?[0-9]+\. \*\*<prefix>' --reverse --format=%cI origin/main -- docs/BACKLOG.md | head -1`,
      where `<prefix>` is the start of the item's bold title, regex-escaped,
      and convert the result to UTC (`%cI` prints the commit's own offset). A
      retitled item can give a later date for a longer prefix, so run it with
      the first 3, 4 and 5 words of the title and take the earliest. A sub-ask
-     added later dates from its own words, with
+     added later dates from its own words: when the item records an answer
+     or a decision above the ask (as 15's laptop ask follows "decided
+     2026-09-29", and 18's #672 and #674 follow their first answers), or the
+     ask has its own label, date it with
      `git log -S'<a phrase that does not wrap>' --reverse --format=%cI origin/main -- docs/BACKLOG.md | head -1`.
      2026-09-29 06:53:39Z is the backlog's own creation (#958), so print the
      age of an ask dated then as `≥ N h`. An override with a one-line note is
@@ -158,7 +163,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    **The open-asks line.** Beside the streak line, one line:
    `Open asks: N (items a, b, …); oldest: item X, ≥Y h [I]`. N counts the
    items with at least one open ask, by reading, under the definitions in
-   step 5. The age is from the first-asked rule there. Listing the numbers
+   "Backlog diff". The age is from the first-asked rule there. Listing the numbers
    lets anyone diff the set. **Its control:** item 3, a settled answer, is
    absent, and every item on the previous report's line is present, or this
    report names the line or PR that closed it. If the control fails, the line
@@ -212,10 +217,13 @@ of 45:
   3. **The operator answers each line** with one of: done; a date; or drop,
      with a reason.
   4. **Recording.** The session that receives the answer records it in its
-     own docs PR: the cockpit session that holds the answer, or else the next
-     morning pass. Never the evening pass, which does not edit the backlog.
-     The forms are `_Due: YYYY-MM-DD_` on the ask; `Closed <date>: done
-(operator)`; or `Dropped <date>: <reason>` plus one bullet under
+     own docs PR: the cockpit session that holds the answer (the morning
+     fire's or the afternoon fire's, once its pass has landed), or else the
+     next morning pass. Never inside the evening pass itself, whose PR does
+     not edit the backlog.
+     The forms are `_Due: YYYY-MM-DD_` on the ask;
+     `Closed <date>: done (operator)`; or `Dropped <date>: <reason>` plus one
+     bullet under
      "Settled answers" below. A closed or dropped ask that stays in the
      section does not break the "Settled answers" rule.
   5. **When more than half of a Monday's lines were already listed on an
@@ -277,7 +285,8 @@ of 45:
   one-time section of that report, `## Two-week check`, measuring the
   operating model that began on 09-29. A baseline row is judged in the
   keep-or-cut ask only if its method reproduced the baseline before it was
-  used.
+  used; for a count recorded as a floor ("27", "at least 10"), reaching it
+  counts as reproducing it.
 
   | Measure                                         | Baseline, and how it is re-measured                                                                                                                                                                                                                                                                                                                                                                    | Judged? |
   | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
@@ -287,7 +296,7 @@ of 45:
   | Duplicate-work incidents                        | 6 since 09-29. The grep below returned 7 headings on `a969d0ce` and on `ce197bbb`; one ("reviewed twice", #1143) is a false hit, so read each heading.                                                                                                                                                                                                                                                 | yes     |
   | Two-dirty-round escalations                     | 27 at `6ea7c10`: the digest's 25, plus 47 and 84, which it missed. Re-count with the digest's method: read the first 700 characters of each item for two dirty rounds or a hold after round 2. A literal phrase grep returns only 9, so it is not the method. P1-33(b)'s re-count on `6ea7c10` gave 28, or 26 without 10 (#918/#920, before the rule) and 29 (#1014's escalation, seen through #1035). | yes     |
   | PRs that ran a third review round               | At least 10 at `6ea7c10` (the review). Re-count the items that record a round 3 that ran; P1-33(b)'s re-count gave 10 (10, 27, 29, 32, 34, the second 53, 64, 72, 75, 86).                                                                                                                                                                                                                             | yes     |
-  | Open asks                                       | 18 items (24 asks) at `6ea7c10`, read under the step 5 rules by P1-33(b): 13, 14, 15, 18, 31, 33, 45, 57, 61, 67, 72, 74, 78, 79, 81, 82, 87, 88. Not the review's 11, which used a narrower reading. Compare with 10-12's N, and diff the two sets.                                                                                                                                                   | yes     |
+  | Open asks                                       | 18 items (24 asks) at `6ea7c10`, read under the "Backlog diff" definitions by P1-33(b): 13, 14, 15, 18, 31, 33, 45, 57, 61, 67, 72, 74, 78, 79, 81, 82, 87, 88. Not the review's 11, which used a narrower reading. Compare with 10-12's N, and diff the two sets.                                                                                                                                     | yes     |
   | Release-PR wait                                 | Median of `created_at`→`merged_at` for `changeset-release/main` PRs merged from 09-29T07:00Z: 15.56 h, n=7 (#952 to #1183; re-measured 2026-10-07). Re-measure through 10-12 with `gh api 'repos/reddoorla/reddoor-maintenance/pulls?state=all&head=reddoorla:changeset-release/main&per_page=100'`, page 1 only, because `--paginate` fails through the cloud proxy.                                  | yes     |
   | [TEST] verdicts awaiting                        | 5 on 10-06, 0 on 10-07 (#1229); re-read the "Clean-send streak" table.                                                                                                                                                                                                                                                                                                                                 | yes     |
   | Asks answered, and their latency                | 66 answered, median 1.9 h, frozen at 10-06 (repository latency, with no committed instrument).                                                                                                                                                                                                                                                                                                         | no      |

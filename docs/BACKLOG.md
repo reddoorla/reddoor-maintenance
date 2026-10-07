@@ -3361,17 +3361,23 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     never reached this section, so no morning report could carry it. The
     first Monday pass on or after 2026-10-12 lists all eight in its "Do, date
     or drop" section whatever their age; after that they follow the 168 h
-    rule like any other ask. Minutes are the source's, never measured. Checked
+    rule like any other ask. Minutes are estimates [I], from the source where it
+    gives one, never measured. Each `asked` is the UTC time of the source
+    line's first commit unless noted. Checked
     on `ce197bbb`: none was already done.
-    - **97(a) Org secret scanning and push protection, on by default for new
-      repos** (asked 2026-09-13). _Ask:_ turn both on in org Settings → Code
-      security, ~3 min [I] ("a one-time setting"). Unverified on the org's
+    - **97(a) Org-wide secret scanning and push protection** (asked
+      2026-09-13T01:21:28Z). _Ask:_ in org Settings → Code security, enable
+      both for all existing repositories and by default for new ones, ~3 min
+      [I] (the source: "Enabling it org-wide is a one-time setting"; scanning
+      was off on public repos such as `29-navy` and `vida-legacy-foundation`). Unverified on the org's
       plan: `GET orgs/reddoorla` answers 403 from a cloud session, and the
       repo's `security_and_analysis` comes back empty. Done here also closes
-      the scanning half of 33(d). The Mantis build that failed on a committed
+      the scanning half of 33(d), whose two repos already exist, only if
+      "all existing repositories" was applied. The Mantis build that failed on a committed
       Blux key (Watching, #754) is what push protection stops. Source
       `docs/meta-week/08-second-pass.md:54`.
-    - **97(b) Credential residue on the laptop** (asked 2026-09-13; the
+    - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
+      the
       `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
       `.env`, delete `DROPBOX_ACCESS_TOKEN`, `GOOGLE_SEARCH_API_KEY` and
       `TURNSTILE_SECRET_KEY_1`, which nothing reads, and **keep
@@ -3383,27 +3389,28 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       chore"; the code fix is #808). "Ten minutes" [I]. Source
       `docs/meta-week/06-priorities-system.md:629-638`.
     - **97(c) `src/blux`, `src/webflow` and canvas-starter: keep, fold or
-      archive?** (asked 2026-09-13). _Ask:_ one decision per name. `src/blux`
+      archive?** (asked 2026-09-13T01:21:28Z). _Ask:_ one decision per name. `src/blux`
       was "a 30-minute operator decision" [I], but its premise has moved:
       Mantis ran `blux convert` on 10-01 (item 60), so it has a consumer now.
       `src/webflow` is last touched 2026-07-28 (#466) and the 10-19
       conversions did not use it. canvas-starter last changed 2026-09-30
       (canvas-starter#30). Minutes: unknown for the other two. Sources
       `06-priorities-system.md:685-686`, `08-second-pass.md:184-189`.
-    - **97(d) What is `#trinity-law-school`?** (asked 2026-09-13). _Ask:_ say
+    - **97(d) What is `#trinity-law-school`?** (asked 2026-09-13T01:21:28Z). _Ask:_ say
       what the channel is and whether fleet output should reach anyone in it.
       `#roalson-interests`, asked in the same line, is answered (a tracked
       fleet site). "Ten minutes" [I]. Source
       `docs/meta-week/07-priorities-workflow.md:441-447`.
-    - **97(e) B7, the team note** (asked 2026-09-29). _Ask:_ post the note in
-      `docs/operating-model-rollout.md:58-64` in Discord, or say it is
+    - **97(e) B7, the team note** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ post the note in
+      `docs/operating-model-rollout.md:60-66` in Discord, or say it is
       posted (not read: this check had no Discord access). Minutes: unknown.
-      Source `operating-model-rollout.md:24`.
-    - **97(f) B8, the vendor filters** (asked 2026-09-29). _Ask:_ add the four
-      Gmail filters in `operating-model-rollout.md:66-77`. Not done [M,
+      Source `operating-model-rollout.md:26`.
+    - **97(f) B8, the vendor filters** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ add the four
+      Gmail filters in `operating-model-rollout.md:68-79`. Not done [M,
       2026-10-07]: the mailbox has no `Vendor` label, which every filter
-      applies. Minutes: unknown. Source `operating-model-rollout.md:25`.
-    - **97(g) An off-GitHub copy of the nightly backup** (asked 2026-09-13).
+      applies. Minutes: unknown. Source `operating-model-rollout.md:27`.
+    - **97(g) An off-GitHub copy of the nightly backup** (asked
+      2026-09-13T01:21:28Z).
       _Ask:_ add one off-GitHub destination for the backup, keeping one copy
       a month. Today it is a 30-day Actions artifact only
       (`retention-days: 30` in
@@ -3412,10 +3419,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       done: `docs/runbooks/continuity.md:272-274` (#791) places it in a
       Personal vault. Minutes: unknown. Source
       `06-priorities-system.md:658-664`.
-    - **97(h) The Rick Garcia lead thread** (asked 2026-09-17, its last
-      message, 00:11Z). _Ask:_ reply or close. Two messages, with no reply
+    - **97(h) The Rick Garcia lead thread** (asked 2026-09-17T00:11:43Z, the
+      thread's last message). _Ask:_ reply or close. Two messages, with no reply
       from us since [M, 2026-10-07]. Minutes: unknown. Source
-      `docs/operating-model-review-2026-09-29.md:205-206`.
+      `docs/operating-model-review-2026-09-29.md:207-208`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
