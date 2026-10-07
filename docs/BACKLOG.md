@@ -2828,7 +2828,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     showing one listing at a time. The operator confirmed the reading the
     same evening: the map holds still on its opening frame, a pin press
     turns the panel, the arrows move only the highlight, and there is no
-    filter by viewport. Built as PR_PLACEHOLDER. Hover-to-select (#253) goes
+    filter by viewport. Built as roalson-interests#270. Hover-to-select (#253) goes
     with the stacked list it lived in.
 
 84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
