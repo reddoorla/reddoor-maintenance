@@ -15,8 +15,10 @@ export const SOURCE_DIRS = ["docs/runbooks", "docs/briefs"];
 
 const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 
-const CITATION =
-  /`(?<target>CLAUDE\.md|AUTONOMY\.md)`\s*(?:→\s*(?:"(?<arrow>[^"]+)"|“(?<curly>[^”]+)”|\[(?<link>[^\]]+)\]\([^)]*\))|§"(?<section>[^"]+)"|→\s*[*_]*(?<bare>[^"“\s*_[][^,.;:)?!|—–*_[(]*))/g;
+const ATTEMPT = /`(CLAUDE\.md|AUTONOMY\.md)`\s*(→|§)/g;
+const QUOTED = /^\s*"([^"]+)"/;
+const SECTION = /^"([^"]+)"/;
+const BARE = /^\s*([^\s,.;:)?!|—–"“”'*_[\]`(][^,.;:)?!|—–"“”*_[\]`(]*?)\s*(?=[,.;:)?!|—–]|$)/;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };
@@ -81,23 +83,21 @@ function lineAt(offsets, at) {
 export function citations(text) {
   const out = [];
   for (const p of paragraphs(text)) {
-    for (const m of p.text.matchAll(CITATION)) {
-      const g = m.groups;
-      const cited = collapse(g.arrow ?? g.curly ?? g.link ?? g.section ?? g.bare);
-      if (cited === "") continue;
+    for (const m of p.text.matchAll(ATTEMPT)) {
+      const [, target, symbol] = m;
+      const rest = p.text.slice(m.index + m[0].length);
+      const quoted = (symbol === "§" ? SECTION : QUOTED).exec(rest);
+      const bare = symbol === "→" && quoted === null ? BARE.exec(rest) : null;
+      const read = quoted ?? bare;
+      const cited = read === null ? null : collapse(read[1]);
+      const length = m[0].length + (read === null ? 0 : read[0].trimEnd().length);
       const start = lineAt(p.offsets, m.index);
-      const end = lineAt(p.offsets, m.index + m[0].trimEnd().length - 1);
-      const shape =
-        g.section !== undefined
-          ? `§"${cited}"`
-          : g.curly !== undefined
-            ? `→ “${cited}”`
-            : g.link !== undefined
-              ? `→ [${cited}]`
-              : g.bare !== undefined
-                ? `→ ${cited}`
-                : `→ "${cited}"`;
-      out.push({ target: g.target, cited, start, end, shown: `\`${g.target}\` ${shape}` });
+      const end = lineAt(p.offsets, m.index + length - 1);
+      const shown =
+        cited === null
+          ? `\`${target}\` ${symbol}${rest.slice(0, 40)}`
+          : `\`${target}\` ${symbol === "§" ? `§"${cited}"` : bare ? `→ ${cited}` : `→ "${cited}"`}`;
+      out.push({ target, cited, start, end, shown });
     }
   }
   return out;
@@ -132,7 +132,14 @@ export function check(root) {
       total += 1;
       const heads = targets.get(c.target);
       const where = `${file}:${c.start === c.end ? c.start : `${c.start}-${c.end}`}`;
-      if (heads === null) dead.push({ ...c, file, where, reason: `${c.target} is missing` });
+      if (c.cited === null)
+        dead.push({
+          ...c,
+          file,
+          where,
+          reason: `cannot read this citation; write it as → "Heading" or §"Heading"`,
+        });
+      else if (heads === null) dead.push({ ...c, file, where, reason: `${c.target} is missing` });
       else if (!heads.some((h) => startsWithWords(h, c.cited)))
         dead.push({ ...c, file, where, reason: `no heading in ${c.target} starts with this` });
     }

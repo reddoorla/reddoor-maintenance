@@ -12,14 +12,20 @@ import { fileURLToPath } from "node:url";
  * `docs/worker-brief.md`, stayed dead until #1224 fixed them by hand. All three wrapped across a
  * hand-typed line break, so no line-by-line grep ever saw one whole.
  *
- * `scripts/directive-refs.mjs` joins each paragraph's lines, then reads three shapes whose
- * target is `CLAUDE.md` or `AUTONOMY.md`:
+ * `scripts/directive-refs.mjs` joins each paragraph's lines, then reads every `CLAUDE.md` or
+ * `AUTONOMY.md` code span followed by → or § as a citation. It must be one of three shapes:
  *
- *   - quoted arrow:     `CLAUDE.md` → "Heading", with straight or curly quotes, or as a link
- *                       `CLAUDE.md` → [Heading](…)
- *   - unquoted arrow:   `CLAUDE.md` → Heading   (ends at , . ; : ) ? ! | — – * _ [ ( or the
- *                       paragraph's end; leading emphasis markers are skipped)
+ *   - quoted arrow:     `CLAUDE.md` → "Heading"
+ *   - unquoted arrow:   `CLAUDE.md` → Heading   (plain words, ending at , . ; : ) ? ! | — – or
+ *                       the paragraph's end)
  *   - quoted section:   `CLAUDE.md` §"Heading"
+ *
+ * Anything else after the → or § fails as "cannot read this citation": curly quotes, a link,
+ * emphasis, mismatched or unclosed quotes, a space after §, or an unquoted name broken by `*`,
+ * `_`, `[`, `(` or a quote. Three review rounds each added shapes to read, and each added shape
+ * left a neighbour that was silently not counted, so a dead heading in it passed. Refusing what
+ * it cannot read closes that class: the cost is that a valid citation in an unusual spelling
+ * fails loudly, with the spelling to use in the message.
  *
  * Paragraphs are joined after `>` blockquote prefixes are stripped, and a heading, a table row
  * or a list item (inside a blockquote too) starts a new one.
@@ -42,11 +48,10 @@ import { fileURLToPath } from "node:url";
  *     `docs/morning-reports/`, `docs/meta-week/`, `docs/superpowers/`), which records what was
  *     true then and is never corrected in place, and code (`scripts/land-prs.mjs` cites
  *     `AUTONOMY.md` by heading in comments);
- *   - other spellings: `->` for →, a space after § (§ "…"), § with no quotes, `./CLAUDE.md`,
- *     or a markdown link as the target. An unquoted name that runs on without punctuation
- *     ("→ Concurrent sessions and then…") fails loudly rather than passing, as does a citation
- *     written inside a longer code span as a format example, and an unquoted citation of a
- *     heading that itself contains `_` or `*`;
+ *   - a target not written as the bare code span: `->` for →, `./CLAUDE.md`, or a markdown
+ *     link as the target. These are not counted at all. An unquoted name that runs on without
+ *     punctuation ("→ Concurrent sessions and then…") fails loudly rather than passing, as does
+ *     a citation written inside a longer code span as a format example;
  *   - `####` headings, setext headings and indented headings, none of which the two targets
  *     use;
  *   - a heading that still exists but has come to mean something else.
@@ -212,8 +217,8 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     const md = [
       "### Why `CLAUDE.md` → Concurrent sessions",
       "Next line text",
-      "| a | see `CLAUDE.md` → Concurrent sessions | x |",
-      "| b | c |",
+      "| x | see `CLAUDE.md` → Concurrent sessions",
+      "and more",
       "Para `CLAUDE.md` → Concurrent sessions",
       "- next item",
       '> See `CLAUDE.md` → "Concurrent',
@@ -226,28 +231,37 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     expect(r.status).toBe(0);
   });
 
-  it("ends an unquoted citation at a dash or emphasis, and matches whole words only", () => {
+  it("ends an unquoted citation at a dash, and matches whole words only", () => {
     const md =
-      "A `CLAUDE.md` → Concurrent sessions — the rule.\n\nB `CLAUDE.md` → **Concurrent sessions**.\n\n" +
+      "A `CLAUDE.md` → Concurrent sessions — the rule.\n\n" +
       'C `CLAUDE.md` → "Concurrent sess".\n';
     const r = run(makeRoot({ "docs/pm-pass.md": md }));
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
-      expect.stringMatching(/^dead docs\/pm-pass\.md:5 .*"Concurrent sess"$/),
+      expect.stringMatching(/^dead docs\/pm-pass\.md:3 .*"Concurrent sess"$/),
     ]);
   });
 
-  it("reads curly-quoted and link-form citations, catching the dead ones", () => {
-    const md =
-      "A `CLAUDE.md` → “Concurrent sessions”.\n\nB `CLAUDE.md` → [Concurrent sessions](../CLAUDE.md#x).\n\n" +
-      "C `CLAUDE.md` → “Gone rule”.\n\nD `CLAUDE.md` → [Gone rule](x).\n";
+  it("fails every spelling it cannot read, valid heading or not", () => {
+    const spellings = [
+      "→ “Concurrent sessions”",
+      "→ [Concurrent sessions](../CLAUDE.md#x)",
+      "→ [**Concurrent sessions**](../CLAUDE.md#x)",
+      "→ [Gone heading][ref]",
+      '→ **"Concurrent sessions"**',
+      "→ **Concurrent sessions**",
+      "→ A *gone* rule here",
+      '→ “Gone heading"',
+      "§“Concurrent sessions”",
+      '§ "Concurrent sessions"',
+      "§Concurrent sessions",
+    ];
+    const md = spellings.map((s) => `See \`CLAUDE.md\` ${s}.`).join("\n\n") + "\n";
     const r = run(makeRoot({ "docs/pm-pass.md": md }));
     expect(r.status).toBe(1);
-    expect(r.stdout).toMatch(/\b2 of 4 citations dead\b/);
-    expect(deadLines(r.stdout)).toEqual([
-      expect.stringMatching(/^dead docs\/pm-pass\.md:5 .*→ “Gone rule”$/),
-      expect.stringMatching(/^dead docs\/pm-pass\.md:7 .*→ \[Gone rule\]$/),
-    ]);
+    const dead = deadLines(r.stdout);
+    expect(dead).toHaveLength(spellings.length);
+    for (const line of dead) expect(line).toContain("cannot read this citation");
   });
 
   it("splits a blockquoted list at each item", () => {
