@@ -3148,6 +3148,10 @@ verdict is its only input, because no client and no check sees the email.
   so it came from a session's ad-hoc render [I]; `selftest email <site>
 --type maintenance` builds from the roster with today's date and has no
   prefix.
+- **`clean` means no work at all** (the operator, 2026-10-07): nothing in
+  the email or behind it needed fixing before it could go to the client. An
+  email that reads well but carries a score or fact that needed work is not
+  `clean`, even when the fault was the site's and not the report's.
 - **The verdict** is `clean`, or one line saying what was wrong. The operator
   writes it into the row (the GitHub web editor works from a phone) or says it
   to any session, which writes it.
@@ -3169,7 +3173,8 @@ bp score". No verdict yet. The rows stay `awaiting`, and the ask returns once
 item 88's fixes have deployed.
 The operator, 2026-10-07 ~12:10Z: "they looked good other than bp". LAHI
 stored 100, so its row is `clean`; the other four name the 78. Counted from
-the bottom, the streak is 0, because Vineyard is the last row.
+the bottom, the streak is 0, because Vineyard is the last row. Asked whether the four count as clean
+because the email itself was fine: no, "clean should be no work at all".
 
 ## Fleet snapshot (2026-10-05 ~11:55Z, live Turso, SELECT-only) [M]
 
