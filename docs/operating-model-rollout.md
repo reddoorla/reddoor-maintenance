@@ -1,5 +1,7 @@
 # Rolling out the new operating model — 2026-09-30 → 2026-10-31
 
+> Superseded in part by 2026-10-07 — P1-33(b): the 10-14 two-week check now runs in the first Monday PM pass on or after 2026-10-12, and the open operator asks (B7, B8 among them) are listed there; both live in `docs/pm-pass.md` → "Mondays: the heavier pass".
+
 The model is in `docs/operating-model-review-2026-09-29.md`, with the operator's
 answers in its §7. In one paragraph: a fresh PM session every morning is the
 operator's single inbox; the operator spends 15–20 minutes on it and starts
