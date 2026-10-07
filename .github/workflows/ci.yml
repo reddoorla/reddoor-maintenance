@@ -53,9 +53,11 @@ jobs:
       - name: Install the browser the Tier 4 abort harness drives
         timeout-minutes: 20
         run: |
+          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt || true
           for attempt in 1 2 3; do
             timeout 300 pnpm exec playwright install --with-deps chromium && exit 0
             echo "::warning::playwright install attempt $attempt failed or passed 300s"
+            sudo pkill -KILL -x apt-get || true
           done
           exit 1
 

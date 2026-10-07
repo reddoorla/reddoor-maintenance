@@ -43,6 +43,24 @@ second attempt (335 s and 571 s), and none would have failed. Three
 minutes to keep about 15 minutes above the slowest green job minus its
 install.
 
+**The retry's first live run disproved the orphan claim above.** Run
+37673395612 (`c869648`) stalled again on the Azure mirror at 19:18:37Z, the
+third stall in a row (18:07, 19:00, 19:18). At 19:23:15 `timeout` killed
+attempt 1. Attempts 2 and 3 then failed within seconds, both with `E: Could not
+get lock /var/lib/apt/lists/lock. It is held by process 2440 (apt-get)`. The
+local check had killed a plain process group, but Playwright starts `apt-get`
+through `sudo`, and that `apt-get` survived the kill. The paragraph above was
+wrong where it said a killed attempt "should not hold the dpkg lock". It did.
+
+Two changes follow. Each failed attempt now runs `sudo pkill -KILL -x apt-get`.
+That was proven locally against a process named `apt-get`: `pgrep` saw it
+before the kill and not after, and a first version of the check, which used
+`exec -a`, matched nothing and proved nothing. The step also deletes
+`azure.archive.ubuntu.com` from `/etc/apt/apt-mirrors.txt`. All three stalls
+were on that mirror, and in each log `https://archive.ubuntu.com` answered
+within seconds, so retrying against the same mirror list would likely stall
+again.
+
 **What a hang costs now.** A stall in one install attempt costs 5 minutes and a retry. Three stalls
 fail the step at 15 to 20 minutes, where it used to run for six hours. A
 hang in any later step fails at 35. Either way the
