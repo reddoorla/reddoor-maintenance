@@ -3162,6 +3162,32 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       tree today.
       **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
 
+93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
+    property form (new 2026-10-07, operator ask in the PM cockpit).** The
+    verification tag shipped in data-dynamiq#62 (`0e5f8dd`), and the
+    production home page carries exactly one copy at 15:31Z, where it
+    carried none before the merge [M, 2026-10-07, curl + grep -c]. The Turso row
+    (`data-dynamiq`, `maintained`) still has `search_console_property`
+    NULL, and `site_health.search_console_outcome` is `no-property`
+    (checked 10-05 18:36Z) [M, SELECT-only].
+    _Ask:_ (a) press **Verify** for the property in Search Console;
+    (b) Settings → Users and permissions → add `reports@reddoorla.com`
+    (Restricted is enough); (c) say which form the property is: URL-prefix
+    `https://www.datadynamiq.com/` or domain `datadynamiq.com`.
+    _Pick:_ only (c) is a choice. A worker then records the answer with
+    `setSiteDetail` (`searchConsoleProperty`), reads it back, and the next
+    nightly's lookup should stop reading `no-property`.
+    **Answered 2026-10-07 ~15:45Z (operator, AskUserQuestion): (c)
+    URL-prefix.** Recorded with `setSiteDetail` at 15:46Z; the row reads
+    back `search_console_property` = `https://www.datadynamiq.com/`
+    [M, SELECT]. **Still open:** the lookup now finds the property but
+    Google refuses it: `report data-dynamiq --preview --enrich` gives
+    "User does not have sufficient permission for site
+    'https://www.datadynamiq.com/'" as `tucker@` and as `reports@`, while
+    the same command resolves Espada under both subjects [M, 15:47Z]. So
+    (a) or (b) has not taken effect for this property. The next nightly
+    will read `soft-fail`, not `resolved`, until it does.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
