@@ -160,6 +160,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy`                | Remedy test pins the shape; the fleet list is in this row or an issue                       |
 | P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (write the line, push, then ask); (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, and the daily report keeps one 'N open asks; oldest X h' line; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask; (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1); then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections; one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. |
 | P1-34 | **"Refresh preview" re-reads the site's live Lighthouse scores into an unsent, unapproved report (Operator decisions 91, answered (a) 2026-10-07).** Four held October drafts (Data Dynamiq, Espada, Revogen, Vineyard) store best practices 78; their site rows read 100 [M, 10-07]. `rerenderReport` re-ticks evidence from the live site but renders the row's stored `lighthouse`. _Verify:_ `grep -n retickEvidence src/reports/send/rerender.ts` shows line 98 and no `bpScore`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 🟡   | S      | `src/reports/send/rerender.ts:72`, `src/reports/draft.ts:161` `scoresFromWebsite` | The four rows read 100 after a refresh; a sent or approved row is untouched; tests pin both |
+| P1-35 | **The daily PM pass reads the cockpit's Needs-you and Watch state (operator, 2026-10-07, queued to a worker card from the PM cockpit).** The weekday pass reads it only on Mondays, so a site-level signal that leaves every nightly green never reaches the morning report: Data Dynamiq's `search_console_outcome = no-property` was the example [M, 10-07]. A SELECT-only `scripts/pm-cockpit.mjs` builds `buildCockpitModel` from the inputs `netlify/functions/fleet-homepage.mts` loads, and a new pass step lists new Needs-you items as asks. Overlaps P1-33's queued `scripts/pm-facts.mjs`, which can absorb it. _Verify:_ `grep -n 'cockpit attention' docs/pm-pass.md` shows only the Monday section.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | 🟢   | S      | `src/dashboard/fleet-cockpit.ts:514,726`                                          | The pass prints `PM_COCKPIT_SUMMARY` and the morning report lists new items                 |
 
 ### Blocked behind another PR (do not start early)
 
@@ -259,6 +260,8 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 - **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
 
 ### Watching (owned elsewhere, or parked)
+
+- **Data Dynamiq Search Console (operator, 2026-10-07; worker card queued from the PM cockpit).** The operator created the property and gave an HTML-tag verification. The worker adds the tag to data-dynamiq's `src/app.html`, then asks him to press Verify, add `reports@reddoorla.com`, and name the property, and records `search_console_property` on the row. Before: `search_console_property` NULL, `search_console_outcome` `no-property`, and no tag on `https://www.datadynamiq.com/` [M, 10-07 ~12:30Z].
 
 - **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
   P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
@@ -3105,7 +3108,61 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     Queued as P1-34, with a brief in the 10-07 morning report's cockpit
     section. The sends stay held until the four rows read their live scores.
 
-92. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
+92. **#1232, P1-33(a) directive-citation check: held after two dirty review
+    rounds (new 2026-10-07, #1230).** #1232 (branch
+    `claude/p1-33a-directive-refs`, head `305b5422`) adds
+    `scripts/directive-refs.mjs` and its test, the asking rule's new order
+    in `CLAUDE.md`, and the "land as is" line. On `413bb029` it lists exactly
+    the three dead citations #1224 fixed by hand; on `main` it exits 0; all
+    11 mutations go red.
+    - Round 1 found no blocker; its latent false FAILs were fixed in
+      `305b5422`.
+    - Round 2 found two minors, both reproduced through
+      `node scripts/directive-refs.mjs --root <fixture>`: (1) a regression
+      from round 1: a citation of a dead heading written with curly quotes
+      (→ “Gone rule”) or as a link (→ [Gone rule](x)) is no longer counted,
+      so the run exits 0 where round 1 exited 1, and the test comment
+      wrongly says such citations fail loudly; (2) in a blockquoted list,
+      a valid unquoted citation followed by a second `> -` item is reported
+      dead as "Concurrent sessions - next item", because the list-item test
+      runs before the `>` is stripped. Neither bites the real tree today
+      (10 citations, all resolve).
+    - _Ask:_ (a) fix both (about five lines: put `“` and `[` back in reach of
+      the unquoted shape, or read them as quoted and link shapes; strip `>`
+      before the list-item test), add a fixture and a mutation for each, and
+      land without a third review round; (b) land as is and file both as a
+      follow-up; (c) fix both and run a third round.
+    - _Pick:_ (a). Both fixes are local to one function each and each gets
+      a fixture that goes red without it; the rule bars "land as is" as the
+      worker's pick while (1) is a reproduced false PASS.
+      **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
+    - Round 3 (`e1910c2c`, the round-2 fixes) found two majors and three
+      minors, no blocker. Both majors are false PASSes of the same class as
+      round 2's: a citation spelled in a shape the reader does not know is
+      not counted at all, so a dead heading in it passes. Examples: emphasis
+      around the quote (→ **"Gone"**), § with curly quotes, a bracket with
+      no URL, mismatched quotes, and an unquoted name cut short at `*`
+      (→ A _gone_ rule resolves as "A"). Minors: a link with emphasised
+      text is a false FAIL; the table-row fixture passes for the wrong
+      reason; CLAUDE.md step 4's answer form wraps onto column 0.
+    - _Ask 2:_ each round has added shapes and each added shape has opened
+      a new gap, so: (a) invert the default. Any `CLAUDE.md` or
+      `AUTONOMY.md` code span followed by → or § must read as exactly
+      → "Heading", → Heading (plain words ending at punctuation) or
+      §"Heading"; anything else fails as "cannot read this citation". Curly,
+      link and emphasis forms are dropped. Prototyped, not pushed: all 21 of
+      round 3's probe inputs now fail loudly or resolve correctly, none
+      passes silently, and the real tree still reads 10 of 10. Fix the
+      three minors too, then land without a fourth round. (b) the same, plus
+      a fourth round. (c) land `e1910c2c` as is, with the gaps listed as a
+      follow-up.
+    - _Pick 2:_ (a). The inversion removes the class rather than another
+      instance of it, and its cost is that a valid citation in an unusual
+      spelling fails loudly with the fix in the message; none exists in the
+      tree today.
+      **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+
+93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
     property form (new 2026-10-07, operator ask in the PM cockpit).** The
     verification tag shipped in data-dynamiq#62 (`0e5f8dd`), and the
     production home page carries exactly one copy at 15:31Z, where it
@@ -3119,10 +3176,17 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `https://www.datadynamiq.com/` or domain `datadynamiq.com`.
     _Pick:_ only (c) is a choice. A worker then records the answer with
     `setSiteDetail` (`searchConsoleProperty`), reads it back, and the next
-    nightly's lookup should stop reading `no-property`. Without (b) it keeps
-    reading `no-property` even with the property recorded: the lookup only
-    matches properties the reports account can see
-    (`src/reports/draft.ts:550`).
+    nightly's lookup should stop reading `no-property`.
+    **Answered 2026-10-07 ~15:45Z (operator, AskUserQuestion): (c)
+    URL-prefix.** Recorded with `setSiteDetail` at 15:46Z; the row reads
+    back `search_console_property` = `https://www.datadynamiq.com/`
+    [M, SELECT]. **Still open:** the lookup now finds the property but
+    Google refuses it: `report data-dynamiq --preview --enrich` gives
+    "User does not have sufficient permission for site
+    'https://www.datadynamiq.com/'" as `tucker@` and as `reports@`, while
+    the same command resolves Espada under both subjects [M, 15:47Z]. So
+    (a) or (b) has not taken effect for this property. The next nightly
+    will read `soft-fail`, not `resolved`, until it does.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
