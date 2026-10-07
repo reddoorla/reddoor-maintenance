@@ -3183,6 +3183,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       contains punctuation ends, so it is removed rather than patched, as
       round 3's shapes were; every remaining minor fails loudly or needs a
       spelling the tree does not use.
+      **Answered 2026-10-07 15:38Z (AskUserQuestion): (b), quotes only, then a fifth review round.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
