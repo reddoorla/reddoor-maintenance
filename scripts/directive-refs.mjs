@@ -16,7 +16,7 @@ export const SOURCE_DIRS = ["docs/runbooks", "docs/briefs"];
 const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 
 const CITATION =
-  /`(CLAUDE\.md|AUTONOMY\.md)`\s*(?:→\s*"([^"]+)"|§"([^"]+)"|→\s*[*_]*([^"“\s*_[][^,.;:)?!|—–*_[(]*))/g;
+  /`(?<target>CLAUDE\.md|AUTONOMY\.md)`\s*(?:→\s*(?:"(?<arrow>[^"]+)"|“(?<curly>[^”]+)”|\[(?<link>[^\]]+)\]\([^)]*\))|§"(?<section>[^"]+)"|→\s*[*_]*(?<bare>[^"“\s*_[][^,.;:)?!|—–*_[(]*))/g;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };
@@ -52,20 +52,21 @@ export function paragraphs(text) {
   const out = [];
   let current = null;
   text.split("\n").forEach((line, index) => {
-    if (/^\s*(```|~~~)/.test(line) || line.trim() === "") {
+    const body = line.replace(/^\s*(?:>\s?)*/, "");
+    if (/^\s*(```|~~~)/.test(line) || body.trim() === "") {
       current = null;
       return;
     }
-    const isRow = /^\s*\|/.test(line);
-    const isHeading = /^\s*#/.test(line);
-    const isItem = /^\s*(?:[-*+]|\d+[.)])\s/.test(line);
+    const isRow = /^\s*\|/.test(body);
+    const isHeading = /^\s*#/.test(body);
+    const isItem = /^\s*(?:[-*+]|\d+[.)])\s/.test(body);
     if (isRow || isHeading || isItem || current === null) {
       current = { text: "", offsets: [] };
       out.push(current);
     }
     if (current.text !== "") current.text += " ";
     current.offsets.push({ at: current.text.length, line: index + 1 });
-    current.text += line.replace(/^\s*(?:>\s?)*/, "").trim();
+    current.text += body.trim();
     if (isRow || isHeading) current = null;
   });
   return out;
@@ -81,14 +82,22 @@ export function citations(text) {
   const out = [];
   for (const p of paragraphs(text)) {
     for (const m of p.text.matchAll(CITATION)) {
-      const quoted = m[2] ?? m[3];
-      const cited = collapse(quoted ?? m[4]);
+      const g = m.groups;
+      const cited = collapse(g.arrow ?? g.curly ?? g.link ?? g.section ?? g.bare);
       if (cited === "") continue;
       const start = lineAt(p.offsets, m.index);
       const end = lineAt(p.offsets, m.index + m[0].trimEnd().length - 1);
       const shape =
-        m[3] !== undefined ? `§"${cited}"` : quoted !== undefined ? `→ "${cited}"` : `→ ${cited}`;
-      out.push({ target: m[1], cited, start, end, shown: `\`${m[1]}\` ${shape}` });
+        g.section !== undefined
+          ? `§"${cited}"`
+          : g.curly !== undefined
+            ? `→ “${cited}”`
+            : g.link !== undefined
+              ? `→ [${cited}]`
+              : g.bare !== undefined
+                ? `→ ${cited}`
+                : `→ "${cited}"`;
+      out.push({ target: g.target, cited, start, end, shown: `\`${g.target}\` ${shape}` });
     }
   }
   return out;

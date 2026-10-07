@@ -15,9 +15,14 @@ import { fileURLToPath } from "node:url";
  * `scripts/directive-refs.mjs` joins each paragraph's lines, then reads three shapes whose
  * target is `CLAUDE.md` or `AUTONOMY.md`:
  *
- *   - quoted arrow:     `CLAUDE.md` → "Heading"
- *   - unquoted arrow:   `CLAUDE.md` → Heading   (ends at , . ; : ) or the paragraph's end)
+ *   - quoted arrow:     `CLAUDE.md` → "Heading", with straight or curly quotes, or as a link
+ *                       `CLAUDE.md` → [Heading](…)
+ *   - unquoted arrow:   `CLAUDE.md` → Heading   (ends at , . ; : ) ? ! | — – * _ [ ( or the
+ *                       paragraph's end; leading emphasis markers are skipped)
  *   - quoted section:   `CLAUDE.md` §"Heading"
+ *
+ * Paragraphs are joined after `>` blockquote prefixes are stripped, and a heading, a table row
+ * or a list item (inside a blockquote too) starts a new one.
  *
  * A citation resolves when some `##` or `###` heading of the target, outside code fences,
  * starts with the cited text and the match ends on a word boundary, so a short name such as
@@ -37,10 +42,11 @@ import { fileURLToPath } from "node:url";
  *     `docs/morning-reports/`, `docs/meta-week/`, `docs/superpowers/`), which records what was
  *     true then and is never corrected in place, and code (`scripts/land-prs.mjs` cites
  *     `AUTONOMY.md` by heading in comments);
- *   - other spellings: `->` for →, a space after § (§ "…"), § with no quotes, curly quotes,
- *     `./CLAUDE.md`, or a markdown link as the target. Curly quotes and an unquoted name that
- *     runs on without punctuation ("→ Concurrent sessions and then…") fail loudly rather than
- *     pass, as does a citation written inside a longer code span as a format example;
+ *   - other spellings: `->` for →, a space after § (§ "…"), § with no quotes, `./CLAUDE.md`,
+ *     or a markdown link as the target. An unquoted name that runs on without punctuation
+ *     ("→ Concurrent sessions and then…") fails loudly rather than passing, as does a citation
+ *     written inside a longer code span as a format example, and an unquoted citation of a
+ *     heading that itself contains `_` or `*`;
  *   - `####` headings, setext headings and indented headings, none of which the two targets
  *     use;
  *   - a heading that still exists but has come to mean something else.
@@ -228,6 +234,29 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
       expect.stringMatching(/^dead docs\/pm-pass\.md:5 .*"Concurrent sess"$/),
+    ]);
+  });
+
+  it("reads curly-quoted and link-form citations, catching the dead ones", () => {
+    const md =
+      "A `CLAUDE.md` → “Concurrent sessions”.\n\nB `CLAUDE.md` → [Concurrent sessions](../CLAUDE.md#x).\n\n" +
+      "C `CLAUDE.md` → “Gone rule”.\n\nD `CLAUDE.md` → [Gone rule](x).\n";
+    const r = run(makeRoot({ "docs/pm-pass.md": md }));
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/\b2 of 4 citations dead\b/);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/pm-pass\.md:5 .*→ “Gone rule”$/),
+      expect.stringMatching(/^dead docs\/pm-pass\.md:7 .*→ \[Gone rule\]$/),
+    ]);
+  });
+
+  it("splits a blockquoted list at each item", () => {
+    const md =
+      "> - see `CLAUDE.md` → Concurrent sessions\n> - next item\n>\n> `CLAUDE.md` → Gone rule\n";
+    const r = run(makeRoot({ "docs/pm-pass.md": md }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/pm-pass\.md:4 .*→ Gone rule$/),
     ]);
   });
 
