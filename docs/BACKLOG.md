@@ -3132,6 +3132,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     - _Pick:_ (a). Both fixes are local to one function each and each gets
       a fixture that goes red without it; the rule bars "land as is" as the
       worker's pick while (1) is a reproduced false PASS.
+      **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
