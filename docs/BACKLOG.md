@@ -3157,6 +3157,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       instance of it, and its cost is that a valid citation in an unusual
       spelling fails loudly with the fix in the message; none exists in the
       tree today.
+      **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
