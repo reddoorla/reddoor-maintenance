@@ -9226,3 +9226,15 @@ the nav, h1s and titles; "Leasing" on no page; `/leasing` and `/purchases`
 301; the founder copy matches his message character for character, with
 all four U+2011; the family photo with its alt; the copy at 24px between
 28 and 16; the bullets gone at the operator's ask, and the button kept.
+
+## 2026-10-07 — Roalson map Option 1 built as roalson-interests#270 (Operator decisions 83)
+
+Erik picked Option 1 of Nicole's "Full Screen Map" frame on 10-06 at 22:03Z. The operator confirmed the reading the same evening: the map holds still, a pin turns the panel, and there is no filter by viewport. From `lg`, the Properties page is now a 925 map beside a 515 one-listing panel, the phones' carousel laid out as a column. The camera no longer follows the listing (`PropertyMap`'s new `follow={false}`). The centre-line rule and the 10-02 hover-to-select went with the stacked list they lived in. The full account is in roalson-interests' journal for the same date.
+
+Measured on the way. Of the 69 non-gate browser reds after the change, 4 were already red on an untouched `main`. Those are filed as roalson-interests#269, with a swipe flake that fails 1 in 10 on `main`. The rest were the old behaviour's own specs, deleted or rewritten. One old test caught a real defect: with scripting off, the sticky map at its new 827 put the OpenStreetMap credit below a 1440×844 window. The map's height is now capped by the window.
+
+Not done: Erik's 10-06 22:05Z ask, a Bill Miller HQ photo band above the footer on the Properties page, is its own task.
+
+## 2026-10-06 — Evening pass
+
+Headline: the five October drafts are still pending approval, and four of them store 78 while their sites read 100 live, so how to re-draft them is the ask. #1222 (sharp, security) and release #1214 are green and waiting on the operator. All 13 scheduled runs were green. `EVENING_BRANCHES_SUMMARY main_decision_lines=115 asks=0 decision_lines=2 stale=5 stale_fresh=0 scanned=6 older_skipped=33`.
