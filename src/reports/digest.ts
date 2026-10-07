@@ -197,6 +197,15 @@ function touchedBy(it: AttentionItem, keys: readonly string[]): boolean {
   return keys.some((k) => k === it.key || k.startsWith(`${it.key}#`));
 }
 
+export const DIGEST_SUBJECT_SUFFIX_MAX = 150;
+
+function clipSuffix(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= DIGEST_SUBJECT_SUFFIX_MAX
+    ? flat
+    : `${flat.slice(0, DIGEST_SUBJECT_SUFFIX_MAX - 1).trimEnd()}…`;
+}
+
 export function digestSubject(input: {
   date: string;
   readyForYourYes: readonly ReadyItem[];
@@ -204,7 +213,10 @@ export function digestSubject(input: {
   changes: DigestChanges;
   lastSentOn: string | null;
 }): string {
-  const prefix = `Your fleet — ${input.date}: `;
+  return `Your fleet — ${input.date}: ${clipSuffix(digestSubjectSuffix(input))}`;
+}
+
+function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string {
   const ordered = orderAttention(input.needsAttention);
   const changed = [...input.changes.added, ...input.changes.worse];
   const critical = ordered.filter((it) => it.severity === "critical" && touchedBy(it, changed));
@@ -212,19 +224,19 @@ export function digestSubject(input: {
     const first = critical[0]!;
     const ask = first.ask ? `: ${first.ask}` : "";
     const more = critical.length > 1 ? ` (+${critical.length - 1} more)` : "";
-    return `${prefix}Act: ${first.siteName} — ${first.title}${ask}${more}`;
+    return `Act: ${first.siteName} — ${first.title}${ask}${more}`;
   }
   const n = input.readyForYourYes.length;
   if (n > 0) {
     const oldest = Math.max(...input.readyForYourYes.map((r) => r.ageDays ?? 0));
     const age = ageLabel(oldest);
-    return `${prefix}${n} ${n === 1 ? "report" : "reports"} ready for your yes${age ? ` — oldest ${age}` : ""}`;
+    return `${n} ${n === 1 ? "report" : "reports"} ready for your yes${age ? ` — oldest ${age}` : ""}`;
   }
   const added = ordered.filter((it) => touchedBy(it, input.changes.added));
-  if (added.length > 0) return `${prefix}${added.length} new — ${added[0]!.title}`;
-  return input.lastSentOn
-    ? `${prefix}no change since ${input.lastSentOn}`
-    : `${prefix}first digest`;
+  if (added.length > 0) return `${added.length} new — ${added[0]!.title}`;
+  const worse = ordered.filter((it) => touchedBy(it, input.changes.worse));
+  if (worse.length > 0) return `${worse.length} worse — ${worse[0]!.title}`;
+  return input.lastSentOn ? `no change since ${input.lastSentOn}` : "first digest";
 }
 
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */

@@ -82,6 +82,37 @@ describe("digestSubject", () => {
     );
   });
 
+  it("names a non-critical line that got worse instead of saying no change", () => {
+    const needsAttention = [
+      item({ key: "lh:a", kind: "lighthouse", title: "Lighthouse dropped" }),
+      item({ key: "b" }),
+    ];
+    expect(subject({ needsAttention, changes: { added: [], worse: ["lh:a"] } })).toBe(
+      "Your fleet — 2026-10-07: 1 worse — Lighthouse dropped",
+    );
+  });
+
+  it("matches a key or its ask sub-keys, never a key it is merely a prefix of", () => {
+    const needsAttention = [
+      item({ key: "vuln:a", severity: "critical", title: "a vuln" }),
+      item({ key: "vuln:ab", severity: "critical", title: "ab vuln" }),
+    ];
+    expect(subject({ needsAttention, changes: { added: ["vuln:ab#x"], worse: [] } })).toBe(
+      "Your fleet — 2026-10-07: Act: Acme — ab vuln",
+    );
+  });
+
+  it("flattens whitespace and caps the suffix", () => {
+    const needsAttention = [
+      item({ key: "c", severity: "critical", title: "line one\r\nline two", ask: "x".repeat(300) }),
+    ];
+    const s = subject({ needsAttention, changes: { added: ["c"], worse: [] } });
+    expect(s).not.toMatch(/[\r\n]/);
+    expect(s.startsWith("Your fleet — 2026-10-07: Act: Acme — line one line two: xxx")).toBe(true);
+    expect(s.length).toBe("Your fleet — 2026-10-07: ".length + 150);
+    expect(s.endsWith("…")).toBe(true);
+  });
+
   it("says no change on a heartbeat, and first digest with nothing behind it", () => {
     const needsAttention = [item({ key: "a" })];
     expect(subject({ needsAttention })).toBe("Your fleet — 2026-10-07: no change since 2026-10-01");
