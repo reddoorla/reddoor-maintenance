@@ -1,5 +1,10 @@
 # Reddoor Maintenance — Work Journal
 
+> **Frozen on 2026-10-07.** New entries are files in [`docs/journal/`](journal/),
+> one per entry, named `<YYYY-MM-DD-HHMM>-<slug>.md`. This file keeps every entry
+> before that date. The only edit it may take is a forward pointer under an old
+> entry's heading; `tests/docs/journal-frozen.test.ts` enforces that.
+
 Running log of build work: what was done, why, and where it landed.
 Chronological — newest entry at the bottom. [CLAUDE.md](../CLAUDE.md) holds the
 standing rules; `AUTONOMY.md` holds what a session may decide alone; this is the

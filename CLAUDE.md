@@ -306,9 +306,15 @@ In a cloud session, hand files to the operator as download cards (SendUserFile),
 
 ## The work journal
 
-**Every working session appends a dated entry to `docs/workJournal.md`** — what
-was done and **why**, newest at the bottom, never corrected in place. Write it
-as the last act of the session, not the first act of the next one.
+**Every working session writes a dated entry as its own file in `docs/journal/`**,
+named `<YYYY-MM-DD-HHMM>-<slug>.md` from `date -u`: what was done and **why**,
+never corrected in place. `ls docs/journal | tail` shows the newest. Entries
+before 2026-10-07 are in `docs/workJournal.md`, which is frozen:
+`tests/docs/journal-frozen.test.ts` fails if it takes any change but a forward
+pointer. One file per entry exists because one shared file conflicted: the
+journal was in 183 of the 230 conflicted merges from `main` in the week after
+2026-09-29 (2026-10-06 review). Write the entry as the last act of the
+session, not the first act of the next one.
 
 Keep the session's running notes for that entry in
 `<main checkout>/.session-logs/<YYYY-MM-DD>-<slug>.md` (gitignored), never in the

@@ -80,7 +80,7 @@ on two consecutive days, and a test pins it">
    review this tier needs, with the mutations table in the PR body.
 4. Move the item to BACKLOG's Done section in the same PR.
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
-6. Journal entry in `docs/workJournal.md`, landed before the session ends.
+6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
 7. Stopped instead of landing? The "Operator decisions" line still lands on
    `main` as a docs-only PR (step 5), and the work branch is pushed. A
    branch with no PR, or a question only on a branch, is what the evening
