@@ -80,8 +80,7 @@ on two consecutive days, and a test pins it">
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
 7. Stopped instead of landing? Follow `CLAUDE.md`'s asking rule, in its
-   order. A branch with no PR, or a question only on a branch, is what the
-   evening pass flags.
+   order. A branch with no PR is what the evening pass flags.
 ```
 
 ## An example

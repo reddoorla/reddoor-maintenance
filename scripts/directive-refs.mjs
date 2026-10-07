@@ -16,7 +16,7 @@ export const SOURCE_DIRS = ["docs/runbooks", "docs/briefs"];
 const USAGE = "usage: node scripts/directive-refs.mjs [--root <dir>]";
 
 const CITATION =
-  /`(CLAUDE\.md|AUTONOMY\.md)`\s*(?:→\s*"([^"]+)"|§"([^"]+)"|→\s*([^"\s][^,.;:)]*))/g;
+  /`(CLAUDE\.md|AUTONOMY\.md)`\s*(?:→\s*"([^"]+)"|§"([^"]+)"|→\s*[*_]*([^"“\s*_[][^,.;:)?!|—–*_[(]*))/g;
 
 export function parseArgs(argv) {
   const o = { root: fileURLToPath(new URL("..", import.meta.url)) };
@@ -56,15 +56,17 @@ export function paragraphs(text) {
       current = null;
       return;
     }
-    const starts =
-      /^\s*(?:[-*+]|\d+[.)])\s/.test(line) || /^\s*#/.test(line) || /^\s*\|/.test(line);
-    if (starts || current === null) {
+    const isRow = /^\s*\|/.test(line);
+    const isHeading = /^\s*#/.test(line);
+    const isItem = /^\s*(?:[-*+]|\d+[.)])\s/.test(line);
+    if (isRow || isHeading || isItem || current === null) {
       current = { text: "", offsets: [] };
       out.push(current);
     }
     if (current.text !== "") current.text += " ";
     current.offsets.push({ at: current.text.length, line: index + 1 });
-    current.text += line.trim();
+    current.text += line.replace(/^\s*(?:>\s?)*/, "").trim();
+    if (isRow || isHeading) current = null;
   });
   return out;
 }
@@ -92,6 +94,11 @@ export function citations(text) {
   return out;
 }
 
+export function startsWithWords(heading, cited) {
+  if (!heading.startsWith(cited)) return false;
+  return !(/\w$/.test(cited) && /^\w/.test(heading.slice(cited.length)));
+}
+
 export function sourceFiles(root) {
   const files = SOURCES.filter((f) => existsSync(join(root, f)));
   for (const dir of SOURCE_DIRS) {
@@ -117,7 +124,7 @@ export function check(root) {
       const heads = targets.get(c.target);
       const where = `${file}:${c.start === c.end ? c.start : `${c.start}-${c.end}`}`;
       if (heads === null) dead.push({ ...c, file, where, reason: `${c.target} is missing` });
-      else if (!heads.some((h) => h.startsWith(c.cited)))
+      else if (!heads.some((h) => startsWithWords(h, c.cited)))
         dead.push({ ...c, file, where, reason: `no heading in ${c.target} starts with this` });
     }
   }

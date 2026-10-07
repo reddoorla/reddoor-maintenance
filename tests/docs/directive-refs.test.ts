@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
  *   - quoted section:   `CLAUDE.md` §"Heading"
  *
  * A citation resolves when some `##` or `###` heading of the target, outside code fences,
- * starts with the cited text, so a short name such as §"Before a fleet sweep" still resolves.
+ * starts with the cited text and the match ends on a word boundary, so a short name such as
+ * §"Before a fleet sweep" still resolves and "Concurrent sess" does not.
  * Fences are skipped when reading headings (`CLAUDE.md` has a `## ` line inside a shell block)
  * but not when reading citations: the brief template in `docs/worker-brief.md` is a fenced
  * block, and it is the text every brief is copied from.
@@ -36,6 +37,12 @@ import { fileURLToPath } from "node:url";
  *     `docs/morning-reports/`, `docs/meta-week/`, `docs/superpowers/`), which records what was
  *     true then and is never corrected in place, and code (`scripts/land-prs.mjs` cites
  *     `AUTONOMY.md` by heading in comments);
+ *   - other spellings: `->` for →, a space after § (§ "…"), § with no quotes, curly quotes,
+ *     `./CLAUDE.md`, or a markdown link as the target. Curly quotes and an unquoted name that
+ *     runs on without punctuation ("→ Concurrent sessions and then…") fail loudly rather than
+ *     pass, as does a citation written inside a longer code span as a format example;
+ *   - `####` headings, setext headings and indented headings, none of which the two targets
+ *     use;
  *   - a heading that still exists but has come to mean something else.
  *
  * The instrument is proved before it is trusted (CLAUDE.md, "Prove the instrument before you
@@ -192,6 +199,35 @@ describe("scripts/directive-refs.mjs on fixture roots", () => {
     expect(r.status).toBe(1);
     expect(deadLines(r.stdout)).toEqual([
       expect.stringMatching(/^dead docs\/worker-brief\.md:4-5 /),
+    ]);
+  });
+
+  it("ends a paragraph at a heading, a table row and a list item", () => {
+    const md = [
+      "### Why `CLAUDE.md` → Concurrent sessions",
+      "Next line text",
+      "| a | see `CLAUDE.md` → Concurrent sessions | x |",
+      "| b | c |",
+      "Para `CLAUDE.md` → Concurrent sessions",
+      "- next item",
+      '> See `CLAUDE.md` → "Concurrent',
+      '> sessions".',
+      "",
+    ].join("\n");
+    const r = run(makeRoot({ "docs/pm-pass.md": md }));
+    expect(deadLines(r.stdout)).toEqual([]);
+    expect(r.stdout).toMatch(/\b4 citations\b/);
+    expect(r.status).toBe(0);
+  });
+
+  it("ends an unquoted citation at a dash or emphasis, and matches whole words only", () => {
+    const md =
+      "A `CLAUDE.md` → Concurrent sessions — the rule.\n\nB `CLAUDE.md` → **Concurrent sessions**.\n\n" +
+      'C `CLAUDE.md` → "Concurrent sess".\n';
+    const r = run(makeRoot({ "docs/pm-pass.md": md }));
+    expect(r.status).toBe(1);
+    expect(deadLines(r.stdout)).toEqual([
+      expect.stringMatching(/^dead docs\/pm-pass\.md:5 .*"Concurrent sess"$/),
     ]);
   });
 

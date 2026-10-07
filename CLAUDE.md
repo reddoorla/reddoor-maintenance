@@ -146,9 +146,10 @@ a long status message. So a worker started from a backlog item or a brief
      it, push it, and open its docs-only PR.
   2. Push the work branch.
   3. Ask with AskUserQuestion.
-  4. Land the docs-only PR with `node scripts/land-prs.mjs`, with the answer
-     added to the line if one came. If AskUserQuestion is not available, land
-     it and end the session.
+  4. Land the docs-only PR with `node scripts/land-prs.mjs`. If an answer
+     came, record it on the line first as `**Answered <date> (AskUserQuestion):
+…**`, the form the backlog's answered items use. If AskUserQuestion is not
+     available, land it and end the session.
 
   The line reaches `main` as its own PR because #1143's worker wrote its ask
   on its held PR's branch, and `main` asked the operator nothing for 13 hours
