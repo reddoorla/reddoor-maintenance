@@ -100,6 +100,10 @@ The prompt lives here so it can be changed by PR, like everything else.
    `docs/morning-reports/`: one-line verdict, top of stack for the operator
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
+   `.github/workflows/pm-pass-watch.yml` emails the operator when a pass has
+   not landed by its due time, and it keys on the `## One-line verdict` and
+   `## Evening` headings, so renaming either needs a change to
+   `scripts/pm-pass-watch.mjs` in the same PR.
 
    **The clean-send streak.** Read the table under "Clean-send streak" in
    `docs/BACKLOG.md` and put one line near the top of the report: "clean
