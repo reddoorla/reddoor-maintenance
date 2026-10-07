@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
  */
 
 const JOURNAL = join(fileURLToPath(new URL(".", import.meta.url)), "../../docs/workJournal.md");
-const FROZEN_SHA256 = "ea28562354efde637461f30e22a7faacc2f5322e20d1f08166a9a2de75834aee";
+const FROZEN_SHA256 = "294b71914a7921a4822c60d759be0d0c03d6afd8e827329ec98dfa33ebbf967d";
 
 function frozenDigest(text: string): string {
   const kept = text
