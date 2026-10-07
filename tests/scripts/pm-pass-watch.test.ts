@@ -503,10 +503,10 @@ describe("watch — sending", () => {
       { date: "2026-10-06", testSend: true },
       "2026-10-07T12:00:00Z",
       {
-        env: { GITHUB_RUN_ID: "123" },
+        env: { GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "2" },
       },
     );
-    expect(r.calls[0]!.headers["Idempotency-Key"]).toBe("pm-pass-watch-test-2026-10-07-123");
+    expect(r.calls[0]!.headers["Idempotency-Key"]).toBe("pm-pass-watch-test-2026-10-07-123-2");
   });
 
   it("only a live run that finished is verified, so only it may close the failure issue", async () => {
@@ -540,6 +540,15 @@ describe("watch — sending", () => {
     expect(r.calls).toEqual([]);
   });
 
+  it("an empty RESEND_API_KEY fails the run before any send", async () => {
+    const r = await run(missedDir(), { date: "2026-10-06" }, "2026-10-07T12:00:00Z", {
+      env: { RESEND_API_KEY: " " },
+    });
+    expect(r.code).toBe(1);
+    expect(r.calls).toEqual([]);
+    expect(r.lines).toEqual(["PM_WATCH error: RESEND_API_KEY is empty"]);
+  });
+
   it("PM_WATCH=off skips the run", async () => {
     const r = await run(missedDir(), { date: "2026-10-06" }, "2026-10-07T12:00:00Z", {
       env: { PM_WATCH: "off" },
@@ -568,7 +577,7 @@ describe("the workflow reads what the CLI writes to GITHUB_OUTPUT", () => {
     writeFileSync(out, "");
     const r = spawnSync(
       process.execPath,
-      [script, "--ref", "main", "--date", "2026-10-06", "--now", "2026-10-07T12:00:00Z", ...args],
+      [script, "--ref", "main", "--date", "2026-10-06", "--now", "2026-10-06T10:00:00Z", ...args],
       {
         cwd: dir,
         encoding: "utf-8",
@@ -578,7 +587,7 @@ describe("the workflow reads what the CLI writes to GITHUB_OUTPUT", () => {
     return { code: r.status, output: readFileSync(out, "utf-8") };
   }
 
-  it("a live run that sent nothing and finished writes unverified=no", () => {
+  it("a live run that finished writes unverified=no (both slots not yet due, so it cannot reach Resend)", () => {
     expect(cli(onTime(), [], ENV)).toEqual({ code: 0, output: "unverified=no\n" });
   });
 
