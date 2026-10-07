@@ -377,7 +377,10 @@ export async function watch(o, deps = {}) {
   );
 
   try {
-    if (testSend) await send(testEmail(today, (env.GITHUB_RUN_ID ?? "").trim()));
+    if (testSend) {
+      const run = [env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT].map((v) => (v ?? "").trim());
+      await send(testEmail(today, run.filter(Boolean).join("-")));
+    }
     if (!dry) {
       if (blindReasons.length) await send(blindEmail(today, blindReasons));
       for (const s of slots.filter((x) => x.verdict === "missed")) await send(missedEmail(s));

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -547,5 +547,51 @@ describe("watch — sending", () => {
     expect(r.lines).toEqual(["PM_WATCH=off: skipped"]);
     expect(r.calls).toEqual([]);
     expect(r.code).toBe(0);
+  });
+});
+
+describe("the workflow reads what the CLI writes to GITHUB_OUTPUT", () => {
+  const script = join(__dirname, "../../scripts/pm-pass-watch.mjs");
+  const workflow = readFileSync(
+    join(__dirname, "../../.github/workflows/pm-pass-watch.yml"),
+    "utf-8",
+  );
+  const onTime = () =>
+    fixture([
+      BASE,
+      { at: "2026-10-06T12:05:00Z", files: { [report("2026-10-06")]: MORNING } },
+      { at: "2026-10-07T01:00:00Z", files: { [report("2026-10-06")]: MORNING + EVENING } },
+    ]);
+
+  function cli(dir: string, args: string[], env: Record<string, string>) {
+    const out = join(dir, "github-output");
+    writeFileSync(out, "");
+    const r = spawnSync(
+      process.execPath,
+      [script, "--ref", "main", "--date", "2026-10-06", "--now", "2026-10-07T12:00:00Z", ...args],
+      {
+        cwd: dir,
+        encoding: "utf-8",
+        env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: out, ...env },
+      },
+    );
+    return { code: r.status, output: readFileSync(out, "utf-8") };
+  }
+
+  it("a live run that sent nothing and finished writes unverified=no", () => {
+    expect(cli(onTime(), [], ENV)).toEqual({ code: 0, output: "unverified=no\n" });
+  });
+
+  it("a dry run and a PM_WATCH=off run write unverified=yes", () => {
+    const dir = onTime();
+    expect(cli(dir, ["--dry-run"], {}).output).toBe("unverified=yes\n");
+    expect(cli(dir, [], { ...ENV, PM_WATCH: "off" }).output).toBe("unverified=yes\n");
+  });
+
+  it("the close step gates on that output of the step with id watch", () => {
+    expect(workflow).toMatch(/- name: Watch the PM pass\n\s+id: watch\n/);
+    expect(workflow).toContain(
+      "if: success() && steps.watch.outputs.unverified != 'yes' && github.ref == 'refs/heads/main'",
+    );
   });
 });
