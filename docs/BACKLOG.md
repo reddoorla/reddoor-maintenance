@@ -2822,6 +2822,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     rest), so the brief's "will look Monday" is stale. Fold any change to
     it into the rework. _Ask:_ none until the frame exists; then a worker
     builds it as its own PR.
+    **10-06 22:03Z [M, Discord #roalson-interests]: Erik picked Option 1**
+    of Nicole's "Full Screen Map" frame (`7153:969`): from `lg` the
+    Properties page's map is 925 of 1440, full bleed, beside a 515 panel
+    showing one listing at a time. The operator confirmed the reading the
+    same evening: the map holds still on its opening frame, a pin press
+    turns the panel, the arrows move only the highlight, and there is no
+    filter by viewport. Built as PR_PLACEHOLDER. Hover-to-select (#253) goes
+    with the stacked list it lived in.
 
 84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
     US): held after two dirty review rounds (new 2026-10-05).**
