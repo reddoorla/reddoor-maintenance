@@ -92,6 +92,8 @@ describe("report --send-ready sends a Launch entirely through Turso", () => {
       reportSentMirror: async (id, sentAt, messageId) => {
         stamps.push({ id, sentAt, messageId });
       },
+      claimForSend: async () => true,
+      releaseSendClaim: async () => {},
       siteMirror: {
         health: async () => {},
         site: async (id, fields) => {
