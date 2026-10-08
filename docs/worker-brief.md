@@ -1,7 +1,7 @@
 # Worker brief
 
 A worker session is started by pasting one brief. The PM pass fills one in for
-each backlog item it recommends starting (`docs/pm-pass.md`, step 6), so the
+each backlog item it recommends starting (`docs/pm-pass.md`, step 7), so the
 operator's part is copy and paste. A brief is complete enough that the worker
 rarely has to ask the operator anything mid-flight. If it must, it follows
 `CLAUDE.md` → "Worker sessions ask a blocking question once, with all its
