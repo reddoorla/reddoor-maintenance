@@ -91,13 +91,6 @@ export const SPAM_KEYWORDS: readonly string[] = [
   "mavis",
   "overtake and handle",
   "custom built ai", // matches "custom-built AI" via hyphen folding
-  // The flood's second template (2026-09-24 onward): "a trained VA who runs/operates
-  // our custom AI system". 12 live copies across seven sender domains; two reached the
-  // inbox with score 0 (vaelitecrew.com 10-06, vasdirect.com 10-08). Together the two
-  // phrases bucket; either alone is +30. "our" is load-bearing: a buyer asking for "a
-  // custom AI system" plus "free consultation" would otherwise sum 60.
-  "trained va who",
-  "our custom ai system",
   // Wikipedia-page-creation vertical.
   "wikipedia page",
   "wiki links",
@@ -241,6 +234,20 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
   const lower = text.toLowerCase().replace(/[-–—]/g, " ");
   return keywords.filter((kw) => lower.includes(kw)).length;
 }
+
+/**
+ * The virtual-assistant flood's second template (2026-09-24 onward): "a trained VA who
+ * runs/operates our custom AI system". 12 live copies across seven sender domains; two
+ * reached the inbox with score 0 (vaelitecrew.com 10-06, vasdirect.com 10-08). 9 of the
+ * 12 carry both phrases; the other 3 come from blocked domains.
+ *
+ * Deliberately NOT in SPAM_KEYWORDS: as seller keywords either phrase promoted a buyer
+ * phrase to full weight, so a genuine "we have a trained VA who handles our scheduling …
+ * do you offer a free consultation?" scored 60 (review round 2, 2026-10-08). Scored only
+ * when BOTH appear, the template buckets and a lead describing its own VA or AI system
+ * scores nothing (Operator decisions 98).
+ */
+const VA_TEMPLATE_PHRASES: readonly string[] = ["trained va who", "our custom ai system"];
 
 /** Distinct lorem-ipsum vocabulary stems. Form-tester bots submit truncated filler
  *  ("Velit ullam reprehen", "Dolore harum volupta") — too short for the velocity
@@ -432,6 +439,11 @@ export function classifySpam(input: {
   if (countLoremStems(body) >= 2) {
     score += 60;
     reasons.push("lorem-ipsum");
+  }
+
+  if (countKeywordHits(body, VA_TEMPLATE_PHRASES) === VA_TEMPLATE_PHRASES.length) {
+    score += SPAM_THRESHOLD;
+    reasons.push("va-template");
   }
 
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.

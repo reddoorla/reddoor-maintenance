@@ -28,13 +28,25 @@ is seven, corrected before landing.
 **The flood has a second template**, which the old keywords did not see: "a
 trained VA who runs/operates our custom AI system". It appears in 12 live
 copies across seven domains since 09-24. Two of them reached the inbox at score
-0: vaelitecrew.com on 10-06, and the vasdirect copy above. "trained va who" and
-"our custom ai system" now catch it together. The "our" was added after the
-lead-safety review produced a concrete false positive. "Hi, we'd love a custom
-AI system for patient intake … Do you offer a free consultation?" scored
-exactly 60, because a seller phrase promotes the buyer phrase "free
-consultation" to full weight. Every live spam copy says "our", and no buyer
-does. A test pins that input under 60.
+0: vaelitecrew.com on 10-06, and the vasdirect copy above. It took two review
+rounds and an operator call to catch it without catching leads.
+
+- **First try:** two seller keywords, "trained va who" and "custom ai system".
+  Round 1 found "Hi, we'd love a custom AI system for patient intake … Do you
+  offer a free consultation?" scoring exactly 60. Any seller phrase promotes the
+  buyer phrase "free consultation" to full weight.
+- **Second try:** narrowing to "our custom ai system" fixed only that input.
+  Round 2 found a client describing its own setup still scoring 60: "we have a
+  trained VA who handles our scheduling … free consultation?" and "We'd like
+  our custom AI system for quoting to feed leads … free consultation?". The
+  belief that "no buyer says our" was wrong. Buyers say "our" about what they
+  already run.
+- **What landed** (Operator decisions 98, answered (a)): a separate
+  `va-template` signal that scores +60 only when both phrases appear in one
+  message. Neither phrase is a keyword, so neither can promote a buyer phrase.
+  9 of the 12 live copies carry both, including both leaked ones; the other 3
+  come from blocked domains. All the round-2 inputs are pinned under 60 by
+  tests.
 
 **The big list is real, and today it catches nothing.**
 `disposable-email-domains/disposable-email-domains` is CC0 and holds 9,221
@@ -74,8 +86,9 @@ list, carried this pass.
 `git checkout -- <files>`, named the then-untracked snapshot, so git refused the
 whole command. The mutations stacked and the table looked plausible. It was
 re-run from a committed baseline with `git checkout HEAD --`, one mutation at a
-time. Each of the brief's four mutations, and a fifth (drop "trained va who"),
-turned a test red.
+time. Each of the brief's four mutations turned a test red, as did three against the
+`va-template` signal: either phrase alone fires, one phrase dropped from the
+pair, the signal removed.
 
 `submissions rescore --apply` was not run. It would re-bucket the leaked `new`
 rows, but this pass is read-only by brief.

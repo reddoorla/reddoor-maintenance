@@ -559,6 +559,17 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
           "Hi, we'd love a custom AI system for patient intake on our site. Do you offer a free consultation?",
       }).score,
     ).toBeLessThan(SPAM_THRESHOLD);
+    for (const message of [
+      "Hi, we have a trained VA who handles our scheduling, and we'd like the booking form to email her directly. Do you offer a free consultation?",
+      "My trained VA who manages listings needs access to the site. Can you get back to me within 24 hours?",
+      "We'd like our custom AI system for quoting to feed leads into the new site. Do you offer a free consultation?",
+      "Can you integrate our custom AI system? See https://homes.com for the current site.",
+    ]) {
+      expect(clean({ message }).score, message).toBeLessThan(SPAM_THRESHOLD);
+    }
+    expect(
+      clean({ message: "You get a trained VA who runs our custom AI system for your business." }),
+    ).toEqual({ score: SPAM_THRESHOLD, reasons: ["va-template"] });
   });
 
   it("flags lorem-ipsum filler at 60 (buckets alone — machine content, zero genuine use)", () => {
