@@ -3424,7 +3424,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       _Ask:_ add one off-GitHub destination for the backup, keeping one copy
       a month. Today it is a 30-day Actions artifact only
       (`retention-days: 30` in
-      `.github/workflows/fleet-db-backup.yml:112-118`). The source's first
+      `.github/workflows/fleet-db-backup.yml:110-116`). The source's first
       step, finding `BACKUP_PASSPHRASE` in 1Password ("two minutes"), is
       done: `docs/runbooks/continuity.md:272-274` (#791) places it in a
       Personal vault. Minutes: unknown. Source
