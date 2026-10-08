@@ -238,9 +238,10 @@ describe("rerenderReport — health evidence (#890)", () => {
         search: "skipped",
         scores: "unchanged",
         scoresChange: null,
+        lookup: "not-run",
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=skipped scores=unchanged",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=skipped scores=unchanged lookup=not-run",
     );
   });
 });
@@ -390,9 +391,10 @@ describe("rerenderReport — Google Indexed re-measure", () => {
         search: "unavailable",
         scores: "site-missing",
         scoresChange: null,
+        lookup: "not-run",
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=no-header evidence=unchanged search=unavailable scores=site-missing",
+      "REPORT_RERENDER report=recREP status=no-header evidence=unchanged search=unavailable scores=site-missing lookup=not-run",
     );
   });
 
@@ -407,9 +409,10 @@ describe("rerenderReport — Google Indexed re-measure", () => {
         search: "measured",
         scores: "unchanged",
         scoresChange: null,
+        lookup: "not-run",
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=measured scores=unchanged",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=measured scores=unchanged lookup=not-run",
     );
   });
 });
@@ -463,9 +466,10 @@ describe("rerenderReport — Lighthouse scores (P1-34)", () => {
         search: "skipped",
         scores: "refreshed",
         scoresChange: "bp:78→100",
+        lookup: "not-run",
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=unchanged search=skipped scores=refreshed scores_change=bp:78→100",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=unchanged search=skipped scores=refreshed scores_change=bp:78→100 lookup=not-run",
     );
   });
 
@@ -577,5 +581,275 @@ describe("rerenderReport — Lighthouse scores (P1-34)", () => {
       scores: "refreshed",
       scoresChange: "p:93→100,bp:78→100",
     });
+  });
+});
+
+describe("rerenderReport — Search Console lookup write-back (P1-36)", () => {
+  const ENROLLED = makeWebsiteRow({
+    ...MEASURED_SITE,
+    searchConsoleProperty: "https://acme.com/",
+  });
+  const TESTING = report({
+    reportType: "Testing",
+    periodStart: "2026-08-31",
+    periodEnd: "2026-09-30",
+  });
+  const RESOLVED = {
+    value: { foundOnPage1: true, position: 2, propertyFound: true },
+    softFailed: false,
+    notConfigured: false,
+    lookup: { outcome: "resolved" as const, property: "https://www.acme.com/" },
+  };
+  const NO_PROPERTY = {
+    value: { foundOnPage1: false, position: null, propertyFound: false },
+    softFailed: false,
+    notConfigured: false,
+    lookup: { outcome: "no-property" as const, property: "https://www.acme.com/" },
+  };
+  const LOOKUP_COLUMNS = [
+    "Search Console Outcome",
+    "Search Console Resolved",
+    "Search Console Checked At",
+  ];
+
+  function capture() {
+    const writes: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+    return {
+      writes,
+      storeLookup: async (siteId: string, fields: Record<string, unknown>) => {
+        writes.push({ siteId, fields });
+        return true;
+      },
+    };
+  }
+
+  it("writes all three lookup cells to the site's health row when the lookup ran", async () => {
+    const { writes, storeLookup } = capture();
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => RESOLVED,
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "measured", lookup: "resolved" });
+    expect(writes).toEqual([
+      {
+        siteId: "recSITE",
+        fields: {
+          "Search Console Outcome": "resolved",
+          "Search Console Resolved": "https://www.acme.com/",
+          "Search Console Checked At": NOW.toISOString(),
+        },
+      },
+    ]);
+  });
+
+  it("records no-property with a null resolved cell, never the property it tried", async () => {
+    const { writes, storeLookup } = capture();
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => NO_PROPERTY,
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ lookup: "no-property" });
+    expect(writes[0]!.fields).toEqual({
+      "Search Console Outcome": "no-property",
+      "Search Console Resolved": null,
+      "Search Console Checked At": NOW.toISOString(),
+    });
+  });
+
+  it("writes nothing when the lookup did not run (no credentials), so the stored outcome stands", async () => {
+    const { writes, storeLookup } = capture();
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => ({
+          value: null,
+          softFailed: false,
+          notConfigured: true,
+          lookup: null,
+        }),
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", search: "unavailable", lookup: "not-run" });
+    expect(writes).toEqual([]);
+  });
+
+  it("writes nothing for a site not enrolled in Search Console", async () => {
+    const { writes, storeLookup } = capture();
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () =>
+          makeWebsiteRow({ ...ENROLLED, acceptedWatchConditions: ["no search console"] }),
+        measureSearch: async () => {
+          measured = true;
+          return RESOLVED;
+        },
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ search: "skipped", lookup: "not-run" });
+    expect(measured).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("runs the lookup alone for an approved report: the site row is written, the report is not", async () => {
+    const { writes, storeLookup } = capture();
+    let evidenceWritten = false;
+    let scoresWritten = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, approvedToSend: true }),
+        getSite: async () => ENROLLED,
+        measureSearch: async () => RESOLVED,
+        storeEvidence: async () => (evidenceWritten = true),
+        storeScores: async () => (scoresWritten = true),
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({
+      status: "rendered",
+      evidence: "locked",
+      search: "skipped",
+      lookup: "resolved",
+    });
+    expect(evidenceWritten).toBe(false);
+    expect(scoresWritten).toBe(false);
+    expect(writes.map((w) => Object.keys(w.fields))).toEqual([LOOKUP_COLUMNS]);
+  });
+
+  it("never runs the lookup for an approved report on a site that opted out", async () => {
+    const { writes, storeLookup } = capture();
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, approvedToSend: true }),
+        getSite: async () =>
+          makeWebsiteRow({ ...ENROLLED, acceptedWatchConditions: ["no search console"] }),
+        measureSearch: async () => {
+          measured = true;
+          return RESOLVED;
+        },
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", lookup: "not-run" });
+    expect(measured).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("never runs the lookup for an approved report with no period", async () => {
+    const { writes, storeLookup } = capture();
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, approvedToSend: true, periodStart: null }),
+        getSite: async () => ENROLLED,
+        measureSearch: async () => {
+          measured = true;
+          return RESOLVED;
+        },
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "rendered", lookup: "not-run" });
+    expect(measured).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("records the lookup even when the report has no header plate", async () => {
+    const { writes, storeLookup } = capture();
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, approvedToSend: true }),
+        getSite: async () => ENROLLED,
+        loadHeaderPlate: async () => null,
+        measureSearch: async () => RESOLVED,
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r).toMatchObject({ status: "no-header", lookup: "resolved" });
+    expect(writes).toHaveLength(1);
+  });
+
+  it("names a site with no health row, and a write that threw, instead of claiming the write", async () => {
+    const missing = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => RESOLVED,
+        storeLookup: async () => false,
+      }),
+      "recREP",
+    );
+    expect(missing).toMatchObject({ status: "rendered", lookup: "no-row" });
+    const threw = await rerenderReport(
+      deps({
+        getReport: async () => TESTING,
+        getSite: async () => ENROLLED,
+        measureSearch: async () => RESOLVED,
+        storeLookup: async () => {
+          throw new Error("turso down");
+        },
+      }),
+      "recREP",
+    );
+    expect(threw).toMatchObject({ status: "rendered", lookup: "write-failed" });
+  });
+
+  it("never touches the lookup of a sent report", async () => {
+    const { writes, storeLookup } = capture();
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => ({ ...TESTING, sentAt: "2026-10-01T00:00:00.000Z" }),
+        getSite: async () => ENROLLED,
+        measureSearch: async () => {
+          measured = true;
+          return RESOLVED;
+        },
+        storeLookup,
+      }),
+      "recREP",
+    );
+    expect(r.status).toBe("already-sent");
+    expect(measured).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("names the lookup outcome on the machine-greppable line", () => {
+    expect(
+      formatRerenderResult({
+        status: "rendered",
+        reportId: "recREP",
+        bytes: 10,
+        headerSource: "turso",
+        evidence: "locked",
+        search: "skipped",
+        scores: "locked",
+        scoresChange: null,
+        lookup: "resolved",
+      }),
+    ).toBe(
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=locked search=skipped scores=locked lookup=resolved",
+    );
   });
 });

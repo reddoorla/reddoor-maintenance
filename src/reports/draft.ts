@@ -475,7 +475,7 @@ type SearchEnrichment = Enrichment<SearchPresence> & {
 
 /** The #943 Search Console cells for one enrichment, or none when the lookup did
  *  not run, so an environment without credentials never erases the evidence. */
-export function lookupFields(search: SearchEnrichment, at: Date): FieldSet {
+export function lookupFields(search: Pick<SearchEnrichment, "lookup">, at: Date): FieldSet {
   return search.lookup
     ? searchConsoleLookupFields({ ...search.lookup, checkedAt: at.toISOString() })
     : {};

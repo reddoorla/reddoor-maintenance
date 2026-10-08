@@ -47,9 +47,11 @@ jobs:
       - run: pnpm build
 
       # The refresh re-measures an unapproved draft's Google Indexed item with the
-      # draft's own fetchSearch, so it needs the same Search Console credentials
-      # as daily-reports' draft step. Without them fetchSearch takes its
-      # not-configured return and the stored record is kept. The key is written
+      # draft's own fetchSearch, and for any unsent report writes the Search
+      # Console lookup back to site_health as a draft does (P1-36), so it needs
+      # the same Search Console credentials as daily-reports' draft step. Without
+      # them fetchSearch takes its not-configured return, the stored record is
+      # kept and nothing is written to site_health. The key is written
       # with printf and no `set -x`, so it never reaches the log.
       - name: Re-render the report body
         env:
