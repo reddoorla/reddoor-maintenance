@@ -182,6 +182,16 @@ export function withdrawConfirmText(r: ReportRow): string {
   return `${base} If it held back this period's ${held} draft, that one is queued on the next nightly run instead.`;
 }
 
+/** "Unapprove" (#1262): take back an approval before the send batch delivers it.
+ *  The report goes back to pending, where "refresh preview" re-reads its scores. */
+function unapproveButton(r: ReportRow): string {
+  const url = `/api/reports/${encodeURIComponent(r.id)}/unapprove`;
+  return `<button class="unapprove" data-report-id="${escapeHtml(r.id)}" data-unapprove-url="${escapeHtml(url)}" data-confirm="${escapeHtml(UNAPPROVE_CONFIRM_TEXT)}">Unapprove</button>`;
+}
+
+export const UNAPPROVE_CONFIRM_TEXT =
+  "Unapprove this report? It goes back to pending and will not send until it is approved again.";
+
 /** The label a withdrawn report carries in place of any action. */
 function withdrawnLabel(r: ReportRow): string {
   return `<span class="muted withdrawn">Withdrawn ${escapeHtml((r.withdrawnAt ?? "").slice(0, 10))}</span>`;
@@ -371,7 +381,11 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
             r,
             approveBlockers(site, r).some((f) => f.level === "fail"),
           )
-        : "";
+        : r.sentAt === null && r.approvedToSend
+          ? r.sendStartedAt === null
+            ? unapproveButton(r)
+            : `<span class="muted sending">Send started ${escapeHtml((r.sendStartedAt ?? "").slice(0, 16).replace("T", " "))}Z</span>`
+          : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
   // report is awaiting approval: approving schedules the send for the next 16:07
   // UTC send, so there is a window of up to ~24h in which a typo is still
@@ -761,6 +775,10 @@ button.withdraw { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.7rem; bor
 button.withdraw:hover:not(:disabled) { background: #9992; }
 button.withdraw:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
 button.withdraw:disabled { opacity: 0.6; cursor: default; }
+button.unapprove { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.7rem; border: 1px solid #999; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+button.unapprove:hover:not(:disabled) { background: #9992; }
+button.unapprove:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
+button.unapprove:disabled { opacity: 0.6; cursor: default; }
 .pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
 .recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
@@ -1157,6 +1175,40 @@ export function renderSiteDashboardHtml(
               });
             } else if (reason === "already-sent") {
               b.textContent = "Already sent";
+            } else {
+              b.textContent = reason ? "Failed: " + reason : "Failed";
+              b.disabled = false;
+            }
+          }
+        } catch {
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // "Unapprove": confirm, then take the approval back. On success the page
+    // reloads, because the report now belongs in the pending list with its
+    // approve, refresh and "Don't send" actions.
+    document.querySelectorAll("button.unapprove").forEach((b) => {
+      b.addEventListener("click", async () => {
+        if (!confirm(b.dataset.confirm)) return;
+        b.disabled = true;
+        try {
+          const res = await fetch(b.dataset.unapproveUrl, { method: "POST" });
+          if (res.ok) {
+            b.textContent = "Unapproved";
+            if (typeof location !== "undefined") location.reload();
+          } else {
+            const data = await res.json().catch(() => null);
+            const reason = data && typeof data.reason === "string" ? data.reason : null;
+            // Sent, mid-send or withdrawn meanwhile: unapproving can never
+            // succeed now.
+            if (reason === "already-sent") {
+              b.textContent = "Already sent";
+            } else if (reason === "sending") {
+              b.textContent = "Sending now";
+            } else if (reason === "withdrawn") {
+              b.textContent = "Withdrawn";
             } else {
               b.textContent = reason ? "Failed: " + reason : "Failed";
               b.disabled = false;

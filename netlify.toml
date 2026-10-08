@@ -23,4 +23,5 @@
 # populated:
 #   /api/reports/:id/approve      → approve-report.mts
 #   /api/reports/:id/withdraw     → withdraw-report.mts
+#   /api/reports/:id/unapprove    → unapprove-report.mts
 #   /api/submissions/:id/status   → submission-status.mts
