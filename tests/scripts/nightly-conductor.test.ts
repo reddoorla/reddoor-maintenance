@@ -8,7 +8,9 @@ import {
   GUARD_HOURS,
   NIGHTLIES,
   POLL_SECONDS,
+  FETCH_TIMEOUT_MS,
   conduct,
+  outputLines,
   parseArgs,
   parseOnly,
   type FetchLike,
@@ -302,7 +304,17 @@ describe("nightly-conductor — the fallback cron says when the clock missed", (
   it("warns when a scheduled run had to dispatch after the clock's time", async () => {
     expect(CLOCK_UTC).toBe("06:07");
     const gh = fakeGitHub({ start: Date.parse("2026-10-09T09:30:00Z") });
-    expect(warned((await run(gh, { event: "schedule" })).lines)).toBe(true);
+    const r = await run(gh, { event: "schedule" });
+    expect(warned(r.lines)).toBe(true);
+    expect(r.clockMissed).toBe(true);
+    expect(r.code).toBe(1);
+  });
+
+  it("the clock gets 30 minutes: 06:36Z is still its window, 06:38Z is a miss", async () => {
+    const at = async (t: string) =>
+      warned((await run(fakeGitHub({ start: Date.parse(t) }), { event: "schedule" })).lines);
+    expect(await at("2026-10-09T06:36:00Z")).toBe(false);
+    expect(await at("2026-10-09T06:38:00Z")).toBe(true);
   });
 
   it("does not warn when the fallback simply fired first, found nothing to do, or a person ran it", async () => {
@@ -315,6 +327,19 @@ describe("nightly-conductor — the fallback cron says when the clock missed", (
     expect(warned((await run(late, { event: "schedule" })).lines)).toBe(false);
     const byHand = fakeGitHub({ start: Date.parse("2026-10-09T09:30:00Z") });
     expect(warned((await run(byHand)).lines)).toBe(false);
+  });
+});
+
+describe("nightly-conductor — what the workflow reads back", () => {
+  it("writes the skipped key the close step's if: reads", async () => {
+    expect(outputLines({ skipped: true })).toBe("skipped=yes\n");
+    expect(outputLines({ skipped: false })).toBe("skipped=no\n");
+    const src = await readFile(workflowPath(CONDUCTOR), "utf-8");
+    expect(src).toContain("steps.conduct.outputs.skipped != 'yes'");
+  });
+
+  it("gives every API call 30 s", () => {
+    expect(FETCH_TIMEOUT_MS).toBe(30_000);
   });
 });
 
@@ -414,11 +439,9 @@ describe("daily-reports — drafts early, sends at a fixed hour (Operator decisi
     );
   });
 
-  it("its fallback cron lands after the 16:07Z send clock, so it can send late but never early", async () => {
-    const cron = (await load("daily-reports.yml")).on.schedule?.[0]?.cron ?? "";
-    const [m = NaN, h = NaN] = cron.split(" ").map(Number);
-    const at = h * 60 + m;
-    expect(at).toBeLessThan(16 * 60 + 7);
-    expect(at + 3 * 60).toBeGreaterThan(16 * 60 + 7);
+  it("keeps one daily fallback cron (its send gating is run in nightly-shell-steps.test.ts)", async () => {
+    const cron = (await load("daily-reports.yml")).on.schedule ?? [];
+    expect(cron).toHaveLength(1);
+    expect(cron[0]?.cron).toMatch(/^\d+ \d+ \* \* \*$/);
   });
 });

@@ -61,7 +61,7 @@ jobs:
         run: |
           title="Nightly conductor failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The **fleet-nightly** conductor run failed, so one or more fleet nightlies may not have been started tonight. Its `NIGHTLY` lines name which dispatch failed; a nightly that started and then failed files its own issue.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The **fleet-nightly** conductor run failed, so one or more fleet nightlies may not have been started tonight. Its `NIGHTLY` lines name which dispatch failed; a nightly that started and then failed files its own issue. A `clock-missed` line means the nightlies ran, but late, from the fallback cron: the 06:07Z Netlify clock did not fire.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
             body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
           fi

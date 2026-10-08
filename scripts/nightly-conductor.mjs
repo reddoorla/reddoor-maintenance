@@ -86,8 +86,6 @@ export async function alreadyConducted(api, file, { now }) {
   return (
     body.workflow_runs.find(
       (r) =>
-        r.event === "workflow_dispatch" &&
-        r.head_branch === "main" &&
         r.triggering_actor?.login === DISPATCHER &&
         Date.parse(r.created_at) >= now - GUARD_HOURS * 3600_000,
     ) ?? null
@@ -161,15 +159,22 @@ export async function conduct({ fetch, token, repo, only, ref, force, event, now
   say(
     `NIGHTLY_CONDUCTOR_SUMMARY dispatched=${dispatched} completed=${count("completed")} wait_exceeded=${count("wait-exceeded")} skipped=${count("skipped")} dispatch_failed=${count("dispatch-failed")} total=${plan.length}`,
   );
-  if (event === "schedule" && dispatched > 0 && startedAt >= clockDeadline(startedAt))
+  const clockMissed =
+    event === "schedule" && dispatched > 0 && startedAt >= clockDeadline(startedAt);
+  if (clockMissed)
     say(
-      `::warning::NIGHTLY_CONDUCTOR clock-missed: the fallback cron dispatched ${dispatched} nightlies after ${CLOCK_UTC}Z, so the Netlify clock had not run them`,
+      `::error::NIGHTLY_CONDUCTOR clock-missed: the fallback cron dispatched ${dispatched} nightlies after ${CLOCK_UTC}Z, so the Netlify clock had not run them`,
     );
   return {
     skipped: count("skipped") === plan.length,
+    clockMissed,
     results,
-    code: count("dispatch-failed") > 0 ? 1 : 0,
+    code: count("dispatch-failed") > 0 || clockMissed ? 1 : 0,
   };
+}
+
+export function outputLines(r) {
+  return `skipped=${r.skipped ? "yes" : "no"}\n`;
 }
 
 async function main() {
@@ -184,8 +189,7 @@ async function main() {
     event: process.env.GITHUB_EVENT_NAME ?? "",
     ...o,
   });
-  if (process.env.GITHUB_OUTPUT)
-    appendFileSync(process.env.GITHUB_OUTPUT, `skipped=${r.skipped ? "yes" : "no"}\n`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, outputLines(r));
   process.exitCode = r.code;
 }
 

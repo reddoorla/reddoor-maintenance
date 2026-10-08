@@ -50,4 +50,5 @@ export function conduct(o: {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
-}): Promise<{ skipped: boolean; results: Result[]; code: number }>;
+}): Promise<{ skipped: boolean; clockMissed: boolean; results: Result[]; code: number }>;
+export function outputLines(r: { skipped: boolean }): string;
