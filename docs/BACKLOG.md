@@ -3490,6 +3490,37 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       **Answered 2026-10-08 (AskUserQuestion): (a), the both-phrases
       signal.**
 
+100.  **#1262, unapprove an approved report: an unapprove can "win" while the
+      email still goes out (new 2026-10-08, branch
+      `claude/nice-thompson-mxumf1`).** Built: an "Unapprove" button on
+      `/s/<slug>` and `POST /api/reports/:id/unapprove`, guarded in SQL on
+      `approved_to_send = 1 AND sent_at IS NULL AND withdrawn_at IS NULL`, with
+      every brief mutation turning a test red. The brief's stop condition fired.
+      The send batch reads its queue once (`listSendableReports`), then renders
+      and calls Resend for each report, and stamps `sent_at` only after Resend
+      answers (`src/reports/send/orchestrate.ts`). So `sent_at IS NULL` catches
+      a send that has finished, not one in flight. Reproduced through the real
+      send loop on a temp libSQL database: an unapprove fired inside the
+      Resend call answered 200 `unapproved`, the email went out, and the row
+      ended `approved_to_send = 0` with `sent_at` set [M]. Control: the same
+      unapprove before the queue read sent nothing [M]. Under Operator
+      decisions 98 the sends run at a fixed 16:07Z, inside the operator's day.
+      _Ask:_ (a) **claim before send**: right before each Resend call the loop
+      takes a conditioned claim (`send_started_at`, migration 0043, set only
+      while the row is approved, unsent and unwithdrawn) and skips the report if
+      it matches nothing. Unapprove also requires no claim and otherwise answers
+      409 "sending". The send path changes, and a run that dies between claim
+      and Resend leaves that row un-unapprovable until the next run sends it.
+      (b) **re-read only**: the loop re-reads approval just before Resend. No
+      new column, but the window shrinks to the Resend call instead of closing.
+      (c) **land as built**: the window stays, and the button's confirm text
+      warns against unapproving around 16:07Z.
+      _Pick:_ (a). It is the only option where "unapproved" on the dashboard
+      means no email goes out, and the brief's done-when ("the send wins and
+      the unapprove reports that it lost") becomes true for an in-flight send.
+      **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
+      on `claude/nice-thompson-mxumf1`.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
