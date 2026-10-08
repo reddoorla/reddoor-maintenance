@@ -5,6 +5,10 @@ import {
   BLOCKED_EMAIL_DOMAINS,
   DISPOSABLE_EMAIL_DOMAINS,
 } from "../../src/forms/spam-classifier.js";
+import {
+  VENDORED_DISPOSABLE_DOMAINS,
+  VENDORED_DISPOSABLE_SOURCE,
+} from "../../src/forms/disposable-domains.snapshot.js";
 import type { FormType } from "../../src/forms/types.js";
 import type { TurnstileOutcome } from "../../src/forms/turnstile.js";
 
@@ -20,6 +24,30 @@ function clean(over: Partial<Parameters<typeof classifySpam>[0]> = {}) {
     ...over,
   });
 }
+
+const SHARED_MAILBOX_PROVIDERS: readonly string[] = [
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "gmx.com",
+  "mail.com",
+  "zoho.com",
+  "yandex.com",
+  "comcast.net",
+  "verizon.net",
+  "att.net",
+  "sbcglobal.net",
+  "cox.net",
+];
 
 describe("classifySpam", () => {
   it("exports SPAM_THRESHOLD = 60", () => {
@@ -264,6 +292,71 @@ describe("classifySpam", () => {
     expect(clean({ email: "x@jmailservice.com.evil.net" })).toEqual({ score: 0, reasons: [] });
   });
 
+  it("vasdirect.com buckets alone, on the bare domain and any subdomain (2026-10-08)", () => {
+    const message =
+      "Hi, want the power of AI without having to learn it? Your first 30 days are free. Reply YES for details.";
+    expect(clean({ email: "veronica@vasdirect.com", message })).toEqual({
+      score: SPAM_THRESHOLD,
+      reasons: ["blocked-domain"],
+    });
+    expect(clean({ email: "kelsie@mail.vasdirect.com", message }).reasons).toEqual([
+      "blocked-domain",
+    ]);
+    expect(clean({ email: "veronica@example.com", message })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("each domain the 2026-10-08 spam pass listed buckets alone", () => {
+    for (const domain of [
+      "vasdirect.com",
+      "virtualeaseservice.com",
+      "parallelaid.com",
+      "erpfunds.com",
+    ]) {
+      expect(clean({ email: `someone@${domain}` }), domain).toEqual({
+        score: SPAM_THRESHOLD,
+        reasons: ["blocked-domain"],
+      });
+    }
+  });
+
+  it("a vendored disposable domain scores 45 and never buckets on its own", () => {
+    expect(DISPOSABLE_EMAIL_DOMAINS).not.toContain("0-mail.com");
+    expect(VENDORED_DISPOSABLE_DOMAINS.has("0-mail.com")).toBe(true);
+    const v = clean({ email: "bot@0-mail.com" });
+    expect(v).toEqual({ score: 45, reasons: ["disposable-email"] });
+    expect(v.score).toBeLessThan(SPAM_THRESHOLD);
+    expect(clean({ email: "bot@0-mail.com", message: "see http://a.com" })).toEqual({
+      score: 70,
+      reasons: ["links:1", "disposable-email"],
+    });
+  });
+
+  it("a domain on both the curated and the vendored disposable list scores 45 once", () => {
+    expect(VENDORED_DISPOSABLE_DOMAINS.has("mailinator.com")).toBe(true);
+    expect(clean({ email: "bot@mailinator.com" })).toEqual({
+      score: 45,
+      reasons: ["disposable-email"],
+    });
+  });
+
+  it("the vendored snapshot is the pinned CC0 list, not an empty or truncated load", () => {
+    expect(VENDORED_DISPOSABLE_DOMAINS.size).toBeGreaterThan(5000);
+    expect(VENDORED_DISPOSABLE_SOURCE.repo).toBe(
+      "disposable-email-domains/disposable-email-domains",
+    );
+    expect(VENDORED_DISPOSABLE_SOURCE.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(VENDORED_DISPOSABLE_SOURCE.licence).toBe("CC0-1.0");
+    expect(VENDORED_DISPOSABLE_SOURCE.count).toBe(VENDORED_DISPOSABLE_DOMAINS.size);
+    for (const d of VENDORED_DISPOSABLE_DOMAINS) {
+      expect(d, d).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/);
+    }
+  });
+
+  it("the vendored list holds no blocked domain and no shared mailbox provider", () => {
+    expect(BLOCKED_EMAIL_DOMAINS.filter((d) => VENDORED_DISPOSABLE_DOMAINS.has(d))).toEqual([]);
+    expect(SHARED_MAILBOX_PROVIDERS.filter((d) => VENDORED_DISPOSABLE_DOMAINS.has(d))).toEqual([]);
+  });
+
   it("the blocked and disposable lists are disjoint, so no domain can double-score", () => {
     const overlap = BLOCKED_EMAIL_DOMAINS.filter((d) => DISPOSABLE_EMAIL_DOMAINS.includes(d));
     expect(overlap).toEqual([]);
@@ -274,29 +367,7 @@ describe("classifySpam", () => {
     // use would silently bucket every one of them, and the tier scores high enough
     // that no other signal is needed. 34 of gmail.com's 156 live submissions are
     // spam — a ratio that tempts exactly this mistake.
-    for (const provider of [
-      "gmail.com",
-      "googlemail.com",
-      "yahoo.com",
-      "hotmail.com",
-      "outlook.com",
-      "live.com",
-      "msn.com",
-      "icloud.com",
-      "me.com",
-      "aol.com",
-      "proton.me",
-      "protonmail.com",
-      "gmx.com",
-      "mail.com",
-      "zoho.com",
-      "yandex.com",
-      "comcast.net",
-      "verizon.net",
-      "att.net",
-      "sbcglobal.net",
-      "cox.net",
-    ]) {
+    for (const provider of SHARED_MAILBOX_PROVIDERS) {
       expect(clean({ email: `someone@${provider}` }), provider).toEqual({ score: 0, reasons: [] });
     }
   });
@@ -469,6 +540,19 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     for (const [family, message] of Object.entries(families)) {
       expect(clean({ message }).score, family).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
     }
+  });
+
+  it("buckets the 'trained VA who runs our custom AI system' template on content alone (2026-10-08)", () => {
+    const leaked = [
+      "Good Day, You get a trained VA who runs our custom AI system for your business. Just tell them what you need, like admin, CRM updates, follow-ups or a new automation, and they build it and run it.",
+      "Hi, want the power of AI without having to learn it? I'm Veronica with VAS Direct. We give you a trained VA who operates our custom AI system for you.",
+    ];
+    for (const message of leaked) {
+      expect(clean({ message }).score, message).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+    expect(
+      clean({ message: "Could you build us a custom AI system for scheduling crews?" }).score,
+    ).toBeLessThan(SPAM_THRESHOLD);
   });
 
   it("flags lorem-ipsum filler at 60 (buckets alone — machine content, zero genuine use)", () => {

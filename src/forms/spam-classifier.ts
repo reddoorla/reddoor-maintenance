@@ -1,5 +1,6 @@
 import type { FormType } from "./types.js";
 import type { TurnstileOutcome } from "./turnstile.js";
+import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
 
 /**
  * A submission at or above this score is classified auto-spam by ingest.
@@ -90,6 +91,12 @@ export const SPAM_KEYWORDS: readonly string[] = [
   "mavis",
   "overtake and handle",
   "custom built ai", // matches "custom-built AI" via hyphen folding
+  // The flood's second template (2026-09-24 onward): "a trained VA who runs/operates
+  // our custom AI system". 12 live copies across nine sender domains; two reached the
+  // inbox with score 0 (vaelitecrew.com 10-06, vasdirect.com 10-08). Together the two
+  // phrases bucket; either alone is +30.
+  "trained va who",
+  "custom ai system",
   // Wikipedia-page-creation vertical.
   "wikipedia page",
   "wiki links",
@@ -168,6 +175,23 @@ export const BLOCKED_EMAIL_DOMAINS: readonly string[] = [
   "thevirtualassistanthub.net", // 3 / 2
   "yourvachoice.com", // 3 / 1
 
+  // The 2026-10-08 spam pass, each domain's every live row read (SELECT-only):
+  //
+  // - vasdirect.com: added at the operator's ask. 6/6 VA-flood pitches,
+  //   2026-08-19 → 2026-10-08, Espada (3), ERP Industrials (2), Reddoor (1), five
+  //   rotating first-name addresses. The 10-08 copy reached the inbox as `new`.
+  // - virtualeaseservice.com: 7/7 the same VA template, 2026-08-20 → 2026-09-23,
+  //   ERP Industrials (4), Espada (2), Reddoor (1), four addresses.
+  // - parallelaid.com: 3/3 MAVIS pitches, 2026-06-20 → 2026-08-08, ERP Industrials
+  //   (2), Beachfront Dentistry (1), three addresses. The 08-08 copy is still `new`.
+  // - erpfunds.com: 3/3 product blasts (dog harness, backpacks, posture corrector),
+  //   2026-09-06 → 2026-09-20, all to ERP Industrials from sales@. Same-site, so
+  //   repeat-sender cannot see it, and the 09-12 copy reached the inbox at 55.
+  "vasdirect.com",
+  "virtualeaseservice.com",
+  "parallelaid.com",
+  "erpfunds.com",
+
   // DELIBERATELY NOT LISTED, checked 2026-08-26 — both would pass a naive
   // "100% of its submissions are spam" query, which is why rule 1 says read the
   // rows rather than trust the ratio:
@@ -179,7 +203,12 @@ export const BLOCKED_EMAIL_DOMAINS: readonly string[] = [
   //   rotation, which repeat-sender already catches. Nothing to add.
 ];
 
-/** Maintained disposable / throwaway email domains. */
+/**
+ * Maintained disposable / throwaway email domains. The hand-kept list here is
+ * joined by VENDORED_DISPOSABLE_DOMAINS, a pinned snapshot of the public CC0
+ * disposable-email-domains list (refresh it with
+ * scripts/refresh-disposable-domains.mts). Both feed the same corroborated +45.
+ */
 export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   "mailinator.com",
   "guerrillamail.com",
@@ -437,7 +466,7 @@ export function classifySpam(input: {
     reasons.push("blocked-domain");
   }
 
-  if (DISPOSABLE_EMAIL_DOMAINS.includes(domain)) {
+  if (DISPOSABLE_EMAIL_DOMAINS.includes(domain) || VENDORED_DISPOSABLE_DOMAINS.has(domain)) {
     score += 45;
     reasons.push("disposable-email");
   }
