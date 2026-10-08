@@ -6,8 +6,6 @@ name: fleet-lighthouse
 # triggers — unlike a per-site cron). Sequential (--concurrency 1): ~10 sites ×
 # Lighthouse on a 2-core runner saturates if run in parallel.
 on:
-  schedule:
-    - cron: "0 8 * * *" # 08:00 UTC (~midnight PT), nightly
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one.
