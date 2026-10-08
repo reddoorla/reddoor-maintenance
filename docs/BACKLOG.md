@@ -3496,6 +3496,27 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
     on `claude/nice-thompson-mxumf1`.
 
+## Active projects (the operator's list, read by the PM pass)
+
+The morning report's `## Projects` section gives one status line for each,
+in this order (`docs/pm-pass.md`, step 7). Proposed from the live state on
+2026-10-08 (sites `building` or `launching` in Turso, Discord channels active
+in the last 14 days) and adopted by the operator the same day. Add or drop a
+project only on the operator's word.
+
+1. **Williamson Construction**: building; cutover Wed 10-14 (P0-5).
+2. **Williamson Homes**: building.
+3. **Mantis Landscaping**: building; Blux → native (P1-30).
+4. **Roalson Interests**: building; `#roalson-interests`.
+5. **CalTex**: Erik's changes; `#caltex`.
+6. **Gift of Life Alliance (GOLA)**: `#gift-of-life-alliance`.
+7. **Alamo Anatomy and Hedloc**: launching, waiting on their clients (one line for both).
+
+Not on it: The Tower Burbank and The Pointe Burbank (proofs of concept, the
+operator 2026-10-04), and the Maintenance reports (the top of stack covers
+them). Revogen, Vida Legacy Foundation and Trinity Law School have active
+channels but were not named as projects.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
