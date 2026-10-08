@@ -381,6 +381,37 @@ describe("Unapprove (#1262) — rendered only where it can succeed", () => {
   });
 });
 
+describe("Refresh preview on an approved, unsent report (P1-36)", () => {
+  const RERENDER = "/api/reports/recREP1/rerender";
+  const rerenders = (p: ReturnType<typeof page>) =>
+    p.buttons.filter((b) => b.cls.includes("rerender") && b.dataset.rerenderUrl === RERENDER);
+
+  it("sits beside Unapprove, so the Search Console lookup can re-run without unapproving", () => {
+    const p = page([approved()], {});
+    expect(rerenders(p)).toHaveLength(1);
+    expect(p.find("unapprove")).toHaveLength(1);
+  });
+
+  it("posts to the report's rerender endpoint when clicked", async () => {
+    const p = page([approved()], { [RERENDER]: { status: 200, body: { ok: true } } });
+    const [b] = rerenders(p);
+    await p.click(b!);
+    expect(p.fetch).toHaveBeenCalledWith(RERENDER, { method: "POST" });
+  });
+
+  it.each([
+    ["a sent report", approved({ sentAt: "2026-10-09T09:23:00Z" })],
+    ["a withdrawn report", approved({ withdrawnAt: "2026-10-08T00:00:00Z" })],
+    ["a report the send batch has claimed", approved({ sendStartedAt: "2026-10-09T16:07:03Z" })],
+  ])("%s carries no refresh preview", (_, r) => {
+    expect(rerenders(page([r], {}))).toHaveLength(0);
+  });
+
+  it("a pending draft still carries exactly one, in the pending list", () => {
+    expect(rerenders(page([pending()], {}))).toHaveLength(1);
+  });
+});
+
 describe("Unapprove — the served handler, executed", () => {
   const withLocation = async (fn: (reload: ReturnType<typeof vi.fn>) => Promise<void>) => {
     const reload = vi.fn();

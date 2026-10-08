@@ -3709,9 +3709,11 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   the report's evidence, scores or body, because the lookup is site state
   and the approval lock covers report content. The `REPORT_RERENDER` line
   names it: `lookup=resolved|no-property|soft-fail|not-run|no-row|write-failed`.
-  To clear the 10-05 Watch lines for Data Dynamiq and LAHI (both October
-  reports approved, unsent, read 10-08 ~15:50Z): press "refresh preview" on
-  each report and look for `lookup=resolved` in the run's line.
+  The button was not drawn for an approved report (the operator, 17:45Z: "can't
+  click refresh preview on an already approved draft"); the follow-up PR adds
+  it beside Unapprove in the site page's report history. To clear the 10-05
+  Watch lines for Data Dynamiq and LAHI: press that "refresh preview" on each
+  October report and look for `lookup=resolved` in the run's line.
 - 2026-10-08 — #1262: "Unapprove" on `/s/<slug>` for an approved, unsent
   report (#1270). The operator asked for it from the cockpit after Data
   Dynamiq's October report was approved 20 s before its refresh preview and

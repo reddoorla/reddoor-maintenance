@@ -289,7 +289,8 @@ function recipientsLine(site: WebsiteRow): string {
 /** "Refresh preview": dispatch a re-render so the stored body picks up commentary
  *  edited after drafting. Offered only on an UNSENT report — the endpoint and the
  *  workflow both refuse a sent one, and a button whose only outcome is a refusal
- *  is worse than no button. */
+ *  is worse than no button. An approved one carries it too, beside Unapprove,
+ *  because the refresh still re-runs the site's Search Console lookup (P1-36). */
 function rerenderButton(r: ReportRow): string {
   if (r.sentAt !== null) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
@@ -383,7 +384,7 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
           )
         : r.sentAt === null && r.approvedToSend
           ? r.sendStartedAt === null
-            ? unapproveButton(r)
+            ? `${rerenderButton(r)} ${unapproveButton(r)}`
             : `<span class="muted sending">Send started ${escapeHtml((r.sendStartedAt ?? "").slice(0, 16).replace("T", " "))}Z</span>`
           : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
