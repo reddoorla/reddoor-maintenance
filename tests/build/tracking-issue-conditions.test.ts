@@ -13,6 +13,7 @@ import {
   workflowSteps,
   type WorkflowStep,
 } from "./_helpers/workflow-source.js";
+import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 
 /**
  * WHEN THE ALARM IS ALLOWED TO SPEAK, AND FOR WHICH BRANCH.
@@ -277,7 +278,7 @@ beforeAll(async () => {
   all = [];
   for (const file of files) {
     const wf = await readFile(join(dir, file), "utf-8");
-    const scheduled = isScheduled(wf);
+    const scheduled = isScheduled(wf) || NIGHTLIES.some((n) => n.file === file);
     for (const s of workflowSteps(wf)) all.push({ ...s, file, scheduled });
   }
 });
@@ -294,6 +295,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-db-backup.yml › Open/update the quota tracking issue",
       "fleet-form-e2e.yml › Open/update the nightly-form-e2e-failure tracking issue",
       "fleet-lighthouse.yml › Open/update the nightly-failure tracking issue",
+      "fleet-nightly.yml › Open/update the nightly-conductor-failing tracking issue",
       "fleet-prismic-drift.yml › Open/update the nightly-failure tracking issue",
       "fleet-prismic-sync.yml › Open/update the nightly-failure tracking issue",
       "fleet-security.yml › Open/update the protection-gap tracking issue",
@@ -315,6 +317,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-db-backup.yml › Close the quota issue on recovery",
       "fleet-form-e2e.yml › Close the nightly-form-e2e-failure issue on recovery",
       "fleet-lighthouse.yml › Close the nightly-failure issue on recovery",
+      "fleet-nightly.yml › Close the nightly-conductor-failing issue on recovery",
       "fleet-prismic-drift.yml › Close the nightly-failure issue on recovery",
       "fleet-prismic-sync.yml › Close the nightly-failure issue on recovery",
       "fleet-security.yml › Close the protection-gap issue on a clean sweep",
@@ -748,8 +751,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 19 open steps", () => {
-    expect(opens(all)).toHaveLength(19);
+  it("finds all 20 open steps", () => {
+    expect(opens(all)).toHaveLength(20);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
@@ -1001,7 +1004,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
   });
 
-  it("finds all seventeen workflows", async () => {
+  it("finds all eighteen workflows", async () => {
     expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
       "ci.yml",
       "daily-reports.yml",
@@ -1009,6 +1012,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
       "fleet-db-backup.yml",
       "fleet-form-e2e.yml",
       "fleet-lighthouse.yml",
+      "fleet-nightly.yml",
       "fleet-prismic-drift.yml",
       "fleet-prismic-sync.yml",
       "fleet-security.yml",
