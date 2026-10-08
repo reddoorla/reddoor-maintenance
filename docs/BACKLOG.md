@@ -3488,6 +3488,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       already blocked. A buyer who writes both phrases in one message is not
       realistic. It is a
       ~10-line change plus the round-2 inputs as tests.
+      **Answered 2026-10-08 (AskUserQuestion): (a), the both-phrases
+      signal.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
