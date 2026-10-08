@@ -2807,6 +2807,27 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     are linked; the questions don't block it.
     **10-06 ~11:58Z [M, `list_releases` on `roalson-interests`]:** still
     unpublished; it is the repository's only release.
+    **10-08 ~18:10Z [M, `diff_release`]: ready to publish.** Both files are
+    uploaded (`PdZtQfQJVpiQ5wti` PDF, `XInzKwHTlKH1BMzH` aerial) and linked
+    on the listing, and nothing else in the release changed. The release
+    holds 15 documents, not 23: 14 crops, 8 of them with pin moves, plus the
+    listing. The crop moved 5 px off the agreed one, to (5, 685, 895×710).
+    The source's first 5 columns are white page margin, and they showed as
+    a white line on the detail photo. The outline stays whole in every
+    frame, measured in a browser through the release content at 1440, 834
+    and 390. The tightest frame is the 834 Land carousel card, at aspect
+    0.763, with 9 px to spare. The package link opens the PDF inline in a
+    new tab. Publishing puts the 14 crops and 8 pin moves live together
+    with the listing. _Pick:_ publish now. If Erik corrects the package (the
+    floodplain first), rebuild the PDF afterwards and relink it in a
+    one-document release. The live package leaves the floodplain line out
+    rather than stating anything false. Hold only if Erik changes the
+    listing itself (Tract 2 would change the 61.81 acres).
+    **Answered 2026-10-08 (AskUserQuestion): publish now.** Published
+    18:12Z via the Prismic connector. Live on roalson-interests.netlify.app
+    at 18:14Z: the listing serves the PDF link and the (5, 685) crop, and
+    the outline frames measure the same as the preview. A package rebuild,
+    if Erik corrects it, is a new one-document release.
 
 82. **Two Roalson aerials cannot show the whole parcel in the existing card
     frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
