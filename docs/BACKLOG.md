@@ -2823,6 +2823,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     one-document release. The live package leaves the floodplain line out
     rather than stating anything false. Hold only if Erik changes the
     listing itself (Tract 2 would change the 61.81 acres).
+    **Answered 2026-10-08 (AskUserQuestion): publish now.** Published
+    18:12Z via the Prismic connector. Live on roalson-interests.netlify.app
+    at 18:14Z: the listing serves the PDF link and the (5, 685) crop, and
+    the outline frames measure the same as the preview. A package rebuild,
+    if Erik corrects it, is a new one-document release.
 
 82. **Two Roalson aerials cannot show the whole parcel in the existing card
     frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
