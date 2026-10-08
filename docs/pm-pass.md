@@ -226,6 +226,19 @@ The prompt lives here so it can be changed by PR, like everything else.
    need an operator decision is not ready: put the decision under "Operator
    decisions" instead.
 
+   **Projects (since 2026-10-08, the operator).** After the top of stack, a
+   `## Projects` section gives one line per project in `docs/BACKLOG.md`'s
+   "Active projects" list, in that list's order: its stage, what changed
+   since the last report, the next step and whose it is, and any date. The
+   sources are the ones this pass already reads: the backlog's items and
+   rows for that project, its Discord channel (GET only, as in step 5), its
+   site row's `status` in Turso (SELECT only), its Prismic releases, and PRs
+   or branches in this repo that name it. Mark each line [M] or [I], and
+   write "no change" when nothing moved; do not pad. A project's own repo is
+   not read on weekdays (it needs `add_repo` per repo); the Monday pass does
+   that. The list is the operator's: a session adds or drops a project only
+   when he says so, in the PR that records it.
+
 8. **Journal entry** (a new file under `docs/journal/`), then the PR, then land it.
 9. **Finish by posting the one-line verdict and the operator's top three
    items** as the session's last message, so the notification carries them.
@@ -319,6 +332,15 @@ of 45:
     corrected wording, and into "Next for agents" as a one-line docs fix
     with a brief. The pass never edits `CLAUDE.md` itself.
 
+- **Projects, the heavy read.** For each project on the "Active projects"
+  list whose Turso row has a `git_repo`, attach the repo with `add_repo`
+  (read access) and read its open PRs, branches pushed in the last 7 days,
+  and its last production deploy (Netlify `last_deploy_at` on the row, or the
+  repo's deployments). Fold anything the weekday lines missed into that
+  project's line in the `## Projects` section, tagged [M]. A repo that cannot
+  be attached is named as such, never skipped silently. This sits with the
+  fresh reads when the budget runs short.
+
 - **Full re-rank.** Re-order P0/P1 from scratch rather than editing the
   previous order, and say so in the header's "Last full re-rank" line.
 - **The first Monday pass on or after 2026-10-12: the two-week check.** A
@@ -357,7 +379,7 @@ end:
 
 1. The daily steps, which are never cut.
 2. Do, date or drop and, the first time, the two-week check.
-3. The fresh reads, the reports' refute and the full re-rank.
+3. The fresh reads, the projects' heavy read, the reports' refute and the full re-rank.
 4. The `CLAUDE.md` fact-check. It is the first thing dropped, and the report
    says "`CLAUDE.md` fact-check: not run: budget".
 
