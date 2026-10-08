@@ -725,7 +725,18 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       // #1262: the send batch's claim, conditioned on the row still sendable.
       name: "claimReportForSend (the send's claim before Resend)",
       covers: ["claimReportForSend"],
-      run: (db) => fleetState.claimReportForSend(db, "recA", new Date("2026-10-08T16:07:00.000Z")),
+      run: (db) =>
+        fleetState.claimReportForSend(
+          db,
+          "recA",
+          "2026-10-08T15:11:12.000Z",
+          new Date("2026-10-08T16:07:00.000Z"),
+        ),
+    },
+    {
+      name: "releaseSendClaim (a refused send drops its claim)",
+      covers: ["releaseSendClaim"],
+      run: (db) => fleetState.releaseSendClaim(db, "recA"),
     },
     {
       // The create-side mirror (#539 Phase 5). Its upsert resolves the conflict

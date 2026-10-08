@@ -27,6 +27,7 @@ import {
   getReportHtml,
   listReportsForSite,
   claimReportForSend,
+  releaseSendClaim,
 } from "../../src/db/fleet-state.js";
 import { makeReportMirror } from "../../src/reports/report-mirror.js";
 import { draftReportForSite } from "../../src/reports/draft.js";
@@ -148,7 +149,8 @@ describe("a Turso-only site receives a report end to end (#646 step 4)", () => {
           return { messageId: "msg_e2e" };
         },
       } as never,
-      claimForSend: (id, at) => claimReportForSend(db, id, at),
+      claimForSend: (id, approvedAt, at) => claimReportForSend(db, id, approvedAt, at),
+      releaseSendClaim: (id) => releaseSendClaim(db, id),
       reportSentMirror: async (id, sentAt, messageId) => {
         await mirrorReportPatch(db, id, {
           sent_at: sentAt.toISOString(),

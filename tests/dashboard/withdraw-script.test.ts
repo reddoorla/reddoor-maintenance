@@ -367,6 +367,18 @@ describe("Unapprove (#1262) — rendered only where it can succeed", () => {
   ])("%s carries no Unapprove", (_, r) => {
     expect(page([r], {}).find("unapprove")).toHaveLength(0);
   });
+
+  it("a claimed, unsent report says when its send started instead", () => {
+    const html = renderSiteDashboardHtml(
+      makeWebsiteRow({ id: "recSITE", name: "Acme" }),
+      [approved({ sendStartedAt: "2026-10-09T16:07:03Z" })],
+      [],
+      null,
+      new Date("2026-10-09T17:00:00Z"),
+      null,
+    );
+    expect(html).toContain("Send started 2026-10-09 16:07Z");
+  });
 });
 
 describe("Unapprove — the served handler, executed", () => {

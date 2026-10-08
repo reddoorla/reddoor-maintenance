@@ -50,9 +50,24 @@ export function defaultResendClient(): ResendClient {
       const options: Parameters<typeof resend.emails.send>[1] = {};
       if (input.idempotencyKey) options.idempotencyKey = input.idempotencyKey;
       const { data, error } = await resend.emails.send(payload, options);
-      if (error) throw new Error(`Resend error: ${error.message}`);
+      if (error)
+        throw Object.assign(new Error(`Resend error: ${error.message}`), {
+          resendErrorName: error.name,
+        });
       if (!data?.id) throw new Error("Resend returned no message id");
       return { messageId: data.id };
     },
   };
+}
+
+/** #1262: the SDK names an error `application_error` when the request never got
+ *  a parseable answer (a network failure, an unparseable 5xx), and Resend itself
+ *  answers `internal_server_error` for its own failures. The email may have gone
+ *  out in either case. Every other named error is Resend refusing the send. */
+const AMBIGUOUS_RESEND_ERRORS = new Set(["application_error", "internal_server_error"]);
+
+/** True only when Resend answered and refused the send, so no email went out. */
+export function isDefiniteRejection(err: unknown): boolean {
+  const name = (err as { resendErrorName?: unknown } | null)?.resendErrorName;
+  return typeof name === "string" && !AMBIGUOUS_RESEND_ERRORS.has(name);
 }

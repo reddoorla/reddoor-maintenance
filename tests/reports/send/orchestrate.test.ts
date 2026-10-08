@@ -170,6 +170,7 @@ function harness(seed: Seed, plates: string[] = seed.Websites.map((w) => w.id)) 
         stamps.push({ id, sentAt, messageId });
       },
       claimForSend: async () => true,
+      releaseSendClaim: async () => {},
       siteMirror: {
         health: async () => {},
         site: async (id: string, fields: Record<string, unknown>) => {

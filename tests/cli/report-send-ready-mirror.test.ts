@@ -105,7 +105,12 @@ describe("report --send-ready: the claim before Resend is the real conditioned w
     vi.mocked(openDb).mockResolvedValue(db);
     await mirrorReportInsert(db, {
       id: "recSENDABLE",
-      fields: { "Report ID": "R3", "Draft ready": true, "Approved to send": true },
+      fields: {
+        "Report ID": "R3",
+        "Draft ready": true,
+        "Approved to send": true,
+        "Approved At": "2026-10-08T15:11:12.000Z",
+      },
     });
     await mirrorReportInsert(db, {
       id: "recUNAPPROVED",
@@ -114,8 +119,9 @@ describe("report --send-ready: the claim before Resend is the real conditioned w
 
     await runReportCommand(undefined, { sendReady: true });
     const at = new Date("2026-10-09T16:07:03Z");
-    expect(await captured!.claimForSend("recSENDABLE", at)).toBe(true);
-    expect(await captured!.claimForSend("recUNAPPROVED", at)).toBe(false);
+    expect(await captured!.claimForSend("recSENDABLE", "2026-10-08T15:11:12.000Z", at)).toBe(true);
+    expect(await captured!.claimForSend("recUNAPPROVED", null, at)).toBe(false);
+    await captured!.releaseSendClaim("recUNAPPROVED");
 
     const rows = await db
       .selectFrom("reports")

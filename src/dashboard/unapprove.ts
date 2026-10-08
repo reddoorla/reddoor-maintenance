@@ -29,7 +29,7 @@ export type UnapproveDeps = {
  * approved, unsent, unwithdrawn row can be unapproved; it becomes pending again,
  * so "refresh preview" re-reads its scores and evidence. Every other state is a
  * no-op with no write. A send wins from the moment the batch claims the row,
- * right before Resend (Operator decisions 99): the write is conditioned on
+ * right before Resend (Operator decisions 100): the write is conditioned on
  * `sent_at IS NULL AND send_started_at IS NULL`, and a miss is named from a
  * re-read.
  */

@@ -383,7 +383,7 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
         : r.sentAt === null && r.approvedToSend
           ? r.sendStartedAt === null
             ? unapproveButton(r)
-            : `<span class="muted sending">Sending</span>`
+            : `<span class="muted sending">Send started ${escapeHtml((r.sendStartedAt ?? "").slice(0, 16).replace("T", " "))}Z</span>`
           : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
   // report is awaiting approval: approving schedules the send for the next 09:23

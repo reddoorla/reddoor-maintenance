@@ -2,7 +2,7 @@ import { launchedFields } from "../../fleet/site-fields.js";
 import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-row.js";
 import { renderReportFromRow, requireLighthouse } from "./render-from-row.js";
-import { defaultResendClient, type ResendClient } from "./resend.js";
+import { defaultResendClient, isDefiniteRejection, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
@@ -58,11 +58,15 @@ export type OrchestrateOptions = {
    *  re-render) read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
    *  through `mirrorWrite`, so a failed stamp throws. */
   reportSentMirror: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
-  /** #1262 (Operator decisions 99): the claim taken right before Resend is
-   *  called, conditioned on the row still being sendable. `false` means the row
-   *  was unapproved or withdrawn after the queue was read, and the report is
-   *  skipped. Required for the same reason as reportSentMirror. */
-  claimForSend: (reportId: string, at: Date) => Promise<boolean>;
+  /** #1262 (Operator decisions 100): the claim taken right before Resend is
+   *  called, conditioned on the row still being sendable under the approval the
+   *  queue read (`approvedAt`). `false` means the row was unapproved, withdrawn
+   *  or re-approved after the queue was read, and the report is skipped.
+   *  Required for the same reason as reportSentMirror. */
+  claimForSend: (reportId: string, approvedAt: string | null, at: Date) => Promise<boolean>;
+  /** Drops the claim after Resend refused the send outright, so a report whose
+   *  send keeps being refused can still be unapproved. */
+  releaseSendClaim: (reportId: string) => Promise<void>;
 };
 
 export async function sendApprovedReports(
@@ -98,6 +102,7 @@ export async function sendApprovedReports(
         report,
         options.loadHeaderPlate,
         options.claimForSend,
+        options.releaseSendClaim,
       );
       if (sent === null) {
         lines.push(
@@ -203,7 +208,8 @@ async function sendOne(
   site: WebsiteRow,
   report: ReportRow,
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
-  claimForSend: (reportId: string, at: Date) => Promise<boolean>,
+  claimForSend: OrchestrateOptions["claimForSend"],
+  releaseSendClaim: OrchestrateOptions["releaseSendClaim"],
 ): Promise<SentStamp | null> {
   // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
   // never go out — even if "Approved to send" was set directly in the store. Throw so the row is
@@ -282,7 +288,7 @@ async function sendOne(
 
   // The last step before the email leaves: anything that changed the row since
   // the queue was read, an unapprove above all, wins here.
-  if (!(await claimForSend(report.id, new Date()))) return null;
+  if (!(await claimForSend(report.id, report.approvedAt, new Date()))) return null;
 
   let result: Awaited<ReturnType<ResendClient["send"]>>;
   try {
@@ -312,6 +318,16 @@ async function sendOne(
       // and runs the Launch flip.
       console.log(`↻ already sent (idempotency conflict): ${report.reportId}`);
       return { display: "idempotent-conflict", sentAt: new Date(), messageId: null };
+    }
+    // Resend refused the send, so no email went out: drop the claim, or the row
+    // stays un-unapprovable for as long as the refusal repeats. An ambiguous
+    // failure keeps it, because the email may have left.
+    if (isDefiniteRejection(err)) {
+      try {
+        await releaseSendClaim(report.id);
+      } catch (e) {
+        console.warn(`claim release failed for ${report.reportId}: ${(e as Error).message}`);
+      }
     }
     throw err;
   }

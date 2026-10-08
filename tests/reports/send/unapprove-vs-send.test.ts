@@ -1,5 +1,5 @@
 /**
- * #1262 (Operator decisions 99): an unapprove racing the send batch, through the
+ * #1262 (Operator decisions 100): an unapprove racing the send batch, through the
  * real send loop and the real unapprove handler over one temp libSQL database.
  * Before the claim, an unapprove fired during the Resend call answered 200
  * "unapproved" while the email went out, leaving the row unapproved and sent.
@@ -17,6 +17,7 @@ import {
   mirrorReportPatch,
   mirrorSiteInsert,
   claimReportForSend,
+  releaseSendClaim,
 } from "../../../src/db/fleet-state.js";
 import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images.js";
 import unapproveReportHandler from "../../../netlify/functions/unapprove-report.mjs";
@@ -141,7 +142,9 @@ const io = () => ({
   sendable: () => listSendableReports(db),
   roster: () => listSites(db),
   loadHeaderPlate: async (siteId: string) => (await loadHeaderImage(db, siteId))?.bytes ?? null,
-  claimForSend: (reportId: string, at: Date) => claimReportForSend(db, reportId, at),
+  claimForSend: (reportId: string, approvedAt: string | null, at: Date) =>
+    claimReportForSend(db, reportId, approvedAt, at),
+  releaseSendClaim: (reportId: string) => releaseSendClaim(db, reportId),
   reportSentMirror: async (reportId: string, sentAt: Date, messageId: string | null) => {
     await mirrorReportPatch(db, reportId, {
       sent_at: sentAt.toISOString(),
@@ -176,7 +179,7 @@ const state = () =>
     .where("id", "=", REPORT)
     .executeTakeFirstOrThrow();
 
-describe("unapprove vs the send batch (Operator decisions 99)", () => {
+describe("unapprove vs the send batch (Operator decisions 100)", () => {
   it("control: an unapprove before the queue read means nothing is sent", async () => {
     expect((await unapprove()).status).toBe(200);
     const { client, captured } = captureClient();
@@ -233,6 +236,78 @@ describe("unapprove vs the send batch (Operator decisions 99)", () => {
     expect(r.approved_to_send).toBe(0);
     expect(r.sent_at).toBeNull();
     expect(r.send_started_at).toBeNull();
+  });
+
+  it("unapprove, refresh and re-approve after the queue read: the stale copy is not sent, the next run sends the new one", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await db
+      .updateTable("reports")
+      .set({ approved_at: "2026-10-08T15:11:12.000Z" })
+      .where("id", "=", REPORT)
+      .execute();
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      loadHeaderPlate: async (siteId: string) => {
+        expect((await unapprove()).status).toBe(200);
+        await db
+          .updateTable("reports")
+          .set({
+            lighthouse_performance: 37,
+            approved_to_send: 1,
+            approved_at: "2026-10-08T16:05:00.000Z",
+          })
+          .where("id", "=", REPORT)
+          .execute();
+        return (await loadHeaderImage(db, siteId))?.bytes ?? null;
+      },
+    });
+    expect(captured).toHaveLength(0);
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("skipped");
+    const r = await state();
+    expect(r.approved_to_send).toBe(1);
+    expect(r.send_started_at).toBeNull();
+
+    const next = captureClient();
+    expect((await sendApprovedReports({ ...io(), resend: next.client })).code).toBe(0);
+    expect(next.captured).toHaveLength(1);
+    expect(next.captured[0]!.html).toContain("37");
+  });
+
+  it("a send Resend refuses outright drops its claim, so the report can still be unapproved", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const client: ResendClient = {
+      async send() {
+        throw Object.assign(new Error("Resend error: Invalid `to` field."), {
+          resendErrorName: "validation_error",
+        });
+      },
+    };
+    const res = await sendApprovedReports({ ...io(), resend: client });
+    expect(res.code).toBe(1);
+    expect((await state()).send_started_at).toBeNull();
+    expect(await unapprove()).toEqual({
+      status: 200,
+      body: { status: "unapproved", reportId: REPORT },
+    });
+  });
+
+  it("an ambiguous send failure keeps its claim: the email may have left, so unapprove still loses", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const client: ResendClient = {
+      async send() {
+        throw Object.assign(
+          new Error("Resend error: Unable to fetch data. The request could not be resolved."),
+          { resendErrorName: "application_error" },
+        );
+      },
+    };
+    const res = await sendApprovedReports({ ...io(), resend: client });
+    expect(res.code).toBe(1);
+    expect((await state()).send_started_at).not.toBeNull();
+    expect((await unapprove()).status).toBe(409);
   });
 
   it("a claim whose run died before the stamp is re-claimed and sent by the next run", async () => {
