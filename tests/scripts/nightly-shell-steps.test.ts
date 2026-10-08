@@ -16,7 +16,7 @@ function runStep(
   file: string,
   step: string,
   env: Record<string, string>,
-  fakes: { ghOut?: string; ghFail?: boolean; hhmm?: string; day?: string } = {},
+  fakes: { ghOut?: string; ghFail?: boolean; hhmm?: string; day?: string; yesterday?: string } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "nightly-step-"));
   roots.push(dir);
@@ -31,7 +31,7 @@ function runStep(
     `printf 'gh %s\\n' "$*" >> "${log}"
 ${fakes.ghFail ? "exit 1" : ""}
 case "$1" in
-  api) printf '%s\\n' "${fakes.ghOut ?? "0"}" ;;
+  api) printf '%s\\n' "${fakes.ghOut ?? "0 0"}" ;;
   issue) [ "$2" = list ] && printf '%s\\n' "${fakes.ghOut ?? ""}" ;;
 esac`,
   );
@@ -40,6 +40,7 @@ esac`,
     `case "$*" in
   "-u +%H%M") echo "${fakes.hhmm ?? "1700"}" ;;
   "-u +%F") echo "${fakes.day ?? "2026-10-09"}" ;;
+  "-u -d yesterday +%F") echo "${fakes.yesterday ?? "2026-10-08"}" ;;
   *) /bin/date "$@" ;;
 esac`,
   );
@@ -47,12 +48,18 @@ esac`,
   writeFileSync(script, stepRunScript(wf(file), step).replace(/\$\{\{[^}]*\}\}/g, "x"));
   const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", script], {
     encoding: "utf-8",
-    env: { PATH: `${dir}:/usr/bin:/bin`, RUNNER_TEMP: dir, ...env },
+    env: {
+      PATH: `${dir}:/usr/bin:/bin`,
+      RUNNER_TEMP: dir,
+      GITHUB_OUTPUT: join(dir, "out"),
+      ...env,
+    },
   });
   const calls = existsSync(log)
     ? readFileSync(log, "utf-8").trim().split("\n").filter(Boolean)
     : [];
-  return { code: r.status, out: r.stdout + r.stderr, calls };
+  const output = existsSync(join(dir, "out")) ? readFileSync(join(dir, "out"), "utf-8") : "";
+  return { code: r.status, out: r.stdout + r.stderr, calls, output };
 }
 
 const sends = (calls: string[]) =>
@@ -78,56 +85,71 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
     expect(r.calls).toEqual([]);
   });
 
-  it("the fallback cron never sends before 16:37Z, whatever GitHub's delay", () => {
-    for (const hhmm of ["1323", "1606", "1636"]) {
-      const r = runStep(
-        "daily-reports.yml",
-        SEND,
-        { ...base, EVENT: "schedule" },
-        { hhmm, ghOut: "0" },
-      );
+  const fallback = (fakes: Parameters<typeof runStep>[3]) =>
+    runStep("daily-reports.yml", SEND, { ...base, EVENT: "schedule" }, fakes);
+
+  it("the fallback cron never sends between 04:00Z and 16:37Z, and marks itself a no-op", () => {
+    for (const hhmm of ["0400", "1323", "1606", "1636"]) {
+      const r = fallback({ hhmm, ghOut: "0 0" });
       expect(r.code, hhmm).toBe(0);
       expect(r.calls, hhmm).toEqual([]);
+      expect(r.output, hhmm).toBe("sent=no-op\n");
     }
   });
 
-  it("after 16:37Z the fallback sends nothing when today's send already succeeded", () => {
-    const r = runStep(
-      "daily-reports.yml",
-      SEND,
-      { ...base, EVENT: "schedule" },
-      { hhmm: "1912", ghOut: "1" },
-    );
+  it("after 16:37Z it sends nothing, as a no-op, when a send succeeded today", () => {
+    const r = fallback({ hhmm: "1912", ghOut: "1 1" });
     expect(r.code).toBe(0);
     expect(sends(r.calls)).toEqual([]);
+    expect(r.output).toBe("sent=no-op\n");
     const query = r.calls.find((c) => c.startsWith("gh api"))!;
     expect(query).toContain("created=>=2026-10-09T00:00:00Z");
     expect(query).toContain("branch=main");
-    expect(query).toContain("status=success");
+    expect(query).not.toContain("status=");
     expect(query).toContain('"daily-reports send"');
   });
 
-  it("after 16:37Z with no send today, the fallback sends late and fails the run so it is seen", () => {
-    const r = runStep(
-      "daily-reports.yml",
-      SEND,
-      { ...base, EVENT: "schedule" },
-      { hhmm: "1637", ghOut: "0" },
+  it("started after midnight, it looks at yesterday's sends", () => {
+    const done = fallback({ hhmm: "0030", ghOut: "1 1" });
+    expect(sends(done.calls)).toEqual([]);
+    expect(done.calls.find((c) => c.startsWith("gh api"))).toContain(
+      "created=>=2026-10-08T00:00:00Z",
     );
+    const missed = fallback({ hhmm: "0030", ghOut: "0 0" });
+    expect(sends(missed.calls)).toHaveLength(1);
+    expect(missed.code).toBe(1);
+  });
+
+  it("with no send run at all, it sends late, says the clock missed, and fails the run", () => {
+    const r = fallback({ hhmm: "1637", ghOut: "0 0" });
     expect(sends(r.calls)).toHaveLength(1);
     expect(r.code).toBe(1);
     expect(r.out).toContain("send-clock-missed");
+    expect(r.output).toBe("");
   });
 
-  it("when today's runs cannot be read, the fallback sends nothing and fails", () => {
-    const r = runStep(
-      "daily-reports.yml",
-      SEND,
-      { ...base, EVENT: "schedule" },
-      { hhmm: "1900", ghFail: true },
-    );
+  it("when the clock's send ran but failed, it retries and says so, not that the clock missed", () => {
+    const r = fallback({ hhmm: "1900", ghOut: "1 0" });
+    expect(sends(r.calls)).toHaveLength(1);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("send-run-failed");
+    expect(r.out).not.toContain("send-clock-missed");
+  });
+
+  it("when the runs cannot be read, it sends nothing and fails", () => {
+    const r = fallback({ hhmm: "1900", ghFail: true });
     expect(sends(r.calls)).toEqual([]);
     expect(r.code).toBe(1);
+  });
+
+  it("a no-op fallback cannot close a failure issue", () => {
+    const close = (
+      wf("daily-reports.yml").split(
+        "- name: Close the daily-reports-failing issue on recovery",
+      )[1] ?? ""
+    ).split("\n")[2];
+    expect(close).toContain("steps.send.outputs.sent != 'no-op'");
+    expect(wf("daily-reports.yml")).toMatch(/- name: Send approved reports\n\s+id: send\n/);
   });
 
   it("the run-name the fallback reads is the one the workflow writes", () => {

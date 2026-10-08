@@ -49,7 +49,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    finished by this pass. Client sends are a separate `daily-reports`
    `mode=send` run, fired at 16:07Z by `nightly-send-clock` (Operator
    decisions 98). `release-health` and the weekly jobs still run on GitHub's
-   `schedule`, which starts them 5–9 h after their cron minute. List anything
+   `schedule`, which starts them about 3.5–9 h after their cron minute. List anything
    pending by name; do not wait for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
    archive this session." or "Not yet safe to archive: …") does not apply
@@ -510,7 +510,11 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
    `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
    and every tracking issue opened or closed since `<since>`. List any run still
    pending by name. A green run with `failed>0` is not green.
-3. **Today's `daily-reports` drafts.** Read today's `daily-reports` run log.
+3. **Today's `daily-reports` drafts and sends.** Read today's 16:07Z
+   `daily-reports send` run (its run-name says the mode): did it succeed, and
+   is "Daily reports run failing (send)" open? A fallback run whose log says
+   `send-clock-missed` or `send-run-failed` sent late: report which. Then read
+   this morning's `daily-reports draft` run log.
    Then, SELECT only, the reports that are pending approval (draft ready, not
    approved, not sent, not withdrawn: `isPendingApproval` in
    `src/reports/report-row.ts`). Write one exact ask per draft: "approve on

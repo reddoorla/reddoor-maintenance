@@ -310,6 +310,19 @@ describe("nightly-conductor — the fallback cron says when the clock missed", (
     expect(r.code).toBe(1);
   });
 
+  it("a late run that re-dispatches only what the clock's pass failed to start is not a clock miss", async () => {
+    const gh = fakeGitHub({
+      start: Date.parse("2026-10-09T09:30:00Z"),
+      prior: ALL.filter((f) => f !== "fleet-smoke.yml").map((f) =>
+        conductedRun(f, Date.parse("2026-10-09T06:08:00Z")),
+      ),
+    });
+    const r = await run(gh, { event: "schedule" });
+    expect(dispatched(gh)).toEqual(["fleet-smoke.yml"]);
+    expect(r.clockMissed).toBe(false);
+    expect(r.code).toBe(0);
+  });
+
   it("the clock gets 30 minutes: 06:36Z is still its window, 06:38Z is a miss", async () => {
     const at = async (t: string) =>
       warned((await run(fakeGitHub({ start: Date.parse(t) }), { event: "schedule" })).lines);

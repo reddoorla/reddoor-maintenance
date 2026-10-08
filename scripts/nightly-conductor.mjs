@@ -160,7 +160,7 @@ export async function conduct({ fetch, token, repo, only, ref, force, event, now
     `NIGHTLY_CONDUCTOR_SUMMARY dispatched=${dispatched} completed=${count("completed")} wait_exceeded=${count("wait-exceeded")} skipped=${count("skipped")} dispatch_failed=${count("dispatch-failed")} total=${plan.length}`,
   );
   const clockMissed =
-    event === "schedule" && dispatched > 0 && startedAt >= clockDeadline(startedAt);
+    event === "schedule" && dispatched === plan.length && startedAt >= clockDeadline(startedAt);
   if (clockMissed)
     say(
       `::error::NIGHTLY_CONDUCTOR clock-missed: the fallback cron dispatched ${dispatched} nightlies after ${CLOCK_UTC}Z, so the Netlify clock had not run them`,
