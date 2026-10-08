@@ -92,11 +92,12 @@ export const SPAM_KEYWORDS: readonly string[] = [
   "overtake and handle",
   "custom built ai", // matches "custom-built AI" via hyphen folding
   // The flood's second template (2026-09-24 onward): "a trained VA who runs/operates
-  // our custom AI system". 12 live copies across nine sender domains; two reached the
+  // our custom AI system". 12 live copies across seven sender domains; two reached the
   // inbox with score 0 (vaelitecrew.com 10-06, vasdirect.com 10-08). Together the two
-  // phrases bucket; either alone is +30.
+  // phrases bucket; either alone is +30. "our" is load-bearing: a buyer asking for "a
+  // custom AI system" plus "free consultation" would otherwise sum 60.
   "trained va who",
-  "custom ai system",
+  "our custom ai system",
   // Wikipedia-page-creation vertical.
   "wikipedia page",
   "wiki links",

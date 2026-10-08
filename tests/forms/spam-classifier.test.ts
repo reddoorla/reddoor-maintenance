@@ -553,6 +553,12 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     expect(
       clean({ message: "Could you build us a custom AI system for scheduling crews?" }).score,
     ).toBeLessThan(SPAM_THRESHOLD);
+    expect(
+      clean({
+        message:
+          "Hi, we'd love a custom AI system for patient intake on our site. Do you offer a free consultation?",
+      }).score,
+    ).toBeLessThan(SPAM_THRESHOLD);
   });
 
   it("flags lorem-ipsum filler at 60 (buckets alone — machine content, zero genuine use)", () => {
