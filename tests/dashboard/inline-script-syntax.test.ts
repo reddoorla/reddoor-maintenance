@@ -127,6 +127,7 @@ const pendingReport = {
   overrideReason: null,
   withdrawnAt: null,
   withdrawnBy: null,
+  sendStartedAt: null,
 } as unknown as ReportRow;
 
 /** Same report with a RED health gate, so the override control ("Send anyway…")

@@ -629,4 +629,11 @@ export const MIGRATIONS: Migration[] = [
     id: "0042_reports_unapproved_by",
     sql: `ALTER TABLE reports ADD COLUMN unapproved_by TEXT;`,
   },
+  {
+    // #1262 (Operator decisions 99): the send batch's claim, taken right before
+    // Resend is called. An unapprove refuses a claimed row, so an in-flight send
+    // wins. NULL until a send starts.
+    id: "0043_reports_send_started_at",
+    sql: `ALTER TABLE reports ADD COLUMN send_started_at TEXT;`,
+  },
 ];

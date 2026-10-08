@@ -573,6 +573,7 @@ function reportRowFromDb(
     overrideAt: r.override_at,
     withdrawnAt: r.withdrawn_at,
     withdrawnBy: r.withdrawn_by,
+    sendStartedAt: r.send_started_at,
   };
 }
 
@@ -619,6 +620,7 @@ export const REPORT_LIST_COLUMNS = [
   "withdrawn_by",
   "unapproved_at",
   "unapproved_by",
+  "send_started_at",
 ] as const;
 
 /** The one thing a list read still needs from the body: whether there IS one.
@@ -779,8 +781,8 @@ export async function patchReportIfOpen(
 }
 
 /** #1262: take back an approval, conditioned on the row still being approved,
- *  unsent and unwithdrawn, so a send stamped first wins and this matches
- *  nothing. Clears the approval and the send-anyway flag with it (a later plain
+ *  unsent, unwithdrawn and unclaimed, so a send that has started wins and this
+ *  matches nothing. Clears the approval and the send-anyway flag with it (a later plain
  *  approve must not inherit a health-gate bypass); the override's reason, by and
  *  at stay as its record. Returns whether a row matched. */
 export async function unapproveReportIfUnsent(
@@ -800,6 +802,25 @@ export async function unapproveReportIfUnsent(
       unapproved_by: by,
     })
     .where("id", "=", reportId)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("send_started_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262 (Operator decisions 99): the send batch's claim on one report, taken
+ *  right before Resend is called. Conditioned on the row still being sendable,
+ *  so an unapprove or withdraw that landed after the queue was read wins and
+ *  the report is skipped. A re-run re-claims a row whose earlier claim never
+ *  got a `sent_at`. Returns whether a row matched. */
+export async function claimReportForSend(db: Db, reportId: string, at: Date): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ send_started_at: at.toISOString() })
+    .where("id", "=", reportId)
+    .where("draft_ready", "=", 1)
     .where("approved_to_send", "=", 1)
     .where("sent_at", "is", null)
     .where("withdrawn_at", "is", null)

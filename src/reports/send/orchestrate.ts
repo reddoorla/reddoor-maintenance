@@ -58,6 +58,11 @@ export type OrchestrateOptions = {
    *  re-render) read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
    *  through `mirrorWrite`, so a failed stamp throws. */
   reportSentMirror: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
+  /** #1262 (Operator decisions 99): the claim taken right before Resend is
+   *  called, conditioned on the row still being sendable. `false` means the row
+   *  was unapproved or withdrawn after the queue was read, and the report is
+   *  skipped. Required for the same reason as reportSentMirror. */
+  claimForSend: (reportId: string, at: Date) => Promise<boolean>;
 };
 
 export async function sendApprovedReports(
@@ -87,7 +92,19 @@ export async function sendApprovedReports(
       continue;
     }
     try {
-      const sent = await sendOne(client, site, report, options.loadHeaderPlate);
+      const sent = await sendOne(
+        client,
+        site,
+        report,
+        options.loadHeaderPlate,
+        options.claimForSend,
+      );
+      if (sent === null) {
+        lines.push(
+          `• skipped (unapproved or withdrawn since the queue was read): ${report.reportId}`,
+        );
+        continue;
+      }
       lines.push(`✓ sent: ${report.reportId} (${sent.display})`);
       // Stamp the send. Caught here rather than thrown so one report's lost
       // stamp still lets the batch continue AND still runs this report's Launch
@@ -186,7 +203,8 @@ async function sendOne(
   site: WebsiteRow,
   report: ReportRow,
   loadHeaderPlate: (siteId: string) => Promise<Uint8Array | null>,
-): Promise<SentStamp> {
+  claimForSend: (reportId: string, at: Date) => Promise<boolean>,
+): Promise<SentStamp | null> {
   // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
   // never go out — even if "Approved to send" was set directly in the store. Throw so the row is
   // skipped and `Sent at` stays null (at-least-once retry preserved). Launch/Announcement have no
@@ -261,6 +279,10 @@ async function sendOne(
   // Always CC the ops inbox (info@reddoorla.com), in addition to any per-site CC.
   const finalCc = withGlobalCc(cc, to);
   if (finalCc.length > 0) payload.cc = finalCc;
+
+  // The last step before the email leaves: anything that changed the row since
+  // the queue was read, an unapprove above all, wins here.
+  if (!(await claimForSend(report.id, new Date()))) return null;
 
   let result: Awaited<ReturnType<ResendClient["send"]>>;
   try {

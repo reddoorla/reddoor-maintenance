@@ -72,6 +72,9 @@ export type ReportRow = {
    *  never approvable, never sent, and never blocks a later period's draft. */
   withdrawnAt: string | null;
   withdrawnBy: string | null;
+  /** #1262: when the send batch claimed the row, right before Resend. A claimed,
+   *  unsent row is mid-send, and an unapprove refuses it. */
+  sendStartedAt: string | null;
 };
 
 /**

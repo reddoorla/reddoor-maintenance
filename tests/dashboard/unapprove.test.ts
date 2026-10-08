@@ -36,6 +36,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     overrideAt: null,
     withdrawnAt: null,
     withdrawnBy: null,
+    sendStartedAt: null,
     ...over,
   };
 }
@@ -77,6 +78,7 @@ describe("unapproveReport", () => {
   it.each([
     ["already-sent", { sentAt: "2026-10-09T09:23:00Z" }],
     ["already-sent", { sentAt: "2026-10-09T09:23:00Z", approvedToSend: false }],
+    ["sending", { sendStartedAt: "2026-10-09T16:07:03Z" }],
     ["withdrawn", { withdrawnAt: "2026-10-08T00:00:00Z" }],
     ["not-approved", { approvedToSend: false, approvedAt: null, approvedBy: null }],
   ] as const)("is a no-op (%s) for %o, and writes nothing", async (reason, over) => {

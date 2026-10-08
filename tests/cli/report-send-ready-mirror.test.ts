@@ -97,3 +97,35 @@ describe("report --send-ready: the sent-stamp mirror surfaces the row count", ()
     });
   });
 });
+
+describe("report --send-ready: the claim before Resend is the real conditioned write (#1262)", () => {
+  it("claims a sendable row and refuses one unapproved since the queue was read", async () => {
+    const db = await realOpenDb({ url: ":memory:" });
+    vi.spyOn(db, "destroy").mockResolvedValue(undefined);
+    vi.mocked(openDb).mockResolvedValue(db);
+    await mirrorReportInsert(db, {
+      id: "recSENDABLE",
+      fields: { "Report ID": "R3", "Draft ready": true, "Approved to send": true },
+    });
+    await mirrorReportInsert(db, {
+      id: "recUNAPPROVED",
+      fields: { "Report ID": "R4", "Draft ready": true, "Approved to send": false },
+    });
+
+    await runReportCommand(undefined, { sendReady: true });
+    const at = new Date("2026-10-09T16:07:03Z");
+    expect(await captured!.claimForSend("recSENDABLE", at)).toBe(true);
+    expect(await captured!.claimForSend("recUNAPPROVED", at)).toBe(false);
+
+    const rows = await db
+      .selectFrom("reports")
+      .select(["id", "send_started_at"])
+      .where("id", "in", ["recSENDABLE", "recUNAPPROVED"])
+      .orderBy("id")
+      .execute();
+    expect(rows).toEqual([
+      { id: "recSENDABLE", send_started_at: "2026-10-09T16:07:03.000Z" },
+      { id: "recUNAPPROVED", send_started_at: null },
+    ]);
+  });
+});

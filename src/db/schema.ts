@@ -244,6 +244,9 @@ export interface ReportsTable {
    *  before the send; NULL on a row that was never unapproved. */
   unapproved_at: string | null;
   unapproved_by: string | null;
+  /** #1262 (migration 0043): when the send batch claimed the row, right before
+   *  calling Resend. NULL until a send starts. */
+  send_started_at: string | null;
 }
 
 /** One prospect-audit run (migration 0009). `token` is the 128-bit unguessable

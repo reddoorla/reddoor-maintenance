@@ -77,6 +77,7 @@ describe("openDb", () => {
       "0040_site_health_lighthouse_failing_audits",
       "0041_reports_unapproved_at",
       "0042_reports_unapproved_by",
+      "0043_reports_send_started_at",
     ]);
     await db.destroy();
   });

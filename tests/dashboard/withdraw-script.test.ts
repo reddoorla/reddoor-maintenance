@@ -58,6 +58,7 @@ function pending(over: Partial<ReportRow> = {}): ReportRow {
     overrideAt: null,
     withdrawnAt: null,
     withdrawnBy: null,
+    sendStartedAt: null,
     ...over,
   };
 }
@@ -362,6 +363,7 @@ describe("Unapprove (#1262) — rendered only where it can succeed", () => {
     ["a pending draft", pending()],
     ["a sent report", approved({ sentAt: "2026-10-09T09:23:00Z" })],
     ["a withdrawn report", approved({ withdrawnAt: "2026-10-08T00:00:00Z" })],
+    ["a report the send batch has claimed", approved({ sendStartedAt: "2026-10-09T16:07:03Z" })],
   ])("%s carries no Unapprove", (_, r) => {
     expect(page([r], {}).find("unapprove")).toHaveLength(0);
   });
@@ -413,6 +415,16 @@ describe("Unapprove — the served handler, executed", () => {
       expect(u!.textContent).toBe("Already sent");
       expect(reload).not.toHaveBeenCalled();
     });
+  });
+
+  it("refused as sending → stays disabled and says so", async () => {
+    const p = page([approved()], {
+      [UNAPPROVE]: { status: 409, body: { status: "noop", reason: "sending" } },
+    });
+    const [u] = p.find("unapprove");
+    await p.click(u!);
+    expect(u!.disabled).toBe(true);
+    expect(u!.textContent).toBe("Sending now");
   });
 
   it("refused as withdrawn → stays disabled and says so", async () => {

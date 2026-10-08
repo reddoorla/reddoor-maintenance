@@ -381,7 +381,9 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
             approveBlockers(site, r).some((f) => f.level === "fail"),
           )
         : r.sentAt === null && r.approvedToSend
-          ? unapproveButton(r)
+          ? r.sendStartedAt === null
+            ? unapproveButton(r)
+            : `<span class="muted sending">Sending</span>`
           : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
   // report is awaiting approval: approving schedules the send for the next 09:23
@@ -1198,9 +1200,12 @@ export function renderSiteDashboardHtml(
           } else {
             const data = await res.json().catch(() => null);
             const reason = data && typeof data.reason === "string" ? data.reason : null;
-            // Sent or withdrawn meanwhile: unapproving can never succeed now.
+            // Sent, mid-send or withdrawn meanwhile: unapproving can never
+            // succeed now.
             if (reason === "already-sent") {
               b.textContent = "Already sent";
+            } else if (reason === "sending") {
+              b.textContent = "Sending now";
             } else if (reason === "withdrawn") {
               b.textContent = "Withdrawn";
             } else {

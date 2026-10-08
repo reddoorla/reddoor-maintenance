@@ -184,6 +184,16 @@ describe("unapprove-report writes to Turso", () => {
     expect(r.unapproved_at).toBeNull();
   });
 
+  it("a report the send batch has claimed is a 409 no-op (sending) and nothing is written", async () => {
+    await seedReport("recREP8", { send_started_at: "2026-10-09T16:07:03.000Z" });
+    const res = await post("recREP8");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ status: "noop", reportId: "recREP8", reason: "sending" });
+    const r = await row("recREP8");
+    expect(r.approved_to_send).toBe(1);
+    expect(r.unapproved_at).toBeNull();
+  });
+
   it("a withdrawn report is a 409 no-op (withdrawn) and nothing is written", async () => {
     await seedReport("recREP6", { withdrawn_at: "2026-10-08T00:00:00.000Z" });
     const res = await post("recREP6");
@@ -232,6 +242,17 @@ describe("unapprove-report races", () => {
     const r = await row("recR1");
     expect(r.approved_to_send).toBe(1);
     expect(r.approved_at).toBe(APPROVED.approved_at);
+    expect(r.unapproved_at).toBeNull();
+  });
+
+  it("a send claim landing between the read and the write wins: 409 sending, still approved", async () => {
+    await seedReport("recR4");
+    race.afterRead = competing("recR4", { send_started_at: "2026-10-09T16:07:03.000Z" });
+    const res = await post("recR4");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ status: "noop", reportId: "recR4", reason: "sending" });
+    const r = await row("recR4");
+    expect(r.approved_to_send).toBe(1);
     expect(r.unapproved_at).toBeNull();
   });
 

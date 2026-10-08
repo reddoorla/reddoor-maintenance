@@ -6,7 +6,7 @@ export type UnapproveResult =
   | {
       status: "noop";
       reportId: string;
-      reason: "already-sent" | "withdrawn" | "not-approved";
+      reason: "already-sent" | "sending" | "withdrawn" | "not-approved";
     }
   | { status: "not-found"; reportId: string };
 
@@ -15,7 +15,7 @@ export type UnapproveResult =
 export type UnapproveDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;
   /** Resolves `false` when the conditioned write matched no row: the row was
-   *  sent, withdrawn or unapproved after it was read. */
+   *  sent, claimed for a send, withdrawn or unapproved after it was read. */
   unapproveReportRow: (
     id: string,
     unapprovedAt: Date,
@@ -28,8 +28,10 @@ export type UnapproveDeps = {
  * Take back an approval before the send batch delivers it (#1262). Only an
  * approved, unsent, unwithdrawn row can be unapproved; it becomes pending again,
  * so "refresh preview" re-reads its scores and evidence. Every other state is a
- * no-op with no write. A send stamped between the read and the write wins: the
- * write is conditioned on `sent_at IS NULL`, and the miss is named from a re-read.
+ * no-op with no write. A send wins from the moment the batch claims the row,
+ * right before Resend (Operator decisions 99): the write is conditioned on
+ * `sent_at IS NULL AND send_started_at IS NULL`, and a miss is named from a
+ * re-read.
  */
 export async function unapproveReport(
   deps: UnapproveDeps,
@@ -50,6 +52,7 @@ export async function unapproveReport(
 function refuse(report: ReportRow | null, reportId: string): UnapproveResult | null {
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
+  if (report.sendStartedAt !== null) return { status: "noop", reportId, reason: "sending" };
   if (report.withdrawnAt !== null) return { status: "noop", reportId, reason: "withdrawn" };
   if (!report.approvedToSend) return { status: "noop", reportId, reason: "not-approved" };
   return null;

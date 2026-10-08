@@ -1,12 +1,10 @@
 /**
- * #646 step 4: the nightly send reads its QUEUE, its ROSTER and its HEADER PLATE
- * from Turso, and writes its sent stamp there.
- *
- * The rest of the send suite injects those from in-memory fixtures, because what
- * it pins is the send's own behaviour. This file wires what the CLI wires —
- * `listSendableReports`, `listSites`, `loadHeaderImage` and `mirrorReportPatch`
- * over a REAL migrated libSQL database in a temp `file:` (never `:memory:`, never
- * a `TURSO_*` url from the environment).
+ * #1262 (Operator decisions 99): an unapprove racing the send batch, through the
+ * real send loop and the real unapprove handler over one temp libSQL database.
+ * Before the claim, an unapprove fired during the Resend call answered 200
+ * "unapproved" while the email went out, leaving the row unapproved and sent.
+ * The setup is send-turso.test.ts's; TURSO_* is overwritten so the handler opens
+ * the same temp database.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -21,6 +19,7 @@ import {
   claimReportForSend,
 } from "../../../src/db/fleet-state.js";
 import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images.js";
+import unapproveReportHandler from "../../../netlify/functions/unapprove-report.mjs";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
 
@@ -45,6 +44,7 @@ const SITE = "recTURSOSITE";
 const REPORT = "recTURSOREPORT";
 const PLATE = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
+const ORIGINAL_ENV = { ...process.env };
 let dir: string;
 let db: Db;
 
@@ -67,7 +67,10 @@ beforeEach(async () => {
     throw new Error("the send fetched something — the Turso plate was not used");
   }) as unknown as typeof global.fetch;
   dir = mkdtempSync(join(tmpdir(), "send-turso-"));
-  db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
+  process.env = { ...ORIGINAL_ENV, DASHBOARD_PASSWORD: "s3cret" };
+  delete process.env.TURSO_AUTH_TOKEN;
+  process.env.TURSO_DATABASE_URL = `file:${join(dir, "fleet.db")}`;
+  db = await openDb({ url: process.env.TURSO_DATABASE_URL });
   await mirrorSiteInsert(
     db,
     {
@@ -128,6 +131,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  process.env = { ...ORIGINAL_ENV };
   await db.destroy();
   rmSync(dir, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -152,52 +156,99 @@ const io = () => ({
   },
 });
 
-describe("the send path, read from Turso", () => {
-  it("sends a queued report from Turso alone — queue, roster and header plate — and stamps it there", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const { client, captured } = captureClient();
-    const res = await sendApprovedReports({ ...io(), resend: client });
+const AUTH = "Basic " + Buffer.from("op:s3cret").toString("base64");
 
-    expect(res.code).toBe(0);
-    expect(res.output).toContain("✓ sent:");
-    expect(captured).toHaveLength(1);
-    expect(captured[0]!.to).toEqual(["owner@turso.example.com"]);
-    // The plate came from the database, and no attachment was fetched (the stubbed
-    // fetch above throws if one is).
-    expect(log.mock.calls.flat().join("\n")).toContain(
-      `REPORT_SEND report=Turso Co — Maintenance — 2026-09-17 site=Turso Co header=turso`,
-    );
-    const stamped = await db
-      .selectFrom("reports")
-      .select(["sent_at", "resend_message_id"])
-      .where("id", "=", REPORT)
-      .executeTakeFirstOrThrow();
-    expect(stamped.sent_at).not.toBeNull();
-    expect(stamped.resend_message_id).toBe("msg_turso_1");
-    expect(await listSendableReports(db)).toEqual([]);
-  });
+async function unapprove(): Promise<{ status: number; body: unknown }> {
+  const res = await unapproveReportHandler(
+    new Request(`https://x/api/reports/${REPORT}/unapprove`, {
+      method: "POST",
+      headers: { authorization: AUTH },
+    }),
+    { params: { id: REPORT } } as never,
+  );
+  return { status: res.status, body: await res.json() };
+}
 
-  it("a report that is not approved is not in the queue at all", async () => {
-    await db.updateTable("reports").set({ approved_to_send: 0 }).where("id", "=", REPORT).execute();
+const state = () =>
+  db
+    .selectFrom("reports")
+    .select(["approved_to_send", "sent_at", "send_started_at", "unapproved_at"])
+    .where("id", "=", REPORT)
+    .executeTakeFirstOrThrow();
+
+describe("unapprove vs the send batch (Operator decisions 99)", () => {
+  it("control: an unapprove before the queue read means nothing is sent", async () => {
+    expect((await unapprove()).status).toBe(200);
     const { client, captured } = captureClient();
     const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
     expect(captured).toHaveLength(0);
   });
 
-  it("no plate in Turso: the report fails, naming the command that fixes it", async () => {
+  it("an unapprove during the Resend call loses: 409 sending, and the row ends approved and sent", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    let during: { status: number; body: unknown } | null = null;
+    const captured: ResendSendInput[] = [];
+    const client: ResendClient = {
+      async send(input) {
+        during = await unapprove();
+        captured.push(input);
+        return { messageId: "msg_race" };
+      },
+    };
+    const res = await sendApprovedReports({ ...io(), resend: client });
+    expect(during).toEqual({
+      status: 409,
+      body: { status: "noop", reportId: REPORT, reason: "sending" },
+    });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    const r = await state();
+    expect(r.approved_to_send).toBe(1);
+    expect(r.sent_at).not.toBeNull();
+    expect(r.send_started_at).not.toBeNull();
+    expect(r.unapproved_at).toBeNull();
+  });
+
+  it("an unapprove after the queue read but before the claim wins: no email, the report is skipped", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    let during: { status: number; body: unknown } | null = null;
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...io(),
+      resend: client,
+      loadHeaderPlate: async (siteId: string) => {
+        during = await unapprove();
+        return (await loadHeaderImage(db, siteId))?.bytes ?? null;
+      },
+    });
+    expect(during).toEqual({
+      status: 200,
+      body: { status: "unapproved", reportId: REPORT },
+    });
+    expect(captured).toHaveLength(0);
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("skipped (unapproved or withdrawn since the queue was read)");
+    const r = await state();
+    expect(r.approved_to_send).toBe(0);
+    expect(r.sent_at).toBeNull();
+    expect(r.send_started_at).toBeNull();
+  });
+
+  it("a claim whose run died before the stamp is re-claimed and sent by the next run", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
     await db
-      .updateTable("sites")
-      .set({ header_image: null, header_image_filename: null, header_image_type: null })
-      .where("id", "=", SITE)
+      .updateTable("reports")
+      .set({ send_started_at: "2026-10-08T16:07:03.000Z" })
+      .where("id", "=", REPORT)
       .execute();
+    expect((await unapprove()).status).toBe(409);
     const { client, captured } = captureClient();
     const res = await sendApprovedReports({ ...io(), resend: client });
-    expect(res.code).toBe(1);
-    expect(res.output).toContain(
-      "no Header image: no header plate in Turso — run `reddoor-maint header-image turso-co --write-back`",
-    );
-    expect(captured).toHaveLength(0);
-    expect((await listSendableReports(db)).map((r) => r.id)).toEqual([REPORT]);
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    const r = await state();
+    expect(r.sent_at).not.toBeNull();
+    expect(r.send_started_at).not.toBe("2026-10-08T16:07:03.000Z");
   });
 });
