@@ -112,6 +112,8 @@ describe("defaultResendClient", () => {
     ["missing_required_field", true],
     ["application_error", false],
     ["internal_server_error", false],
+    ["concurrent_idempotent_requests", false],
+    ["invalid_idempotent_request", false],
   ])("a `%s` from the SDK is a definite rejection: %s (#1262)", async (name, definite) => {
     sendMock.mockResolvedValue({ data: null, error: { message: "m", name } });
     const err = await defaultResendClient()

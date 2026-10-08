@@ -294,6 +294,16 @@ describe("unapprove vs the send batch (Operator decisions 100)", () => {
     });
   });
 
+  it("a release never touches a stamped row's claim", async () => {
+    await db
+      .updateTable("reports")
+      .set({ send_started_at: "2026-10-09T16:07:03.000Z", sent_at: "2026-10-09T16:07:05.000Z" })
+      .where("id", "=", REPORT)
+      .execute();
+    await releaseSendClaim(db, REPORT);
+    expect((await state()).send_started_at).toBe("2026-10-09T16:07:03.000Z");
+  });
+
   it("an ambiguous send failure keeps its claim: the email may have left, so unapprove still loses", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const client: ResendClient = {

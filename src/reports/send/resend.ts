@@ -63,8 +63,15 @@ export function defaultResendClient(): ResendClient {
 /** #1262: the SDK names an error `application_error` when the request never got
  *  a parseable answer (a network failure, an unparseable 5xx), and Resend itself
  *  answers `internal_server_error` for its own failures. The email may have gone
- *  out in either case. Every other named error is Resend refusing the send. */
-const AMBIGUOUS_RESEND_ERRORS = new Set(["application_error", "internal_server_error"]);
+ *  out in either case. The two idempotency 409s mean a send under the same key
+ *  is in flight or already went out. Every other named error is Resend refusing
+ *  the send. */
+const AMBIGUOUS_RESEND_ERRORS = new Set([
+  "application_error",
+  "internal_server_error",
+  "concurrent_idempotent_requests",
+  "invalid_idempotent_request",
+]);
 
 /** True only when Resend answered and refused the send, so no email went out. */
 export function isDefiniteRejection(err: unknown): boolean {
