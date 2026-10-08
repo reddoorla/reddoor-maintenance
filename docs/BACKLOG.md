@@ -3502,14 +3502,15 @@ channels but were not named as projects.
         no clock alarm.
 
       All of these are fixed in `a6387d43`.
+
     - **Round 2** found two behaviour defects, both by reading the workflow,
       neither reproduced live.
-      1. *One mode's run closes the other mode's failure issue.* A failed
+      1. _One mode's run closes the other mode's failure issue._ A failed
          06:07Z draft run opens "Daily reports run failing". The 16:07Z send
          run then skips drafting, goes green and closes the issue as
          "Recovered" while drafting is still broken.
-      2. *The send-only fallback cron (`23 13 * * *`) sends whenever GitHub
-         starts it* (about 17:00–22:40Z), even after the 16:07Z send ran. A
+      2. _The send-only fallback cron (`23 13 * * *`) sends whenever GitHub
+         starts it_ (about 17:00–22:40Z), even after the 16:07Z send ran. A
          report approved at 16:30Z goes out that evening while the cockpit
          says "next send 16:07 UTC (~23 h)".
 
