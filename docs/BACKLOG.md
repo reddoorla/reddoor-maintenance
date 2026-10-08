@@ -3539,6 +3539,8 @@ channels but were not named as projects.
     _Pick:_ (a)(i). Both defects have small, local fixes that the mutation
     table can pin, and (i) keeps client email going if Netlify fails. Not
     (c): two reproduced-by-reading behaviour defects are open.
+    **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
+    round; fallback (i), it still sends late when the clock missed.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
