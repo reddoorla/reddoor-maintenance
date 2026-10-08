@@ -10,9 +10,19 @@ export const NIGHTLIES = [
   { file: "fleet-lighthouse.yml", waitMinutes: 50 },
   { file: "fleet-smoke.yml", waitMinutes: 50 },
   { file: "fleet-form-e2e.yml", waitMinutes: 40 },
+  { file: "daily-reports.yml", waitMinutes: 30, inputs: { mode: "draft" } },
 ];
 export const GUARD_HOURS = 12;
 export const POLL_SECONDS = 30;
+export const FETCH_TIMEOUT_MS = 30_000;
+export const DISPATCHER = "github-actions[bot]";
+export const CLOCK_UTC = "06:07";
+
+export function clockDeadline(ms) {
+  const d = new Date(ms);
+  const [h, m] = CLOCK_UTC.split(":").map(Number);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m) + 30 * 60_000;
+}
 const API = "https://api.github.com";
 
 const isoZ = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -57,6 +67,7 @@ function client({ fetch, token, repo }) {
       method,
       headers: body ? { ...headers, "content-type": "application/json" } : headers,
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${text.slice(0, 300)}`);
@@ -64,41 +75,55 @@ function client({ fetch, token, repo }) {
   };
 }
 
-export async function priorSuccess(api, { now, runId }) {
+export async function alreadyConducted(api, file, { now }) {
   const since = isoZ(now - GUARD_HOURS * 3600_000);
   const body = await api(
     "GET",
-    `actions/workflows/${CONDUCTOR}/runs?status=success&created=${encodeURIComponent(`>=${since}`)}&per_page=20`,
+    `actions/workflows/${file}/runs?event=workflow_dispatch&branch=main&created=${encodeURIComponent(`>=${since}`)}&per_page=50`,
   );
-  if (!Array.isArray(body.workflow_runs)) throw new Error("runs listing had no workflow_runs");
+  if (!Array.isArray(body.workflow_runs))
+    throw new Error(`${file} runs listing had no workflow_runs`);
   return (
-    body.workflow_runs.find((r) => String(r.id) !== String(runId) && r.conclusion === "success") ??
-    null
+    body.workflow_runs.find(
+      (r) =>
+        r.event === "workflow_dispatch" &&
+        r.head_branch === "main" &&
+        r.triggering_actor?.login === DISPATCHER &&
+        Date.parse(r.created_at) >= now - GUARD_HOURS * 3600_000,
+    ) ?? null
   );
 }
 
-export async function conduct({ fetch, token, repo, runId, only, ref, force, now, sleep, log }) {
+export async function conduct({ fetch, token, repo, only, ref, force, event, now, sleep, log }) {
   const api = client({ fetch, token, repo });
   const clock = now ?? (() => Date.now());
   const say = log ?? ((l) => process.stdout.write(`${l}\n`));
   const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-  if (only.length === 0 && !force) {
-    const prior = await priorSuccess(api, { now: clock(), runId });
-    if (prior) {
-      say(
-        `NIGHTLY_CONDUCTOR skipped: run ${prior.id} (${prior.event}, created ${prior.created_at}) already conducted the nightlies within ${GUARD_HOURS} h`,
-      );
-      return { skipped: true, results: [], code: 0 };
-    }
-  }
+  const startedAt = clock();
   const plan = only.length ? NIGHTLIES.filter((n) => only.includes(n.file)) : NIGHTLIES;
   const results = [];
   for (const n of plan) {
+    if (!force && ref === "main") {
+      let prior;
+      try {
+        prior = await alreadyConducted(api, n.file, { now: clock() });
+      } catch (e) {
+        say(`NIGHTLY ${n.file} guard error=${e.message}; dispatching anyway`);
+      }
+      if (prior) {
+        say(
+          `NIGHTLY ${n.file} skipped: run ${prior.id} (created ${prior.created_at}) was dispatched by the conductor within ${GUARD_HOURS} h`,
+        );
+        results.push({ file: n.file, outcome: "skipped", id: prior.id });
+        continue;
+      }
+    }
     const started = clock();
     let id;
     try {
       const d = await api("POST", `actions/workflows/${n.file}/dispatches`, {
         ref,
+        ...(n.inputs ? { inputs: n.inputs } : {}),
         return_run_details: true,
       });
       id = d.workflow_run_id;
@@ -132,10 +157,19 @@ export async function conduct({ fetch, token, repo, runId, only, ref, force, now
     }
   }
   const count = (o) => results.filter((r) => r.outcome === o).length;
+  const dispatched = count("completed") + count("wait-exceeded");
   say(
-    `NIGHTLY_CONDUCTOR_SUMMARY dispatched=${results.length - count("dispatch-failed")} completed=${count("completed")} wait_exceeded=${count("wait-exceeded")} dispatch_failed=${count("dispatch-failed")} total=${plan.length}`,
+    `NIGHTLY_CONDUCTOR_SUMMARY dispatched=${dispatched} completed=${count("completed")} wait_exceeded=${count("wait-exceeded")} skipped=${count("skipped")} dispatch_failed=${count("dispatch-failed")} total=${plan.length}`,
   );
-  return { skipped: false, results, code: count("dispatch-failed") > 0 ? 1 : 0 };
+  if (event === "schedule" && dispatched > 0 && startedAt >= clockDeadline(startedAt))
+    say(
+      `::warning::NIGHTLY_CONDUCTOR clock-missed: the fallback cron dispatched ${dispatched} nightlies after ${CLOCK_UTC}Z, so the Netlify clock had not run them`,
+    );
+  return {
+    skipped: count("skipped") === plan.length,
+    results,
+    code: count("dispatch-failed") > 0 ? 1 : 0,
+  };
 }
 
 async function main() {
@@ -147,7 +181,7 @@ async function main() {
     fetch: globalThis.fetch,
     token,
     repo,
-    runId: process.env.GITHUB_RUN_ID ?? "",
+    event: process.env.GITHUB_EVENT_NAME ?? "",
     ...o,
   });
   if (process.env.GITHUB_OUTPUT)

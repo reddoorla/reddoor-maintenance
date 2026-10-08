@@ -1,14 +1,16 @@
 name: daily-reports
 
-# M3 daily approval-only loop. One run per day: DRAFT due reports (idempotent —
-# skip site+period already drafted), SEND approved-but-unsent (existing gate),
-# then email the operator DIGEST. This repo is the central scheduler; it's
+# M3 daily approval-only loop, split in two since P1-38 (Operator decisions 98):
+# fleet-nightly dispatches `mode=draft` after the evidence sweeps (DRAFT due
+# reports, idempotent, then the operator DIGEST), and the nightly-send-clock
+# Netlify function dispatches `mode=send` at 16:07Z (SEND approved-but-unsent,
+# existing gate), so client email goes out at a fixed hour. This repo is the central scheduler; it's
 # active, so GitHub's 60-day cron auto-disable never fires — but the keepalive
 # step below is a belt-and-suspenders against a quiet stretch. Cron minute is
 # :23 (non-:00) to dodge the documented top-of-hour scheduler load spike.
 on:
   schedule:
-    - cron: "23 9 * * *" # 09:23 UTC daily, offset off the top of the hour
+    - cron: "23 13 * * *" # send-only fallback; GitHub starts it 5–9 h late, after the 16:07Z send clock
   workflow_dispatch:
     # Manual run from the Actions tab. Left blank, this is the normal daily loop.
     #
@@ -33,6 +35,15 @@ on:
         required: false
         type: string
         default: ""
+      mode:
+        description: "draft = drafts + digest (fleet-nightly), send = approved reports only (nightly-send-clock), all = both"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - draft
+          - send
 
 # Single-flight: a once-daily job can't realistically overlap, but this closes
 # the search-then-create drafting race and stops a manual run colliding with
@@ -101,6 +112,7 @@ jobs:
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
           PREVIEW_SITE: ${{ inputs.preview_site }}
+          MODE: ${{ inputs.mode || 'send' }}
           # `report --due` writes each next-due date into site_schedule
           # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
           # without these it returned null and silently never ran — no warning,
@@ -110,6 +122,10 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
+          if [ "$MODE" = "send" ] && [ -z "$PREVIEW_SITE" ]; then
+            echo "mode=send: no drafting in this run"
+            exit 0
+          fi
           if [ -n "$GA_SA_KEY_JSON" ]; then
             printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
             chmod 600 "$GA_SA_KEY_PATH"
@@ -181,7 +197,13 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-        run: node dist/cli/bin.js report --send-ready
+          MODE: ${{ inputs.mode || 'send' }}
+        run: |
+          if [ "$MODE" = "draft" ]; then
+            echo "mode=draft: client sends wait for the 16:07Z send clock"
+            exit 0
+          fi
+          node dist/cli/bin.js report --send-ready
 
       # 3. DIGEST — one "your fleet today" email to the operator (report
       # --digest, shipped in #163; skips itself when there's nothing to say).
@@ -210,7 +232,12 @@ jobs:
           # only, and `report --digest` also gets run by hand from a laptop.
           OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
           DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
+          MODE: ${{ inputs.mode || 'send' }}
         run: |
+          if [ "${MODE:-}" = "send" ]; then
+            echo "mode=send: the digest went out with this morning's drafts"
+            exit 0
+          fi
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}"
           node dist/cli/bin.js report --digest | tee "$out/digest.out"

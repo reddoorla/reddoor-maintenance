@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "Comma list of nightlies to conduct (e.g. fleet-smoke). Blank = all of them, once a day."
+        description: "Comma list of nightlies to conduct (e.g. fleet-smoke). Blank = all of them."
         required: false
         default: ""
         type: string
       force:
-        description: "Conduct even if a conductor run already succeeded in the last 12 h"
+        description: "Dispatch even a nightly the conductor already dispatched on main in the last 12 h"
         required: false
         default: false
         type: boolean
@@ -28,7 +28,7 @@ permissions:
 jobs:
   conduct:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 270
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -39,7 +39,8 @@ jobs:
           node-version: "24"
 
       - name: Dispatch the nightlies in order
-        timeout-minutes: 230
+        id: conduct
+        timeout-minutes: 260
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ONLY: ${{ inputs.only }}
@@ -76,7 +77,7 @@ jobs:
           fi
 
       - name: Close the nightly-conductor-failing issue on recovery
-        if: success() && github.ref == 'refs/heads/main'
+        if: success() && steps.conduct.outputs.skipped != 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
