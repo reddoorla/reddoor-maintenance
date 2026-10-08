@@ -229,27 +229,28 @@ function preflightChip(findings: PreflightFinding[]): string {
   return `<span class="preflight preflight-ok" title="recipients, header image and report scores all present">preflight ✓</span>`;
 }
 
-/** The next 09:23 UTC daily-run strictly after `now` — when an approved report
- *  actually sends (daily-reports.yml cron). Approve is not send; the row says so. */
+/** The next 16:07 UTC send run strictly after `now` — when an approved report
+ *  actually sends (daily-reports.yml `mode=send`, fired by the nightly-send-clock
+ *  Netlify function, Operator decisions 98). Approve is not send; the row says so. */
 function nextDailyRun(now: Date): Date {
   const run = new Date(now);
-  run.setUTCHours(9, 23, 0, 0);
+  run.setUTCHours(16, 7, 0, 0);
   if (run.getTime() <= now.getTime()) run.setUTCDate(run.getUTCDate() + 1);
   return run;
 }
 
-/** The send-timing line for a pending row. Two honesty rules: (1) between 09:23
- *  and ~10:30 UTC TODAY's run may still be mid-flight (cron start delay + install
+/** The send-timing line for a pending row. Two honesty rules: (1) between 16:07
+ *  and ~17:15 UTC TODAY's run may still be mid-flight (dispatch + install
  *  + build + the draft step) and would sweep a fresh approval within minutes —
  *  claiming "~24h" there would be a lie in the harmful direction, so say the
  *  window out loud instead; (2) the countdown floors (minutes under an hour) so
  *  it never claims more remaining time than exists. */
 function sendTimingLine(now: Date): string {
   const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const RUN_START = 9 * 60 + 23;
-  const GRACE_END = 10 * 60 + 30;
+  const RUN_START = 16 * 60 + 7;
+  const GRACE_END = 17 * 60 + 15;
   if (minuteOfDay >= RUN_START && minuteOfDay < GRACE_END) {
-    return `<span class="muted">today's 09:23 UTC run may still be in flight — approving now can send within minutes</span>`;
+    return `<span class="muted">today's 16:07 UTC send may still be in flight — approving now can send within minutes</span>`;
   }
   const run = nextDailyRun(now);
   const leadMin = Math.floor((run.getTime() - now.getTime()) / 60_000);
@@ -259,7 +260,7 @@ function sendTimingLine(now: Date): string {
       : leadMin >= 1
         ? `~${leadMin} min`
         : "under 1 min";
-  return `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (${lead})</span>`;
+  return `<span class="muted">approve ≠ send: goes out at the next send, 16:07 UTC (${lead})</span>`;
 }
 
 /** Exactly what a send of this report would address, resolved the way the send
@@ -372,8 +373,8 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
           )
         : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
-  // report is awaiting approval: approving schedules the send for the next 09:23
-  // UTC run, so there is a window of up to ~24h in which a typo is still
+  // report is awaiting approval: approving schedules the send for the next 16:07
+  // UTC send, so there is a window of up to ~24h in which a typo is still
   // fixable, and the server's lock is `sentAt`. A pending report already carries
   // its editor in the pending list, so this covers the rest — approved-awaiting-
   // send, and drafts not yet marked ready.

@@ -1499,23 +1499,23 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
     expect(pending).toMatch(/no preview/i);
   });
 
-  it("states when an approved report actually sends: the NEXT 09:23 UTC daily run", () => {
-    // 2026-07-06T15:00Z → next run is 2026-07-07 09:23 UTC, ~18h away.
-    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, NOW);
+  it("states when an approved report actually sends: the NEXT 16:07 UTC send", () => {
+    const t = new Date("2026-07-06T17:30:00Z");
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, t);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
-    expect(pending).toContain("09:23");
-    expect(pending).toMatch(/~18\s?h/);
+    expect(pending).toContain("16:07");
+    expect(pending).toMatch(/~22\s?h/);
   });
 
-  it("computes the same-day run when now precedes 09:23 UTC", () => {
-    const early = new Date("2026-07-06T08:23:00Z"); // 1h before today's run
+  it("computes the same-day run when now precedes 16:07 UTC", () => {
+    const early = new Date("2026-07-06T15:07:00Z");
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, early);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toMatch(/~1\s?h/);
   });
 
   it("warns instead of counting down while today's run may still be in flight", () => {
-    const inFlight = new Date("2026-07-06T09:40:00Z");
+    const inFlight = new Date("2026-07-06T16:20:00Z");
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, inFlight);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toContain("may still be in flight");
@@ -1523,14 +1523,14 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
   });
 
   it("switches to minute granularity under an hour and never overstates", () => {
-    const soon = new Date("2026-07-06T09:00:00Z"); // 23 min before the run
+    const soon = new Date("2026-07-06T15:44:00Z");
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, soon);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toContain("~23 min");
   });
 
   it("floors the hour countdown (19h31m shows ~19h, not ~20h)", () => {
-    const t = new Date("2026-07-06T13:52:00Z");
+    const t = new Date("2026-07-06T20:36:00Z");
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, t);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toContain("~19h");
@@ -1630,7 +1630,7 @@ describe("renderSiteDashboardHtml — report commentary editor (#539 Phase 4)", 
 
 describe("commentary stays editable for the whole unsent window", () => {
   it("renders the editor for an APPROVED but not-yet-sent report", () => {
-    // Approval schedules the send for the next 09:23 UTC run, so there is a
+    // Approval schedules the send for the next 16:07 UTC send, so there is a
     // window of up to ~24h where the operator can still spot a typo. The server
     // allows the edit (the lock is `sentAt`), so the UI has to offer it — an
     // approved report is not in the pending list, it is in the history table.

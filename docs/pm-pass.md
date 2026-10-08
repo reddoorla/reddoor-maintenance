@@ -40,9 +40,17 @@ The prompt lives here so it can be changed by PR, like everything else.
 6. **Land with `node scripts/land-prs.mjs <pr>`** from a worktree detached at
    `origin/main`, after CI is green on the head you read. Push only to the
    branch the harness assigned to the session.
-7. **Time budget: about 45 minutes.** The nightlies fire 3–8 h after their
-   cron minute, so some will still be pending at 05:00 PT. List them by name
-   as pending; do not wait for them.
+7. **Time budget: about 45 minutes.** Since P1-38 the `fleet-nightly`
+   conductor runs backup, prismic-drift, security, lighthouse, smoke,
+   form-e2e and then `daily-reports` in draft mode (drafts and the digest),
+   in that order. The Netlify `nightly-clock` fires it at 06:07Z, or its own
+   02:17Z cron does if GitHub starts that first; whichever comes second
+   skips what the first already dispatched. So all of them should be
+   finished by this pass. Client sends are a separate `daily-reports`
+   `mode=send` run, fired at 16:07Z by `nightly-send-clock` (Operator
+   decisions 98). `release-health` and the weekly jobs still run on GitHub's
+   `schedule`, which starts them about 3.5–9 h after their cron minute. List anything
+   pending by name; do not wait for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
    archive this session." or "Not yet safe to archive: …") does not apply
    to a Routine session, morning or evening, nor to its cockpit replies for
@@ -52,7 +60,14 @@ The prompt lives here so it can be changed by PR, like everything else.
 ## The pass, in order
 
 1. **Nightlies since the last report.** `gh api "repos/reddoorla/reddoor-maintenance/actions/runs?per_page=100&created=<yesterday>..<today>"`
-   filtered to `event == "schedule"`. For each fleet run, read the job log for
+   filtered to `event == "schedule"`, plus the `fleet-nightly` run and the
+   `workflow_dispatch` runs it started: its log prints one
+   `NIGHTLY <workflow> run=<id> conclusion=<c>` line per nightly (or
+   `skipped: run <id>` for one an earlier conductor run already dispatched)
+   and a `NIGHTLY_CONDUCTOR_SUMMARY` line. A `clock-missed` warning means the
+   Netlify clock did not fire and the fallback cron did the work late: report
+   it. If no conductor run dispatched a nightly in the 24 h, it did not run:
+   say so as a finding. For each fleet run, read the job log for
    its `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line; a green run with
    `failed>0` is not green. Note which tracking issues opened or closed.
 2. **The cockpit's Needs-you and Watch state.** From a worktree detached at
@@ -390,13 +405,16 @@ cloud session in the operator's afternoon. It fired at 17:48 PT until
 2026-10-07. The 2026-10-06 review found that none of 42 operator session starts
 or 40 answers since 09-29 fell near that read, that 11:00–15:00 PT is when he
 answers most, and that by 19:48Z most of the day's nightlies have finished
-(release-health on 3 of 4 measured days).
+(release-health on 3 of 4 measured days). Since P1-38 (2026-10-08) the six
+fleet nightlies and the `daily-reports` drafts finish in the early UTC
+morning; client sends go out at 16:07Z, and `release-health` still follows
+GitHub's late `schedule`.
 The operator reads its one notification, then at most the day's `## Evening`
 section, then stops: ten to fifteen minutes. The morning pass ranks the day;
 the evening pass answers one question, **what needs the operator before
-tomorrow morning that the morning report could not see?** Most of the day's
-nightlies, the `daily-reports` drafts (which start between about 14:20Z and 18:40Z) and every worker
-session's ending all happen after the morning pass has finished.
+tomorrow morning that the morning report could not see?** The
+16:07Z client sends and every worker session's ending happen after the
+morning pass has finished.
 
 It exists because of three misses on 2026-10-05. A worker held #1143 and
 wrote its question only on its own branch (`claude/wizardly-brown-2ylvcv`),
@@ -487,11 +505,16 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
 
 2. **Nightlies.** As in the morning pass, step 1: every
    `event == "schedule"` run created in the 24 hours before `date -u`
-   (`created=>=<that time>`), with each fleet run's
+   (`created=>=<that time>`), and the `fleet-nightly` conductor's runs and
+   the nightlies they dispatched, as in morning step 1, with each fleet run's
    `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
    and every tracking issue opened or closed since `<since>`. List any run still
    pending by name. A green run with `failed>0` is not green.
-3. **Today's `daily-reports` drafts.** Read today's `daily-reports` run log.
+3. **Today's `daily-reports` drafts and sends.** Read today's 16:07Z
+   `daily-reports send` run (its run-name says the mode): did it succeed, and
+   is "Daily reports run failing (send)" open? A fallback run whose log says
+   `send-clock-missed` or `send-run-failed` sent late: report which. Then read
+   this morning's `daily-reports draft` run log.
    Then, SELECT only, the reports that are pending approval (draft ready, not
    approved, not sent, not withdrawn: `isPendingApproval` in
    `src/reports/report-row.ts`). Write one exact ask per draft: "approve on
