@@ -3434,6 +3434,57 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       from us since [M, 2026-10-07]. Minutes: unknown. Source
       `docs/operating-model-review-2026-09-29.md:207-208`.
 
+98. **P1-38: when `daily-reports` runs, which is when client email goes out
+    (new 2026-10-08, asked 2026-10-08 ~16:00Z, #1258, #1259 on
+    `claude/gifted-cori-7zkrzx`).** #1259 has the six fleet nightlies
+    started at 06:07Z by a `fleet-nightly` conductor, which a Netlify
+    scheduled function fires, so they should finish by about 07:30Z.
+    `daily-reports` is left on its own cron, `23 9 * * *`, which GitHub
+    starts 5–9 h late (10-07: 16:41Z; 14:21Z–18:36Z over 10 days) [M]. Its
+    `--send-ready` step is what emails approved reports to clients: approving
+    in the cockpit only sets the flag, and Vineyard, approved, went out with
+    the 10-07 16:41Z run [M]. So moving the run moves client email. On 10-07
+    it also ran before smoke (17:09Z), so the evidence it reads was a day
+    old [M].
+    _Ask:_ (a) **split**: the conductor drafts and sends the digest right
+    after security, lighthouse and smoke (about 07:30Z, 00:30 PT), and a
+    second Netlify clock sends approved reports at a fixed **16:07Z (09:07
+    PDT, 08:07 PST; 12:07 ET)**. (b) **Split, sends unchanged**: drafts and
+    digest move early, and sends stay on the late GitHub cron (about
+    07:00–11:30 PT, varying). (c) **All in the conductor**: drafts, sends
+    and digest at about 07:30Z, so clients get email around 00:30 PT /
+    03:30 ET. (d) **Leave it**: drafts keep arriving 14:00Z–18:40Z, and P1-38's
+    done-when excludes `daily-reports`.
+    _Pick:_ (a). The drafts and digest are ready before the operator's day
+    and always follow fresh evidence, and clients get email at the same
+    business hour every day instead of at a time GitHub picks. The cost is a
+    `mode` input on `daily-reports` (drafts and digest, or sends only) and a
+    second scheduled function. It is the same `GH_TOKEN` and still no new
+    secret.
+    **Answered 2026-10-08 (AskUserQuestion): (a) split, fixed send at
+    16:07Z.** Built in #1259.
+
+## Active projects (the operator's list, read by the PM pass)
+
+The morning report's `## Projects` section gives one status line for each,
+in this order (`docs/pm-pass.md`, step 7). Proposed from the live state on
+2026-10-08 (sites `building` or `launching` in Turso, Discord channels active
+in the last 14 days) and adopted by the operator the same day. Add or drop a
+project only on the operator's word.
+
+1. **Williamson Construction**: building; cutover Wed 10-14 (P0-5).
+2. **Williamson Homes**: building.
+3. **Mantis Landscaping**: building; Blux → native (P1-30).
+4. **Roalson Interests**: building; `#roalson-interests`.
+5. **CalTex**: Erik's changes; `#caltex`.
+6. **Gift of Life Alliance (GOLA)**: `#gift-of-life-alliance`.
+7. **Alamo Anatomy and Hedloc**: launching, waiting on their clients (one line for both).
+
+Not on it: The Tower Burbank and The Pointe Burbank (proofs of concept, the
+operator 2026-10-04), and the Maintenance reports (the top of stack covers
+them). Revogen, Vida Legacy Foundation and Trinity Law School have active
+channels but were not named as projects.
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
