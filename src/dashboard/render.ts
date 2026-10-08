@@ -282,7 +282,7 @@ function recipientsLine(site: WebsiteRow): string {
 function rerenderButton(r: ReportRow): string {
   if (r.sentAt !== null) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
-  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores (runs in Actions; takes a minute or two)">refresh preview</button>`;
+  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores; approved or not, re-run the site's Search Console lookup (runs in Actions; takes a minute or two)">refresh preview</button>`;
 }
 
 /** The dashboard's own preview route for a report body (served from Turso). */

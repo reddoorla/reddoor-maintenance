@@ -45,6 +45,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   storeRenderedHtml: async () => {},
   storeChecklistEvidence: vi.fn(async () => true),
   storeLighthouseScores: vi.fn(async () => true),
+  mirrorHealthFields: vi.fn(async () => true),
 }));
 vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/reports/draft.js")>()),
@@ -52,11 +53,16 @@ vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
     value: { foundOnPage1: true, position: 2, propertyFound: true },
     softFailed: false,
     notConfigured: false,
+    lookup: { outcome: "resolved", property: "https://www.acme.com/" },
   })),
 }));
 
 import { runReportCommand } from "../../src/cli/commands/report.js";
-import { storeChecklistEvidence, storeLighthouseScores } from "../../src/db/fleet-state.js";
+import {
+  mirrorHealthFields,
+  storeChecklistEvidence,
+  storeLighthouseScores,
+} from "../../src/db/fleet-state.js";
 import { fetchSearch } from "../../src/reports/draft.js";
 
 describe("report --rerender binds the Google Indexed re-measure to the real IO", () => {
@@ -87,5 +93,20 @@ describe("report --rerender binds the score refresh to the real IO (P1-34)", () 
       "report_X",
       { performance: 100, accessibility: 100, bestPractices: 100, seo: 100 },
     ]);
+  });
+});
+
+describe("report --rerender binds the Search Console lookup write-back to the real IO (P1-36)", () => {
+  it("writes the lookup's three cells to the refreshed report's site", async () => {
+    const out = await runReportCommand(undefined, { rerender: "report_X" });
+    expect(out.output).toContain("lookup=resolved");
+    const [db, siteId, fields] = vi.mocked(mirrorHealthFields).mock.calls.at(-1)!;
+    expect(db).toEqual({});
+    expect(siteId).toBe("recSITE");
+    expect(fields).toMatchObject({
+      "Search Console Outcome": "resolved",
+      "Search Console Resolved": "https://www.acme.com/",
+    });
+    expect(typeof fields["Search Console Checked At"]).toBe("string");
   });
 });
