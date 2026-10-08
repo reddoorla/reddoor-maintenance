@@ -3520,7 +3520,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       means no email goes out, and the brief's done-when ("the send wins and
       the unapprove reports that it lost") becomes true for an in-flight send.
       **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
-      on `claude/nice-thompson-mxumf1`.
+      in #1270.
 
 ## Active projects (the operator's list, read by the PM pass)
 
@@ -3672,6 +3672,16 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
+- 2026-10-08 — #1262: "Unapprove" on `/s/<slug>` for an approved, unsent
+  report (#1270). The operator asked for it from the cockpit after Data
+  Dynamiq's October report was approved 20 s before its refresh preview and
+  kept best practices 78. `POST /api/reports/:id/unapprove` clears the
+  approval and the send-anyway flag, stamps `unapproved_at` / `unapproved_by`,
+  and puts the report back in pending, where refresh preview re-reads its
+  scores. Per Operator decisions 100, `--send-ready` claims each report
+  (`send_started_at`) right before Resend, under the `approved_at` it read; an
+  unapprove refuses a claimed row, and a lost claim skips the report. A send
+  Resend refuses outright releases its claim; an ambiguous failure keeps it.
 - 2026-10-07 — P1-35: the daily PM pass reads the cockpit's Needs-you and
   Watch state (issue #1241, #1244). `scripts/pm-cockpit.mts` builds
   `buildCockpitModel` from the same Turso inputs
