@@ -169,6 +169,8 @@ function harness(seed: Seed, plates: string[] = seed.Websites.map((w) => w.id)) 
       reportSentMirror: async (id: string, sentAt: Date, messageId: string | null) => {
         stamps.push({ id, sentAt, messageId });
       },
+      claimForSend: async () => true,
+      releaseSendClaim: async () => {},
       siteMirror: {
         health: async () => {},
         site: async (id: string, fields: Record<string, unknown>) => {
@@ -191,6 +193,45 @@ describe("sendApprovedReports", () => {
     expect(h.stamps).toEqual([]);
     expect(res.output).toContain("skipped (withdrawn)");
     expect(res.code).toBe(0);
+  });
+
+  it("a lost claim skips the report: no email, no stamp, a green run (#1262)", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const claims: string[] = [];
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      claimForSend: async (id) => {
+        claims.push(id);
+        return false;
+      },
+    });
+    expect(claims).toHaveLength(1);
+    expect(captured).toHaveLength(0);
+    expect(h.stamps).toEqual([]);
+    expect(res.output).toContain("skipped (unapproved or withdrawn since the queue was read)");
+    expect(res.code).toBe(0);
+  });
+
+  it("the claim is taken before Resend is called, never after (#1262)", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
+    const order: string[] = [];
+    const client: ResendClient = {
+      async send() {
+        order.push("send");
+        return { messageId: "msg_1" };
+      },
+    };
+    await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      claimForSend: async () => {
+        order.push("claim");
+        return true;
+      },
+    });
+    expect(order).toEqual(["claim", "send"]);
   });
 
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {

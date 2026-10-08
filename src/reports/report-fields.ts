@@ -59,6 +59,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): Re
     overrideAt: (f["Override at"] as string | undefined) ?? null,
     withdrawnAt: (f["Withdrawn at"] as string | undefined) ?? null,
     withdrawnBy: (f["Withdrawn by"] as string | undefined) ?? null,
+    sendStartedAt: (f["Send started at"] as string | undefined) ?? null,
   };
 }
 

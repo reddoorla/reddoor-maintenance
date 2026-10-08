@@ -3526,7 +3526,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       means no email goes out, and the brief's done-when ("the send wins and
       the unapprove reports that it lost") becomes true for an in-flight send.
       **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
-      on `claude/nice-thompson-mxumf1`.
+      in #1270.
 
 ## Active projects (the operator's list, read by the PM pass)
 
@@ -3691,6 +3691,16 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   To clear the 10-05 Watch lines for Data Dynamiq and LAHI (both October
   reports approved, unsent, read 10-08 ~15:50Z): press "refresh preview" on
   each report and look for `lookup=resolved` in the run's line.
+- 2026-10-08 — #1262: "Unapprove" on `/s/<slug>` for an approved, unsent
+  report (#1270). The operator asked for it from the cockpit after Data
+  Dynamiq's October report was approved 20 s before its refresh preview and
+  kept best practices 78. `POST /api/reports/:id/unapprove` clears the
+  approval and the send-anyway flag, stamps `unapproved_at` / `unapproved_by`,
+  and puts the report back in pending, where refresh preview re-reads its
+  scores. Per Operator decisions 100, `--send-ready` claims each report
+  (`send_started_at`) right before Resend, under the `approved_at` it read; an
+  unapprove refuses a claimed row, and a lost claim skips the report. A send
+  Resend refuses outright releases its claim; an ambiguous failure keeps it.
 - 2026-10-08 — P1-37: spam pass (issue #1257). `vasdirect.com` is blocked
   (6/6 spam, every row read; its 10-08 copy had reached the inbox), with
   `virtualeaseservice.com` (7/7), `parallelaid.com` (3/3) and `erpfunds.com`

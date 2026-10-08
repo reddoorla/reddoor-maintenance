@@ -18,6 +18,8 @@ import {
   listSites,
   mirrorReportPatch,
   mirrorSiteInsert,
+  claimReportForSend,
+  releaseSendClaim,
 } from "../../../src/db/fleet-state.js";
 import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images.js";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
@@ -136,6 +138,9 @@ const io = () => ({
   sendable: () => listSendableReports(db),
   roster: () => listSites(db),
   loadHeaderPlate: async (siteId: string) => (await loadHeaderImage(db, siteId))?.bytes ?? null,
+  claimForSend: (reportId: string, approvedAt: string | null, at: Date) =>
+    claimReportForSend(db, reportId, approvedAt, at),
+  releaseSendClaim: (reportId: string) => releaseSendClaim(db, reportId),
   reportSentMirror: async (reportId: string, sentAt: Date, messageId: string | null) => {
     await mirrorReportPatch(db, reportId, {
       sent_at: sentAt.toISOString(),

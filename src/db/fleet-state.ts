@@ -573,6 +573,7 @@ function reportRowFromDb(
     overrideAt: r.override_at,
     withdrawnAt: r.withdrawn_at,
     withdrawnBy: r.withdrawn_by,
+    sendStartedAt: r.send_started_at,
   };
 }
 
@@ -617,6 +618,9 @@ export const REPORT_LIST_COLUMNS = [
   "checklist_auto_evidence",
   "withdrawn_at",
   "withdrawn_by",
+  "unapproved_at",
+  "unapproved_by",
+  "send_started_at",
 ] as const;
 
 /** The one thing a list read still needs from the body: whether there IS one.
@@ -774,6 +778,75 @@ export async function patchReportIfOpen(
   if (guard === "withdrawable") q = q.where("approved_to_send", "=", 0);
   const res = await q.executeTakeFirst();
   return res.numUpdatedRows > 0n;
+}
+
+/** #1262: take back an approval, conditioned on the row still being approved,
+ *  unsent, unwithdrawn and unclaimed, so a send that has started wins and this
+ *  matches nothing. Clears the approval and the send-anyway flag with it (a later plain
+ *  approve must not inherit a health-gate bypass); the override's reason, by and
+ *  at stay as its record. Returns whether a row matched. */
+export async function unapproveReportIfUnsent(
+  db: Db,
+  reportId: string,
+  at: Date,
+  by: string,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({
+      approved_to_send: 0,
+      approved_at: null,
+      approved_by: null,
+      send_override: 0,
+      unapproved_at: at.toISOString(),
+      unapproved_by: by,
+    })
+    .where("id", "=", reportId)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("send_started_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262 (Operator decisions 100): the send batch's claim on one report, taken
+ *  right before Resend is called. Conditioned on the row still being sendable
+ *  under the approval the queue read: every approve writes a new `approved_at`
+ *  and an unapprove clears it, so an unapprove, withdraw or re-approve that
+ *  landed after the queue was read wins, and the report (whose body was
+ *  rendered from the stale read) is skipped. A re-run re-claims a row whose
+ *  earlier claim never got a `sent_at`. Returns whether a row matched. */
+export async function claimReportForSend(
+  db: Db,
+  reportId: string,
+  approvedAt: string | null,
+  at: Date,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ send_started_at: at.toISOString() })
+    .where("id", "=", reportId)
+    .where((eb) =>
+      approvedAt === null ? eb("approved_at", "is", null) : eb("approved_at", "=", approvedAt),
+    )
+    .where("draft_ready", "=", 1)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262: drop a claim whose send Resend refused outright. Only on an unsent
+ *  row: a stamped row keeps its claim as part of its record. */
+export async function releaseSendClaim(db: Db, reportId: string): Promise<void> {
+  await db
+    .updateTable("reports")
+    .set({ send_started_at: null })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .execute();
 }
 
 /** Upsert a report row from a column-named record (#539 Phase 5; a new draft
