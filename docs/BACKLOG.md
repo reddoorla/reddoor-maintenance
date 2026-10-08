@@ -3462,6 +3462,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     `mode` input on `daily-reports` (drafts and digest, or sends only) and a
     second scheduled function. It is the same `GH_TOKEN` and still no new
     secret.
+    **Answered 2026-10-08 (AskUserQuestion): (a) split, fixed send at
+    16:07Z.** Built in #1259.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
