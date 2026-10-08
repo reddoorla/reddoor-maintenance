@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BLOCKED_EMAIL_DOMAINS } from "../src/forms/spam-classifier.js";
 
 export const REPO = "disposable-email-domains/disposable-email-domains";
 export const FILE = "disposable_email_blocklist.conf";
@@ -59,8 +58,22 @@ ${domains.join("\n")}
 `;
 }
 
+async function loadBlocked(): Promise<readonly string[]> {
+  try {
+    return (await import("../src/forms/spam-classifier.js")).BLOCKED_EMAIL_DOMAINS;
+  } catch (e) {
+    throw new Error(
+      `cannot load spam-classifier.ts, which imports the snapshot this script writes; restore it with \`git checkout -- src/forms/disposable-domains.snapshot.ts\` and re-run (${String(e)})`,
+      { cause: e },
+    );
+  }
+}
+
 function resolveRef(ref: string | undefined): string {
-  if (ref !== undefined) return ref;
+  if (ref !== undefined) {
+    if (!/^[0-9a-f]{40}$/.test(ref)) throw new Error(`--ref needs a full commit sha, not ${ref}`);
+    return ref;
+  }
   const out = execFileSync("git", ["ls-remote", `https://github.com/${REPO}`, "refs/heads/main"], {
     encoding: "utf8",
   });
@@ -77,10 +90,11 @@ async function main(): Promise<void> {
     else throw new Error(USAGE);
   }
   const commit = resolveRef(ref);
+  const blocked = await loadBlocked();
   const url = `https://raw.githubusercontent.com/${REPO}/${commit}/${FILE}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} answered ${res.status}`);
-  const { domains, excluded } = parseBlocklist(await res.text(), BLOCKED_EMAIL_DOMAINS);
+  const { domains, excluded } = parseBlocklist(await res.text(), blocked);
   const out = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
