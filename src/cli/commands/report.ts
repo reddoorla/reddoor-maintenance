@@ -190,6 +190,7 @@ export async function runReportCommand(
       storeRenderedHtml,
       storeChecklistEvidence,
       storeLighthouseScores,
+      mirrorHealthFields,
     } = await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     const { fetchSearch } = await import("../../reports/draft.js");
@@ -205,6 +206,7 @@ export async function runReportCommand(
           storeChecklistEvidence(db, id, checklist, autoEvidence, search),
         storeScores: (id, scores) => storeLighthouseScores(db, id, scores),
         measureSearch: (site, start, end) => fetchSearch(site, start, end),
+        storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
         now: () => new Date(),
       },
       opts.rerender,
