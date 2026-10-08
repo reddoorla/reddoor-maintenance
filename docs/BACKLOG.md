@@ -3511,7 +3511,7 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   (6/6 spam, every row read; its 10-08 copy had reached the inbox), with
   `virtualeaseservice.com` (7/7), `parallelaid.com` (3/3) and `erpfunds.com`
   (3/3). A `va-template` signal (+60 only when "trained va who" and "our
-  custom ai system" both appear; Operator decisions 98) catches the second VA
+  custom ai system" both appear; Operator decisions 99) catches the second VA
   template, which had sent two copies to the inbox at score 0. The CC0
   `disposable-email-domains` list (9,221 domains at `2a79805e`) is vendored into
   the +45 disposable tier only, via `scripts/refresh-disposable-domains.mts`. Over

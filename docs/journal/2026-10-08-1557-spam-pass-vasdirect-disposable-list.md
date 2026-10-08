@@ -41,7 +41,7 @@ rounds and an operator call to catch it without catching leads.
   our custom AI system for quoting to feed leads … free consultation?". The
   belief that "no buyer says our" was wrong. Buyers say "our" about what they
   already run.
-- **What landed** (Operator decisions 98, answered (a)): a separate
+- **What landed** (Operator decisions 99, answered (a)): a separate
   `va-template` signal that scores +60 only when both phrases appear in one
   message. Neither phrase is a keyword, so neither can promote a buyer phrase.
   9 of the 12 live copies carry both, including both leaked ones; the other 3

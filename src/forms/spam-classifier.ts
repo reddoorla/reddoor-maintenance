@@ -245,7 +245,7 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
  * phrase to full weight, so a genuine "we have a trained VA who handles our scheduling …
  * do you offer a free consultation?" scored 60 (review round 2, 2026-10-08). Scored only
  * when BOTH appear, the template buckets and a lead describing its own VA or AI system
- * scores nothing (Operator decisions 98).
+ * scores nothing (Operator decisions 99).
  */
 const VA_TEMPLATE_PHRASES: readonly string[] = ["trained va who", "our custom ai system"];
 
