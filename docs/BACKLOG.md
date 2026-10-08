@@ -3517,6 +3517,62 @@ operator 2026-10-04), and the Maintenance reports (the top of stack covers
 them). Revogen, Vida Legacy Foundation and Trinity Law School have active
 channels but were not named as projects.
 
+99. **#1259, P1-38 nightly conductor and the 16:07Z send clock: held after
+    two dirty review rounds (new 2026-10-08, asked 2026-10-08 ~16:20Z, branch
+    `claude/gifted-cori-7zkrzx`, head `a6387d43`).** It is built and CI-green
+    on the first head. A `fleet-nightly` conductor, fired at 06:07Z by a
+    Netlify function on the existing `GH_TOKEN`, runs the six fleet nightlies
+    and then the `daily-reports` drafts and digest. A second Netlify function
+    sends at 16:07Z (Operator decisions 98). The full suite passes, 8939
+    tests. 30 of 31 mutations went red.
+
+    - **Round 1** (3 lenses) found three things.
+      - The guard counted partial, branch and skip runs as "already ran".
+      - One failed dispatch made the next fire repeat the whole pass.
+      - The fakes diverged from the API, and there was no fetch timeout and
+        no clock alarm.
+
+      All of these are fixed in `a6387d43`.
+
+    - **Round 2** found two behaviour defects, both by reading the workflow,
+      neither reproduced live.
+      1. _One mode's run closes the other mode's failure issue._ A failed
+         06:07Z draft run opens "Daily reports run failing". The 16:07Z send
+         run then skips drafting, goes green and closes the issue as
+         "Recovered" while drafting is still broken.
+      2. _The send-only fallback cron (`23 13 * * *`) sends whenever GitHub
+         starts it_ (about 17:00–22:40Z), even after the 16:07Z send ran. A
+         report approved at 16:30Z goes out that evening while the cockpit
+         says "next send 16:07 UTC (~23 h)".
+
+      Round 2 also found these gaps:
+      - The clock-missed signal is only a `::warning::`, so it files no
+        issue.
+      - The conductor's `GITHUB_OUTPUT` key and the workflow's own `run:`
+        script are untested. Dropping `--ref` there would let a branch run
+        dispatch main's nightlies.
+      - The fallback-cron test's title says the opposite of what it asserts.
+      - The clock grace and fetch timeout values are unpinned.
+      - The in-code `event`/`head_branch` checks only repeat the query
+        filters.
+      - The guard's `triggering_actor == github-actions[bot]` is unproven
+        live. If it is wrong, the cost is duplicate runs, not missed ones.
+
+    _Ask:_ (a) **fix and land without a third round.** One failure-issue
+    title per mode. The fallback skips its send when a 16:07Z send already
+    succeeded on main that day. `clock-missed` files a tracking issue. Tests
+    for the output key and the `run:` script argv. Pin the grace and
+    timeout. Then land on green CI with the mutation table in the PR body.
+    (b) Fix, then run a third review round. (c) Land as is.
+    _Sub-ask:_ the fallback either (i) still sends when the clock missed,
+    which can only be late, never earlier than promised, or (ii) never sends,
+    so approved reports wait for the next 16:07Z.
+    _Pick:_ (a)(i). Both defects have small, local fixes that the mutation
+    table can pin, and (i) keeps client email going if Netlify fails. Not
+    (c): two reproduced-by-reading behaviour defects are open.
+    **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
+    round; fallback (i), it still sends late when the clock missed.**
+
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
 The operator keeps the click on zero-blocker Maintenance reports until they have
