@@ -3493,6 +3493,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     _Pick:_ (a). It is the only option where "unapproved" on the dashboard
     means no email goes out, and the brief's done-when ("the send wins and
     the unapprove reports that it lost") becomes true for an in-flight send.
+    **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
+    on `claude/nice-thompson-mxumf1`.
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
