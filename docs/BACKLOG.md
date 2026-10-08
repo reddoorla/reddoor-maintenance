@@ -3464,6 +3464,32 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     **Answered 2026-10-08 (AskUserQuestion): (a) split, fixed send at
     16:07Z.** Built in #1259.
 
+99. **#1264, P1-37 spam pass: held after two dirty review rounds (new
+    2026-10-08, #1257).** #1264 (branch `claude/pensive-fermat-x3wqwb`, head
+    `efb7cb4f`). Built: `vasdirect.com` and three more domains blocked (every
+    row read, all spam), the CC0 disposable list (9,221 domains) vendored into
+    the +45 tier only, and two keywords for the VA flood's second template
+    ("trained va who", "our custom ai system"). Over 90 days of live rows the
+    change flips 7 verdicts, all spam, and touches no genuine lead. Round 1 found a
+    buyer's "a custom AI system … free consultation" scoring 60; the keyword was
+    narrowed to "our …". Round 2 reproduced the same defect through
+    `classifySpam`: "we have a trained VA who handles our scheduling … Do you
+    offer a free consultation?" scores 60, and so does "We'd like our custom AI
+    system for quoting to feed leads … free consultation?". Either keyword
+    promotes a buyer phrase to full weight. No live row hits this today.
+    - _Ask:_ (a) score the template only when both phrases appear together
+      (+60, like lorem-ipsum), and drop both from `SPAM_KEYWORDS` so neither
+      promotes a buyer phrase; (b) drop the two keywords and land the domain
+      blocks and the list without them (vaelitecrew.com-style copies keep
+      reaching the inbox at 0); (c) land as is.
+    - _Pick:_ (a). It keeps the recall: 9 of the 12 live copies carry both
+      phrases, both leaked copies among them, and the other 3 come from domains
+      already blocked. A buyer who writes both phrases in one message is not
+      realistic. It is a
+      ~10-line change plus the round-2 inputs as tests.
+      **Answered 2026-10-08 (AskUserQuestion): (a), the both-phrases
+      signal.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
@@ -3484,6 +3510,62 @@ Not on it: The Tower Burbank and The Pointe Burbank (proofs of concept, the
 operator 2026-10-04), and the Maintenance reports (the top of stack covers
 them). Revogen, Vida Legacy Foundation and Trinity Law School have active
 channels but were not named as projects.
+
+99. **#1259, P1-38 nightly conductor and the 16:07Z send clock: held after
+    two dirty review rounds (new 2026-10-08, asked 2026-10-08 ~16:20Z, branch
+    `claude/gifted-cori-7zkrzx`, head `a6387d43`).** It is built and CI-green
+    on the first head. A `fleet-nightly` conductor, fired at 06:07Z by a
+    Netlify function on the existing `GH_TOKEN`, runs the six fleet nightlies
+    and then the `daily-reports` drafts and digest. A second Netlify function
+    sends at 16:07Z (Operator decisions 98). The full suite passes, 8939
+    tests. 30 of 31 mutations went red.
+
+    - **Round 1** (3 lenses) found three things.
+      - The guard counted partial, branch and skip runs as "already ran".
+      - One failed dispatch made the next fire repeat the whole pass.
+      - The fakes diverged from the API, and there was no fetch timeout and
+        no clock alarm.
+
+      All of these are fixed in `a6387d43`.
+
+    - **Round 2** found two behaviour defects, both by reading the workflow,
+      neither reproduced live.
+      1. _One mode's run closes the other mode's failure issue._ A failed
+         06:07Z draft run opens "Daily reports run failing". The 16:07Z send
+         run then skips drafting, goes green and closes the issue as
+         "Recovered" while drafting is still broken.
+      2. _The send-only fallback cron (`23 13 * * *`) sends whenever GitHub
+         starts it_ (about 17:00–22:40Z), even after the 16:07Z send ran. A
+         report approved at 16:30Z goes out that evening while the cockpit
+         says "next send 16:07 UTC (~23 h)".
+
+      Round 2 also found these gaps:
+      - The clock-missed signal is only a `::warning::`, so it files no
+        issue.
+      - The conductor's `GITHUB_OUTPUT` key and the workflow's own `run:`
+        script are untested. Dropping `--ref` there would let a branch run
+        dispatch main's nightlies.
+      - The fallback-cron test's title says the opposite of what it asserts.
+      - The clock grace and fetch timeout values are unpinned.
+      - The in-code `event`/`head_branch` checks only repeat the query
+        filters.
+      - The guard's `triggering_actor == github-actions[bot]` is unproven
+        live. If it is wrong, the cost is duplicate runs, not missed ones.
+
+    _Ask:_ (a) **fix and land without a third round.** One failure-issue
+    title per mode. The fallback skips its send when a 16:07Z send already
+    succeeded on main that day. `clock-missed` files a tracking issue. Tests
+    for the output key and the `run:` script argv. Pin the grace and
+    timeout. Then land on green CI with the mutation table in the PR body.
+    (b) Fix, then run a third review round. (c) Land as is.
+    _Sub-ask:_ the fallback either (i) still sends when the clock missed,
+    which can only be late, never earlier than promised, or (ii) never sends,
+    so approved reports wait for the next 16:07Z.
+    _Pick:_ (a)(i). Both defects have small, local fixes that the mutation
+    table can pin, and (i) keeps client email going if Netlify fails. Not
+    (c): two reproduced-by-reading behaviour defects are open.
+    **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
+    round; fallback (i), it still sends late when the clock missed.**
 
 ## Clean-send streak ([TEST] report sends, operator's verdict)
 
