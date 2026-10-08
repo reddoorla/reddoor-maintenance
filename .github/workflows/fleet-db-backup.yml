@@ -17,8 +17,6 @@ name: fleet-db-backup
 # The artifact is encrypted (gpg symmetric, BACKUP_PASSPHRASE secret) because a
 # dump carries client lead data (submissions) and site config.
 on:
-  schedule:
-    - cron: "30 4 * * *" # 04:30 UTC — clear of 05:23 prismic-drift / 06:00 security
   workflow_dispatch: {} # manual run from the Actions tab
 
 concurrency:

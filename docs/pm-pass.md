@@ -40,9 +40,14 @@ The prompt lives here so it can be changed by PR, like everything else.
 6. **Land with `node scripts/land-prs.mjs <pr>`** from a worktree detached at
    `origin/main`, after CI is green on the head you read. Push only to the
    branch the harness assigned to the session.
-7. **Time budget: about 45 minutes.** The nightlies fire 3–8 h after their
-   cron minute, so some will still be pending at 05:00 PT. List them by name
-   as pending; do not wait for them.
+7. **Time budget: about 45 minutes.** Since P1-38 the six fleet nightlies
+   (backup, prismic-drift, security, lighthouse, smoke, form-e2e) are started
+   by the `fleet-nightly` conductor, which a Netlify scheduled function
+   (`nightly-clock`) dispatches at 06:07Z, so they should be finished by the
+   11:48Z pass. `daily-reports` and `release-health` still run on GitHub's
+   `schedule`, which starts them 5–9 h after their cron minute, so they are
+   usually pending at 04:48 PT. List anything pending by name; do not wait
+   for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
    archive this session." or "Not yet safe to archive: …") does not apply
    to a Routine session, morning or evening, nor to its cockpit replies for
@@ -52,7 +57,13 @@ The prompt lives here so it can be changed by PR, like everything else.
 ## The pass, in order
 
 1. **Nightlies since the last report.** `gh api "repos/reddoorla/reddoor-maintenance/actions/runs?per_page=100&created=<yesterday>..<today>"`
-   filtered to `event == "schedule"`. For each fleet run, read the job log for
+   filtered to `event == "schedule"`, plus the `fleet-nightly` run and the
+   `workflow_dispatch` runs it started: its log prints one
+   `NIGHTLY <workflow> run=<id> conclusion=<c>` line per nightly and a
+   `NIGHTLY_CONDUCTOR_SUMMARY` line. A conductor run that printed
+   `NIGHTLY_CONDUCTOR skipped` names the run that did the work. If no
+   conductor run did the work in the 24 h, no fleet nightly ran: say so as a
+   finding. For each fleet run, read the job log for
    its `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line; a green run with
    `failed>0` is not green. Note which tracking issues opened or closed.
 2. **The cockpit's Needs-you and Watch state.** From a worktree detached at
@@ -368,12 +379,14 @@ cloud session in the operator's afternoon. It fired at 17:48 PT until
 2026-10-07. The 2026-10-06 review found that none of 42 operator session starts
 or 40 answers since 09-29 fell near that read, that 11:00–15:00 PT is when he
 answers most, and that by 19:48Z most of the day's nightlies have finished
-(release-health on 3 of 4 measured days).
+(release-health on 3 of 4 measured days). Since P1-38 (2026-10-08) the six
+fleet nightlies finish in the early UTC morning; `daily-reports` and
+`release-health` still follow GitHub's late `schedule`.
 The operator reads its one notification, then at most the day's `## Evening`
 section, then stops: ten to fifteen minutes. The morning pass ranks the day;
 the evening pass answers one question, **what needs the operator before
-tomorrow morning that the morning report could not see?** Most of the day's
-nightlies, the `daily-reports` drafts (which start between about 14:20Z and 18:40Z) and every worker
+tomorrow morning that the morning report could not see?** The
+`daily-reports` drafts (which start between about 14:20Z and 18:40Z) and every worker
 session's ending all happen after the morning pass has finished.
 
 It exists because of three misses on 2026-10-05. A worker held #1143 and
@@ -465,7 +478,8 @@ merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
 
 2. **Nightlies.** As in the morning pass, step 1: every
    `event == "schedule"` run created in the 24 hours before `date -u`
-   (`created=>=<that time>`), with each fleet run's
+   (`created=>=<that time>`), and the `fleet-nightly` conductor's runs and
+   the nightlies they dispatched, as in morning step 1, with each fleet run's
    `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
    and every tracking issue opened or closed since `<since>`. List any run still
    pending by name. A green run with `failed>0` is not green.

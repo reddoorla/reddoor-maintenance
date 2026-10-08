@@ -1,0 +1,89 @@
+name: fleet-nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Comma list of nightlies to conduct (e.g. fleet-smoke). Blank = all of them, once a day."
+        required: false
+        default: ""
+        type: string
+      force:
+        description: "Conduct even if a conductor run already succeeded in the last 12 h"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: fleet-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  conduct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Dispatch the nightlies in order
+        timeout-minutes: 230
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
+          REF: ${{ github.ref_name }}
+        run: |
+          args=(--ref "$REF")
+          [ -n "${ONLY:-}" ] && args+=(--only "$ONLY")
+          [ "${FORCE:-}" = "true" ] && args+=(--force)
+          node scripts/nightly-conductor.mjs "${args[@]}"
+
+      - name: Open/update the nightly-conductor-failing tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly conductor failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The **fleet-nightly** conductor run failed, so one or more fleet nightlies may not have been started tonight. Its `NIGHTLY` lines name which dispatch failed; a nightly that started and then failed files its own issue.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-conductor-failing issue on recovery
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly conductor failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered. The nightly conductor is green again." && echo "closed #$n"
+          done
