@@ -2828,6 +2828,16 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     at 18:14Z: the listing serves the PDF link and the (5, 685) crop, and
     the outline frames measure the same as the preview. A package rebuild,
     if Erik corrects it, is a new one-document release.
+    **10-08 ~19:31Z [M, live page]:** the package is now the new-template
+    version (11 pages). The 10-05 one had copied the old Word template. It
+    was rebuilt with the 09-29 generator, which lives only on unmerged
+    roalson-interests branches (`claude/nifty-dirac-2zmegy`, and this
+    listing on `claude/listing-packages-spencer-ranch`). It is in Dropbox
+    beside the other 22. Its FEMA page prints about 4% of the site in
+    Zone A. The other 22 listings still link the old packages on the site;
+    see the 2026-10-08 19:31 journal entry. The Dropbox file request
+    `jh6y6vw6vpc8u4ip4a71` is still open: close it under Dropbox → File
+    requests.
 
 82. **Two Roalson aerials cannot show the whole parcel in the existing card
     frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
