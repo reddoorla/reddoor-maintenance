@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderSiteDashboardHtml, withdrawConfirmText } from "../../src/dashboard/render.js";
+import {
+  renderSiteDashboardHtml,
+  withdrawConfirmText,
+  UNAPPROVE_CONFIRM_TEXT,
+} from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
@@ -335,5 +339,97 @@ describe("Approve / override vs a withdrawn report — the served handlers, exec
     expect(twins).toHaveLength(2);
     await p.click(twins[0]!);
     for (const t of twins) expect(t.textContent).toBe("Approved");
+  });
+});
+
+const UNAPPROVE = "/api/reports/recREP1/unapprove";
+const approved = (over: Partial<ReportRow> = {}) =>
+  pending({
+    approvedToSend: true,
+    approvedAt: "2026-10-08T15:11:12Z",
+    approvedBy: "dashboard",
+    ...over,
+  });
+
+describe("Unapprove (#1262) — rendered only where it can succeed", () => {
+  it("an approved, unsent report carries exactly one Unapprove and no Approve", () => {
+    const p = page([approved()], {});
+    expect(p.find("unapprove")).toHaveLength(1);
+    expect(p.find("approve")).toHaveLength(0);
+  });
+
+  it.each([
+    ["a pending draft", pending()],
+    ["a sent report", approved({ sentAt: "2026-10-09T09:23:00Z" })],
+    ["a withdrawn report", approved({ withdrawnAt: "2026-10-08T00:00:00Z" })],
+  ])("%s carries no Unapprove", (_, r) => {
+    expect(page([r], {}).find("unapprove")).toHaveLength(0);
+  });
+});
+
+describe("Unapprove — the served handler, executed", () => {
+  const withLocation = async (fn: (reload: ReturnType<typeof vi.fn>) => Promise<void>) => {
+    const reload = vi.fn();
+    vi.stubGlobal("location", { reload });
+    try {
+      await fn(reload);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  it("confirm() declined → no request at all, button untouched", async () => {
+    const p = page([approved()], { [UNAPPROVE]: { status: 200, body: { status: "unapproved" } } });
+    p.confirm.mockReturnValue(false);
+    const [u] = p.find("unapprove");
+    await p.click(u!);
+    expect(p.confirm).toHaveBeenCalledWith(UNAPPROVE_CONFIRM_TEXT);
+    expect(p.fetch).not.toHaveBeenCalled();
+    expect(u!.disabled).toBe(false);
+  });
+
+  it("confirm() accepted → exactly one POST, to the UNAPPROVE url, then a reload", async () => {
+    await withLocation(async (reload) => {
+      const p = page([approved()], {
+        [UNAPPROVE]: { status: 200, body: { status: "unapproved" } },
+      });
+      const [u] = p.find("unapprove");
+      await p.click(u!);
+      expect(p.fetch).toHaveBeenCalledTimes(1);
+      expect(p.fetch).toHaveBeenCalledWith(UNAPPROVE, { method: "POST" });
+      expect(u!.textContent).toBe("Unapproved");
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("refused as already sent → stays disabled, says so, no reload", async () => {
+    await withLocation(async (reload) => {
+      const p = page([approved()], {
+        [UNAPPROVE]: { status: 409, body: { status: "noop", reason: "already-sent" } },
+      });
+      const [u] = p.find("unapprove");
+      await p.click(u!);
+      expect(u!.disabled).toBe(true);
+      expect(u!.textContent).toBe("Already sent");
+      expect(reload).not.toHaveBeenCalled();
+    });
+  });
+
+  it("refused as withdrawn → stays disabled and says so", async () => {
+    const p = page([approved()], {
+      [UNAPPROVE]: { status: 409, body: { status: "noop", reason: "withdrawn" } },
+    });
+    const [u] = p.find("unapprove");
+    await p.click(u!);
+    expect(u!.disabled).toBe(true);
+    expect(u!.textContent).toBe("Withdrawn");
+  });
+
+  it("a network error re-enables the button reading Failed", async () => {
+    const p = page([approved()], { [UNAPPROVE]: { status: 0, body: null } });
+    const [u] = p.find("unapprove");
+    await p.click(u!);
+    expect(u!.disabled).toBe(false);
+    expect(u!.textContent).toBe("Failed");
   });
 });

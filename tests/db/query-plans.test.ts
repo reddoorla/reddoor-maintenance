@@ -710,6 +710,18 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       },
     },
     {
+      // #1262: the conditioned unapprove rides on the PK lookup too.
+      name: "unapproveReportIfUnsent (conditioned unapprove)",
+      covers: ["unapproveReportIfUnsent"],
+      run: (db) =>
+        fleetState.unapproveReportIfUnsent(
+          db,
+          "recA",
+          new Date("2026-10-08T00:00:00.000Z"),
+          "dashboard",
+        ),
+    },
+    {
       // The create-side mirror (#539 Phase 5). Its upsert resolves the conflict
       // on `reports.id`, so the plan must land on the PK — an unindexed
       // conflict target would scan the whole HTML-bearing table on every draft.

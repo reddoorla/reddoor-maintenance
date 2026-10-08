@@ -617,6 +617,8 @@ export const REPORT_LIST_COLUMNS = [
   "checklist_auto_evidence",
   "withdrawn_at",
   "withdrawn_by",
+  "unapproved_at",
+  "unapproved_by",
 ] as const;
 
 /** The one thing a list read still needs from the body: whether there IS one.
@@ -773,6 +775,35 @@ export async function patchReportIfOpen(
     .where("draft_ready", "=", 1);
   if (guard === "withdrawable") q = q.where("approved_to_send", "=", 0);
   const res = await q.executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262: take back an approval, conditioned on the row still being approved,
+ *  unsent and unwithdrawn, so a send stamped first wins and this matches
+ *  nothing. Clears the approval and the send-anyway flag with it (a later plain
+ *  approve must not inherit a health-gate bypass); the override's reason, by and
+ *  at stay as its record. Returns whether a row matched. */
+export async function unapproveReportIfUnsent(
+  db: Db,
+  reportId: string,
+  at: Date,
+  by: string,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({
+      approved_to_send: 0,
+      approved_at: null,
+      approved_by: null,
+      send_override: 0,
+      unapproved_at: at.toISOString(),
+      unapproved_by: by,
+    })
+    .where("id", "=", reportId)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }
 

@@ -390,5 +390,7 @@ export function mapReportRecord(rec: RawRecord, renderedHtml: string | null): Re
     rendered_html: renderedHtml,
     withdrawn_at: s(f["Withdrawn at"]),
     withdrawn_by: s(f["Withdrawn by"]),
+    unapproved_at: s(f["Unapproved at"]),
+    unapproved_by: s(f["Unapproved by"]),
   };
 }

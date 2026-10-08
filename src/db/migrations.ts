@@ -618,4 +618,15 @@ export const MIGRATIONS: Migration[] = [
     id: "0040_site_health_lighthouse_failing_audits",
     sql: `ALTER TABLE site_health ADD COLUMN lighthouse_failing_audits TEXT;`,
   },
+  {
+    // #1262: when an approval was last taken back before the send. NULL on a
+    // row that was never unapproved.
+    id: "0041_reports_unapproved_at",
+    sql: `ALTER TABLE reports ADD COLUMN unapproved_at TEXT;`,
+  },
+  {
+    // #1262: who took it back (`dashboard`, the APPROVED_BY convention).
+    id: "0042_reports_unapproved_by",
+    sql: `ALTER TABLE reports ADD COLUMN unapproved_by TEXT;`,
+  },
 ];

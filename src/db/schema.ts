@@ -240,6 +240,10 @@ export interface ReportsTable {
    *  not be sent; NULL on every live row. */
   withdrawn_at: string | null;
   withdrawn_by: string | null;
+  /** #1262 (migrations 0041–0042). The last time an approval was taken back
+   *  before the send; NULL on a row that was never unapproved. */
+  unapproved_at: string | null;
+  unapproved_by: string | null;
 }
 
 /** One prospect-audit run (migration 0009). `token` is the 128-bit unguessable

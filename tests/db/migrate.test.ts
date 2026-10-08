@@ -47,6 +47,8 @@ describe("runMigrations", () => {
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
       "0040_site_health_lighthouse_failing_audits",
+      "0041_reports_unapproved_at",
+      "0042_reports_unapproved_by",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -105,6 +107,8 @@ describe("runMigrations", () => {
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
       "0040_site_health_lighthouse_failing_audits",
+      "0041_reports_unapproved_at",
+      "0042_reports_unapproved_by",
     ]);
   });
 
@@ -167,6 +171,8 @@ describe("runMigrations", () => {
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
       "0040_site_health_lighthouse_failing_audits",
+      "0041_reports_unapproved_at",
+      "0042_reports_unapproved_by",
     ]);
   });
 
@@ -232,6 +238,8 @@ describe("runMigrations", () => {
       "0038_reports_withdrawn_at",
       "0039_reports_withdrawn_by",
       "0040_site_health_lighthouse_failing_audits",
+      "0041_reports_unapproved_at",
+      "0042_reports_unapproved_by",
     ]);
   });
 });
