@@ -2834,6 +2834,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     turns the panel, the arrows move only the highlight, and there is no
     filter by viewport. Built as roalson-interests#270. Hover-to-select (#253) goes
     with the stacked list it lived in.
+    **10-08 15:39Z [M, Discord #roalson-interests]: Erik, "the map+listing
+    width breaks the grid".** Measured on production: from `lg` the pair was a
+    centred 1440 box with no gutters, 80px outside the nav, footer and section
+    rule each side at 1280, 1440 and 1920, 32 at 1024. roalson-interests#278
+    (landed 16:27Z as `ee96b2c`)
+    puts it on the page's `GUTTERS`; phone and tablet unchanged. The map is
+    narrower than Nicole's full-bleed frame now (813 of 1440 at 1440); the
+    reply for Erik in the PR names her to confirm the shape.
 
 84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
     US): held after two dirty review rounds (new 2026-10-05).**
