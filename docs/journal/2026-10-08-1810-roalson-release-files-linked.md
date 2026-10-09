@@ -1,5 +1,7 @@
 ## 2026-10-08 — Roalson release `asP91BIAAH8K23X-` has its two files linked and is ready to publish (Operator decisions 81)
 
+> Superseded in part by 2026-10-08 — Hwy 46 at Spencer Ranch's package rebuilt in the new template, live and in Dropbox.
+
 A worker brief from item 81. The new listing `hwy-46-at-spencer-ranch-blvd` was staged on 10-05 with an empty `package_pdf` and `feature_image`, because the Prismic connector fetches only public URLs. The two files had been sitting on the public roalson-interests branch `claude/pr-shots-1005` all along, under `new-listing/`, so `upload_asset` could fetch them from raw.githubusercontent.com. `search_assets` for "spencer" found nothing before the upload, and "hwy-46" found only the other Highway 46 listing's two files, so there was no duplicate. The uploads are `PdZtQfQJVpiQ5wti` (the PDF, 4,365,280 bytes) and `XInzKwHTlKH1BMzH` (the aerial, 1546×2000). The listing's new version is `asfb-BEAACkAYCSW`. The other 14 documents in the release kept their version ids, read before and after with `diff_release`. The release is not published; that is the operator's.
 
 **The release holds 15 documents, not 23.** Item 81 and the 10-05 entry both say 23. `diff_release` lists 15: 14 crops, 8 of which also move a pin, plus the listing. The 10-05 count seems to have added the 8 pin moves to the 14 crops as if they were separate documents, plus the listing. The brief, read at 17:00Z, already said 15.
