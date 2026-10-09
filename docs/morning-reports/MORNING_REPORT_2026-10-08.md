@@ -152,3 +152,47 @@ more refresh clears it.
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
 ```
+
+## Evening
+
+**Headline: Espada, LA Homelessness Initiative and Revogen went out at 16:40Z. Data Dynamiq is the one draft left: it was refreshed at 18:52Z (best practices 78 → 100, Search Console lookup resolved) and still waits on your approve.**
+
+This pass started at **19:49Z (12:49 PDT)** [M, `date -u`]. `<since>` is #1254's `merged_at`, 2026-10-08T12:06:26Z [M, pulls API].
+
+### Asks (ordered by date)
+
+1. **Due 10-05: approve Data Dynamiq on `/s/data-dynamiq`; it sends with tomorrow's 16:07Z run.** `report-rerender` run 37827548693 (18:52Z) printed `scores=refreshed scores_change=bp:78→100 lookup=resolved` for `report_01M46NNZ…` [M, job log]. The cockpit lists it as the only approval: `Maintenance 2026-10 ready` [M, `pm-cockpit.mts`]. No preflight warning.
+2. **Since 10-06: release PR #1214** (`chore(release): version packages`). `build` green at 19:22Z, `clean` [M]. Yours to merge, as always.
+3. **Since 10-06: #1222, `sharp` 0.35.5 [security].** `build` green on `7d7fd12a` at 15:46Z; `mergeable_state` still `unknown` [M]. The fleet preset holds it ("Automerge: Disabled by config"), so this is a rule working. _Ask:_ merge it.
+4. **From #1275 (open, green, `clean`, 19:32Z):** its item 81 line says the Dropbox file request `jh6y6vw6vpc8u4ip4a71` is still open. _Ask:_ close it under Dropbox → File requests. This line is on the PR's branch only; it reaches `main` when #1275 lands [M, `evening-branches.mjs`].
+
+### Evidence
+
+**Branches** [M]: `EVENING_BRANCHES_SUMMARY main_decision_lines=114 asks=0 decision_lines=2 stale=1 stale_fresh=0 scanned=2 older_skipped=37`. The 114 lines added to "Operator decisions" on `main` today are items 98, 99 and 100 and the Roalson status lines under items 81 and 83, and every one carries its `**Answered 2026-10-08 (AskUserQuestion)**` line: 98 (a), built in #1259; 99 (a), #1264; 100 (a), built in #1270. No new open ask. No ask sits only on a branch. Older unprotected residue: `claude/jolly-keller-9h8tzh` (90 h, no PR).
+
+**Nightlies** (non-PR runs created ≥ 10-07 19:50Z) [M, Actions API and job logs]:
+
+| Run | Created | Result |
+| --- | --- | --- |
+| release-health | 10-07 20:05Z | green |
+| forms-deadletter-replay | 23:19Z, 06:41Z, 14:04Z | green |
+| pm-pass-watch | 02:15Z, 10:55Z (+15:25Z dispatch) | green |
+| renovate | 03:07Z, 18:02Z | green |
+| fleet-db-backup | 11:32Z | green (morning section) |
+| fleet-prismic-drift / -sync | 11:44Z | green (morning section) |
+| fleet-security | 12:30Z | green |
+| fleet-lighthouse | 15:20Z | green |
+| daily-reports (`schedule`) | 16:38Z | green: 0 drafted (4 already drafted 2026-10), **sent Espada, LAHI, Revogen** at 16:40Z, digest skipped ("unchanged since 2026-10-05; 1 items") |
+| fleet-nightly (dispatched by tucksravin) | 16:51Z | green, `NIGHTLY_CONDUCTOR_SUMMARY dispatched=1 completed=1 … total=1` (fleet-smoke only) |
+| fleet-smoke | 16:51Z | green |
+| report-rerender | 15:03Z, 15:05Z, 15:10Z, 18:51Z | green: Espada `p:93→100,bp:78→100`; Revogen `bp:78→100`; Data Dynamiq `scores=locked` at 15:10Z, then `bp:78→100 lookup=resolved` at 18:51Z |
+
+- **fleet-form-e2e did not run in the 24 h.** Its last run is 10-07 17:26Z [M]. #1259 (16:50Z) moved it from its own `schedule` to the conductor, and the hand-dispatched 16:51Z conductor ran smoke only. The first full conductor run is tonight's (06:07Z Netlify clock or 02:17Z cron) [I, from P1-38's done-when "reads 10-09 to 10-11"].
+- No 16:07Z `send` run exists yet: the send clock went live with #1259 after today's 16:07Z. Today's sends came from the old `schedule` run at 16:38Z [M].
+- No tracking issue opened or closed since `<since>` [M, issues API].
+
+**Merged since `<since>`** (17, all tucksravin) [M]: #1255, #1256, #1260, #1263, #1267, #1265, #1266 (docs); #1259 P1-38 conductor + 16:07Z send; #1264 P1-37 spam pass; #1269, #1271, #1272, #1273 (docs/journal); #1270 unapprove + send claim; #1268 P1-36 lookup write-back; #1274 refresh beside Unapprove. Issues #1257, #1258, #1261, #1262 closed with them.
+
+**Open PRs** [M]: #1214 (release, green, clean), #1222 (Renovate security, green, preset-held), #1275 (docs, green, clean, 19:32Z). None red, none a draft.
+
+**Cockpit** [M]: `PM_COCKPIT_SUMMARY broken=0 watch=1 approval=1 sites=17 new=0`. Data Dynamiq's stale `no-property` from the morning is gone (P1-36, #1268). LA Homelessness Initiative still shows `no property matched www.lahomelessnessawareness.org (lookup 2026-10-05)`; its report sent today, so the next draft's lookup replaces it.
