@@ -3931,14 +3931,15 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   - **Long bios.** An open bio grows the section instead of overflowing the fixed 640px box. In the fixture, a bio of Shankar's length would have run 231px (1440) and 511px (1024) onto the footer [M]. His bio is 1,855 characters. The 1,867 first cited here counted the .docx's XML entities, and the fixture's paragraphs are 12 characters longer in all.
   - **Wrapped names** start at the left edge.
   - **Review.** Three rounds. After two dirty rounds the PR was held as Operator decisions 104, and was landed on the operator's answers.
-  - **The content is staged, not live.** The operator activated the Prismic MCP. Shankar's entry is in release `asvLKRIAALUvJrWz`, "Executive Team: add Shankar Annamalai (P1-40)": https://hedloc.prismic.io/builder/upcoming/asvLKRIAALUvJrWz [M, `diff_release`: one document, two deltas, the item added fourth].
-    - Its fields: name "Shankar Annamalai", title "Advisor", headshot asset `tFb0uvkVPwH3KOz0` (1125×1500), and the .docx's five paragraphs, checked byte for byte against the .docx.
-    - `/executive-team` is prerendered, so after publishing the release:
-      1. trigger a Netlify build;
-      2. check the live page;
-      3. post Erik's reply from hedloc#55's body.
-    - Until then the live row shows three members, left-aligned, with the fourth slot empty.
-    - A stray "document" asset, `FyXEaSXx6pW_KKta` (a failed first upload), sits in hedloc's media library. The MCP has no delete, so remove it there by hand.
+  - **Shankar is live** [M, 2026-10-11 21:22Z, https://hedloc.netlify.app/executive-team]. The operator activated the Prismic MCP, the entry was staged in release `asvLKRIAALUvJrWz`, and the operator published it and rebuilt the site. Issue hedloc#54 is closed.
+    - The page's HTML lists Jack, Dan, Ben and Shankar ("Advisor"), with headshot `tFb0uvkVPwH3KOz0`.
+    - At 1440 and 1024 the four sit in one row: x 58/399/740/1081 at 301px, and 41/286/532/778 at 206px.
+    - His bio opens, and its last line ends exactly at the section's content edge.
+    - At 1024 his name wraps to two lines, both starting at the left edge. At 390 the members stack.
+    - No console errors at any width.
+  - **Still the operator's:**
+    - Erik's reply from hedloc#55's body, planned for 10-12.
+    - The stray "document" asset `FyXEaSXx6pW_KKta` (a failed first upload) is still in hedloc's media library on 10-11. The MCP has no delete, so remove it there by hand.
 
 - 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR #1280).
   - **The checklist** is `docs/runbooks/williamson-cutover-2026-10-14.md`. It changes only the apex `A` (to `75.2.60.5`) and the `www` CNAME (to each site's `*.netlify.app` name). Every other record it found is listed as DO NOT TOUCH with its current value. It also carries the 10-13 Netlify custom-domain and TTL steps and a rollback.
