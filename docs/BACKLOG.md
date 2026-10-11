@@ -3675,6 +3675,60 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       round-2 reviewer verified the same fix in three.
       **Answered 2026-10-11 (AskUserQuestion): (a) land on green CI.**
 
+104.  **hedloc#55, P1-40 Hedloc's 4-wide Executive Team row: held after two
+      dirty review rounds (new 2026-10-11, reddoorla/hedloc branch
+      `claude/p1-40-exec-team-4-wide`, head `cb2b13c`; claimed in
+      hedloc#54).** Built:
+      - At `lg` the four members fill one row, left-aligned. The empty first
+        column that held the selected member is now an absolute slot over
+        column one. With today's three members, the columns keep their 301px
+        (1440) and 206px (1024) widths and move one column left [M].
+      - The open bio grows the section instead of overflowing a fixed 640px
+        box. Shankar's bio is 1,867 characters in five paragraphs. In the
+        fixture it would have run 231px (1440) and 511px (1024) past the
+        section's padding, onto the footer [M].
+      - A wrapped name starts at the column's left edge. At 1024 his name
+        wraps, and its second line was centred 34px in [M].
+      - Phone and tablet still stack. CI was green on `ecf2b55`.
+      - **Round 1** (3 lenses) was dirty. Everything it found is fixed in
+        `1527d34`:
+        - A double-click on member 1 opened its bio and then closed it.
+        - Member 1 ignored clicks for 150ms after Close.
+        - The tests could not see the bio: an overlay stuck at opacity 0 or
+          1 passed them.
+        - The fixture borrowed Shankar's surname.
+      - **Round 2** was dirty on two of three lenses. Both are fixed in
+        `520f284` and `cb2b13c`, each with a red test first and its mutant
+        red [M]. The suite passes 75/75 on a 6-worker repeat. Neither commit
+        has been reviewed.
+        - (1) A defect that round 1's fix introduced: a double-click or
+          double-tap on the open card, to close it, fell through to member 1
+          and opened Jack Harper's bio (live data, 1440). The fix is the same
+          `event.detail > 1` guard on the member buttons that the card
+          already has. A nit is also fixed: `mb-4` lines the card's name up
+          with member 1's during the 150ms cross-fade.
+        - (2) Five test mutants survived. The bio panel out of the shared
+          grid cell, the panel without its background, the bio or headshot
+          hidden by a parent's opacity, and members clickable under the
+          bio all passed.
+      - **The content is separate.** The Prismic MCP is still not activated
+        for hedloc. Shankar's entry (name, title "Advisor", headshot, five
+        paragraphs) went to you as a download card. The page is prerendered,
+        so it shows only after a Netlify build. Erik's reply is in the PR
+        body.
+      - _Ask:_
+        - (a) land `cb2b13c` on green CI without a third round;
+        - (b) run a third review round on `520f284..cb2b13c` first, then
+          land if it is clean;
+        - (c) land `ecf2b55` as reviewed, with the card double-click defect
+          live.
+      - _Pick:_ (b). Round 2's defect came from round 1's own fix, so the
+        fix to that fix deserves one look. Erik's date is the week of 12–16
+        Oct, so a round costs nothing that matters. You answered (b) for
+        #1280's similar ask today.
+        **Answered 2026-10-11 (AskUserQuestion): (b), a third review round on
+        `520f284..cb2b13c`, then land if it is clean.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
