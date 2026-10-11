@@ -37,6 +37,7 @@ function fakeGitHub(
     failDispatch?: string[];
     failPollOnce?: string[];
     conclusion?: string;
+    conclusions?: Record<string, string>;
     start?: number;
   } = {},
 ) {
@@ -103,7 +104,10 @@ function fakeGitHub(
       return reply(
         200,
         polls.get(id)! >= need
-          ? { status: "completed", conclusion: opts.conclusion ?? "success" }
+          ? {
+              status: "completed",
+              conclusion: opts.conclusions?.[run.file] ?? opts.conclusion ?? "success",
+            }
           : { status: "in_progress", conclusion: null },
       );
     }
@@ -177,6 +181,65 @@ describe("nightly-conductor — the order and the waits", () => {
           : { ref: "main", return_run_details: true },
       );
     }
+  });
+
+  it("conducts these eight, in this order", () => {
+    expect(ALL).toEqual([
+      "fleet-db-backup.yml",
+      "fleet-prismic-drift.yml",
+      "fleet-prismic-sync.yml",
+      "fleet-security.yml",
+      "fleet-lighthouse.yml",
+      "fleet-smoke.yml",
+      "fleet-form-e2e.yml",
+      "daily-reports.yml",
+    ]);
+  });
+
+  it("dispatches the Prismic pull-sync only after the drift sweep's run completes", async () => {
+    const gh = fakeGitHub({ pollsToComplete: { "fleet-prismic-drift.yml": 5 } });
+    const r = await run(gh);
+    const drift = gh.calls.findIndex((c) => c.includes("fleet-prismic-drift.yml/dispatches"));
+    const sync = gh.calls.findIndex((c) => c.includes("fleet-prismic-sync.yml/dispatches"));
+    expect(drift).toBeGreaterThanOrEqual(0);
+    expect(sync).toBeGreaterThan(drift);
+    expect(
+      gh.calls.slice(drift + 1, sync).filter((c) => c.startsWith("GET actions/runs/")),
+    ).toHaveLength(5);
+    expect(r.results.find((x) => x.file === "fleet-prismic-drift.yml")!.outcome).toBe("completed");
+    expect(r.lines.at(-1)).toMatch(/ total=8$/);
+  });
+
+  it("dispatches the Prismic pull-sync once the drift sweep's whole wait has run out, not before", async () => {
+    const gh = fakeGitHub({ pollsToComplete: { "fleet-prismic-drift.yml": 10_000 } });
+    const r = await run(gh);
+    const wait = NIGHTLIES.find((n) => n.file === "fleet-prismic-drift.yml")!.waitMinutes;
+    const drift = gh.calls.findIndex((c) => c.includes("fleet-prismic-drift.yml/dispatches"));
+    const sync = gh.calls.findIndex((c) => c.includes("fleet-prismic-sync.yml/dispatches"));
+    expect(
+      gh.calls.slice(drift + 1, sync).filter((c) => c.startsWith("GET actions/runs/")),
+    ).toHaveLength((wait * 60) / POLL_SECONDS + 1);
+    expect(r.results.find((x) => x.file === "fleet-prismic-drift.yml")!.outcome).toBe(
+      "wait-exceeded",
+    );
+    expect(r.results.find((x) => x.file === "fleet-prismic-sync.yml")!.outcome).toBe("completed");
+  });
+
+  it("gives the Prismic pull-sync a wait well above its slowest run so far (2m34s)", () => {
+    expect(
+      NIGHTLIES.find((n) => n.file === "fleet-prismic-sync.yml")!.waitMinutes,
+    ).toBeGreaterThanOrEqual(10);
+  });
+
+  it("reports a failed pull-sync as failed, and still runs the nightlies after it", async () => {
+    const gh = fakeGitHub({ conclusions: { "fleet-prismic-sync.yml": "failure" } });
+    const r = await run(gh);
+    expect(r.code).toBe(0);
+    expect(dispatched(gh)).toEqual(ALL);
+    expect(r.results.find((x) => x.file === "fleet-prismic-sync.yml")!.conclusion).toBe("failure");
+    expect(r.lines.filter((l) => l.includes("conclusion=failure"))).toEqual([
+      expect.stringMatching(/^NIGHTLY fleet-prismic-sync\.yml run=\d+ conclusion=failure /),
+    ]);
   });
 
   it("daily-reports drafts last, after every evidence sweep it reads", () => {
@@ -264,6 +327,19 @@ describe("nightly-conductor — each nightly at most once a day", () => {
     expect(r.skipped).toBe(false);
   });
 
+  it("the fallback cron after a conducted night dispatches the pull-sync no second time", async () => {
+    const gh = fakeGitHub({
+      start: Date.parse("2026-10-09T09:00:00Z"),
+      prior: ALL.map((f) => conductedRun(f, Date.parse("2026-10-09T06:10:00Z"))),
+    });
+    const r = await run(gh, { event: "schedule" });
+    expect(dispatched(gh)).toEqual([]);
+    expect(r.results.find((x) => x.file === "fleet-prismic-sync.yml")!.outcome).toBe("skipped");
+    expect(r.lines.at(-1)).toBe(
+      "NIGHTLY_CONDUCTOR_SUMMARY dispatched=0 completed=0 wait_exceeded=0 skipped=8 dispatch_failed=0 total=8",
+    );
+  });
+
   it("a partial --only run suppresses only what it ran", async () => {
     const gh = fakeGitHub({ prior: [conductedRun("fleet-smoke.yml", T0 - HOUR)] });
     await run(gh);
@@ -282,6 +358,13 @@ describe("nightly-conductor — each nightly at most once a day", () => {
     });
     await run(gh);
     expect(dispatched(gh)).toEqual(ALL);
+  });
+
+  it("a conductor on a branch dispatches every nightly, the pull-sync included, on that branch", async () => {
+    const gh = fakeGitHub();
+    await run(gh, { ref: "claude/x" });
+    expect(dispatched(gh)).toEqual(ALL);
+    expect(gh.bodies.map((b) => b.ref)).toEqual(ALL.map(() => "claude/x"));
   });
 
   it("a conductor on a branch never consults main's guard", async () => {
@@ -385,6 +468,7 @@ type Workflow = {
   on: {
     schedule?: { cron: string }[];
     workflow_dispatch?: { inputs?: Record<string, { options?: string[] }> };
+    workflow_run?: unknown;
   };
   permissions: Record<string, string>;
   concurrency: unknown;
@@ -398,6 +482,13 @@ describe("nightly-conductor — the workflows it drives", () => {
       const on = (await load(n.file)).on;
       expect(on, n.file).toHaveProperty("workflow_dispatch");
       expect(on.schedule, n.file).toBeUndefined();
+    }
+  });
+
+  it("no conducted nightly is also chained to another workflow's run, so none runs twice", async () => {
+    for (const n of NIGHTLIES) {
+      const on = (await load(n.file)).on;
+      expect(on, n.file).not.toHaveProperty("workflow_run");
     }
   });
 

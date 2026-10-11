@@ -6,6 +6,7 @@ export const CONDUCTOR = "fleet-nightly.yml";
 export const NIGHTLIES = [
   { file: "fleet-db-backup.yml", waitMinutes: 15 },
   { file: "fleet-prismic-drift.yml", waitMinutes: 20 },
+  { file: "fleet-prismic-sync.yml", waitMinutes: 20 },
   { file: "fleet-security.yml", waitMinutes: 30 },
   { file: "fleet-lighthouse.yml", waitMinutes: 50 },
   { file: "fleet-smoke.yml", waitMinutes: 50 },

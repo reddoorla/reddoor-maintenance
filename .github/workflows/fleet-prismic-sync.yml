@@ -25,9 +25,6 @@ name: fleet-prismic-sync
 # No job restores or saves a cache: a cache written where site code ran could
 # be restored where a token is.
 on:
-  workflow_run:
-    workflows: [fleet-prismic-drift]
-    types: [completed]
   workflow_dispatch: {}
 
 concurrency:
@@ -39,8 +36,6 @@ permissions:
 
 jobs:
   fetch:
-    # The drift sweep's own branch runs never speak for main.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     outputs:
@@ -186,7 +181,7 @@ jobs:
     needs: [fetch, build]
     # Runs after a failed or skipped build too, so a red run anywhere files
     # the tracking issue below; its first step refuses to publish then.
-    if: always() && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main')
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 50
     permissions:
