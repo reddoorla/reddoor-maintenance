@@ -3630,6 +3630,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - _Pick:_ (a). The round-2 fixes are one comparison with its own red
         test and three doc sentences. No reproduced defect is left unfixed.
         **Answered 2026-10-11 by 15:10Z (AskUserQuestion): (b), run a third review round first.**
+      - **Round 3** (`f8e150d3`, the round-2 fixes) found no real defects and
+        three nits. One was carried: the 29 Navy control's
+        swapped-host qualifier. Unquoted attributes and `robots: none`
+        cannot occur with SvelteKit's output. Landed in #1280, per the
+        answer's "then come back if it finds anything".
 
 ## Active projects (the operator's list, read by the PM pass)
 

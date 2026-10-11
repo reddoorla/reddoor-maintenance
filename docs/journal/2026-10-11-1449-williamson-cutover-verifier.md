@@ -56,8 +56,9 @@ The values a DO NOT TOUCH table needs differ between the two domains:
 - **Previews:** GREEN, 32 of 32.
 - **A known-good positive control.** Neither preview exercises the
   production-only checks, so they were run against 29 Navy, a Netlify site
-  already cut over with the same record shape. They passed there, and its
-  unknown path failed with a 404.
+  already cut over with the same record shape. Its apex, not `www`, is the
+  primary host, so the run swapped the two in the site config. The checks
+  passed there, and its unknown path failed with a 404.
 
 32 mutations each turned a test red: the brief's four, plus 28 found by
 review. The table is in the PR.
@@ -100,7 +101,25 @@ apex → `www` → trailing-slash chains pass.
 
 Both are fixed, each with a red test or the doc line. Under the
 two-dirty-rounds rule the PR went to the operator as Operator decisions 101
-instead of into a third round.
+(#1281) instead of into a third round. The operator asked for a third round.
+
+**Round three** found no real defects.
+
+- It tried every shape the round-2 origin check might break: relative,
+  protocol-relative, uppercase and `:443` canonicals all pass, and `:8443`,
+  `http://` and `@evil.com` fail.
+- It read `URL: sslUrl` in `@netlify/config`'s own source, so Tuesday's
+  rebuild bakes `https://www…`.
+- It re-read every DO NOT TOUCH value live.
+
+It left three nits:
+
+- Unquoted attributes go unread. This cannot occur, because SvelteKit always
+  quotes them.
+- `robots: none` is not read as `noindex`.
+- The 29 Navy control needed the qualifier above.
+
+Only the last was carried.
 
 Not taken:
 

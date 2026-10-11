@@ -61,8 +61,9 @@ previews:
 
 Its production-only checks were also run against 29 Navy, a Netlify site
 already cut over with the same record shape (`A 75.2.60.5`, `www` CNAME to its
-`*.netlify.app` name). They passed there, and 29 Navy's unknown paths failed
-with a 404. All of these runs are pasted in the PR that added the verifier.
+`*.netlify.app` name). 29 Navy's apex is its primary host, not `www`, so the
+run swapped the two in the site config. The checks passed there, and 29
+Navy's unknown paths failed with a 404. All of these runs are pasted in the PR that added the verifier.
 
 ## What changes: two records per domain, nothing else
 
