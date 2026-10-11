@@ -3922,9 +3922,8 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   - **Listing.** "Aerial Map" opens Google's satellite view on the pin, and the Details section is now bullets.
   - **Past Projects** needed no code. The control already exists (Operator decisions 102).
   - **Review.** #281 took two rounds (Operator decisions 103). #282 and #283 took three (Operator decisions 105).
-  - **Still the operator's:**
-    1. publish the Prismic release `asuc3hcAAAAleEdb` (the hero subhead, and "Our Legacy" → "About Us");
-    2. post the reply for Erik drafted in #283's body.
+  - **The copy is live.** The operator published the Prismic release `asuc3hcAAAAleEdb`. At 21:23Z the live homepage showed the new hero subhead and "About Us", and "Our legacy" was gone [M].
+  - **Still the operator's:** post the reply for Erik drafted in #283's body.
   - **Filed:** roalson-interests#284–#288. Erik's listing-PDF notes come Mon 10-12.
 - 2026-10-11 — P1-40: Hedloc's Executive Team row is 4 wide at `lg` (hedloc#55, `2641a0e`; issue hedloc#54). Erik's ask from 10-09, "slide these three to the left, and have 4-wide".
   - **Layout.** The empty first column that held the selected member is now an absolute slot over column one, so four members fill the row and the open view is unchanged. Today's three members keep their 301px/206px columns and slide one column left [M].
