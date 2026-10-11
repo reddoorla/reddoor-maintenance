@@ -14,6 +14,8 @@ export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
 export { withdrawReport } from "./withdraw.js";
 export type { WithdrawDeps, WithdrawResult } from "./withdraw.js";
+export { unapproveReport } from "./unapprove.js";
+export type { UnapproveDeps, UnapproveResult } from "./unapprove.js";
 export { setSubmissionStatus, acknowledgeNotifyBounce } from "./submission-status.js";
 export type {
   SubmissionStatusDeps,

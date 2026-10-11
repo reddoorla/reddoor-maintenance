@@ -154,7 +154,7 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
 /**
  * One attention item per unsent draft whose send is ALREADY known to fail
  * (approveBlockers: recipients / header image / report scores). An APPROVED one
- * is critical — the next 09:23 UTC run will go red on it; a pending one is a
+ * is critical — the next 16:07 UTC send run will go red on it; a pending one is a
  * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
  * PURE; same predicate the approve gate and the dashboard chip use.
  */

@@ -357,6 +357,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     overrideAt: null,
     withdrawnAt: null,
     withdrawnBy: null,
+    sendStartedAt: null,
     ...over,
   };
 }
@@ -633,6 +634,7 @@ describe("collectPreflightBlocked", () => {
       autoEvidence: null,
       withdrawnAt: null,
       withdrawnBy: null,
+      sendStartedAt: null,
       ...over,
     }) as ReportRow;
 

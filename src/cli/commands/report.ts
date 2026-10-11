@@ -131,8 +131,13 @@ export async function runReportCommand(
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
     const { mirrorWrite } = await import("../../db/mirror-write.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const { mirrorReportPatch, listSendableReports, listSites } =
-      await import("../../db/fleet-state.js");
+    const {
+      mirrorReportPatch,
+      listSendableReports,
+      listSites,
+      claimReportForSend,
+      releaseSendClaim,
+    } = await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     // #646 step 4: the queue, the roster and the header plate all come from Turso,
     // over ONE connection opened on the first of those reads and closed when the
@@ -163,6 +168,9 @@ export async function runReportCommand(
               ...(messageId !== null ? { resend_message_id: messageId } : {}),
             });
           }),
+        claimForSend: async (reportId, approvedAt, at) =>
+          claimReportForSend(await getFleetDb(), reportId, approvedAt, at),
+        releaseSendClaim: async (reportId) => releaseSendClaim(await getFleetDb(), reportId),
       });
     } finally {
       if (held.db) await held.db.destroy();
@@ -182,6 +190,7 @@ export async function runReportCommand(
       storeRenderedHtml,
       storeChecklistEvidence,
       storeLighthouseScores,
+      mirrorHealthFields,
     } = await import("../../db/fleet-state.js");
     const { loadHeaderImage } = await import("../../db/header-images.js");
     const { fetchSearch } = await import("../../reports/draft.js");
@@ -197,6 +206,7 @@ export async function runReportCommand(
           storeChecklistEvidence(db, id, checklist, autoEvidence, search),
         storeScores: (id, scores) => storeLighthouseScores(db, id, scores),
         measureSearch: (site, start, end) => fetchSearch(site, start, end),
+        storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
         now: () => new Date(),
       },
       opts.rerender,

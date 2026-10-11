@@ -369,9 +369,8 @@ function functionHealthFields(r: FunctionHealthResult): FieldSet {
     // Cloudflare — so this audit cannot tell a working widget from one whose
     // hostname is not on the allowlist (#689). The column is owned by `form-e2e`,
     // which drives a real browser at the real widget and can. Writing it from
-    // both would also be unreachable by the red alarm: this sweep runs at 08:00,
-    // the digest reads at 09:23, form-e2e writes at 10:15 — a browser verdict
-    // would be cleared by this null every morning before the alarm ever saw it.
+    // both would also make the verdict depend on run order: whichever wrote
+    // last would win, so a null from this sweep could hide form-e2e's red.
     "Function health checked at": r.checkedAt,
   };
   return fields as FieldSet;

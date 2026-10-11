@@ -182,6 +182,16 @@ export function withdrawConfirmText(r: ReportRow): string {
   return `${base} If it held back this period's ${held} draft, that one is queued on the next nightly run instead.`;
 }
 
+/** "Unapprove" (#1262): take back an approval before the send batch delivers it.
+ *  The report goes back to pending, where "refresh preview" re-reads its scores. */
+function unapproveButton(r: ReportRow): string {
+  const url = `/api/reports/${encodeURIComponent(r.id)}/unapprove`;
+  return `<button class="unapprove" data-report-id="${escapeHtml(r.id)}" data-unapprove-url="${escapeHtml(url)}" data-confirm="${escapeHtml(UNAPPROVE_CONFIRM_TEXT)}">Unapprove</button>`;
+}
+
+export const UNAPPROVE_CONFIRM_TEXT =
+  "Unapprove this report? It goes back to pending and will not send until it is approved again.";
+
 /** The label a withdrawn report carries in place of any action. */
 function withdrawnLabel(r: ReportRow): string {
   return `<span class="muted withdrawn">Withdrawn ${escapeHtml((r.withdrawnAt ?? "").slice(0, 10))}</span>`;
@@ -229,27 +239,28 @@ function preflightChip(findings: PreflightFinding[]): string {
   return `<span class="preflight preflight-ok" title="recipients, header image and report scores all present">preflight ✓</span>`;
 }
 
-/** The next 09:23 UTC daily-run strictly after `now` — when an approved report
- *  actually sends (daily-reports.yml cron). Approve is not send; the row says so. */
+/** The next 16:07 UTC send run strictly after `now` — when an approved report
+ *  actually sends (daily-reports.yml `mode=send`, fired by the nightly-send-clock
+ *  Netlify function, Operator decisions 98). Approve is not send; the row says so. */
 function nextDailyRun(now: Date): Date {
   const run = new Date(now);
-  run.setUTCHours(9, 23, 0, 0);
+  run.setUTCHours(16, 7, 0, 0);
   if (run.getTime() <= now.getTime()) run.setUTCDate(run.getUTCDate() + 1);
   return run;
 }
 
-/** The send-timing line for a pending row. Two honesty rules: (1) between 09:23
- *  and ~10:30 UTC TODAY's run may still be mid-flight (cron start delay + install
+/** The send-timing line for a pending row. Two honesty rules: (1) between 16:07
+ *  and ~17:15 UTC TODAY's run may still be mid-flight (dispatch + install
  *  + build + the draft step) and would sweep a fresh approval within minutes —
  *  claiming "~24h" there would be a lie in the harmful direction, so say the
  *  window out loud instead; (2) the countdown floors (minutes under an hour) so
  *  it never claims more remaining time than exists. */
 function sendTimingLine(now: Date): string {
   const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const RUN_START = 9 * 60 + 23;
-  const GRACE_END = 10 * 60 + 30;
+  const RUN_START = 16 * 60 + 7;
+  const GRACE_END = 17 * 60 + 15;
   if (minuteOfDay >= RUN_START && minuteOfDay < GRACE_END) {
-    return `<span class="muted">today's 09:23 UTC run may still be in flight — approving now can send within minutes</span>`;
+    return `<span class="muted">today's 16:07 UTC send may still be in flight — approving now can send within minutes</span>`;
   }
   const run = nextDailyRun(now);
   const leadMin = Math.floor((run.getTime() - now.getTime()) / 60_000);
@@ -259,7 +270,7 @@ function sendTimingLine(now: Date): string {
       : leadMin >= 1
         ? `~${leadMin} min`
         : "under 1 min";
-  return `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (${lead})</span>`;
+  return `<span class="muted">approve ≠ send: goes out at the next send, 16:07 UTC (${lead})</span>`;
 }
 
 /** Exactly what a send of this report would address, resolved the way the send
@@ -278,11 +289,12 @@ function recipientsLine(site: WebsiteRow): string {
 /** "Refresh preview": dispatch a re-render so the stored body picks up commentary
  *  edited after drafting. Offered only on an UNSENT report — the endpoint and the
  *  workflow both refuse a sent one, and a button whose only outcome is a refusal
- *  is worse than no button. */
+ *  is worse than no button. An approved one carries it too, beside Unapprove,
+ *  because the refresh still re-runs the site's Search Console lookup (P1-36). */
 function rerenderButton(r: ReportRow): string {
   if (r.sentAt !== null) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
-  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores (runs in Actions; takes a minute or two)">refresh preview</button>`;
+  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores; approved or not, re-run the site's Search Console lookup (runs in Actions; takes a minute or two)">refresh preview</button>`;
 }
 
 /** The dashboard's own preview route for a report body (served from Turso). */
@@ -370,10 +382,14 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
             r,
             approveBlockers(site, r).some((f) => f.level === "fail"),
           )
-        : "";
+        : r.sentAt === null && r.approvedToSend
+          ? r.sendStartedAt === null
+            ? `${rerenderButton(r)} ${unapproveButton(r)}`
+            : `<span class="muted sending">Send started ${escapeHtml((r.sendStartedAt ?? "").slice(0, 16).replace("T", " "))}Z</span>`
+          : "";
   // Commentary stays editable for the WHOLE unsent window, not just while a
-  // report is awaiting approval: approving schedules the send for the next 09:23
-  // UTC run, so there is a window of up to ~24h in which a typo is still
+  // report is awaiting approval: approving schedules the send for the next 16:07
+  // UTC send, so there is a window of up to ~24h in which a typo is still
   // fixable, and the server's lock is `sentAt`. A pending report already carries
   // its editor in the pending list, so this covers the rest — approved-awaiting-
   // send, and drafts not yet marked ready.
@@ -760,6 +776,10 @@ button.withdraw { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.7rem; bor
 button.withdraw:hover:not(:disabled) { background: #9992; }
 button.withdraw:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
 button.withdraw:disabled { opacity: 0.6; cursor: default; }
+button.unapprove { font: inherit; font-size: 0.85rem; padding: 0.3rem 0.7rem; border: 1px solid #999; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+button.unapprove:hover:not(:disabled) { background: #9992; }
+button.unapprove:focus-visible { outline: 2px solid #999; outline-offset: 2px; }
+button.unapprove:disabled { opacity: 0.6; cursor: default; }
 .pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
 .recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
@@ -1156,6 +1176,40 @@ export function renderSiteDashboardHtml(
               });
             } else if (reason === "already-sent") {
               b.textContent = "Already sent";
+            } else {
+              b.textContent = reason ? "Failed: " + reason : "Failed";
+              b.disabled = false;
+            }
+          }
+        } catch {
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // "Unapprove": confirm, then take the approval back. On success the page
+    // reloads, because the report now belongs in the pending list with its
+    // approve, refresh and "Don't send" actions.
+    document.querySelectorAll("button.unapprove").forEach((b) => {
+      b.addEventListener("click", async () => {
+        if (!confirm(b.dataset.confirm)) return;
+        b.disabled = true;
+        try {
+          const res = await fetch(b.dataset.unapproveUrl, { method: "POST" });
+          if (res.ok) {
+            b.textContent = "Unapproved";
+            if (typeof location !== "undefined") location.reload();
+          } else {
+            const data = await res.json().catch(() => null);
+            const reason = data && typeof data.reason === "string" ? data.reason : null;
+            // Sent, mid-send or withdrawn meanwhile: unapproving can never
+            // succeed now.
+            if (reason === "already-sent") {
+              b.textContent = "Already sent";
+            } else if (reason === "sending") {
+              b.textContent = "Sending now";
+            } else if (reason === "withdrawn") {
+              b.textContent = "Withdrawn";
             } else {
               b.textContent = reason ? "Failed: " + reason : "Failed";
               b.disabled = false;

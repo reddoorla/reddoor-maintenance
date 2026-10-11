@@ -14,7 +14,7 @@ name: fleet-prismic-drift
 # own CI is 🔴 under AUTONOMY.md. Each site's models are pushed by that site's own
 # reusable workflow on merge to main, where the PR was the review gate.
 #
-# 05:00 UTC — ahead of the 06:00 security sweep and the 09:23 report drafts, so a
+# Dispatched by fleet-nightly ahead of the security sweep and the report drafts, so a
 # fresh verdict is on the row before the digest reads it.
 #
 # WHAT HAPPENS IF THIS WORKFLOW ITSELF STOPS RUNNING. A nightly that silently dies
@@ -26,8 +26,6 @@ name: fleet-prismic-drift
 # rather than as a fleet of stale green ticks. The two scope predicates are pinned
 # to each other by tests/alerts/prismic-sweep-scope.test.ts.
 on:
-  schedule:
-    - cron: "0 5 * * *" # 05:00 UTC — before 06:00 security and the 09:23 drafts
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one: two sweeps would write verdicts

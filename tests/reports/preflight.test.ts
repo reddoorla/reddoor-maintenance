@@ -46,6 +46,7 @@ function makeReportRow(over: Partial<ReportRow> = {}): ReportRow {
     overrideAt: null,
     withdrawnAt: null,
     withdrawnBy: null,
+    sendStartedAt: null,
     ...over,
   };
 }

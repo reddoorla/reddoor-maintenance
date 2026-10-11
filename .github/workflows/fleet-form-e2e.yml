@@ -15,8 +15,6 @@ name: fleet-form-e2e
 # the starter's contact `buildPayload` forwarding + the /health declaration in
 # one deploy.
 on:
-  schedule:
-    - cron: "15 10 * * *" # 10:15 UTC — clear of 06:00 security / 08:00 lighthouse / 10:00 smoke (separate runners; the offset just staggers store writes)
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one.

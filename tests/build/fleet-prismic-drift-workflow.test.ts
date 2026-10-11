@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { prismicTokenEnvName } from "../../src/prismic/models/token.js";
 import { stepRunScript, stepEnv, workflowUses, workflowPath } from "./_helpers/workflow-source.js";
+import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -390,9 +391,14 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
   // Asserted as an ORDERING against the real workflows rather than as a hard-coded
   // clock, so moving either cron is what breaks this — not editing a comment.
   it("runs before the morning report drafts and before the security sweep", async () => {
-    const drift = await cronMinutes("fleet-prismic-drift.yml");
-    expect(drift).toBeLessThan(await cronMinutes("daily-reports.yml"));
-    expect(drift).toBeLessThan(await cronMinutes("fleet-security.yml"));
+    const order = NIGHTLIES.map((n) => n.file);
+    expect(order.indexOf("fleet-prismic-drift.yml")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("fleet-prismic-drift.yml")).toBeLessThan(
+      order.indexOf("fleet-security.yml"),
+    );
+    expect(await cronMinutes("fleet-nightly.yml")).toBeLessThan(
+      await cronMinutes("daily-reports.yml"),
+    );
   });
 
   it("can be run by hand as well as on the cron", () => {

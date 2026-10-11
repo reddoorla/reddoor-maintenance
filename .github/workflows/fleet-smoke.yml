@@ -11,8 +11,6 @@ name: fleet-smoke
 # 2-core runner. A separate file from fleet-lighthouse so this slow producer never
 # couples to (or slows) the fast deployed-URL sweep.
 on:
-  schedule:
-    - cron: "0 10 * * *" # 10:00 UTC — clear of 06:00 security / 08:00 lighthouse
   workflow_dispatch: {} # manual run from the Actions tab
 
 # Never overlap a manual run with the scheduled one.

@@ -14,7 +14,7 @@ const { sendMock, ResendCtor } = vi.hoisted(() => {
 });
 vi.mock("resend", () => ({ Resend: ResendCtor }));
 
-import { defaultResendClient } from "../../../src/reports/send/resend.js";
+import { defaultResendClient, isDefiniteRejection } from "../../../src/reports/send/resend.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -105,6 +105,26 @@ describe("defaultResendClient", () => {
     await expect(
       client.send({ from: "a@b", to: ["c@d"], subject: "s", html: "<p>h</p>" }),
     ).rejects.toThrow(/^Resend error: An email with this idempotency key already exists$/);
+  });
+
+  it.each([
+    ["validation_error", true],
+    ["missing_required_field", true],
+    ["application_error", false],
+    ["internal_server_error", false],
+    ["concurrent_idempotent_requests", false],
+    ["invalid_idempotent_request", false],
+  ])("a `%s` from the SDK is a definite rejection: %s (#1262)", async (name, definite) => {
+    sendMock.mockResolvedValue({ data: null, error: { message: "m", name } });
+    const err = await defaultResendClient()
+      .send({ from: "a@b", to: ["c@d"], subject: "s", html: "<p>h</p>" })
+      .catch((e: unknown) => e);
+    expect(isDefiniteRejection(err)).toBe(definite);
+  });
+
+  it("an error that never came from Resend is not a definite rejection", () => {
+    expect(isDefiniteRejection(new Error("Resend returned no message id"))).toBe(false);
+    expect(isDefiniteRejection(null)).toBe(false);
   });
 
   it("throws when the SDK returns success but no message id", async () => {

@@ -3,7 +3,8 @@ import type { ReportRow } from "../report-fields.js";
 import type { AutoTickSignals, EvidenceRecord } from "../auto-tick.js";
 import { retickEvidence, type SearchColumns } from "../retick.js";
 import { searchEnrolled } from "../search-enrolled.js";
-import { siteLighthouseScores } from "../draft.js";
+import { lookupFields, siteLighthouseScores } from "../draft.js";
+import type { SearchConsoleOutcome } from "../../fleet/search-console-evidence.js";
 import type { LighthouseScores } from "../types.js";
 
 /**
@@ -43,12 +44,12 @@ export type RerenderDeps = {
   /** Conditional on the row still being unsent and unapproved, like `storeEvidence`. */
   storeScores: (reportId: string, scores: LighthouseScores) => Promise<boolean>;
   /** The draft's own Search Console fetch over the report's period (`fetchSearch`).
-   *  Called only for an unapproved report on a search-enrolled site. */
-  measureSearch?: (
-    site: WebsiteRow,
-    periodStart: Date,
-    periodEnd: Date,
-  ) => Promise<AutoTickSignals["search"]>;
+   *  Called for an unsent report on a search-enrolled site: for its evidence when
+   *  unapproved, and for the lookup alone when approved and `storeLookup` is wired. */
+  measureSearch?: (site: WebsiteRow, periodStart: Date, periodEnd: Date) => Promise<SearchSignal>;
+  /** Writes the #943 lookup cells to the site's `site_health` row, as the draft
+   *  does (P1-36). Returns whether a row matched. */
+  storeLookup?: (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
   now: () => Date;
 };
 
@@ -56,6 +57,17 @@ export type RerenderDeps = {
  *  `unavailable` (soft-fail or no credentials), `skipped` (locked, not enrolled,
  *  no period, or no fetch wired). */
 export type SearchStatus = "measured" | "unavailable" | "skipped";
+
+/** The search signal plus what its Search Console lookup resolved, or null when
+ *  the lookup did not run (`fetchSearch`'s `lookup`). */
+export type SearchSignal = AutoTickSignals["search"] & {
+  lookup?: { outcome: SearchConsoleOutcome; property: string | null } | null;
+};
+
+/** What this refresh did with the Search Console lookup (P1-36): the outcome it
+ *  wrote to `site_health`, `not-run` (nothing measured, nothing written),
+ *  `no-row` (the site has no health row) or `write-failed`. */
+export type LookupStatus = SearchConsoleOutcome | "not-run" | "no-row" | "write-failed";
 
 export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written";
 
@@ -75,6 +87,7 @@ export type RerenderResult =
       search: SearchStatus;
       scores: ScoresStatus;
       scoresChange: string | null;
+      lookup: LookupStatus;
     }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
@@ -85,6 +98,7 @@ export type RerenderResult =
       search: SearchStatus;
       scores: ScoresStatus;
       scoresChange: string | null;
+      lookup: LookupStatus;
     }
   | { status: "not-found"; reportId: string };
 
@@ -104,7 +118,9 @@ export async function rerenderReport(
   const site = await deps.getSite(report.siteId);
   if (!site) return { status: "not-found", reportId };
 
-  const signal = await measureSearch(deps, site, report);
+  const measured = await measureSearch(deps, site, report);
+  const lookup = await storeLookup(deps, site.id, measured);
+  const signal = report.approvedToSend ? undefined : measured;
   const searchStatus: SearchStatus =
     signal === undefined
       ? "skipped"
@@ -146,7 +162,15 @@ export async function rerenderReport(
   // approve, and a preview that quietly omitted it would disagree with both
   // the email and that block.
   if (!plate) {
-    return { status: "no-header", reportId, evidence, search: searchStatus, scores, scoresChange };
+    return {
+      status: "no-header",
+      reportId,
+      evidence,
+      search: searchStatus,
+      scores,
+      scoresChange,
+      lookup,
+    };
   }
 
   const { html } = await deps.render(site, current, plate);
@@ -160,6 +184,7 @@ export async function rerenderReport(
     search: searchStatus,
     scores,
     scoresChange,
+    lookup,
   };
 }
 
@@ -193,18 +218,40 @@ async function refreshScores(
   return { report: { ...report, lighthouse: live }, scores: "refreshed", scoresChange: change };
 }
 
-/** Google Indexed is measured only where the draft would measure it: an unapproved
+/** Google Indexed is measured only where the draft would measure it: an unsent
  *  report (a sent one never reaches here), a search-enrolled site, and the
- *  report's own period. `fetchSearch` never throws; a soft-fail comes back flagged. */
+ *  report's own period. An approved report is measured only for its lookup, and
+ *  only when there is somewhere to store it. `fetchSearch` never throws; a
+ *  soft-fail comes back flagged. */
 async function measureSearch(
   deps: RerenderDeps,
   site: WebsiteRow,
   report: ReportRow,
-): Promise<AutoTickSignals["search"] | undefined> {
-  if (!deps.measureSearch || report.sentAt !== null || report.approvedToSend) return undefined;
+): Promise<SearchSignal | undefined> {
+  if (!deps.measureSearch || report.sentAt !== null) return undefined;
+  if (report.approvedToSend && !deps.storeLookup) return undefined;
   if (!searchEnrolled(site)) return undefined;
   if (!report.periodStart || !report.periodEnd) return undefined;
   return deps.measureSearch(site, new Date(report.periodStart), new Date(report.periodEnd));
+}
+
+/** The lookup is site state, not report content, so an approved report's lock
+ *  does not cover it. Best-effort like the draft's: a failed write is named on
+ *  the line and never blocks the preview. */
+async function storeLookup(
+  deps: RerenderDeps,
+  siteId: string,
+  measured: SearchSignal | undefined,
+): Promise<LookupStatus> {
+  const ran = measured?.lookup;
+  if (!ran || !deps.storeLookup) return "not-run";
+  try {
+    const matched = await deps.storeLookup(siteId, lookupFields({ lookup: ran }, deps.now()));
+    return matched ? ran.outcome : "no-row";
+  } catch (e) {
+    console.warn(`⚠ Search Console lookup write failed for ${siteId}: ${(e as Error).message}`);
+    return "write-failed";
+  }
 }
 
 /** One line per run, machine-greppable, emitted for every outcome — an absent
@@ -219,6 +266,10 @@ export function formatRerenderResult(r: RerenderResult): string {
   return `REPORT_RERENDER report=${r.reportId} status=${r.status}${suffix}`;
 }
 
-function scoresSuffix(r: { scores: ScoresStatus; scoresChange: string | null }): string {
-  return ` scores=${r.scores}${r.scoresChange ? ` scores_change=${r.scoresChange}` : ""}`;
+function scoresSuffix(r: {
+  scores: ScoresStatus;
+  scoresChange: string | null;
+  lookup: LookupStatus;
+}): string {
+  return ` scores=${r.scores}${r.scoresChange ? ` scores_change=${r.scoresChange}` : ""} lookup=${r.lookup}`;
 }

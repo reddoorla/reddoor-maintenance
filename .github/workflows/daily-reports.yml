@@ -1,14 +1,17 @@
 name: daily-reports
+run-name: ${{ inputs.preview_site && format('daily-reports preview {0}', inputs.preview_site) || format('daily-reports {0}', inputs.mode || 'send') }}
 
-# M3 daily approval-only loop. One run per day: DRAFT due reports (idempotent —
-# skip site+period already drafted), SEND approved-but-unsent (existing gate),
-# then email the operator DIGEST. This repo is the central scheduler; it's
+# M3 daily approval-only loop, split in two since P1-38 (Operator decisions 98):
+# fleet-nightly dispatches `mode=draft` after the evidence sweeps (DRAFT due
+# reports, idempotent, then the operator DIGEST), and the nightly-send-clock
+# Netlify function dispatches `mode=send` at 16:07Z (SEND approved-but-unsent,
+# existing gate), so client email goes out at a fixed hour. This repo is the central scheduler; it's
 # active, so GitHub's 60-day cron auto-disable never fires — but the keepalive
 # step below is a belt-and-suspenders against a quiet stretch. Cron minute is
 # :23 (non-:00) to dodge the documented top-of-hour scheduler load spike.
 on:
   schedule:
-    - cron: "23 9 * * *" # 09:23 UTC daily, offset off the top of the hour
+    - cron: "23 13 * * *" # send-only fallback; GitHub starts it 5–9 h late, after the 16:07Z send clock
   workflow_dispatch:
     # Manual run from the Actions tab. Left blank, this is the normal daily loop.
     #
@@ -33,6 +36,15 @@ on:
         required: false
         type: string
         default: ""
+      mode:
+        description: "draft = drafts + digest (fleet-nightly), send = approved reports only (nightly-send-clock), all = both"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - draft
+          - send
 
 # Single-flight: a once-daily job can't realistically overlap, but this closes
 # the search-then-create drafting race and stops a manual run colliding with
@@ -101,6 +113,7 @@ jobs:
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
           PREVIEW_SITE: ${{ inputs.preview_site }}
+          MODE: ${{ inputs.mode || 'send' }}
           # `report --due` writes each next-due date into site_schedule
           # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
           # without these it returned null and silently never ran — no warning,
@@ -110,6 +123,10 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
+          if [ "$MODE" = "send" ] && [ -z "$PREVIEW_SITE" ]; then
+            echo "mode=send: no drafting in this run"
+            exit 0
+          fi
           if [ -n "$GA_SA_KEY_JSON" ]; then
             printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
             chmod 600 "$GA_SA_KEY_PATH"
@@ -173,6 +190,7 @@ jobs:
       # At-least-once: a failed send leaves Sent at null → retried tomorrow; the
       # Resend idempotency key (report:<id>) + the durable Sent at prevent dupes.
       - name: Send approved reports
+        id: send
         # A preview run is a credential proof, not the daily loop — it must not
         # email anyone.
         if: ${{ !inputs.preview_site }}
@@ -181,7 +199,45 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-        run: node dist/cli/bin.js report --send-ready
+          MODE: ${{ inputs.mode || 'send' }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$MODE" = "draft" ]; then
+            echo "mode=draft: client sends wait for the 16:07Z send clock"
+            exit 0
+          fi
+          if [ "$EVENT" = "schedule" ]; then
+            hhmm=$(date -u +%H%M)
+            if [ "$hhmm" -lt 0400 ]; then
+              day=$(date -u -d yesterday +%F)
+            elif [ "$hhmm" -lt 1637 ]; then
+              echo "fallback before 16:37Z: the 16:07Z send clock sends today, so this run sends nothing"
+              echo "sent=no-op" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              day=$(date -u +%F)
+            fi
+            read -r fired ok < <(gh api "repos/$REPO/actions/workflows/daily-reports.yml/runs?event=workflow_dispatch&branch=main&created=>=${day}T00:00:00Z&per_page=100" \
+              --jq '[.workflow_runs[] | select(.display_title == "daily-reports send" or .display_title == "daily-reports all")] | "\(length) \(map(select(.conclusion == "success")) | length)"') || {
+              echo "::error::could not read the send runs since ${day}, so the fallback sends nothing"
+              exit 1
+            }
+            if [ "${ok:-0}" -gt 0 ]; then
+              echo "a send run succeeded since ${day} ($ok), so the fallback sends nothing"
+              echo "sent=no-op" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "${fired:-0}" -gt 0 ]; then
+              echo "::error::send-run-failed: the send clock fired ($fired run(s) since ${day}) but none succeeded, so this fallback retries the send"
+            else
+              echo "::error::send-clock-missed: no send run since ${day}, so this fallback sends late"
+            fi
+            node dist/cli/bin.js report --send-ready
+            exit 1
+          fi
+          node dist/cli/bin.js report --send-ready
 
       # 3. DIGEST — one "your fleet today" email to the operator (report
       # --digest, shipped in #163; skips itself when there's nothing to say).
@@ -210,7 +266,12 @@ jobs:
           # only, and `report --digest` also gets run by hand from a laptop.
           OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
           DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
+          MODE: ${{ inputs.mode || 'send' }}
         run: |
+          if [ "${MODE:-}" = "send" ]; then
+            echo "mode=send: the digest went out with this morning's drafts"
+            exit 0
+          fi
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}"
           node dist/cli/bin.js report --digest | tee "$out/digest.out"
@@ -314,17 +375,19 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode || 'send' }}
         run: |
-          title="Daily reports run failing"
+          title="Daily reports run failing (${MODE})"
+          prefix="Daily reports run failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The daily **daily-reports** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
             body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
           fi
           existing=$(gh issue list --state open --limit 200 \
-            --search "in:title \"$title\"" --json number,title \
+            --search "in:title \"$prefix\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
             # Rewrite the body too, so the issue head names THIS run rather than the
@@ -340,14 +403,21 @@ jobs:
 
       - name: Close the daily-reports-failing issue on recovery
         # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
-        if: ${{ success() && !inputs.preview_site && github.ref == 'refs/heads/main' }}
+        if: ${{ success() && steps.send.outputs.sent != 'no-op' && !inputs.preview_site && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_MODE: ${{ inputs.mode || 'send' }}
         run: |
-          title="Daily reports run failing"
-          for n in $(gh issue list --state open --limit 200 \
-            --search "in:title \"$title\"" --json number,title \
-            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
-            gh issue close "$n" --comment "Recovered — the daily-reports run is green again." && echo "closed #$n"
+          case "$RUN_MODE" in
+            all) covers="all draft send" ;;
+            *) covers="$RUN_MODE" ;;
+          esac
+          for MODE in $covers; do
+            title="Daily reports run failing (${MODE})"
+            for n in $(gh issue list --state open --limit 200 \
+              --search "in:title \"Daily reports run failing\"" --json number,title \
+              --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+              gh issue close "$n" --comment "Recovered — a green ${RUN_MODE} run covers ${MODE}." && echo "closed #$n"
+            done
           done
