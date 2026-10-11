@@ -3760,7 +3760,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `sr-only` passed every gate test. Three findings this PR did not cause
       are filed as roalson-interests#286, #287 and #288. Both PRs landed
       after the round, as the option said ("before landing"): #282 as
-      `98d24e5` and #283 as `SHA283`. P1-41 is in _Done_. No one has reviewed
+      `98d24e5` and #283 as `46c1799`. P1-41 is in _Done_. No one has reviewed
       the round-3 fixes themselves.
 
 ## Active projects (the operator's list, read by the PM pass)
@@ -3913,7 +3913,7 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
-- 2026-10-11 — P1-41: Roalson, Erik's pre-launch notes (roalson-interests#280). Listing #281 (`edb356f`), Properties and pins #282 (`98d24e5`) and Home #283 (`SHA283`) are live on roalson-interests.netlify.app.
+- 2026-10-11 — P1-41: Roalson, Erik's pre-launch notes (roalson-interests#280). Listing #281 (`edb356f`), Properties and pins #282 (`98d24e5`) and Home #283 (`46c1799`) are live on roalson-interests.netlify.app.
   - **Home.** The band's map is gone. "Featured Properties" is set in `t-h2`, in the column the map left. A bio's Go Back goes to `/#about`.
   - **Properties.** All comes first and is selected on landing, with all 23 live listings on one map. The selected pin is drawn at 1.8× with the Ri mark. The others are at 0.9× with their fill at 0.5 and a solid outline, to keep 3:1.
   - **Listing.** "Aerial Map" opens Google's satellite view on the pin, and the Details section is now bullets.
