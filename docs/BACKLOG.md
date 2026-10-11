@@ -3626,7 +3626,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         - (c) hold.
       - _Pick:_ (a). The round-2 fixes are one comparison with its own red
         test and three doc sentences. No reproduced defect is left unfixed.
-        **Answered 2026-10-11 15:05Z (AskUserQuestion): (b), run a third review round first.**
+        **Answered 2026-10-11 by 15:10Z (AskUserQuestion): (b), run a third review round first.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
