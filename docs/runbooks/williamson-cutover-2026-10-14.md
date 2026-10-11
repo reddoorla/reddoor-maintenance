@@ -176,9 +176,14 @@ only guard is editing nothing but the two rows.
    ```
 
    The answer should still point at `cdn.webflow.com`. dns.google reports how
-   long its cached copy has left, not the TTL that was set. A number of 600 or
-   below means the new TTL is live; a larger one is the old answer running
-   out. Then run the verifier. Pages, A and CNAME are still RED, because
+   long its cached copy has left, not the TTL that was set, and each read can
+   come from a different cache. A number above 600 means an old answer is
+   still cached somewhere. A low number proves nothing, because the old
+   answer also counts down through its last ten minutes. Only the full
+   hour's wait guarantees the new TTL everywhere. On the laptop,
+   `dig +noall +answer @ns31.domaincontrol.com www.williamson-homes.com CNAME`
+   asks GoDaddy's own server and shows the TTL as set. Use `@ns27` for
+   Construction. Then run the verifier. Pages, A and CNAME are still RED, because
    Webflow is still serving. Every MX and TXT line must still be PASS.
 
 ## Wed 10-14: cut over (operator, one domain at a time)
@@ -206,7 +211,9 @@ for them. Cut over at a quiet hour.
 
    Re-run it until it prints `GREEN`. While caches still hold the old answers,
    some lines stay RED with `server: cloudflare`. A `certificate invalid` line
-   means Netlify has not issued yet.
+   means Netlify has not issued yet. A `canonical points at` line that stays
+   RED after the certificate is issued means the build baked the wrong
+   origin. Trigger another deploy (Tue step 4), then re-run.
 
 5. **Construction: first check the form gate below.** Stop unless the
    `/join-the-team` gate holds. Then repeat steps 1 to 4 for

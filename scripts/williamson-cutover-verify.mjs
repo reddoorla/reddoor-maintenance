@@ -134,9 +134,9 @@ const ROBOTS_META = /<meta\b[^>]*\bname=["']?robots\b[^>]*>/i;
 const CANONICAL = /<link\b[^>]*\brel=["']?canonical\b[^>]*>/i;
 const attr = (tag, name) => new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(tag)?.[1];
 
-function hostOf(href, base) {
+function originOf(href, base) {
   try {
-    return new URL(href, base).hostname;
+    return new URL(href, base).origin;
   } catch {
     return null;
   }
@@ -170,7 +170,7 @@ function contentProblems(site, path, url, res, body, production) {
   const link = CANONICAL.exec(body)?.[0];
   const href = link ? attr(link, "href") : undefined;
   if (!href) out.push("no canonical link");
-  else if (hostOf(href, url) !== site.www) out.push(`canonical points at ${href}`);
+  else if (originOf(href, url) !== `https://${site.www}`) out.push(`canonical points at ${href}`);
   return out;
 }
 

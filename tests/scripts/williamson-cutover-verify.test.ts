@@ -499,6 +499,21 @@ describe("what Google will see on the production hosts", () => {
     ]);
   });
 
+  it("fails a canonical on www over plain http", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.www}/about-us`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`http://${homes.www}/about-us`),
+    };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual([
+      `canonical points at http://${homes.www}/about-us`,
+      `canonical points at http://${homes.www}/about-us`,
+    ]);
+  });
+
   it("fails a page with no canonical link", async () => {
     const pages = greenPages(homes);
     pages[`https://${homes.www}/contact`] = { status: 200, server: "Netlify", body: "<p>hi</p>" };

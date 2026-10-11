@@ -3742,7 +3742,7 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 ## Done (move items here when they land)
 
-- 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR PRNUM).
+- 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR #1280).
   - **The checklist** is `docs/runbooks/williamson-cutover-2026-10-14.md`. It changes only the apex `A` (to `75.2.60.5`) and the `www` CNAME (to each site's `*.netlify.app` name). Every other record it found is listed as DO NOT TOUCH with its current value. It also carries the 10-13 Netlify custom-domain and TTL steps and a rollback.
   - **The verifier** is `scripts/williamson-cutover-verify.mjs`. It was RED on today's Webflow hosts (56 of 64 checks) and GREEN on both previews (32 of 32) [M, 10-11 14:42Z]. It also checks the apex `A` and the `www` CNAME, and that `www` is the canonical, indexable host.
   - **Live DNS matched the plan's §2.** The verify-first probe printed 1, 1, 0, 0, and the plan's §2 now carries the exact values.
