@@ -78,7 +78,7 @@ export const RESOLVERS = [
   },
 ];
 
-const TYPE_CODES = { MX: 15, TXT: 16 };
+const TYPE_CODES = { A: 1, CNAME: 5, MX: 15, TXT: 16 };
 const RCODES = { 1: "FORMERR", 2: "SERVFAIL", 3: "NXDOMAIN", 5: "REFUSED" };
 const UA = "reddoor-cutover-verify (+https://github.com/reddoorla/reddoor-maintenance)";
 const CERT_CODE = /CERT|SELF_SIGNED|ALTNAME|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/;
@@ -130,6 +130,17 @@ export function normTxt(data) {
 }
 
 const trimSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+const ROBOTS_META = /<meta\b[^>]*\bname=["']?robots\b[^>]*>/i;
+const CANONICAL = /<link\b[^>]*\brel=["']?canonical\b[^>]*>/i;
+const attr = (tag, name) => new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(tag)?.[1];
+
+function hostOf(href, base) {
+  try {
+    return new URL(href, base).hostname;
+  } catch {
+    return null;
+  }
+}
 
 function describeError(e, url) {
   const code = e?.cause?.code ?? e?.code ?? "";
@@ -142,72 +153,97 @@ async function discard(res) {
   await res.body?.cancel().catch(() => undefined);
 }
 
+function contentProblems(site, path, url, res, body, production) {
+  const out = [];
+  const at = new URL(url);
+  const landed = trimSlash(at.pathname);
+  if (landed !== trimSlash(path)) out.push(`landed on ${landed}, not ${trimSlash(path)}`);
+  if (/data-wf-site/i.test(body)) out.push("data-wf-site present");
+  if (/website-files\.com/i.test(body)) out.push("loads from website-files.com");
+  if (!production) return out;
+  if (at.hostname !== site.www) out.push(`landed on ${at.hostname}, not ${site.www}`);
+  const robots = res.headers.get("x-robots-tag");
+  if (robots && /noindex/i.test(robots)) out.push(`x-robots-tag: ${robots}`);
+  const meta = ROBOTS_META.exec(body)?.[0];
+  const content = meta ? (attr(meta, "content") ?? "") : "";
+  if (/noindex/i.test(content)) out.push(`meta robots: ${content}`);
+  const link = CANONICAL.exec(body)?.[0];
+  const href = link ? attr(link, "href") : undefined;
+  if (!href) out.push("no canonical link");
+  else if (hostOf(href, url) !== site.www) out.push(`canonical points at ${href}`);
+  return out;
+}
+
 export async function checkPage(site, host, path, allowed, deps = {}) {
   const fetchImpl = deps.fetch ?? globalThis.fetch;
   const timeoutMs = deps.timeoutMs ?? 20_000;
+  const production = host !== site.preview;
   const start = `https://${host}${path}`;
   const hops = [];
   const problems = [];
   const seen = new Set();
   let url = start;
-  for (;;) {
-    if (seen.has(url)) {
-      problems.push(`redirect loop: ${[...hops.map((h) => h.url), url].join(" → ")}`);
-      break;
-    }
-    if (hops.length > MAX_HOPS) {
-      problems.push(`more than ${MAX_HOPS} redirects`);
-      break;
-    }
-    seen.add(url);
-    let res;
-    try {
-      res = await fetchImpl(url, {
+  try {
+    for (;;) {
+      if (seen.has(url)) {
+        problems.push(`redirect loop: ${[...hops.map((h) => h.url), url].join(" → ")}`);
+        break;
+      }
+      if (hops.length > MAX_HOPS) {
+        problems.push(`more than ${MAX_HOPS} redirects`);
+        break;
+      }
+      seen.add(url);
+      const res = await fetchImpl(url, {
         redirect: "manual",
         headers: { "user-agent": UA },
         signal: AbortSignal.timeout(timeoutMs),
       });
-    } catch (e) {
-      problems.push(describeError(e, url));
+      const server = res.headers.get("server");
+      const location = res.headers.get("location");
+      hops.push({ url, status: res.status, server, location });
+      if ((server ?? "").trim().toLowerCase() !== "netlify")
+        problems.push(`server: ${server ?? "(none)"} at ${url}`);
+      if (res.status >= 300 && res.status < 400) {
+        await discard(res);
+        if (!location) {
+          problems.push(`${res.status} without a location at ${url}`);
+          break;
+        }
+        let next;
+        try {
+          next = new URL(location, url);
+        } catch {
+          problems.push(`unreadable location ${JSON.stringify(location)} at ${url}`);
+          break;
+        }
+        if (next.protocol !== "https:") {
+          problems.push(`redirect leaves https: ${next.href}`);
+          break;
+        }
+        if (!allowed.includes(next.hostname)) {
+          problems.push(`redirected off-site to ${next.href}`);
+          break;
+        }
+        url = next.href;
+        continue;
+      }
+      if (res.status !== 200) {
+        await discard(res);
+        problems.push(`status ${res.status} at ${url}`);
+        break;
+      }
+      const body = await res.text();
+      problems.push(...contentProblems(site, path, url, res, body, production));
       break;
     }
-    const server = res.headers.get("server");
-    const location = res.headers.get("location");
-    hops.push({ url, status: res.status, server, location });
-    if ((server ?? "").trim().toLowerCase() !== "netlify")
-      problems.push(`server: ${server ?? "(none)"} at ${url}`);
-    if (res.status >= 300 && res.status < 400) {
-      await discard(res);
-      if (!location) {
-        problems.push(`${res.status} without a location at ${url}`);
-        break;
-      }
-      const next = new URL(location, url);
-      if (next.protocol !== "https:") {
-        problems.push(`redirect leaves https: ${next.href}`);
-        break;
-      }
-      if (!allowed.includes(next.hostname)) {
-        problems.push(`redirected off-site to ${next.href}`);
-        break;
-      }
-      url = next.href;
-      continue;
-    }
-    if (res.status !== 200) {
-      await discard(res);
-      problems.push(`status ${res.status} at ${url}`);
-      break;
-    }
-    const body = await res.text();
-    const landed = trimSlash(new URL(url).pathname);
-    if (landed !== trimSlash(path)) problems.push(`landed on ${landed}, not ${trimSlash(path)}`);
-    if (/data-wf-site/i.test(body)) problems.push("data-wf-site present");
-    if (/website-files\.com/i.test(body)) problems.push("loads from website-files.com");
-    break;
+  } catch (e) {
+    problems.push(describeError(e, url));
   }
   return { kind: "page", site: site.key, url: start, ok: problems.length === 0, problems, hops };
 }
+
+const NORM = { A: (d) => d.trim(), CNAME: normMx, MX: normMx, TXT: normTxt };
 
 async function lookup(resolver, name, type, deps) {
   const fetchImpl = deps.fetch ?? globalThis.fetch;
@@ -226,47 +262,71 @@ async function lookup(resolver, name, type, deps) {
       return {
         error: `${type} lookup via ${resolver.name} answered status ${j.Status} (${RCODES[j.Status] ?? "?"})`,
       };
-    const norm = type === "MX" ? normMx : normTxt;
     return {
-      answers: (j.Answer ?? []).filter((a) => a.type === TYPE_CODES[type]).map((a) => norm(a.data)),
+      answers: (j.Answer ?? [])
+        .filter((a) => a.type === TYPE_CODES[type])
+        .map((a) => NORM[type](a.data)),
     };
   } catch (e) {
     return { error: `${type} lookup via ${resolver.name} failed: ${e?.cause?.code ?? e?.message}` };
   }
 }
 
-export async function checkDns(site, deps = {}) {
+function exactProblems(type, got, want) {
+  const out = [];
+  for (const w of want) if (!got.includes(w)) out.push(`missing ${type} ${w}`);
+  for (const g of got) if (!want.includes(g)) out.push(`unexpected ${type} ${g}`);
+  return out;
+}
+
+function txtProblems(site, got) {
+  const out = site.txt.filter((w) => !got.includes(w)).map((w) => `missing TXT ${w}`);
+  const spf = got.filter((g) => /^v=spf1\b/i.test(g));
+  if (spf.length > 1) out.push(`${spf.length} SPF records, which receivers treat as a permerror`);
+  return out;
+}
+
+export async function checkDns(site, deps = {}, production = false) {
+  const checks = [
+    ...(production
+      ? [
+          {
+            kind: "a",
+            name: site.apex,
+            type: "A",
+            judge: (g) => exactProblems("A", g, [NETLIFY_APEX_IP]),
+          },
+          {
+            kind: "cname",
+            name: site.www,
+            type: "CNAME",
+            judge: (g) => exactProblems("CNAME", g, [site.preview]),
+          },
+        ]
+      : []),
+    {
+      kind: "mx",
+      name: site.apex,
+      type: "MX",
+      judge: (g) => exactProblems("MX", g, site.mx.map(normMx)),
+    },
+    { kind: "txt", name: site.apex, type: "TXT", judge: (g) => txtProblems(site, g) },
+  ];
   const out = [];
   for (const resolver of RESOLVERS) {
-    const mx = await lookup(resolver, site.apex, "MX", deps);
-    const mxProblems = [];
-    if (mx.error) mxProblems.push(mx.error);
-    else {
-      const want = site.mx.map(normMx);
-      for (const w of want) if (!mx.answers.includes(w)) mxProblems.push(`missing MX ${w}`);
-      for (const g of mx.answers) if (!want.includes(g)) mxProblems.push(`unexpected MX ${g}`);
+    for (const c of checks) {
+      const r = await lookup(resolver, c.name, c.type, deps);
+      const problems = r.error ? [r.error] : c.judge(r.answers);
+      out.push({
+        kind: c.kind,
+        site: site.key,
+        name: c.name,
+        resolver: resolver.name,
+        ok: problems.length === 0,
+        problems,
+        got: r.answers ?? [],
+      });
     }
-    out.push({
-      kind: "mx",
-      site: site.key,
-      resolver: resolver.name,
-      ok: mxProblems.length === 0,
-      problems: mxProblems,
-      got: mx.answers ?? [],
-    });
-    const txt = await lookup(resolver, site.apex, "TXT", deps);
-    const txtProblems = [];
-    if (txt.error) txtProblems.push(txt.error);
-    else
-      for (const w of site.txt) if (!txt.answers.includes(w)) txtProblems.push(`missing TXT ${w}`);
-    out.push({
-      kind: "txt",
-      site: site.key,
-      resolver: resolver.name,
-      ok: txtProblems.length === 0,
-      problems: txtProblems,
-      got: txt.answers ?? [],
-    });
   }
   return out;
 }
@@ -292,10 +352,10 @@ function pageLine(r) {
 }
 
 function dnsLine(r, site) {
-  const what = r.kind === "mx" ? "MX" : "TXT";
-  if (!r.ok) return `  FAIL ${what} ${site.apex} via ${r.resolver} — ${r.problems.join("; ")}`;
-  if (r.kind === "mx") return `  PASS MX ${site.apex} via ${r.resolver}: ${r.got.join(", ")}`;
-  return `  PASS TXT ${site.apex} via ${r.resolver}: all ${site.txt.length} DO NOT TOUCH values present`;
+  const what = `${r.kind.toUpperCase()} ${r.name} via ${r.resolver}`;
+  if (!r.ok) return `  FAIL ${what} — ${r.problems.join("; ")}`;
+  if (r.kind === "txt") return `  PASS ${what}: all ${site.txt.length} DO NOT TOUCH values present`;
+  return `  PASS ${what}: ${r.got.join(", ")}`;
 }
 
 export async function verify(o, deps = {}) {
@@ -311,7 +371,7 @@ export async function verify(o, deps = {}) {
     const pages = await pool(jobs, deps.concurrency ?? 4, ([h, p]) =>
       checkPage(site, h, p, hosts, deps),
     );
-    const dns = await checkDns(site, deps);
+    const dns = await checkDns(site, deps, !o.preview);
     for (const r of pages) lines.push(pageLine(r));
     for (const r of dns) lines.push(dnsLine(r, site));
     const mine = [...pages, ...dns];

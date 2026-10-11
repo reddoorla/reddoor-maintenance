@@ -3744,12 +3744,13 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
 
 - 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR PRNUM).
   - **The checklist** is `docs/runbooks/williamson-cutover-2026-10-14.md`. It changes only the apex `A` (to `75.2.60.5`) and the `www` CNAME (to each site's `*.netlify.app` name). Every other record it found is listed as DO NOT TOUCH with its current value. It also carries the 10-13 Netlify custom-domain and TTL steps and a rollback.
-  - **The verifier** is `scripts/williamson-cutover-verify.mjs`. It was RED on today's Webflow hosts (48 of 56 checks) and GREEN on both previews (32 of 32) [M, 10-11 14:22Z].
+  - **The verifier** is `scripts/williamson-cutover-verify.mjs`. It was RED on today's Webflow hosts (56 of 64 checks) and GREEN on both previews (32 of 32) [M, 10-11 14:42Z]. It also checks the apex `A` and the `www` CNAME, and that `www` is the canonical, indexable host.
   - **Live DNS matched the plan's §2.** The verify-first probe printed 1, 1, 0, 0, and the plan's §2 now carries the exact values.
   - **New facts for the operator:**
     - Homes has two `_dmarc` records, which leaves no DMARC policy in effect.
     - GoDaddy's custom TTL floor is reported at 600 seconds, not 300.
     - Construction's preview `/health` has `turnstile: false`.
+    - Both sites bake their canonical at build time from Netlify's `URL`, so they need a redeploy once `www` is the primary domain (checklist, Tue step 4).
 - 2026-10-11 — P1-38: the fleet nightlies finish before 12:00Z (issue #1258, built in #1259). The done-when held on 10-09, 10-10 and 10-11 [M, the PM pass's read of the conductor logs]: the Netlify clock fired `fleet-nightly` at 06:07Z each night, and each run printed `NIGHTLY_CONDUCTOR_SUMMARY dispatched=7 completed=7 wait_exceeded=0 skipped=0 dispatch_failed=0 total=7`. The last completion was the draft run at 07:09:34Z, 07:07:14Z and 07:11:48Z. The 02:17Z fallback started at 09:07Z, 08:31Z and 08:54Z and skipped all seven each time, with no `clock-missed`. The 16:07Z send clock sent Data Dynamiq on 10-09 and found nothing ready on 10-10; its fallback sent nothing both days. The row's open question, whether `fleet-prismic-sync` follows a conducted drift run, has the answer no, which is now P1-39.
 - 2026-10-08 — P1-36: "refresh preview" (`report --rerender`) writes the
   Search Console lookup back to `site_health` (issue #1261). A refresh whose

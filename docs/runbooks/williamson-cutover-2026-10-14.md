@@ -15,15 +15,34 @@ node scripts/williamson-cutover-verify.mjs --site homes # one site
 node scripts/williamson-cutover-verify.mjs --preview    # the *.netlify.app hosts
 ```
 
-The verifier fetches every §2 path on the apex and `www` (or the preview host).
-It follows redirects one hop at a time, up to 5 hops, and fails on a loop. Every
-hop must answer `server: Netlify` with a certificate Node accepts, and the
-redirects must stay on the domain's own hosts. The last hop must be a 200 for
-the same path. The verifier also fails a page that still carries
-`data-wf-site` or loads anything from `website-files.com`. It reads MX and TXT
-from two resolvers, `dns.google` and `cloudflare-dns.com`. The MX must be
-identical to the table below. Every TXT value in the table must still be
-there. It exits 0 on GREEN and 1 on RED.
+The verifier fetches every §2 path on the apex and `www`, or on the preview
+host with `--preview`. It follows redirects one hop at a time, up to 5 hops, and
+fails on a loop.
+
+Every page must pass all of these:
+
+- each hop answers `server: Netlify`, with a certificate Node accepts;
+- every redirect stays on the domain's own hosts;
+- the last hop is a 200 for the same path;
+- the page does not carry `data-wf-site`;
+- the page loads nothing from `website-files.com`.
+
+On the production hosts it also checks what Google will see:
+
+- the page ends on `www` (plan D4);
+- the page has no `noindex` header or meta tag;
+- `<link rel="canonical">` points at `www`.
+
+It reads DNS from two resolvers, `dns.google` and `cloudflare-dns.com`:
+
+- **MX:** identical to the DO NOT TOUCH table.
+- **TXT:** every value in that table is still there, with exactly one SPF
+  record.
+- **Production only:** the apex `A` must be exactly `75.2.60.5`, and the `www`
+  CNAME exactly the site's `*.netlify.app` name. A new row added beside the old
+  one fails.
+
+It exits 0 on GREEN and 1 on RED.
 
 When `HTTPS_PROXY` is set, as in a cloud session, the verifier re-runs itself
 with `NODE_USE_ENV_PROXY=1`. Its requests then go through the proxy's CONNECT
@@ -33,9 +52,17 @@ certificate, "Anthropic Egress Gateway SDS Issuing CA". An expired upstream
 certificate then comes back as a bare 503, where the tunnel gives
 `CERT_HAS_EXPIRED`. The first line of the output names the path it used.
 
-On 2026-10-11 14:22Z it was RED on the live Webflow hosts (48 of 56 checks
-failed: every page, and no DNS check) and GREEN on both previews (32 of 32).
-Both runs are pasted in the PR that added it.
+On 2026-10-11 at 14:42Z it was RED on the live Webflow hosts and GREEN on both
+previews:
+
+- **Webflow hosts:** 56 of 64 checks failed. That was every page and every
+  A and CNAME check; every MX and TXT check passed.
+- **Previews:** 32 of 32 passed.
+
+Its production-only checks were also run against 29 Navy, a Netlify site
+already cut over with the same record shape (`A 75.2.60.5`, `www` CNAME to its
+`*.netlify.app` name). They passed there, and 29 Navy's unknown paths failed
+with a 404. All of these runs are pasted in the PR that added the verifier.
 
 ## What changes: two records per domain, nothing else
 
@@ -91,47 +118,76 @@ through `cloudflare-dns.com`, which agreed:
 | `_sipfederationtls._tcp` SRV   | `100 1 5061 sipfed.online.lync.com`                                                  | `100 1 5061 sipfed.online.lync.com`                                                         |
 | `email` CNAME                  | none exists                                                                          | `email.secureserver.net`                                                                    |
 
+Two more records exist and stay as they are:
+
+- `_domainconnect` CNAME `_domainconnect.gd.domaincontrol.com` (both domains)
+- `ftp.williamson-construction.com` CNAME `williamson-construction.com`
+
+The `ftp` record follows the apex to Netlify after the cutover, which is
+harmless. Also leave the domains attached in Webflow until 10-19, because
+they are the rollback.
+
 These are the records the lookups found. No apex `AAAA` and no `CAA` exists on
 either domain. A zone transfer is not possible from outside, so the zone may
 hold records no lookup asked about. The rule covers them too: only the two
 rows in the first table change.
 
-The verifier re-checks the MX and the TXT values on every run, so a
-zone replace shows up as RED even when every page is green.
+The verifier re-checks the MX and the TXT values on every run. A zone replace
+that loses either one shows up as RED even when every page is green. It does
+not read DKIM, `_dmarc` or the Microsoft 365 CNAMEs and SRVs. For those, the
+only guard is editing nothing but the two rows.
 
 ## Tue 10-13: prepare (operator)
 
 1. **Netlify, Homes.** Open site `williamson-homes` and go to Domain
    management. Add `www.williamson-homes.com` as the custom domain and set it
    as the **primary domain**, so the apex 301s to `www` as Webflow does today
-   (plan D4). Add `williamson-homes.com` as a domain alias if Netlify does not
-   add it itself. When Netlify offers Netlify DNS, choose **external DNS**.
+   (plan D4). Netlify adds `williamson-homes.com` itself and lists it as
+   redirecting to the primary domain; if it does not, stop. Do not add the
+   apex by hand as an alias. When Netlify offers Netlify DNS, choose
+   **external DNS**.
    The panel then says "Awaiting External DNS", which is expected until
    Wednesday.
 2. **Netlify, Construction.** Do the same on `williamson-construction-co`, with
-   `www.williamson-construction.com` as primary and `williamson-construction.com`
-   as the alias.
+   `www.williamson-construction.com` as primary; `williamson-construction.com`
+   should appear as redirecting to it.
 3. **Check the values.** Compare the records the Netlify panel asks for with
    the first table, and stop on any difference.
-4. **GoDaddy, both domains.** Lower the TTL on the `www` CNAME from 1 hour to
+4. **Netlify, both sites: trigger a production deploy** (Deploys → Trigger
+   deploy → Deploy site). Every prerendered page bakes Netlify's build-time
+   `URL` into its canonical and `og:url` (line 64 of `svelte.config.js` in both
+   site repos), and `URL` is the primary domain. Today it is the `*.netlify.app`
+   host, which answers `x-robots-tag: noindex, nofollow`. Without a fresh
+   build after the primary domain changes, `www` would ship a canonical
+   pointing at a noindexed host. When the deploy finishes, check that
+   `curl -s https://williamson-homes.netlify.app/ | grep -o 'rel="canonical"[^>]*'`
+   shows `https://www.williamson-homes.com/`, and the same on Construction. The
+   verifier fails a canonical that points anywhere but `www`.
+5. **GoDaddy, both domains.** Lower the TTL on the `www` CNAME from 1 hour to
    the lowest GoDaddy accepts. The plan says 300, but GoDaddy's custom-TTL
    floor is reported at 600 seconds (third-party reports, not GoDaddy's own
    docs). The apex `A` is already at 600, which fits that floor. Change only
    the TTL field. Do it at least an hour before the cutover, so the old
    3600-second answers have expired by then.
-5. **Read it back:**
+6. **Read it back:**
 
    ```sh
    curl -s "https://dns.google/resolve?name=www.williamson-homes.com&type=CNAME"
    ```
 
-   The TTL should show the new value, still pointing at `cdn.webflow.com`. Then
-   run the verifier. Pages are still RED, because Webflow is still serving.
-   Every MX and TXT line must still be PASS.
+   The answer should still point at `cdn.webflow.com`. dns.google reports how
+   long its cached copy has left, not the TTL that was set. A number of 600 or
+   below means the new TTL is live; a larger one is the old answer running
+   out. Then run the verifier. Pages, A and CNAME are still RED, because
+   Webflow is still serving. Every MX and TXT line must still be PASS.
 
 ## Wed 10-14: cut over (operator, one domain at a time)
 
 Do Homes first. It has no form, so a problem there costs nothing but time.
+Webflow already sends `strict-transport-security: max-age=31536000` on the apex
+and `www`. So a returning visitor cannot click past a certificate error, and
+the minutes between the DNS edit and Let's Encrypt issuing are real downtime
+for them. Cut over at a quiet hour.
 
 1. **GoDaddy.** Edit the `@` `A` row from `198.202.211.1` to `75.2.60.5`. Edit
    the existing row; do not delete it and add a new one. Make sure exactly one
@@ -152,9 +208,13 @@ Do Homes first. It has no form, so a problem there costs nothing but time.
    some lines stay RED with `server: cloudflare`. A `certificate invalid` line
    means Netlify has not issued yet.
 
-5. **Construction.** Repeat steps 1 to 4 for `williamson-construction.com` with
-   `williamson-construction-co.netlify.app`, then run
-   `node scripts/williamson-cutover-verify.mjs --site construction`.
+5. **Construction: first check the form gate below.** Stop unless the
+   `/join-the-team` gate holds. Then repeat steps 1 to 4 for
+   `williamson-construction.com` with `williamson-construction-co.netlify.app`,
+   and run `node scripts/williamson-cutover-verify.mjs --site construction`.
+   Once it prints `GREEN`, send one test submission from
+   `https://www.williamson-construction.com/join-the-team` and confirm it
+   arrives.
 6. **Check by eye.** Open both sites in an ordinary browser, on a phone and a
    desktop. The verifier proves where the pages come from. It does not prove
    they look right.
@@ -175,8 +235,9 @@ Do Homes first. It has no form, so a problem there costs nothing but time.
 ## Rollback, until Mon 10-19
 
 Rolling back reverses the two edits. Set `@` `A` back to `198.202.211.1` and
-`www` CNAME back to `cdn.webflow.com`, then remove the custom domains from the
-Netlify sites. Webflow is expected to keep serving until the workspace cancels
+`www` CNAME back to `cdn.webflow.com`. Wait at least 600 seconds (the TTL)
+before removing the custom domains from the Netlify sites. Otherwise anyone
+whose cache still points at Netlify gets "Site not found". Webflow is expected to keep serving until the workspace cancels
 on 10-19. What stops then is still D0, so 10-19 is the plan's worst case. The
 rollback has not been tested: nobody has checked that Webflow re-serves a
 domain after its DNS has left and come back.
@@ -214,10 +275,10 @@ domain after its DNS has left and come back.
   `2026100500`; Homes' is `2026042101`. The A, CNAME, NS and MX records all
   match the plan's 09-29 measurement, so whatever changed is not a record the
   cutover depends on.
-- **HSTS.** Both site repos send
-  `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` on
-  every path. Whether Netlify adds it to the apex → `www` redirect is unknown
-  until the cutover. If the apex sends it, browsers will also insist on HTTPS
-  for `email.williamson-construction.com`, which points at
-  `email.secureserver.net`. Check that once with `curl -sI` on the apex after
-  the cutover.
+- **HSTS `includeSubDomains`.** Both site repos send
+  `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.
+  29 Navy's Netlify site does the same today. Browsers that see it on the apex
+  will insist on HTTPS for every subdomain. The one that matters would be
+  `email.williamson-construction.com` (CNAME `email.secureserver.net`). On
+  2026-10-11 it already failed over HTTPS, with a certificate that does not
+  name it, so nothing that works today is lost.

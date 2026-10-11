@@ -16,7 +16,7 @@ export const SITES: Record<SiteKey, Site>;
 export const NETLIFY_APEX_IP: string;
 export const MAX_HOPS: number;
 
-export type RecordType = "MX" | "TXT";
+export type RecordType = "A" | "CNAME" | "MX" | "TXT";
 
 export interface Resolver {
   name: string;
@@ -65,8 +65,9 @@ export interface PageResult {
 }
 
 export interface DnsResult {
-  kind: "mx" | "txt";
+  kind: "a" | "cname" | "mx" | "txt";
   site: SiteKey;
+  name: string;
   resolver: string;
   ok: boolean;
   problems: string[];
@@ -97,5 +98,5 @@ export function checkPage(
   allowed: string[],
   deps?: Deps,
 ): Promise<PageResult>;
-export function checkDns(site: Site, deps?: Deps): Promise<DnsResult[]>;
+export function checkDns(site: Site, deps?: Deps, production?: boolean): Promise<DnsResult[]>;
 export function verify(o: Options, deps?: Deps): Promise<VerifyResult>;

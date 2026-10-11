@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   SITES,
   NETLIFY_APEX_IP,
@@ -12,18 +15,33 @@ import {
   normTxt,
   verify,
   type FetchLike,
+  type ResponseLike,
   type PageResult,
   type DnsResult,
   type CheckResult,
   type Site,
 } from "../../scripts/williamson-cutover-verify.mjs";
 
-type Page = { status: number; server?: string | null; location?: string; body?: string };
-type Answers = Partial<Record<"MX" | "TXT", string[]>>;
-type Dns = Record<string, Answers>;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const SCRIPT = join(ROOT, "scripts/williamson-cutover-verify.mjs");
 
-const OK_BODY = "<!doctype html><html><body><h1>ok</h1></body></html>";
-const WF_BODY = '<!doctype html><html data-wf-site="645ec08251dadc9000a072e5"><body></body></html>';
+type Page = {
+  status: number;
+  server?: string | null;
+  location?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  textError?: Error;
+};
+type RecordType = "A" | "CNAME" | "MX" | "TXT";
+type Dns = Record<string, Partial<Record<RecordType, string[]>>>;
+
+const TYPE_CODES: Record<RecordType, number> = { A: 1, CNAME: 5, MX: 15, TXT: 16 };
+
+const html = (canonical: string, extra = "") =>
+  `<!doctype html><html><head><link rel="canonical" href="${canonical}"/>${extra}</head><body><h1>ok</h1></body></html>`;
+const WF_BODY = (canonical: string) =>
+  `<!doctype html><html data-wf-site="645ec08251dadc9000a072e5"><head><link rel="canonical" href="${canonical}"/></head><body></body></html>`;
 
 function greenPages(site: Site): Record<string, Page> {
   const pages: Record<string, Page> = {};
@@ -33,8 +51,17 @@ function greenPages(site: Site): Record<string, Page> {
       server: "Netlify",
       location: `https://${site.www}${p}`,
     };
-    pages[`https://${site.www}${p}`] = { status: 200, server: "Netlify", body: OK_BODY };
-    pages[`https://${site.preview}${p}`] = { status: 200, server: "Netlify", body: OK_BODY };
+    pages[`https://${site.www}${p}`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${site.www}${p}`),
+    };
+    pages[`https://${site.preview}${p}`] = {
+      status: 200,
+      server: "Netlify",
+      headers: { "x-robots-tag": "noindex, nofollow" },
+      body: html(`https://${site.preview}${p}`),
+    };
   }
   return pages;
 }
@@ -47,13 +74,29 @@ function webflowPages(site: Site): Record<string, Page> {
       server: "cloudflare",
       location: `https://${site.www}${p}`,
     };
-    pages[`https://${site.www}${p}`] = { status: 200, server: "cloudflare", body: WF_BODY };
+    pages[`https://${site.www}${p}`] = {
+      status: 200,
+      server: "cloudflare",
+      body: WF_BODY(`https://${site.www}${p}`),
+    };
   }
   return pages;
 }
 
 function greenDns(site: Site): Dns {
-  return { [site.apex]: { MX: site.mx.map((m) => `${m}.`), TXT: [...site.txt] } };
+  return {
+    [site.apex]: { A: [NETLIFY_APEX_IP], MX: site.mx.map((m) => `${m}.`), TXT: [...site.txt] },
+    [site.www]: { CNAME: [`${site.preview}.`] },
+  };
+}
+
+function webflowDns(site: Site): Dns {
+  const dns = greenDns(site);
+  return {
+    ...dns,
+    [site.apex]: { ...dns[site.apex], A: ["198.202.211.1"] },
+    [site.www]: { CNAME: ["cdn.webflow.com."] },
+  };
 }
 
 function world(
@@ -62,21 +105,22 @@ function world(
   opts: { cloudflareDns?: Dns; dnsStatus?: number; throwFor?: Record<string, Error> } = {},
 ): { fetch: FetchLike; calls: string[] } {
   const calls: string[] = [];
-  const fetch: FetchLike = async (url) => {
+  const fetch: FetchLike = async (url, init) => {
+    if (init?.redirect !== "manual") throw new Error(`fetch without redirect: "manual": ${url}`);
     calls.push(url);
     const u = new URL(url);
     if (opts.throwFor?.[url]) throw opts.throwFor[url];
     if (u.hostname === "dns.google" || u.hostname === "cloudflare-dns.com") {
       const cf = u.hostname === "cloudflare-dns.com";
+      if (cf && init.headers.accept !== "application/dns-json")
+        return new Response("bad request", { status: 400 });
       const name = u.searchParams.get("name") ?? "";
-      const type = (u.searchParams.get("type") ?? "") as "MX" | "TXT";
+      const type = (u.searchParams.get("type") ?? "") as RecordType;
       const table = cf && opts.cloudflareDns ? opts.cloudflareDns : dns;
-      const data = table[name]?.[type] ?? [];
-      const code = type === "MX" ? 15 : 16;
-      const Answer = data.map((d) => ({
+      const Answer = (table[name]?.[type] ?? []).map((d) => ({
         name: `${name}.`,
-        type: code,
-        TTL: 3600,
+        type: TYPE_CODES[type],
+        TTL: 600,
         data: cf && type === "TXT" ? `"${d}"` : d,
       }));
       return new Response(JSON.stringify({ Status: opts.dnsStatus ?? 0, Answer }), {
@@ -86,9 +130,19 @@ function world(
     }
     const page = pages[url];
     if (!page) throw new Error(`unrouted ${url}`);
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...page.headers };
     if (page.server !== null) headers.server = page.server ?? "Netlify";
     if (page.location) headers.location = page.location;
+    if (page.textError) {
+      const err = page.textError;
+      const res: ResponseLike = {
+        status: page.status,
+        headers: new Headers(headers),
+        text: () => Promise.reject(err),
+        body: null,
+      };
+      return res;
+    }
     return new Response(page.status >= 300 && page.status < 400 ? null : (page.body ?? ""), {
       status: page.status,
       headers,
@@ -108,40 +162,49 @@ const problemsOf = (r: { results: CheckResult[] }) =>
   pagesOf(r)
     .flatMap((p) => p.problems)
     .concat(dnsOf(r).flatMap((d) => d.problems));
+const pageAt = (r: { results: CheckResult[] }, url: string) =>
+  pagesOf(r).find((p) => p.url === url);
 
 describe("verify on a Netlify-served site with the §2 records", () => {
-  it("passes every page on apex and www, and MX and TXT on both resolvers", async () => {
+  it("passes every page on apex and www, and A, CNAME, MX and TXT on both resolvers", async () => {
     const { fetch } = world(greenPages(homes), greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
     expect(problemsOf(r)).toEqual([]);
     expect(r.ok).toBe(true);
     expect(r.code).toBe(0);
     expect(pagesOf(r)).toHaveLength(homes.paths.length * 2);
-    expect(dnsOf(r).map((d) => `${d.kind} ${d.resolver}`)).toEqual([
-      "mx dns.google",
-      "txt dns.google",
-      "mx cloudflare-dns.com",
-      "txt cloudflare-dns.com",
+    expect(dnsOf(r).map((d) => `${d.kind} ${d.name} ${d.resolver}`)).toEqual([
+      `a ${homes.apex} dns.google`,
+      `cname ${homes.www} dns.google`,
+      `mx ${homes.apex} dns.google`,
+      `txt ${homes.apex} dns.google`,
+      `a ${homes.apex} cloudflare-dns.com`,
+      `cname ${homes.www} cloudflare-dns.com`,
+      `mx ${homes.apex} cloudflare-dns.com`,
+      `txt ${homes.apex} cloudflare-dns.com`,
     ]);
-    expect(r.lines.at(-1)).toMatch(/^GREEN: all 24 checks passed$/);
+    expect(r.lines.at(-1)).toBe("GREEN: all 28 checks passed");
   });
 
   it("follows the apex 301 to www and records both hops", async () => {
     const { fetch } = world(greenPages(homes), greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    const apex = pagesOf(r).find((p) => p.url === `https://${homes.apex}/projects`);
-    expect(apex?.hops.map((h) => [h.status, h.url])).toEqual([
-      [301, `https://${homes.apex}/projects`],
-      [200, `https://${homes.www}/projects`],
-    ]);
+    expect(pageAt(r, `https://${homes.apex}/projects`)?.hops.map((h) => [h.status, h.url])).toEqual(
+      [
+        [301, `https://${homes.apex}/projects`],
+        [200, `https://${homes.www}/projects`],
+      ],
+    );
   });
 
-  it("checks only the netlify.app host in --preview mode, and still reads the domain's MX", async () => {
+  it("in --preview mode checks only the netlify.app host, tolerates its noindex, and reads MX and TXT only", async () => {
     const { fetch, calls } = world(greenPages(construction), greenDns(construction));
     const r = await verify({ sites: ["construction"], preview: true }, { fetch });
-    expect(r.ok).toBe(true);
+    expect(problemsOf(r)).toEqual([]);
     expect(pagesOf(r)).toHaveLength(14);
-    expect(calls.some((c) => c.includes(construction.www))).toBe(false);
+    expect(dnsOf(r).map((d) => d.kind)).toEqual(["mx", "txt", "mx", "txt"]);
+    expect(calls.some((c) => c.includes(`https://${construction.www}`))).toBe(false);
+    expect(calls.some((c) => /type=(A|CNAME)$/.test(c))).toBe(false);
     expect(calls).toContain(`https://dns.google/resolve?name=${construction.apex}&type=MX`);
   });
 
@@ -153,23 +216,32 @@ describe("verify on a Netlify-served site with the §2 records", () => {
     const r = await verify(parseArgs([]), { fetch });
     expect(r.ok).toBe(true);
     expect(pagesOf(r)).toHaveLength((10 + 14) * 2);
+    expect(r.lines.at(-1)).toBe("GREEN: all 64 checks passed");
   });
 });
 
 describe("verify on today's Webflow-served hosts", () => {
-  it("fails every page: Cloudflare, not Netlify, serves them, and the markup is Webflow's", async () => {
-    const { fetch } = world(webflowPages(homes), greenDns(homes));
+  it("fails every page, the apex A and the www CNAME; MX and TXT still pass", async () => {
+    const { fetch } = world(webflowPages(homes), webflowDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
     expect(r.ok).toBe(false);
     expect(r.code).toBe(1);
     expect(pagesOf(r).every((p) => !p.ok)).toBe(true);
-    expect(dnsOf(r).every((d) => d.ok)).toBe(true);
-    const www = pagesOf(r).find((p) => p.url === `https://${homes.www}/`);
-    expect(www?.problems).toEqual([
+    expect(pageAt(r, `https://${homes.www}/`)?.problems).toEqual([
       `server: cloudflare at https://${homes.www}/`,
       "data-wf-site present",
     ]);
-    expect(r.lines.at(-1)).toBe("RED: 20 of 24 checks failed");
+    expect(
+      dnsOf(r)
+        .filter((d) => !d.ok)
+        .map((d) => `${d.kind} ${d.resolver}: ${d.problems.join("; ")}`),
+    ).toEqual([
+      `a dns.google: missing A ${NETLIFY_APEX_IP}; unexpected A 198.202.211.1`,
+      `cname dns.google: missing CNAME ${homes.preview}; unexpected CNAME cdn.webflow.com`,
+      `a cloudflare-dns.com: missing A ${NETLIFY_APEX_IP}; unexpected A 198.202.211.1`,
+      `cname cloudflare-dns.com: missing CNAME ${homes.preview}; unexpected CNAME cdn.webflow.com`,
+    ]);
+    expect(r.lines.at(-1)).toBe("RED: 24 of 28 checks failed");
   });
 });
 
@@ -179,7 +251,7 @@ describe("mutation 1: a page that still carries data-wf-site", () => {
     pages[`https://${homes.www}/projects/manhattan-beach`] = {
       status: 200,
       server: "Netlify",
-      body: WF_BODY,
+      body: WF_BODY(`https://${homes.www}/projects/manhattan-beach`),
     };
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
@@ -201,7 +273,6 @@ describe("mutation 1: a page that still carries data-wf-site", () => {
     };
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: true }, { fetch });
-    expect(r.ok).toBe(false);
     expect(problemsOf(r)).toEqual(["loads from website-files.com"]);
   });
 });
@@ -226,7 +297,6 @@ describe("mutation 2: changed MX answers", () => {
     dns[construction.apex] = { TXT: [...construction.txt] };
     const { fetch } = world(greenPages(construction), dns);
     const r = await verify({ sites: ["construction"], preview: true }, { fetch });
-    expect(r.ok).toBe(false);
     expect(problemsOf(r)).toEqual([
       `missing MX ${construction.mx[0]}`,
       `missing MX ${construction.mx[0]}`,
@@ -238,7 +308,6 @@ describe("mutation 2: changed MX answers", () => {
     cf[homes.apex] = { ...cf[homes.apex], MX: [] };
     const { fetch } = world(greenPages(homes), greenDns(homes), { cloudflareDns: cf });
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    expect(r.ok).toBe(false);
     expect(
       dnsOf(r)
         .filter((d) => !d.ok)
@@ -251,7 +320,10 @@ describe("mutation 2: changed MX answers", () => {
     dns[homes.apex] = { ...dns[homes.apex], MX: [`${homes.mx[0]}.`, "10 backup.example.com."] };
     const { fetch } = world(greenPages(homes), dns);
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    expect(r.ok).toBe(false);
+    expect(problemsOf(r)).toEqual([
+      "unexpected MX 10 backup.example.com",
+      "unexpected MX 10 backup.example.com",
+    ]);
   });
 
   it("fails when SPF is gone, though MX survives", async () => {
@@ -262,9 +334,22 @@ describe("mutation 2: changed MX answers", () => {
     };
     const { fetch } = world(greenPages(homes), dns);
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    expect(r.ok).toBe(false);
     expect(dnsOf(r).filter((d) => d.kind === "txt" && !d.ok)).toHaveLength(2);
     expect(problemsOf(r)[0]).toBe("missing TXT v=spf1 include:spf.protection.outlook.com -all");
+  });
+
+  it("fails when a second SPF record is added", async () => {
+    const dns = greenDns(homes);
+    dns[homes.apex] = {
+      ...dns[homes.apex],
+      TXT: [...homes.txt, "v=spf1 include:secureserver.net -all"],
+    };
+    const { fetch } = world(greenPages(homes), dns);
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual([
+      "2 SPF records, which receivers treat as a permerror",
+      "2 SPF records, which receivers treat as a permerror",
+    ]);
   });
 
   it("fails when the resolver answers with an error status", async () => {
@@ -274,6 +359,27 @@ describe("mutation 2: changed MX answers", () => {
     expect(dnsOf(r).every((d) => d.problems.some((p) => /status 2 \(SERVFAIL\)/.test(p)))).toBe(
       true,
     );
+  });
+});
+
+describe("the cutover's own two records", () => {
+  it("fails a new apex A added beside the old one instead of replacing it", async () => {
+    const dns = greenDns(homes);
+    dns[homes.apex] = { ...dns[homes.apex], A: [NETLIFY_APEX_IP, "198.202.211.1"] };
+    const { fetch } = world(greenPages(homes), dns);
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual(["unexpected A 198.202.211.1", "unexpected A 198.202.211.1"]);
+  });
+
+  it("fails a www CNAME aimed at the other site's netlify.app name", async () => {
+    const dns = greenDns(homes);
+    dns[homes.www] = { CNAME: [`${construction.preview}.`] };
+    const { fetch } = world(greenPages(homes), dns);
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(dnsOf(r).find((d) => d.kind === "cname")?.problems).toEqual([
+      `missing CNAME ${homes.preview}`,
+      `unexpected CNAME ${construction.preview}`,
+    ]);
   });
 });
 
@@ -288,16 +394,14 @@ describe("mutation 3: a 301 loop on the apex", () => {
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
     expect(r.ok).toBe(false);
-    const apex = pagesOf(r).find((p) => p.url === `https://${homes.apex}/`);
-    expect(apex?.problems).toEqual([
+    expect(pageAt(r, `https://${homes.apex}/`)?.problems).toEqual([
       `redirect loop: https://${homes.apex}/ → https://${homes.www}/ → https://${homes.apex}/`,
     ]);
   });
 
-  it("fails a chain longer than the hop cap", async () => {
+  const chain = (redirects: number): Record<string, Page> => {
     const pages = greenPages(homes);
-    const hops = MAX_HOPS + 2;
-    for (let i = 0; i < hops; i++) {
+    for (let i = 0; i < redirects; i++) {
       const from =
         i === 0 ? `https://${homes.apex}/contact` : `https://${homes.www}/contact?h=${i}`;
       pages[from] = {
@@ -306,10 +410,27 @@ describe("mutation 3: a 301 loop on the apex", () => {
         location: `https://${homes.www}/contact?h=${i + 1}`,
       };
     }
-    const { fetch } = world(pages, greenDns(homes));
+    pages[`https://${homes.www}/contact?h=${redirects}`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${homes.www}/contact`),
+    };
+    return pages;
+  };
+
+  it(`passes a chain of exactly ${MAX_HOPS} redirects`, async () => {
+    const { fetch } = world(chain(MAX_HOPS), greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    const apex = pagesOf(r).find((p) => p.url === `https://${homes.apex}/contact`);
-    expect(apex?.problems).toEqual([`more than ${MAX_HOPS} redirects`]);
+    expect(pageAt(r, `https://${homes.apex}/contact`)?.hops).toHaveLength(MAX_HOPS + 1);
+    expect(problemsOf(r)).toEqual([]);
+  });
+
+  it(`fails a chain of ${MAX_HOPS + 1} redirects`, async () => {
+    const { fetch } = world(chain(MAX_HOPS + 1), greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(pageAt(r, `https://${homes.apex}/contact`)?.problems).toEqual([
+      `more than ${MAX_HOPS} redirects`,
+    ]);
   });
 });
 
@@ -323,7 +444,6 @@ describe("mutation 4: a path missing from the new host", () => {
     };
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    expect(r.ok).toBe(false);
     const bad = pagesOf(r).filter((p) => !p.ok);
     expect(bad).toHaveLength(2);
     expect(
@@ -352,10 +472,80 @@ describe("mutation 4: a path missing from the new host", () => {
       server: "Netlify",
       location: "/projects/",
     };
-    pages[`https://${homes.preview}/projects/`] = { status: 200, server: "Netlify", body: OK_BODY };
+    pages[`https://${homes.preview}/projects/`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${homes.preview}/projects`),
+    };
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: true }, { fetch });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("what Google will see on the production hosts", () => {
+  it("fails a canonical still baked to the netlify.app host (no redeploy after the domain was set)", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.www}/about-us`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${homes.preview}/about-us`),
+    };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual([
+      `canonical points at https://${homes.preview}/about-us`,
+      `canonical points at https://${homes.preview}/about-us`,
+    ]);
+  });
+
+  it("fails a page with no canonical link", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.www}/contact`] = { status: 200, server: "Netlify", body: "<p>hi</p>" };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual(["no canonical link", "no canonical link"]);
+  });
+
+  it("fails a noindex header and a noindex meta tag", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.www}/`] = {
+      status: 200,
+      server: "Netlify",
+      headers: { "x-robots-tag": "noindex, nofollow" },
+      body: html(`https://${homes.www}/`),
+    };
+    pages[`https://${homes.www}/projects`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${homes.www}/projects`, '<meta name="robots" content="noindex"/>'),
+    };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(pageAt(r, `https://${homes.www}/`)?.problems).toEqual([
+      "x-robots-tag: noindex, nofollow",
+    ]);
+    expect(pageAt(r, `https://${homes.www}/projects`)?.problems).toEqual(["meta robots: noindex"]);
+  });
+
+  it("fails when the apex, not www, ends up as the primary host", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.apex}/`] = {
+      status: 200,
+      server: "Netlify",
+      body: html(`https://${homes.www}/`),
+    };
+    pages[`https://${homes.www}/`] = {
+      status: 301,
+      server: "Netlify",
+      location: `https://${homes.apex}/`,
+    };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: false }, { fetch });
+    expect(problemsOf(r)).toEqual([
+      `landed on ${homes.apex}, not ${homes.www}`,
+      `landed on ${homes.apex}, not ${homes.www}`,
+    ]);
   });
 });
 
@@ -386,6 +576,22 @@ describe("the other page checks", () => {
     expect(problemsOf(r)).toEqual([`redirect leaves https: http://${construction.www}/`]);
   });
 
+  it("fails a redirect with no location, and one with an unreadable location", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.preview}/contact`] = { status: 302, server: "Netlify" };
+    pages[`https://${homes.preview}/about-us`] = {
+      status: 301,
+      server: "Netlify",
+      location: "https://[bad",
+    };
+    const { fetch } = world(pages, greenDns(homes));
+    const r = await verify({ sites: ["homes"], preview: true }, { fetch });
+    expect(problemsOf(r)).toEqual([
+      `unreadable location "https://[bad" at https://${homes.preview}/about-us`,
+      `302 without a location at https://${homes.preview}/contact`,
+    ]);
+  });
+
   it("fails an apex still answered by Webflow even when www is on Netlify", async () => {
     const pages = greenPages(homes);
     pages[`https://${homes.apex}/about-us`] = {
@@ -400,7 +606,11 @@ describe("the other page checks", () => {
 
   it("fails a response with no server header", async () => {
     const pages = greenPages(homes);
-    pages[`https://${homes.preview}/contact`] = { status: 200, server: null, body: OK_BODY };
+    pages[`https://${homes.preview}/contact`] = {
+      status: 200,
+      server: null,
+      body: html(`https://${homes.preview}/contact`),
+    };
     const { fetch } = world(pages, greenDns(homes));
     const r = await verify({ sites: ["homes"], preview: true }, { fetch });
     expect(problemsOf(r)).toEqual([`server: (none) at https://${homes.preview}/contact`]);
@@ -413,10 +623,9 @@ describe("the other page checks", () => {
       throwFor: { [url]: new TypeError("fetch failed", { cause }) },
     });
     const r = await verify({ sites: ["homes"], preview: false }, { fetch });
-    const bad = pagesOf(r).filter((p) => !p.ok);
-    expect(bad.map((p) => p.problems)).toEqual([
-      [`certificate invalid at ${url}: CERT_HAS_EXPIRED`],
-      [`certificate invalid at ${url}: CERT_HAS_EXPIRED`],
+    expect(problemsOf(r)).toEqual([
+      `certificate invalid at ${url}: CERT_HAS_EXPIRED`,
+      `certificate invalid at ${url}: CERT_HAS_EXPIRED`,
     ]);
   });
 
@@ -432,14 +641,30 @@ describe("the other page checks", () => {
     expect(problemsOf(r)).toEqual([`certificate invalid at ${url}: ERR_TLS_CERT_ALTNAME_INVALID`]);
   });
 
-  it("fails a network error that is not a certificate problem", async () => {
-    const url = `https://${homes.preview}/`;
-    const cause = Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
-    const { fetch } = world(greenPages(homes), greenDns(homes), {
-      throwFor: { [url]: new TypeError("fetch failed", { cause }) },
+  it("fails a network error, a timeout and a body cut off mid-read, without crashing the run", async () => {
+    const pages = greenPages(homes);
+    pages[`https://${homes.preview}/contact`] = {
+      status: 200,
+      server: "Netlify",
+      textError: new TypeError("terminated"),
+    };
+    const refused = `https://${homes.preview}/`;
+    const slow = `https://${homes.preview}/projects`;
+    const { fetch } = world(pages, greenDns(homes), {
+      throwFor: {
+        [refused]: new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+        }),
+        [slow]: new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+      },
     });
     const r = await verify({ sites: ["homes"], preview: true }, { fetch });
-    expect(problemsOf(r)).toEqual([`request failed at ${url}: ENOTFOUND`]);
+    expect(problemsOf(r)).toEqual([
+      `request failed at ${refused}: ECONNREFUSED`,
+      `timed out at ${slow}`,
+      `request failed at https://${homes.preview}/contact: terminated`,
+    ]);
+    expect(pagesOf(r)).toHaveLength(10);
   });
 });
 
@@ -491,9 +716,38 @@ describe("parsing", () => {
   });
 });
 
+describe("the command line", () => {
+  const run = (args: string[]) =>
+    spawnSync(process.execPath, [SCRIPT, ...args], {
+      encoding: "utf-8",
+      env: { PATH: process.env.PATH ?? "", HTTPS_PROXY: "http://127.0.0.1:9" },
+      timeout: 60_000,
+    });
+
+  it("re-runs itself through the proxy, prints every check, and exits 1 when nothing answers", () => {
+    const r = run(["--site", "homes"]);
+    const lines = r.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^TLS: CONNECT tunnel through HTTPS_PROXY/);
+    expect(lines.filter((l) => l.startsWith("  FAIL "))).toHaveLength(28);
+    expect(lines.at(-1)).toBe("RED: 28 of 28 checks failed");
+    expect(r.status).toBe(1);
+  });
+
+  it("exits 2 with the usage on a bad flag, before any request", () => {
+    const r = run(["--site", "domaru"]);
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toMatch(/--site needs homes, construction or all/);
+    expect(r.stderr).toMatch(/^usage: /m);
+  });
+});
+
 describe("the plan and the checklist say what the verifier checks", () => {
-  const plan = readFileSync("docs/webflow-conversions-2026-10.md", "utf-8");
-  const runbook = readFileSync("docs/runbooks/williamson-cutover-2026-10-14.md", "utf-8");
+  const plan = readFileSync(join(ROOT, "docs/webflow-conversions-2026-10.md"), "utf-8");
+  const runbook = readFileSync(
+    join(ROOT, "docs/runbooks/williamson-cutover-2026-10-14.md"),
+    "utf-8",
+  );
   const section = (heading: string) => {
     const start = plan.indexOf(heading);
     const end = plan.indexOf("\n### ", start + heading.length);
@@ -510,9 +764,12 @@ describe("the plan and the checklist say what the verifier checks", () => {
     const count = Number(/\*\*Pages: (\d+),/.exec(text)?.[1]);
     expect(site.paths).toHaveLength(count);
     expect(new Set(site.paths).size).toBe(count);
-    for (const p of site.paths.filter((x) => x !== "/")) {
-      const last = p.split("/").at(-1);
-      expect(text, p).toMatch(new RegExp("`(/" + last + "|" + last + ")`"));
+    expect(site.paths[0]).toBe("/");
+    expect(text).toContain("`/projects/<slug>`");
+    for (const p of site.paths.slice(1)) {
+      const m = /^\/projects\/([a-z0-9-]+)$/.exec(p);
+      if (m) expect(text, p).toContain("`" + m[1] + "`");
+      else expect(text, p).toMatch(new RegExp("`" + p + "`"));
     }
   });
 
