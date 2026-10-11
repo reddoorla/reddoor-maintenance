@@ -3687,6 +3687,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         fix to that fix deserves one look. Erik's date is the week of 12–16
         Oct, so a round costs nothing that matters. You answered (b) for
         #1280's similar ask today.
+        **Answered 2026-10-11 (AskUserQuestion): (b), a third review round on
+        `520f284..cb2b13c`, then land if it is clean.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
