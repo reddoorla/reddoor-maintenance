@@ -41,9 +41,9 @@ The prompt lives here so it can be changed by PR, like everything else.
    `origin/main`, after CI is green on the head you read. Push only to the
    branch the harness assigned to the session.
 7. **Time budget: about 45 minutes.** Since P1-38 the `fleet-nightly`
-   conductor runs backup, prismic-drift, security, lighthouse, smoke,
-   form-e2e and then `daily-reports` in draft mode (drafts and the digest),
-   in that order. The Netlify `nightly-clock` fires it at 06:07Z, or its own
+   conductor runs backup, prismic-drift, prismic-sync (since P1-39),
+   security, lighthouse, smoke, form-e2e and then `daily-reports` in draft
+   mode (drafts and the digest), in that order. The Netlify `nightly-clock` fires it at 06:07Z, or its own
    02:17Z cron does if GitHub starts that first; whichever comes second
    skips what the first already dispatched. So all of them should be
    finished by this pass. Client sends are a separate `daily-reports`
