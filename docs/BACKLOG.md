@@ -3610,6 +3610,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       _Pick:_ (a). It already does what Erik described, a second control for
       the same state invites the two to disagree, and nothing needs
       migrating.
+      **Answered 2026-10-11 (AskUserQuestion): (a) keep the dropdown.**
 102.  **roalson-interests#281, P1-41 listing page: held after two dirty review
       rounds (new 2026-10-11, asked 2026-10-11, branch `claude/p1-41-listing`,
       head `e2e781f`).** "View on Google Maps" → "Aerial Map" (now Google's
@@ -3626,6 +3627,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       (up to 155px at 1024).
       _Pick:_ (a). The defect is fixed and measured in two engines, and the
       round-2 reviewer verified the same fix in three.
+      **Answered 2026-10-11 (AskUserQuestion): (a) land on green CI.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
