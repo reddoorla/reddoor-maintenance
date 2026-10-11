@@ -3635,6 +3635,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         swapped-host qualifier. Unquoted attributes and `robots: none`
         cannot occur with SvelteKit's output. Landed in #1280, per the
         answer's "then come back if it finds anything".
+102.  **Roalson P1-41, Past Projects: the control Erik asked for already exists
+      (new 2026-10-11, asked 2026-10-11, roalson-interests#280; no branch, the
+      section is on `main`).** The brief and Erik's 10-09 note ask for "a
+      checkbox like featured" on `customtypes/property`, with admin-editable
+      bullets. The model already has it: "Show on the site as" → "Past
+      project", built from Erik's own 09-25 ask, and a Sold status moves a
+      listing there too. Its bullets are the listing's Highlights, and the
+      3-column grid from the comp's "Sold" frame (Figma 6991:1124) is in
+      `PropertyListing`. It shows nothing on the live site because 0 of the 23
+      published listings is marked [M, Content API]. Nicole's mockup: the only
+      3-column one found is that Figma frame (the file was last edited
+      10-06); nothing in Discord or Dropbox [M].
+      _Ask:_ (a) **keep the dropdown**: no model change, Group 3 is
+      screenshots of the existing grid, and the reply to Erik says where the
+      setting is; (b) **a checkbox**: a `past_project` Boolean, the unused
+      "Past project" option dropped from the dropdown (0 documents use it),
+      and the field carried through the Featured band's fetch links, the
+      types and about ten tests, in one PR plus the model workflow.
+      _Pick:_ (a). It already does what Erik described, a second control for
+      the same state invites the two to disagree, and nothing needs
+      migrating.
+      **Answered 2026-10-11 (AskUserQuestion): (a) keep the dropdown.**
+103.  **roalson-interests#281, P1-41 listing page: held after two dirty review
+      rounds (new 2026-10-11, asked 2026-10-11, branch `claude/p1-41-listing`,
+      head `e2e781f`).** "View on Google Maps" → "Aerial Map" (now Google's
+      satellite view on the pin) and the Details facts and tracts folded into
+      the bullets. Round 1 found minors only, all fixed. Round 2 found one
+      major that round 1's photo fix introduced: `lg:self-stretch` let the
+      photo take its width from its stretched height, 679 wide in a 473
+      column at 1024 in Chromium, with 245px of it under the panel [M]. Fixed
+      in `e2e781f` with `lg:justify-self-stretch`: overlap 0 and gap 0 at 1024,
+      1280, 1440 and 1920 in Chromium and WebKit [M].
+      _Ask:_ (a) land on green CI with `e2e781f`, no third round; (b) a third
+      review round first; (c) drop the photo stretch and keep `main`'s photo
+      box, which leaves page ground under the photo when the panel is taller
+      (up to 155px at 1024).
+      _Pick:_ (a). The defect is fixed and measured in two engines, and the
+      round-2 reviewer verified the same fix in three.
+      **Answered 2026-10-11 (AskUserQuestion): (a) land on green CI.**
 
 102.  **hedloc#55, P1-40 Hedloc's 4-wide Executive Team row: held after two
       dirty review rounds (new 2026-10-11, reddoorla/hedloc branch
