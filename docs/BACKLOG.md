@@ -3928,15 +3928,17 @@ Read through a libSQL client that refuses anything but SELECT/WITH/PRAGMA
   - **Filed:** roalson-interests#284–#288. Erik's listing-PDF notes come Mon 10-12.
 - 2026-10-11 — P1-40: Hedloc's Executive Team row is 4 wide at `lg` (hedloc#55, `2641a0e`; issue hedloc#54). Erik's ask from 10-09, "slide these three to the left, and have 4-wide".
   - **Layout.** The empty first column that held the selected member is now an absolute slot over column one, so four members fill the row and the open view is unchanged. Today's three members keep their 301px/206px columns and slide one column left [M].
-  - **Long bios.** An open bio grows the section instead of overflowing the fixed 640px box. In the fixture, Shankar's 1,867-character bio would have run 231px (1440) and 511px (1024) onto the footer [M].
+  - **Long bios.** An open bio grows the section instead of overflowing the fixed 640px box. In the fixture, a bio of Shankar's length would have run 231px (1440) and 511px (1024) onto the footer [M]. His bio is 1,855 characters. The 1,867 first cited here counted the .docx's XML entities, and the fixture's paragraphs are 12 characters longer in all.
   - **Wrapped names** start at the left edge.
   - **Review.** Three rounds. After two dirty rounds the PR was held as Operator decisions 104, and was landed on the operator's answers.
-  - **Not done: the content.** The Prismic MCP is not activated for hedloc, so Shankar's entry is the operator's to enter by hand. It went as a download card: "Advisor", the headshot, five plain paragraphs. `/executive-team` is prerendered, so after publishing:
-    1. trigger a Netlify build;
-    2. check the live page;
-    3. post Erik's reply from hedloc#55's body.
-
-    Until then the live row shows three members, left-aligned, with the fourth slot empty.
+  - **The content is staged, not live.** The operator activated the Prismic MCP. Shankar's entry is in release `asvLKRIAALUvJrWz`, "Executive Team: add Shankar Annamalai (P1-40)": https://hedloc.prismic.io/builder/upcoming/asvLKRIAALUvJrWz [M, `diff_release`: one document, two deltas, the item added fourth].
+    - Its fields: name "Shankar Annamalai", title "Advisor", headshot asset `tFb0uvkVPwH3KOz0` (1125×1500), and the .docx's five paragraphs, checked byte for byte against the .docx.
+    - `/executive-team` is prerendered, so after publishing the release:
+      1. trigger a Netlify build;
+      2. check the live page;
+      3. post Erik's reply from hedloc#55's body.
+    - Until then the live row shows three members, left-aligned, with the fourth slot empty.
+    - A stray "document" asset, `FyXEaSXx6pW_KKta` (a failed first upload), sits in hedloc's media library. The MCP has no delete, so remove it there by hand.
 
 - 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR #1280).
   - **The checklist** is `docs/runbooks/williamson-cutover-2026-10-14.md`. It changes only the apex `A` (to `75.2.60.5`) and the `www` CNAME (to each site's `*.netlify.app` name). Every other record it found is listed as DO NOT TOUCH with its current value. It also carries the 10-13 Netlify custom-domain and TTL steps and a rollback.
