@@ -138,17 +138,16 @@ describe("fleet-prismic-sync — wiring", () => {
     expect(src).toMatch(/owner: reddoorla/);
   });
 
-  it("names the drift workflow by its real name, or it never fires", async () => {
-    const drift = await readFile(workflowPath("fleet-prismic-drift.yml"), "utf-8");
-    const name = /^name:\s*(\S+)\s*$/m.exec(drift)?.[1];
-    expect(name).toBe("fleet-prismic-drift");
-    expect(withoutComments(wf)).toContain(`workflows: [${name}]`);
+  it("publishes after a failed fetch or build too, so a red run still files its issue", () => {
+    expect((load(wf) as { jobs: Record<string, { if?: string }> }).jobs.publish!.if).toBe(
+      "always()",
+    );
   });
 
-  it("runs after the drift sweep, only for main's runs", () => {
-    const src = withoutComments(wf);
-    expect(src).toMatch(/workflow_run:\n\s+workflows: \[fleet-prismic-drift\]/);
-    expect(src).toContain("github.event.workflow_run.head_branch == 'main'");
+  it("starts only from a dispatch, never from another workflow's run", () => {
+    const on = (load(wf) as { on: Record<string, unknown> }).on;
+    expect(Object.keys(on)).toEqual(["workflow_dispatch"]);
+    expect(withoutComments(wf)).not.toContain("github.event.workflow_run");
   });
 });
 
