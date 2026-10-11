@@ -3675,7 +3675,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       round-2 reviewer verified the same fix in three.
       **Answered 2026-10-11 (AskUserQuestion): (a) land on green CI.**
 
-102.  **hedloc#55, P1-40 Hedloc's 4-wide Executive Team row: held after two
+104.  **hedloc#55, P1-40 Hedloc's 4-wide Executive Team row: held after two
       dirty review rounds (new 2026-10-11, reddoorla/hedloc branch
       `claude/p1-40-exec-team-4-wide`, head `cb2b13c`; claimed in
       hedloc#54).** Built:
