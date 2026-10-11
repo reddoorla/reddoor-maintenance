@@ -1,5 +1,23 @@
 # @reddoorla/maintenance
 
+## 0.106.0
+
+### Minor Changes
+
+- 28fe214: The daily digest's subject now names its news after the unchanged `Your fleet — <date>: ` prefix: `Act: <site> — <title>: <ask>` for a critical line that is new or worse, else `<N> report(s) ready for your yes — oldest <age>`, else `<N> new — <title>`, else `no change since <date>`.
+- 6728d61: `audit` names the Lighthouse audits behind a failed category assertion. Each failing site prints one `LIGHTHOUSE_FAILURES assertions=… audits=… site=…` line, and the fleet write-back stores the list in `site_health.lighthouse_failing_audits` (migration 0040), shown on the site dashboard.
+- 5f6ca41: An approved, unsent report on `/s/<slug>` now carries an "Unapprove" button (`POST /api/reports/:id/unapprove`). It clears the approval and the send-anyway flag, stamps `reports.unapproved_at` / `unapproved_by` (migrations 0041–0042), and puts the report back in the pending list, where "refresh preview" re-reads its scores. A sent, withdrawn or mid-send report is a 409 no-op.
+
+  `report --send-ready` now claims each report (`reports.send_started_at`, migration 0043) right before calling Resend. The claim holds only while the row is still approved, unsent and unwithdrawn under the same `approved_at` the batch read, and a report it cannot claim is skipped. An unapprove refuses a claimed row, so from that moment the send wins; before it, the unapprove wins and nothing is sent. A send Resend refuses outright releases its claim; an ambiguous failure keeps it. `OrchestrateOptions` gains the required `claimForSend` and `releaseSendClaim`, and a `Resend error:` now carries the SDK's error name as `resendErrorName`.
+
+### Patch Changes
+
+- 47f1460: The site page's report history now offers "refresh preview" beside "Unapprove" on an approved, unsent report, so the Search Console lookup can be re-run without unapproving. It is not offered once the send batch has claimed the report, or on a sent or withdrawn one.
+- a3d596b: Spam pass (2026-10-08). `vasdirect.com`, `virtualeaseservice.com`, `parallelaid.com` and `erpfunds.com` join `BLOCKED_EMAIL_DOMAINS`, each after every live row from it was read and found to be spam. A new `va-template` signal buckets the virtual-assistant flood's second template only when both of its invariants ("trained va who", "our custom ai system") appear. The disposable-email signal (+45, still needs corroboration) now also matches a pinned snapshot of the CC0 `disposable-email-domains` list (9,221 domains, refreshed with `scripts/refresh-disposable-domains.mts`).
+- 244f8bf: A Lighthouse run whose lhci exited non-zero without writing assertion results now reports `warn` ("no assertion results … were not checked") instead of "all categories passing".
+- 466831f: `report --rerender` ("refresh preview") now writes the site row's current four Lighthouse scores to an unsent, unapproved report and renders with them. The result line names the change (`scores=refreshed scores_change=bp:78→100`). An approved report keeps its stored scores (`scores=locked`), and a site row missing any score leaves the stored ones alone (`scores=site-missing`).
+- 0ced57c: `report --rerender` ("refresh preview") now writes the Search Console lookup it ran to the site's `site_health` row (`search_console_outcome`, `search_console_resolved`, `search_console_checked_at`), the same three cells a draft writes. An approved but unsent report runs the lookup on its own and records it without touching the report. When the lookup did not run (no credentials, the site not enrolled), nothing is written and the stored outcome stands. The result line names what happened: `lookup=resolved|no-property|soft-fail|not-run|no-row|write-failed`.
+
 ## 0.105.0
 
 ### Minor Changes
