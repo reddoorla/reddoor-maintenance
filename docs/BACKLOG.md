@@ -3589,7 +3589,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
       in #1270.
 
-101.  **Roalson P1-41, Past Projects: the control Erik asked for already exists
+101.  **#1280, P1-42 Williamson cutover checklist and verifier: held after two
+      dirty review rounds (new 2026-10-11, branch
+      `claude/gracious-mccarthy-yh94k1`, head `f8e150d3`).** Built:
+      - `docs/runbooks/williamson-cutover-2026-10-14.md`, your checklist. It
+        changes only the apex `A` and the `www` CNAME. Every other record is
+        DO NOT TOUCH with its live value. It covers the Tue 10-13 steps, and
+        now a redeploy, plus the Wed cutover, the form gate and the rollback.
+      - `scripts/williamson-cutover-verify.mjs`. Live it was RED on Webflow
+        (56 of 64 checks) and GREEN on both previews (32 of 32), and its
+        production-only checks passed on 29 Navy. 32 mutations turn a test
+        red.
+      - **Round 1** (3 lenses) was dirty, and everything it found is fixed in
+        `2ae23a10`:
+        - A second apex `A` row beside the old one passed.
+        - There was no canonical or noindex check. Both sites bake Netlify's
+          build-time `URL` into the canonical, so a cutover without a
+          redeploy would serve every `www` canonical pointing at the
+          noindexed `netlify.app` host and still read GREEN.
+        - The test fake ignored `redirect: "manual"`.
+        - `main()` was untested.
+        - The form gate sat after the step it guards.
+      - **Round 2** found no blocker or major, and two minors, both fixed in
+        `f8e150d3`:
+        - (1) The canonical check compared only the host, so
+          `href="http://www.williamson-homes.com/about-us"` passed
+          (reproduced through `checkPage` with a fake fetch). It now requires
+          the `https://www` origin, and a test goes red without it. Whether
+          Netlify's build-time `URL` is ever `http://` is unconfirmed.
+        - (2) The TTL read-back wording overclaimed. It now points at
+          `dig @ns31.domaincontrol.com`.
+      - _Ask:_
+        - (a) land `f8e150d3` on green CI without a third round, so the
+          checklist is on `main` before your Tue 10-13 steps;
+        - (b) run a third review round first;
+        - (c) hold.
+      - _Pick:_ (a). The round-2 fixes are one comparison with its own red
+        test and three doc sentences. No reproduced defect is left unfixed.
+        **Answered 2026-10-11 by 15:10Z (AskUserQuestion): (b), run a third review round first.**
+102.  **Roalson P1-41, Past Projects: the control Erik asked for already exists
       (new 2026-10-11, asked 2026-10-11, roalson-interests#280; no branch, the
       section is on `main`).** The brief and Erik's 10-09 note ask for "a
       checkbox like featured" on `customtypes/property`, with admin-editable
@@ -3611,7 +3649,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       the same state invites the two to disagree, and nothing needs
       migrating.
       **Answered 2026-10-11 (AskUserQuestion): (a) keep the dropdown.**
-102.  **roalson-interests#281, P1-41 listing page: held after two dirty review
+103.  **roalson-interests#281, P1-41 listing page: held after two dirty review
       rounds (new 2026-10-11, asked 2026-10-11, branch `claude/p1-41-listing`,
       head `e2e781f`).** "View on Google Maps" → "Aerial Map" (now Google's
       satellite view on the pin) and the Details facts and tracts folded into
