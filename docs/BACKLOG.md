@@ -3745,6 +3745,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       first; (c) hold.
       _Pick:_ (a). No reproduced behaviour defect is unfixed, and every
       round-2 fix has its own red mutation.
+      **Answered 2026-10-11 (AskUserQuestion): (b), run a third review round
+      on each first.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
