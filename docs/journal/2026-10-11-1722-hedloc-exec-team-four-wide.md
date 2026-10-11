@@ -1,5 +1,7 @@
 ## 2026-10-11 — Hedloc's Executive Team row is 4 wide at lg; Shankar's entry is the operator's (hedloc#55, `2641a0e`)
 
+> Superseded in part by 2026-10-11 — Shankar Annamalai is staged in a hedloc Prismic release, not entered by hand.
+
 P1-40, from Erik in #hedloc-web on 10-09: "build a 4th slot into this Executive Team line up … slide these three to the left, and have 4-wide". Shankar Annamalai is fourth, and the ask was dated for the week of 12–16 Oct. The layout landed in hedloc#55 after three review rounds and two operator answers (Operator decisions 104). The content did not land. The Prismic MCP still answered "not activated for repository hedloc" at 14:20Z, so Shankar's entry went to the operator as a download card (name, title "Advisor" from the .docx, the 1125×1500 headshot, five plain paragraphs), and Erik's reply waits in the PR body.
 
 **The design.** The row was already four columns wide. Its first column was an empty `lg:w-1/4` that existed only to hold the selected member's headshot while a bio was open, so three members filled columns two to four.
