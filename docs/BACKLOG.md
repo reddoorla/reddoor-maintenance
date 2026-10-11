@@ -3729,6 +3729,23 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-11 (AskUserQuestion): (b), a third review round on
         `520f284..cb2b13c`, then land if it is clean.**
 
+105.  **roalson-interests#282 and #283, P1-41 Properties and Home: both held
+      after two dirty review rounds (new 2026-10-11, asked 2026-10-11, branches
+      `claude/p1-41-properties` at `dc909c6` and `claude/p1-41-home` at
+      `fa09867`).** In both PRs, neither round found a behaviour defect. Both
+      second rounds found test-only defects, now fixed. In #282, the outline
+      gate measured only the server picture's pins, so live pins dimmed whole
+      passed it, and nine nightly cases still walked Land from the landing
+      view. In #283, the homepage map-link premise matched CSS that the dev
+      server always inlines, and the DISSOLVE parser was unchecked. Each fix
+      goes red under the mutation that found the gap. `@smoke` passes on both
+      heads: 69 passed and 67 passed [M].
+      _Ask:_ (a) land #282 then #283 on green CI, with no third round, merging
+      `main` into #283 between them; (b) run a third review round on each
+      first; (c) hold.
+      _Pick:_ (a). No reproduced behaviour defect is unfixed, and every
+      round-2 fix has its own red mutation.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
