@@ -93,6 +93,15 @@ unlinked page or a draft CMS item would not appear.
   (`MX …mail.protection.outlook.com`, an SPF include, an `MS=` verification
   TXT), plus a `google-site-verification` TXT. The account that holds the
   GoDaddy login is not visible from outside.
+- **Re-measured 2026-10-11 14:12Z** for OD7-P4 (`dns.google`, with MX and TXT
+  confirmed by `cloudflare-dns.com`). Nothing above had changed. The exact values,
+  which the cutover must leave alone: MX
+  `0 williamsonhomes-com02e.mail.protection.outlook.com`; TXT
+  `v=spf1 include:spf.protection.outlook.com -all`,
+  `v=verifydomain MS=7526292` and
+  `google-site-verification=5M-cvpiEh6WVPkbik9fboRy3MRD42q6dix6GBxTPdNc`. The
+  full DO NOT TOUCH list, including DKIM, DMARC and the Microsoft 365 CNAMEs and
+  SRVs, is in `docs/runbooks/williamson-cutover-2026-10-14.md`.
 - **Staging host:** `williamson-homes.webflow.io` returns 404, so the staging
   name is something else or is disabled.
 
@@ -101,7 +110,12 @@ unlinked page or a draft CMS item would not appear.
 - **Pages: 14, on 7 templates.** Home, `/about-us`, `/services`, `/projects`,
   `/contact`, `/join-the-team`, and one CMS template, `/projects/<slug>`, with
   8 items: two Cedars-Sinai, three Providence, `west-high-school`,
-  `torrance-high-school` and `mbm-hospitality`.
+  `torrance-high-school` and `mbm-hospitality`. The Cedars-Sinai and Providence
+  slugs, read from `/projects` on both the live site and the preview on
+  2026-10-11: `cedars-sinai-beverly-hills`,
+  `cedars-sinai-pro-building-cooling-tower-refurbishment`,
+  `providence-express-care`, `providence-hospital-little-company-of-mary` and
+  `providence-saint-johns`.
 - **CMS: 1 collection, Projects, with 8 visible items.** Lists on `/projects`
   and on every project page.
 - **Forms: 1.** `/join-the-team` is a subcontractor intake: Name, Email, Phone,
@@ -124,6 +138,15 @@ unlinked page or a draft CMS item would not appear.
 - **Domain / DNS:** apex `A 198.202.211.1` (TTL 600) with a 301 to `www`; `www`
   `CNAME cdn.webflow.com` (TTL 3600). Nameservers GoDaddy (`ns27/28`); **mail is
   Microsoft 365**.
+- **Re-measured 2026-10-11 14:12Z** for OD7-P4, as for Homes. Nothing above had
+  changed. The exact values, which the cutover must leave alone: MX
+  `0 williamsonconstruction-com02e.mail.protection.outlook.com`; TXT
+  `v=spf1 include:spf.protection.outlook.com ~all` (a soft fail, where Homes has
+  `-all`) and `v=verifydomain MS=1109765`. Unlike Homes, Construction has **no**
+  `google-site-verification` TXT. The SOA serial is `2026100500`, so the zone
+  was edited on 10-05. The A, CNAME, NS and MX records were the same as on
+  09-29. The full DO NOT TOUCH list is in
+  `docs/runbooks/williamson-cutover-2026-10-14.md`.
 - **Staging host:** `williamson-construction.webflow.io` answers 200 with the
   same site id.
 - **An existing defect:** 9 of the 14 page titles end in "| Williamson Homes".
@@ -731,6 +754,15 @@ delivers a test submission (Netlify Forms) or is a `mailto:` per D6.
 ```
 
 ### Phase 4
+
+Built 2026-10-11 (BACKLOG P1-42, issue #1279). The checklist is
+`docs/runbooks/williamson-cutover-2026-10-14.md` and the verifier is
+`scripts/williamson-cutover-verify.mjs`. On 10-11 it was RED on the live Webflow
+hosts and GREEN on both `*.netlify.app` previews. Two things the brief below does
+not say:
+
+- GoDaddy's custom TTL floor is reported at 600 seconds, not 300.
+- The Domaru half was dropped on 09-30 (D1).
 
 ```markdown
 ## Worker brief — OD7-P4: cutover checklist and post-cutover verification (the worker changes no DNS)
