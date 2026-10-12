@@ -623,3 +623,59 @@ describe("configs/svelte — the Prismic toolbar and previews", () => {
     ]);
   });
 });
+
+describe("configs/svelte createKitConfig (SvelteKit 3)", () => {
+  // Kit 3 takes its options top-level through sveltekit(...) and refuses a
+  // `kit` block (config_kit_namespace), so the same canonical pieces arrive flat.
+  it("returns kit's options top-level, with no `kit` key", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    const adapter = { name: "netlify", adapt: () => {} };
+    const config = createKitConfig({ adapter, prerender: { crawl: true } });
+    expect(config).not.toHaveProperty("kit");
+    expect(config.adapter).toBe(adapter);
+    expect(config.prerender).toEqual({ crawl: true });
+  });
+
+  it("adds `$lib`, which kit 3 stopped providing, beside the canonical aliases; a site's own wins", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    const config = createKitConfig({ alias: { $utils: "src/custom-utils", $extra: "src/extra" } });
+    expect(config.alias).toMatchObject({
+      $lib: "src/lib",
+      "$lib/*": "src/lib/*",
+      $components: "src/lib/components",
+      $utils: "src/custom-utils",
+      $extra: "src/extra",
+    });
+  });
+
+  it("csp:true puts the baseline policy at top-level `csp`, with the event-replay hash", async () => {
+    const { createKitConfig, SVELTE_EVENT_REPLAY_HASH } =
+      await import("../../src/configs/svelte.js");
+    const config = createKitConfig({ csp: true, prismicRepository: "my-repo" });
+    const csp = config.csp as { mode: string; directives: Record<string, string[]> };
+    expect(csp.mode).toBe("auto");
+    expect(csp.directives["script-src"]).toContain(SVELTE_EVENT_REPLAY_HASH);
+    expect(csp.directives["frame-src"]).toContain("https://my-repo.prismic.io");
+  });
+
+  it("sets no csp unless asked (never silently forces a policy)", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    expect(createKitConfig({})).not.toHaveProperty("csp");
+  });
+
+  it("keeps the warning filter and the placeholder prerender rule", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    const config = createKitConfig({ placeholder: true });
+    expect(
+      config.compilerOptions.warningFilter!({ code: "element_invalid_self_closing_tag" }),
+    ).toBe(false);
+    const prerender = config.prerender as { handleHttpError: (d: object) => void };
+    expect(() => prerender.handleHttpError({ status: 404, path: "/" })).not.toThrow();
+    expect(() => prerender.handleHttpError({ status: 500, path: "/" })).toThrow();
+  });
+
+  it("refuses a `kit` block, naming the move", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    expect(() => createKitConfig({ kit: {} } as never)).toThrow(/top-level/);
+  });
+});

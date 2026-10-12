@@ -381,4 +381,66 @@ export function createSvelteConfig(
   };
 }
 
+/**
+ * `$lib` itself, which SvelteKit 3 no longer provides (it points to `#lib`
+ * subpath imports instead, and refuses a `$lib` import with
+ * `module_removed_lib` unless an alias names it). Kit 2 supplied it, so a kit 2
+ * site's `$lib/...` imports keep resolving only through this alias.
+ */
+const KIT3_LIB_ALIASES: Record<string, string> = {
+  $lib: "src/lib",
+  "$lib/*": "src/lib/*",
+};
+
+/** What createKitConfig takes: kit 3's options, top-level, plus the reddoor
+ *  options. `csp` is the reddoor option (`true`, or the baseline extended), not
+ *  kit's raw `csp`; to bypass the baseline, set `csp` on the returned object. */
+export type KitConfigLike = Omit<SvelteConfigLike, "kit"> & ReddoorSvelteOptions;
+
+/**
+ * {@link createSvelteConfig} for SvelteKit 3, whose options are top-level
+ * arguments to the `sveltekit(...)` Vite plugin rather than a `kit` block in
+ * `svelte.config.js` (which kit 3 refuses to start beside, and a `kit` key in
+ * the plugin options is `config_kit_namespace`). Same canonical pieces: the
+ * warning filter, the `$components/$utils/$stores/$assets` aliases, opt-in
+ * `csp`, `prismicRepository` and `placeholder`; plus `$lib`, which kit 3 stopped
+ * providing. kit 3 deprecates `alias` (a build warning), so this keeps a kit 2
+ * site's imports working while it moves to subpath imports, and no longer.
+ *
+ * @example
+ *   // sveltekit.config.js, passed to sveltekit(...) in vite.config.ts
+ *   import { createKitConfig } from "@reddoorla/maintenance/configs/svelte";
+ *   import adapter from "@sveltejs/adapter-netlify";
+ *
+ *   export default createKitConfig({ adapter: adapter(), csp: true });
+ */
+export function createKitConfig(siteConfig: KitConfigLike = {}): Record<string, unknown> & {
+  compilerOptions: NonNullable<SvelteConfigLike["compilerOptions"]>;
+  alias: Record<string, string>;
+} {
+  if ("kit" in siteConfig) {
+    throw new Error(
+      "createKitConfig takes SvelteKit 3's options top-level, with no `kit` block " +
+        "(kit 3 refuses one: config_kit_namespace). Move the keys inside `kit` up a level.",
+    );
+  }
+  const { csp, placeholder, prismicRepository, compilerOptions, preprocess, ...kitOptions } =
+    siteConfig;
+  const siteAlias = (kitOptions.alias ?? {}) as Record<string, string>;
+  const nested = createSvelteConfig({
+    kit: { ...kitOptions, alias: { ...KIT3_LIB_ALIASES, ...siteAlias } },
+    ...(compilerOptions !== undefined ? { compilerOptions } : {}),
+    ...(preprocess !== undefined ? { preprocess } : {}),
+    ...(csp !== undefined ? { csp } : {}),
+    ...(placeholder !== undefined ? { placeholder } : {}),
+    ...(prismicRepository !== undefined ? { prismicRepository } : {}),
+  });
+  const { kit, ...rest } = nested;
+  const flat = { ...rest, ...(kit as Record<string, unknown>) };
+  return flat as typeof flat & {
+    compilerOptions: NonNullable<SvelteConfigLike["compilerOptions"]>;
+    alias: Record<string, string>;
+  };
+}
+
 export default createSvelteConfig;

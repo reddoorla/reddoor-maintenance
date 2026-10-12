@@ -197,6 +197,49 @@ export const ALL_TEMPLATES: ConfigTemplate[] = [
   netlify,
 ];
 
+/**
+ * Where a SvelteKit 3 site keeps its config. Kit 3 refuses to start beside a
+ * `svelte.config.js` (config_file_unsupported) and takes its options, top-level
+ * with no `kit` namespace, through the `sveltekit(...)` Vite plugin.
+ * reddoor-starter keeps that object in this file, which vite.config.ts passes to
+ * the plugin and eslint.config.js imports (reddoor-starter#187, P1-45).
+ */
+export const KIT_CONFIG_PATH = "sveltekit.config.js";
+
+const eslintKit3: ConfigTemplate = {
+  config: "eslint",
+  path: "eslint.config.js",
+  contents: `import { createEslintConfig } from "@reddoorla/maintenance/configs/eslint";
+import svelteConfig from "./${KIT_CONFIG_PATH}";
+
+export default createEslintConfig({ svelteConfig });
+`,
+};
+
+const svelteKit3: ConfigTemplate = {
+  config: "svelte",
+  path: KIT_CONFIG_PATH,
+  contents: `import { createKitConfig } from "@reddoorla/maintenance/configs/svelte";
+import adapter from "@sveltejs/adapter-netlify";
+
+/** @type {import('@sveltejs/kit/vite').Config} */
+export default createKitConfig({
+  adapter: adapter({ edge: false, split: false }),
+});
+`,
+};
+
+/**
+ * The template a site on this `@sveltejs/kit` major gets. Only the two that
+ * name the config file differ; null (no kit declared) keeps kit 2's.
+ */
+export function templateForKit(t: ConfigTemplate, kitMajor: number | null): ConfigTemplate {
+  if (kitMajor === null || kitMajor < 3) return t;
+  if (t.config === "eslint") return eslintKit3;
+  if (t.config === "svelte") return svelteKit3;
+  return t;
+}
+
 export function templatesByName(which: ConfigName[]): ConfigTemplate[] {
   return ALL_TEMPLATES.filter((t) => which.includes(t.config));
 }

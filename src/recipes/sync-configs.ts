@@ -1,7 +1,14 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
-import { ALL_TEMPLATES, templatesByName, type ConfigTemplate } from "./sync-configs/templates.js";
+import {
+  ALL_TEMPLATES,
+  KIT_CONFIG_PATH,
+  templateForKit,
+  templatesByName,
+  type ConfigTemplate,
+} from "./sync-configs/templates.js";
+import { readKitMajor } from "./sync-configs/kit-major.js";
 import {
   CANONICAL_GITIGNORE_ENTRIES,
   mergeGitignore,
@@ -51,6 +58,14 @@ function isSvelteConfigCompliant(contents: string): boolean {
   // exists to prevent (MSOT's $utils aliases, 2026-06-04), not a fix for it.
   // A stub with no `kit` config at all still gets the template.
   return /\bkit\s*:/.test(contents);
+}
+
+/** A SvelteKit 3 site's `sveltekit.config.js` is compliant on the canonical
+ * adapter. Kit 3's options are top-level, so there is no `kit` block to look
+ * for, and a hand-authored config (the starter's is ~240 lines) is deliberate
+ * customization for the same reason as {@link isSvelteConfigCompliant}'s. */
+function isKitConfigCompliant(contents: string): boolean {
+  return contents.includes("@sveltejs/adapter-netlify");
 }
 
 /** Any of the baseline security headers — the marker that a netlify.toml is
@@ -106,13 +121,28 @@ export async function planTemplateDiffs(
   templates: ConfigTemplate[],
 ): Promise<ConfigTemplate[]> {
   const diffs: ConfigTemplate[] = [];
-  for (const t of templates) {
+  const kitMajor = await readKitMajor(cwd);
+  const kit3 = kitMajor !== null && kitMajor >= 3;
+  // On kit 3 the config may live in sveltekit.config.js (the starter's shape)
+  // or inline in vite.config.ts (kit's own default). sync-configs owns neither
+  // vite.config.ts nor the choice, so with no sveltekit.config.js it writes no
+  // config (a second one nothing reads) and no eslint.config.js importing one.
+  const kitConfigPresent = kit3 && (await readMaybe(join(cwd, KIT_CONFIG_PATH))) !== null;
+  for (const base of templates) {
+    const t = templateForKit(base, kitMajor);
+    if (kit3 && (t.config === SVELTE_CONFIG || t.config === "eslint") && !kitConfigPresent) {
+      continue;
+    }
     const existing = await readMaybe(join(cwd, t.path));
     if (existing === t.contents) continue;
     // svelte.config is compliance-checked, not exact-matched: an existing config
     // already on the canonical pattern is left alone so its aliases/compilerOptions
     // survive. A missing (null) or off-pattern config still gets the canonical template.
-    if (t.config === SVELTE_CONFIG && existing !== null && isSvelteConfigCompliant(existing)) {
+    if (
+      t.config === SVELTE_CONFIG &&
+      existing !== null &&
+      (kit3 ? isKitConfigCompliant(existing) : isSvelteConfigCompliant(existing))
+    ) {
       continue;
     }
     // netlify.toml is likewise compliance-checked: a file that already carries
