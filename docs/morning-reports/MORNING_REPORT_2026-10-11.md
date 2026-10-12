@@ -1,5 +1,7 @@
 # Morning brief — 2026-10-11 (PM pass, Sunday, 13:52Z)
 
+> Superseded in part by 2026-10-12 — Morning brief (its "Refute the week's claims"): `fleet-prismic-sync` is dispatched by the conductor since #1287, no longer only by `workflow_run`.
+
 ## One-line verdict
 
 **All four October Maintenance reports have gone out, nothing is due before ERP on 10-25, and every nightly on 10-09, 10-10 and 10-11 finished green by 07:12Z, so P1-38 is done. Three things need you before Wednesday. The Williamson cutover on 10-14 still needs D0, D6, the poster frames and Tuesday's domain step. Erik relayed two client asks on Friday that nobody has answered: Hedloc's 4th Executive Team slot, due the week of 10-12, and Roalson's pre-launch list. And `fleet-prismic-sync` has not run for three nights without raising any alarm (P1-39).**

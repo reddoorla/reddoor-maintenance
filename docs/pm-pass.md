@@ -358,42 +358,12 @@ of 45:
 
 - **Full re-rank.** Re-order P0/P1 from scratch rather than editing the
   previous order, and say so in the header's "Last full re-rank" line.
-- **The first Monday pass on or after 2026-10-12: the two-week check.** A
-  one-time section of that report, `## Two-week check`, measuring the
-  operating model that began on 09-29. A baseline row is judged in the
-  keep-or-cut ask only if its method reproduced the baseline before it was
-  used; for a count recorded as a floor ("27", "at least 10"), reaching it
-  counts as reproducing it.
-
-  | Measure                                         | Baseline, and how it is re-measured                                                                                                                                                                                                                                                                                                                                                                    | Judged? |
-  | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
-  | Minutes per morning                             | Dropped: the check never asks the operator for minutes.                                                                                                                                                                                                                                                                                                                                                | no      |
-  | Days a zero-blocker report waited for its click | "not measured: no instrument", never an estimate.                                                                                                                                                                                                                                                                                                                                                      | no      |
-  | Discord asks older than two days, per report    | 1, 1, 0, 0, 0 for 09-30, 10-01, 10-04, 10-05 and 10-06 (the review's evidence digest); add each later report's "Waiting on you (Discord)" count.                                                                                                                                                                                                                                                       | yes     |
-  | Duplicate-work incidents                        | 6 since 09-29. The grep below returned 7 headings on `a969d0ce` and on `ce197bbb`; one ("reviewed twice", #1143) is a false hit, so read each heading.                                                                                                                                                                                                                                                 | yes     |
-  | Two-dirty-round escalations                     | 27 at `6ea7c10`: the digest's 25, plus 47 and 84, which it missed. Re-count with the digest's method: read the first 700 characters of each item for two dirty rounds or a hold after round 2. A literal phrase grep returns only 9, so it is not the method. P1-33(b)'s re-count on `6ea7c10` gave 28, or 26 without 10 (#918/#920, before the rule) and 29 (#1014's escalation, seen through #1035). | yes     |
-  | PRs that ran a third review round               | At least 10 at `6ea7c10` (the review). Re-count the items that record a round 3 that ran; P1-33(b)'s re-count gave 10 (10, 27, 29, 32, 34, the second 53, 64, 72, 75, 86).                                                                                                                                                                                                                             | yes     |
-  | Open asks                                       | 18 items (24 asks) at `6ea7c10`, read under the "Backlog diff" definitions by P1-33(b): 13, 14, 15, 18, 31, 33, 45, 57, 61, 67, 72, 74, 78, 79, 81, 82, 87, 88. Not the review's 11, which used a narrower reading. Compare with 10-12's N, and diff the two sets.                                                                                                                                     | yes     |
-  | Release-PR wait                                 | Median of `created_at`→`merged_at` for `changeset-release/main` PRs merged from 09-29T07:00Z: 15.56 h, n=7 (#952 to #1183; re-measured 2026-10-07). Re-measure through 10-12 with `gh api 'repos/reddoorla/reddoor-maintenance/pulls?state=all&head=reddoorla:changeset-release/main&per_page=100'`, page 1 only, because `--paginate` fails through the cloud proxy.                                  | yes     |
-  | [TEST] verdicts awaiting                        | 5 on 10-06, 0 on 10-07 (#1229); re-read the "Clean-send streak" table.                                                                                                                                                                                                                                                                                                                                 | yes     |
-  | Asks answered, and their latency                | 66 answered, median 1.9 h, frozen at 10-06 (repository latency, with no committed instrument).                                                                                                                                                                                                                                                                                                         | no      |
-  | Fix-of-fix PRs and reverts                      | "not measured". There is no definition, and no commit on `main` has ever had a `Revert` subject, so a grep has no positive control.                                                                                                                                                                                                                                                                    | no      |
-
-  The duplicate-work grep:
-
-  ```sh
-  grep -h -E '^## 2026-(09-(29|30)|10-).*(twice|collid|already done|taken over|silently reverted)' docs/workJournal.md docs/journal/*.md
-  ```
-
-  The check ends with one keep-or-cut ask: "keep what moved, cut what did
-  not". That pass also writes the ask as an "Operator decisions" line, then
-  deletes this bullet in its own PR.
 
 **When the budget runs short**, keep the work in this order and drop from the
 end:
 
 1. The daily steps, which are never cut.
-2. Do, date or drop and, the first time, the two-week check.
+2. Do, date or drop.
 3. The fresh reads, the projects' heavy read, the reports' refute and the full re-rank.
 4. The `CLAUDE.md` fact-check. It is the first thing dropped, and the report
    says "`CLAUDE.md` fact-check: not run: budget".
