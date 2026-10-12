@@ -2277,7 +2277,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       to be cut to ~20 s before encoding, since no per-second cap gets a
       43 s clip under the 3 MB line. _Pick:_ that order; encode the long
       clips whole and record the number, the cut is the operator's call.
-      Closed 2026-10-12: (b) done: the Prismic connector's `list_releases` answers on erp-industrial, alamo-anatomy and vineyard-custom-homes (which holds release `asxLxxIAAEc3J2qU`), while the-tower-burbank and the-pointe-burbank still answer "Prismic MCP is not activated" [M]; (a) was done in 63, and (c) was answered 2026-10-04.
+      Closed 2026-10-12: (b) done: the Prismic connector's `list_releases` answers on erp-industrial, alamo-anatomy and vineyard-custom-homes (which holds release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU)), while the-tower-burbank and the-pointe-burbank still answer "Prismic MCP is not activated" [M]; (a) was done in 63, and (c) was answered 2026-10-04.
 
 68. **P1-26, the starter's `/privacy` page (reddoor-starter#165): two dirty
     review rounds, held (new 2026-10-04).** Round 1 on `7374553` was dirty in all
@@ -3850,7 +3850,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       lhci code path: 0.88 ×3, the same three nodes [M].
       - **Built:** a code fallback alt for Prismic images on `/` (the
         Instagram grid and the testimonials), and the failing tile's real
-        alt staged in Prismic release `asxLxxIAAEc3J2qU`, which is not
+        alt staged in Prismic release
+        [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU), which is not
         published. Its label says P1-43 because MSOT took that number
         mid-flight. "Utmost care" becomes #7196b9 (3.10:1, ΔE_ok 3.3 from
         the brand blue). The "01 / V" medallion text becomes the existing
@@ -4080,7 +4081,7 @@ sites=17`, `just_wait_left_out=1`.
 - 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
   - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
   - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.
-  - **Still the operator's:** publish Prismic release `asxLxxIAAEc3J2qU`, the failing tile's real alt (its label says P1-43). Publishing fires the site's Netlify build hook, so the prerendered page rebuilds by itself.
+  - **Published and live.** The operator published release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU). Its Prismic hook rebuilt production (ready 14:34:31Z). The live tile's alt reads "Vintage teal-and-white pickup truck with the Vineyard Custom Homes logo on its door, parked outside a home under construction", the code fallback no longer appears in the page, and the nightly's code path still reads 1.00 ×3 [M, 14:35Z].
   - **Filed:** vineyard-custom-homes#78. It covers the tile links' `aria-label`, which hides the alt, filename-like alts, hover contrast, light blue on white on the other pages, and two alt-less photos on `/about`.
 - 2026-10-12 — P1-43: MSOT's home page passes Lighthouse accessibility (issue medical-solutions-of-texas#76, PR #77, `709079f`; Operator decisions 106 and 109).
   - **Before.** `fleet-lighthouse` printed `accessibility:0.92<0.95` with `color-contrast` and `heading-order` failing 3/3 on 10-09, 10-10 and 10-11. The nightly's lhci config reproduced 0.92 ×3 on production at 02:43Z [M].
