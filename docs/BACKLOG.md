@@ -4309,6 +4309,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
           Netlify builds while CI was green, and the fast track does not
           change that risk.
           **Answered 2026-10-12 (AskUserQuestion): keep the list.**
+117.  **roalson-interests hero subheadline (Erik, Discord 10-12 19:20Z)**:
+        release [Hero subheadline (Erik, 2026-10-12)](https://roalson-interests.prismic.io/builder/upcoming/as1G6hcAAAJFe_Z2)
+        changes one field, the `home_hero` subheading on `home`, to Erik's
+        text exactly; `diff_release` shows one document, one delta.
+        - _Ask:_ publish it yourself, or the worker publishes via MCP.
+        - _Pick:_ the worker publishes, then curls the live page until the
+          text appears, since the change is one field already diffed.
 
 ## Active projects (the operator's list, read by the PM pass)
 
