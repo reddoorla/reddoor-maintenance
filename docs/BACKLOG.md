@@ -4409,6 +4409,34 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         round; (2) do a research turn on the three logo options before
         choosing; (3) merge after the hold clears; (4) wait, all 23 together.**
 
+119.  **Roalson listing packages, decision 118 follow-up: round 3 found a
+      client-copy major, and the logo research is in** (new 2026-10-12, asked
+      2026-10-12). Work: roalson-interests `claude/listing-packages-oct12-markup`
+      at `fcd6271`. Round 2's major and its orphan-dot minor are fixed, each
+      with a control. Round 3 verified both and found one major, reproduced:
+      five listings' own spec text still says "See Survey" or "Refer to
+      Survey" (cascade-caverns-at-old-san-antonio-road,
+      ih-10-at-highway-87-comfort, ih-10-at-menger-springs,
+      ih-35-at-wonderworld-san-marcos, st-marys-at-martin-river-walk), and
+      their survey pages are now dropped. Not on Hwy 46. Three minors besides
+      (a count dropped from the map can still be quoted in the strip under it;
+      "The specification pages quote the counts" is false for two listings;
+      showcase.py still promises surveys). Logo research: Brandfetch's terms
+      forbid storing a logo ("Programmatic access to logo images is not
+      permitted"), so it cannot go in a PDF; logo.dev allows stored PNGs but its
+      free plan needs a visible "Logos provided by Logo.dev" link on a public
+      page (print not addressed; paid plan ~$33/mo, no credit); a plain name is
+      the stronger nominative fair use, though retailer logos on CRE aerials are
+      routine.
+      - _Ask:_ (1) the five survey references: keep the survey page on those
+        five (`keep_survey`, reading the client's "most packages" as "all but
+        these"), edit the five sentences, or ask the client; (2) logos: names
+        and pins, or logo.dev.
+      - _Pick:_ (1) keep the survey on those five, since their own text relies
+        on it and "most" leaves room for exactly this; (2) names and pins, since
+        logo.dev's credit would have to live on roalson.com and print is
+        unaddressed.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
