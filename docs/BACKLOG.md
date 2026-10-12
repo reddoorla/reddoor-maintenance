@@ -3963,6 +3963,36 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `709079f` (13:38Z). The 390 video case is
         medical-solutions-of-texas#80.
 
+110.  **#1305, Operator decisions 107 built: held after two dirty review
+      rounds, plus the Routine change that is yours (new 2026-10-12, asked
+      2026-10-12 ~15:25Z, branch `claude/compassionate-meitner-8n0k4k`).**
+      #1305 builds your 107 answer:
+      - (a) Five rounds; a round with only `minor`/`nit` findings files them
+        as issues and counts as clean.
+      - (c) Do, date or drop removed.
+      - (d) Evening pass removed; `pm-pass-watch` expects a morning pass
+        only.
+      - (e) Streak table removed.
+
+      All nine mutations went red. Round 1 found 2 majors and round 2
+      found 1 major, all in docs wording or hand-off, none in the watcher's
+      code. Round 2's major was that the Routine change below was written
+      only in a `Closed` line, which no pass lifts. All of round 2's findings
+      are fixed on the branch, unreviewed. The old two-round rule still
+      governs #1305, so it is held here.
+      - _Ask (a):_ (A) land #1305 with no third round; or (B) run a third
+        round first.
+        _Pick:_ (A). Every round-2 finding is a wording fix with no behaviour
+        in it. The watcher's code, the one part that can send you a false
+        alarm, came through both rounds with no defect.
+      - _Ask (b), yours once #1305 lands, and only after today's evening pass
+        has landed:_ in the "Reddoor Project Manager" Routine, change the
+        cron to `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`, and replace the
+        stored prompt with the text under "The Routine's stored prompt" in
+        `docs/pm-pass.md`. Until you do, the 12:48 PT fire runs a prompt that
+        names a section #1305 deletes, and the watcher will not notice: it
+        reads `docs/pm-pass.md`, not the Routine.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
