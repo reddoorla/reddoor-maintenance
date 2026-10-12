@@ -3805,6 +3805,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         word and passes honestly. (b) (i), because it fixes what a visitor
         actually sees rather than only what axe measures. File the rest as
         issues, one task per session.
+        **Answered 2026-10-12 (AskUserQuestion): (a) A, 75% opacity; (b)
+        (i), the scrim plus `bg-dark`; file the scroll and other-route cases
+        as issues.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
