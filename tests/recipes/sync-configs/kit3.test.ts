@@ -62,6 +62,7 @@ describe("readKitMajor", () => {
       ["3", 3],
       ["^4.0.0", 4],
       ["^2.0.0 || ^3.0.0", 3],
+      [">=3 <4", 3],
     ] as const) {
       await setKit(cwd, spec);
       expect(await readKitMajor(cwd), spec).toBe(major);
@@ -303,5 +304,45 @@ export default createKitConfig({
     });
     expect(templateForKit(svelte, 2)).toBe(svelte);
     expect(templateForKit(svelte, "unreadable")).toBe(svelte);
+  });
+});
+
+describe("kit 3 hazards, past the second review", () => {
+  it("reports a broken eslint.config.js under --only eslint, and its own fix under --only svelte none", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    await rm(join(cwd, KIT_CONFIG_PATH));
+    await writeFile(
+      join(cwd, "eslint.config.js"),
+      'import svelteConfig from "./svelte.config.js";\nexport default [svelteConfig];\n',
+      "utf-8",
+    );
+    commitAll(cwd, "inline config, stale eslint");
+    const eslint = await runSyncConfigsCommand(undefined, { dry: true, cwd, only: "eslint" });
+    expect(eslint.output).toMatch(/^DRIFT \S+ eslint\.config\.js \(move by hand/m);
+    const svelte = await runSyncConfigsCommand(undefined, { dry: true, cwd, only: "svelte" });
+    expect(svelte.output).not.toMatch(/must move by hand/);
+    const result = await syncConfigs({ path: cwd }, { which: ["eslint"] });
+    expect(result.notes).toMatch(/eslint\.config\.js imports \.\/svelte\.config\.js/);
+  });
+
+  it("finds nothing on an inline-config kit 3 site whose eslint.config.js does not import svelte.config.js", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    await rm(join(cwd, KIT_CONFIG_PATH));
+    await writeFile(join(cwd, "eslint.config.js"), "export default [];\n", "utf-8");
+    commitAll(cwd, "inline config, own eslint");
+    expect(await planKitHazards(cwd)).toEqual([]);
+  });
+
+  it("leaves a stale eslint import to the template when sveltekit.config.js exists", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    await writeFile(
+      join(cwd, "eslint.config.js"),
+      'import svelteConfig from "./svelte.config.js";\nexport default [svelteConfig];\n',
+      "utf-8",
+    );
+    commitAll(cwd, "stale eslint beside sveltekit.config.js");
+    expect(await planKitHazards(cwd)).toEqual([]);
+    const diffs = await planTemplateDiffs(cwd, templatesByName(["eslint"]));
+    expect(diffs.map((d) => d.path)).toEqual(["eslint.config.js"]);
   });
 });

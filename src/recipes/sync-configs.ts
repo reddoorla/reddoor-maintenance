@@ -190,7 +190,9 @@ export async function planTemplateDiffs(
   return diffs;
 }
 
-export type KitHazard = { path: string; note: string };
+/** `configs` names the targets a hazard belongs to, so `--only eslint` still
+ *  reports a broken eslint.config.js and `--only prettier` reports none. */
+export type KitHazard = { path: string; note: string; configs: ConfigName[] };
 
 /**
  * What sync-configs can see is wrong on a site but will not fix by writing a
@@ -209,9 +211,10 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
     return [
       {
         path: "package.json",
+        configs: [SVELTE_CONFIG, "eslint"],
         note:
           "package.json declares @sveltejs/kit with a spec sync-configs cannot read (a catalog, " +
-          "workspace or git spec), so it left svelte.config.js and eslint.config.js alone: " +
+          "workspace, git or tag spec such as latest), so it left svelte.config.js and eslint.config.js alone: " +
           "check them against the site's real kit major by hand",
       },
     ];
@@ -221,6 +224,7 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
   if ((await readMaybe(join(cwd, "svelte.config.js"))) !== null) {
     hazards.push({
       path: "svelte.config.js",
+      configs: [SVELTE_CONFIG],
       note:
         `svelte.config.js is present on SvelteKit ${kitMajor}, which refuses to start beside it ` +
         "(config_file_unsupported): move its options into the sveltekit(...) plugin " +
@@ -235,6 +239,7 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
   ) {
     hazards.push({
       path: "eslint.config.js",
+      configs: ["eslint"],
       note:
         `eslint.config.js imports ./svelte.config.js, which SvelteKit ${kitMajor} does not use: ` +
         "import the object vite.config.ts passes to sveltekit(...) instead",
@@ -294,7 +299,9 @@ export async function syncConfigs(
       const gitignorePlan: GitignorePlan = includeGitignore
         ? await planGitignore(site.path)
         : { kind: "noop" };
-      const hazards = templateNames.includes(SVELTE_CONFIG) ? await planKitHazards(site.path) : [];
+      const hazards = (await planKitHazards(site.path)).filter((h) =>
+        h.configs.some((c) => templateNames.includes(c)),
+      );
       if (templateDiffs.length === 0 && gitignorePlan.kind === "noop") {
         return {
           kind: "noop",
