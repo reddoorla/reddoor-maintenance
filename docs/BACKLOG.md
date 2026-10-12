@@ -4109,6 +4109,30 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       alternative is to wait for upstream, but adapter 7 cannot land without
       kit 3, and Renovate will keep reopening the pair.
 
+114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
+      (new 2026-10-12, P1-31; the remedy fix is on branch
+      `claude/optimistic-pascal-08v3f5`).** All 23 Turso sites with a
+      `git_repo` and the three starters were built from their default
+      branch, and the build grepped for `oklab(0% none none` [M].
+      reddoor-website `main` folds nine values and its #260 head none, which
+      are the two controls. **erp-industrial is the only other site that
+      folds**: `oklab(0% none none/.6)` ×4, from `BgVideo.svelte`'s
+      `bg-black/60`, with `black: '#000'` in `tailwind.config.js` read
+      through `@config`. It is on maintenance `^0.95.1`, so its
+      `contrast-unmeasured` gate (0.102.0+) goes red on the Renovate bump.
+      Every other site keeps `var(--color-black)` in the mix, and Chrome
+      computes that to `oklab(0 0 0 / 0.5)`, which axe measures [M, probe
+      in Chromium with axe-core 4.13.0]. The starter and starter-blux are
+      not affected, so the brief's "starter first" does not apply.
+      reddoor-website is fixed on `staging` (#260, with #208's bump), and
+      `main` gets it at the next promotion.
+      - _Ask:_ "go" for an erp-industrial PR that changes `black: '#000'`
+        to `black: 'oklab(0 0 0)'` in `tailwind.config.js`, or hold it
+        until its Renovate bump goes red.
+      - _Pick:_ go. It is one line, it renders byte-identical (#260's
+        sha256 screenshots), and it lands before the bump instead of
+        blocking it.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
