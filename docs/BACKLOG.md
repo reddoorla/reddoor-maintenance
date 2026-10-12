@@ -4218,6 +4218,66 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         after-attach turns, which measure exactly this default shape, are
         still worth the 5 minutes before the cutover.
 
+116.  **P1-45 / #545, the staging-flow pilot on vida-legacy-foundation: three
+      asks (new 2026-10-12; the worker of Operator decisions 113).** On vida
+      so far:
+      - **Built:** `staging` from `main`, and the Netlify branch deploy for
+        `staging`.
+      - **PRs into `staging`:**
+        - vida-legacy-foundation#98, `main-gate`;
+        - vida-legacy-foundation#100, the kit 3 migration, which replaces
+          #96 and #97.
+      - **Proven:** the `renovate-staging-flow` preset, by Renovate's own
+        `dryRun: full` on vida (#99, closed).
+        - Patches and minors open on `main` with the `fast-track` label.
+        - Majors, lock-file maintenance and digests open on `staging`.
+      - **Handed to you as files on `claude/friendly-lamport-wlmrik`:**
+        - the `.github` patch,
+          `docs/patches/2026-10-12-github-renovate-staging-flow.patch`;
+        - the two ruleset steps, in `docs/runbooks/staging-flow.md`. The
+          cloud proxy refuses ruleset writes, and they are red tier anyway.
+      - **(a) #98 after two dirty review rounds.**
+        - **Round 1:** the commit author is only an email, and the bot's
+          email is public. Fixed: commits must be `web-flow`, verified, and
+          the files are limited to manifests.
+        - **Round 2:** a writer who calls
+          `PUT repos/…/contents/package.json` on a Renovate branch with an
+          `author` of the bot gets a commit that GitHub signs, as
+          `web-flow`, verified. The gate passes it. This is reasoned from
+          how GitHub signs API commits, not run; running it would write to
+          vida.
+        - **The fix:** `GET repos/…/activity?ref=refs/heads/<branch>` records
+          who pushed. On vida it shows `reddoor-renovate[bot]` alone on
+          `renovate/sveltejs-kit-3.x`, and the pushing account on a human
+          branch. Also add `previous_filename` to the file list, so a
+          rename cannot hide a deletion.
+        - _Ask:_ (1) add both fixes and land #98 into `staging` without a
+          third round, (2) add them and run a third round, or (3) land as
+          is.
+        - _Pick:_ (1). The gate guards nothing until you promote and then
+          make `main-gate` required, so the fix is in place before it
+          counts. It is shown red on a stubbed push by a human, the same
+          way every other case was.
+      - **(b) williamson-construction-co:**
+        - _Ask:_ hold its kit 3 migration and staging flow until after
+          the 10-14 cutover (P0-5), or do them now.
+        - _Pick:_ hold. A config migration under a cutover adds risk to
+          the one date that cannot move. Its Renovate pair stays red until
+          then, which is the rule working.
+      - **(c) the fast track and the never-automerge list.**
+        renovate-config never automerges `@reddoorla/maintenance`,
+        `sharp` and four image packages. Under `group:allNonMajor`, one
+        held package holds the whole grouped PR, and
+        `@reddoorla/maintenance` is in nearly every site's group most
+        weeks. So most weeks the `main` patch/minor PR will still wait for
+        you.
+        - _Ask:_ keep the list as it is, or exempt
+          `@reddoorla/maintenance` minors on flow repos, where a bad bump
+          would reach `main` unreviewed.
+        - _Pick:_ keep. The hold exists because a maintenance minor broke
+          Netlify builds while CI was green, and the fast track does not
+          change that risk.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
