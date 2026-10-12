@@ -11,7 +11,7 @@ on:
         default: ""
         type: string
       pass:
-        description: "Which pass to check"
+        description: "Which pass to check (second: only a day whose cron still had the afternoon fire)"
         required: false
         default: both
         type: choice

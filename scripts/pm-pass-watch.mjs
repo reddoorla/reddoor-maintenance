@@ -5,7 +5,10 @@ import { appendFileSync, realpathSync } from "node:fs";
 
 export const LA = "America/Los_Angeles";
 export const PM_PASS = "docs/pm-pass.md";
-export const SCHEDULE_HEADING = "### The Routine's stored prompt (both passes)";
+export const SCHEDULE_HEADINGS = [
+  "## The Routine's stored prompt",
+  "### The Routine's stored prompt (both passes)",
+];
 export const FIRST_COVERED = "2026-10-06";
 export const KNOWN_GOOD = { at: "2026-10-06T07:00:00Z", minute: 48, hours: [4, 17] };
 export const WINDOW_HOURS = 20;
@@ -66,7 +69,7 @@ export function parseArgs(argv) {
 export function scheduleLine(text) {
   if (typeof text !== "string") return null;
   const lines = text.split("\n");
-  const start = lines.findIndex((l) => l.trim() === SCHEDULE_HEADING);
+  const start = lines.findIndex((l) => SCHEDULE_HEADINGS.includes(l.trim()));
   if (start === -1) return null;
   for (let i = start + 1; i < lines.length; i++) {
     if (/^#/.test(lines[i])) return null;
@@ -101,18 +104,19 @@ function parseDays(field) {
 export function parseSchedule(line) {
   if (typeof line !== "string") return null;
   const m =
-    /`CRON_TZ=([A-Za-z_]+(?:\/[A-Za-z_+-]+)*) (\d{1,2}) (\d{1,2}),(\d{1,2}) \* \* ([0-9*,-]+)`/.exec(
+    /`CRON_TZ=([A-Za-z_]+(?:\/[A-Za-z_+-]+)*) (\d{1,2}) (\d{1,2})(?:,(\d{1,2}))? \* \* ([0-9*,-]+)`/.exec(
       line,
     );
   if (!m) return null;
   const [, zone, min, h1, h2, dayField] = m;
   const minute = Number(min);
-  const hours = [Number(h1), Number(h2)];
-  if (minute > 59 || hours[0] > 23 || hours[1] > 23 || hours[0] >= hours[1]) return null;
+  const hours = h2 === undefined ? [Number(h1)] : [Number(h1), Number(h2)];
+  if (minute > 59 || hours.some((h) => h > 23)) return null;
+  if (hours.length === 2 ? hours[0] >= hours[1] : hours[0] >= 12) return null;
   if (!validZone(zone)) return null;
   const days = parseDays(dayField);
   if (!days || days.size === 0) return null;
-  return { zone, minute, hours, days, cron: `${minute} ${hours[0]},${hours[1]} * * ${dayField}` };
+  return { zone, minute, hours, days, cron: `${minute} ${hours.join(",")} * * ${dayField}` };
 }
 
 function offsetMs(zone, ms) {
@@ -202,20 +206,20 @@ export function evaluateSlot(git, ref, date, pass, now) {
     reason: "",
     dueSha: "",
   };
-  const covered = date >= FIRST_COVERED;
+  if (date < FIRST_COVERED) return { ...slot, verdict: "not-covered" };
   const midnight = isoZ(zonedToUtc(date, 0, 0, LA));
   const readSha = revBefore(git, ref, midnight);
   if (readSha) slot.read = readSha.slice(0, 8);
   const sched = readSha ? parseSchedule(scheduleLine(showFile(git, readSha, PM_PASS))) : null;
   if (!sched) {
-    if (!covered) return { ...slot, verdict: "not-covered" };
     slot.reason = readSha
-      ? `the Schedule line at ${slot.read} (as of ${midnight}) does not parse as a two-pass cron`
+      ? `the Schedule line at ${slot.read} (as of ${midnight}) does not parse as the Routine's cron`
       : `no commit on ${ref} before ${midnight}`;
     return { ...slot, verdict: "blind" };
   }
   slot.schedule = sched.cron;
   if (!sched.days.has(weekday(date))) return { ...slot, verdict: "no-pass" };
+  if (pass === "second" && sched.hours.length < 2) return { ...slot, verdict: "no-pass" };
   const due = dueAt(date, pass, sched);
   slot.due = isoZ(due);
   slot.dueMs = due;

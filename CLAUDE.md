@@ -155,17 +155,26 @@ a long status message. So a worker started from a backlog item or a brief
   on its held PR's branch, and `main` asked the operator nothing for 13 hours
   (2026-10-05). Landing before the ask was considered and rejected: it would
   put a CI cycle and the landing race in front of every question. If the
-  session ends before step 4, the evening pass and the next morning's PM pass
-  find the line on its branch and put it in front of the operator.
+  session ends before step 4, the next morning's PM pass finds the line on
+  its branch and puts it in front of the operator.
 
-- **Two dirty review rounds, then stop.** If the second adversarial review of
-  the same PR still finds a real defect, the PR goes to "Operator decisions"
-  with the findings of both rounds, not into a third round. #918 and #920
-  reached a sixth round with majors before anyone asked whether the design was
-  right; this rule would have put them in front of the operator about six days
-  earlier (#918's second round was on 09-23; it reached the backlog on 09-29). Review finding bugs is the process working; the cost is the third
-  and fourth round. At the hold the worker still gives its own pick, but that
-  pick may not be "land as is" while a reproduced behaviour defect is unfixed:
+- **Five dirty review rounds, then stop; a minors-only round is clean.**
+  Each adversarial review round labels its findings with the severity words
+  the reviewers here already use: `blocker`, `critical`, `major`, `minor`,
+  `nit`. A **minor** is a finding labelled `minor` or `nit`; anything else,
+  an unlabelled finding included, is a real defect. A round whose findings
+  are all minors counts as clean: file each minor as an issue in the PR's own
+  repository, link the issues from the PR body, and stop reviewing, rather
+  than pushing fixes no round will review. Minors found beside a real defect
+  are filed the same way. If the fifth round of the same PR still finds a
+  real defect, the PR goes to "Operator decisions" with each round's
+  findings, not into a sixth round (the operator, 2026-10-12, Operator
+  decisions 107(a); the stop was two rounds from 2026-09-29). #918 and #920
+  reached a sixth round with majors before anyone asked whether the design
+  was right. Review finding bugs is the process working; the cost is the
+  rounds after the design question should have been asked. At the hold the
+  worker still gives its own pick, but that pick may not be "land as is"
+  while a reproduced behaviour defect is unfixed:
   reproduced means a concrete input and the wrong output it produces, shown
   through the entry point production uses. A third round tested that pick 4
   times, #1017's lead leak among them, and it was wrong all 4 times (2026-10-06

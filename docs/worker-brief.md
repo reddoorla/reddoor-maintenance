@@ -63,9 +63,11 @@ on two consecutive days, and a test pins it">
 
 - <the product fork this item could hit, stated as the question>
 - <files owned by another session today: do not edit>
-- Two dirty review rounds → "Operator decisions", not a third round; your pick
-  there follows `CLAUDE.md`'s two-rounds rule (never "land as is" while a
-  reproduced behaviour defect is unfixed).
+- Five dirty review rounds → "Operator decisions", not a sixth round. A
+  round with only `minor` or `nit` findings is clean: file each as an issue
+  in this PR's repository and stop. Your pick at the hold follows
+  `CLAUDE.md`'s review-rounds rule (never "land as is" while a reproduced
+  behaviour defect is unfixed).
 - At any stop condition: ask as `CLAUDE.md` → "Worker sessions ask a blocking
   question once, with all its context" says, in its order.
 
@@ -80,7 +82,7 @@ on two consecutive days, and a test pins it">
 5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
 6. Journal entry as a new file in `docs/journal/`, landed before the session ends.
 7. Stopped instead of landing? Follow `CLAUDE.md`'s asking rule, in its
-   order. A branch with no PR is what the evening pass flags.
+   order. A branch with no PR is what the morning pass's branch check flags.
 ```
 
 ## An example
@@ -119,7 +121,7 @@ positive control: a fixture repo with a known drift that the run must report.
 
 - The run must never push or open PRs in client repos: that is a fleet-wide
   mutation, 🔴. If the item seems to need it, stop and write it up.
-- Two dirty review rounds → "Operator decisions", not a third round.
+- Five dirty review rounds → "Operator decisions", not a sixth round.
 
 **Landing.** As in the template.
 ```

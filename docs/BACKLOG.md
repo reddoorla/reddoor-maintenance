@@ -4007,48 +4007,6 @@ channels but were not named as projects.
     **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
     round; fallback (i), it still sends late when the clock missed.**
 
-## Clean-send streak ([TEST] report sends, operator's verdict)
-
-The operator keeps the click on zero-blocker Maintenance reports until they have
-seen several [TEST] sends in a row with nothing wrong (review §7.1). Every test
-send before 2026-09-29 had a problem. This table is the record; the operator's
-verdict is its only input, because no client and no check sees the email.
-
-- **Adding a row.** Any session that sends a [TEST] report email to the
-  operator adds a row in the same PR or session, with the verdict
-  `awaiting`. No code on `main` produces a "[TEST]" subject today: the
-  2026-09-28 one rendered the real 09-17 draft ("Completed on 09.17.2026"),
-  so it came from a session's ad-hoc render [I]; `selftest email <site>
---type maintenance` builds from the roster with today's date and has no
-  prefix.
-- **`clean` means no work at all** (the operator, 2026-10-07): nothing in
-  the email or behind it needed fixing before it could go to the client. An
-  email that reads well but carries a score or fact that needed work is not
-  `clean`, even when the fault was the site's and not the report's.
-- **The verdict** is `clean`, or one line saying what was wrong. The operator
-  writes it into the row (the GitHub web editor works from a phone) or says it
-  to any session, which writes it.
-- **The streak** is the number of `clean` rows counted up from the bottom,
-  stopping at the first row that is not `clean`. An `awaiting` row stops it
-  too, and becomes an ask in the morning report.
-
-| Sent (UTC)       | Site                       | Report                 | Verdict                                                                             |
-| ---------------- | -------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
-| 2026-09-28 22:54 | 29 Navy                    | Maintenance, Sept 2026 | clean                                                                               |
-| 2026-10-05 22:47 | Data Dynamiq               | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | Espada                     | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | LA Homelessness Initiative | Maintenance, Oct 2026  | clean                                                                               |
-| 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-
-The operator, 2026-10-06 ~14:05Z, on the five 10-05 rows: "waiting to improve
-bp score". No verdict yet. The rows stay `awaiting`, and the ask returns once
-item 88's fixes have deployed.
-The operator, 2026-10-07 ~12:10Z: "they looked good other than bp". LAHI
-stored 100, so its row is `clean`; the other four name the 78. Counted from
-the bottom, the streak is 0, because Vineyard is the last row. Asked whether the four count as clean
-because the email itself was fine: no, "clean should be no work at all".
-
 ## Fleet snapshot (2026-10-12 ~11:55Z, live Turso, SELECT-only) [M]
 
 Read through the Kysely read-only plugin `scripts/pm-cockpit.mts` exports; its

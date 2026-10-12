@@ -1,14 +1,14 @@
 # The daily PM pass
 
-One scheduled Routine ("Reddoor Project Manager") fires twice a day, Monday to
-Thursday, the operator's work week: `CRON_TZ=America/Los_Angeles 48 4,12 * * 1-4`,
-so 04:48 and 12:48 PT all year (the second fire was at 17:48 until
-2026-10-07; the operator moved it after the 2026-10-06 review). Each fire starts a fresh cloud session and gives
-it this file. Before 12:00 PT it runs the morning pass; from 12:00 PT it runs
-the evening pass, below. Either session then stays open as the operator's
-cockpit for the rest of that half-day (set up by the operator 2026-10-05; until
-then the morning cron was a bare UTC `48 11 * * 1-4`, and the evening pass was
-planned as a second Routine). The session's job is to
+One scheduled Routine ("Reddoor Project Manager") fires once a day, Monday to
+Thursday, the operator's work week: `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`,
+so 04:48 PT all year. Each fire starts a fresh cloud session and gives it this
+file. The session runs the morning pass, then stays open as the operator's
+cockpit for the rest of the day (set up by the operator 2026-10-05; until then
+the cron was a bare UTC `48 11 * * 1-4`). From 2026-10-05 the Routine also
+fired in the afternoon (17:48 PT, then 12:48 PT from 2026-10-07) for an evening
+pass. The operator cut that pass on 2026-10-12 (Operator decisions 107(d)); its
+rules are in this file's history before that date. The session's job is to
 **prioritize, not build**: it re-checks `docs/BACKLOG.md` against the live
 state of the fleet and this repo, re-ranks it, writes the day's morning
 report, and lands one docs-only PR. It does not write code, dispatch fleet
@@ -53,8 +53,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    pending by name; do not wait for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
    archive this session." or "Not yet safe to archive: …") does not apply
-   to a Routine session, morning or evening, nor to its cockpit replies for
-   the rest of the day (the operator, 2026-10-06). Each fire is a fresh
+   to a Routine session, nor to its cockpit replies for the rest of the day (the operator, 2026-10-06). Each fire is a fresh
    session, and the operator does not archive on it.
 
 ## The pass, in order
@@ -139,17 +138,25 @@ The prompt lives here so it can be changed by PR, like everything else.
    sessions ask a blocking question once, with all its context"), so each new line goes into the morning
    report's top of stack with the branch or PR it names. Then run
    `node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance`
-   (see "The evening pass") and lift every ask it finds only on a branch, in
-   the same way. A worker that writes its ask only on its own branch is
-   invisible to a read of `main` (#1143, 2026-10-05).
+   and lift every ask it finds only on a branch, in the same way. A worker
+   that writes its ask only on its own branch is invisible to a read of
+   `main` (#1143, 2026-10-05). It fetches every `claude/*` and `fix/*` branch
+   whose last commit is within seven days and prints one
+   `EVENING_BRANCHES_SUMMARY` line, which must show `scanned` > 0; a `gh api`
+   failure stops it with an error, never a "no PR". Use the script, not a
+   grep: a literal `Operator decisions` grep of #1143's diff hits the phrase
+   only in its journal lines, because the held ask sits in item 57's
+   sub-bullets and never names its section. Its "Unprotected branches"
+   section lists branches with commits not on `main` and no PR; list each
+   `NEW` one with its commit subject and the ask "open a PR from it, or say
+   it can go", and give the `older` ones as one line of names.
 
    **Status lines are not new asks.** A `Closed`, `Dropped` or `_Due:` line
    added under an existing item records an answer or a date, and is not lifted
    as a new ask.
 
    **Asks, open asks, and when each was first asked.** The morning report's
-   open-asks line and the Monday "Do, date or drop" step count with these
-   definitions. Until the cutover's decision files make an ask's state
+   open-asks line counts with these definitions. Until the cutover's decision files make an ask's state
    machine-readable, whether one is open can only be read, so every count
    lists its item numbers and anyone can check it.
    - **An ask** is each `_Ask…:_` line under "Operator decisions", or each
@@ -201,19 +208,14 @@ The prompt lives here so it can be changed by PR, like everything else.
    (dated, ordered), what landed, nightlies, what went wrong, next for agents.
    Every number in it comes from a query or a log line made that morning.
    `.github/workflows/pm-pass-watch.yml` emails the operator when a pass has
-   not landed by its due time, and it keys on the `## One-line verdict` and
-   `## Evening` headings, so renaming either needs a change to
-   `scripts/pm-pass-watch.mjs` in the same PR.
+   not landed by its due time. It reads the Routine's cron from the
+   "Schedule" line below as it stood at 00:00 PT that day, and keys on the
+   `## One-line verdict` heading (and on `## Evening` for a day whose cron
+   still had the afternoon fire), so renaming the heading or reshaping the
+   Schedule line needs a change to `scripts/pm-pass-watch.mjs` in the same
+   PR.
 
-   **The clean-send streak.** Read the table under "Clean-send streak" in
-   `docs/BACKLOG.md` and put one line near the top of the report: "clean
-   [TEST] sends in a row: N", counted up from the table's last row. Each
-   `awaiting` row is an ask in the operator's top of stack: "Verdict on the
-   [TEST] <site> <report> sent <date>: clean, or what was wrong". Never
-   write a verdict yourself; only the operator can see what the email looked
-   like.
-
-   **The open-asks line.** Beside the streak line, one line:
+   **The open-asks line.** Near the top of the report, one line:
    `Open asks: N (items a, b, …); oldest: item X, ≥Y h [I]`. N counts the
    items with at least one open ask, by reading, under the definitions in
    "Backlog diff". The age is from the first-asked rule there. Listing the numbers
@@ -223,10 +225,9 @@ The prompt lives here so it can be changed by PR, like everything else.
    says so instead of giving a number.
 
    **What the daily top of stack holds.** Only dated asks (including any whose
-   `_Due:` date has come), [TEST] verdicts, approvals, and asks new since the
-   last report. Every other open "Operator decisions" ask appears only in the
-   open-asks line, and on Mondays in the "Do, date or drop" section, whatever
-   heading the last report gave it ("Undated", "Undated, still open",
+   `_Due:` date has come), approvals, and asks new since the last report.
+   Every other open "Operator decisions" ask appears only in the open-asks
+   line, whatever heading the last report gave it ("Undated", "Undated, still open",
    "Undated, unchanged", "Asked earlier, still open", "Still yours from
    earlier answers"). Copying the last report's shape does not carry those
    lists forward. P1-35's `(undated)` cockpit reasons are a different thing,
@@ -263,38 +264,6 @@ The prompt lives here so it can be changed by PR, like everything else.
 On a Monday the pass does more, inside a budget of about 75 minutes instead
 of 45:
 
-- **Do, date or drop.** Written as the report section `## Do, date or drop`,
-  after the top of stack. The asks, "open" and "first asked" are as defined in
-  "Backlog diff" above, and its controls run first.
-  1. **Close first.** Close any open ask the pass can verify done, whenever it
-     was done, with a `Closed <YYYY-MM-DD>: <evidence>` line under it. An ask
-     that a dated P0/P1 row explicitly carries closes as
-     `Closed <YYYY-MM-DD>: carried by <row> (dated)`; a passing mention such as
-     "waits on 74" does not count. Delete nothing.
-  2. **List** every open ask with no `_Due:` that was first asked at least
-     168 h before the pass started, by `date -u`. Order them oldest first;
-     ties go to the lower item number, then to the ask's position in the
-     item. The first Monday pass on or after 2026-10-12 also lists every ask
-     in item 97, the eight chores that had no item, whatever their age. Each
-     line gives the ask's id, its first-asked date, the exact ask, the
-     cheapest route, its minutes (as `~N min [I]` or `minutes: unknown`,
-     never as measured), and "listed since <the first Monday it was
-     listed>".
-  3. **The operator answers each line** with one of: done; a date; or drop,
-     with a reason.
-  4. **Recording.** The session that receives the answer records it in its
-     own docs PR: the cockpit session that holds the answer (the morning
-     fire's or the afternoon fire's, once its pass has landed), or else the
-     next morning pass. Never inside the evening pass itself, whose PR does
-     not edit the backlog.
-     The forms are `_Due: YYYY-MM-DD_` on the ask;
-     `Closed <date>: done (operator)`; or `Dropped <date>: <reason>` plus one
-     bullet under
-     "Settled answers" below. A closed or dropped ask that stays in the
-     section does not break the "Settled answers" rule.
-  5. **When more than half of a Monday's lines were already listed on an
-     earlier Monday,** the pass says so once in that report, rather than
-     adding reminders.
 - **Fresh reads, not a diff.** Every open issue, not only those touched since
   the last report, and the live fleet state from Turso (SELECT only): row
   counts by status, cockpit attention and watch (read with
@@ -363,185 +332,35 @@ of 45:
 end:
 
 1. The daily steps, which are never cut.
-2. Do, date or drop.
-3. The fresh reads, the projects' heavy read, the reports' refute and the full re-rank.
-4. The `CLAUDE.md` fact-check. It is the first thing dropped, and the report
+2. The fresh reads, the projects' heavy read, the reports' refute and the full re-rank.
+3. The `CLAUDE.md` fact-check. It is the first thing dropped, and the report
    says "`CLAUDE.md` fact-check: not run: budget".
 
-## The evening pass
-
-The Routine's 12:48 PT fire (Monday to Thursday) runs this pass, in a fresh
-cloud session in the operator's afternoon. It fired at 17:48 PT until
-2026-10-07. The 2026-10-06 review found that none of 42 operator session starts
-or 40 answers since 09-29 fell near that read, that 11:00–15:00 PT is when he
-answers most, and that by 19:48Z most of the day's nightlies have finished
-(release-health on 3 of 4 measured days). Since P1-38 (2026-10-08) the six
-fleet nightlies and the `daily-reports` drafts finish in the early UTC
-morning; client sends go out at 16:07Z, and `release-health` still follows
-GitHub's late `schedule`.
-The operator reads its one notification, then at most the day's `## Evening`
-section, then stops: ten to fifteen minutes. The morning pass ranks the day;
-the evening pass answers one question, **what needs the operator before
-tomorrow morning that the morning report could not see?** The
-16:07Z client sends and every worker session's ending happen after the
-morning pass has finished.
-
-It exists because of three misses on 2026-10-05. A worker held #1143 and
-wrote its question only on its own branch (`claude/wizardly-brown-2ylvcv`),
-so `main` asked the operator nothing for 13 hours. Another session left
-docs commits on `claude/jolly-keller-9h8tzh` with no PR. And at 12:00Z every
-nightly was still pending, so the morning pass could not report any of them.
-
-### Rules that bind the evening pass
-
-0. **"Today" is the America/Los_Angeles date**, `TZ=America/Los_Angeles date +%F`,
-   everywhere in this section. The pass fires at 12:48 PT, which is 19:48Z
-   (20:48Z in winter), so the UTC date still matches. Until 2026-10-07 it
-   fired at 17:48 PT, after the UTC date had moved on, and a late or hand-run
-   pass can still cross it. Read the clock
-   with `date -u` beside it, as `CLAUDE.md` asks.
-
-1. Everything under "Rules that bind this session" above applies, except
-   that the pass is **read-only** apart from one docs-only PR. That PR may
-   touch only today's `docs/morning-reports/MORNING_REPORT_<date>.md`, where
-   it appends a `## Evening` section, and one new file under `docs/journal/`
-   holding one line, not a full entry. It never edits `docs/BACKLOG.md`: it
-   lifts what it finds into the report, and the next morning pass re-ranks.
-2. **It never acts on what it finds.** It does not open a PR for an
-   unprotected branch, comment on a worker's PR, re-run a job or merge
-   anything. Each finding becomes an exact ask in the evening section, and
-   the next morning pass carries any that are still open. If no morning
-   report exists for today (a holiday, or a morning pass that failed), it writes
-   `MORNING_REPORT_<date>.md` containing only the `## Evening` section and a
-   first line saying so.
-3. **Time budget: about 20 minutes.** It reads, it does not investigate. A red
-   nightly gets its name, its `FLEET_WRITE_SUMMARY` line and its tracking
-   issue, not a diagnosis.
-4. **The branch and decision checks are a script, not a reading.** Use
-   `scripts/evening-branches.mjs`. It was proven on 2026-10-05: it flags both
-   branches above, and it passes a squash-merged branch (#1153) and a fully
-   merged one (#1151). Do not replace it with a grep: a literal
-   `Operator decisions` grep of #1143's diff hits the phrase only in its
-   journal lines. The held ask sits in item 57's sub-bullets and never names
-   the section it is in.
-
-### The evening pass, in order
-
-`<since>` is the time today's morning PR merged: the `merged_at`, in UTC with
-its `Z`, of the PR that added `MORNING_REPORT_<today>.md`. If no morning PR
-merged today, use 12:00Z on today's date. Either way, `<since>` is earlier than
-`date -u`. A later `<since>` means the date is wrong, so stop and fix it.
-
-1. **Branches and decisions.** From a worktree detached at `origin/main`:
-
-   ```sh
-   node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --main-since <since>
-   ```
-
-   It fetches every `claude/*` and `fix/*` branch whose last commit is within
-   seven days, and prints one `EVENING_BRANCHES_SUMMARY` line followed by
-   these sections:
-   - **Lines added under "Operator decisions" on `main` since `<since>`.** These
-     are every decision line workers landed today. Each new ask goes in the
-     evening section, with the PR it came from. A `Closed`, `Dropped` or
-     `_Due:` line added under an existing item is a status line, not a new
-     ask, and is not lifted.
-   - **Asks only on a branch.** A branch that is neither merged nor at the
-     head of a merged PR, and that adds an `_Ask:_`, `_Pick:_` or question
-     line under "Operator decisions" which `main` lacks. This is failure 1.
-     Lift each ask into the evening section word for word, with its branch
-     and PR. When the script adds "already names this branch", `main`
-     already carries the ask, usually paraphrased by an earlier pass. Write
-     "already item N" and leave it at that.
-   - **Other lines under "Operator decisions" only on a branch.** These are
-     usually status notes. The script prints them only for branches whose
-     last commit is under 36 h old, and names older ones once on a single
-     line. Read the listed ones when their branch has a draft PR or is
-     unprotected: a question written without `Ask:`, `Pick:` or a closing `?`
-     lands here. Lift any you judge to be an ask.
-   - **Unprotected branches.** Commits not on `main` (`git cherry`, so a
-     rebase-merged commit does not count), no open PR, no merged PR at the
-     tip, and a last commit at least 2 h old. This is failure 2. `NEW` means
-     the last commit is under 36 h old. List each `NEW` one with its commit
-     subject and the ask "open a PR from it, or say it can go". The `older`
-     ones are known residue: give their count and names in one line, and do
-     not repeat the ask nightly.
-
-   **Prove it first, every run.** The summary line must show `scanned` > 0. A
-   `gh api` failure stops the script with an error; it never reads a failure
-   as "no PR". If the script errors, the evening section says so, and the
-   notification headline is "evening branch check failed: <error>", never
-   "nothing needs you".
-
-2. **Nightlies.** As in the morning pass, step 1: every
-   `event == "schedule"` run created in the 24 hours before `date -u`
-   (`created=>=<that time>`), and the `fleet-nightly` conductor's runs and
-   the nightlies they dispatched, as in morning step 1, with each fleet run's
-   `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line read from its job log,
-   and every tracking issue opened or closed since `<since>`. List any run still
-   pending by name. A green run with `failed>0` is not green.
-3. **Today's `daily-reports` drafts and sends.** Read today's 16:07Z
-   `daily-reports send` run (its run-name says the mode): did it succeed, and
-   is "Daily reports run failing (send)" open? A fallback run whose log says
-   `send-clock-missed` or `send-run-failed` sent late: report which. Then read
-   this morning's `daily-reports draft` run log.
-   Then, SELECT only, the reports that are pending approval (draft ready, not
-   approved, not sent, not withdrawn: `isPendingApproval` in
-   `src/reports/report-row.ts`). Write one exact ask per draft: "approve on
-   `/s/<slug>`; it sends with tomorrow's run", plus any preflight warning it
-   carries. If the run has not finished yet, say "drafts pending" and give
-   the run's state.
-4. **PRs merged since `<since>`**, as one line each: number, title, author.
-   This is the "what got done" list, so keep it short.
-5. **Open PRs that are red or held.** Read every open PR through REST
-   (`pulls?state=open`). List each one that has a failing check on its head,
-   is a draft, or is a release PR (`chore(release): version packages`, which
-   is always the operator's), with its age. A green, unmerged Renovate PR is
-   a rule working: name the rule rather than listing it.
-6. **The `## Evening` section.** Append it to today's morning report, in this
-   order: the headline; the asks, numbered and ordered by date (each one
-   exact: what to click or answer, and where); then the evidence (the
-   summary line, the nightlies table, merged PRs, open red or held PRs). Tag
-   every claim [M] or [I] as the morning report does.
-7. **Journal line, PR, land.** Write
-   `docs/journal/<YYYY-MM-DD-HHMM>-evening-pass.md` (the name from `date -u`):
-   a heading of the form `## <date> — Evening pass` and one line giving the
-   headline and the summary line. Open the docs-only PR and land it with
-   `node scripts/land-prs.mjs <pr>`.
-8. **The notification.** The session's last message is the notification. Its
-   first line is the single most important thing for tonight, or exactly
-   `nothing needs you tonight`. Then at most three more lines, one per other
-   ask, most urgent first. Use "nothing needs you tonight" only when step 1
-   ran cleanly, no asks were found on a branch or added on `main`, there is
-   no `NEW` unprotected branch, no draft is waiting, no nightly is red, and
-   no release PR is open. Any other result goes in the headline.
-
-### The Routine's stored prompt (both passes)
+## The Routine's stored prompt
 
 One Routine, set up by the operator on 2026-10-05:
 
 - **Name:** "Reddoor Project Manager".
 - **Repository:** `reddoorla/reddoor-maintenance`.
-- **Schedule:** `CRON_TZ=America/Los_Angeles 48 4,12 * * 1-4`. The zone is
+- **Schedule:** `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`. The zone is
   written into the cron, so it does not drift when daylight saving ends on
-  11-01, and the minute stays off :00 and :30.
+  11-01, and the minute stays off :00 and :30. It read `48 4,12 * * 1-4`
+  until the evening pass was cut (Operator decisions 107(d)).
 - **Session:** a fresh session for each fire. The newest one is the cockpit.
 
 The text below is the prompt as written for the operator to paste. If the
 Routine's copy is edited, this one should be updated in a PR.
 
 ```text
-Daily PM pass for reddoorla/reddoor-maintenance. This Routine fires twice a day, Monday to Thursday, on its schedule, each run in a fresh session.
+Daily PM pass for reddoorla/reddoor-maintenance. This Routine fires once a day, Monday to Thursday, at 04:48 PT, each run in a fresh session.
 
 Set up first:
 1. reddoorla/reddoor-maintenance should already be checked out. If not, call add_repo (owner reddoorla, repo reddoor-maintenance, access push) and clone it as the result says. If neither works, stop with: "NO REPOSITORY: the Routine needs reddoorla/reddoor-maintenance selected as its repository."
 2. In the checkout run: git fetch origin main; git status (must be clean; if not, say so and discard nothing); git checkout --detach origin/main; CLAUDE_CODE_REMOTE=true bash .claude/hooks/cloud-session-setup.sh. If any step fails, stop, and make your final message the exact command and its error.
 
-Then read the clock (TZ=America/Los_Angeles date) and pick the pass:
-- Before 12:00 PT: the MORNING pass. Read docs/pm-pass.md and follow "The pass, in order" exactly (on Monday, also "Mondays: the heavier pass"). Budget about 45 minutes, or 75 on Monday.
-- 12:00 PT or later: the EVENING pass. Read docs/pm-pass.md and follow "The evening pass" exactly, including its rules. It appends to today's morning report rather than writing a new one.
+Then run the morning pass: read docs/pm-pass.md and follow "The pass, in order" exactly (on Monday, also "Mondays: the heavier pass"). Budget about 45 minutes, or 75 on Monday.
 
-Both passes: facts come from the repo, the APIs and the nightlies, never from memory. Do not write code. Do not dispatch daily-reports or fleet-security. Do not take items claimed by other sessions. Never post to Discord. Land exactly one docs-only PR with node scripts/land-prs.mjs once CI is green. List any nightly still pending at the time budget as pending.
+Facts come from the repo, the APIs and the nightlies, never from memory. Do not write code. Do not dispatch daily-reports or fleet-security. Do not take items claimed by other sessions. Never post to Discord. Land exactly one docs-only PR with node scripts/land-prs.mjs once CI is green. List any nightly still pending at the time budget as pending.
 
 End with one push notification and a last message that is the one-line verdict, followed by the operator's top three dated items.
 
@@ -563,9 +382,8 @@ The operator has answered these, some of them more than once. Asking again
 costs trust and time. Do not put any of them in the morning report, in
 "Operator decisions", or in a question. A new fact that changes one of them
 is written up as new evidence, never as the old ask. An ask the operator drops
-in a Monday "Do, date or drop" list gets one bullet here, with its date and
-reason; the `Dropped` line it also carries in "Operator decisions" is a
-record, not a re-ask.
+gets one bullet here, with its date and reason; the `Dropped` line it also
+carries in "Operator decisions" is a record, not a re-ask.
 
 - **Report recipients are correct as they are** (2026-09-29). This covers MSOT
   and Revogen sharing `accounting@revogenbiologics.com`, and 29 Navy's send

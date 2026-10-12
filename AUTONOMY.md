@@ -87,9 +87,11 @@ clean — including behavior-changing `feat`s — **except**:
 - Any PR that itself performs a RED action → **always human**.
 
 A third path exists: the operator may tell a session to **land with a
-reviewed finding still open**, on his word, after two dirty review rounds. It
-has happened at least 8 times; the PR body names the open finding and his
-decision (the operator, 2026-10-06, answering the two-touch review).
+reviewed finding still open**, on his word, once the PR has reached the
+review-round stop in `CLAUDE.md` → "Worker sessions ask a blocking question
+once, with all its context" (five dirty rounds since 2026-10-12; two before
+that). It has happened at least 8 times; the PR body names the open finding
+and his decision (the operator, 2026-10-06, answering the two-touch review).
 
 Land with `node scripts/land-prs.mjs`, which picks squash, merge or rebase per
 the base branch's rules (GitHub deletes the head branch; the cloud proxy

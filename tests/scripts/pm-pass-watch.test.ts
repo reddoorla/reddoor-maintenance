@@ -52,13 +52,13 @@ function fixture(commits: Commit[]): string {
   return dir;
 }
 
-const pmPass = (cronOrLine: string) =>
+const pmPass = (cronOrLine: string, heading = "### The Routine's stored prompt (both passes)") =>
   [
     "# PM pass",
     "",
     "- **Schedule:** `CRON_TZ=America/Los_Angeles 99 99 * * 1-4` (a decoy outside the block)",
     "",
-    "### The Routine's stored prompt (both passes)",
+    heading,
     "",
     '- **Name:** "Reddoor Project Manager".',
     cronOrLine.startsWith("- ")
@@ -72,6 +72,8 @@ const PM = "docs/pm-pass.md";
 const report = (date: string) => `docs/morning-reports/MORNING_REPORT_${date}.md`;
 const MORNING = "# Morning report\n\n## One-line verdict\n\nAll fine.\n\n## Top of stack\n";
 const EVENING = "\n## Evening\n\nNothing needs you tonight.\n";
+
+const MORNING_ONLY_HEADING = "## The Routine's stored prompt";
 
 const BASE: Commit = { at: "2026-10-05T23:00:00Z", files: { [PM]: pmPass("48 4,17 * * 1-4") } };
 
@@ -117,7 +119,7 @@ async function run(
 
 const verdicts = (r: WatchResult) => r.slots.map((s) => `${s.date} ${s.pass} ${s.verdict}`);
 
-describe("parseSchedule — the two-pass cron in the stored-prompt block", () => {
+describe("parseSchedule — the Routine's cron in the stored-prompt block", () => {
   it("reads the current line and the 10-06 line", () => {
     const now = parseSchedule(scheduleLine(pmPass("48 4,12 * * 1-4")));
     expect(now?.cron).toBe("48 4,12 * * 1-4");
@@ -133,8 +135,21 @@ describe("parseSchedule — the two-pass cron in the stored-prompt block", () =>
     ).toBeNull();
   });
 
-  it("refuses a one-hour cron, a bad zone and junk", () => {
+  it("reads a one-hour morning cron as the morning pass alone", () => {
+    const one = parseSchedule(scheduleLine(pmPass("48 4 * * 1-4", MORNING_ONLY_HEADING)));
+    expect(one?.cron).toBe("48 4 * * 1-4");
+    expect(one?.hours).toEqual([4]);
+    expect([...one!.days].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("reads the Schedule line in docs/pm-pass.md as it is on this branch", () => {
+    const text = readFileSync(new URL("../../docs/pm-pass.md", import.meta.url), "utf-8");
+    expect(parseSchedule(scheduleLine(text))?.cron).toBe("48 4 * * 1-4");
+  });
+
+  it("refuses a one-hour cron at noon or later, a bad zone and junk", () => {
     expect(parseSchedule(scheduleLine(pmPass("18 17 * * 1-4")))).toBeNull();
+    expect(parseSchedule(scheduleLine(pmPass("48 12 * * 1-4", MORNING_ONLY_HEADING)))).toBeNull();
     expect(parseSchedule("- **Schedule:** `CRON_TZ=Not/AZone 48 4,12 * * 1-4`")).toBeNull();
     expect(parseSchedule("- **Schedule:** TBD")).toBeNull();
     expect(parseSchedule(null)).toBeNull();
@@ -350,6 +365,94 @@ describe("watch — which Schedule line counts", () => {
     expect(r.lines[0]).toContain("schedule=none");
     expect(r.calls).toEqual([]);
     expect(r.code).toBe(0);
+  });
+});
+
+describe("watch — the morning-only schedule (Operator decisions 107(d))", () => {
+  const MORNING_ONLY: Commit = {
+    at: "2026-10-12T22:00:00Z",
+    files: { [PM]: pmPass("48 4 * * 1-4", MORNING_ONLY_HEADING) },
+  };
+  const BEFORE: Commit = {
+    at: "2026-10-12T12:00:00Z",
+    files: { [PM]: pmPass("48 4,12 * * 1-4") },
+  };
+
+  it("a morning-only day with its morning report on time ran and sends nothing", async () => {
+    const dir = fixture([
+      BASE,
+      BEFORE,
+      MORNING_ONLY,
+      { at: "2026-10-13T12:05:00Z", files: { [report("2026-10-13")]: MORNING } },
+    ]);
+    const r = await run(dir, { date: "2026-10-13" }, "2026-10-14T12:00:00Z");
+    expect(verdicts(r)).toEqual(["2026-10-13 morning ran"]);
+    expect(r.lines[0]).toMatch(
+      /^PM_WATCH date=2026-10-13 pass=morning schedule="48 4 \* \* 1-4" read=[0-9a-f]{8} due=2026-10-13T13:18:00Z verdict=ran$/,
+    );
+    expect(r.calls).toEqual([]);
+    expect(r.code).toBe(0);
+  });
+
+  it("a morning-only day with no morning report misses the morning, and only it", async () => {
+    const dir = fixture([
+      BASE,
+      BEFORE,
+      MORNING_ONLY,
+      { at: "2026-10-13T12:05:00Z", files: { "other.md": "x" } },
+    ]);
+    const r = await run(dir, { date: "2026-10-13" }, "2026-10-14T12:00:00Z");
+    expect(verdicts(r)).toEqual(["2026-10-13 morning missed"]);
+    expect(r.calls.map((c) => c.body.subject)).toEqual(["PM pass missed: 2026-10-13 morning"]);
+  });
+
+  it("the scheduled scans after a morning-only morning raise no second-pass alarm", async () => {
+    const dir = fixture([
+      BASE,
+      BEFORE,
+      MORNING_ONLY,
+      { at: "2026-10-13T12:05:00Z", files: { [report("2026-10-13")]: MORNING } },
+    ]);
+    for (const now of ["2026-10-13T15:41:00Z", "2026-10-13T22:41:00Z", "2026-10-14T03:41:00Z"]) {
+      const r = await run(dir, {}, now);
+      expect(r.slots.filter((s) => s.date === "2026-10-13").map((s) => s.verdict)).toEqual(["ran"]);
+      expect(r.calls.map((c) => c.body.subject)).not.toContain("PM pass missed: 2026-10-13 second");
+      expect(r.code).toBe(0);
+    }
+  });
+
+  it("a dispatch with pass=second on a morning-only day checks nothing", async () => {
+    const dir = fixture([BASE, BEFORE, MORNING_ONLY]);
+    const r = await run(dir, { date: "2026-10-13", pass: "second" }, "2026-10-14T12:00:00Z");
+    expect(r.slots).toEqual([]);
+    expect(r.calls).toEqual([]);
+    expect(r.code).toBe(0);
+  });
+
+  it("the day the schedule changes still expects the second pass it started with", async () => {
+    const dir = fixture([
+      BASE,
+      BEFORE,
+      { at: "2026-10-12T12:05:00Z", files: { [report("2026-10-12")]: MORNING } },
+      MORNING_ONLY,
+    ]);
+    const r = await run(dir, { date: "2026-10-12" }, "2026-10-13T12:00:00Z");
+    expect(verdicts(r)).toEqual(["2026-10-12 morning ran", "2026-10-12 second missed"]);
+    const next = await run(dir, { date: "2026-10-13" }, "2026-10-14T12:00:00Z");
+    expect(verdicts(next)).toEqual(["2026-10-13 morning missed"]);
+  });
+
+  it("a one-hour afternoon cron on a covered date is blind, not a quiet morning", async () => {
+    const dir = fixture([
+      BASE,
+      {
+        at: "2026-10-12T22:00:00Z",
+        files: { [PM]: pmPass("48 12 * * 1-4", MORNING_ONLY_HEADING) },
+      },
+    ]);
+    const r = await run(dir, { date: "2026-10-13" }, "2026-10-14T12:00:00Z");
+    expect(r.slots.map((s) => s.verdict)).toEqual(["blind", "blind"]);
+    expect(r.code).toBe(1);
   });
 });
 
