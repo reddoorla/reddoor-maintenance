@@ -45,7 +45,18 @@ jobs:
             echo "::error::main-gate: every commit on $HEAD_REF must be authored by $BOT and committed and signed by GitHub (web-flow, verified). Not so: $(printf '%s' "$others" | tr '\n' ';')"
             exit 1
           fi
-          files="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')"
+          activity="$(gh api --paginate "repos/$REPO/activity?ref=refs/heads/$HEAD_REF" --jq '.[] | "\(.activity_type) \(.actor.login)"')"
+          pushers="$(printf '%s\n' "$activity" | awk '{ print $2 } $1 == "branch_creation" { exit }')"
+          if [ -z "$pushers" ]; then
+            echo "::error::main-gate: could not read who pushed to $HEAD_REF."
+            exit 1
+          fi
+          strangers="$(printf '%s\n' "$pushers" | grep -vxF "$BOT" || true)"
+          if [ -n "$strangers" ]; then
+            echo "::error::main-gate: $HEAD_REF was also pushed to by: $(printf '%s' "$strangers" | sort -u | tr '\n' ' '). Commit metadata can be set by any writer; who pushed cannot."
+            exit 1
+          fi
+          files="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')"
           if [ -z "$files" ]; then
             echo "::error::main-gate: could not read the files of #$PR."
             exit 1

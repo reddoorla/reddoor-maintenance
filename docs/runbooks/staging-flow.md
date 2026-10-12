@@ -21,11 +21,14 @@ is the pilot, and every step below was first done there.
   only two kinds of PR:
   - a PR from this repo's `staging`, or
   - a PR by `reddoor-renovate[bot]` on a `renovate/` branch where:
+    - every push to the branch since its latest creation was the bot's, by
+      the repository activity log. Commit metadata cannot prove who pushed:
+      a writer can have GitHub create and sign a commit whose author is the
+      bot (`PUT contents` with an author override). The log is read only
+      back to the latest `branch_creation`, because Renovate reuses branch
+      names;
     - every commit is authored by the bot, committed by `web-flow` and
-      verified by GitHub. Renovate commits through the API, so its commits
-      are exactly that, and a pushed commit cannot be: a commit's author is
-      only an email, and the bot's is published in each repo's
-      `renovate.yml`;
+      verified by GitHub, which is how Renovate's API commits look;
     - the PR changes only `package.json`, `pnpm-lock.yaml`,
       `pnpm-workspace.yaml`, `.nvmrc` or workflow files; and
     - the `fast-track` label is present, last added by the bot.
@@ -66,6 +69,17 @@ setting or the order below, so this is a runbook rather than a template there.
    run. It also has to exist before the first promotion: a promotion PR's head
    _is_ `staging`, and `delete_branch_on_merge` deletes an unprotected head on
    merge (#545, the 09-11 comment).
+
+   **Check `main` too.** `gh api repos/reddoorla/<repo>/branches/main --jq .protected`
+   must be `true`. mantis-landscaping's was `false` on 2026-10-12, with no
+   ruleset at all, against `true` on vida as the control. The fleet preset's
+   09-21 sweep found a required check on every default branch, and a repo
+   bootstrapped after it can lack one. If it is `false`, create `main`'s
+   ruleset (vida's, minus its id) before anything else:
+
+   ```sh
+   gh api -X POST repos/reddoorla/<repo>/rulesets --input docs/runbooks/staging-flow/main-ruleset.json
+   ```
 
 3. **`main-gate.yml` into `staging`**, by PR, merged on green.
 4. **Work lands on `staging`** (on vida, the kit 3 migration).
