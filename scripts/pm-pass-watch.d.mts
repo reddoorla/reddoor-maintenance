@@ -1,6 +1,6 @@
 export const LA: string;
 export const PM_PASS: string;
-export const SCHEDULE_HEADING: string;
+export const SCHEDULE_HEADINGS: string[];
 export const FIRST_COVERED: string;
 export const KNOWN_GOOD: { at: string; minute: number; hours: number[] };
 export const WINDOW_HOURS: number;
@@ -23,7 +23,7 @@ export interface Options {
 export interface Schedule {
   zone: string;
   minute: number;
-  hours: [number, number];
+  hours: [number] | [number, number];
   days: Set<number>;
   cron: string;
 }
