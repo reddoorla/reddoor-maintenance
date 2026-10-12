@@ -1,4 +1,4 @@
-## 2026-10-12 — P1-33(e): the home base gets a deny list, three session shapes measured, and maintenance's credentials rule fixed (#NNNN, reddoor-workspace `c8fa41d`, `25499f6`)
+## 2026-10-12 — P1-33(e): the home base gets a deny list, three session shapes measured, and maintenance's credentials rule fixed (#1318, reddoor-workspace `c8fa41d`, `25499f6`)
 
 The cutover to `reddoor-workspace` waits until after Thu 10-22. This item is what its plan rests on: before any rule moves, know what a session loads in each starting shape, and make sure the home base has its own deny list. The docs say a cloud session that starts in one repo applies that repo's committed `.claude/settings.json`, and a session started with several repos applies no repo's permissions or hooks. The workspace had no settings file at all, so a session that started there would have run without the force-push, `reset --hard`, `rm -rf` and bare-stash refusals that maintenance's settings give.
 
