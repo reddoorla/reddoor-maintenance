@@ -176,6 +176,10 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   - **Item 74's poster frames** are acknowledged. Still unpublished at
     15:05Z: williamson-construction has no release and nothing published
     today [M, Prismic].
+  - **10-12 16:06Z [M]: item 74 is done.** The three hero posters are live
+    on the Netlify site; release
+    <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>
+    is published. Nothing about the cutover changed.
 
 ---
 
@@ -2617,6 +2621,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       asset ids reverts it.
       **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
       route; (2) yes, the worker publishes the release.**
+    - **Done 2026-10-12 16:06Z [M].** Uploaded by the direct route (asset ids
+      `03rQcyPF8o3914Sx`, `jCbfvl180cPKYSpQ`, `9SS-DzzmS4HsHi1J`), staged as one
+      release with three deltas, `background_image` only, and published:
+      <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>.
+      Live on williamson-construction-co.netlify.app at 16:06:51Z, from the
+      second of two Prismic-hook deploys (the first, `6acd04e9`, built before
+      the publish was readable and still served the old stills). The hero
+      `img` srcset now reaches 1920w on home and about-us (was 768w) and
+      1280w on services (its native width; was 480w). Lighthouse, 3-run
+      mobile medians before → after: home 2813 → 2682 ms, about-us 2603 →
+      2784, services 2735 → 2822. These are within run spread (2390–3344), and
+      phones now fetch a larger poster: 20 → 50 KB, 22 → 91 KB, 18 → 66 KB.
+      On desktop the LCP element moved from the `VIDEO` to the poster `IMG` on
+      all three pages, as predicted (home 2520 → 1021 ms, one run each).
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
