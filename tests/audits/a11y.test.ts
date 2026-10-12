@@ -2215,6 +2215,42 @@ describe("audits/a11y — the #888 detection's pure pieces", () => {
     );
   });
 
+  const TAILWIND_BLACK_REMEDY =
+    "this is most likely Tailwind's black/<alpha> (color-mix(in oklab, #000 N%, transparent)) folded by" +
+    " lightningcss, which writes black's a and b as none, so the token is not in the source; define black as" +
+    " oklab(0 0 0) where the theme or tailwind.config sets it (renders identically)";
+  it("names Tailwind's black/<alpha> and its fix for the oklab(0 none none) shape lightningcss folds it to (P1-31)", () => {
+    for (const colour of [
+      "oklab(0 none none / 0.1)",
+      "oklab(0% none none/.5)",
+      "oklab(0 none none)",
+      "OKLAB( 0.0 none none / 0.25 )",
+    ]) {
+      expect(unparseableColourRemedy(colour)).toBe(TAILWIND_BLACK_REMEDY);
+    }
+    expect(
+      contrastUnmeasuredHelp(
+        [{ any: [colorParseCheck("oklab(0 none none / 0.1)")] }],
+        unparseableColourRemedy,
+      ),
+    ).toBe(
+      "1 element(s) on a colour axe cannot parse (oklab(0 none none / 0.1)), so contrast was never" +
+        ` measured there — ${TAILWIND_BLACK_REMEDY}`,
+    );
+    expect(unparseableColourRemedy("oklab(0.5 none none / 0.1)")).toBe(
+      'write 0 for "none" in the oklab() token (browsers already render none as 0, so nothing on screen changes)',
+    );
+    expect(unparseableColourRemedy("oklab(0 none 0 / 0.1)")).toContain('write 0 for "none"');
+    expect(unparseableColourRemedy("oklab(0.05 none none)")).toContain('write 0 for "none"');
+    expect(unparseableColourRemedy("oklch(0 0 none)")).toContain('write 0 for "none"');
+    expect(unparseableColourRemedy("xoklab(0 none none)")).toContain('write 0 for "none"');
+    expect(unparseableColourRemedy("oklab(0 none none) x")).toContain('write 0 for "none"');
+    const revived = new Function(
+      `return (${unparseableColourRemedy.toString()})`,
+    )() as typeof unparseableColourRemedy;
+    expect(revived("oklab(0 none none / 0.5)")).toBe(TAILWIND_BLACK_REMEDY);
+  });
+
   // Injected with toString(), so it must not lean on anything outside itself.
   it("each piece survives serialization into the spec", () => {
     for (const fn of [
