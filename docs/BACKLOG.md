@@ -3478,6 +3478,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       worker card: which repos are private, what the fee buys, and the free
       alternatives. Whether anything was applied is unverified from the
       cloud; the next `fleet-security` `PROTECTION_AUDIT` line will show it.
+      **Researched 2026-10-12 after the apply asked for a fee:** pick is don't pay ($276/yr today for 4 private repos where none of 7 recorded exposures happened); keep the free public setting, close item 13's alerts, add gitleaks to the private repos. [recommendation](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-12-secret-scanning/recommendation.md)
     - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
       the
       `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
