@@ -48,16 +48,16 @@ if (process.env.VITE_REDDOOR_GATE_FIXTURES && process.env.NETLIFY) {
   );
 }
 
-// Netlify sets URL to the site's production origin during a build. Kit 3
-// takes it as `paths.origin` (below), which does two things, and the second is
-// new: prerendered pages bake it into canonical and og:url (via $lib/seo; kit 2
-// called this `prerender.origin`), AND the CSRF check compares every form
-// POST's Origin header against it instead of against the request's own host.
-// One Netlify build is served at several origins (the production URL, the
-// site's *.netlify.app mirror, the per-deploy URL and the branch/preview URL),
-// and kit 2 accepted the contact form on all of them. These are the others,
-// trusted so the form keeps working there instead of answering 403.
-// Local builds set none of these: they keep kit's "http://sveltekit-prerender"
+// Netlify sets URL to the site's production origin during a build, and
+// prerendered pages bake it into canonical and og:url. Kit 2 took it as
+// `prerender.origin`. Kit 3 removed that for `paths.origin`, which also
+// becomes the ONLY origin the CSRF check accepts a form POST from (kit 2
+// compared with the request's own host). Set, the contact form answered 403 on
+// a Netlify domain alias, and on a custom domain attached after the last build
+// until the next deploy (measured on a built server, reddoor-starter#187). So
+// it is not set: kit keeps its "http://sveltekit-prerender" placeholder and the
+// per-host CSRF check, and vite.config.ts hands this origin to $lib/seo, which
+// puts it in place of the placeholder. Local builds set no URL and keep the
 // placeholder, which only shows up in build/ output, never in dev.
 // robots.txt and sitemap.xml are NOT prerendered: they must answer per host,
 // so the netlify.app mirror can differ from the real domain (#140).
@@ -71,21 +71,7 @@ const originOf = (value) => {
     return undefined;
   }
 };
-const productionOrigin = originOf(process.env.URL);
-/**
- * @param {string | undefined} origin
- * @returns {origin is string}
- */
-const isOtherOrigin = (origin) => origin !== undefined && origin !== productionOrigin;
-const otherNetlifyOrigins = [
-  ...new Set(
-    [
-      originOf(process.env.DEPLOY_PRIME_URL),
-      originOf(process.env.DEPLOY_URL),
-      process.env.SITE_NAME ? originOf(`https://${process.env.SITE_NAME}.netlify.app`) : undefined,
-    ].filter(isOtherOrigin),
-  ),
-];
+export const productionOrigin = originOf(process.env.URL) ?? null;
 
 // SvelteKit 3 refuses `svelte.config.js` (`config_file_unsupported`): its
 // configuration is passed to the `sveltekit(...)` plugin in vite.config.ts,
@@ -99,12 +85,6 @@ const config = {
     warningFilter: (warning) => warning.code !== "element_invalid_self_closing_tag",
   },
   adapter: adapter(),
-  ...(productionOrigin
-    ? {
-        paths: { origin: productionOrigin },
-        csrf: { trustedOrigins: otherNetlifyOrigins },
-      }
-    : {}),
   // Until a clone is wired to a real Prismic repo, every Prismic-backed
   // route returns 404 during prerender. Tolerate that on the placeholder
   // so `pnpm build` (and Netlify CI) succeed; real sites still fail loudly
