@@ -3992,6 +3992,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `docs/pm-pass.md`. Until you do, the 12:48 PT fire runs a prompt that
         names a section #1305 deletes, and the watcher will not notice: it
         reads `docs/pm-pass.md`, not the Routine.
+        **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
+        with no third round; (b) yes, the operator changes the Routine once
+        told #1305 has landed (after today's evening pass).**
 
 ## Active projects (the operator's list, read by the PM pass)
 
