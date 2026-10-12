@@ -4039,6 +4039,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
       - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
         green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
