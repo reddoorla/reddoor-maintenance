@@ -4329,6 +4329,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         text appears, since the change is one field already diffed.
         **Answered 2026-10-12 (AskUserQuestion): the worker publishes.**
 
+118.  **Roalson listing packages, 2026-10-12 markup (Erik's notes, Discord
+      `1559317207203315734`, and the client's marked-up 116 Old San Antonio Road
+      package, `1559317238899544165`): held after two dirty review rounds**
+      (new 2026-10-12, asked 2026-10-12). Work: roalson-interests
+      `claude/listing-packages-oct12-markup` (`bfdbf36`, `30fdf49`), stacked on
+      the unmerged `claude/listing-packages-spencer-ranch` and
+      `claude/nifty-dirac-2zmegy`. Built: the client's global standards in the
+      generator (cover chip without "Land", larger contact block, Ri watermark
+      at 262px with its right edge under the wordmark's, "Investment" prints as
+      "Price", exhibits are Location / Area Map with Traffic Counts / Aerial
+      Map / FEMA, no close area map, no close aerial, no survey), the closest
+      major intersection on the area and aerial maps, business names with pins,
+      a per-listing Land ID hero slot; the Hwy 46 package rebuilt to them (11
+      pages to 8), not published, not in Dropbox. Round 1: majors (a failed
+      NAIP tile left a broken, still-stamped image; a Land ID hero would replace
+      broker photography on three listings), all fixed in `30fdf49`. Round 2: one
+      major, reproduced: the flood caption's pin sentence "Tract boundaries
+      appear on the survey and exhibit pages" now prints on four listings with
+      no survey page (menger-springs-road, ih-10-east-at-loop-1604,
+      loop-1604-at-highway-181, ih-10-at-menger-springs); not on Hwy 46. Nine
+      minors and nits besides, the worst an orphan count dot when a count label
+      does not fit.
+      - _Ask:_ (1) fix round 2's major and the orphan-dot minor and review once
+        more, fix without another round, or leave held; (2) business logos on
+        the area map (Erik asked to automate them): names and pins only, a logo
+        service (logo.dev free tier needs a visible credit on commercial use,
+        Brandfetch's free Logo API terms vary between sources), or not now;
+        (3) merge the generator to roalson-interests `main` now, or keep it on
+        its branches; (4) the Land ID list arrived (Matt Howard to Erik 20:35Z,
+        forwarded 21:35Z, 23 links, now in `build/heroes.json`): fetch the Hwy 46
+        hero now or wait for all 23; and do 101 W Commerce, 13810 Lookout Road
+        and Urban Loop Road keep their photo covers (Erik named only 25331).
+      - _Pick:_ (1) fix both, then one more round, since the major is a
+        one-sentence change but it asserts something false; (2) names and pins,
+        since they need no account and assert nothing about a brand; (3) merge
+        after (1), since the tool has lived only on branches since 09-29;
+        (4) wait for all 23, and the three photo covers keep their photos, as
+        Erik's "unless we have photography" reads.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
