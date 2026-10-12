@@ -173,7 +173,6 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 | P1-45 | **SvelteKit 3 and `@sveltejs/adapter-netlify` 7 reached the fleet, and every Renovate PR for them is red.** Renovate opened both majors overnight 10-12 (02:44–05:37Z) in la-homelessness-youth (#29, #30), gallerysonder (#113, #114), vida-legacy-foundation (#96, #97), williamson-construction-co (#27, #28), mantis-landscaping (#40, #41) and alamo-anatomy (#67, #68); `ci / ci` fails on all twelve [M, check-runs]. The cockpit flags only the three maintained sites. The cause, from vida-legacy-foundation#97's `ci` log: `svelte-kit sync` stops with `config_file_unsupported`: "`svelte.config.js` is no longer used. Please pass configuration via the `sveltekit(...)` plugin in your Vite config." [M]. The cockpit already lists the three sites as broken, `NEW` 2026-10-12 (`pm-cockpit.mts`), and every other repo on `group:allNonMajor`'s schedule will follow as Renovate reaches it [I]. reddoor-starter is still on kit `^2.61.1` and adapter `^6.0.4` with no kit-3 PR open [M, 10-12].                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 🟡   | M      | reddoor-starter `svelte.config.js` and `vite.config.ts`; `src/recipes/sync-configs/templates.ts` here (`svelte.config.js` is one of the templates `sync-configs` writes); the twelve red PRs above | A written migration plan in this repo (`docs/`), then the starter migrated in one PR (kit 3 and adapter 7, config moved into the `sveltekit(...)` plugin, CI green, smoke passing); `sync-configs`' templates updated to match; and a decision for the operator on the fleet roll-out order. Until then the client PRs stay open and unmerged. |
 | P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy`                                                                                                                                 | Remedy test pins the shape; the fleet list is in this row or an issue                                                                                                                                                                                                                                                                          |
 | P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1); then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day. |
-| P1-43 | **MSOT home page accessibility is 0.92 < 0.95** in `fleet-lighthouse` on 10-09, 10-10 and 10-11: `audits=accessibility/color-contrast:w7:3/3,accessibility/heading-order:w3:3/3 site=msot` (runs 37892501868, 38030244073, 38117384415). MSOT's next Maintenance report is due 2026-11-21 and carries the scores. Issue medical-solutions-of-texas#76, branch `fix/home-a11y-contrast-heading-order`. **Held at Operator decisions 106** (two design calls on the contrast fixes). _Verify:_ `grep 'LIGHTHOUSE_FAILURES.*site=msot'` in the latest `fleet-lighthouse` job log, or `site_health.lighthouse_failing_audits` for `msot`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡   | S–M    | `src/routes/[[preview=preview]]/+page.svelte` in the site repo                                                                                                                                     | The nightly's lhci config scores production ≥ 0.95 in 3 of 3 runs after the deploy, and neither audit appears for `site=msot`                                                                                                                                                                                                                  |
 
 ### Blocked behind another PR (do not start early)
 
@@ -3843,6 +3842,93 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         Separately: third rounds rose because they were chosen, and are
         yours to set as a default or not.
 
+108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
+      held after two review rounds (new 2026-10-12, branch
+      `fix/a11y-image-alt-contrast` at `7768390`, screenshots in `46d8705`
+      and `f54f7da`).** The nightly scores the home page 0.88 < 0.95 on
+      10-09, 10-10 and 10-11. Reproduced on production with the nightly's
+      lhci code path: 0.88 ×3, the same three nodes [M].
+      - **Built:** a code fallback alt for Prismic images on `/` (the
+        Instagram grid and the testimonials), and the failing tile's real
+        alt staged in Prismic release `asxLxxIAAEc3J2qU`, which is not
+        published. Its label says P1-43 because MSOT took that number
+        mid-flight. "Utmost care" becomes #7196b9 (3.10:1, ΔE_ok 3.3 from
+        the brand blue). The "01 / V" medallion text becomes the existing
+        navy on the four pages where it sits on white. The deploy preview
+        scores 1.00 ×3 [M]. Of 12 mutations, 11 go red. The twelfth,
+        dropping `ignoreLength` alone, stays green as it should, because
+        axe sets aside only failing short text. Both brand lenses judged
+        the brand-colour stop condition not crossed.
+      - **Round 1 (3 lenses):** major, the medallion was navy on `/` only,
+        so the motif was inconsistent. Minors: a vacuous assertion, the
+        axe scan running every rule (`options()` replaced `runOnly`), and
+        one-character text unchecked. All fixed.
+      - **Round 2 (3 lenses at `f54f7da`):** major, round 1's widening had
+        also made the project page's medallion navy, over its darkened
+        hero (1.05–3.44:1). Fixed in `1cc2fdb`, which returns that file to
+        `main`'s markup. The lens that found it reports no defect at that
+        head. Minors (a 5 s hydration wait, an unasserted short-text skip)
+        were fixed in `7768390`.
+      - **For the operator either way:** staging the release fired the
+        site's "Prismic" Netlify build hook. Production rebuilt at 02:54Z
+        and 03:48Z with no content change [M, Netlify API], so publishing
+        will rebuild the prerendered home page on its own. Follow-ups out
+        of scope are filed as vineyard-custom-homes#78.
+      - _Ask:_ (A) land #77 at `7768390` with no third round; (B) run a
+        third review round first; or (C) narrow the medallion change back
+        to `/` only and accept the inconsistency.
+      - _Pick:_ (A). The round-2 defect was a widening error, fixed by
+        restoring `main`'s markup for that one file, and nothing else
+        found in round 2 changes behaviour.
+        **Answered 2026-10-12 (AskUserQuestion): (A), land #77 with no
+        third round (the screenshots commit removed first).**
+
+109.  **medical-solutions-of-texas#77, P1-43 MSOT home page accessibility:
+      held after two dirty review rounds (new 2026-10-12, branch
+      `fix/home-a11y-contrast-heading-order` at `020e841`; issue
+      medical-solutions-of-texas#76).** Built to 106's answers:
+      - Inactive words are at 75% (3.30:1). The word two steps from the lit
+        one is hidden, which removes the cut-off "DIRECT" at 1024 and 390.
+      - A scrim (black 50% fading to 0) plus `bg-dark` sits behind "We'll
+        Get You".
+      - The headings are reordered with no visible change.
+      - The nightly's lhci config scores the build 1.0 ×3, against 0.92 ×3
+        for `main` [M]. CI is green, and the smoke suite passes 19/19.
+      - Filed as you asked: medical-solutions-of-texas#78 (the scroll state)
+        and #79 (`/process` and `/about`).
+      - **Round 1** found no code defect. It raised 106's two design calls.
+      - **Round 2** found no page defect. The tests lens found three defects
+        in the new pixel check, all fixed in `020e841`:
+        - It could pass with the heading unreadable, because it took the
+          colour from CSS, not the render.
+        - Its 5th percentile was set by glyph edges.
+        - It skipped 390.
+      - It now screenshots the heading with and without its text, and needs
+        99% of the still behind it at 3:1. The result is 4.30:1 at 1350 and
+        4.65:1 at 390. Without the scrim, the heading under the overlays, a
+        20% scrim, or the heading hidden, it goes red each time [M]. The PR
+        body was stale and has been rewritten.
+      - **Not covered: the Vimeo video at 390.** It mounts on the first
+        interaction. At 390 "WE'LL GET" wraps to mid-box, where the scrim is
+        about 20% black, so on bright frames it estimates at about 2.4:1
+        [I, arithmetic on a production frame]. On the still it is 4.65:1
+        [M]. At 1440 it is about 4:1 or more on the same frames [I].
+      - _Ask:_
+        - (1) Land #77 on green CI with no third round; or run a third round
+          first; or hold.
+        - (2) For the 390 video case: file it as an issue; or strengthen the
+          scrim at 768 and below before landing.
+      - _Pick:_ (1) land with no third round. No behaviour defect was found
+        in either round, and each round-2 fix has its own red mutation. (2)
+        File it. The nightly and the still both pass, and a stronger phone
+        scrim is a design change you have not seen.
+        **Answered 2026-10-12 (AskUserQuestion): land #77 with no third
+        round; file the 390 video case as an issue.**
+        Asked as 107; renumbered twice when the Monday PM pass and P1-44
+        took 107 and 108 first. **Landed** as medical-solutions-of-texas
+        `709079f` (13:38Z). The 390 video case is
+        medical-solutions-of-texas#80.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
@@ -3990,6 +4076,22 @@ sites=17`, `just_wait_left_out=1`.
   Nothing is pending approval.
 
 ## Done (move items here when they land)
+
+- 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
+  - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
+  - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.
+  - **Still the operator's:** publish Prismic release `asxLxxIAAEc3J2qU`, the failing tile's real alt (its label says P1-43). Publishing fires the site's Netlify build hook, so the prerendered page rebuilds by itself.
+  - **Filed:** vineyard-custom-homes#78. It covers the tile links' `aria-label`, which hides the alt, filename-like alts, hover contrast, light blue on white on the other pages, and two alt-less photos on `/about`.
+- 2026-10-12 — P1-43: MSOT's home page passes Lighthouse accessibility (issue medical-solutions-of-texas#76, PR #77, `709079f`; Operator decisions 106 and 109).
+  - **Before.** `fleet-lighthouse` printed `accessibility:0.92<0.95` with `color-contrast` and `heading-order` failing 3/3 on 10-09, 10-10 and 10-11. The nightly's lhci config reproduced 0.92 ×3 on production at 02:43Z [M].
+  - **What changed.**
+    - "We'll Get You" has a bottom scrim (black 50% to 0), and its box is `bg-dark`. 99% of the still behind it reaches 4.30:1 at 1350 and 4.65:1 at 390 [M].
+    - The rotating list's inactive words are at 75% (3.30:1), and the word two steps away is hidden.
+    - Three heading tags were reordered with no visible change.
+    - The operator chose the scrim and the 75% (106), then landing with no third round (109).
+  - **After.** The nightly's config on production at 13:40Z scored 1.0, 1.0 and 1.0 [M]. Run 38257285103 audited MSOT at 13:53:40Z: `lighthouse pass msot`, with no `LIGHTHOUSE_FAILURES` line. `lighthouse_failing_audits` is `null` [M].
+  - **Not covered: Lighthouse no longer judges "We'll Get You".** axe stops at the scrim's gradient and reports it "incomplete". The site's pixel test, `tests/smoke/home-a11y.spec.ts`, is the guard.
+  - **Filed:** medical-solutions-of-texas#78 (the column that fades after a scroll), #79 (`/process` and `/about`) and #80 (the video at 390).
 
 - 2026-10-11 — P1-39: the conductor dispatches `fleet-prismic-sync` right after the drift sweep (issue #1285, PR #1287).
   - **What changed.** `NIGHTLIES` holds eight, with the sync third, on a 20-minute wait. It is dispatched once drift's run completes, or once drift's own 20-minute wait runs out; it reads nothing drift writes. Its three runs so far took 1m55s, 2m34s and 2m01s [M, Actions API], but every site was in sync on all three, so `build` was skipped. A night with a changed site adds a Docker `pnpm install` per changed site, which the 20 minutes is meant to cover, though no such run has been measured. A sync still running when its wait runs out is reported `wait-exceeded`, and it files its own issue if it then fails. The conductor's step and job timeouts went from 260 and 270 minutes to 290 and 300, so they still outlast every wait. The 12 h guard and `NIGHTLY_CONDUCTOR_SUMMARY` count the sync like the others (`total=8`).
