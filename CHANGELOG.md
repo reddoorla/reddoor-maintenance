@@ -1,5 +1,16 @@
 # @reddoorla/maintenance
 
+## 0.107.0
+
+### Minor Changes
+
+- 1073237: SvelteKit 3 support in the config factory and `sync-configs` (P1-45). `createKitConfig` in `configs/svelte` returns kit 3's options top-level for the `sveltekit(...)` plugin, with the canonical warning filter, aliases (plus `$lib`, which kit 3 stopped providing), opt-in `csp`, `prismicRepository` and `placeholder`. On a site whose `package.json` declares `@sveltejs/kit` 3 or later, `sync-configs` heals a `sveltekit.config.js` off the canonical adapter and an `eslint.config.js` to import it, never writes a `svelte.config.js`, writes neither file when the config is inline in `vite.config.ts` or the kit spec is unreadable (`catalog:`, `workspace:`), and reports what a sync cannot fix (a leftover `svelte.config.js`, an `eslint.config.js` still importing it, an unreadable kit spec) in its notes and, when `svelte` is targeted, as a `DRIFT … (move by hand, sync-configs will not)` line in `--dry`. `analytics-tag` refuses a kit 3 site, whose CSP it cannot yet edit, instead of installing a tag the CSP blocks.
+
+### Patch Changes
+
+- df786e9: The a11y audit's `contrast-unmeasured` remedy names the likely source, Tailwind's `black/<alpha>` for a colour of the shape `oklab(0 none none / α)`, which is lightningcss's fold of `color-mix(in oklab, #000 N%, transparent)` and appears in no source file. It now says to define black as `oklab(0 0 0)`, which renders identically, instead of "write 0 for none in the oklab() token".
+- 332ccf8: form-e2e waits for hydration (`html[data-hydrated]`, else a 5 s settle after `load`) before it fills and injects its `testMode` marker, so `refilled` no longer reports the probe's own pre-hydration wipe as a site re-render. A refill without the marker seen is flagged "hydration unconfirmed" (#1148).
+
 ## 0.106.0
 
 ### Minor Changes
