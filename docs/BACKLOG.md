@@ -163,6 +163,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   `docs/runbooks/williamson-cutover-2026-10-14.md`, and
   `node scripts/williamson-cutover-verify.mjs` turns GREEN once the cutover
   has worked.
+- **10-12 ~15:10Z (the operator, cockpit session):**
+  - **D6 is answered.** Construction's `/join-the-team` goes to the same
+    recipient as its contact form. The runbook's gate still holds: a test
+    submission on the preview must arrive before Construction's DNS moves
+    (`docs/runbooks/williamson-cutover-2026-10-14.md`, "Gates the verifier
+    cannot check").
+  - **The rest waits on Tim**, and stays on this list: D0, Tim's MarkUp
+    tweaks, and with them the go for the Tue 10-13 domain and TTL step and
+    the Wed 10-14 cutover, which may slip. Each PM pass reads #williamson in
+    Discord (GET only) and says the day this is unblocked.
+  - **Item 74's poster frames** are acknowledged. Still unpublished at
+    15:05Z: williamson-construction has no release and nothing published
+    today [M, Prismic].
 
 ---
 
@@ -3458,6 +3471,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       "all existing repositories" was applied. The Mantis build that failed on a committed
       Blux key (Watching, #754) is what push protection stops. Source
       `docs/meta-week/08-second-pass.md:54`.
+      **10-12 (the operator, cockpit session):** started the org-wide apply,
+      and GitHub asked for a monthly fee (Advanced Security / Secret
+      Protection) [the operator's report]. A cost analysis is queued as a
+      worker card: which repos are private, what the fee buys, and the free
+      alternatives. Whether anything was applied is unverified from the
+      cloud; the next `fleet-security` `PROTECTION_AUDIT` line will show it.
+      **Researched 2026-10-12 after the apply asked for a fee:** pick is don't pay ($276/yr today for 4 private repos where none of 7 recorded exposures happened); keep the free public setting, close item 13's alerts, add gitleaks to the private repos. [recommendation](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-12-secret-scanning/recommendation.md)
     - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
       the
       `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
@@ -3942,6 +3962,39 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         took 107 and 108 first. **Landed** as medical-solutions-of-texas
         `709079f` (13:38Z). The 390 video case is
         medical-solutions-of-texas#80.
+
+110.  **#1305, Operator decisions 107 built: held after two dirty review
+      rounds, plus the Routine change that is yours (new 2026-10-12, asked
+      2026-10-12 ~15:25Z, branch `claude/compassionate-meitner-8n0k4k`).**
+      #1305 builds your 107 answer:
+      - (a) Five rounds; a round with only `minor`/`nit` findings files them
+        as issues and counts as clean.
+      - (c) Do, date or drop removed.
+      - (d) Evening pass removed; `pm-pass-watch` expects a morning pass
+        only.
+      - (e) Streak table removed.
+
+      All nine mutations went red. Round 1 found 2 majors and round 2
+      found 1 major, all in docs wording or hand-off, none in the watcher's
+      code. Round 2's major was that the Routine change below was written
+      only in a `Closed` line, which no pass lifts. All of round 2's findings
+      are fixed on the branch, unreviewed. The old two-round rule still
+      governs #1305, so it is held here.
+      - _Ask (a):_ (A) land #1305 with no third round; or (B) run a third
+        round first.
+        _Pick:_ (A). Every round-2 finding is a wording fix with no behaviour
+        in it. The watcher's code, the one part that can send you a false
+        alarm, came through both rounds with no defect.
+      - _Ask (b), yours once #1305 lands, and only after today's evening pass
+        has landed:_ in the "Reddoor Project Manager" Routine, change the
+        cron to `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`, and replace the
+        stored prompt with the text under "The Routine's stored prompt" in
+        `docs/pm-pass.md`. Until you do, the 12:48 PT fire runs a prompt that
+        names a section #1305 deletes, and the watcher will not notice: it
+        reads `docs/pm-pass.md`, not the Routine.
+        **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
+        with no third round; (b) yes, the operator changes the Routine once
+        told #1305 has landed (after today's evening pass).**
 
 ## Active projects (the operator's list, read by the PM pass)
 
