@@ -480,3 +480,60 @@ describe("reddoor-maint analytics-tag", () => {
     expect(hook).not.toContain("reddoor-maint audit analytics");
   });
 });
+
+// SvelteKit 3 refuses svelte.config.js and keeps the site's CSP in the options
+// passed to sveltekit(...) (reddoor-starter: sveltekit.config.js). This recipe
+// reads and edits svelte.config.js only, so on kit 3 it would find no file,
+// report "no csp option", and install a tag the real policy blocks (P1-45).
+describe("recipes/analytics-tag on a SvelteKit 3 site", () => {
+  it("refuses, names where the CSP moved and the hosts to add, and writes nothing", async () => {
+    const cwd = await site(
+      { "sveltekit.config.js": "export default { csp: { directives: {} } };\n" },
+      { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": "^3.0.0" },
+    );
+    git(cwd, "rm", "-q", "svelte.config.js");
+    git(cwd, "commit", "-q", "-m", "kit 3");
+    const head = git(cwd, "rev-parse", "HEAD");
+    const res = await run(cwd);
+    expect(res.status).toBe("failed");
+    expect(res.notes).toMatch(/SvelteKit 3/);
+    expect(res.notes).toContain("sveltekit(...)");
+    expect(res.notes).toContain(ID);
+    expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE))).toBe(false);
+    expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("still reads as done on a kit 3 site that already runs the same tag", async () => {
+    const cwd = await site(
+      {},
+      { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": "^2.61.1" },
+    );
+    expect((await run(cwd)).status).toBe("applied");
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
+      devDependencies: Record<string, string>;
+    };
+    pkg.devDependencies["@sveltejs/kit"] = "^3.0.0";
+    await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
+    git(cwd, "commit", "-q", "-am", "kit 3");
+    expect((await run(cwd)).status).toBe("noop");
+  });
+
+  it("refuses a kit spec it cannot read, and kit 4, the same way", async () => {
+    for (const spec of ["catalog:", "^4.0.0"]) {
+      const cwd = await site({}, { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": spec });
+      const res = await run(cwd);
+      expect(res.status, spec).toBe("failed");
+      expect(res.notes, spec).toContain("sveltekit(...)");
+      expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE)), spec).toBe(false);
+    }
+  });
+
+  it("still installs on the same site declared on kit 2 (control)", async () => {
+    const cwd = await site(
+      {},
+      { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": "^2.61.1" },
+    );
+    expect((await run(cwd)).status).toBe("applied");
+  });
+});
