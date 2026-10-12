@@ -3964,7 +3964,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `709079f` (13:38Z). The 390 video case is
         medical-solutions-of-texas#80.
 
-111.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+110.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
       review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
       `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
       kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
