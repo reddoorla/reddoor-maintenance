@@ -4436,6 +4436,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         on it and "most" leaves room for exactly this; (2) names and pins, since
         logo.dev's credit would have to live on roalson.com and print is
         unaddressed.
+        **Answered 2026-10-12 (AskUserQuestion): (1) keep the survey on
+        those five; (2) names and pins.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
