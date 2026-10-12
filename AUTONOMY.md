@@ -120,8 +120,10 @@ safe:
 
 1. **TDD** — red test first, watch it fail, minimal green, refactor.
 2. **Adversarial review** — fresh subagents/workflow review the diff across
-   distinct lenses; **every real finding is folded in before merge** (this loop
-   has caught a Ctrl-C regression, a stale-`dist` hole, and a misleading-error
+   distinct lenses; **every real finding is folded in before merge**, except
+   that a round whose findings are all minors files them as issues instead
+   (`CLAUDE.md` → "Worker sessions ask a blocking question once, with all its
+   context") (this loop has caught a Ctrl-C regression, a stale-`dist` hole, and a misleading-error
    gap in recent work).
 3. **Small, single-purpose PRs** — one concern each, so any one is revertable
    without unwinding the arc.

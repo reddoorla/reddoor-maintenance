@@ -79,3 +79,26 @@ Strike that part when (c) is next touched.
 Old briefs in `docs/webflow-conversions-2026-10.md` and
 `docs/prismic-migration-plan-2026-10.md` still say "two dirty review rounds".
 They are left as written; `CLAUDE.md` governs a worker that pastes one.
+
+**Round 2, and the hold.** Round 2 found 1 major, 3 minors and 1 nit.
+
+- **The major.** The Routine change was written only inside item 107's
+  `Closed` line, and pm-pass.md says a `Closed` line is never lifted. So no
+  morning pass would ever raise it. If the operator does not edit the
+  Routine, the 12:48 fire keeps running a prompt that names a deleted
+  section, and the watcher, which reads pm-pass.md's Schedule line rather
+  than the Routine itself, stays quiet. That is a configuration view read as
+  the state, the second face of "Prove the instrument". It is now an open
+  ask, item 110.
+- **The minors.**
+  - "The previous day's send run" missed Thursday's send. The morning pass
+    now reads every send run since the last report.
+  - The worker brief lacked the "a reproduced defect is never a minor"
+    guard.
+  - AUTONOMY.md's "every real finding is folded in" did not allow for filed
+    minors.
+- **The nit.** The example brief omitted the minors-only stop.
+
+All five were fixed in the same push. This PR still ran under the old
+two-round rule, so it went to "Operator decisions" (item 110) rather than to
+a third round, with the operator asked to choose.

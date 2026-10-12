@@ -70,7 +70,8 @@ The prompt lives here so it can be changed by PR, like everything else.
    say so as a finding. For each fleet run, read the job log for
    its `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line; a green run with
    `failed>0` is not green. Note which tracking issues opened or closed.
-   Also read the previous day's 16:07Z `daily-reports` send run, a
+   Also read every 16:07Z `daily-reports` send run since the last report
+   (Thursday's to Sunday's on a Monday), each a
    `workflow_dispatch` fired by Netlify's `nightly-send-clock` (its run-name
    says the mode): did it succeed, and did a fallback run log
    `send-clock-missed` or `send-run-failed`?
