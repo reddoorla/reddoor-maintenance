@@ -3848,6 +3848,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         in either round, and each round-2 fix has its own red mutation. (2)
         File it. The nightly and the still both pass, and a stronger phone
         scrim is a design change you have not seen.
+        **Answered 2026-10-12 (AskUserQuestion): land #77 with no third
+        round; file the 390 video case as an issue.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
