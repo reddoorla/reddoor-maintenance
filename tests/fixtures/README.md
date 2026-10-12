@@ -10,5 +10,6 @@ Five minimal SvelteKit-shaped trees used across audit and recipe tests.
 | `sync-clean/`       | All four `sync-configs` templates already present and matching. Used to assert the recipe returns `noop`.  |
 | `sync-drift/`       | None of the templates match (or are missing entirely). Used to assert the recipe applies all four.         |
 | `prettierignored-generated/` | `pristine-starter/` plus an unformatted, generator-written `prismicio-types.d.ts` that its `.prettierignore` lists. Used to assert the lint audit honours the site's ignore file. |
+| `kit3-starter/` | reddoor-starter on SvelteKit 3: `eslint.config.js`, `sveltekit.config.js` and `vite.config.ts` are byte copies of reddoor-starter at `718db58` (reddoor-starter#187). Used to hold the kit 3 `sync-configs` templates to the starter; `REDDOOR_STARTER_DIR=<checkout>` makes `kit3.test.ts` also compare the copies with a live checkout. |
 
 Fixtures are checked in. Tests copy them to a tempdir before running mutating recipes; audits read them in place.
