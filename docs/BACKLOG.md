@@ -2591,6 +2591,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     permission change that outlives this one task.
     **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
     Closed 2026-10-12: carried by P0-5 (dated): the three poster frames, before the Wed 10-14 cutover.
+    - **Reopened 2026-10-12 ~16:00Z for a worker (the operator: "queue a
+      worker for the posters, have it ask me for whatever permissions it
+      needs"; branch `claude/relaxed-brown-tnc6lc`).** The frames are made:
+      1920×1080, 1920×1080 and 1280×720, frame 0 of the hero video each live
+      page uses (home: teacher, about-us: first-day, services: services).
+      Each is the same shot as its old still: SSIM 0.91, 0.86, 0.95 against
+      the stills, against 0.49 for a mismatched pair. None of the three is in
+      the library yet (113 assets, read 16:00Z). The cheapest upload route
+      needs no public host: POST each file from the container straight to
+      `asset-api.prismic.io` with the session's `WILLIAMSON_CONSTRUCTION_PRISMIC`
+      token. That is the same call `src/prismic/asset-api.ts` `uploadAsset`
+      makes. The token answers 200 on a read; a bogus token gets 403. Nothing
+      becomes public but the three assets on Prismic's own CDN. They go
+      public at upload, because Prismic serves every library asset
+      unauthenticated, and stay unused until the release publishes. The
+      alternatives are the 10-05 routes, a temp public host for `upload_asset`
+      or `prismic-media-upload.yml`; each puts the file on a third public
+      host first. _Ask:_ (1) may the worker upload by the direct Asset API
+      route? (2) Once the three deltas are staged in one release, may it
+      publish the release, or only stage it and link it for you? _Worker's
+      pick:_ (1) yes. (2) publish: the swap changes only the poster image,
+      frame-identical to today's, and one release restoring the three old
+      asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
@@ -3995,6 +4020,26 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
         with no third round; (b) yes, the operator changes the Routine once
         told #1305 has landed (after today's evening pass).**
+
+111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
+      dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
+      head `9a4d8f4`. Built: the selected pin is Erik's `Ri-Pin2.svg`, at the
+      old pin's height with its tip on the point, and the other pins draw no
+      stroke, as Erik asked. Finding: the stroke was what kept the dimmed pins
+      at WCAG 1.4.11's 3:1. Without it, a 50% fill fails the site's contrast
+      gate on 356 ground pairs. On screen at 1440 the pin's edge measures
+      2.76:1 on plain map ground and 2.27:1 beside water; with the stroke it
+      was 10.25:1. 0.81 is the lowest fill that passes (the clusters' value):
+      6.23:1 and 4.03:1. Screenshots of both are in the PR body.
+      - _Ask:_ (a) no stroke, fill 0.81. Passes AA; the pins look less
+        dimmed, and the selected pin still stands out by size and the Ri.
+        This is the branch as pushed. (b) No stroke, 50% as Erik had it.
+        Lighter, but it fails 3:1 and the gate is relaxed for pins. (c) No
+        stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
+      - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
+        green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
