@@ -222,6 +222,12 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   routes: the connector also got 403 (2026-09-30, #1033; 2026-10-06), so the
   operator creates org repos by hand.
 
+- **Link every Prismic release you name** (the operator, 2026-10-12). A bare
+  release id sends the operator to the dashboard to look for it. Write it as a
+  link to `https://<repository>.prismic.io/builder/upcoming/<release id>`, the
+  `dashboardUrl` that the connector's `present_release` returns. This applies
+  in chat, in AskUserQuestion, in PR bodies and in the backlog.
+
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
   and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
