@@ -9,6 +9,7 @@ Erik asked in #roalson-interests, 15:47–15:59Z, for the right-hand option of h
 **The instrument caught one real defect before review did.** The first "controls level with LEARN MORE" test measured only slide 1 at 1440, and it passed. Turning through all three slides at 1280 put the controls 20px below LEARN MORE. The slides stack in one subgrid area, the tallest listing sets the row, and a shorter listing's button floats. The fix is `lg:mt-auto` on LEARN MORE's wrapper, which pins it to the column's foot.
 
 **Review, two rounds; the second found comments only.**
+
 - **Round 1, no blocker.**
   - At 1920 the listing column ran 300px past the centred content edge, because the last track was `1fr` with no mirror of the first track's centring. Fixed with a fifth track, `max(0px, (100% - 1440px)/2)`. A seventh mutation proves the right-edge assertion that guards it.
   - The full-bleed photo needs 1440 × 1.06 × 2 = 3052.8px at DPR 2, but srcset stopped at 2560. Fixed by adding a 3072 candidate.
