@@ -2592,6 +2592,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     permission change that outlives this one task.
     **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
     Closed 2026-10-12: carried by P0-5 (dated): the three poster frames, before the Wed 10-14 cutover.
+    - **Reopened 2026-10-12 ~16:00Z for a worker (the operator: "queue a
+      worker for the posters, have it ask me for whatever permissions it
+      needs"; branch `claude/relaxed-brown-tnc6lc`).** The frames are made:
+      1920×1080, 1920×1080 and 1280×720, frame 0 of the hero video each live
+      page uses (home: teacher, about-us: first-day, services: services).
+      Each is the same shot as its old still: SSIM 0.91, 0.86, 0.95 against
+      the stills, against 0.49 for a mismatched pair. None of the three is in
+      the library yet (113 assets, read 16:00Z). The cheapest upload route
+      needs no public host: POST each file from the container straight to
+      `asset-api.prismic.io` with the session's `WILLIAMSON_CONSTRUCTION_PRISMIC`
+      token. That is the same call `src/prismic/asset-api.ts` `uploadAsset`
+      makes. The token answers 200 on a read; a bogus token gets 403. Nothing
+      becomes public but the three assets on Prismic's own CDN. They go
+      public at upload, because Prismic serves every library asset
+      unauthenticated, and stay unused until the release publishes. The
+      alternatives are the 10-05 routes, a temp public host for `upload_asset`
+      or `prismic-media-upload.yml`; each puts the file on a third public
+      host first. _Ask:_ (1) may the worker upload by the direct Asset API
+      route? (2) Once the three deltas are staged in one release, may it
+      publish the release, or only stage it and link it for you? _Worker's
+      pick:_ (1) yes. (2) publish: the swap changes only the poster image,
+      frame-identical to today's, and one release restoring the three old
+      asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
