@@ -6,6 +6,7 @@ import {
   isConfigName,
   planTemplateDiffs,
   planGitignore,
+  planKitHazards,
 } from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import { isGitWorkTree } from "../../util/git.js";
@@ -76,6 +77,16 @@ async function dryPlan(
     path: t.path,
     text: `would update ${t.path} (config: ${t.config})`,
   }));
+  // The DRIFT line's third field says it cannot be healed by a sync, so the
+  // auto-filed drift issue does not read it as ordinary template drift.
+  for (const hazard of await planKitHazards(cwd)) {
+    if (which && !hazard.configs.some((c) => which.includes(c))) continue;
+    changes.push({
+      path: `${hazard.path} (move by hand, sync-configs will not)`,
+      text: `must move by hand: ${hazard.note}`,
+    });
+  }
+
   if (includeGitignore) {
     const gi = await dryPlanGitignore(cwd, isRepo);
     if (gi) changes.push(gi);
