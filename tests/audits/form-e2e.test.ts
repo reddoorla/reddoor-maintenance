@@ -602,9 +602,33 @@ describe("audits/form-e2e noBannerDetail", () => {
     const d = noBannerDetail({ ...clean, refilled: true });
     expect(d).toMatch(/re-filled/);
   });
+
+  it("says when a refill came without confirmed hydration, so the probe may have caused it (#1148)", () => {
+    expect(noBannerDetail({ ...clean, refilled: true, hydrationUnconfirmed: true })).toContain(
+      "hydration unconfirmed",
+    );
+    expect(noBannerDetail({ ...clean, refilled: true })).not.toContain("hydration unconfirmed");
+  });
 });
 
 describe("audits/form-e2e refill surfacing", () => {
+  it("marks a passing refill whose hydration was not confirmed (#1148)", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({
+          formPresent: true,
+          success: true,
+          refilled: true,
+          hydrationUnconfirmed: true,
+        }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toContain("re-filled once (hydration unconfirmed");
+  });
+
   it("appends the wipe evidence to a PASSING summary — production proof the race exists", async () => {
     const r = await formE2eAudit({
       site,
@@ -615,6 +639,7 @@ describe("audits/form-e2e refill surfacing", () => {
     });
     expect(r.status).toBe("pass");
     expect(r.summary).toMatch(/re-filled/);
+    expect(r.summary).not.toContain("hydration unconfirmed");
     // The verdict and persisted details stay a clean pass — the form works.
     expect(r.details).toEqual({
       ok: "pass",
