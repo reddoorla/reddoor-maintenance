@@ -4114,6 +4114,41 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         sha256 screenshots), and it lands before the bump instead of
         blocking it.
 
+115.  **P1-33(e) Decision 1: where each kind of session starts, read from the
+      probe table (new 2026-10-12; the work is #1318 on
+      `claude/dazzling-wozniak-pgsra9`; the table is reddoor-workspace
+      `plans/2026-10-06-agent-workspace/probe.md` at `25499f6`).** The
+      home-base deny list is on the workspace's `main` (`c8fa41d`) and is
+      live: a session started there refused bare `git stash`, the
+      `rm -rf /tmp/deny-canary-absent` canary, the credentials Read and both
+      new push patterns, and the same session without the file ran all of
+      them [M]. Maintenance's `Read(/Users/…)` rule read the planted file
+      [M], and #1318 fixes it. **Arm c, the one recommendation 1(d) decides
+      on:** a maintenance session attached the workspace (`add_repo` →
+      `appended`, `register_repo_root` → `context_reload_requested`). On the
+      next turn the workspace `CLAUDE.md` was NOT IN CONTEXT in the main
+      thread and in a fresh subagent [M]. The README control never loaded
+      in any arm. a0 and a1 never attached maintenance: both rightly refused
+      a push-access attach asked by another session. The reverse direction
+      is therefore inferred [I], and the 5-minute way to measure it is in
+      `probe.md` under "What is left".
+      - _Ask:_ (1) the no-load branch of 1(d): code sessions start in their
+        own repo, and the PM, the cockpit and non-code work start in the
+        home base. The rules for maintenance's own tools (land-prs,
+        fleet-repos, worktrees, mutations, rounds, asking) stay in
+        maintenance's `CLAUDE.md`, and only the cross-repo sections move.
+        A session that needs the other repo's rules reads that `CLAUDE.md`
+        as its first step, and the Routine's prompt says so. Or (2) the
+        plan as first written: every session starts in the home base. A
+        code session would then run without its repo's `CLAUDE.md`, by
+        arm c. Or (3) hold Decision 1 until you have run a0's and a1's
+        after-attach turns.
+      - _Pick:_ (1). It is the branch 1(d) named for this result, and it
+        keeps each repo's rules loading the one way they were measured to
+        load. Its cost: a section that moves no longer reaches a code
+        session unless that session reads it, so a section moves only
+        when no code session needs it.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
