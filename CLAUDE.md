@@ -222,6 +222,12 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   routes: the connector also got 403 (2026-09-30, #1033; 2026-10-06), so the
   operator creates org repos by hand.
 
+- **Link every Prismic release you name** (the operator, 2026-10-12). A bare
+  release id sends the operator to the dashboard to look for it. Write it as a
+  link to `https://<repository>.prismic.io/builder/upcoming/<release id>`, the
+  `dashboardUrl` that the connector's `present_release` returns. This applies
+  in chat, in AskUserQuestion, in PR bodies and in the backlog.
+
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
   and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
   clones `--depth 50` with no tags, which `check-match-harness-snapshots.mjs`
@@ -386,6 +392,13 @@ If a session produced nothing worth an entry, that is itself worth one line.
 
 When drafting anything client-facing, match how the operator actually writes in
 Discord rather than defaulting to formal email register.
+
+**Never draft Discord replies** (the operator, 2026-10-12): "don't draft
+discord replies, just tell me where we are and I'll relay". A session or
+worker that finishes something a colleague asked for in Discord states where
+it stands (what is live, with its URL, and what is still open). The operator
+writes the message. No "Reply for Erik" section in a PR body, no reply text in
+a brief, and no reply text in the morning report.
 
 **`DISCORD_BOT_KEY` in the repo `.env` IS the bot token.** Use it directly as
 `Authorization: Bot $DISCORD_BOT_KEY`. Proven 2026-08-17: `GET /users/@me`

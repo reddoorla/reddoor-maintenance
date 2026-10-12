@@ -163,6 +163,19 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   `docs/runbooks/williamson-cutover-2026-10-14.md`, and
   `node scripts/williamson-cutover-verify.mjs` turns GREEN once the cutover
   has worked.
+- **10-12 ~15:10Z (the operator, cockpit session):**
+  - **D6 is answered.** Construction's `/join-the-team` goes to the same
+    recipient as its contact form. The runbook's gate still holds: a test
+    submission on the preview must arrive before Construction's DNS moves
+    (`docs/runbooks/williamson-cutover-2026-10-14.md`, "Gates the verifier
+    cannot check").
+  - **The rest waits on Tim**, and stays on this list: D0, Tim's MarkUp
+    tweaks, and with them the go for the Tue 10-13 domain and TTL step and
+    the Wed 10-14 cutover, which may slip. Each PM pass reads #williamson in
+    Discord (GET only) and says the day this is unblocked.
+  - **Item 74's poster frames** are acknowledged. Still unpublished at
+    15:05Z: williamson-construction has no release and nothing published
+    today [M, Prismic].
 
 ---
 
@@ -2276,7 +2289,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       to be cut to ~20 s before encoding, since no per-second cap gets a
       43 s clip under the 3 MB line. _Pick:_ that order; encode the long
       clips whole and record the number, the cut is the operator's call.
-      Closed 2026-10-12: (b) done: the Prismic connector's `list_releases` answers on erp-industrial, alamo-anatomy and vineyard-custom-homes (which holds release `asxLxxIAAEc3J2qU`), while the-tower-burbank and the-pointe-burbank still answer "Prismic MCP is not activated" [M]; (a) was done in 63, and (c) was answered 2026-10-04.
+      Closed 2026-10-12: (b) done: the Prismic connector's `list_releases` answers on erp-industrial, alamo-anatomy and vineyard-custom-homes (which holds release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU)), while the-tower-burbank and the-pointe-burbank still answer "Prismic MCP is not activated" [M]; (a) was done in 63, and (c) was answered 2026-10-04.
 
 68. **P1-26, the starter's `/privacy` page (reddoor-starter#165): two dirty
     review rounds, held (new 2026-10-04).** Round 1 on `7374553` was dirty in all
@@ -2578,6 +2591,31 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     permission change that outlives this one task.
     **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
     Closed 2026-10-12: carried by P0-5 (dated): the three poster frames, before the Wed 10-14 cutover.
+    - **Reopened 2026-10-12 ~16:00Z for a worker (the operator: "queue a
+      worker for the posters, have it ask me for whatever permissions it
+      needs"; branch `claude/relaxed-brown-tnc6lc`).** The frames are made:
+      1920×1080, 1920×1080 and 1280×720, frame 0 of the hero video each live
+      page uses (home: teacher, about-us: first-day, services: services).
+      Each is the same shot as its old still: SSIM 0.91, 0.86, 0.95 against
+      the stills, against 0.49 for a mismatched pair. None of the three is in
+      the library yet (113 assets, read 16:00Z). The cheapest upload route
+      needs no public host: POST each file from the container straight to
+      `asset-api.prismic.io` with the session's `WILLIAMSON_CONSTRUCTION_PRISMIC`
+      token. That is the same call `src/prismic/asset-api.ts` `uploadAsset`
+      makes. The token answers 200 on a read; a bogus token gets 403. Nothing
+      becomes public but the three assets on Prismic's own CDN. They go
+      public at upload, because Prismic serves every library asset
+      unauthenticated, and stay unused until the release publishes. The
+      alternatives are the 10-05 routes, a temp public host for `upload_asset`
+      or `prismic-media-upload.yml`; each puts the file on a third public
+      host first. _Ask:_ (1) may the worker upload by the direct Asset API
+      route? (2) Once the three deltas are staged in one release, may it
+      publish the release, or only stage it and link it for you? _Worker's
+      pick:_ (1) yes. (2) publish: the swap changes only the poster image,
+      frame-identical to today's, and one release restoring the three old
+      asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
@@ -3458,6 +3496,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       "all existing repositories" was applied. The Mantis build that failed on a committed
       Blux key (Watching, #754) is what push protection stops. Source
       `docs/meta-week/08-second-pass.md:54`.
+      **10-12 (the operator, cockpit session):** started the org-wide apply,
+      and GitHub asked for a monthly fee (Advanced Security / Secret
+      Protection) [the operator's report]. A cost analysis is queued as a
+      worker card: which repos are private, what the fee buys, and the free
+      alternatives. Whether anything was applied is unverified from the
+      cloud; the next `fleet-security` `PROTECTION_AUDIT` line will show it.
+      **Researched 2026-10-12 after the apply asked for a fee:** pick is don't pay ($276/yr today for 4 private repos where none of 7 recorded exposures happened); keep the free public setting, close item 13's alerts, add gitleaks to the private repos. [recommendation](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-12-secret-scanning/recommendation.md)
     - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
       the
       `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
@@ -3840,6 +3885,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         [TEST] send is booked; with no send in a week it measures nothing.
         Separately: third rounds rose because they were chosen, and are
         yours to set as a default or not.
+        **Answered 2026-10-12 ~14:55Z (the cockpit session), verbatim:** "a)
+        bump to five rounds but add a file minors as issues side to it so it
+        can stop earlier; b) keep; c) cut; d) cut; e) cut".
+        - (a) Read as: the stop moves from two dirty rounds to five, and a
+          round whose findings are only minors files them as issues and
+          counts as clean, so a PR can stop well before round five. Not yet
+          built: `CLAUDE.md`'s "Two dirty review rounds, then stop",
+          `AUTONOMY.md` and `docs/worker-brief.md` still say two.
+        - (b) The open-asks line stays.
+        - (c) The Monday do, date or drop list is cut.
+        - (d) The evening pass is cut. The Routine's 12:48 PT fire is the
+          operator's to remove; `pm-pass.md` and `pm-pass-watch` still
+          expect it until a worker changes them.
+        - (e) The clean-send streak table is cut.
 
 108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
       held after two review rounds (new 2026-10-12, branch
@@ -3849,7 +3908,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       lhci code path: 0.88 ×3, the same three nodes [M].
       - **Built:** a code fallback alt for Prismic images on `/` (the
         Instagram grid and the testimonials), and the failing tile's real
-        alt staged in Prismic release `asxLxxIAAEc3J2qU`, which is not
+        alt staged in Prismic release
+        [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU), which is not
         published. Its label says P1-43 because MSOT took that number
         mid-flight. "Utmost care" becomes #7196b9 (3.10:1, ΔE_ok 3.3 from
         the brand blue). The "01 / V" medallion text becomes the existing
@@ -3927,6 +3987,87 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         took 107 and 108 first. **Landed** as medical-solutions-of-texas
         `709079f` (13:38Z). The 390 video case is
         medical-solutions-of-texas#80.
+
+110.  **#1305, Operator decisions 107 built: held after two dirty review
+      rounds, plus the Routine change that is yours (new 2026-10-12, asked
+      2026-10-12 ~15:25Z, branch `claude/compassionate-meitner-8n0k4k`).**
+      #1305 builds your 107 answer:
+      - (a) Five rounds; a round with only `minor`/`nit` findings files them
+        as issues and counts as clean.
+      - (c) Do, date or drop removed.
+      - (d) Evening pass removed; `pm-pass-watch` expects a morning pass
+        only.
+      - (e) Streak table removed.
+
+      All nine mutations went red. Round 1 found 2 majors and round 2
+      found 1 major, all in docs wording or hand-off, none in the watcher's
+      code. Round 2's major was that the Routine change below was written
+      only in a `Closed` line, which no pass lifts. All of round 2's findings
+      are fixed on the branch, unreviewed. The old two-round rule still
+      governs #1305, so it is held here.
+      - _Ask (a):_ (A) land #1305 with no third round; or (B) run a third
+        round first.
+        _Pick:_ (A). Every round-2 finding is a wording fix with no behaviour
+        in it. The watcher's code, the one part that can send you a false
+        alarm, came through both rounds with no defect.
+      - _Ask (b), yours once #1305 lands, and only after today's evening pass
+        has landed:_ in the "Reddoor Project Manager" Routine, change the
+        cron to `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`, and replace the
+        stored prompt with the text under "The Routine's stored prompt" in
+        `docs/pm-pass.md`. Until you do, the 12:48 PT fire runs a prompt that
+        names a section #1305 deletes, and the watcher will not notice: it
+        reads `docs/pm-pass.md`, not the Routine.
+        **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
+        with no third round; (b) yes, the operator changes the Routine once
+        told #1305 has landed (after today's evening pass).**
+
+111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
+      dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
+      head `9a4d8f4`. Built: the selected pin is Erik's `Ri-Pin2.svg`, at the
+      old pin's height with its tip on the point, and the other pins draw no
+      stroke, as Erik asked. Finding: the stroke was what kept the dimmed pins
+      at WCAG 1.4.11's 3:1. Without it, a 50% fill fails the site's contrast
+      gate on 356 ground pairs. On screen at 1440 the pin's edge measures
+      2.76:1 on plain map ground and 2.27:1 beside water; with the stroke it
+      was 10.25:1. 0.81 is the lowest fill that passes (the clusters' value):
+      6.23:1 and 4.03:1. Screenshots of both are in the PR body.
+      - _Ask:_ (a) no stroke, fill 0.81. Passes AA; the pins look less
+        dimmed, and the selected pin still stands out by size and the Ri.
+        This is the branch as pushed. (b) No stroke, 50% as Erik had it.
+        Lighter, but it fails 3:1 and the gate is relaxed for pins. (c) No
+        stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
+      - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
+        green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
+
+112.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+      review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
+      `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
+      kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
+      `analytics-tag`, the plan (`docs/sveltekit-3-migration-2026-10.md`),
+      the journal entry, and Operator decisions 113 (the fleet roll-out). CI
+      is green on `2edbb59f`.
+      - **Round 1** found that a `catalog:` or `workspace:` kit spec read as
+        kit 2, so a kit 3 site would have been handed a `svelte.config.js`.
+        It also found the `analytics-tag` refusal ran before its
+        already-installed check, plus five test gaps. All are fixed in
+        `2edbb59f`.
+      - **Round 2** found no kit 2 regression: `--dry` output is
+        byte-identical to `main`'s on all six client clones. It found one
+        behaviour defect, reproduced on mantis-landscaping's clone with kit
+        `^3.0.0`, the config inline in `vite.config.ts` and an
+        `eslint.config.js` still importing `./svelte.config.js`:
+        `--dry --only eslint` read `CLEAN`. It also found three mutations
+        that survived. All are fixed in `fb415b89`, where each of the four
+        now turns a test red.
+
+      _Ask:_ (a) **land `fb415b89` without a third round**, or (b) run a
+      third review round first. I pick (a): the defect was one wrong filter,
+      and its fix is a targeted 3-line change whose test was shown red
+      against the defect. Nothing in it reaches a kit 2 site, which is the
+      whole fleet today.
+      **Answered 2026-10-12 (AskUserQuestion): land without a third round.**
 
 113.  **P1-45, the SvelteKit 3 / adapter-netlify 7 fleet roll-out (new
       2026-10-12; plan `docs/sveltekit-3-migration-2026-10.md`, #1301;
@@ -4106,7 +4247,7 @@ sites=17`, `just_wait_left_out=1`.
 - 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
   - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
   - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.
-  - **Still the operator's:** publish Prismic release `asxLxxIAAEc3J2qU`, the failing tile's real alt (its label says P1-43). Publishing fires the site's Netlify build hook, so the prerendered page rebuilds by itself.
+  - **Published and live.** The operator published release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU). Its Prismic hook rebuilt production (ready 14:34:31Z). The live tile's alt reads "Vintage teal-and-white pickup truck with the Vineyard Custom Homes logo on its door, parked outside a home under construction", the code fallback no longer appears in the page, and the nightly's code path still reads 1.00 ×3 [M, 14:35Z].
   - **Filed:** vineyard-custom-homes#78. It covers the tile links' `aria-label`, which hides the alt, filename-like alts, hover contrast, light blue on white on the other pages, and two alt-less photos on `/about`.
 - 2026-10-12 — P1-43: MSOT's home page passes Lighthouse accessibility (issue medical-solutions-of-texas#76, PR #77, `709079f`; Operator decisions 106 and 109).
   - **Before.** `fleet-lighthouse` printed `accessibility:0.92<0.95` with `color-contrast` and `heading-order` failing 3/3 on 10-09, 10-10 and 10-11. The nightly's lhci config reproduced 0.92 ×3 on production at 02:43Z [M].
