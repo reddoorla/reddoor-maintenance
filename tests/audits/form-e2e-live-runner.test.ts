@@ -87,6 +87,65 @@ const contactPage = (opts: {
   </script>
 </body></html>`;
 
+type Hydration = {
+  delayMs: number;
+  marker: boolean;
+  rerenderAfterMs?: number;
+};
+
+const hydratingPage = (h: Hydration, banner: boolean) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body>
+  <main id="app"><form method="POST"><input type="text" name="name" required><input type="email" name="email" required><input type="tel" name="phone"><textarea name="message" required></textarea><button type="submit">Send</button></form></main>
+  <p role="status" id="ok" hidden>Thanks, we will be in touch.</p>
+  <script>
+    const app = document.getElementById("app");
+    const serverHtml = app.innerHTML;
+    const rendered = ["name", "email", "phone", "message", ""];
+    window.__mounts = 0;
+    const mount = () => {
+      app.innerHTML = serverHtml;
+      window.__mounts++;
+      claim();
+    };
+    const claim = () => {
+      const f = app.querySelector("form");
+      f.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(f));
+        const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
+        if (r.ok && ${banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
+      });
+    };
+    let hydrated = false;
+    const hydrate = () => {
+      hydrated = true;
+      const f = app.querySelector("form");
+      const names = Array.from(f.children).map((el) => el.getAttribute("name") ?? "");
+      const foreign = names.some((n) => !rendered.includes(n));
+      if (foreign) {
+        console.warn("https://svelte.dev/e/hydration_mismatch");
+        mount();
+      } else {
+        claim();
+      }
+      if (${h.marker ? "true" : "false"}) document.documentElement.dataset.hydrated = "";
+      if (${h.rerenderAfterMs === undefined ? "false" : "true"}) setTimeout(mount, ${h.rerenderAfterMs ?? 0});
+    };
+    const earliest = Date.now() + ${h.delayMs};
+    let timer = setTimeout(hydrate, ${h.delayMs});
+    document.addEventListener(
+      "input",
+      () => {
+        if (hydrated) return;
+        clearTimeout(timer);
+        timer = setTimeout(hydrate, Math.max(400, earliest - Date.now()));
+      },
+      true,
+    );
+  </script>
+</body></html>`;
+
 type Fixture = {
   health: unknown;
   banner: boolean;
@@ -94,6 +153,7 @@ type Fixture = {
   disabledSubmit?: boolean;
   dropMarkerOnChange?: boolean;
   dropMarkerAlways?: boolean;
+  hydration?: Hydration;
 };
 
 let server: Server;
@@ -110,6 +170,10 @@ beforeAll(async () => {
     }
     if (req.method === "GET" && req.url === "/contact") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      if (fixture.hydration) {
+        res.end(hydratingPage(fixture.hydration, fixture.banner));
+        return;
+      }
       res.end(
         contactPage({
           banner: fixture.banner,
@@ -125,7 +189,11 @@ beforeAll(async () => {
       let raw = "";
       req.on("data", (c) => (raw += c));
       req.on("end", () => {
-        posts.push(JSON.parse(raw) as Posted);
+        try {
+          posts.push(JSON.parse(raw) as Posted);
+        } catch {
+          posts.push({ unparsed: raw });
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end('{"ok":true}');
       });
@@ -150,10 +218,10 @@ afterEach(async () => {
 
 const DECLARED = { ok: true, forms: { testMode: true, turnstile: false } };
 
-async function submit(f: Fixture) {
+async function submit(f: Fixture, opts?: Parameters<typeof defaultFormRunner>[0]) {
   fixture = f;
   posts = [];
-  runner = await defaultFormRunner();
+  runner = await defaultFormRunner(opts);
   return runner.submit({ baseUrl: base, testMode: true, testSitekey: "1x00000000000000000000AA" });
 }
 
@@ -270,6 +338,58 @@ describe("form-e2e live runner — the marker is on the form at the click, or no
     expect(posts).toHaveLength(0);
     expect(out).toMatchObject({ formPresent: true, success: false });
     expect((out as { detail?: string }).detail).toContain("testMode marker");
+  }, 90_000);
+});
+
+describe("form-e2e live runner — the probe does not cause the wipe it reports (#1148)", () => {
+  const PRE_HYDRATION = { delayMs: 700, marker: false };
+
+  it("control: injecting before hydration makes the page re-mount, and the probe reports refilled", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, hydration: PRE_HYDRATION },
+      { hydrationTimeoutMs: 0 },
+    );
+    expect(out).toMatchObject({
+      formPresent: true,
+      success: true,
+      refilled: true,
+      hydrationUnconfirmed: true,
+    });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("waits out hydration on a site without the marker, so a page with no real mismatch is not refilled", async () => {
+    const out = await submit({ health: DECLARED, banner: true, hydration: PRE_HYDRATION });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(out).not.toHaveProperty("refilled");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+    expect(posts[0]?.email).toBe("monitor+e2e@reddoorla.com");
+  }, 90_000);
+
+  it("waits for html[data-hydrated] on a site that writes it, and no longer than that", async () => {
+    const t0 = Date.now();
+    const out = await submit(
+      { health: DECLARED, banner: true, hydration: { delayMs: 2500, marker: true } },
+      { hydrationTimeoutMs: 30_000 },
+    );
+    expect(Date.now() - t0).toBeLessThan(20_000);
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(out).not.toHaveProperty("refilled");
+  }, 90_000);
+
+  it("still reports refilled for a real client re-render after hydration", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      hydration: { delayMs: 300, marker: true, rerenderAfterMs: 400 },
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true, refilled: true });
+    expect(out).not.toHaveProperty("hydrationUnconfirmed");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+    expect(posts[0]?.email).toBe("monitor+e2e@reddoorla.com");
   }, 90_000);
 });
 
