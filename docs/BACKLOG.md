@@ -3928,7 +3928,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `709079f` (13:38Z). The 390 video case is
         medical-solutions-of-texas#80.
 
-110.  **P1-45, the SvelteKit 3 / adapter-netlify 7 fleet roll-out (new
+113.  **P1-45, the SvelteKit 3 / adapter-netlify 7 fleet roll-out (new
       2026-10-12; plan `docs/sveltekit-3-migration-2026-10.md`, #1301;
       reddoor-starter#187 landed).** Twelve Renovate PRs are red in six repos
       and stay open until each repo is migrated. Each migration is one PR per
@@ -4102,7 +4102,7 @@ sites=17`, `just_wait_left_out=1`.
   - **The starter is on kit 3** and live on reddoor-wireframer.netlify.app. CI on the merged head: a11y 0 violations, 14/14 `@smoke`, 75 unit files. Lighthouse matches production except best-practices on deploy previews, which is Netlify's drawer and is the same on a kit 2 preview [M].
   - **`paths.origin` is not set.** Set from `URL`, it made kit 3 refuse form POSTs from a domain alias or a later-attached custom domain (403, measured). Canonical, og:url and og:image take `URL` through `$lib/seo`'s `siteOrigin` instead.
   - **Here:** `createKitConfig`, kit-3-aware `sync-configs` (never writes `svelte.config.js` on kit 3; reports what a sync cannot fix as `DRIFT … (move by hand, sync-configs will not)`), and `analytics-tag` refusing kit 3. The plan is `docs/sveltekit-3-migration-2026-10.md`.
-  - **Still the operator's:** the fleet roll-out, Operator decisions 110. The twelve client PRs are open and unmerged.
+  - **Still the operator's:** the fleet roll-out, Operator decisions 113. The twelve client PRs are open and unmerged.
 - 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
   - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
   - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.
