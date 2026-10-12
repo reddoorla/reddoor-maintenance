@@ -21,3 +21,5 @@ The cutover to `reddoor-workspace` waits until after Thu 10-22. This item is wha
 - **The probe prompt contradicted itself.** "You change nothing" sat next to `git stash` and a ~/.config write. The rerun said what the writes were, and it ran.
 
 **Not done here, by the brief:** the Routine's prompt and schedule are untouched, and no file moved. `plan.md`'s "The model" is amended in place, and the old paragraph is kept and marked superseded.
+
+**Decision 1, answered the same day.** The operator chose to default every session to the workspace, "because it'll always be necessary since it has all the agent permissions and tools", with journals staying in their own repos. That is the original plan's shape, not 1(d)'s no-load branch this worker picked. Arm c is why it needs one more piece: a session that starts in the workspace has to read the attached repo's `CLAUDE.md` explicitly after `register_repo_root`, because nothing loads it. That rule is now in the workspace `plan.md` (`a48615c`), and a0's and a1's after-attach turns, which measure exactly this shape, are left for before the cutover.
