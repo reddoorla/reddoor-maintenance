@@ -297,7 +297,7 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
   `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
   form-e2e can wait on the marker before it injects. **(4) done 2026-10-12**
-  (#1148): form-e2e calls `waitForHydration`
+  (#1148, #1316): form-e2e calls `waitForHydration`
   (`src/audits/util/hydration-wait.ts`) before its first fill: `load`, then
   `html[data-hydrated]`, capped at 5 s, which on a site without the marker is
   the settle. (1) is the natural follow-on, still unranked, and should share that helper: the a11y spec is

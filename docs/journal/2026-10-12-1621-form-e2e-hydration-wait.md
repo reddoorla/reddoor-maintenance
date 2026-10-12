@@ -1,4 +1,4 @@
-## 2026-10-12 — form-e2e waits for hydration before it fills, so `refilled` stops blaming sites for the probe's own wipe (#1148)
+## 2026-10-12 — form-e2e waits for hydration before it fills, so `refilled` stops blaming sites for the probe's own wipe (#1148, #1316)
 
 The probe's `fillAll` filled the contact form and then ran `injectExpr`, which appends hidden `testMode` and `cf-turnstile-response` inputs. `findFormPath` hands over the page at `domcontentloaded`, so all of that could land before SvelteKit hydrated. Svelte 5 reads a node it did not render as a hydration mismatch, clears the tree and mounts it again. The fills and the injected inputs go with it. The probe's wipe check then saw the empty fields, refilled once, and printed "fields were wiped by a client re-render and re-filled once", which its own comment called production proof of a site defect. On Mantis (2026-10-04) that was 5 re-mounts in 5 runs with the injection, against 0 in 19 with the fills alone. The probe was measuring itself.
 
