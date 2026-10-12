@@ -393,6 +393,13 @@ If a session produced nothing worth an entry, that is itself worth one line.
 When drafting anything client-facing, match how the operator actually writes in
 Discord rather than defaulting to formal email register.
 
+**Never draft Discord replies** (the operator, 2026-10-12): "don't draft
+discord replies, just tell me where we are and I'll relay". A session or
+worker that finishes something a colleague asked for in Discord states where
+it stands (what is live, with its URL, and what is still open). The operator
+writes the message. No "Reply for Erik" section in a PR body, no reply text in
+a brief, and no reply text in the morning report.
+
 **`DISCORD_BOT_KEY` in the repo `.env` IS the bot token.** Use it directly as
 `Authorization: Bot $DISCORD_BOT_KEY`. Proven 2026-08-17: `GET /users/@me`
 returns 200 as "Message Reader" (`1536468462141055086`), and the same value
