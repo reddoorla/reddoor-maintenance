@@ -6,6 +6,7 @@ import {
   isConfigName,
   planTemplateDiffs,
   planGitignore,
+  planKitHazards,
 } from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import { isGitWorkTree } from "../../util/git.js";
@@ -76,6 +77,11 @@ async function dryPlan(
     path: t.path,
     text: `would update ${t.path} (config: ${t.config})`,
   }));
+  if (!which || which.includes("svelte")) {
+    for (const hazard of await planKitHazards(cwd)) {
+      changes.push({ path: "svelte.config.js", text: `must move by hand: ${hazard}` });
+    }
+  }
   if (includeGitignore) {
     const gi = await dryPlanGitignore(cwd, isRepo);
     if (gi) changes.push(gi);

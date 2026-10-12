@@ -10,7 +10,12 @@ import { readFile, writeFile, rm, access } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { syncConfigs, planTemplateDiffs } from "../../../src/recipes/sync-configs.js";
+import {
+  syncConfigs,
+  planTemplateDiffs,
+  planKitHazards,
+} from "../../../src/recipes/sync-configs.js";
+import { runSyncConfigsCommand } from "../../../src/cli/commands/sync-configs.js";
 import {
   ALL_TEMPLATES,
   KIT_CONFIG_PATH,
@@ -140,4 +145,64 @@ describe("sync-configs on a SvelteKit 2 site is unchanged", () => {
     const eslint = await readFile(join(cwd, "eslint.config.js"), "utf-8");
     expect(eslint).toContain(`from "./svelte.config.js"`);
   });
+});
+
+// A Renovate kit 3 bump with no migration leaves svelte.config.js in place,
+// and kit 3 refuses to start beside it. sync-configs cannot fix that by writing
+// a template (the options have to move first, and it never deletes a site's
+// file), so it says so: in the recipe's notes and as a DRIFT line in the weekly
+// fleet-config-drift sweep, which runs the --dry planner.
+describe("a SvelteKit 3 site that still has svelte.config.js", () => {
+  async function renovateBumpedKit2Site(): Promise<string> {
+    const cwd = await copyFixtureToTmp(kit2Clean);
+    await setKit(cwd, "^3.0.0");
+    commitAll(cwd, "renovate: kit 3");
+    return cwd;
+  }
+
+  it("is a hazard on kit 3 and not on kit 2", async () => {
+    const kit3 = await renovateBumpedKit2Site();
+    const hazards = await planKitHazards(kit3);
+    expect(hazards).toHaveLength(1);
+    expect(hazards[0]).toMatch(/svelte\.config\.js.*config_file_unsupported/);
+    const kit2 = await copyFixtureToTmp(kit2Clean);
+    await setKit(kit2, "^2.61.1");
+    expect(await planKitHazards(kit2)).toEqual([]);
+    expect(await planKitHazards(await copyFixtureToTmp(kit3Starter))).toEqual([]);
+  });
+
+  it("is named in the recipe's notes and the file is left in place", async () => {
+    const cwd = await renovateBumpedKit2Site();
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte", "eslint"] });
+    expect(result.notes).toMatch(/svelte\.config\.js.*config_file_unsupported/);
+    expect(await exists(join(cwd, "svelte.config.js"))).toBe(true);
+  });
+
+  it("is a DRIFT line in the --dry sweep", async () => {
+    const cwd = await renovateBumpedKit2Site();
+    const { output } = await runSyncConfigsCommand(undefined, { dry: true, cwd });
+    expect(output).toMatch(/must move by hand: svelte\.config\.js is present on SvelteKit 3/);
+    const clean = await copyFixtureToTmp(kit3Starter);
+    const cleanRun = await runSyncConfigsCommand(undefined, {
+      dry: true,
+      cwd: clean,
+      only: "svelte,eslint",
+    });
+    expect(cleanRun.output).not.toMatch(/must move by hand/);
+  });
+});
+
+// The fixture's eslint.config.js, sveltekit.config.js and vite.config.ts are
+// byte copies of reddoor-starter's (tests/fixtures/README.md names the commit).
+// The template-matches-starter test above holds templates.ts to the fixture;
+// this holds the fixture to a real starter checkout, when one is given.
+const starterDir = process.env.REDDOOR_STARTER_DIR;
+describe.skipIf(!starterDir)("the kit3-starter fixture is still the starter's", () => {
+  for (const file of ["eslint.config.js", KIT_CONFIG_PATH, "vite.config.ts"]) {
+    it(file, async () => {
+      const ours = await readFile(join(kit3Starter, file), "utf-8");
+      const theirs = await readFile(join(starterDir!, file), "utf-8");
+      expect(ours).toBe(theirs);
+    });
+  }
 });

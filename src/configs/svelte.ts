@@ -395,7 +395,11 @@ const KIT3_LIB_ALIASES: Record<string, string> = {
 /** What createKitConfig takes: kit 3's options, top-level, plus the reddoor
  *  options. `csp` is the reddoor option (`true`, or the baseline extended), not
  *  kit's raw `csp`; to bypass the baseline, set `csp` on the returned object. */
-export type KitConfigLike = Omit<SvelteConfigLike, "kit"> & ReddoorSvelteOptions;
+export type KitConfigLike = {
+  preprocess?: unknown;
+  compilerOptions?: SvelteConfigLike["compilerOptions"];
+  [k: string]: unknown;
+} & ReddoorSvelteOptions;
 
 /**
  * {@link createSvelteConfig} for SvelteKit 3, whose options are top-level
@@ -427,15 +431,15 @@ export function createKitConfig(siteConfig: KitConfigLike = {}): Record<string, 
   const { csp, placeholder, prismicRepository, compilerOptions, preprocess, ...kitOptions } =
     siteConfig;
   const siteAlias = (kitOptions.alias ?? {}) as Record<string, string>;
-  const nested = createSvelteConfig({
+  const input: SvelteConfigLike & ReddoorSvelteOptions = {
     kit: { ...kitOptions, alias: { ...KIT3_LIB_ALIASES, ...siteAlias } },
-    ...(compilerOptions !== undefined ? { compilerOptions } : {}),
-    ...(preprocess !== undefined ? { preprocess } : {}),
-    ...(csp !== undefined ? { csp } : {}),
-    ...(placeholder !== undefined ? { placeholder } : {}),
-    ...(prismicRepository !== undefined ? { prismicRepository } : {}),
-  });
-  const { kit, ...rest } = nested;
+  };
+  if (compilerOptions !== undefined) input.compilerOptions = compilerOptions;
+  if (preprocess !== undefined) input.preprocess = preprocess;
+  if (csp !== undefined) input.csp = csp;
+  if (placeholder !== undefined) input.placeholder = placeholder;
+  if (prismicRepository !== undefined) input.prismicRepository = prismicRepository;
+  const { kit, ...rest } = createSvelteConfig(input);
   const flat = { ...rest, ...(kit as Record<string, unknown>) };
   return flat as typeof flat & {
     compilerOptions: NonNullable<SvelteConfigLike["compilerOptions"]>;

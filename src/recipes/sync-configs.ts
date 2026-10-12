@@ -190,6 +190,25 @@ export async function planTemplateDiffs(
   return diffs;
 }
 
+/**
+ * What sync-configs can see is wrong on a site but will not fix by writing a
+ * template. Today that is one case: a SvelteKit 3 site that still has a
+ * `svelte.config.js`. Kit 3 refuses to start beside one (config_file_unsupported),
+ * which is what a Renovate kit 3 bump with no migration looks like. Removing
+ * the file is a move, not a sync: its options must reach `sveltekit(...)` first,
+ * and sync-configs never deletes a site's file.
+ */
+export async function planKitHazards(cwd: string): Promise<string[]> {
+  const kitMajor = await readKitMajor(cwd);
+  if (kitMajor === null || kitMajor < 3) return [];
+  if ((await readMaybe(join(cwd, "svelte.config.js"))) === null) return [];
+  return [
+    `svelte.config.js is present on SvelteKit ${kitMajor}, which refuses to start beside it ` +
+      "(config_file_unsupported): move its options into the sveltekit(...) plugin " +
+      `(the starter keeps them in ${KIT_CONFIG_PATH}) and delete it`,
+  ];
+}
+
 /** The template's own entries, minus comments and blank lines — the set a site
  *  must contain for its .prettierignore to be considered complete. */
 function canonicalIgnoreEntries(templateContents: string): string[] {
@@ -241,12 +260,16 @@ export async function syncConfigs(
       const gitignorePlan: GitignorePlan = includeGitignore
         ? await planGitignore(site.path)
         : { kind: "noop" };
+      const hazards = templateNames.includes(SVELTE_CONFIG) ? await planKitHazards(site.path) : [];
       if (templateDiffs.length === 0 && gitignorePlan.kind === "noop") {
-        return { kind: "noop", notes: "all targeted configs already match" };
+        return {
+          kind: "noop",
+          notes: ["all targeted configs already match", ...hazards].join("\n"),
+        };
       }
-      return { kind: "apply", plan: { templateDiffs, gitignorePlan } };
+      return { kind: "apply", plan: { templateDiffs, gitignorePlan, hazards } };
     },
-    apply: async ({ templateDiffs, gitignorePlan }, { commit }) => {
+    apply: async ({ templateDiffs, gitignorePlan, hazards }, { commit }) => {
       for (const t of templateDiffs) {
         const dest = join(site.path, t.path);
         await mkdir(dirname(dest), { recursive: true });
@@ -257,7 +280,7 @@ export async function syncConfigs(
         await applyGitignore(site.path, gitignorePlan);
         await commit(`chore: sync gitignore from @reddoorla/maintenance`);
       }
-      return { kind: "ok" };
+      return hazards.length > 0 ? { kind: "ok", notes: hazards.join("\n") } : { kind: "ok" };
     },
   });
 }

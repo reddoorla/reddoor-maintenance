@@ -10,6 +10,7 @@ import { siteHostnames } from "../../client/site-host.js";
 import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from "./template.js";
 import { HAND_ADD_HOSTS, maskNonCode, planCspEdit, type CspEditPlan } from "./csp-edit.js";
 import { SCAN_FILE_CAP, scanCheckout } from "../../audits/analytics.js";
+import { readKitMajor } from "../sync-configs/kit-major.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
 
@@ -254,6 +255,22 @@ export async function analyticsTag(
       const scan = await scanCheckout(site.path, deps.scanCap ?? SCAN_FILE_CAP);
       if (scan === null) {
         return { kind: "failed", notes: "the site has no src/ directory to install into" };
+      }
+
+      // SvelteKit 3 refuses svelte.config.js and keeps the CSP in the options
+      // passed to sveltekit(...), which this recipe neither reads nor edits.
+      // Reading the absent file would report "no csp option" and install a tag
+      // the real policy blocks, so refuse until it learns the new place (P1-45).
+      const kitMajor = await readKitMajor(site.path);
+      if (kitMajor !== null && kitMajor >= 3) {
+        return {
+          kind: "failed",
+          notes:
+            `the site is on SvelteKit ${kitMajor}, whose CSP lives in the options passed to ` +
+            "sveltekit(...) (reddoor-starter: sveltekit.config.js), not in svelte.config.js, " +
+            `and this recipe edits only svelte.config.js. Add ${HAND_ADD_HOSTS} to that CSP ` +
+            `and GA4 by hand: ${handSnippet(id, productionHost)}`,
+        };
       }
 
       const configText = await readFile(join(site.path, SVELTE_CONFIG_RELATIVE), "utf8").catch(
