@@ -3841,6 +3841,20 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         [TEST] send is booked; with no send in a week it measures nothing.
         Separately: third rounds rose because they were chosen, and are
         yours to set as a default or not.
+        **Answered 2026-10-12 ~14:55Z (the cockpit session), verbatim:** "a)
+        bump to five rounds but add a file minors as issues side to it so it
+        can stop earlier; b) keep; c) cut; d) cut; e) cut".
+        - (a) Read as: the stop moves from two dirty rounds to five, and a
+          round whose findings are only minors files them as issues and
+          counts as clean, so a PR can stop well before round five. Not yet
+          built: `CLAUDE.md`'s "Two dirty review rounds, then stop",
+          `AUTONOMY.md` and `docs/worker-brief.md` still say two.
+        - (b) The open-asks line stays.
+        - (c) The Monday do, date or drop list is cut.
+        - (d) The evening pass is cut. The Routine's 12:48 PT fire is the
+          operator's to remove; `pm-pass.md` and `pm-pass-watch` still
+          expect it until a worker changes them.
+        - (e) The clean-send streak table is cut.
 
 108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
       held after two review rounds (new 2026-10-12, branch
