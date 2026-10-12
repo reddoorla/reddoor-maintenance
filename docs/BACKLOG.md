@@ -4367,6 +4367,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         after (1), since the tool has lived only on branches since 09-29;
         (4) wait for all 23, and the three photo covers keep their photos, as
         Erik's "unless we have photography" reads.
+        **Answered 2026-10-12 (AskUserQuestion): (1) fix both, one more
+        round; (2) do a research turn on the three logo options before
+        choosing; (3) merge after the hold clears; (4) wait, all 23 together.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
