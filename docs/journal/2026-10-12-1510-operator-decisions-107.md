@@ -89,7 +89,7 @@ They are left as written; `CLAUDE.md` governs a worker that pastes one.
   section, and the watcher, which reads pm-pass.md's Schedule line rather
   than the Routine itself, stays quiet. That is a configuration view read as
   the state, the second face of "Prove the instrument". It is now an open
-  ask, the "#1305 … held" item under "Operator decisions".
+  ask, item 110.
 - **The minors.**
   - "The previous day's send run" missed Thursday's send. The morning pass
     now reads every send run since the last report.
@@ -100,5 +100,9 @@ They are left as written; `CLAUDE.md` governs a worker that pastes one.
 - **The nit.** The example brief omitted the minors-only stop.
 
 All five were fixed in the same push. This PR still ran under the old
-two-round rule, so it went to "Operator decisions" rather than to
+two-round rule, so it went to "Operator decisions" (item 110, #1309) rather than to
 a third round, with the operator asked to choose.
+
+The operator answered at ~15:30Z: land #1305 with no third round, and he
+changes the Routine once told it has landed. #1305 waited for today's evening
+pass to land first, for the reason above.

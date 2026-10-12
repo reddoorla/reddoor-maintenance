@@ -3883,7 +3883,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
           issues; Do, date or drop, the evening pass and the streak table
           removed; `pm-pass-watch` reads the morning-only cron). The Routine's
           cron and stored prompt are the operator's to change once it lands:
-          that ask is open in the "#1305 … held" item below.
+          that ask is open as item 110.
 
 108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
       held after two review rounds (new 2026-10-12, branch
@@ -4005,6 +4005,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
         with no third round; (b) yes, the operator changes the Routine once
         told #1305 has landed (after today's evening pass).**
+        Closed 2026-10-12 for (a): #1305 landed with no third round. (b) stays
+        open until the Routine reads `48 4 * * 1-4` with the new prompt.
 
 ## Active projects (the operator's list, read by the PM pass)
 
