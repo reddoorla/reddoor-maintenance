@@ -176,16 +176,18 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   - **Item 74's poster frames** are acknowledged. Still unpublished at
     15:05Z: williamson-construction has no release and nothing published
     today [M, Prismic].
+  - **10-12 16:06Z [M]: item 74 is done.** The three hero posters are live
+    on the Netlify site; release
+    <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>
+    is published. Nothing about the cutover changed.
 
 ---
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Tier | Effort | Start here                                                                                                                                                                                         | Done when                                                                                                                                                                                                                                                                                                                                      |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1-45 | **SvelteKit 3 and `@sveltejs/adapter-netlify` 7 reached the fleet, and every Renovate PR for them is red.** Renovate opened both majors overnight 10-12 (02:44–05:37Z) in la-homelessness-youth (#29, #30), gallerysonder (#113, #114), vida-legacy-foundation (#96, #97), williamson-construction-co (#27, #28), mantis-landscaping (#40, #41) and alamo-anatomy (#67, #68); `ci / ci` fails on all twelve [M, check-runs]. The cockpit flags only the three maintained sites. The cause, from vida-legacy-foundation#97's `ci` log: `svelte-kit sync` stops with `config_file_unsupported`: "`svelte.config.js` is no longer used. Please pass configuration via the `sveltekit(...)` plugin in your Vite config." [M]. The cockpit already lists the three sites as broken, `NEW` 2026-10-12 (`pm-cockpit.mts`), and every other repo on `group:allNonMajor`'s schedule will follow as Renovate reaches it [I]. reddoor-starter is still on kit `^2.61.1` and adapter `^6.0.4` with no kit-3 PR open [M, 10-12].                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 🟡   | M      | reddoor-starter `svelte.config.js` and `vite.config.ts`; `src/recipes/sync-configs/templates.ts` here (`svelte.config.js` is one of the templates `sync-configs` writes); the twelve red PRs above | A written migration plan in this repo (`docs/`), then the starter migrated in one PR (kit 3 and adapter 7, config moved into the `sveltekit(...)` plugin, CI green, smoke passing); `sync-configs`' templates updated to match; and a decision for the operator on the fleet roll-out order. Until then the client PRs stay open and unmerged. |
-| P1-31 | `contrast-unmeasured`'s remedy misleads for Tailwind `black/<alpha>`, and the fleet will hit it on the 0.102+ bump. Tailwind v4 emits `color-mix(in oklab, #000 N%, transparent)`, and lightningcss 1.33.0 folds it to `oklab(0% none none/.N)`. The gate's advice is "write 0 for none in the oklab() token", but there is no such token: the fix is defining black as `oklab(0 0 0)`, as reddoor-website#260 did (renders byte-identical). (1) Teach `unparseableColourRemedy` the `oklab(0 none none / α)` shape and name its source. (2) List the fleet sites (starter and starter-blux first) that use `black/<n>` with sRGB black, and fix them as per-repo PRs. _Verify:_ `grep -rhoE 'oklab\(0% none none' build/` in a site's build                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 🟢   | S      | `src/audits/util/contrast-unmeasured.ts` `unparseableColourRemedy`                                                                                                                                 | Remedy test pins the shape; the fleet list is in this row or an issue                                                                                                                                                                                                                                                                          |
-| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1); then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day. |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tier | Effort | Start here | Done when |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------- | --------- |
+| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1), (e) done in #1318 with reddoor-workspace `c8fa41d` (the deny list) and `25499f6` (`probe.md`, the amended model); Decision 1 is Operator decisions 115; then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day. |
 
 ### Blocked behind another PR (do not start early)
 
@@ -296,7 +298,17 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
   and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
   `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
-  form-e2e can wait on the marker before it injects.
+  form-e2e can wait on the marker before it injects. **(4) done 2026-10-12**
+  (#1148, #1316): form-e2e calls `waitForHydration`
+  (`src/audits/util/hydration-wait.ts`) before its first fill: `load`, then
+  `html[data-hydrated]`, capped at 5 s, which on a site without the marker is
+  the settle. (1) is the natural follow-on, still unranked, and should share that helper: the a11y spec is
+  generated text, so it emits `HYDRATED_EXPR` into a
+  `page.waitForFunction(…, null, { timeout: HYDRATION_TIMEOUT_MS }).catch(() => {})`
+  after each `page.goto(path)` in `src/audits/a11y.ts`, before `runAxe`. Its
+  proof is #948's: a fixture route whose contrast count differs before and
+  after hydration, scanned cold several times, must give the hydrated count
+  every time.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.
@@ -2593,6 +2605,45 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     permission change that outlives this one task.
     **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
     Closed 2026-10-12: carried by P0-5 (dated): the three poster frames, before the Wed 10-14 cutover.
+    - **Reopened 2026-10-12 ~16:00Z for a worker (the operator: "queue a
+      worker for the posters, have it ask me for whatever permissions it
+      needs"; branch `claude/relaxed-brown-tnc6lc`).** The frames are made:
+      1920×1080, 1920×1080 and 1280×720, frame 0 of the hero video each live
+      page uses (home: teacher, about-us: first-day, services: services).
+      Each is the same shot as its old still: SSIM 0.91, 0.86, 0.95 against
+      the stills, against 0.49 for a mismatched pair. None of the three is in
+      the library yet (113 assets, read 16:00Z). The cheapest upload route
+      needs no public host: POST each file from the container straight to
+      `asset-api.prismic.io` with the session's `WILLIAMSON_CONSTRUCTION_PRISMIC`
+      token. That is the same call `src/prismic/asset-api.ts` `uploadAsset`
+      makes. The token answers 200 on a read; a bogus token gets 403. Nothing
+      becomes public but the three assets on Prismic's own CDN. They go
+      public at upload, because Prismic serves every library asset
+      unauthenticated, and stay unused until the release publishes. The
+      alternatives are the 10-05 routes, a temp public host for `upload_asset`
+      or `prismic-media-upload.yml`; each puts the file on a third public
+      host first. _Ask:_ (1) may the worker upload by the direct Asset API
+      route? (2) Once the three deltas are staged in one release, may it
+      publish the release, or only stage it and link it for you? _Worker's
+      pick:_ (1) yes. (2) publish: the swap changes only the poster image,
+      frame-identical to today's, and one release restoring the three old
+      asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
+    - **Done 2026-10-12 16:06Z [M].** Uploaded by the direct route (asset ids
+      `03rQcyPF8o3914Sx`, `jCbfvl180cPKYSpQ`, `9SS-DzzmS4HsHi1J`), staged as one
+      release with three deltas, `background_image` only, and published:
+      <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>.
+      Live on williamson-construction-co.netlify.app at 16:06:51Z, from the
+      second of two Prismic-hook deploys (the first, `6acd04e9`, built before
+      the publish was readable and still served the old stills). The hero
+      `img` srcset now reaches 1920w on home and about-us (was 768w) and
+      1280w on services (its native width; was 480w). Lighthouse, 3-run
+      mobile medians before → after: home 2813 → 2682 ms, about-us 2603 →
+      2784, services 2735 → 2822. These are within run spread (2390–3344), and
+      phones now fetch a larger poster: 20 → 50 KB, 22 → 91 KB, 18 → 66 KB.
+      On desktop the LCP element moved from the `VIDEO` to the poster `IMG` on
+      all three pages, as predicted (home 2520 → 1021 ms, one run each).
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
@@ -4008,6 +4059,268 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         Closed 2026-10-12 for (a): #1305 landed with no third round. (b) stays
         open until the Routine reads `48 4 * * 1-4` with the new prompt.
 
+111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
+      dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
+      head `9a4d8f4`. Built: the selected pin is Erik's `Ri-Pin2.svg`, at the
+      old pin's height with its tip on the point, and the other pins draw no
+      stroke, as Erik asked. Finding: the stroke was what kept the dimmed pins
+      at WCAG 1.4.11's 3:1. Without it, a 50% fill fails the site's contrast
+      gate on 356 ground pairs. On screen at 1440 the pin's edge measures
+      2.76:1 on plain map ground and 2.27:1 beside water; with the stroke it
+      was 10.25:1. 0.81 is the lowest fill that passes (the clusters' value):
+      6.23:1 and 4.03:1. Screenshots of both are in the PR body.
+      - _Ask:_ (a) no stroke, fill 0.81. Passes AA; the pins look less
+        dimmed, and the selected pin still stands out by size and the Ri.
+        This is the branch as pushed. (b) No stroke, 50% as Erik had it.
+        Lighter, but it fails 3:1 and the gate is relaxed for pins. (c) No
+        stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
+      - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
+        green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
+
+112.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+      review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
+      `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
+      kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
+      `analytics-tag`, the plan (`docs/sveltekit-3-migration-2026-10.md`),
+      the journal entry, and Operator decisions 113 (the fleet roll-out). CI
+      is green on `2edbb59f`.
+      - **Round 1** found that a `catalog:` or `workspace:` kit spec read as
+        kit 2, so a kit 3 site would have been handed a `svelte.config.js`.
+        It also found the `analytics-tag` refusal ran before its
+        already-installed check, plus five test gaps. All are fixed in
+        `2edbb59f`.
+      - **Round 2** found no kit 2 regression: `--dry` output is
+        byte-identical to `main`'s on all six client clones. It found one
+        behaviour defect, reproduced on mantis-landscaping's clone with kit
+        `^3.0.0`, the config inline in `vite.config.ts` and an
+        `eslint.config.js` still importing `./svelte.config.js`:
+        `--dry --only eslint` read `CLEAN`. It also found three mutations
+        that survived. All are fixed in `fb415b89`, where each of the four
+        now turns a test red.
+
+      _Ask:_ (a) **land `fb415b89` without a third round**, or (b) run a
+      third review round first. I pick (a): the defect was one wrong filter,
+      and its fix is a targeted 3-line change whose test was shown red
+      against the defect. Nothing in it reaches a kit 2 site, which is the
+      whole fleet today.
+      **Answered 2026-10-12 (AskUserQuestion): land without a third round.**
+
+113.  **P1-45, the SvelteKit 3 / adapter-netlify 7 fleet roll-out (new
+      2026-10-12; plan `docs/sveltekit-3-migration-2026-10.md`, #1301;
+      reddoor-starter#187 landed).** Twelve Renovate PRs are red in six repos
+      and stay open until each repo is migrated. Each migration is one PR per
+      repo that replaces that repo's pair, and it is never a sweep (red tier).
+      _Ask:_ which order, and whether a worker may open the six migration PRs.
+      I would pick the plan's §4 order:
+      - vida-legacy-foundation first (maintained, red in the cockpit). Its
+        `lang` matcher must return the param, not a boolean, under kit 3.
+      - Then mantis-landscaping and williamson-construction-co, which are
+        starter-shaped.
+      - Then la-homelessness-youth, gallerysonder and alamo-anatomy, on a
+        published `@reddoorla/maintenance` with `createKitConfig`.
+        gallerysonder also needs its five `$app/stores` imports moved, or
+        every page throws.
+
+      Each PR copies the starter's `src/env.ts`, `src/params.ts` and the
+      origin pieces (`productionOrigin`, the `define`, `siteOrigin`; never
+      `paths.origin`). Each one is held to its own `ci` plus `@smoke`. The
+      alternative is to wait for upstream, but adapter 7 cannot land without
+      kit 3, and Renovate will keep reopening the pair.
+      **Answered 2026-10-12 ~17:40Z (the cockpit session):**
+      - **The order is "decent", with the fleet staging flow folded in**
+        (reddoor-maintenance#545, "Fleet: enforce feature → staging → main
+        flow with branch protection (no direct-to-prod)"; its two comments
+        record staging deleted on promotion and the per-target verification
+        depth). Production stays isolated during the migration: each kit 3
+        migration lands on that repo's `staging` first.
+      - **Only the operator promotes `staging` → `main`.**
+      - **Renovate:** patches and minors target `main` with a fast track
+        (automerge on green, no operator PR per update); majors target
+        `staging`. The operator, verbatim: "if I have to PR and merge for
+        every patch update it pretty much defeats the point of renovate".
+      - **Netlify:** sessions use the token in the environment
+        (`NETLIFY_PAT`, set in the cloud environment) for branch deploys and
+        site settings.
+      - **Workers merge into `staging` on green**, one worker in order, and
+        each repo's migration PR replaces its Renovate pair.
+      - **williamson-construction-co** is held until after its cutover [the
+        cockpit's pick; unanswered, the worker asks].
+        **Status 2026-10-12 ~18:50Z (the worker; Operator decisions 116
+        answered the same day):**
+      - **vida-legacy-foundation:** done up to your merge.
+        - `staging` was cut from `main`, and Netlify builds it at
+          `staging--vida-legacy-foundation-rd.netlify.app`.
+        - `main-gate` (#98) and kit 3 (#100) landed on `staging`, along
+          with the docs and journal (#103).
+        - Smoke on staging matched production: 68 passed on each, and the
+          same 6 failed on each (`/dev` fixtures, which are never
+          deployed).
+        - Promotion PR vida#101 is open for you. Its body lists the
+          ruleset to create **before** you merge.
+        - #96 and #97 are closed as replaced by #100. vida#102 (the Renovate
+          `extends`) is a draft, held for the `.github` patch.
+      - **mantis-landscaping:** the same steps, with promotion PR mantis#44,
+        #40 and #41 closed, and the held `extends` draft mantis#45. Its
+        smoke matched production (53 passed on each, the same 2 failed).
+        **Its `main` has no protection at all** (`protected: false`, with
+        no ruleset). #44 carries the `main` ruleset command as well.
+      - **The Renovate rule:** `docs/patches/2026-10-12-github-renovate-staging-flow.patch`,
+        for you to `git am` on `reddoorla/.github`. It was proven by
+        Renovate's own `dryRun: full` on vida (vida#99, closed). The order,
+        the rulesets and the gate are in `docs/runbooks/staging-flow.md`.
+      - **williamson-construction-co:** held until after the 10-14
+        cutover, per 116(b).
+      - **la-homelessness-youth, gallerysonder, alamo-anatomy:** blocked.
+        `@reddoorla/maintenance` 0.107.0 is not on npm: the registry's
+        latest was 0.106.0 at 18:48Z, and release PR #1317 is still open.
+
+114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
+      (new 2026-10-12, P1-31; the remedy fix is on branch
+      `claude/optimistic-pascal-08v3f5`).** All 23 Turso sites with a
+      `git_repo` and the three starters were built from their default
+      branch, and the build grepped for `oklab(0% none none` [M].
+      reddoor-website `main` folds nine values and its #260 head none, which
+      are the two controls. **erp-industrial is the only other site that
+      folds**: `oklab(0% none none/.6)` ×4, from `BgVideo.svelte`'s
+      `bg-black/60`, with `black: '#000'` in `tailwind.config.js` read
+      through `@config`. It is on maintenance `^0.95.1`, so its
+      `contrast-unmeasured` gate (0.102.0+) goes red on the Renovate bump.
+      Every other site keeps `var(--color-black)` in the mix, and Chrome
+      computes that to `oklab(0 0 0 / 0.5)`, which axe measures [M, probe
+      in Chromium with axe-core 4.13.0]. The starter and starter-blux are
+      not affected, so the brief's "starter first" does not apply.
+      reddoor-website is fixed on `staging` (#260, with #208's bump), and
+      `main` gets it at the next promotion.
+      - _Ask:_ "go" for an erp-industrial PR that changes `black: '#000'`
+        to `black: 'oklab(0 0 0)'` in `tailwind.config.js`, or hold it
+        until its Renovate bump goes red.
+      - _Pick:_ go. It is one line, it renders byte-identical (#260's
+        sha256 screenshots), and it lands before the bump instead of
+        blocking it.
+        **Answered 2026-10-12 (operator, in session): go.** Landed as
+        erp-industrial#71 (`d259617`, 17:01Z). Its built CSS has no
+        `none` left, and the old and new values render identical pixels.
+        The gate itself is proven when the 0.102+ Renovate bump goes green.
+
+115.  **P1-33(e) Decision 1: where each kind of session starts, read from the
+      probe table (new 2026-10-12; the work is #1318 on
+      `claude/dazzling-wozniak-pgsra9`; the table is reddoor-workspace
+      `plans/2026-10-06-agent-workspace/probe.md` at `25499f6`).** The
+      home-base deny list is on the workspace's `main` (`c8fa41d`) and is
+      live: a session started there refused bare `git stash`, the
+      `rm -rf /tmp/deny-canary-absent` canary, the credentials Read and both
+      new push patterns, and the same session without the file ran all of
+      them [M]. Maintenance's `Read(/Users/…)` rule read the planted file
+      [M], and #1318 fixes it. **Arm c, the one recommendation 1(d) decides
+      on:** a maintenance session attached the workspace (`add_repo` →
+      `appended`, `register_repo_root` → `context_reload_requested`). On the
+      next turn the workspace `CLAUDE.md` was NOT IN CONTEXT in the main
+      thread and in a fresh subagent [M]. The README control never loaded
+      in any arm. a0 and a1 never attached maintenance: both rightly refused
+      a push-access attach asked by another session. The reverse direction
+      is therefore inferred [I], and the 5-minute way to measure it is in
+      `probe.md` under "What is left".
+      - _Ask:_ (1) the no-load branch of 1(d): code sessions start in their
+        own repo, and the PM, the cockpit and non-code work start in the
+        home base. The rules for maintenance's own tools (land-prs,
+        fleet-repos, worktrees, mutations, rounds, asking) stay in
+        maintenance's `CLAUDE.md`, and only the cross-repo sections move.
+        A session that needs the other repo's rules reads that `CLAUDE.md`
+        as its first step, and the Routine's prompt says so. Or (2) the
+        plan as first written: every session starts in the home base. A
+        code session would then run without its repo's `CLAUDE.md`, by
+        arm c. Or (3) hold Decision 1 until you have run a0's and a1's
+        after-attach turns.
+      - _Pick:_ (1). It is the branch 1(d) named for this result, and it
+        keeps each repo's rules loading the one way they were measured to
+        load. Its cost: a section that moves no longer reaches a code
+        session unless that session reads it, so a section moves only
+        when no code session needs it.
+        **Answered 2026-10-12 (AskUserQuestion): "we need the workspace,
+        maint and the repo to be in context most of the time, I want to
+        default to workspace because it'll always be necessary since it
+        has all the agent permissions and tools, but happy to hear other
+        options. Journals should go to their respective repos, home is an
+        operating base for agents".** So sessions default to starting in
+        the workspace, and journals stay in their own repos. By arm c, an
+        attached repo's `CLAUDE.md` does not load on its own. So the
+        cutover must make a session starting in the workspace read the
+        attached repo's `CLAUDE.md` (maintenance's, and the site's) as an
+        explicit step after `register_repo_root`, and pass it to any
+        subagent that works there. The workspace `CLAUDE.md` would carry
+        that rule, and the Routine's prompt and each brief would name the
+        reads. Maintenance's hooks (setup, session-start checks, the
+        subagent-stop guard) would not run either, so the Routine runs
+        setup by hand, as `plan.md` already says. a0's and a1's
+        after-attach turns, which measure exactly this default shape, are
+        still worth the 5 minutes before the cutover.
+
+116.  **P1-45 / #545, the staging-flow pilot on vida-legacy-foundation: three
+      asks (new 2026-10-12; the worker of Operator decisions 113).** On vida
+      so far:
+      - **Built:** `staging` from `main`, and the Netlify branch deploy for
+        `staging`.
+      - **PRs into `staging`:**
+        - vida-legacy-foundation#98, `main-gate`;
+        - vida-legacy-foundation#100, the kit 3 migration, which replaces
+          #96 and #97.
+      - **Proven:** the `renovate-staging-flow` preset, by Renovate's own
+        `dryRun: full` on vida (#99, closed).
+        - Patches and minors open on `main` with the `fast-track` label.
+        - Majors, lock-file maintenance and digests open on `staging`.
+      - **Handed to you as files on `claude/friendly-lamport-wlmrik`:**
+        - the `.github` patch,
+          `docs/patches/2026-10-12-github-renovate-staging-flow.patch`;
+        - the two ruleset steps, in `docs/runbooks/staging-flow.md`. The
+          cloud proxy refuses ruleset writes, and they are red tier anyway.
+      - **(a) #98 after two dirty review rounds.**
+        - **Round 1:** the commit author is only an email, and the bot's
+          email is public. Fixed: commits must be `web-flow`, verified, and
+          the files are limited to manifests.
+        - **Round 2:** a writer who calls
+          `PUT repos/…/contents/package.json` on a Renovate branch with an
+          `author` of the bot gets a commit that GitHub signs, as
+          `web-flow`, verified. The gate passes it. This is reasoned from
+          how GitHub signs API commits, not run; running it would write to
+          vida.
+        - **The fix:** `GET repos/…/activity?ref=refs/heads/<branch>` records
+          who pushed. On vida it shows `reddoor-renovate[bot]` alone on
+          `renovate/sveltejs-kit-3.x`, and the pushing account on a human
+          branch. Also add `previous_filename` to the file list, so a
+          rename cannot hide a deletion.
+        - _Ask:_ (1) add both fixes and land #98 into `staging` without a
+          third round, (2) add them and run a third round, or (3) land as
+          is.
+        - _Pick:_ (1). The gate guards nothing until you promote and then
+          make `main-gate` required, so the fix is in place before it
+          counts. It is shown red on a stubbed push by a human, the same
+          way every other case was.
+          **Answered 2026-10-12 (AskUserQuestion): fix, land, no round 3.**
+      - **(b) williamson-construction-co:**
+        - _Ask:_ hold its kit 3 migration and staging flow until after
+          the 10-14 cutover (P0-5), or do them now.
+        - _Pick:_ hold. A config migration under a cutover adds risk to
+          the one date that cannot move. Its Renovate pair stays red until
+          then, which is the rule working.
+          **Answered 2026-10-12 (AskUserQuestion): hold until after the
+          cutover.**
+      - **(c) the fast track and the never-automerge list.**
+        renovate-config never automerges `@reddoorla/maintenance`,
+        `sharp` and four image packages. Under `group:allNonMajor`, one
+        held package holds the whole grouped PR, and
+        `@reddoorla/maintenance` is in nearly every site's group most
+        weeks. So most weeks the `main` patch/minor PR will still wait for
+        you.
+        - _Ask:_ keep the list as it is, or exempt
+          `@reddoorla/maintenance` minors on flow repos, where a bad bump
+          would reach `main` unreviewed.
+        - _Pick:_ keep. The hold exists because a maintenance minor broke
+          Netlify builds while CI was green, and the fast track does not
+          change that risk.
+          **Answered 2026-10-12 (AskUserQuestion): keep the list.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
@@ -4114,6 +4427,15 @@ sites=17`, `just_wait_left_out=1`.
 
 ## Done (move items here when they land)
 
+- 2026-10-12 — P1-31: `contrast-unmeasured` names Tailwind's `black/<alpha>` and its fix for `oklab(0 none none / α)` (this PR; the erp-industrial fix waits on Operator decisions 114).
+  - **The shape.** Tailwind v4 writes `black/10` as `color-mix(in oklab, #000 10%, transparent)` when black is inlined (a JS config read through `@config`), and lightningcss 1.32.0 and 1.33.0 both fold it to `oklab(0% none none/.1)`. `#000`, `black`, `rgb(0 0 0)`, `hsl(0 0% 0%)` and `oklch(0 0 0)` all fold to `none none`; `oklab(0 0 0)` folds to `0 0`; greys and white fold to near-zero numbers, never `none` [M, `lightningcss.transform`]. Chrome serializes it as `oklab(0 none none / 0.5)`, and axe-core 4.13.0 leaves it `colorParse` [M].
+  - **The remedy** now says the colour is Tailwind's `black/<alpha>` folded by lightningcss, that no such token is in the source, and to define black as `oklab(0 0 0)`. Other `none` colours keep "write 0 for none".
+  - **Fleet list** (all 26 repos built, `grep -rhoE 'oklab\(0% none none'`): erp-industrial only, plus reddoor-website `main` until `staging` (#260) is promoted. The starters are not affected: `@theme { --color-black: black }` keeps `var(--color-black)` in the mix, which Chrome computes to `oklab(0 0 0 / 0.5)` and axe measures [M].
+- 2026-10-12 — P1-45: SvelteKit 3 and adapter-netlify 7, the starter first (issue #1297; reddoor-starter#187 `4e1f3b6`, #1301).
+  - **The starter is on kit 3** and live on reddoor-wireframer.netlify.app. CI on the merged head: a11y 0 violations, 14/14 `@smoke`, 75 unit files. Lighthouse matches production except best-practices on deploy previews, which is Netlify's drawer and is the same on a kit 2 preview [M].
+  - **`paths.origin` is not set.** Set from `URL`, it made kit 3 refuse form POSTs from a domain alias or a later-attached custom domain (403, measured). Canonical, og:url and og:image take `URL` through `$lib/seo`'s `siteOrigin` instead.
+  - **Here:** `createKitConfig`, kit-3-aware `sync-configs` (never writes `svelte.config.js` on kit 3; reports what a sync cannot fix as `DRIFT … (move by hand, sync-configs will not)`), and `analytics-tag` refusing kit 3. The plan is `docs/sveltekit-3-migration-2026-10.md`.
+  - **Still the operator's:** the fleet roll-out, Operator decisions 113. The twelve client PRs are open and unmerged.
 - 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
   - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
   - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.

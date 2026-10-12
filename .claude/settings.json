@@ -35,7 +35,7 @@
       "Bash(git stash pop:*)",
       "Bash(rm -rf:*)",
       "Bash(rm -fr:*)",
-      "Read(/Users/tuckerlemos/.config/reddoor-maint/**)"
+      "Read(~/.config/reddoor-maint/**)"
     ],
     "ask": [
       "Bash(npm publish:*)",

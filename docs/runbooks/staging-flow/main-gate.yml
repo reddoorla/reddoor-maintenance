@@ -1,0 +1,78 @@
+name: main-gate
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+    branches: [main]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+jobs:
+  main-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only staging, or a Renovate patch or minor, may merge into main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          BOT='reddoor-renovate[bot]'
+          LABEL='fast-track'
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "::error::main-gate: head is $HEAD_REPO:$HEAD_REF, not a branch of $REPO."
+            exit 1
+          fi
+          if [ "$HEAD_REF" = "staging" ]; then
+            echo "main-gate: promotion from staging."
+            exit 0
+          fi
+          if [ "$AUTHOR" != "$BOT" ] || [ "${HEAD_REF#renovate/}" = "$HEAD_REF" ]; then
+            echo "::error::main-gate: $HEAD_REF by $AUTHOR. Only staging, or a $BOT patch or minor on a renovate/ branch, may merge into main. Open this PR against staging."
+            exit 1
+          fi
+          commits="$(gh api --paginate "repos/$REPO/pulls/$PR/commits" --jq '.[] | "\(.sha[0:7]) \(.author.login // "-") \(.committer.login // "-") \(.commit.verification.verified)"')"
+          if [ -z "$commits" ]; then
+            echo "::error::main-gate: could not read the commits of #$PR."
+            exit 1
+          fi
+          others="$(printf '%s\n' "$commits" | awk -v bot="$BOT" '$2 != bot || $3 != "web-flow" || $4 != "true"')"
+          if [ -n "$others" ]; then
+            echo "::error::main-gate: every commit on $HEAD_REF must be authored by $BOT and committed and signed by GitHub (web-flow, verified). Not so: $(printf '%s' "$others" | tr '\n' ';')"
+            exit 1
+          fi
+          activity="$(gh api --paginate "repos/$REPO/activity?ref=refs/heads/$HEAD_REF" --jq '.[] | "\(.activity_type) \(.actor.login)"')"
+          pushers="$(printf '%s\n' "$activity" | awk '{ print $2 } $1 == "branch_creation" { exit }')"
+          if [ -z "$pushers" ]; then
+            echo "::error::main-gate: could not read who pushed to $HEAD_REF."
+            exit 1
+          fi
+          strangers="$(printf '%s\n' "$pushers" | grep -vxF "$BOT" || true)"
+          if [ -n "$strangers" ]; then
+            echo "::error::main-gate: $HEAD_REF was also pushed to by: $(printf '%s' "$strangers" | sort -u | tr '\n' ' '). Commit metadata can be set by any writer; who pushed cannot."
+            exit 1
+          fi
+          files="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')"
+          if [ -z "$files" ]; then
+            echo "::error::main-gate: could not read the files of #$PR."
+            exit 1
+          fi
+          outside="$(printf '%s\n' "$files" | grep -vxE 'package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.nvmrc|\.github/workflows/[^/]+\.ya?ml' || true)"
+          if [ -n "$outside" ]; then
+            echo "::error::main-gate: a fast-track update may change only dependency manifests and workflow pins. Also changed: $(printf '%s' "$outside" | tr '\n' ' ')"
+            exit 1
+          fi
+          if ! gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qxF "$LABEL"; then
+            echo "::error::main-gate: $HEAD_REF has no '$LABEL' label, so it is not a patch or minor under the staging-flow preset. Majors and everything else target staging."
+            exit 1
+          fi
+          adder="$(gh api --paginate "repos/$REPO/issues/$PR/events" --jq ".[] | select(.event == \"labeled\" and .label.name == \"$LABEL\") | .actor.login" | tail -n 1)"
+          if [ "$adder" != "$BOT" ]; then
+            echo "::error::main-gate: '$LABEL' was last added by '${adder:-nobody}', not $BOT."
+            exit 1
+          fi
+          echo "main-gate: $BOT patch or minor on $HEAD_REF."

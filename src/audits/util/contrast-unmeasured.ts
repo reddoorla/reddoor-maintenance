@@ -80,10 +80,22 @@ export function unparseableContrastNodes<N extends AxeCheckedNode>(results: {
  * 4.3's none-hued palette entries — the change is to write 0 there: CSS
  * renders `none` as 0 outside interpolation, so nothing on screen moves (the
  * rendered PNGs of `oklch(0.205 0 none)` and `oklch(0.205 0 0)` are
- * byte-identical; only axe can tell them apart). Any other unparseable colour
+ * byte-identical; only axe can tell them apart). The exception is
+ * `oklab(0 none none / α)`, which is in no one's source: it is lightningcss's
+ * fold of Tailwind's `black/<alpha>` (P1-31). Any other unparseable colour
  * gets the only advice that is true of all of them.
  */
 export function unparseableColourRemedy(colour: string | null | undefined): string {
+  if (
+    typeof colour === "string" &&
+    /^\s*oklab\(\s*0(?:\.0*)?%?\s+none\s+none\s*(?:\/[^)]*)?\)\s*$/i.test(colour)
+  ) {
+    return (
+      "this is most likely Tailwind's black/<alpha> (color-mix(in oklab, #000 N%, transparent)) folded by" +
+      " lightningcss, which writes black's a and b as none, so the token is not in the source; define black as" +
+      " oklab(0 0 0) where the theme or tailwind.config sets it (renders identically)"
+    );
+  }
   const fn = typeof colour === "string" ? /^\s*([a-z][a-z0-9-]*)\(/i.exec(colour) : null;
   const token = fn && fn[1] ? `${fn[1].toLowerCase()}() token` : "colour token";
   if (typeof colour === "string" && /\bnone\b/i.test(colour)) {
