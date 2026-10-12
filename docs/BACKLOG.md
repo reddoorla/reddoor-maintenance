@@ -4041,6 +4041,34 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
         land #289.**
 
+112.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+      review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
+      `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
+      kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
+      `analytics-tag`, the plan (`docs/sveltekit-3-migration-2026-10.md`),
+      the journal entry, and Operator decisions 113 (the fleet roll-out). CI
+      is green on `2edbb59f`.
+      - **Round 1** found that a `catalog:` or `workspace:` kit spec read as
+        kit 2, so a kit 3 site would have been handed a `svelte.config.js`.
+        It also found the `analytics-tag` refusal ran before its
+        already-installed check, plus five test gaps. All are fixed in
+        `2edbb59f`.
+      - **Round 2** found no kit 2 regression: `--dry` output is
+        byte-identical to `main`'s on all six client clones. It found one
+        behaviour defect, reproduced on mantis-landscaping's clone with kit
+        `^3.0.0`, the config inline in `vite.config.ts` and an
+        `eslint.config.js` still importing `./svelte.config.js`:
+        `--dry --only eslint` read `CLEAN`. It also found three mutations
+        that survived. All are fixed in `fb415b89`, where each of the four
+        now turns a test red.
+
+      _Ask:_ (a) **land `fb415b89` without a third round**, or (b) run a
+      third review round first. I pick (a): the defect was one wrong filter,
+      and its fix is a targeted 3-line change whose test was shown red
+      against the defect. Nothing in it reaches a kit 2 site, which is the
+      whole fleet today.
+      **Answered 2026-10-12 (AskUserQuestion): land without a third round.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
