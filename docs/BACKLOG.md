@@ -3848,6 +3848,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - _Pick:_ (A). The round-2 defect was a widening error, fixed by
         restoring `main`'s markup for that one file, and nothing else
         found in round 2 changes behaviour.
+        **Answered 2026-10-12 (AskUserQuestion): (A), land #77 with no
+        third round (the screenshots commit removed first).**
 
 ## Active projects (the operator's list, read by the PM pass)
 
