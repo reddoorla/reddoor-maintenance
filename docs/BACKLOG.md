@@ -4144,7 +4144,7 @@ sites=17`, `just_wait_left_out=1`.
 
 ## Done (move items here when they land)
 
-- 2026-10-12 — P1-31: `contrast-unmeasured` names Tailwind's `black/<alpha>` and its fix for `oklab(0 none none / α)` (this PR; the erp-industrial fix waits on Operator decisions 110).
+- 2026-10-12 — P1-31: `contrast-unmeasured` names Tailwind's `black/<alpha>` and its fix for `oklab(0 none none / α)` (this PR; the erp-industrial fix waits on Operator decisions 111).
   - **The shape.** Tailwind v4 writes `black/10` as `color-mix(in oklab, #000 10%, transparent)` when black is inlined (a JS config read through `@config`), and lightningcss 1.32.0 and 1.33.0 both fold it to `oklab(0% none none/.1)`. `#000`, `black`, `rgb(0 0 0)`, `hsl(0 0% 0%)` and `oklch(0 0 0)` all fold to `none none`; `oklab(0 0 0)` folds to `0 0`; greys and white fold to near-zero numbers, never `none` [M, `lightningcss.transform`]. Chrome serializes it as `oklab(0 none none / 0.5)`, and axe-core 4.13.0 leaves it `colorParse` [M].
   - **The remedy** now says the colour is Tailwind's `black/<alpha>` folded by lightningcss, that no such token is in the source, and to define black as `oklab(0 0 0)`. Other `none` colours keep "write 0 for none".
   - **Fleet list** (all 26 repos built, `grep -rhoE 'oklab\(0% none none'`): erp-industrial only, plus reddoor-website `main` until `staging` (#260) is promoted. The starters are not affected: `@theme { --color-black: black }` keeps `var(--color-black)` in the mix, which Chrome computes to `oklab(0 0 0 / 0.5)` and axe measures [M].
