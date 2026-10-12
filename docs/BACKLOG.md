@@ -4175,6 +4175,44 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - **la-homelessness-youth, gallerysonder, alamo-anatomy:** blocked.
         `@reddoorla/maintenance` 0.107.0 is not on npm: the registry's
         latest was 0.106.0 at 18:48Z, and release PR #1317 is still open.
+        **Status 2026-10-12 ~22:50Z (the worker, after 0.107.0 was published):**
+      - **la-homelessness-youth:** done up to your merge. main-gate (#31),
+        kit 3 (#32) and the journal (#34) landed on `staging`. Promotion PR
+        lhy#33 is open, #29 and #30 are closed, and the `extends` draft lhy#35
+        is held. Smoke on staging: 2 of 2, the same as production, and
+        `/health` was identical.
+      - **gallerysonder:** done up to your merge. main-gate (#115), kit 3 with
+        its five `$app/stores` imports moved to `$app/state` (#116), and the
+        journal (#118) landed on `staging`. Promotion PR gallerysonder#117 is
+        open, #113 and #114 are closed, and the `extends` draft #119 is held.
+        Smoke on staging: 123 passed and 1 skipped, the same as production.
+        The same 2 forms tests time out on the live `/contact` on both.
+      - **alamo-anatomy:** done up to your merge. main-gate (#69), kit 3
+        (#70) and the journal (#71) landed on `staging`. Promotion PR
+        alamo-anatomy#72 is open, #67 and #68 are closed, and the `extends`
+        draft #73 is held. Alamo prerendered its origin through kit 2's
+        `prerender.origin`. Kit 3 dropped that option, so seven places would
+        have carried `http://sveltekit-prerender`. They now go through
+        `$lib/site-origin`. Built with `URL` set, no file names the
+        placeholder; built without it, 7 do (the control). On staging,
+        `/health` is identical to production, and the 3 page tests pass on
+        both.
+      - **Every promotion PR (vida#101, mantis#44, lhy#33, gallerysonder#117,
+        alamo#72) needs its `staging` ruleset before you merge it.** Each
+        repo deletes head branches on merge, and a promotion PR's head is
+        `staging`. The command is in each body, and mantis#44 also needs
+        `main`'s ruleset. After each merge, make `main-gate` required (runbook
+        step 6). After the `.github` patch, land the five `extends` drafts.
+      - **Found in review, fleet-wide, not fixed:** `@prismicio/svelte` 2.2.2,
+        the latest, still peers kit `^2`. Its `PrismicPreview` passes `goto`
+        `noScroll: true`, which kit 3 throws on under dev only
+        (`goto_options_removed`). So ending a Prismic preview throws on
+        `pnpm dev` and scrolls to the top in production, on every migrated
+        Prismic site. This comes from reading kit 3.0.1's source; it was not
+        reproduced in a browser. Also, `@reddoorla/maintenance` 0.107.0 still
+        declares a peer of kit `^2.0.0`.
+      - **williamson-construction-co:** still held until after the 10-14
+        cutover.
 
 114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
       (new 2026-10-12, P1-31; the remedy fix is on branch
