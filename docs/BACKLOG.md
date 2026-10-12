@@ -4136,6 +4136,34 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         each repo's migration PR replaces its Renovate pair.
       - **williamson-construction-co** is held until after its cutover [the
         cockpit's pick; unanswered, the worker asks].
+        **Status 2026-10-12 ~18:50Z (the worker; Operator decisions 116
+        answered the same day):**
+      - **vida-legacy-foundation:** done up to your merge.
+        - `staging` was cut from `main`, and Netlify builds it at
+          `staging--vida-legacy-foundation-rd.netlify.app`.
+        - `main-gate` (#98) and kit 3 (#100) landed on `staging`, along
+          with the docs and journal (#103).
+        - Smoke on staging matched production: 68 passed on each, and the
+          same 6 failed on each (`/dev` fixtures, which are never
+          deployed).
+        - Promotion PR vida#101 is open for you. Its body lists the
+          ruleset to create **before** you merge.
+        - #96 and #97 are closed as replaced by #100. vida#102 (the Renovate
+          `extends`) is a draft, held for the `.github` patch.
+      - **mantis-landscaping:** the same steps, with promotion PR mantis#44,
+        #40 and #41 closed, and the held `extends` draft mantis#45. Its
+        smoke matched production (53 passed on each, the same 2 failed).
+        **Its `main` has no protection at all** (`protected: false`, with
+        no ruleset). #44 carries the `main` ruleset command as well.
+      - **The Renovate rule:** `docs/patches/2026-10-12-github-renovate-staging-flow.patch`,
+        for you to `git am` on `reddoorla/.github`. It was proven by
+        Renovate's own `dryRun: full` on vida (vida#99, closed). The order,
+        the rulesets and the gate are in `docs/runbooks/staging-flow.md`.
+      - **williamson-construction-co:** held until after the 10-14
+        cutover, per 116(b).
+      - **la-homelessness-youth, gallerysonder, alamo-anatomy:** blocked.
+        `@reddoorla/maintenance` 0.107.0 is not on npm: the registry's
+        latest was 0.106.0 at 18:48Z, and release PR #1317 is still open.
 
 114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
       (new 2026-10-12, P1-31; the remedy fix is on branch
