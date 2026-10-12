@@ -3926,6 +3926,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         scrim is a design change you have not seen.
         **Answered 2026-10-12 (AskUserQuestion): land #77 with no third
         round; file the 390 video case as an issue.**
+        Asked as 107; renumbered twice when the Monday PM pass and P1-44
+        took 107 and 108 first. **Landed** as medical-solutions-of-texas
+        `709079f` (13:38Z). The 390 video case is
+        medical-solutions-of-texas#80.
 
 ## Active projects (the operator's list, read by the PM pass)
 
