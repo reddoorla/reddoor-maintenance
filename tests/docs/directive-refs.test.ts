@@ -368,6 +368,6 @@ describe("the real tree", () => {
     const r = run();
     expect(deadLines(r.stdout)).toEqual([]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/\b10 citations, all resolve\b/);
+    expect(r.stdout).toMatch(/\b12 citations, all resolve\b/);
   });
 });

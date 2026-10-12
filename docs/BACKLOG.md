@@ -396,7 +396,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
    (a) zero-blocker Maintenance reports **keep the click**; revisit only after
    several consecutive [TEST] sends with nothing wrong (every test send so far
-   has found something); (b) PM-pass model: recommendation is Opus, waiting on
+   has found something; the table that counted them was cut on 2026-10-12,
+   item 107(e)); (b) PM-pass model: recommendation is Opus, waiting on
    the operator's go-ahead to pin it; (c) evening-review is retired (the PM pass
    replaces it); `new-site` and `markup-review` go to cloud sessions as account
    skills; (d) the three cloud secrets: walkthrough given, the operator adds
@@ -3512,6 +3513,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gives one, never measured. Each `asked` is the UTC time of the source
     line's first commit unless noted. Checked
     on `ce197bbb`: none was already done.
+    The "Do, date or drop" list and its 168 h rule were cut on 2026-10-12
+    (item 107(c)), so these chores now appear in the daily open-asks line
+    only.
     - **97(a) Org-wide secret scanning and push protection** (asked
       2026-09-13T01:21:28Z). _Ask:_ in org Settings → Code security, enable
       both for all existing repositories and by default for new ones, ~3 min
@@ -3926,6 +3930,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
           operator's to remove; `pm-pass.md` and `pm-pass-watch` still
           expect it until a worker changes them.
         - (e) The clean-send streak table is cut.
+        - Closed 2026-10-12: built in #1305 (five rounds with minors filed as
+          issues; Do, date or drop, the evening pass and the streak table
+          removed; `pm-pass-watch` reads the morning-only cron). The Routine's
+          cron and stored prompt are the operator's to change once it lands:
+          that ask is open as item 110.
 
 108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
       held after two review rounds (new 2026-10-12, branch
@@ -4047,6 +4056,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
         with no third round; (b) yes, the operator changes the Routine once
         told #1305 has landed (after today's evening pass).**
+        Closed 2026-10-12 for (a): #1305 landed with no third round. (b) stays
+        open until the Routine reads `48 4 * * 1-4` with the new prompt.
 
 111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
       dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
@@ -4394,48 +4405,6 @@ channels but were not named as projects.
     (c): two reproduced-by-reading behaviour defects are open.
     **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
     round; fallback (i), it still sends late when the clock missed.**
-
-## Clean-send streak ([TEST] report sends, operator's verdict)
-
-The operator keeps the click on zero-blocker Maintenance reports until they have
-seen several [TEST] sends in a row with nothing wrong (review §7.1). Every test
-send before 2026-09-29 had a problem. This table is the record; the operator's
-verdict is its only input, because no client and no check sees the email.
-
-- **Adding a row.** Any session that sends a [TEST] report email to the
-  operator adds a row in the same PR or session, with the verdict
-  `awaiting`. No code on `main` produces a "[TEST]" subject today: the
-  2026-09-28 one rendered the real 09-17 draft ("Completed on 09.17.2026"),
-  so it came from a session's ad-hoc render [I]; `selftest email <site>
---type maintenance` builds from the roster with today's date and has no
-  prefix.
-- **`clean` means no work at all** (the operator, 2026-10-07): nothing in
-  the email or behind it needed fixing before it could go to the client. An
-  email that reads well but carries a score or fact that needed work is not
-  `clean`, even when the fault was the site's and not the report's.
-- **The verdict** is `clean`, or one line saying what was wrong. The operator
-  writes it into the row (the GitHub web editor works from a phone) or says it
-  to any session, which writes it.
-- **The streak** is the number of `clean` rows counted up from the bottom,
-  stopping at the first row that is not `clean`. An `awaiting` row stops it
-  too, and becomes an ask in the morning report.
-
-| Sent (UTC)       | Site                       | Report                 | Verdict                                                                             |
-| ---------------- | -------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
-| 2026-09-28 22:54 | 29 Navy                    | Maintenance, Sept 2026 | clean                                                                               |
-| 2026-10-05 22:47 | Data Dynamiq               | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | Espada                     | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | LA Homelessness Initiative | Maintenance, Oct 2026  | clean                                                                               |
-| 2026-10-05 22:47 | Revogen                    | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-| 2026-10-05 22:47 | Vineyard Custom Homes      | Maintenance, Oct 2026  | looked good other than the best-practices 78 (the score, since fixed: items 88, 91) |
-
-The operator, 2026-10-06 ~14:05Z, on the five 10-05 rows: "waiting to improve
-bp score". No verdict yet. The rows stay `awaiting`, and the ask returns once
-item 88's fixes have deployed.
-The operator, 2026-10-07 ~12:10Z: "they looked good other than bp". LAHI
-stored 100, so its row is `clean`; the other four name the 78. Counted from
-the bottom, the streak is 0, because Vineyard is the last row. Asked whether the four count as clean
-because the email itself was fine: no, "clean should be no work at all".
 
 ## Fleet snapshot (2026-10-12 ~11:55Z, live Turso, SELECT-only) [M]
 
