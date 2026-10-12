@@ -371,7 +371,8 @@ Ordered by what unblocks the most. Each line is the exact ask.
 6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
    (a) zero-blocker Maintenance reports **keep the click**; revisit only after
    several consecutive [TEST] sends with nothing wrong (every test send so far
-   has found something); (b) PM-pass model: recommendation is Opus, waiting on
+   has found something; the table that counted them was cut on 2026-10-12,
+   item 107(e)); (b) PM-pass model: recommendation is Opus, waiting on
    the operator's go-ahead to pin it; (c) evening-review is retired (the PM pass
    replaces it); `new-site` and `markup-review` go to cloud sessions as account
    skills; (d) the three cloud secrets: walkthrough given, the operator adds
@@ -3448,6 +3449,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
     gives one, never measured. Each `asked` is the UTC time of the source
     line's first commit unless noted. Checked
     on `ce197bbb`: none was already done.
+    The "Do, date or drop" list and its 168 h rule were cut on 2026-10-12
+    (item 107(c)), so these chores now appear in the daily open-asks line
+    only.
     - **97(a) Org-wide secret scanning and push protection** (asked
       2026-09-13T01:21:28Z). _Ask:_ in org Settings → Code security, enable
       both for all existing repositories and by default for new ones, ~3 min

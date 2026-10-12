@@ -53,7 +53,8 @@ The prompt lives here so it can be changed by PR, like everything else.
    pending by name; do not wait for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
    archive this session." or "Not yet safe to archive: …") does not apply
-   to a Routine session, nor to its cockpit replies for the rest of the day (the operator, 2026-10-06). Each fire is a fresh
+   to a Routine session, nor to its cockpit replies for the rest of the day
+   (the operator, 2026-10-06). Each fire is a fresh
    session, and the operator does not archive on it.
 
 ## The pass, in order
@@ -69,6 +70,10 @@ The prompt lives here so it can be changed by PR, like everything else.
    say so as a finding. For each fleet run, read the job log for
    its `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line; a green run with
    `failed>0` is not green. Note which tracking issues opened or closed.
+   Also read the previous day's 16:07Z `daily-reports` send run, a
+   `workflow_dispatch` fired by Netlify's `nightly-send-clock` (its run-name
+   says the mode): did it succeed, and did a fallback run log
+   `send-clock-missed` or `send-run-failed`?
 2. **The cockpit's Needs-you and Watch state.** From a worktree detached at
    `origin/main`, with `<since>` the `merged_at` of the previous morning
    report's PR (UTC, with its `Z`):
@@ -149,16 +154,21 @@ The prompt lives here so it can be changed by PR, like everything else.
    sub-bullets and never names its section. Its "Unprotected branches"
    section lists branches with commits not on `main` and no PR; list each
    `NEW` one with its commit subject and the ask "open a PR from it, or say
-   it can go", and give the `older` ones as one line of names.
+   it can go", and give the `older` ones as one line of names. When it says
+   an ask "already names this branch", `main` already carries it: write
+   "already item N". Read its "Other lines under Operator decisions only on
+   a branch" too, for branches with a draft PR or none: a question written
+   without `Ask:`, `Pick:` or a closing `?` lands there.
 
    **Status lines are not new asks.** A `Closed`, `Dropped` or `_Due:` line
    added under an existing item records an answer or a date, and is not lifted
    as a new ask.
 
    **Asks, open asks, and when each was first asked.** The morning report's
-   open-asks line counts with these definitions. Until the cutover's decision files make an ask's state
-   machine-readable, whether one is open can only be read, so every count
-   lists its item numbers and anyone can check it.
+   open-asks line counts with these definitions. Until the cutover's
+   decision files make an ask's state machine-readable, whether one is open
+   can only be read, so every count lists its item numbers and anyone can
+   check it.
    - **An ask** is each `_Ask…:_` line under "Operator decisions", or each
      sub-bullet that asks the operator for something. Letters inside one
      `_Ask:_` are options of one ask. An item with no separate asks is one

@@ -165,11 +165,12 @@ a long status message. So a worker started from a backlog item or a brief
   an unlabelled finding included, is a real defect. A round whose findings
   are all minors counts as clean: file each minor as an issue in the PR's own
   repository, link the issues from the PR body, and stop reviewing, rather
-  than pushing fixes no round will review. Minors found beside a real defect
-  are filed the same way. If the fifth round of the same PR still finds a
+  than pushing fixes no round will review. A reproduced behaviour defect
+  (defined below) is never a minor, whatever its label. If the fifth round of the same PR still finds a
   real defect, the PR goes to "Operator decisions" with each round's
   findings, not into a sixth round (the operator, 2026-10-12, Operator
-  decisions 107(a); the stop was two rounds from 2026-09-29). #918 and #920
+  decisions 107(a); the stop was two rounds from 2026-09-29, and a PR already
+  held under it stays with the operator unless he says to resume). #918 and #920
   reached a sixth round with majors before anyone asked whether the design
   was right. Review finding bugs is the process working; the cost is the
   rounds after the design question should have been asked. At the hold the

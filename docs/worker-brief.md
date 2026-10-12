@@ -65,7 +65,7 @@ on two consecutive days, and a test pins it">
 - <files owned by another session today: do not edit>
 - Five dirty review rounds → "Operator decisions", not a sixth round. A
   round with only `minor` or `nit` findings is clean: file each as an issue
-  in this PR's repository and stop. Your pick at the hold follows
+  in this PR's repository, link the issues from the PR body, and stop. Your pick at the hold follows
   `CLAUDE.md`'s review-rounds rule (never "land as is" while a reproduced
   behaviour defect is unfixed).
 - At any stop condition: ask as `CLAUDE.md` → "Worker sessions ask a blocking
