@@ -1,7 +1,14 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
-import { ALL_TEMPLATES, templatesByName, type ConfigTemplate } from "./sync-configs/templates.js";
+import {
+  ALL_TEMPLATES,
+  KIT_CONFIG_PATH,
+  templateForKit,
+  templatesByName,
+  type ConfigTemplate,
+} from "./sync-configs/templates.js";
+import { readKitMajor } from "./sync-configs/kit-major.js";
 import {
   CANONICAL_GITIGNORE_ENTRIES,
   mergeGitignore,
@@ -51,6 +58,14 @@ function isSvelteConfigCompliant(contents: string): boolean {
   // exists to prevent (MSOT's $utils aliases, 2026-06-04), not a fix for it.
   // A stub with no `kit` config at all still gets the template.
   return /\bkit\s*:/.test(contents);
+}
+
+/** A SvelteKit 3 site's `sveltekit.config.js` is compliant on the canonical
+ * adapter. Kit 3's options are top-level, so there is no `kit` block to look
+ * for, and a hand-authored config (the starter's is ~240 lines) is deliberate
+ * customization for the same reason as {@link isSvelteConfigCompliant}'s. */
+function isKitConfigCompliant(contents: string): boolean {
+  return contents.includes("@sveltejs/adapter-netlify");
 }
 
 /** Any of the baseline security headers — the marker that a netlify.toml is
@@ -106,13 +121,28 @@ export async function planTemplateDiffs(
   templates: ConfigTemplate[],
 ): Promise<ConfigTemplate[]> {
   const diffs: ConfigTemplate[] = [];
-  for (const t of templates) {
+  const kitMajor = await readKitMajor(cwd);
+  const kit3 = typeof kitMajor === "number" && kitMajor >= 3;
+  // On kit 3 the config may live in sveltekit.config.js (the starter's shape)
+  // or inline in vite.config.ts (kit's own default). sync-configs owns neither
+  // vite.config.ts nor the choice, so with no sveltekit.config.js it writes no
+  // config (a second one nothing reads) and no eslint.config.js importing one.
+  // A kit spec it cannot read gets neither: either guess breaks one major.
+  const kitConfigPresent = kit3 && (await readMaybe(join(cwd, KIT_CONFIG_PATH))) !== null;
+  const skipKitFiles = kitMajor === "unreadable" || (kit3 && !kitConfigPresent);
+  for (const base of templates) {
+    const t = templateForKit(base, kit3 ? kitMajor : null);
+    if (skipKitFiles && (t.config === SVELTE_CONFIG || t.config === "eslint")) continue;
     const existing = await readMaybe(join(cwd, t.path));
     if (existing === t.contents) continue;
     // svelte.config is compliance-checked, not exact-matched: an existing config
     // already on the canonical pattern is left alone so its aliases/compilerOptions
     // survive. A missing (null) or off-pattern config still gets the canonical template.
-    if (t.config === SVELTE_CONFIG && existing !== null && isSvelteConfigCompliant(existing)) {
+    if (
+      t.config === SVELTE_CONFIG &&
+      existing !== null &&
+      (kit3 ? isKitConfigCompliant(existing) : isSvelteConfigCompliant(existing))
+    ) {
       continue;
     }
     // netlify.toml is likewise compliance-checked: a file that already carries
@@ -158,6 +188,64 @@ export async function planTemplateDiffs(
     diffs.push(t);
   }
   return diffs;
+}
+
+/** `configs` names the targets a hazard belongs to, so `--only eslint` still
+ *  reports a broken eslint.config.js and `--only prettier` reports none. */
+export type KitHazard = { path: string; note: string; configs: ConfigName[] };
+
+/**
+ * What sync-configs can see is wrong on a site but will not fix by writing a
+ * template. Removing or moving a config is a move, not a sync: its options must
+ * reach `sveltekit(...)` first, and sync-configs never deletes a site's file.
+ *  - kit 3 with a `svelte.config.js`: kit refuses to start beside it
+ *    (config_file_unsupported). This is what a Renovate kit 3 bump with no
+ *    migration looks like.
+ *  - kit 3 with no `sveltekit.config.js` (config inline in vite.config.ts) and
+ *    an `eslint.config.js` still importing `./svelte.config.js`.
+ *  - a kit spec sync-configs cannot read, so it left both files alone.
+ */
+export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
+  const kitMajor = await readKitMajor(cwd);
+  if (kitMajor === "unreadable") {
+    return [
+      {
+        path: "package.json",
+        configs: [SVELTE_CONFIG, "eslint"],
+        note:
+          "package.json declares @sveltejs/kit with a spec sync-configs cannot read (a catalog, " +
+          "workspace, git or tag spec such as latest), so it left svelte.config.js and eslint.config.js alone: " +
+          "check them against the site's real kit major by hand",
+      },
+    ];
+  }
+  if (kitMajor === null || kitMajor < 3) return [];
+  const hazards: KitHazard[] = [];
+  if ((await readMaybe(join(cwd, "svelte.config.js"))) !== null) {
+    hazards.push({
+      path: "svelte.config.js",
+      configs: [SVELTE_CONFIG],
+      note:
+        `svelte.config.js is present on SvelteKit ${kitMajor}, which refuses to start beside it ` +
+        "(config_file_unsupported): move its options into the sveltekit(...) plugin " +
+        `(the starter keeps them in ${KIT_CONFIG_PATH}) and delete it`,
+    });
+  }
+  const eslint = await readMaybe(join(cwd, "eslint.config.js"));
+  if (
+    (await readMaybe(join(cwd, KIT_CONFIG_PATH))) === null &&
+    eslint !== null &&
+    /["']\.\/svelte\.config\.js["']/.test(eslint)
+  ) {
+    hazards.push({
+      path: "eslint.config.js",
+      configs: ["eslint"],
+      note:
+        `eslint.config.js imports ./svelte.config.js, which SvelteKit ${kitMajor} does not use: ` +
+        "import the object vite.config.ts passes to sveltekit(...) instead",
+    });
+  }
+  return hazards;
 }
 
 /** The template's own entries, minus comments and blank lines — the set a site
@@ -211,12 +299,18 @@ export async function syncConfigs(
       const gitignorePlan: GitignorePlan = includeGitignore
         ? await planGitignore(site.path)
         : { kind: "noop" };
+      const hazards = (await planKitHazards(site.path)).filter((h) =>
+        h.configs.some((c) => templateNames.includes(c)),
+      );
       if (templateDiffs.length === 0 && gitignorePlan.kind === "noop") {
-        return { kind: "noop", notes: "all targeted configs already match" };
+        return {
+          kind: "noop",
+          notes: ["all targeted configs already match", ...hazards.map((h) => h.note)].join("\n"),
+        };
       }
-      return { kind: "apply", plan: { templateDiffs, gitignorePlan } };
+      return { kind: "apply", plan: { templateDiffs, gitignorePlan, hazards } };
     },
-    apply: async ({ templateDiffs, gitignorePlan }, { commit }) => {
+    apply: async ({ templateDiffs, gitignorePlan, hazards }, { commit }) => {
       for (const t of templateDiffs) {
         const dest = join(site.path, t.path);
         await mkdir(dirname(dest), { recursive: true });
@@ -227,7 +321,9 @@ export async function syncConfigs(
         await applyGitignore(site.path, gitignorePlan);
         await commit(`chore: sync gitignore from @reddoorla/maintenance`);
       }
-      return { kind: "ok" };
+      return hazards.length > 0
+        ? { kind: "ok", notes: hazards.map((h) => h.note).join("\n") }
+        : { kind: "ok" };
     },
   });
 }
