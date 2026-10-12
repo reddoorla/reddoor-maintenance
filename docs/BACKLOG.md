@@ -4316,6 +4316,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         - _Ask:_ publish it yourself, or the worker publishes via MCP.
         - _Pick:_ the worker publishes, then curls the live page until the
           text appears, since the change is one field already diffed.
+          **Answered 2026-10-12 (AskUserQuestion): the worker publishes.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
