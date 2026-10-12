@@ -4113,6 +4113,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       - _Pick:_ go. It is one line, it renders byte-identical (#260's
         sha256 screenshots), and it lands before the bump instead of
         blocking it.
+        **Answered 2026-10-12 (operator, in session): go.** Landed as
+        erp-industrial#71 (`d259617`, 17:01Z). Its built CSS has no
+        `none` left, and the old and new values render identical pixels.
+        The gate itself is proven when the 0.102+ Renovate bump goes green.
 
 ## Active projects (the operator's list, read by the PM pass)
 
