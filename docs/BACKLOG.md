@@ -4258,12 +4258,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
           make `main-gate` required, so the fix is in place before it
           counts. It is shown red on a stubbed push by a human, the same
           way every other case was.
+          **Answered 2026-10-12 (AskUserQuestion): fix, land, no round 3.**
       - **(b) williamson-construction-co:**
         - _Ask:_ hold its kit 3 migration and staging flow until after
           the 10-14 cutover (P0-5), or do them now.
         - _Pick:_ hold. A config migration under a cutover adds risk to
           the one date that cannot move. Its Renovate pair stays red until
           then, which is the rule working.
+          **Answered 2026-10-12 (AskUserQuestion): hold until after the
+          cutover.**
       - **(c) the fast track and the never-automerge list.**
         renovate-config never automerges `@reddoorla/maintenance`,
         `sharp` and four image packages. Under `group:allNonMajor`, one
@@ -4277,6 +4280,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         - _Pick:_ keep. The hold exists because a maintenance minor broke
           Netlify builds while CI was green, and the fast track does not
           change that risk.
+          **Answered 2026-10-12 (AskUserQuestion): keep the list.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
