@@ -4022,12 +4022,32 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         with no third round; (b) yes, the operator changes the Routine once
         told #1305 has landed (after today's evening pass).**
 
-111.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
+      dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
+      head `9a4d8f4`. Built: the selected pin is Erik's `Ri-Pin2.svg`, at the
+      old pin's height with its tip on the point, and the other pins draw no
+      stroke, as Erik asked. Finding: the stroke was what kept the dimmed pins
+      at WCAG 1.4.11's 3:1. Without it, a 50% fill fails the site's contrast
+      gate on 356 ground pairs. On screen at 1440 the pin's edge measures
+      2.76:1 on plain map ground and 2.27:1 beside water; with the stroke it
+      was 10.25:1. 0.81 is the lowest fill that passes (the clusters' value):
+      6.23:1 and 4.03:1. Screenshots of both are in the PR body.
+      - _Ask:_ (a) no stroke, fill 0.81. Passes AA; the pins look less
+        dimmed, and the selected pin still stands out by size and the Ri.
+        This is the branch as pushed. (b) No stroke, 50% as Erik had it.
+        Lighter, but it fails 3:1 and the gate is relaxed for pins. (c) No
+        stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
+      - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
+        green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
+
+112.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
       review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
       `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
       kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
       `analytics-tag`, the plan (`docs/sveltekit-3-migration-2026-10.md`),
-      the journal entry, and Operator decisions 112 (the fleet roll-out). CI
+      the journal entry, and Operator decisions 113 (the fleet roll-out). CI
       is green on `2edbb59f`.
       - **Round 1** found that a `catalog:` or `workspace:` kit spec read as
         kit 2, so a kit 3 site would have been handed a `svelte.config.js`.
