@@ -1,0 +1,134 @@
+From 672ad2b6c04d3dc61b41916d8704d7a5a8f41fe2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 12 Oct 2026 18:05:31 +0000
+Subject: [PATCH] =?UTF-8?q?feat(renovate):=20renovate-staging-flow,=20an?=
+ =?UTF-8?q?=20opt-in=20preset=20for=20the=20feature=20=E2=86=92=20staging?=
+ =?UTF-8?q?=20=E2=86=92=20main=20flow?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Patches and minors target main and carry the `fast-track` label that
+main-gate reads, so they fast-track under renovate-config's automerge
+rule. Every other update type targets staging, and reaches main only
+through the operator's promotion (reddoorla/reddoor-maintenance#545,
+Operator decisions 113). It is opt-in, extended after renovate-config by
+a repo that has a protected staging branch, because it disables majors on
+main. validate.yml holds the file to that shape.
+
+Proven by Renovate's own dry run on vida-legacy-foundation (#99).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9W8J4Xymbc6poAxK9pqos
+---
+ .github/workflows/validate.yml | 22 ++++++++++++++++++++++
+ docs/workJournal.md            | 23 +++++++++++++++++++++++
+ renovate-staging-flow.json     | 32 ++++++++++++++++++++++++++++++++
+ 3 files changed, 77 insertions(+)
+ create mode 100644 renovate-staging-flow.json
+
+diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
+index 2f835a2..70eca58 100644
+--- a/.github/workflows/validate.yml
++++ b/.github/workflows/validate.yml
+@@ -59,6 +59,28 @@ jobs:
+               throw new Error("prCreation:" + cfg.prCreation + " without internalChecksAsSuccess:true: no PR can ever open on PR-only CI (2026-08-12 freeze class)");
+             console.log("renovate-config.json OK:", automergeRules.length, "automerge rule(s), platformAutomerge false everywhere");
+           '
++      - name: renovate-staging-flow.json parses, grants no automerge, and keeps its three base-bound rules
++        run: |
++          node -e '
++            const cfg = JSON.parse(require("fs").readFileSync("renovate-staging-flow.json", "utf8"));
++            const rules = cfg.packageRules ?? [];
++            if (JSON.stringify(cfg.baseBranchPatterns) !== JSON.stringify(["main", "staging"]))
++              throw new Error("baseBranchPatterns must be exactly [main, staging]");
++            if (rules.some((r) => "automerge" in r || "platformAutomerge" in r))
++              throw new Error("this preset must not set automerge: renovate-config owns it, with platformAutomerge:false");
++            const all = ["major", "minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance", "rollback", "bump", "replacement"];
++            const off = (base) => new Set(rules.filter((r) => r.enabled === false && (r.matchBaseBranches ?? []).includes(base)).flatMap((r) => r.matchUpdateTypes ?? []));
++            const offMain = off("main"), offStaging = off("staging");
++            for (const t of all) {
++              const onMain = !offMain.has(t), onStaging = !offStaging.has(t);
++              if (onMain === onStaging) throw new Error(t + " would target " + (onMain ? "both bases" : "neither base"));
++              if (onMain !== ["patch", "minor"].includes(t)) throw new Error(t + " on the wrong base: only patch and minor target main");
++            }
++            const label = rules.filter((r) => (r.addLabels ?? []).includes("fast-track"));
++            if (label.length !== 1 || JSON.stringify(label[0].matchBaseBranches) !== JSON.stringify(["main"]) || JSON.stringify([...label[0].matchUpdateTypes].sort()) !== JSON.stringify(["minor", "patch"]))
++              throw new Error("exactly one rule may add fast-track, bound to main and patch/minor: main-gate reads it");
++            console.log("renovate-staging-flow.json OK: patch and minor to main with fast-track, everything else to staging");
++          '
+ 
+   # Proves the Prettier/Svelte gate on a known-bad input, which is the whole
+   # point: the reusable lint step had only ever PASSED, and passed precisely
+diff --git a/docs/workJournal.md b/docs/workJournal.md
+index da1060f..b88c58b 100644
+--- a/docs/workJournal.md
++++ b/docs/workJournal.md
+@@ -98,3 +98,26 @@ The guard reaches a repo only when that repo moves its pin, so nothing changes
+ for the fleet until each site bumps its `uses:` line. That is deliberate — this
+ tag should roll out behind the config PRs, not ahead of them, or the guard would
+ red every one of the four repos before their fix merged.
++
++## 2026-10-12 — The staging flow gets its own opt-in preset, renovate-staging-flow (patch from a reddoor-maintenance cloud session)
++
++The operator answered Operator decisions 113 (reddoor-maintenance#545): patches and minors target `main` and fast-track, because "if I have to PR and merge for every patch update it pretty much defeats the point of renovate". Majors target `staging` and reach production only through his promotion PR. This file is that rule. It is a separate preset rather than a change to `renovate-config`, because its rules disable majors on `main`. On a repo with no `staging` branch that would leave majors with nowhere to go. Renovate only warns and skips a base branch that does not exist (`workers/repository/process/index.js`, "Base branch does not exist - skipping"), so the absent branch would never be loud.
++
++It was proven before it shipped, on vida-legacy-foundation, by a draft PR that ran this repo's Renovate (44.151.2, the reddoor-renovate token) with `dryRun: full` in two arms (vida-legacy-foundation#99, closed). With the preset, the patch and minor group would open as `renovate/main-all-minor-patch` with `labels: ["fast-track"]`. Kit 3, adapter-netlify 7 and the vitest major, lock-file maintenance (`labels: []`) and the `actions/setup-node` digest all went to `staging`. The control arm, the fleet preset alone, saw only `main` and no `fast-track` anywhere. A cloud session cannot run this on its own: Renovate's GitHub platform calls GraphQL in `initRepo`, and the session proxy refuses GraphQL. The local platform skips base branches entirely (`platform !== "local"`).
++
++Three things read from Renovate's source shaped it:
++- **Branch names.** Two base branches prefix every branch name with the base (`renovate/main-…`, `renovate/staging-…`). So the first live run on a repo autocloses its open Renovate PRs and reopens them under the new names; the dry run listed vida's #80 and #94–#97.
++- **Grouped labels.** A grouped PR takes the union of its upgrades' `addLabels` (`workers/repository/updates/generate.js`). That is why one rule on `main` patch/minor is enough to mark the group.
++- **Vulnerability alerts.** Each alert becomes a packageRule with `force: { enabled: true }` (`workers/repository/init/vulnerability.js`), which overrides this preset's `enabled: false`. The dry run showed vida's sharp fixes on both bases, and the one into `main`, a minor, carries the label.
++
++The label is how `main-gate`, the required check that goes on each flow repo's `main`, tells a patch or minor from anything else. That gate passes only:
++- a PR from `staging`, or
++- a PR by `reddoor-renovate[bot]` on a `renovate/` branch where every commit is the bot's and the `fast-track` label was last added by the bot.
++
++`validate.yml` now holds this file to that shape, and each of its six assertions was turned red by a mutation before this landed:
++- `baseBranchPatterns` is exactly `[main, staging]`;
++- no rule sets `automerge` (`renovate-config` owns it, with `platformAutomerge: false`);
++- each of Renovate's ten update types targets exactly one base, and only `patch` and `minor` target `main`;
++- exactly one rule adds `fast-track`, and it is bound to `main` and to `patch`/`minor`.
++
++Not changed here: the last packageRule in `renovate-config` (reddoor-website's unprotected `staging`) says to delete it when that `staging` gains a required check. It has not gained one yet, so the rule stays.
+diff --git a/renovate-staging-flow.json b/renovate-staging-flow.json
+new file mode 100644
+index 0000000..539814e
+--- /dev/null
++++ b/renovate-staging-flow.json
+@@ -0,0 +1,32 @@
++{
++  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
++  "description": [
++    "THE STAGING FLOW (reddoor-maintenance#545, Operator decisions 113, answered 2026-10-12). Opt-in: a repo extends this AFTER renovate-config, and only once it has a `staging` branch with a ruleset requiring `ci / ci` and a `main-gate` check on `main`. It is not in renovate-config because its rules disable majors on `main`, which on a repo with no `staging` would leave majors with no branch at all.",
++    "The operator's rule, verbatim in intent: patches and minors target `main` and fast-track (the automerge rule in renovate-config merges them on green, with no operator PR per update; 'if I have to PR and merge for every patch update it pretty much defeats the point of renovate'). Majors, and every other update type, target `staging`, and reach production only through the operator's promotion PR.",
++    "With two base branches Renovate prefixes branch names with the base (`renovate/main-all-minor-patch`, `renovate/staging-sveltejs-kit-3.x`), read from its source (workers/repository/process/index.js, isMultiBaseBranch). A branch that exists under the old name is closed and reopened under the new one on the first run.",
++    "`main-gate`, the required check on `main`, lets through a PR from `staging`, or a PR authored by reddoor-renovate[bot] on a `renovate/` branch whose every commit that bot authored and which carries the `fast-track` label added by that bot. The label below is how the gate tells a patch or minor from anything else: only the `main` patch/minor rule adds it, and Renovate unions `addLabels` across a grouped PR's upgrades (workers/repository/updates/generate.js), so a group of patches and minors carries it.",
++    "Vulnerability alerts are not bound by these rules: Renovate appends one packageRule per alert with `force: { enabled: true }` (workers/repository/init/vulnerability.js), which overrides `enabled: false`. A security fix that is a patch or minor gets the label and passes the gate; a major security fix into `main` is held by the gate for the operator, who retargets it or merges it on his word.",
++    "Lock-file maintenance goes to `staging`: the operator named patches and minors, and a whole-tree refresh is neither."
++  ],
++  "baseBranchPatterns": ["main", "staging"],
++  "packageRules": [
++    {
++      "description": "On main: only patches and minors.",
++      "matchBaseBranches": ["main"],
++      "matchUpdateTypes": ["major", "lockFileMaintenance", "pin", "pinDigest", "digest", "rollback", "bump", "replacement"],
++      "enabled": false
++    },
++    {
++      "description": "On staging: everything but patches and minors, which already go to main.",
++      "matchBaseBranches": ["staging"],
++      "matchUpdateTypes": ["patch", "minor"],
++      "enabled": false
++    },
++    {
++      "description": "The mark main-gate reads. Only this rule adds it.",
++      "matchBaseBranches": ["main"],
++      "matchUpdateTypes": ["patch", "minor"],
++      "addLabels": ["fast-track"]
++    }
++  ]
++}
+-- 
+2.43.0
+
