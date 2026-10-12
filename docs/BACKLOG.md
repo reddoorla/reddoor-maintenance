@@ -3859,6 +3859,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
           operator's to remove; `pm-pass.md` and `pm-pass-watch` still
           expect it until a worker changes them.
         - (e) The clean-send streak table is cut.
+          Closed 2026-10-12: built in #1305 (five rounds with minors filed as
+          issues; Do, date or drop, the evening pass and the streak table
+          removed; `pm-pass-watch` reads the morning-only cron). The Routine's
+          cron and stored prompt are the operator's to change once it lands.
 
 108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
       held after two review rounds (new 2026-10-12, branch
