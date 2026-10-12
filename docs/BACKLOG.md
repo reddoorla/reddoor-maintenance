@@ -4107,6 +4107,25 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `paths.origin`). Each one is held to its own `ci` plus `@smoke`. The
       alternative is to wait for upstream, but adapter 7 cannot land without
       kit 3, and Renovate will keep reopening the pair.
+      **Answered 2026-10-12 ~17:40Z (the cockpit session):**
+      - **The order is "decent", with the fleet staging flow folded in**
+        (reddoor-maintenance#545, "Fleet: enforce feature → staging → main
+        flow with branch protection (no direct-to-prod)"; its two comments
+        record staging deleted on promotion and the per-target verification
+        depth). Production stays isolated during the migration: each kit 3
+        migration lands on that repo's `staging` first.
+      - **Only the operator promotes `staging` → `main`.**
+      - **Renovate:** patches and minors target `main` with a fast track
+        (automerge on green, no operator PR per update); majors target
+        `staging`. The operator, verbatim: "if I have to PR and merge for
+        every patch update it pretty much defeats the point of renovate".
+      - **Netlify:** sessions use the token in the environment
+        (`NETLIFY_PAT`, set in the cloud environment) for branch deploys and
+        site settings.
+      - **Workers merge into `staging` on green**, one worker in order, and
+        each repo's migration PR replaces its Renovate pair.
+      - **williamson-construction-co** is held until after its cutover [the
+        cockpit's pick; unanswered, the worker asks].
 
 114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
       (new 2026-10-12, P1-31; the remedy fix is on branch
