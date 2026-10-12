@@ -283,7 +283,17 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
   and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
   `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
-  form-e2e can wait on the marker before it injects.
+  form-e2e can wait on the marker before it injects. **(4) done 2026-10-12**
+  (#1148): form-e2e calls `waitForHydration`
+  (`src/audits/util/hydration-wait.ts`) before its first fill: `load`, then
+  `html[data-hydrated]`, capped at 5 s, which on a site without the marker is
+  the settle. (1) is the natural follow-on, still unranked, and should share that helper: the a11y spec is
+  generated text, so it emits `HYDRATED_EXPR` into a
+  `page.waitForFunction(…, null, { timeout: HYDRATION_TIMEOUT_MS }).catch(() => {})`
+  after each `page.goto(path)` in `src/audits/a11y.ts`, before `runAxe`. Its
+  proof is #948's: a fixture route whose contrast count differs before and
+  after hydration, scanned cold several times, must give the hydrated count
+  every time.
 - **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
   - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
     Nothing for an agent until the client answers.

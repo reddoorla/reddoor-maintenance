@@ -2,6 +2,7 @@ import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
 import { INGEST_TIMEOUT_MS } from "../forms/client.js";
+import { HYDRATION_TIMEOUT_MS, waitForHydration } from "./util/hydration-wait.js";
 
 /** Cloudflare's PUBLIC test sitekey — always issues a passing client token with no
  *  real challenge, so the probe can satisfy a site's Turnstile widget without any
@@ -62,6 +63,10 @@ export type FormSubmitOutcome =
        *  re-filled once before the click. On a pass this is production proof the
        *  wipe happens; on a failure it says one refill wasn't enough. */
       refilled?: boolean;
+      /** Set with `refilled` when the probe could not confirm hydration before it
+       *  filled: the site writes no `html[data-hydrated]` (or did not within the
+       *  wait), so the wipe may still be the probe's own injection (#1148). */
+      hydrationUnconfirmed?: boolean;
       synthesized?: string[];
       resynthesized?: string[];
       /** What the site's REAL Turnstile widget did while the probe was on the
@@ -532,10 +537,15 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         : null;
     // Surfaced on a PASS too: a wiped-then-refilled run is the production
     // evidence that the re-render race exists on this site, and the nightly log
-    // is where that evidence has to land for anyone to see it.
+    // is where that evidence has to land for anyone to see it. It is evidence
+    // only when the site confirmed hydration before the probe filled (#1148):
+    // before the wait, the probe's own injected input caused the wipe it
+    // reported here, and on a site without the marker it still can.
     const refillNote =
-      (outcome.refilled ? " — fields were wiped by a client re-render and re-filled once" : "") +
-      synthesizedNote;
+      (outcome.refilled
+        ? " — fields were wiped by a client re-render and re-filled once" +
+          (outcome.hydrationUnconfirmed ? HYDRATION_UNCONFIRMED_NOTE : "")
+        : "") + synthesizedNote;
     return {
       audit: "form-e2e",
       site: label,
@@ -549,6 +559,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     await runner.close?.();
   }
 }
+
+export const HYDRATION_UNCONFIRMED_NOTE =
+  " (hydration unconfirmed: html[data-hydrated] not seen before filling, so the probe may have caused it)";
 
 export const SYNTHETIC_TEXT = "Synthetic end-to-end health check — please ignore.";
 
@@ -745,6 +758,7 @@ export type NoBannerEvidence = {
    *  framework recreated the DOM under the probe's feet. */
   hydrationMismatch: boolean;
   refilled: boolean;
+  hydrationUnconfirmed?: boolean;
 };
 
 /** Compose the failure detail line. PURE — the line must say WHY nothing
@@ -764,7 +778,11 @@ export function noBannerDetail(e: NoBannerEvidence): string {
     else if (e.formState.checkValidity === false) bits.push("form fails validation");
   }
   if (e.hydrationMismatch) bits.push("hydration mismatch warning seen");
-  if (e.refilled) bits.push("fields were wiped and re-filled once");
+  if (e.refilled)
+    bits.push(
+      "fields were wiped and re-filled once" +
+        (e.hydrationUnconfirmed ? HYDRATION_UNCONFIRMED_NOTE : ""),
+    );
   return `no success banner after submit — ${bits.join("; ")}`;
 }
 
@@ -775,8 +793,11 @@ export function noBannerDetail(e: NoBannerEvidence): string {
  * throws past the audit), so a flaky run yields a non-pass (box stays manual), not a
  * false green.
  */
-export async function defaultFormRunner(): Promise<FormRunner> {
+export async function defaultFormRunner(
+  opts: { hydrationTimeoutMs?: number } = {},
+): Promise<FormRunner> {
   const { chromium } = await import("@playwright/test");
+  const hydrationTimeoutMs = opts.hydrationTimeoutMs ?? HYDRATION_TIMEOUT_MS;
   return {
     async submit({ baseUrl, testSitekey }) {
       // Per-site safety preflight — refuse before a browser even launches.
@@ -937,6 +958,17 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           for (const name of more) if (!synthesized.includes(name)) synthesized.push(name);
           await page.evaluate(injectExpr);
         };
+        // Nothing is filled or injected until the page has hydrated (#1148). The
+        // hidden inputs injectExpr appends are nodes the server never rendered, so
+        // Svelte 5 claiming the tree after they land is a hydration mismatch: it
+        // re-mounts the form and wipes the fills, and the check below then reported
+        // the probe's own wipe as `refilled` — 5 of 5 runs on Mantis (2026-10-04).
+        // `hydrationTimeoutMs: 0` skips the wait; the fixture test uses it as the
+        // control that shows the wipe is still detectable.
+        const hydration =
+          hydrationTimeoutMs > 0
+            ? await waitForHydration(page, { timeoutMs: hydrationTimeoutMs })
+            : "settled";
         await fillAll();
 
         // Beat the bot-timing screen, then submit and wait for the success banner
@@ -979,6 +1011,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
         for (const name of resynthesized) if (!synthesized.includes(name)) synthesized.push(name);
         const refilled = wipedCount > 0;
+        const hydrationUnconfirmed = refilled && hydration !== "marker";
         if (wipedCount > 0) await fillAll();
         else if (resynthesized.length > 0) await page.evaluate(injectExpr);
         // The last thing before the click: the marker must be on the form. A page
@@ -998,6 +1031,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             formPresent: true,
             success: false,
             ...(refilled ? { refilled } : {}),
+            ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
             ...(synthesized.length > 0 ? { synthesized } : {}),
             ...(resynthesized.length > 0 ? { resynthesized } : {}),
             detail:
@@ -1058,6 +1092,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             elapsedMs,
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
             ...(refilled ? { refilled } : {}),
+            ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
             ...(synthesized.length > 0 ? { synthesized } : {}),
             ...(resynthesized.length > 0 ? { resynthesized } : {}),
             turnstile: turnstileSeen(),
@@ -1100,9 +1135,17 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formPresent: true,
           success: false,
           ...(refilled ? { refilled } : {}),
+          ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
-          detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
+          detail: noBannerDetail({
+            post,
+            alertText,
+            formState,
+            hydrationMismatch,
+            refilled,
+            hydrationUnconfirmed,
+          }),
           turnstile: turnstileSeen(),
           formsHealth,
         };
