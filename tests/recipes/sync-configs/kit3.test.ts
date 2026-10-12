@@ -19,6 +19,7 @@ import { runSyncConfigsCommand } from "../../../src/cli/commands/sync-configs.js
 import {
   ALL_TEMPLATES,
   KIT_CONFIG_PATH,
+  templateForKit,
   templatesByName,
 } from "../../../src/recipes/sync-configs/templates.js";
 import { readKitMajor } from "../../../src/recipes/sync-configs/kit-major.js";
@@ -58,17 +59,27 @@ describe("readKitMajor", () => {
       [">=3.0.0", 3],
       ["3.0.1", 3],
       ["npm:@sveltejs/kit@^3.0.0", 3],
+      ["3", 3],
+      ["^4.0.0", 4],
+      ["^2.0.0 || ^3.0.0", 3],
     ] as const) {
       await setKit(cwd, spec);
       expect(await readKitMajor(cwd), spec).toBe(major);
     }
   });
 
-  it("is null for a site that does not declare kit, or a range it cannot read", async () => {
+  it("is null for a site that does not declare kit", async () => {
     expect(await readKitMajor(await copyFixtureToTmp(kit2Clean))).toBeNull();
+  });
+
+  // Kept apart from null: guessing kit 2 for a catalog spec that holds kit 3
+  // would write the svelte.config.js kit 3 refuses to start beside.
+  it("is 'unreadable' for a spec it cannot read", async () => {
     const cwd = await copyFixtureToTmp(kit3Starter);
-    await setKit(cwd, "latest");
-    expect(await readKitMajor(cwd)).toBeNull();
+    for (const spec of ["catalog:", "workspace:*", "latest", "github:sveltejs/kit"]) {
+      await setKit(cwd, spec);
+      expect(await readKitMajor(cwd), spec).toBe("unreadable");
+    }
   });
 });
 
@@ -162,9 +173,11 @@ describe("a SvelteKit 3 site that still has svelte.config.js", () => {
 
   it("is a hazard on kit 3 and not on kit 2", async () => {
     const kit3 = await renovateBumpedKit2Site();
+    // Both files the Renovate bump left behind: the config kit refuses, and the
+    // eslint.config.js that imports it.
     const hazards = await planKitHazards(kit3);
-    expect(hazards).toHaveLength(1);
-    expect(hazards[0]).toMatch(/svelte\.config\.js.*config_file_unsupported/);
+    expect(hazards.map((h) => h.path)).toEqual(["svelte.config.js", "eslint.config.js"]);
+    expect(hazards[0]?.note).toMatch(/svelte\.config\.js.*config_file_unsupported/);
     const kit2 = await copyFixtureToTmp(kit2Clean);
     await setKit(kit2, "^2.61.1");
     expect(await planKitHazards(kit2)).toEqual([]);
@@ -182,6 +195,10 @@ describe("a SvelteKit 3 site that still has svelte.config.js", () => {
     const cwd = await renovateBumpedKit2Site();
     const { output } = await runSyncConfigsCommand(undefined, { dry: true, cwd });
     expect(output).toMatch(/must move by hand: svelte\.config\.js is present on SvelteKit 3/);
+    // The machine line the drift issue quotes says it is not template drift.
+    expect(output).toMatch(
+      /^DRIFT \S+ svelte\.config\.js \(move by hand, sync-configs will not\)$/m,
+    );
     const clean = await copyFixtureToTmp(kit3Starter);
     const cleanRun = await runSyncConfigsCommand(undefined, {
       dry: true,
@@ -205,4 +222,86 @@ describe.skipIf(!starterDir)("the kit3-starter fixture is still the starter's", 
       expect(ours).toBe(theirs);
     });
   }
+});
+
+describe("kit 3 hazards and templates, past the first review", () => {
+  async function renovateBumpedKit2Site(spec = "^3.0.0"): Promise<string> {
+    const cwd = await copyFixtureToTmp(kit2Clean);
+    await setKit(cwd, spec);
+    commitAll(cwd, `renovate: kit ${spec}`);
+    return cwd;
+  }
+
+  it("names the hazard in the notes when other configs are applied too", async () => {
+    const cwd = await renovateBumpedKit2Site();
+    await writeFile(join(cwd, ".prettierrc.json"), "{}\n", "utf-8");
+    commitAll(cwd, "drift prettier");
+    const result = await syncConfigs({ path: cwd });
+    expect(result.status).toBe("applied");
+    expect(result.notes).toMatch(/svelte\.config\.js.*config_file_unsupported/);
+  });
+
+  it("reports the hazard under --only svelte and not under --only prettier", async () => {
+    const cwd = await renovateBumpedKit2Site();
+    const svelte = await runSyncConfigsCommand(undefined, { dry: true, cwd, only: "svelte" });
+    expect(svelte.output).toMatch(/must move by hand/);
+    const prettier = await runSyncConfigsCommand(undefined, { dry: true, cwd, only: "prettier" });
+    expect(prettier.output).not.toMatch(/must move by hand/);
+  });
+
+  it("treats kit 4 as kit 3: the hazard, and no svelte.config.js written", async () => {
+    const cwd = await renovateBumpedKit2Site("^4.0.0");
+    expect((await planKitHazards(cwd)).map((h) => h.path)).toEqual([
+      "svelte.config.js",
+      "eslint.config.js",
+    ]);
+    const bare = await copyFixtureToTmp(kit3Starter);
+    await setKit(bare, "^4.0.0");
+    await rm(join(bare, KIT_CONFIG_PATH));
+    commitAll(bare, "kit 4, inline config");
+    const diffs = await planTemplateDiffs(bare, ALL_TEMPLATES);
+    expect(diffs.map((d) => d.path)).not.toContain("svelte.config.js");
+  });
+
+  it("writes neither kit file for a kit spec it cannot read, and says so", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    await setKit(cwd, "catalog:");
+    await rm(join(cwd, KIT_CONFIG_PATH));
+    await rm(join(cwd, "eslint.config.js"));
+    commitAll(cwd, "catalog kit");
+    const diffs = await planTemplateDiffs(cwd, ALL_TEMPLATES);
+    expect(diffs.map((d) => d.path)).not.toContain("svelte.config.js");
+    expect(diffs.map((d) => d.path)).not.toContain("eslint.config.js");
+    expect((await planKitHazards(cwd)).map((h) => h.path)).toEqual(["package.json"]);
+  });
+
+  it("names an eslint.config.js still importing svelte.config.js when the config is inline", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    await rm(join(cwd, KIT_CONFIG_PATH));
+    await writeFile(
+      join(cwd, "eslint.config.js"),
+      'import svelteConfig from "./svelte.config.js";\nexport default [svelteConfig];\n',
+      "utf-8",
+    );
+    commitAll(cwd, "inline config, stale eslint");
+    expect((await planKitHazards(cwd)).map((h) => h.path)).toEqual(["eslint.config.js"]);
+  });
+
+  it("pins the kit 3 svelte template's text: the adapter options and no forced CSP", () => {
+    const svelte = templatesByName(["svelte"])[0]!;
+    expect(templateForKit(svelte, 3)).toEqual({
+      config: "svelte",
+      path: KIT_CONFIG_PATH,
+      contents: `import { createKitConfig } from "@reddoorla/maintenance/configs/svelte";
+import adapter from "@sveltejs/adapter-netlify";
+
+/** @type {import('@sveltejs/kit/vite').Config} */
+export default createKitConfig({
+  adapter: adapter({ edge: false, split: false }),
+});
+`,
+    });
+    expect(templateForKit(svelte, 2)).toBe(svelte);
+    expect(templateForKit(svelte, "unreadable")).toBe(svelte);
+  });
 });

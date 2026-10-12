@@ -431,8 +431,14 @@ export function createKitConfig(siteConfig: KitConfigLike = {}): Record<string, 
   const { csp, placeholder, prismicRepository, compilerOptions, preprocess, ...kitOptions } =
     siteConfig;
   const siteAlias = (kitOptions.alias ?? {}) as Record<string, string>;
+  // A site that points `$lib` elsewhere gets `$lib/*` pointed with it, not the
+  // default's src/lib/*, so the pair never disagrees.
+  const libAliases =
+    siteAlias.$lib !== undefined && siteAlias["$lib/*"] === undefined
+      ? { $lib: siteAlias.$lib, "$lib/*": `${siteAlias.$lib}/*` }
+      : KIT3_LIB_ALIASES;
   const input: SvelteConfigLike & ReddoorSvelteOptions = {
-    kit: { ...kitOptions, alias: { ...KIT3_LIB_ALIASES, ...siteAlias } },
+    kit: { ...kitOptions, alias: { ...libAliases, ...siteAlias } },
   };
   if (compilerOptions !== undefined) input.compilerOptions = compilerOptions;
   if (preprocess !== undefined) input.preprocess = preprocess;

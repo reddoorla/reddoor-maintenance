@@ -503,6 +503,32 @@ describe("recipes/analytics-tag on a SvelteKit 3 site", () => {
     expect(git(cwd, "rev-parse", "HEAD")).toBe(head);
   });
 
+  it("still reads as done on a kit 3 site that already runs the same tag", async () => {
+    const cwd = await site(
+      {},
+      { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": "^2.61.1" },
+    );
+    expect((await run(cwd)).status).toBe("applied");
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
+      devDependencies: Record<string, string>;
+    };
+    pkg.devDependencies["@sveltejs/kit"] = "^3.0.0";
+    await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
+    git(cwd, "commit", "-q", "-am", "kit 3");
+    expect((await run(cwd)).status).toBe("noop");
+  });
+
+  it("refuses a kit spec it cannot read, and kit 4, the same way", async () => {
+    for (const spec of ["catalog:", "^4.0.0"]) {
+      const cwd = await site({}, { "@reddoorla/maintenance": "^0.102.0", "@sveltejs/kit": spec });
+      const res = await run(cwd);
+      expect(res.status, spec).toBe("failed");
+      expect(res.notes, spec).toContain("sveltekit(...)");
+      expect(await exists(join(cwd, HOOKS_CLIENT_RELATIVE)), spec).toBe(false);
+    }
+  });
+
   it("still installs on the same site declared on kit 2 (control)", async () => {
     const cwd = await site(
       {},

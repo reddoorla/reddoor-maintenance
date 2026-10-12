@@ -233,8 +233,11 @@ export default createKitConfig({
  * The template a site on this `@sveltejs/kit` major gets. Only the two that
  * name the config file differ; null (no kit declared) keeps kit 2's.
  */
-export function templateForKit(t: ConfigTemplate, kitMajor: number | null): ConfigTemplate {
-  if (kitMajor === null || kitMajor < 3) return t;
+export function templateForKit(
+  t: ConfigTemplate,
+  kitMajor: number | null | "unreadable",
+): ConfigTemplate {
+  if (typeof kitMajor !== "number" || kitMajor < 3) return t;
   if (t.config === "eslint") return eslintKit3;
   if (t.config === "svelte") return svelteKit3;
   return t;

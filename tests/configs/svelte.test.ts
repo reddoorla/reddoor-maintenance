@@ -674,6 +674,25 @@ describe("configs/svelte createKitConfig (SvelteKit 3)", () => {
     expect(() => prerender.handleHttpError({ status: 500, path: "/" })).toThrow();
   });
 
+  it("passes a site's preprocess and compilerOptions through", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    const preprocess = { name: "vite-preprocess" };
+    const config = createKitConfig({ preprocess, compilerOptions: { runes: true } });
+    expect(config.preprocess).toBe(preprocess);
+    expect(config.compilerOptions.runes).toBe(true);
+  });
+
+  it("lets a site's own $lib win, and points $lib/* with it", async () => {
+    const { createKitConfig } = await import("../../src/configs/svelte.js");
+    expect(createKitConfig({ alias: { $lib: "app/lib" } }).alias).toMatchObject({
+      $lib: "app/lib",
+      "$lib/*": "app/lib/*",
+    });
+    expect(
+      createKitConfig({ alias: { $lib: "app/lib", "$lib/*": "elsewhere/*" } }).alias,
+    ).toMatchObject({ $lib: "app/lib", "$lib/*": "elsewhere/*" });
+  });
+
   it("refuses a `kit` block, naming the move", async () => {
     const { createKitConfig } = await import("../../src/configs/svelte.js");
     expect(() => createKitConfig({ kit: {} } as never)).toThrow(/top-level/);

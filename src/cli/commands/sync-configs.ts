@@ -78,8 +78,13 @@ async function dryPlan(
     text: `would update ${t.path} (config: ${t.config})`,
   }));
   if (!which || which.includes("svelte")) {
+    // The DRIFT line's third field says it cannot be healed by a sync, so the
+    // auto-filed drift issue does not read it as ordinary template drift.
     for (const hazard of await planKitHazards(cwd)) {
-      changes.push({ path: "svelte.config.js", text: `must move by hand: ${hazard}` });
+      changes.push({
+        path: `${hazard.path} (move by hand, sync-configs will not)`,
+        text: `must move by hand: ${hazard.note}`,
+      });
     }
   }
   if (includeGitignore) {
