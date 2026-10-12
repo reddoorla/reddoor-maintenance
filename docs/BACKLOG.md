@@ -2615,6 +2615,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       pick:_ (1) yes. (2) publish: the swap changes only the poster image,
       frame-identical to today's, and one release restoring the three old
       asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
 
 75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
     #1155): held after two dirty review rounds (new 2026-10-05).** The
