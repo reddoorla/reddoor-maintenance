@@ -4252,6 +4252,34 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `800a263b`). The `.github` patch is not applied either: `reddoorla/.github`
         has no `renovate-staging-flow.json`, and its last commit is
         `3f8ae95` (09-22) [M, a fresh clone].
+        **Status 2026-10-13 ~20:10Z (the worker):**
+      - **All five migrated sites are in production on kit 3** (vida#101,
+        mantis#44, lhy#33, gallerysonder#117 and alamo#72, merged by the
+        operator at 17:45–17:47Z).
+        - Every `staging` survived the merge.
+        - Every production deploy is the merged commit, with `ci / ci`
+          green on each new `main`.
+        - `/health` reports `ok` on each site's production host, with the
+          same form flags as on kit 2 (lhy's Turnstile is off on both).
+        - The canonical and the robots.txt sitemap, where a site
+          generates them, name the real origin, not the placeholder.
+        - mantislandscaping.com still serves the old, non-Netlify site.
+      - **`main-gate` is required on all five `main`s** (pinned to app
+        15368). Read back from `rules/branches/main`, not just from the PUT.
+      - **The preset is live:** `.github` `b3e549e` (#37). The cloud
+        session could not push it: `add_repo` refuses a dot-named repo, and
+        both the git proxy and the connector refused it (403). It went in
+        from the laptop as a PR, because `.github`'s `main` requires PRs
+        and a `validate` check. The five `extends` drafts landed on
+        `staging`.
+      - **Renovate reads its config from `main`,** so the rule takes effect
+        only through a second promotion: vida#104, mantis#47, lhy#36,
+        gallerysonder#120 and alamo#74. Each is clean, with `ci / ci` and
+        `main-gate` green. These are the gate's first runs as a required
+        check, and it passed `staging` as designed.
+      - **Each `staging` shows as 1 behind `main`:** today's promotions were
+        squash merges. The content is identical. A merge commit on a
+        promotion keeps `staging` an ancestor of `main`.
 
 114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
       (new 2026-10-12, P1-31; the remedy fix is on branch
