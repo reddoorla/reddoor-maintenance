@@ -348,10 +348,10 @@ describe("no tracking-issue query anywhere in .github/workflows is unbounded", (
     // 13 open/close pairs, two more since P1-15 (release-health's run-failing
     // issue and time-travel's outside-the-suite issue), two more since P1-12
     // (fleet-config-drift's finding and run-failure issues), two more for
-    // fleet-prismic-sync's run-failure issue, two more for pm-pass-watch's
-    // run-failure issue (P1-33d), two more for fleet-nightly's conductor issue
-    // (P1-38).
-    expect(sites.length).toBe(40);
+    // fleet-prismic-sync's run-failure issue, two more for fleet-nightly's
+    // conductor issue (P1-38). pm-pass-watch's pair (P1-33d) moved to
+    // reddoorla/reddoor-workspace at the 2026-10-23 cutover.
+    expect(sites.length).toBe(38);
     expect(sites.filter((s) => !s.includes("--limit "))).toEqual([]);
     expect(sites.filter((s) => !s.includes("--search "))).toEqual([]);
   });

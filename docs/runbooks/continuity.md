@@ -83,10 +83,12 @@ so the tracking issue says so.
 | `0 11 * * 1`                                               | `time-travel`             | Runs the whole test suite on a clock shifted forward, to catch tests that secretly depend on "today"                                                                                                                                 | "Time-travel suite failing"; a failure or hang before the suite (install, browser install) files "Time-travel run failing outside the suite"          |
 | `47 */6 * * *`                                             | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                                                                                                                                             | "Form dead-letter replay failing"                                                                                                                     |
 | `0 */12 * * *`                                             | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run                                                                                                                 | none                                                                                                                                                  |
-| `41 3,9,15,22 * * *`                                       | `pm-pass-watch`           | Emails the operator "PM pass missed" when a PM pass's `docs/morning-reports/MORNING_REPORT_<date>.md` has not reached `main` on time, or "PM pass watch is blind" when it cannot look                                                | "PM pass watch failing"                                                                                                                               |
 
 Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`), and
 `report-rerender` (dispatch only).
+
+`pm-pass-watch`, the missed-PM-pass alarm, moved to `reddoorla/reddoor-workspace` at the
+2026-10-23 cutover, with the PM loop it watches.
 
 **Where a failure shows up.** Three places, in rough order of reliability:
 
