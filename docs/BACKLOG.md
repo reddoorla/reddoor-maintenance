@@ -4453,6 +4453,50 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         roalson-interests `build/corrections.json`, and St. Mary's flood
         sentence stays as the broker's. The rest of his list is P1-46.
 
+120.  **P1-46, Roalson listing packages: all 23 rebuilt with Matt Howard's
+      comments; four calls before anything is delivered** (new 2026-10-13,
+      asked 2026-10-13). Work: roalson-interests#297 (branch
+      `claude/p1-46-package-rollout`, `80ea71a`). Built: Land ID heroes on 19
+      covers, read with no account (a headless browser keeps each share's own
+      `share.json`; the capture matches Land ID's og:image at 0.03/255 against
+      48 for another site), Land ID outlines on the eight listings Matt named,
+      every copy edit, exhibit keep and removal, "HEB Owned" on Kendall CAD
+      parcel 15300, IH-35's traffic map zoomed out, and an intersection and
+      businesses on every map. Matt's "Perrin Beitel: floor plan stays" has no
+      target: Perrin Beitel is vacant land with no floor plan, and Matt's list
+      leaves out 13810 Lookout Road, whose floor plan stays either way. Three
+      review rounds: a critical (a failed map leaked its legend and counts into
+      the next map) fixed and reproduced with a control; round 3 minors only,
+      filed as roalson-interests#294, #295 and #296.
+      - _Ask:_ (1) five FEMA sentences change with the Land ID outlines: Hwy 46
+        4% → 3%; IH 10 at Menger Springs, which said "no share computed",
+        now "about 5%" in the 1% annual chance area, matching the broker's own
+        Flood Plain row; IH 10 East at 1604 and Loop 1604 at 181 now Zone X;
+        Menger Springs Road now "along the edge (under 3%)" from a 0.08%
+        sliver at its north tip, against the broker's "no floodplain". Accept
+        all five, accept four and put Menger Springs Road to the broker, or
+        hold all five for the broker? (2) Matt asks for HEB's logo on IH 10
+        East at 1604 (HEB is building across 1604): no logo; a plain "H-E-B
+        (opening soon)" label placed by hand, since OpenStreetMap has no HEB
+        there yet; or a logo? (3) The other 15 covers now show the broker's
+        Land ID outline while their exhibits keep the county parcel (overlap
+        57% to 98%). Leave them; move the 11 whose FEMA sentence would not
+        change; or move all 15, which changes four more sentences (Walzem
+        floodway 5% → 8%, IH 35 45% → 50%, Lookout and St. Mary's "along the
+        edge" → none)? (4) Delivery: replace the 23 Prismic `package_pdf`
+        files after you review the set; send the set to Erik for Matt first;
+        or another route (the Dropbox file requests are closed).
+      - _Pick:_ (1) accept four, put Menger Springs Road to the broker, since
+        the four agree with the broker's own rows and the fifth contradicts
+        one; (2) the plain label, which keeps decision 119's names and pins;
+        (3) move the 11, so cover and exhibits agree wherever no flood claim
+        moves, and the other four are a broker question; (4) review first, then
+        Erik for Matt, since these are the client's packages and he marked them
+        up.
+        **Answered 2026-10-13 (AskUserQuestion): (1) accept four, Menger
+        Springs Road to the broker; (2) the plain label; (3) move the 11;
+        (4) review first, then Erik for Matt.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
