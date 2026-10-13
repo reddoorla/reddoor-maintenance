@@ -3582,6 +3582,14 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       thread's last message). _Ask:_ reply or close. Two messages, with no reply
       from us since [M, 2026-10-07]. Minutes: unknown. Source
       `docs/operating-model-review-2026-09-29.md:207-208`.
+      Closed 2026-10-13 (operator): not an unanswered lead. On 09-17 the lead
+      was sent the prefilled /inquiry link and booked an intro call the same
+      day, and Tim posted "First lead using sales pipeline CRM" in Discord.
+      The 09-21 call was logged as a no-show through the call-outcome form.
+      The thread went quiet because the booking path took over [M,
+      reddoor-workspace `reviews/2026-10-12-reddoor-market-position/notes/30-review-internal.md`
+      row 13; `notes/40-crm-activity.md` §5]. "No reply from us" was read
+      off the mailbox alone, a derived view.
 
 98. **P1-38: when `daily-reports` runs, which is when client email goes out
     (new 2026-10-08, asked 2026-10-08 ~16:00Z, #1258, #1259 on
