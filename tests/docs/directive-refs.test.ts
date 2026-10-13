@@ -71,7 +71,7 @@ import { fileURLToPath } from "node:url";
  *     "Caf" resolves against "Café rules";
  *   - a heading that still exists but has come to mean something else.
  *
- * The instrument is proved before it is trusted (CLAUDE.md, "Prove the instrument before you
+ * The instrument is proved before it is trusted (reddoor-workspace CLAUDE.md, "Prove the instrument before you
  * trust its verdict"): every fixture below has a known-good citation beside its known-bad one,
  * and the root that holds only good citations must exit 0.
  */
@@ -368,6 +368,6 @@ describe("the real tree", () => {
     const r = run();
     expect(deadLines(r.stdout)).toEqual([]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/\b12 citations, all resolve\b/);
+    expect(r.stdout).toMatch(/\b10 citations, all resolve\b/);
   });
 });
