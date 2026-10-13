@@ -1,89 +1,24 @@
 # CLAUDE.md
 
-Session rules for AI agents working this repo. The autonomy and merge
-contract lives in [AUTONOMY.md](AUTONOMY.md) — read it before merging
+> **Operator directives: `reddoorla/reddoor-workspace` `CLAUDE.md`.** That file holds every rule that is not about this repo (proving instruments, the fleet, asking and finishing, cloud sessions, journals' style, Discord). Read it first; this file holds only this repo's rules. The stories behind the rules moved to that repo's `directives/`.
+
+The autonomy and merge contract lives in [AUTONOMY.md](AUTONOMY.md) — read it before merging
 anything. What to work on, ranked, with each item's tier, evidence and "done
 when", is [docs/BACKLOG.md](docs/BACKLOG.md). It is a derived view: re-verify
 an item before starting it, and update the file in the PR that finishes it.
 
-## Prove the instrument before you trust its verdict
-
-**A new gate, alarm, check, or probe must be shown to PASS on a known-good
-input before any FAIL it produces is reported as a finding.** Until it has
-passed at least once, the instrument is the suspect, not the system. A check
-that has only ever failed is not evidence — it is an untested assertion.
-
-This is the single rule that would have caught every mistake made on
-2026-08-12, and all three had the same shape:
-
-- A CI gate asserting a report carried its ANALYTICS section reported "GA
-  credentials did not resolve" twice, with total confidence. It was built on
-  `report --preview`, which does no IO at all, so it _could never pass_ however
-  good the credentials were. The credentials were fine. (Fixed in #523 — the
-  preview path now takes `--enrich`.)
-- 18 Renovate PRs sitting green, `CLEAN` and unmerged were called "stuck". 16
-  of them contained `@reddoorla/maintenance`, whose packageRule sets
-  `automerge: false` — the rule working exactly as designed. The overstated
-  claim shipped into the fleet-wide preset before it was caught (.github#28,
-  corrected by #29).
-- A side-by-side probe answering "does setup-node v7 break npm publish" printed
-  its own VERDICT line as "OK" for both versions. That line grepped the wrong
-  command. The real answer came from reading the raw output.
-
-Two corollaries, both cheap:
-
-- **Before calling a PR stuck, name the rule that would have to permit the
-  merge, and check it.** Under `group:allNonMajor` a single held package makes
-  the _entire_ grouped branch non-automergeable. Green + unmerged is far more
-  often a rule working than a rule broken.
-- **Before building on a flag or mechanism, read its implementation.** Both
-  failures above were one file-read away from being avoided.
-
-The same failure has a second face, recorded twelve times in #711: **a
-derived, cached or configuration view read as the state itself.** Two
-instances cost the most. A reddoor-starter CI run was called "hung for 35+
-minutes" from a step's start timestamp compared with an assumed present (a
-wait loop returning), then cancelled and re-run; a clock showed 1m48s, and the
-run passed in 2m34s. Its rule: a claim about duration needs a clock read
-(`date -u`) beside the timestamp, never an inferred now. Separately, Prismic's
-`unexpected field 'my.page.uid'` was read as "the custom type was never
-pushed", but the API derives its queryable fields from published documents, so
-the error means only "nothing of that type is published", and a type that has
-never existed gives a byte-identical error. Its rule: before citing what an
-endpoint says, ask which question it answers, and run a negative control that
-cannot be true. What saved almost every instance was a read from a different
-authority than the one that answered.
-
-When the operator asks for evidence rather than a conclusion, that is the
-control working — the setup-node v7 probe exists because the question was
-asked. Prefer producing a diff over asserting an inference.
-
 ## Concurrent sessions
 
-Multiple Claude sessions can be active on this repo and the fleet at the same
-time. At least ten collisions are on record. The first two came on 2026-07-08
-(a concurrent `/loop` clobbered the main checkout's HEAD) and 2026-07-09 (a
-paused session's checked-out branch received another session's commit, which
-rode into its PR's squash). These rules keep separate sessions from corrupting each other's
-work:
+Several sessions can work this repo at once; the collisions on record are in
+the workspace's `directives/sessions.md`.
 
 - **Never commit from the main checkout.** Before your first commit, move to
   your own git worktree (`git worktree add` / EnterWorktree) and work there.
-  Treat the main checkout itself as read-only plus human editing.
-- **Claim fleet signals before triaging them.** Red nightlies and cockpit
-  alarms are visible to every session. Before starting, check the auto-filed
-  tracking issue (e.g. "Nightly fleet smoke failing") for an existing claim
-  and comment yours. A run that never started files no issue — absence of a
-  tracking issue is not absence of a failure.
-- **Check targets before dispatching fixes.** Before fixing a site repo, look
-  for fresh `fix/*` branches and open or just-merged PRs there — another
-  session may already be on it (this is exactly how six duplicate-fix PRs
-  nearly double-merged on 2026-07-09).
-- **Look at fresh branches, not only open PRs.** On 2026-09-29 #932
-  duplicated #933: its session checked the open PRs but not the fresh
-  branches, where the other session's work already sat. Before your first
-  edit, list every `claude/*` and `fix/*` branch by age and open anything
-  under a day old:
+  Treat the main checkout itself as read-only plus human editing: a concurrent
+  `/loop` clobbered its HEAD on 2026-07-08.
+- **Look at fresh branches, not only open PRs.** Before your first edit, list
+  every `claude/*` and `fix/*` branch by age and open anything under a day old
+  (#932 duplicated #933 on 2026-09-29 by skipping this):
 
   ```sh
   git fetch -q origin 'refs/heads/claude/*:refs/remotes/origin/claude/*' 'refs/heads/fix/*:refs/remotes/origin/fix/*'
@@ -91,99 +26,52 @@ work:
   git diff --stat origin/main...origin/claude/<name>
   ```
 
-  `git ls-remote --heads origin 'refs/heads/claude/*' 'refs/heads/fix/*'` is
-  the quick form, but it prints SHAs with no dates, and this repo carries
-  dozens of months-old `fix/*` branches, so "under a day old" cannot be read
-  off it. A fresh branch that touches your files belongs to that session.
+  `git ls-remote --heads` prints no dates, and this repo carries dozens of
+  months-old `fix/*` branches, so "under a day old" cannot be read off it. A
+  fresh branch that touches your files belongs to that session.
 
-- **Stay in your charter.** If the operator scoped the session to a problem,
-  don't opportunistically pick up other fleet signals without the claim check
-  above.
-- **No local browser while agents run.** The 2026-08-24 overload was six agents
-  under a concurrency cap of ten plus a local Chrome. Browser checks belong on
-  Actions runners (form-e2e already is); if a local Chrome or Playwright run is
-  unavoidable, do it in a session with no agents live, and never dispatch agents
-  while one is open.
-- **Re-verify after any pause.** After a session-limit pause, compaction, or
-  long gap: `git log --oneline -3` and `git status` before committing, and
-  re-confirm the PR head SHA before merging — the world may have changed
-  underneath you.
 - **Land PRs with `node scripts/land-prs.mjs <pr> …`** — serial, head-SHA gated,
-  refuses release PRs; `--dry-run` shows the plan first.
-
-Individual site repos generally get **one** agent session at a time; the
-worktree rule is mandatory here in the central repo and best practice there.
+  refuses release PRs; `--dry-run` shows the plan first. From a session whose
+  cwd is another repo, pass `--repo reddoorla/reddoor-maintenance`.
 
 ## Worker sessions ask a blocking question once, with all its context
 
-Since 2026-09-30 the operator reads one morning report, budgeted at 15–20
-minutes (`docs/operating-model-review-2026-09-29.md` §R3, `docs/pm-pass.md`).
-The budget was never measured: in practice he answers most asks live, a median
-1.9 h after they reach `main` (2026-10-06 review). A question that is only
-asked in the middle of a worker session can still wait hours for an answer
-nobody is watching for, and the session that asked it has usually ended by
-then. A question that does reach the operator gets buried if it is one line in
-a long status message. So a worker started from a backlog item or a brief
-(`docs/worker-brief.md`) follows three rules:
+A worker started from a backlog item or a brief (`docs/worker-brief.md`)
+follows three rules. Why each exists: the workspace's `directives/sessions.md`.
 
 - **At a stop condition, write the question down, then ask it with the
-  AskUserQuestion tool.** The operator asked for this on 2026-10-05: a
-  blocking decision goes through AskUserQuestion, not the closing message, so
-  it cannot be buried. The question must stand alone, because the operator
-  reads it without scrolling back. Name the item and its PR or branch, and say
-  what was built. State the finding with a concrete input and what it does,
-  give each option with its consequence, and put your pick first with the
-  reason. Ask only what is genuinely the operator's: a product or design fork,
-  a stop condition, or a red action. Never ask for permission to do what the
-  brief already settled. Any of `AUTONOMY.md`'s stop conditions, or a fork the
-  brief did not settle, becomes one line under "Operator decisions" in
-  `docs/BACKLOG.md`: the exact ask, what you would pick and why, and the branch
-  or PR that holds the work so far. Do it in this order, because
-  AskUserQuestion has no timeout in a cloud session, so everything the
-  operator must see is on GitHub before the ask:
+  AskUserQuestion tool** (the operator, 2026-10-05). The question stands alone
+  (the workspace `CLAUDE.md` says what it holds). Any of `AUTONOMY.md`'s stop
+  conditions, or a fork the brief did not settle, becomes one line under
+  "Operator decisions" in `docs/BACKLOG.md`: the exact ask, your pick and why,
+  and the branch or PR holding the work. AskUserQuestion has no timeout in a
+  cloud session, so do it in this order:
   1. Write the line on its own `claude/*` branch cut from `origin/main`, never
-     on the work's branch, so it reaches `main` on its own PR whatever happens
-     to the work. Commit it, push it, and open its docs-only PR.
+     on the work's branch (#1143's ask sat on a held branch for 13 hours).
+     Commit it, push it, and open its docs-only PR.
   2. Push the work branch.
   3. Ask with AskUserQuestion.
   4. Land the docs-only PR with `node scripts/land-prs.mjs`. If an answer
      came, record it on the line first, in the form the backlog's answered
      items use: `**Answered <date> (AskUserQuestion): …**`. If
      AskUserQuestion is not available, land it and end the session.
-
-  The line reaches `main` as its own PR because #1143's worker wrote its ask
-  on its held PR's branch, and `main` asked the operator nothing for 13 hours
-  (2026-10-05). Landing before the ask was considered and rejected: it would
-  put a CI cycle and the landing race in front of every question. If the
-  session ends before step 4, the next morning's PM pass finds the line on
-  its branch and puts it in front of the operator.
-
-- **Five dirty review rounds, then stop; a minors-only round is clean.**
-  Each adversarial review round labels its findings with the severity words
-  the reviewers here already use: `blocker`, `critical`, `major`, `minor`,
-  `nit`. A **minor** is a finding labelled `minor` or `nit`; anything else,
-  an unlabelled finding included, is a real defect. A round whose findings
-  are all minors counts as clean: file each minor as an issue in the PR's own
-  repository, link the issues from the PR body, and stop reviewing, rather
-  than pushing fixes no round will review. A reproduced behaviour defect
-  (defined below) is never a minor, whatever its label. If the fifth round of the same PR still finds a
-  real defect, the PR goes to "Operator decisions" with each round's
-  findings, not into a sixth round (the operator, 2026-10-12, Operator
-  decisions 107(a); the stop was two rounds from 2026-09-29, and a PR already
-  held under it stays with the operator unless he says to resume). #918 and #920
-  reached a sixth round with majors before anyone asked whether the design
-  was right. Review finding bugs is the process working; the cost is the
-  rounds after the design question should have been asked. At the hold the
-  worker still gives its own pick, but that pick may not be "land as is"
-  while a reproduced behaviour defect is unfixed:
-  reproduced means a concrete input and the wrong output it produces, shown
-  through the entry point production uses. A third round tested that pick 4
-  times, #1017's lead leak among them, and it was wrong all 4 times (2026-10-06
-  review). The operator can still choose "land as is".
+- **Five dirty review rounds, then stop; a minors-only round is clean**
+  (the operator, 2026-10-12, Operator decisions 107(a)). Label every finding
+  `blocker`, `critical`, `major`, `minor` or `nit`; a minor is `minor` or
+  `nit`, and anything else, unlabelled included, is a real defect. A
+  minors-only round is clean: file each minor as an issue in the PR's repo,
+  link them from the PR body, and stop reviewing. A reproduced behaviour
+  defect is never a minor. If the fifth round still finds a real defect, the
+  PR goes to "Operator decisions" with each round's findings, not into a sixth
+  round; a PR held under the old two-round stop stays with the operator
+  unless he says to resume. At the hold your pick may not be "land as is"
+  while a reproduced behaviour defect is unfixed (a concrete input and the
+  wrong output it gives, through the entry point production uses); the
+  operator can still choose it.
 - **The mutations are named before the code.** A brief lists the mutations the
   worker commits to running against its own tests. Run each, record whether a
   test went red, and put the table in the PR body. A test no mutation turns
-  red is not yet evidence (see "Prove the instrument", above).
+  red is not yet evidence (the workspace `CLAUDE.md`, "Prove the instrument").
 
 ## Before a fleet sweep, ask which repos can receive a push
 
@@ -193,50 +81,24 @@ scripts/fleet-repos.sh --pushable # names to iterate
 scripts/fleet-repos.sh --skipped  # what to leave alone, and why
 ```
 
-Three of the 39 checkouts on the operator's machine cannot take a commit:
-`reddoor-mailer` and `the-pointe` are **archived** on GitHub, and `rfp-analyze`
-has no `origin` at all. Iterate `--pushable` and **report** the rest in the
-summary; do not discover them at push time.
+Iterate `--pushable` and **report** the rest in the summary; do not discover
+them at push time. The script answers "of the repos you have cloned", never
+"of the org": `reddoorla/the-tower` is archived with no checkout, so it never
+appears. For org-wide claims, and in a cloud session where the other checkouts
+are not here, enumerate from the GitHub API and attach each repo before cloning.
 
-A **fourth** archived repo, `reddoorla/the-tower`, has no local checkout, and
-the script enumerates the disk — so it cannot see it and never will (verified
-2026-09-14: `gh repo view reddoorla/the-tower --json isArchived` → `true`, and
-`--skipped` lists three). The script answers "of the repos you have cloned",
-never "of the org"; for org-wide claims, enumerate from the GitHub API.
+- **An archived repo is invisible from inside its clone.** Remote, `ls-remote`
+  and `fetch` all look normal; only the push fails, after every commit is
+  written. Do not unarchive a repo to finish a sweep; that is the operator's.
+- **The script maps by remote, not by directory name**: the checkout
+  `welcome-to-the-flower-court` is `tucksravin/invitations`.
 
-**An archived repo is invisible from inside its clone.** `git remote -v` shows a
-normal URL, `git ls-remote` succeeds, `git fetch` succeeds — only the push
-fails, and only after every commit has already been written. Three separate
-sessions have run a fleet-wide change to completion and then found the rollout
-short, and at least one of them reported the cause wrongly ("dead remote"),
-because from the inside an archived repo and a deleted one are the same picture.
-
-Do not unarchive a repo to finish a sweep. If a change genuinely must land in
-one, that is a decision for the operator, not a step in a rollout.
-
-Also note the script maps by REMOTE, not by directory name: the checkout
-`welcome-to-the-flower-court` is `tucksravin/invitations`. A sweep that assumes
-the two match will address the wrong repository.
+The stories: the workspace's `directives/fleet.md`.
 
 ## Cloud sessions (Claude Code on the web)
 
-A cloud container is not the laptop. Measured from inside one on 2026-09-28:
-
-- **Use a connector first when one covers the action** (the operator, 2026-09-30).
-  The GitHub, Prismic, Gmail and Drive MCP connectors act as the operator's own
-  account and are built for this. `gh api`, `curl` and the git proxy act as the
-  Claude GitHub App, which cannot do some org-level things. That app got 403 on
-  `POST /orgs/reddoorla/repos`. Fall back to the CLI only where no connector
-  covers the step, such as generating a repo from a template, which the GitHub
-  connector's `create_repository` cannot do. Creating an org repo fails by both
-  routes: the connector also got 403 (2026-09-30, #1033; 2026-10-06), so the
-  operator creates org repos by hand.
-
-- **Link every Prismic release you name** (the operator, 2026-10-12). A bare
-  release id sends the operator to the dashboard to look for it. Write it as a
-  link to `https://<repository>.prismic.io/builder/upcoming/<release id>`, the
-  `dashboardUrl` that the connector's `present_release` returns. This applies
-  in chat, in AskUserQuestion, in PR bodies and in the backlog.
+The cloud rules for every repo are in the workspace `CLAUDE.md`. Two are this
+repo's own:
 
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
   and resume, only when `CLAUDE_CODE_REMOTE=true`. It unshallows the clone (the harness
@@ -249,218 +111,30 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   NSS store. It is silent when all of that worked; anything it could not do
   arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
   killed it first). It installs into the main
-  checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
-- **Credentials are the environment's variables**, not `credentials.env` or
-  `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
-- **GitHub goes through a proxy that replaces the `Authorization` header.**
-  `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
-  to the session answer on the API, so attach a fleet repo with `add_repo`
-  before touching it. **GraphQL is refused outright**: `gh pr view|checks|list`
-  and `gh repo view|list` stop with a 403; `gh api repos/…` (REST) works.
-  `gh auth status` says "The token in GH_TOKEN is invalid" — that is the GraphQL
-  refusal, not the token. REST writes are not all open either: a branch delete
-  (`DELETE git/refs/…`) answers 403 "Write access to this GitHub API path is not
-  permitted through this proxy", and a percent-encoded path answers 400 "could
-  not be canonicalized". `PUT pulls/{n}/merge` and `PUT pulls/{n}/update-branch`
-  reach GitHub.
-- **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It has been
-  REST-only since 2026-09-28, with the same gates on the laptop and in the
-  cloud. It is proven live: on 2026-09-29 one cloud session landed sixteen PRs
-  with it (listed in that day's `docs/workJournal.md` entry), two of them
-  through update-branch (#902, #896), each merge pinned to the head it had
-  watched go green. The one known difference is the branch delete, which the
-  proxy refuses: the script then checks whether GitHub already removed the
-  branch (it does when the repo has "Automatically delete head branches" on, as
-  reddoor-maintenance does) and prints a `note:` only when the branch is still
-  there. A branch name is percent-encoded only where it must be (`#`, `%`), so
-  only such a branch's delete and check hit the proxy's 400. Attach a fleet
-  repo with `add_repo` before landing in it, or its first `gh api` call stops
-  on the 403. Since 2026-10-04 it picks the merge method per base branch: squash
-  where the repo flags and every ruleset on the base allow it, else merge, else
-  rebase (`required_linear_history` rules out merge), and stops before watching
-  any check when none is allowed. A ruleset can forbid squash on a repo whose
-  `allow_squash_merge` is true: reddoor-website's `main` allows only `merge`.
-  `--dry-run` prints the method.
-- **`scripts/fleet-repos.sh` has nothing to enumerate**: the other checkouts
-  are not here. For a sweep, list the org through the API and clone each repo
-  after attaching it.
-- **The container runs as root**, so a test that proves a refusal by removing a
-  permission cannot fail there. `tests/prismic/models/write.test.ts` skips its
-  one such case under root; CI, which is not root, still runs it.
-- **Nothing on the laptop but this repo arrives**: not the user-level
-  `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
-  with the container, so the journal entry has to be committed and pushed
-  before the session ends.
-- **When the task is done, tell the operator it is safe to archive the
-  session.** Archiving reclaims the container and ends the session's arc of
-  work: the operator archives on that line instead of re-reading the
-  transcript. So "safe" means three things, and all must hold:
-  - **Every original ask is cleared, checked against the live result.**
-    Re-read the ask the session started from: the brief, and the client's
-    own message if there is one. Go through it item by item against what a
-    visitor sees now, not against merged PRs or staged releases. A fix
-    whose code is live but whose content sits in an unpublished release is
-    not cleared. Name it in the archive line instead.
-  - **Nothing lives only in the container.**
-    - Every commit is pushed, in every repo the session touched. The stop
-      hook checks only the checkout it runs in.
-    - The PRs are merged, or handed off with the blocker written down.
-    - The journal entry has landed.
-    - No background command, agent or `send_later` check-in is still
-      pending.
-  - **The session has no clear next step.** A PR held on an operator answer
-    is still this session's when the answer would send it straight back to
-    work, such as "yes, merge it" leading to a land. Handing that to a fresh
-    session throws away the context. The same goes for a follow-up the
-    session itself started and is best placed to finish.
-
-  **One session, one task** (the operator, 2026-10-06). A session exists
-  for the ask it was started with. A new ask that arrives mid-session, from
-  the operator or the client, goes to its own session or worker card unless
-  the operator says to fold it in. Do not quietly pick it up, and do not let
-  it change what "done" means for this session. On 2026-10-05 one CalTex
-  session ran from Erik's copy changes into a full slice migration. On
-  10-06 it declared itself done while Erik's next ask, a worker's
-  unpublished release, still had not reached the site.
-
-  End the final message with one line, "Safe to archive this session.", or
-  name what still holds it open: "Not yet safe to archive: #1234 is waiting
-  on CI." For a decision, the line is like "Not yet safe to archive: if
-  Operator decisions 73 is yes, this session lands data-dynamiq#59." A
-  handed-off blocker makes the session resumable, not finished.
-
-## Non-code work lives in `reddoorla/reddoor-workspace`
-
-Proposals, briefs, client-facing drafts, sample deliverables, and their PDFs and images go to the private repo `reddoorla/reddoor-workspace`, not to `docs/` here. In a cloud session, attach it with `add_repo`. Push straight to its `main`: it has no CI, no landing and no journal, and its own `CLAUDE.md` gives the folder layout and how to render PDFs with `reddoorla/reddoor-md-pdf`.
-
-The reason is measured. On 2026-10-05 a one-page proposal for Tim took seven landing attempts across two PRs here (#1174, #1187). Other sessions appended to `docs/workJournal.md` about every 10–15 minutes, and `main`'s ruleset requires an up-to-date branch, so each landing went stale: first DIRTY at the end of the journal, then BEHIND. CI was not the slow part: its median run is about 7.5 minutes, and 15–20 minutes held only in one runner-starved hour on 10-05 (corrected 2026-10-06; this paragraph first said the checks took 15–20 minutes). The repo is also public, so the proposal's images and PDF could not be committed. A session that writes something here which is not code or process should ask whether it belongs in the workspace instead.
-
-In a cloud session, hand files to the operator as download cards (SendUserFile), not by email or Drive. The Gmail and Drive connectors make the whole file part of the request, which fails for anything bigger than a small text file.
+  checkout, so a worktree needs its own `pnpm install --frozen-lockfile`. When
+  this repo is attached to a session that started elsewhere, no hook runs it:
+  run it yourself.
+- **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It is REST-only,
+  with the same gates as on the laptop. The proxy refuses branch deletes, so it
+  checks whether GitHub already removed the branch and prints a `note:` only
+  when it is still there. Attach a fleet repo with `add_repo` before landing
+  in it. It picks the merge method per base branch (squash where the repo and
+  every ruleset allow, else merge, else rebase) and stops when none is
+  allowed; reddoor-website's `main` allows only `merge`. `--dry-run` prints
+  the method. The proof that it works live: the workspace's `directives/cloud.md`.
+- **`tests/prismic/models/write.test.ts` skips its one refusal case under
+  root**, because the container runs as root; CI, which is not, still runs it.
 
 ## The work journal
 
 **Every working session writes a dated entry as its own file in `docs/journal/`**,
-named `<YYYY-MM-DD-HHMM>-<slug>.md` from `date -u`: what was done and **why**,
-never corrected in place. `ls docs/journal | tail` shows the newest. Entries
-before 2026-10-07 are in `docs/workJournal.md`, which is frozen:
-`tests/docs/journal-frozen.test.ts` fails if it takes any change but a forward
-pointer. One file per entry exists because one shared file conflicted: the
-journal was in 183 of the 230 conflicted merges from `main` in the week after
-2026-09-29 (2026-10-06 review). Write the entry as the last act of the
-session, not the first act of the next one.
-
-Keep the session's running notes for that entry in
-`<main checkout>/.session-logs/<YYYY-MM-DD>-<slug>.md` (gitignored), never in the
-session scratchpad, which is deleted with the session.
-
-The journal is the history of executing the build. Code says what the system
-does now; the journal says what it used to do, what it cost to change, and
-which beliefs turned out to be wrong. Nearly everything expensive to rediscover
-lives there and nowhere else.
-
-An entry is headed with the date, a short title, and where it landed:
-
-```markdown
-## 2026-09-04 — Both runway stages render their final frame without JS (#51, `ce46ae0`)
-```
-
-Then prose — not a bullet list of file names, which the diff already tells you.
-What to put in, in rough order of value:
-
-- **Why, over what.** The reason a thing was done survives; the diff does not
-  need restating.
-- **Measured numbers, exactly.** "The comp's open mask is 2696×2352 on an 860px
-  band — 2.735× the band's height, so a 390×664 phone needs ~534%" is worth
-  keeping. "Fixed the hero on mobile" is not.
-- **Defects, named.** What broke, what it looked like, and what made it
-  invisible until it wasn't.
-- **What was tried and abandoned**, and what it would take to revive it. A dead
-  end nobody wrote down gets walked twice.
-- **Beliefs corrected on contact.** The design assumption that turned out false
-  is usually the most valuable line in the entry.
-- **Honest accounting.** If a win came from somewhere other than the change
-  that claimed it, say so — that is exactly what someone will otherwise
-  over-invest in next.
-
-**History is never edited to be right.** An entry that stops being true is not
-rewritten; a later entry corrects it, and says which one it corrects. The
-journal is a record of what was believed at the time, and that record is most
-useful precisely where it was wrong. Fixing the past in place destroys the only
-evidence of how the mistake was made.
-
-The one edit an old entry may take is a **forward pointer**: one line directly
-under its heading naming the entry that overturned it — `> Superseded in part by
-2026-10-14 — <that entry's title>.` It asserts nothing new and retracts nothing,
-so the record of what was believed survives whole; it only stops a reader who
-lands on the old paragraph from leaving with the old answer. Without it the rule
-above is half a mechanism: the correction exists at the bottom of the file, and
-nothing points to it from where a reader actually arrives.
-
-If a session produced nothing worth an entry, that is itself worth one line.
-
-## Discord is the tone reference for client comms
-
-When drafting anything client-facing, match how the operator actually writes in
-Discord rather than defaulting to formal email register.
-
-**Never draft Discord replies** (the operator, 2026-10-12): "don't draft
-discord replies, just tell me where we are and I'll relay". A session or
-worker that finishes something a colleague asked for in Discord states where
-it stands (what is live, with its URL, and what is still open). The operator
-writes the message. No "Reply for Erik" section in a PR body, no reply text in
-a brief, and no reply text in the morning report.
-
-**`DISCORD_BOT_KEY` in the repo `.env` IS the bot token.** Use it directly as
-`Authorization: Bot $DISCORD_BOT_KEY`. Proven 2026-08-17: `GET /users/@me`
-returns 200 as "Message Reader" (`1536468462141055086`), and the same value
-fails an OAuth2 `client_credentials` grant with `invalid_client` — so it is a
-bot token, not a client secret.
-
-An older memory claims `DISCORD_BOT_KEY` is the OAuth2 client secret and names
-a `DISCORD_BOT_TOKEN` as the real one. That is WRONG — no `DISCORD_BOT_TOKEN`
-exists in `.env`, the keychain, or the shell. Do not go hunting for it.
-
-Note the creds live in the repo `.env`, NOT in
-`~/.config/reddoor-maint/credentials.env` where every other credential lives.
-
-- Guild: **reddoor creative**, `1199077765144662046` — 109 text channels, one
-  per project (`#sonder`, `#hedloc-web`, `#beachfront-dentistry-website`, …).
-- Plain REST at `https://discord.com/api/v10`; e.g.
-  `GET /channels/{id}/messages?limit=N`. There is no MCP server and no script —
-  curl it. `discord.com` is off the sandbox network allowlist, so run via
-  `ctx_execute` or unsandboxed.
-- Do NOT read Discord through the browser: `discord.com` in the local Chrome
-  profile is logged out, and logging in as the operator is not yours to do.
-
-**There are no clients in the Discord** (measured 2026-09-29: the guild has 5
-members, the reader bot plus `tucksravin`, `timholmes_62898`, `nicole_35266`
-and `eriksvendsen_89989`, all Reddoor). Clients such as Josh (Sonder), Meagan
-(Revogen) or Brooke (VLF) appear only in the third person, in asks Erik or Tim
-relay after a call or paste from email. So a channel is the colleague record of
-a client, not the client's voice: a note "for Tim" is a colleague note, and the
-only client-facing prose in the corpus is Erik's email, which is warmer and
-longer than the channel register. Read enough to place people before writing
-in anyone's voice, and treat the tone rule above as "how the team talks to
-each other", not a sample of client email.
-
-## Two starter templates (since 2026-08-31)
-
-- `reddoorla/reddoor-starter` — the **native** template; default for
-  `/new-site`. No Blux code.
-- `reddoorla/reddoor-starter-blux` — the **Blux track**: a full-history
-  snapshot of the native repo at `82d93b0` that keeps the Blux render layer.
-  It is the render mirror `src/blux` targets and the template for
-  `/new-site <slug> --track blux`. **Cherry-pick, never `git merge starter/main`**
-  — the forward-merge rule this line used to carry was a landmine: native-ize
-  (reddoor-starter#106) deleted the whole Blux layer, so the merge applies those
-  deletions as clean, CONFLICT-FREE removals and strips `src/lib/blux*`, every
-  `Blux*` slice and the fidelity gates, with only `README.md` conflicting so
-  nothing warns you (verified 2026-09-01; the rule was replaced in that repo's
-  own README in reddoor-starter-blux#2 and reached its `CLAUDE.md` in #8). Adopt
-  a shared improvement with `git fetch starter && git cherry-pick <sha>`, and
-  never merge that repo back into this one.
-
-Design: `docs/superpowers/specs/2026-08-31-starter-track-split-design.md`.
+named `<YYYY-MM-DD-HHMM>-<slug>.md` from `date -u`, in the same PR as the code it
+describes. `ls docs/journal | tail` shows the newest. Entries before 2026-10-07
+are in `docs/workJournal.md`, which is frozen: `tests/docs/journal-frozen.test.ts`
+fails if it takes any change but a forward pointer. One file per entry exists
+because the shared file was in 183 of 230 conflicted merges in the week after
+2026-09-29. What an entry holds and the never-edit rule are in the workspace
+`CLAUDE.md` "Journals".
 
 ## Stored column names
 

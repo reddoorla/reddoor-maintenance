@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
  * bring the conflicts back without anyone noticing, so this test fails on any change.
  *
  * The one edit the frozen file may take is a forward pointer, a line starting
- * `> Superseded` under an old entry's heading (CLAUDE.md, "The work journal"). The digest
+ * `> Superseded` under an old entry's heading (CLAUDE.md, "The work journal"; the rule is in reddoor-workspace CLAUDE.md, "Journals"). The digest
  * drops those lines and collapses the blank lines they leave behind, so adding a pointer keeps
  * it green and anything else turns it red.
  */

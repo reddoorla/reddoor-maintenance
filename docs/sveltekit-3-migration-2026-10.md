@@ -117,7 +117,7 @@ PRs; close them as superseded once it lands.
 
 1. **reddoor-starter** (reddoor-starter#187). Done when it lands.
 2. **reddoor-starter-blux**, by cherry-pick from the starter (never a merge;
-   see `CLAUDE.md`, "Two starter templates").
+   see `reddoorla/reddoor-workspace` `CLAUDE.md`, "The fleet").
 3. **The three starter-shaped sites: vida-legacy-foundation,
    mantis-landscaping, williamson-construction-co.** Their configs are the
    starter's (`alias`, `csp`, `prerender.origin`, `handleHttpError`,
