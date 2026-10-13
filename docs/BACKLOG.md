@@ -189,6 +189,22 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   `data-wf-site`, and the Netlify site's canonical is still its
   `netlify.app` URL. A Wed 10-14 cutover needs the TTL lowered today or it
   starts against a one-hour TTL [I].
+- **10-13 ~22:14Z: both sites are cut over, a day early, on Tim's verbal go
+  to the operator.** The cockpit session set `www` as the primary custom
+  domain on both Netlify sites (20:08Z, external DNS, no Netlify DNS zone
+  created) and triggered production builds, after which both canonicals and
+  `og:url` read `https://www.<domain>/` [M]. The operator edited the two
+  GoDaddy rows per domain, Homes first. The Tuesday TTL step was skipped, so
+  Netlify answered "bad dns for custom domain" until its resolver let go of
+  the old answer; certificates issued at 21:43:51Z (Homes) and 22:14:00Z
+  (Construction). The `/join-the-team` gate held first: the operator's test
+  from the preview was stored at 21:37:49Z with `notifyStatus: sent` [M,
+  SELECT]. `node scripts/williamson-cutover-verify.mjs`: **GREEN, all 64
+  checks passed** at 22:14Z [M]. Still the operator's: a live test from
+  `https://www.williamson-construction.com/join-the-team`, the by-eye check
+  on phone and desktop, the Fri 10-16 and Mon 10-19 verifier runs, D0, and
+  `reddoor-maint launch` for each site. Leave the domains in Webflow until
+  10-19 (rollback).
 
 ---
 
