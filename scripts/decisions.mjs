@@ -176,7 +176,7 @@ export function parseDecision(name, text, now = Date.now()) {
     errors.push("missing first line: the ask");
   else if (/^(?:[-*+]\s+|\d+\.\s+)?TODO\b/i.test(first.trim()))
     errors.push("the ask is still the TODO placeholder");
-  else if (/^<!--.*-->$/.test(first.trim()))
+  else if (first.trim().startsWith("<!--"))
     errors.push("the first line is only a comment, not the ask");
   else d.ask = first.trim();
   if (d.status === "answered") {
