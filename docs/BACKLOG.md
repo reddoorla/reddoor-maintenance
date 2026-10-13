@@ -4084,6 +4084,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         today ran the old stored prompt: it says the Routine "fires twice a
         day" and still routes a fire at 12:00 PT or later to "The evening
         pass", a section #1305 removed from `docs/pm-pass.md`.
+        **Closed 2026-10-13 (the operator, in the cockpit session): "routine is
+        saved"**, with the cron `CRON_TZ=America/Los_Angeles 48 4 * * 1-4` and
+        the stored prompt from `docs/pm-pass.md`. Tomorrow's fire is the
+        check: its prompt should say "fires once a day" and name no evening
+        pass.
 
 111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
       dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
