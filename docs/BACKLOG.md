@@ -4560,6 +4560,23 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         (`session_01BCi5djFrhW63uGS7MiwmXP`), and W4 the 200-line home-base
         `CLAUDE.md` with the rule map (`session_011UosmWgyEfHF9TducWdwNa`).
 
+122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
+      `no-property` or write `soft-fail`?** The brief said the nightly re-check
+      writes the cells a draft writes, and a draft writes `soft-fail` when the
+      API errors. Nightly, that erases a true watch: a site with truly no
+      property that hits one transient error gets `soft-fail`, which raises no
+      watch, and it leaves the re-check's own targets (only `no-property` rows
+      are re-checked), so nothing raises the watch again until its next draft.
+      The re-check on `claude/sleepy-newton-xoaf1i` (issue #1336) writes
+      nothing on a soft-fail, and the stored `no-property` stands until a later
+      night answers. (a) **Keep it (my pick):** an unknown answer never retires
+      a known finding. The cost is that a site whose property is fixed while
+      Google errors keeps its watch for one more night. (b) **Write
+      `soft-fail` as a draft does.** It is closer to the brief, but transient
+      errors silently drop real watches until the site's next draft.
+      **Answered 2026-10-13 (AskUserQuestion): (a), write nothing on a
+      soft-fail. #1346 lands as built.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
