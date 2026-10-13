@@ -125,7 +125,11 @@ export function parseDecision(name, text) {
       if (!STATUSES.includes(value)) errors.push(`unknown status: ${value || "(empty)"}`);
       else d.status = value;
     } else if (key === "asked") {
-      if (!ASKED_PATTERN.test(value) || Number.isNaN(Date.parse(value)))
+      if (
+        !ASKED_PATTERN.test(value) ||
+        Number.isNaN(Date.parse(value)) ||
+        new Date(value).toISOString().slice(0, 16) !== value.slice(0, 16)
+      )
         errors.push(`asked is not a UTC time like 2026-10-13T13:51Z: ${value || "(empty)"}`);
       else d.asked = value;
     } else if (key === "from") {
@@ -146,9 +150,15 @@ export function parseDecision(name, text) {
     }
   }
   for (const f of FIELDS) if (!seen.has(f)) errors.push(`missing front matter field: ${f}`);
+  if (nm && d.asked) {
+    const named = `${nm[1]}-${nm[2]}-${nm[3]}T${nm[4]}:${nm[5]}`;
+    if (named !== d.asked.slice(0, 16))
+      errors.push(`file name time ${named}Z does not match asked ${d.asked}`);
+  }
   const first = lines.slice(close + 1).find((l) => l.trim() !== "");
   if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
     errors.push("missing first line: the ask");
+  else if (/^TODO\b/.test(first.trim())) errors.push("the ask is still the TODO placeholder");
   else d.ask = first.trim();
   return d;
 }
@@ -274,7 +284,7 @@ export function sessionUrl(id) {
 export function stamp(ms) {
   const iso = new Date(ms).toISOString();
   return {
-    asked: `${iso.slice(0, 16)}Z`,
+    asked: `${iso.slice(0, 19)}Z`,
     prefix: `${iso.slice(0, 10)}-${iso.slice(11, 13)}${iso.slice(14, 16)}`,
   };
 }
@@ -329,21 +339,34 @@ export function backlogItems(text) {
   return items;
 }
 
-export const ANSWER_MARKERS = [
-  /\*\*Answered\b/,
-  /\banswered\b/i,
-  /\bdecided 20\d\d-/i,
-  /\*\*Done\b/,
-  /\bdone[:\s—-]/i,
-  /\bsettled 20\d\d/i,
-  /\bwithdrawn\b/i,
+export const STATUS_MARKERS = [
+  /\*\*(?:Answered|Done|Resolved|Closed|Withdrawn|Decided|Settled)\b/i,
+];
+export const HEAD_MARKERS = [
+  /\b(?:answered|decided|settled|resolved|closed|withdrawn)\b[^.\n]{0,24}?20\d\d-\d\d-\d\d/i,
+  /\bdone:/i,
   /\bnot an ask\b/i,
   /\bmerged by the operator\b/i,
 ];
+export const STILL_OPEN = /\bstill open\b|\b(?:answered|decided|settled)\b[^.\n]{0,40}?\bexcept\b/i;
+export const PROSE_MARKERS = [/\banswered\b/i, /\bresolved\b/i, /\bwithdrawn\b/i, /\bsettled\b/i];
 
-export function answerMarker(text) {
-  const r = ANSWER_MARKERS.find((re) => re.test(text));
-  return r ? r.exec(text)[0] : null;
+const firstMatch = (res, text) => {
+  for (const re of res) {
+    const m = re.exec(text);
+    if (m) return m[0];
+  }
+  return null;
+};
+
+export function classifyItem(text) {
+  const strong = firstMatch(STATUS_MARKERS, text) ?? firstMatch(HEAD_MARKERS, itemLead(text));
+  const reopened = STILL_OPEN.exec(text);
+  if (strong && !reopened) return { kind: "answered", marker: strong };
+  if (strong) return { kind: "ambiguous", marker: `${strong} … ${reopened[0]}` };
+  const prose = firstMatch(PROSE_MARKERS, text);
+  if (prose) return { kind: "ambiguous", marker: prose };
+  return { kind: "open", marker: null };
 }
 
 export function itemTitle(text) {
@@ -419,8 +442,12 @@ export function extractRefs(text) {
   return out;
 }
 
-export function originNeedle(head) {
-  return head.slice(0, 60);
+export function originNeedles(text) {
+  const first = text.split("\n")[0].replace(/^\d+\.\s+/, "");
+  const out = [first.slice(0, 60)];
+  const bold = /^\*\*([^*\n]+?)\*\*/.exec(first);
+  if (bold && bold[0].length >= 8 && bold[0] !== out[0]) out.push(bold[0]);
+  return out;
 }
 
 export function convertItem(it, origin, revSha) {
@@ -479,29 +506,39 @@ export async function convertBacklog(o, deps = {}) {
   const answered = [];
   const converted = [];
   const unparsed = [];
+  const seenN = new Map();
+  const duplicates = [];
   for (const it of items) {
-    const marker = answerMarker(it.text);
-    if (marker) {
-      answered.push({ n: it.n, marker });
+    if (seenN.has(it.n)) duplicates.push({ n: it.n, lines: [seenN.get(it.n), it.line] });
+    else seenN.set(it.n, it.line);
+    const cls = classifyItem(it.text);
+    if (cls.kind === "answered") {
+      answered.push({ n: it.n, marker: cls.marker });
       continue;
     }
-    const log = await gitOut(run, cwd, [
-      "log",
-      "--reverse",
-      "--format=%H%x09%ct%x09%s",
-      "-S",
-      originNeedle(it.head),
-      revSha,
-      "--",
-      BACKLOG,
-    ]);
-    const first = log.split("\n").find(Boolean);
-    let origin = null;
-    if (first) {
+    const origins = [];
+    for (const needle of originNeedles(it.text)) {
+      const log = await gitOut(run, cwd, [
+        "log",
+        "--reverse",
+        "--format=%H%x09%ct%x09%s",
+        "-S",
+        needle,
+        revSha,
+        "--",
+        BACKLOG,
+      ]);
+      const first = log.split("\n").find(Boolean);
+      if (!first) continue;
       const [sha, time, ...rest] = first.split("\t");
-      origin = { sha, time: Number(time), subject: rest.join("\t") };
+      origins.push({ sha, time: Number(time), subject: rest.join("\t") });
     }
+    origins.sort((a, b) => a.time - b.time);
+    const origin = origins[0] ?? null;
     const c = convertItem(it, origin, revSha);
+    if (cls.kind === "ambiguous") c.ambiguous = cls.marker;
+    if (new Set(origins.map((x) => x.sha)).size > 1)
+      c.originsDisagree = origins.map((x) => x.sha.slice(0, 8));
     (c.error ? unparsed : converted).push(c);
   }
   const names = new Set();
@@ -511,14 +548,23 @@ export async function convertBacklog(o, deps = {}) {
     c.name = name;
     names.add(name);
   }
-  return { rev: o.rev, revSha, items: items.length, answered, converted, unparsed };
+  return { rev: o.rev, revSha, items: items.length, answered, converted, unparsed, duplicates };
 }
 
 export function formatConvert(c) {
   const out = [
-    `CONVERT_SUMMARY rev=${c.revSha.slice(0, 8)} items=${c.items} answered=${c.answered.length} open=${c.converted.length + c.unparsed.length} written=${c.converted.length} unparsed=${c.unparsed.length}`,
+    `CONVERT_SUMMARY rev=${c.revSha.slice(0, 8)} items=${c.items} answered=${c.answered.length} open=${c.converted.length + c.unparsed.length} ambiguous=${[...c.converted, ...c.unparsed].filter((x) => x.ambiguous).length} written=${c.converted.length} unparsed=${c.unparsed.length}`,
   ];
-  for (const x of c.converted) out.push(`- item ${x.n} → ${x.name}`);
+  for (const x of c.converted) {
+    const notes = [
+      x.ambiguous && `AMBIGUOUS, matched "${x.ambiguous}"`,
+      x.originsDisagree &&
+        `origin needles disagree (${x.originsDisagree.join(", ")}), took the oldest`,
+    ].filter(Boolean);
+    out.push(`- item ${x.n} → ${x.name}${notes.length ? `  [${notes.join("; ")}]` : ""}`);
+  }
+  for (const d of c.duplicates ?? [])
+    out.push(`DUPLICATE item number ${d.n} at lines ${d.lines.join(" and ")}`);
   for (const x of c.unparsed)
     out.push(`UNPARSED item ${x.n} (line ${x.line}, ${x.title}): ${x.error}`);
   return out.join("\n") + "\n";
@@ -542,15 +588,33 @@ async function main() {
       process.exitCode = 2;
       return;
     }
-    const d = newDecision({ slug: o.slug, from, now: Date.now() });
+    let d;
+    try {
+      d = newDecision({ slug: o.slug, from, now: Date.now() });
+    } catch (e) {
+      process.stderr.write(`decisions: ${e.message}\n`);
+      process.exitCode = 2;
+      return;
+    }
     const path = join(o.dir, d.name);
-    if (existsSync(path)) throw new Error(`${path} already exists`);
+    if (existsSync(path)) {
+      process.stderr.write(`decisions: ${path} already exists\n`);
+      process.exitCode = 2;
+      return;
+    }
     mkdirSync(o.dir, { recursive: true });
     writeFileSync(path, d.text);
     process.stdout.write(`${path}\n`);
     return;
   }
   if (o.cmd === "convert") {
+    if (existsSync(o.dir) && readdirSync(o.dir).length > 0) {
+      process.stderr.write(
+        `decisions: ${o.dir} is not empty; convert writes into an empty directory\n`,
+      );
+      process.exitCode = 2;
+      return;
+    }
     const c = await convertBacklog(o);
     mkdirSync(o.dir, { recursive: true });
     for (const x of c.converted) writeFileSync(join(o.dir, x.name), x.text);

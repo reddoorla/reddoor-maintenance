@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,7 +16,8 @@ import {
   stamp,
   newDecision,
   backlogItems,
-  answerMarker,
+  classifyItem,
+  originNeedles,
   itemTitle,
   itemAsk,
   itemLead,
@@ -46,7 +47,7 @@ const file = (o: {
   [
     "---",
     `status: ${o.status ?? "open"}`,
-    `asked: ${o.asked ?? "2026-10-12T09:00Z"}`,
+    `asked: ${o.asked ?? "AUTO"}`,
     `from: ${o.from ?? "https://claude.ai/code/session_01ABC"}`,
     `refs: ${o.refs ?? "[]"}`,
     ...(o.extra ? [o.extra] : []),
@@ -58,9 +59,16 @@ const file = (o: {
     "",
   ].join("\n");
 
+const askedFromName = (name: string, text: string) => {
+  const m = /^(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})-/.exec(name);
+  return m ? text.replace("asked: AUTO", `asked: ${m[1]}T${m[2]}:${m[3]}Z`) : text;
+};
+
+const pd = (name: string, text: string) => parseDecision(name, askedFromName(name, text));
+
 const dirWith = (files: Record<string, string>) => {
   const d = mkdtempSync(join(tmpdir(), "decisions-"));
-  for (const [n, t] of Object.entries(files)) writeFileSync(join(d, n), t);
+  for (const [n, t] of Object.entries(files)) writeFileSync(join(d, n), askedFromName(n, t));
   return d;
 };
 
@@ -89,7 +97,7 @@ const pr = (merged_at: string | null, closed_at: string | null) =>
 
 describe("parseDecision", () => {
   it("parses a well-formed file", () => {
-    const d = parseDecision(
+    const d = pd(
       "2026-10-12-0900-merge-twelve.md",
       file({ refs: "[reddoorla/reddoor-maintenance#12, reddoorla/hedloc#55]" }),
     );
@@ -107,36 +115,48 @@ describe("parseDecision", () => {
   it("accepts every known status and owner/repo#N as from", () => {
     for (const status of ["open", "answered", "parked", "withdrawn"])
       expect(
-        parseDecision("2026-10-12-0900-x.md", file({ status, from: "reddoorla/hedloc#55" })).errors,
+        pd("2026-10-12-0900-x.md", file({ status, from: "reddoorla/hedloc#55" })).errors,
       ).toEqual([]);
   });
 
   it("rejects an unknown status", () => {
-    const d = parseDecision("2026-10-12-0900-x.md", file({ status: "pending" }));
+    const d = pd("2026-10-12-0900-x.md", file({ status: "pending" }));
     expect(d.errors).toEqual(["unknown status: pending"]);
     expect(d.status).toBeUndefined();
   });
 
   it("rejects a missing first line, and a first line that is a heading", () => {
     expect(
-      parseDecision(
+      pd(
         "2026-10-12-0900-x.md",
         "---\nstatus: open\nasked: 2026-10-12T09:00Z\nfrom: a/b#1\nrefs: []\n---\n\n",
       ).errors,
     ).toEqual(["missing first line: the ask"]);
-    expect(parseDecision("2026-10-12-0900-x.md", file({ first: "## Answer" })).errors).toEqual([
+    expect(pd("2026-10-12-0900-x.md", file({ first: "## Answer" })).errors).toEqual([
       "missing first line: the ask",
     ]);
   });
 
+  it("rejects a calendar-invalid asked, a name that disagrees with asked, and the TODO placeholder", () => {
+    expect(pd("2026-02-30-1000-x.md", file({ asked: "2026-02-30T10:00Z" })).errors).toEqual([
+      "asked is not a UTC time like 2026-10-13T13:51Z: 2026-02-30T10:00Z",
+    ]);
+    expect(pd("2026-10-13-1351-x.md", file({ asked: "2025-01-01T00:00Z" })).errors).toEqual([
+      "file name time 2026-10-13T13:51Z does not match asked 2025-01-01T00:00Z",
+    ]);
+    expect(
+      pd("2026-10-13-1351-x.md", file({ first: "TODO the ask, in one line." })).errors,
+    ).toEqual(["the ask is still the TODO placeholder"]);
+  });
+
   it("takes a first line that starts with a PR number, which is not a heading", () => {
-    expect(parseDecision("2026-10-12-0900-x.md", file({ first: "#918 / #920: land?" })).ask).toBe(
+    expect(pd("2026-10-12-0900-x.md", file({ first: "#918 / #920: land?" })).ask).toBe(
       "#918 / #920: land?",
     );
   });
 
   it("names every malformed field", () => {
-    const d = parseDecision(
+    const d = pd(
       "notes.md",
       file({
         asked: "2026-10-12 09:00",
@@ -157,23 +177,23 @@ describe("parseDecision", () => {
 
   it("rejects missing and repeated fields, and a file with no front matter", () => {
     expect(
-      parseDecision("2026-10-12-0900-x.md", "---\nstatus: open\nstatus: open\n---\nAsk?\n").errors,
+      pd("2026-10-12-0900-x.md", "---\nstatus: open\nstatus: open\n---\nAsk?\n").errors,
     ).toEqual([
       "front matter field given twice: status",
       "missing front matter field: asked",
       "missing front matter field: from",
       "missing front matter field: refs",
     ]);
-    expect(parseDecision("2026-10-12-0900-x.md", "Ask?\n").errors).toEqual([
+    expect(pd("2026-10-12-0900-x.md", "Ask?\n").errors).toEqual([
       "no front matter: the first line is not ---",
     ]);
-    expect(parseDecision("2026-10-12-0900-x.md", "---\nstatus: open\nAsk?\n").errors).toEqual([
+    expect(pd("2026-10-12-0900-x.md", "---\nstatus: open\nAsk?\n").errors).toEqual([
       "front matter is not closed with ---",
     ]);
   });
 
   it("parses the shipped template once it is given a real name", () => {
-    expect(parseDecision("2026-10-13-1351-example.md", TEMPLATE).errors).toEqual([]);
+    expect(pd("2026-10-13-1351-example.md", TEMPLATE).errors).toEqual([]);
   });
 });
 
@@ -258,10 +278,10 @@ describe("list", () => {
     );
   });
 
-  it("sorts by asked, not by file name", async () => {
+  it("sorts by asked to the second, not by file name", async () => {
     const d = dirWith({
-      "2026-10-01-0000-a.md": file({ asked: "2026-10-12T09:00Z" }),
-      "2026-10-02-0000-b.md": file({ asked: "2026-10-11T09:00Z" }),
+      "2026-10-12-0900-a.md": file({ asked: "2026-10-12T09:00:30Z" }),
+      "2026-10-12-0900-b.md": file({ asked: "2026-10-12T09:00:10Z" }),
     });
     const rep = await decisionsReport({ dir: d, offline: true }, { now: NOW });
     expect(selectListed(rep, { open: true }).map((x) => x.slug)).toEqual(["b", "a"]);
@@ -411,9 +431,9 @@ describe("new", () => {
     expect(sessionUrl("01TMkyXc")).toBeUndefined();
   });
 
-  it("writes a file that check parses, named from the clock", () => {
+  it("writes a file named from the clock that check refuses until the ask is filled in", () => {
     expect(stamp(Date.parse("2026-10-13T13:51:42Z"))).toEqual({
-      asked: "2026-10-13T13:51Z",
+      asked: "2026-10-13T13:51:42Z",
       prefix: "2026-10-13-1351",
     });
     const n = newDecision({
@@ -422,7 +442,10 @@ describe("new", () => {
       now: NOW,
     });
     expect(n.name).toBe("2026-10-13-1200-merge-twelve.md");
-    expect(parseDecision(n.name, n.text).errors).toEqual([]);
+    expect(pd(n.name, n.text).errors).toEqual(["the ask is still the TODO placeholder"]);
+    expect(pd(n.name, n.text.replace("TODO the ask, in one line.", "Merge #12?")).errors).toEqual(
+      [],
+    );
     expect(() => newDecision({ slug: "Bad Slug", from: "a/b#1", now: NOW })).toThrow("slug");
   });
 
@@ -433,7 +456,18 @@ describe("new", () => {
     expect(r.status).toBe(0);
     const path = r.stdout.trim();
     expect(readFileSync(path, "utf-8")).toContain("from: https://claude.ai/code/session_01XYZ\n");
-    expect(readDecisionDir(d).map((x) => x.errors)).toEqual([[]]);
+    expect(readDecisionDir(d).map((x) => x.errors)).toEqual([
+      ["the ask is still the TODO placeholder"],
+    ]);
+    expect(cli(["check", d, "--offline"]).code).toBe(1);
+    const again = spawnSync(process.execPath, [SCRIPT, "new", d, "an-ask"], {
+      encoding: "utf-8",
+      env,
+    });
+    if (readdirSync(d).length === 1) {
+      expect(again.status).toBe(2);
+      expect(again.stderr).toMatch(/^decisions: .* already exists\n$/);
+    }
     const { CLAUDE_CODE_REMOTE_SESSION_ID: _, ...bare } = process.env;
     const r2 = spawnSync(process.execPath, [SCRIPT, "new", d, "other"], {
       encoding: "utf-8",
@@ -487,11 +521,38 @@ describe("convert", () => {
   });
 
   it("marks answered items and leaves open ones", () => {
-    const [i13, i14, i87, i88] = [byN(13), byN(14), byN(87), byN(88)];
-    expect(answerMarker(i13.text)).toBeNull();
-    expect(answerMarker(i87.text)).toBeNull();
-    expect(answerMarker(i14.text)).toBe("decided 2026-");
-    expect(answerMarker(i88.text)).toBe("**Answered");
+    expect(classifyItem(byN(13).text)).toEqual({ kind: "open", marker: null });
+    expect(classifyItem(byN(87).text)).toEqual({ kind: "open", marker: null });
+    expect(classifyItem(byN(14).text)).toEqual({ kind: "answered", marker: "decided 2026-09-29" });
+    expect(classifyItem(byN(88).text)).toEqual({ kind: "answered", marker: "**Answered" });
+    expect(
+      classifyItem("24. **P1-12 (#995)**: held.\n    **Resolved 2026-09-29 ~21:45Z**: merged.")
+        .kind,
+    ).toBe("answered");
+  });
+
+  it("calls an item ambiguous when it reads answered only in prose, or says it is still open", () => {
+    expect(
+      classifyItem(
+        "97. **Eight operator-only chores (new 2026-10-07)**: (a) to (g).\n    - (d) `#roalson-interests`, asked in the same line, is answered there.",
+      ),
+    ).toEqual({ kind: "ambiguous", marker: "answered" });
+    expect(
+      classifyItem(
+        "18. **Standing product calls** — answered 2026-09-29, except #773:\n    - x\n    Still open, on the laptop: #773.",
+      ).kind,
+    ).toBe("ambiguous");
+    expect(classifyItem("5. **x** — the job is done in the nightly.").kind).toBe("open");
+  });
+
+  it("searches the bold title as well as the head, so a reworded head keeps its first ask", () => {
+    expect(originNeedles("10. **#918 / #920** — in a fix round after a four-lens review")).toEqual([
+      "**#918 / #920** — in a fix round after a four-lens review",
+      "**#918 / #920**",
+    ]);
+    expect(
+      originNeedles("87. **Dead letters wait two replay cycles before they alarm? (new"),
+    ).toEqual(["**Dead letters wait two replay cycles before they alarm? (ne"]);
   });
 
   it("reads title, ask, lead, refs and slug", () => {
@@ -533,7 +594,7 @@ describe("convert", () => {
     expect(d.errors).toEqual([]);
     expect(d).toMatchObject({
       status: "open",
-      asked: "2026-10-06T01:37Z",
+      asked: "2026-10-06T01:37:09Z",
       from: "reddoorla/reddoor-maintenance#1199",
       refs: [
         "reddoorla/reddoor-maintenance#1190",
@@ -555,6 +616,8 @@ describe("convert", () => {
       calls.push(args);
       if (args[0] === "rev-parse") return ok(`${"c".repeat(40)}\n`);
       if (args[0] === "show") return ok(BACKLOG);
+      if (args[0] === "log" && args[4] === "**Google Maps keys (#754)**")
+        return ok(`${"f".repeat(40)}\t1789990000\tdocs: first ask (#950)\n`);
       if (args[0] === "log" && args[4]?.startsWith("**Google"))
         return ok(
           `${"d".repeat(40)}\t1790000000\tdocs: maps (#958)\n${"e".repeat(40)}\t1790000500\tlater (#960)\n`,
@@ -566,14 +629,34 @@ describe("convert", () => {
     expect(c.answered.map((a) => a.n)).toEqual([14, 88]);
     expect(c.converted.map((x) => x.n)).toEqual([13]);
     expect(c.converted.map((x) => x.text)[0]).toContain(
-      "from: reddoorla/reddoor-maintenance#958\n",
+      "from: reddoorla/reddoor-maintenance#950\n",
     );
     expect(c.unparsed.map((x) => [x.n, x.error])).toEqual([
       [87, "no commit on the rev adds this item's first line"],
     ]);
     expect(formatConvert(c).split("\n")[0]).toBe(
-      "CONVERT_SUMMARY rev=cccccccc items=4 answered=2 open=2 written=1 unparsed=1",
+      "CONVERT_SUMMARY rev=cccccccc items=4 answered=2 open=2 ambiguous=0 written=1 unparsed=1",
+    );
+    expect(c.converted.map((x) => x.originsDisagree)).toEqual([["ffffffff", "dddddddd"]]);
+    expect(formatConvert(c)).toContain(
+      "origin needles disagree (ffffffff, dddddddd), took the oldest",
     );
     expect(calls.filter((a) => a[0] === "log").every((a) => a.includes("c".repeat(40)))).toBe(true);
+  });
+
+  it("names a repeated item number", async () => {
+    const twice = BACKLOG.replace("88. **Answered", "87. **Answered");
+    const run: Runner = async (_c, args) =>
+      args[0] === "rev-parse" ? ok("c".repeat(40)) : args[0] === "show" ? ok(twice) : ok("");
+    const c = await convertBacklog({ rev: "x" }, { run });
+    expect(c.duplicates).toEqual([{ n: 87, lines: [11, 18] }]);
+    expect(formatConvert(c)).toContain("DUPLICATE item number 87 at lines 11 and 18");
+  });
+
+  it("refuses to convert into a directory that is not empty", () => {
+    const d = dirWith({ "stale.md": "x" });
+    const r = cli(["convert", d]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("is not empty");
   });
 });

@@ -10,7 +10,10 @@ export const SESSION_URL: RegExp;
 export const REF_PATTERN: RegExp;
 export const DEFAULT_OWNER: string;
 export const HOME_REPO: string;
-export const ANSWER_MARKERS: RegExp[];
+export const STATUS_MARKERS: RegExp[];
+export const HEAD_MARKERS: RegExp[];
+export const PROSE_MARKERS: RegExp[];
+export const STILL_OPEN: RegExp;
 
 export interface Options {
   cmd: "check" | "list" | "new" | "convert";
@@ -75,8 +78,26 @@ export interface Origin {
 }
 
 export type Converted =
-  | { n: number; line: number; title: string; name: string; text: string; error?: undefined }
-  | { n: number; line: number; title: string; error: string; name?: undefined; text?: undefined };
+  | {
+      n: number;
+      line: number;
+      title: string;
+      name: string;
+      text: string;
+      error?: undefined;
+      ambiguous?: string;
+      originsDisagree?: string[];
+    }
+  | {
+      n: number;
+      line: number;
+      title: string;
+      error: string;
+      name?: undefined;
+      text?: undefined;
+      ambiguous?: string;
+      originsDisagree?: string[];
+    };
 
 export interface ConvertResult {
   rev: string;
@@ -85,6 +106,7 @@ export interface ConvertResult {
   answered: { n: number; marker: string }[];
   converted: Converted[];
   unparsed: Converted[];
+  duplicates: { n: number; lines: number[] }[];
 }
 
 export function parseArgs(argv: string[]): Options;
@@ -112,14 +134,17 @@ export function newDecision(o: { slug: string; from: string; now: number }): {
   text: string;
 };
 export function backlogItems(text: string): BacklogItem[];
-export function answerMarker(text: string): string | null;
+export function classifyItem(text: string): {
+  kind: "answered" | "ambiguous" | "open";
+  marker: string | null;
+};
 export function itemTitle(text: string): string;
 export function itemAsk(text: string): string | null;
 export function itemLead(text: string): string;
 export function dedent(text: string): string;
 export function slugify(n: number, title: string): string;
 export function extractRefs(text: string): string[];
-export function originNeedle(head: string): string;
+export function originNeedles(text: string): string[];
 export function convertItem(it: BacklogItem, origin: Origin | null, revSha: string): Converted;
 export function convertBacklog(
   o: { rev: string },
