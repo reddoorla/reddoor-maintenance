@@ -4493,6 +4493,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         moves, and the other four are a broker question; (4) review first, then
         Erik for Matt, since these are the client's packages and he marked them
         up.
+        **Answered 2026-10-13 (AskUserQuestion): (1) accept four, Menger
+        Springs Road to the broker; (2) the plain label; (3) move the 11;
+        (4) review first, then Erik for Matt.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
