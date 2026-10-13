@@ -9,7 +9,7 @@ import {
   existsSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { realRunner } from "./land-prs.mjs";
 
 export const STATUSES = ["open", "answered", "parked", "withdrawn"];
@@ -174,8 +174,19 @@ export function parseDecision(name, text, now = Date.now()) {
   const first = lines.slice(close + 1).find((l) => l.trim() !== "");
   if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
     errors.push("missing first line: the ask");
-  else if (/^TODO\b/i.test(first.trim())) errors.push("the ask is still the TODO placeholder");
+  else if (/^(?:[-*+]\s+|\d+\.\s+)?TODO\b/i.test(first.trim()))
+    errors.push("the ask is still the TODO placeholder");
+  else if (/^<!--.*-->$/.test(first.trim()))
+    errors.push("the first line is only a comment, not the ask");
   else d.ask = first.trim();
+  if (d.status === "answered") {
+    const body = lines.slice(close + 1);
+    const at = body.findIndex((l) => /^##\s+Answer\s*$/.test(l));
+    const rest = at === -1 ? [] : body.slice(at + 1);
+    const stop = rest.findIndex((l) => /^#{1,2}\s/.test(l));
+    const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter((l) => l.trim() !== "");
+    if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
+  }
   return d;
 }
 
@@ -461,9 +472,14 @@ export function slugify(n, title) {
   return s;
 }
 
+export const URL_REF =
+  /github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(?:pull|issues)\/(\d+)\b/g;
+
 export function knownRepos(text) {
   const out = new Set([HOME_REPO, `${DEFAULT_OWNER}/.github`]);
-  for (const m of text.matchAll(/\b([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]*[A-Za-z0-9_])/g))
+  for (const m of text.matchAll(/(?<![\w./-])([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]*[A-Za-z0-9_])/g))
+    if (m[1] === DEFAULT_OWNER) out.add(`${m[1]}/${m[2]}`);
+  for (const m of text.matchAll(/github\.com\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]*[A-Za-z0-9_])/g))
     if (m[1] === DEFAULT_OWNER) out.add(`${m[1]}/${m[2]}`);
   return out;
 }
@@ -472,6 +488,10 @@ export function extractRefs(text, known = knownRepos(text)) {
   const named = [];
   const bare = [];
   const dropped = [];
+  for (const m of text.matchAll(URL_REF)) {
+    const ref = `${m[1]}/${m[2]}#${m[3]}`;
+    if (REF_PATTERN.test(ref)) named.push(ref);
+  }
   const re = /(?:^|[^\w/.#-])((?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+)?#(\d+)\b/g;
   for (const m of text.matchAll(re)) {
     if (m[1] === undefined) {
@@ -542,7 +562,9 @@ export function convertItem(it, origin, revSha, known) {
   return { n: it.n, line: it.line, title, name, text, droppedRefs: dropped };
 }
 
-async function gitOut(run, cwd, args) {
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+async function gitOut(run, cwd = REPO_ROOT, args) {
   const r = await run("git", args, { cwd, timeoutMs: 120_000 });
   if (r.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim()}`);
   return r.stdout;
@@ -656,8 +678,14 @@ async function main() {
       process.exitCode = 2;
       return;
     }
-    mkdirSync(o.dir, { recursive: true });
-    writeFileSync(path, d.text);
+    try {
+      mkdirSync(o.dir, { recursive: true });
+      writeFileSync(path, d.text);
+    } catch (e) {
+      process.stderr.write(`decisions: cannot write ${path} (${e.code ?? e.message})\n`);
+      process.exitCode = 2;
+      return;
+    }
     process.stdout.write(`${path}\n`);
     return;
   }
@@ -702,7 +730,7 @@ const self = (p) => {
 };
 if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
   main().catch((e) => {
-    process.stderr.write(`decisions: ${e?.stack ?? e}\n`);
+    process.stderr.write(`decisions: ${e?.message ?? e}\n`);
     process.exitCode = 1;
   });
 }

@@ -14,6 +14,7 @@ export const STATUS_MARKERS: RegExp[];
 export const HEAD_MARKERS: RegExp[];
 export const PROSE_MARKERS: RegExp[];
 export const STILL_OPEN: RegExp;
+export const URL_REF: RegExp;
 export const FUTURE_SLACK_MS: number;
 export const IGNORED_ENTRIES: string[];
 

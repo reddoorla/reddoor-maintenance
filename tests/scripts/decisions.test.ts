@@ -44,6 +44,7 @@ const file = (o: {
   refs?: string;
   first?: string;
   extra?: string;
+  answer?: string;
 }) =>
   [
     "---",
@@ -58,6 +59,9 @@ const file = (o: {
     "",
     "## Answer",
     "",
+    ...[o.answer ?? (o.status === "answered" ? "(a), 2026-10-13." : "")]
+      .filter(Boolean)
+      .flatMap((a) => [a, ""]),
   ].join("\n");
 
 const askedFromName = (name: string, text: string) => {
@@ -783,5 +787,95 @@ describe("directory and time edges", () => {
     expect(
       classifyItem("23. **Gate** — **Answered 2026-09-30:** vida's call stays open.").kind,
     ).toBe("ambiguous");
+  });
+});
+
+describe("round 3 edges", () => {
+  it("takes refs from github.com URLs, and knows their repos", () => {
+    const t =
+      "See [caltex-landing#76](https://github.com/reddoorla/caltex-landing/pull/76) and caltex-landing#75.";
+    expect(knownRepos(t).has("reddoorla/caltex-landing")).toBe(true);
+    expect(extractRefs(t)).toEqual({
+      refs: ["reddoorla/caltex-landing#76", "reddoorla/caltex-landing#75"],
+      dropped: [],
+    });
+    expect(knownRepos("https://example.com/reddoorla").size).toBe(2);
+    expect(extractRefs("merged in https://github.com/reddoorla/hedloc/pull/55 today")).toEqual({
+      refs: ["reddoorla/hedloc#55"],
+      dropped: [],
+    });
+  });
+
+  it("drops a bare #N beside a repo it cannot place, rather than filing it under maintenance", () => {
+    expect(extractRefs("vida#101 and #29")).toEqual({ refs: [], dropped: ["vida#101", "#29"] });
+  });
+
+  it("reads an answered marker only in the lead, not in a later sub-item", () => {
+    expect(
+      classifyItem(
+        "90. **CalTex: Erik's fixes (new 2026-10-06).** Publish the release.\n    - (b) the logo swap: answered 2026-10-07 in Discord.",
+      ),
+    ).toEqual({ kind: "ambiguous", marker: "answered" });
+    expect(classifyItem("90. **CalTex** — answered 2026-10-07 in Discord.").kind).toBe("answered");
+  });
+
+  it("rejects an empty ref item, a listed TODO, a comment-only ask, and answered with no answer", () => {
+    expect(pd("2026-10-12-0900-x.md", file({ refs: "[a/b#1, , c/d#2]" })).errors).toEqual([
+      "ref is not owner/repo#N: (empty)",
+    ]);
+    expect(pd("2026-10-12-0900-x.md", file({ first: "- TODO the ask" })).errors).toEqual([
+      "the ask is still the TODO placeholder",
+    ]);
+    expect(
+      pd("2026-10-12-0900-x.md", file({ first: "<!-- write the ask here -->" })).errors,
+    ).toEqual(["the first line is only a comment, not the ask"]);
+    expect(pd("2026-10-12-0900-x.md", file({ status: "answered", answer: "" })).errors).toEqual([
+      "status is answered but ## Answer is empty",
+    ]);
+    expect(
+      pd(
+        "2026-10-12-0900-x.md",
+        file({ status: "answered" }).replace("## Answer\n", "## Answer\n\n(a), 2026-10-13.\n"),
+      ).errors,
+    ).toEqual([]);
+  });
+
+  it("suffixes converted names that collide", async () => {
+    const twin = [
+      "## Operator decisions",
+      "13. **Same title** — open one.",
+      "14. **Same title** — open two.",
+    ].join("\n");
+    const run: Runner = async (_c, args) =>
+      args[0] === "rev-parse"
+        ? ok("c".repeat(40))
+        : args[0] === "show"
+          ? ok(twin)
+          : ok(`${"d".repeat(40)}\t1790000000\tdocs: x (#958)\n`);
+    const c = await convertBacklog({ rev: "x" }, { run });
+    expect(c.converted.map((x) => (x.name ?? "").replace(/^[\d-]+-od-/, ""))).toEqual([
+      "13-same-title.md",
+      "14-same-title.md",
+    ]);
+    const same = await convertBacklog(
+      { rev: "x" },
+      { run: async (cc, a) => (a[0] === "show" ? ok(twin.replace("14.", "13.")) : run(cc, a)) },
+    );
+    expect(same.converted.map((x) => (x.name ?? "").replace(/^[\d-]+-od-/, ""))).toEqual([
+      "13-same-title.md",
+      "13-same-title-2.md",
+    ]);
+  });
+
+  it("prints a one-line error, not a stack, for a bad rev", () => {
+    const r = cli([
+      "convert",
+      join(tmpdir(), `decisions-badrev-${process.pid}`),
+      "--rev",
+      "no-such-rev-xyz",
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/^decisions: git rev-parse no-such-rev-xyz failed: /);
+    expect(r.err).not.toContain("    at ");
   });
 });
