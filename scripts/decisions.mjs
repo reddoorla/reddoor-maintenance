@@ -7,6 +7,7 @@ import {
   writeFileSync,
   mkdirSync,
   existsSync,
+  statSync,
 } from "node:fs";
 import { join } from "node:path";
 import { realRunner } from "./land-prs.mjs";
@@ -29,6 +30,23 @@ const USAGE = [
   "       node scripts/decisions.mjs new <dir> <slug> [--from owner/repo#N]",
   "       node scripts/decisions.mjs convert <outdir> [--rev origin/main]",
 ].join("\n");
+
+export const FUTURE_SLACK_MS = 10 * 60_000;
+export const IGNORED_ENTRIES = ["_template.md", "README.md"];
+
+export function calendarValid(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v);
+  if (!m) return false;
+  const [y, mo, d, h = "0", mi = "0"] = m.slice(1);
+  const t = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi));
+  return (
+    t.getUTCFullYear() === +y &&
+    t.getUTCMonth() === +mo - 1 &&
+    t.getUTCDate() === +d &&
+    t.getUTCHours() === +h &&
+    t.getUTCMinutes() === +mi
+  );
+}
 
 export function parseArgs(argv) {
   const o = {
@@ -60,7 +78,7 @@ export function parseArgs(argv) {
     else if (a === "--rev") o.rev = next();
     else if (a === "--since") {
       const v = next();
-      if (Number.isNaN(Date.parse(v)) || !/(Z|[+-]\d\d:?\d\d)$/.test(v))
+      if (Number.isNaN(Date.parse(v)) || !/(Z|[+-]\d\d:?\d\d)$/.test(v) || !calendarValid(v))
         throw new Error(`${a} needs an ISO time with Z or an offset`);
       o.since = v;
     } else if (a.startsWith("--")) throw new Error(`unknown argument: ${a}`);
@@ -78,7 +96,7 @@ export function parseArgs(argv) {
   return o;
 }
 
-export function parseDecision(name, text) {
+export function parseDecision(name, text, now = Date.now()) {
   const errors = [];
   const d = {
     file: name,
@@ -125,12 +143,10 @@ export function parseDecision(name, text) {
       if (!STATUSES.includes(value)) errors.push(`unknown status: ${value || "(empty)"}`);
       else d.status = value;
     } else if (key === "asked") {
-      if (
-        !ASKED_PATTERN.test(value) ||
-        Number.isNaN(Date.parse(value)) ||
-        new Date(value).toISOString().slice(0, 16) !== value.slice(0, 16)
-      )
+      if (!ASKED_PATTERN.test(value) || Number.isNaN(Date.parse(value)) || !calendarValid(value))
         errors.push(`asked is not a UTC time like 2026-10-13T13:51Z: ${value || "(empty)"}`);
+      else if (Date.parse(value) > now + FUTURE_SLACK_MS)
+        errors.push(`asked is in the future: ${value}`);
       else d.asked = value;
     } else if (key === "from") {
       if (!SESSION_URL.test(value) && !REF_PATTERN.test(value))
@@ -158,16 +174,20 @@ export function parseDecision(name, text) {
   const first = lines.slice(close + 1).find((l) => l.trim() !== "");
   if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
     errors.push("missing first line: the ask");
-  else if (/^TODO\b/.test(first.trim())) errors.push("the ask is still the TODO placeholder");
+  else if (/^TODO\b/i.test(first.trim())) errors.push("the ask is still the TODO placeholder");
   else d.ask = first.trim();
   return d;
 }
 
-export function readDecisionDir(dir) {
-  const names = readdirSync(dir)
-    .filter((n) => n.endsWith(".md") && !n.startsWith("_") && n !== "README.md")
-    .sort();
-  return names.map((n) => parseDecision(n, readFileSync(join(dir, n), "utf-8")));
+export function readDecisionDir(dir, now = Date.now()) {
+  const entries = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !IGNORED_ENTRIES.includes(e.name) && !e.name.startsWith("."))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return entries.map((e) =>
+    e.isFile()
+      ? parseDecision(e.name, readFileSync(join(dir, e.name), "utf-8"), now)
+      : { file: e.name, refs: [], errors: ["not a regular file"] },
+  );
 }
 
 export async function refState(ref, asked, run) {
@@ -202,13 +222,22 @@ export async function refState(ref, asked, run) {
 export async function decisionsReport(o, deps = {}) {
   const run = deps.run ?? realRunner;
   const now = deps.now ?? Date.now();
-  const all = deps.decisions ?? readDecisionDir(o.dir);
+  let all = deps.decisions;
+  let dirError;
+  if (!all) {
+    try {
+      all = readDecisionDir(o.dir, now);
+    } catch (e) {
+      all = [];
+      dirError = e.code ? `cannot read the directory (${e.code})` : String(e?.message ?? e);
+    }
+  }
   const good = all.filter((d) => d.errors.length === 0);
   for (const d of good) {
     d.ageHours = (now - Date.parse(d.asked)) / 3_600_000;
     d.refStates = [];
     if (d.status !== "open") continue;
-    for (const ref of d.refs)
+    for (const ref of d.refs.filter((r) => r !== d.from))
       d.refStates.push(
         o.offline
           ? { ref, kind: "unchecked", why: "--offline" }
@@ -232,6 +261,7 @@ export async function decisionsReport(o, deps = {}) {
     now: new Date(now).toISOString(),
     counts,
     ok: counts.errors === 0 && counts.parsed > 0,
+    dirError,
     failed: all.filter((d) => d.errors.length > 0),
     decisions: good.sort(byAsked),
   };
@@ -250,7 +280,8 @@ export function summaryLine(c) {
 
 function failureLines(rep) {
   const out = [];
-  if (rep.counts.parsed === 0) out.push(`ERROR ${rep.dir}: no decision file parsed`);
+  if (rep.dirError) out.push(`ERROR ${rep.dir}: ${rep.dirError}`);
+  else if (rep.counts.parsed === 0) out.push(`ERROR ${rep.dir}: no decision file parsed`);
   for (const d of rep.failed) for (const e of d.errors) out.push(`ERROR ${d.file}: ${e}`);
   return out;
 }
@@ -348,7 +379,8 @@ export const HEAD_MARKERS = [
   /\bnot an ask\b/i,
   /\bmerged by the operator\b/i,
 ];
-export const STILL_OPEN = /\bstill open\b|\b(?:answered|decided|settled)\b[^.\n]{0,40}?\bexcept\b/i;
+export const STILL_OPEN =
+  /\b(?:still|stays|remains|left|is) open\b|\bopen half\b|\b(?:answered|decided|settled)\b[^.\n]{0,40}?\bexcept\b/i;
 export const PROSE_MARKERS = [/\banswered\b/i, /\bresolved\b/i, /\bwithdrawn\b/i, /\bsettled\b/i];
 
 const firstMatch = (res, text) => {
@@ -429,17 +461,34 @@ export function slugify(n, title) {
   return s;
 }
 
-export function extractRefs(text) {
-  const out = [];
+export function knownRepos(text) {
+  const out = new Set([HOME_REPO, `${DEFAULT_OWNER}/.github`]);
+  for (const m of text.matchAll(/\b([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]*[A-Za-z0-9_])/g))
+    if (m[1] === DEFAULT_OWNER) out.add(`${m[1]}/${m[2]}`);
+  return out;
+}
+
+export function extractRefs(text, known = knownRepos(text)) {
+  const named = [];
+  const bare = [];
+  const dropped = [];
   const re = /(?:^|[^\w/.#-])((?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+)?#(\d+)\b/g;
   for (const m of text.matchAll(re)) {
-    let repo = m[1];
-    if (repo === undefined) repo = HOME_REPO;
-    else if (!repo.includes("/")) repo = `${DEFAULT_OWNER}/${repo}`;
+    if (m[1] === undefined) {
+      bare.push(`${HOME_REPO}#${m[2]}`);
+      continue;
+    }
+    const repo = m[1].includes("/") ? m[1] : `${DEFAULT_OWNER}/${m[1]}`;
     const ref = `${repo}#${m[2]}`;
-    if (REF_PATTERN.test(ref) && !out.includes(ref)) out.push(ref);
+    if (REF_PATTERN.test(ref) && known.has(repo)) named.push(ref);
+    else dropped.push(`${m[1]}#${m[2]}`);
   }
-  return out;
+  const elsewhere = named.some((r) => !r.startsWith(`${HOME_REPO}#`)) || dropped.length > 0;
+  const refs = [...new Set(elsewhere ? named : [...named, ...bare])];
+  const lost = [
+    ...new Set([...dropped, ...(elsewhere ? bare.map((r) => r.slice(HOME_REPO.length)) : [])]),
+  ];
+  return { refs, dropped: lost };
 }
 
 export function originNeedles(text) {
@@ -450,7 +499,7 @@ export function originNeedles(text) {
   return out;
 }
 
-export function convertItem(it, origin, revSha) {
+export function convertItem(it, origin, revSha, known) {
   const title = itemTitle(it.text);
   const askLine = itemAsk(it.text);
   const ask = askLine ? `${title} — ${askLine}` : itemLead(it.text);
@@ -471,12 +520,14 @@ export function convertItem(it, origin, revSha) {
     };
   const { asked, prefix } = stamp(origin.time * 1000);
   const name = `${prefix}-${slugify(it.n, title)}.md`;
+  const from = `${HOME_REPO}#${pr[1]}`;
+  const { refs, dropped } = extractRefs(it.text, known);
   const text = [
     "---",
     "status: open",
     `asked: ${asked}`,
-    `from: ${HOME_REPO}#${pr[1]}`,
-    `refs: [${extractRefs(it.text).join(", ")}]`,
+    `from: ${from}`,
+    `refs: [${refs.filter((r) => r !== from).join(", ")}]`,
     "---",
     "",
     ask,
@@ -488,7 +539,7 @@ export function convertItem(it, origin, revSha) {
     "## Answer",
     "",
   ].join("\n");
-  return { n: it.n, line: it.line, title, name, text };
+  return { n: it.n, line: it.line, title, name, text, droppedRefs: dropped };
 }
 
 async function gitOut(run, cwd, args) {
@@ -503,6 +554,7 @@ export async function convertBacklog(o, deps = {}) {
   const revSha = (await gitOut(run, cwd, ["rev-parse", o.rev])).trim();
   const text = await gitOut(run, cwd, ["show", `${revSha}:${BACKLOG}`]);
   const items = backlogItems(text);
+  const known = knownRepos(text);
   const answered = [];
   const converted = [];
   const unparsed = [];
@@ -535,7 +587,7 @@ export async function convertBacklog(o, deps = {}) {
     }
     origins.sort((a, b) => a.time - b.time);
     const origin = origins[0] ?? null;
-    const c = convertItem(it, origin, revSha);
+    const c = convertItem(it, origin, revSha, known);
     if (cls.kind === "ambiguous") c.ambiguous = cls.marker;
     if (new Set(origins.map((x) => x.sha)).size > 1)
       c.originsDisagree = origins.map((x) => x.sha.slice(0, 8));
@@ -560,9 +612,11 @@ export function formatConvert(c) {
       x.ambiguous && `AMBIGUOUS, matched "${x.ambiguous}"`,
       x.originsDisagree &&
         `origin needles disagree (${x.originsDisagree.join(", ")}), took the oldest`,
+      x.droppedRefs?.length && `refs left out, repo not certain: ${x.droppedRefs.join(" ")}`,
     ].filter(Boolean);
     out.push(`- item ${x.n} → ${x.name}${notes.length ? `  [${notes.join("; ")}]` : ""}`);
   }
+  for (const a of c.answered) out.push(`- answered item ${a.n}  [${a.marker}]`);
   for (const d of c.duplicates ?? [])
     out.push(`DUPLICATE item number ${d.n} at lines ${d.lines.join(" and ")}`);
   for (const x of c.unparsed)
@@ -583,7 +637,7 @@ async function main() {
     const from = o.from ?? sessionUrl(process.env.CLAUDE_CODE_REMOTE_SESSION_ID);
     if (!from) {
       process.stderr.write(
-        "decisions: CLAUDE_CODE_REMOTE_SESSION_ID is unset; pass --from owner/repo#N\n",
+        "decisions: CLAUDE_CODE_REMOTE_SESSION_ID is unset or not a cse_ or session_ id; pass --from owner/repo#N\n",
       );
       process.exitCode = 2;
       return;
@@ -608,6 +662,11 @@ async function main() {
     return;
   }
   if (o.cmd === "convert") {
+    if (existsSync(o.dir) && !statSync(o.dir).isDirectory()) {
+      process.stderr.write(`decisions: ${o.dir} is not a directory\n`);
+      process.exitCode = 2;
+      return;
+    }
     if (existsSync(o.dir) && readdirSync(o.dir).length > 0) {
       process.stderr.write(
         `decisions: ${o.dir} is not empty; convert writes into an empty directory\n`,

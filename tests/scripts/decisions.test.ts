@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,6 +24,7 @@ import {
   dedent,
   slugify,
   extractRefs,
+  knownRepos,
   convertItem,
   convertBacklog,
   formatConvert,
@@ -64,7 +65,8 @@ const askedFromName = (name: string, text: string) => {
   return m ? text.replace("asked: AUTO", `asked: ${m[1]}T${m[2]}:${m[3]}Z`) : text;
 };
 
-const pd = (name: string, text: string) => parseDecision(name, askedFromName(name, text));
+const pd = (name: string, text: string, now?: number) =>
+  parseDecision(name, askedFromName(name, text), now);
 
 const dirWith = (files: Record<string, string>) => {
   const d = mkdtempSync(join(tmpdir(), "decisions-"));
@@ -567,14 +569,42 @@ describe("convert", () => {
     expect(itemLead(i13.text)).toBe(
       "Google Maps keys (#754) — add referrer and API restrictions to the three keys in GCP, then close the four alerts.",
     );
-    expect(extractRefs(i87.text)).toEqual([
-      "reddoorla/reddoor-maintenance#1190",
-      "reddoorla/roalson-interests#253",
-      "reddoorla/.github#28",
+    const known = new Set([
+      "reddoorla/reddoor-maintenance",
+      "reddoorla/.github",
+      "reddoorla/roalson-interests",
     ]);
-    expect(extractRefs("see #caltex and https://x.io/a#top and item #12")).toEqual([
-      "reddoorla/reddoor-maintenance#12",
-    ]);
+    expect(extractRefs(i87.text, known)).toEqual({
+      refs: ["reddoorla/roalson-interests#253", "reddoorla/.github#28"],
+      dropped: ["#1190"],
+    });
+    expect(extractRefs("see #caltex and https://x.io/a#top and item #12")).toEqual({
+      refs: ["reddoorla/reddoor-maintenance#12"],
+      dropped: [],
+    });
+    expect(extractRefs("#545 and reddoorla/reddoor-maintenance#600")).toEqual({
+      refs: ["reddoorla/reddoor-maintenance#600", "reddoorla/reddoor-maintenance#545"],
+      dropped: [],
+    });
+  });
+
+  it("leaves out a short repo name it cannot place, and a bare #N beside another repo", () => {
+    const od113 =
+      "vida#101 waits; lhy#33 is open, #29 and #30 are closed; `main-gate` (#98); see reddoorla/hedloc#55.";
+    expect(extractRefs(od113)).toEqual({
+      refs: ["reddoorla/hedloc#55"],
+      dropped: ["vida#101", "lhy#33", "#29", "#30", "#98"],
+    });
+    expect(
+      knownRepos("reddoorla/hedloc and someone/else and reddoorla/vida-legacy-foundation."),
+    ).toEqual(
+      new Set([
+        "reddoorla/reddoor-maintenance",
+        "reddoorla/.github",
+        "reddoorla/hedloc",
+        "reddoorla/vida-legacy-foundation",
+      ]),
+    );
     expect(slugify(13, "Google Maps keys (#754)")).toBe("od-13-google-maps-keys-754");
     expect(dedent("a\n    b\n      c\n\n    d")).toBe("a\nb\n  c\n\nd");
   });
@@ -596,12 +626,15 @@ describe("convert", () => {
       status: "open",
       asked: "2026-10-06T01:37:09Z",
       from: "reddoorla/reddoor-maintenance#1199",
-      refs: [
-        "reddoorla/reddoor-maintenance#1190",
-        "reddoorla/roalson-interests#253",
-        "reddoorla/.github#28",
-      ],
+      refs: ["reddoorla/.github#28"],
     });
+    expect(c.droppedRefs).toEqual(["roalson-interests#253", "#1190"]);
+    const self = convertItem(
+      { ...i87, text: `${i87.text}\nSee reddoorla/reddoor-maintenance#1199.` },
+      origin,
+      "b".repeat(40),
+    );
+    expect(pd(self.name!, self.text!).refs).toEqual(["reddoorla/.github#28"]);
     expect(d.ask).toMatch(/^Dead letters wait .* — \(a\) wait two replay cycles/);
     expect(c.text).toContain("\n## Answer\n");
     expect(convertItem(i87, { ...origin, subject: "direct push" }, "b".repeat(40)).error).toMatch(
@@ -658,5 +691,97 @@ describe("convert", () => {
     const r = cli(["convert", d]);
     expect(r.code).toBe(2);
     expect(r.err).toContain("is not empty");
+  });
+});
+
+describe("directory and time edges", () => {
+  it("reports every entry it will not read, instead of skipping it", () => {
+    const d = dirWith({
+      "2026-10-13-1200-good.md": file({}),
+      "2026-10-13-1201-noext": file({}),
+      "2026-10-13-1202-upper.MD": file({}),
+      "_2026-10-13-1204-underscore.md": file({}),
+      ".gitkeep": "",
+    });
+    mkdirSync(join(d, "2026-10-13-1205-sub.md"));
+    const r = cli(["check", d, "--offline"]);
+    expect(r.code).toBe(1);
+    expect(r.out.split("\n")[0]).toBe(
+      "DECISIONS_SUMMARY parsed=1 errors=4 open=1 parked=0 unchecked=0",
+    );
+    for (const n of [
+      "2026-10-13-1201-noext",
+      "2026-10-13-1202-upper.MD",
+      "_2026-10-13-1204-underscore.md",
+      "2026-10-13-1205-sub.md",
+    ])
+      expect(r.out).toContain(`ERROR ${n}: `);
+    expect(r.out).toContain("ERROR 2026-10-13-1205-sub.md: not a regular file");
+  });
+
+  it("names a missing directory in one line", () => {
+    const missing = join(tmpdir(), "decisions-does-not-exist-0f3a");
+    const r = cli(["check", missing, "--offline"]);
+    expect(r.code).toBe(1);
+    expect(r.err).toBe("");
+    expect(r.out).toBe(
+      `DECISIONS_SUMMARY parsed=0 errors=0 open=0 parked=0 unchecked=0\nERROR ${missing}: cannot read the directory (ENOENT)\n`,
+    );
+    const f = join(dirWith({ "x.txt": "" }), "x.txt");
+    const c = cli(["convert", f]);
+    expect(c.code).toBe(2);
+    expect(c.err).toBe(`decisions: ${f} is not a directory\n`);
+  });
+
+  it("rejects an asked time in the future, beyond a little clock skew", () => {
+    expect(pd("2099-01-01-0000-x.md", file({}), NOW).errors).toEqual([
+      "asked is in the future: 2099-01-01T00:00Z",
+    ]);
+    expect(pd("2026-10-13-1205-x.md", file({}), NOW).errors).toEqual([]);
+    expect(pd("2026-10-13-1215-x.md", file({}), NOW).errors).toEqual([
+      "asked is in the future: 2026-10-13T12:15Z",
+    ]);
+  });
+
+  it("rejects a lower-case placeholder and a calendar-invalid --since", () => {
+    expect(pd("2026-10-12-0900-x.md", file({ first: "todo the ask" })).errors).toEqual([
+      "the ask is still the TODO placeholder",
+    ]);
+    expect(() => parseArgs(["list", "d", "--open", "--since", "2026-02-30T00:00Z"])).toThrow(
+      "ISO time",
+    );
+  });
+
+  it("never flags an ask stale on its own from PR, merged a second after the ask", async () => {
+    const d = dirWith({
+      "2026-10-12-1630-a.md": file({
+        asked: "2026-10-12T16:30:35Z",
+        from: "reddoorla/reddoor-maintenance#1301",
+        refs: "[reddoorla/reddoor-maintenance#1301]",
+      }),
+    });
+    const calls: string[] = [];
+    const run: Runner = async (_c, args) => {
+      calls.push(args[1] ?? "");
+      return pr("2026-10-12T16:30:36Z", "2026-10-12T16:30:36Z");
+    };
+    const rep = await decisionsReport({ dir: d }, { now: NOW, run });
+    expect(calls).toEqual([]);
+    expect(formatList(rep, { open: true })).not.toContain("possibly stale");
+  });
+
+  it("prints every answered item with the marker that decided it, and demotes an open half", async () => {
+    const run: Runner = async (_c, args) =>
+      args[0] === "rev-parse" ? ok("c".repeat(40)) : args[0] === "show" ? ok(BACKLOG) : ok("");
+    const c = await convertBacklog({ rev: "x" }, { run });
+    const out = formatConvert(c);
+    expect(out).toContain("- answered item 14  [decided 2026-09-29]");
+    expect(out).toContain("- answered item 88  [**Answered]");
+    expect(
+      classifyItem("63. **Background video (answered 2026-10-01; rollout is the open half)**").kind,
+    ).toBe("ambiguous");
+    expect(
+      classifyItem("23. **Gate** — **Answered 2026-09-30:** vida's call stays open.").kind,
+    ).toBe("ambiguous");
   });
 });

@@ -14,6 +14,8 @@ export const STATUS_MARKERS: RegExp[];
 export const HEAD_MARKERS: RegExp[];
 export const PROSE_MARKERS: RegExp[];
 export const STILL_OPEN: RegExp;
+export const FUTURE_SLACK_MS: number;
+export const IGNORED_ENTRIES: string[];
 
 export interface Options {
   cmd: "check" | "list" | "new" | "convert";
@@ -60,6 +62,7 @@ export interface Report {
   counts: Counts;
   ok: boolean;
   failed: Decision[];
+  dirError?: string;
   decisions: Decision[];
 }
 
@@ -87,6 +90,7 @@ export type Converted =
       error?: undefined;
       ambiguous?: string;
       originsDisagree?: string[];
+      droppedRefs?: string[];
     }
   | {
       n: number;
@@ -97,6 +101,7 @@ export type Converted =
       text?: undefined;
       ambiguous?: string;
       originsDisagree?: string[];
+      droppedRefs?: undefined;
     };
 
 export interface ConvertResult {
@@ -110,8 +115,9 @@ export interface ConvertResult {
 }
 
 export function parseArgs(argv: string[]): Options;
-export function parseDecision(name: string, text: string): Decision;
-export function readDecisionDir(dir: string): Decision[];
+export function calendarValid(v: string): boolean;
+export function parseDecision(name: string, text: string, now?: number): Decision;
+export function readDecisionDir(dir: string, now?: number): Decision[];
 export function refState(ref: string, asked: string, run: Runner): Promise<RefState>;
 export function decisionsReport(
   o: { dir: string; offline?: boolean },
@@ -143,9 +149,18 @@ export function itemAsk(text: string): string | null;
 export function itemLead(text: string): string;
 export function dedent(text: string): string;
 export function slugify(n: number, title: string): string;
-export function extractRefs(text: string): string[];
+export function knownRepos(text: string): Set<string>;
+export function extractRefs(
+  text: string,
+  known?: Set<string>,
+): { refs: string[]; dropped: string[] };
 export function originNeedles(text: string): string[];
-export function convertItem(it: BacklogItem, origin: Origin | null, revSha: string): Converted;
+export function convertItem(
+  it: BacklogItem,
+  origin: Origin | null,
+  revSha: string,
+  known?: Set<string>,
+): Converted;
 export function convertBacklog(
   o: { rev: string },
   deps?: { run?: Runner; cwd?: string },
