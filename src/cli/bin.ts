@@ -896,6 +896,24 @@ cli
 
 cli
   .command(
+    "search-console-recheck",
+    "Re-run the Search Console lookup for maintained sites whose stored outcome is no-property (site_health).",
+  )
+  .option("--fleet", "Re-check every maintained no-property site in the Turso roster.")
+  .option("--write-back", "Write search_console_outcome / _resolved / _checked_at to site_health.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/search-console-recheck.js")).runSearchConsoleRecheckCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
     "db <action>",
     "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
   )
