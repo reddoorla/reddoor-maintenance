@@ -196,6 +196,33 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: node dist/cli/bin.js roster-urls --fleet --write-back
 
+      - name: Re-check Search Console no-property sites to Turso
+        if: ${{ !cancelled() }}
+        # P1-48: only a report draft wrote the #943 lookup, so a no-property
+        # outcome stood until the site's next draft, months for a quarterly
+        # site, after its property was fixed (LAHI's cockpit watch from
+        # 2026-10-05). This re-runs the draft's lookup for each maintained
+        # no-property site, a handful of sites at a few seconds each. It runs
+        # here, before daily-reports drafts and digests, so the digest reads
+        # tonight's answer. A no-property control goes first; if it misreads,
+        # nothing is written and the step fails. continue-on-error for the
+        # same reason as the sweeps above: the job keeps the AUDIT's verdict.
+        # The key is written the way daily-reports writes it: printf, no set -x.
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
+          GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
+          GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
+        run: |
+          if [ -n "$GA_SA_KEY_JSON" ]; then
+            printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
+            chmod 600 "$GA_SA_KEY_PATH"
+          fi
+          node dist/cli/bin.js search-console-recheck --fleet --write-back
+
       # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
       # email to the last pusher. File/reopen a single deduped tracking issue so a
       # failure is durably visible, and auto-close it once the run goes green again.

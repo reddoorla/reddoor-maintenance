@@ -7,6 +7,7 @@ export const ASK_PATTERN: RegExp;
 
 export interface Options {
   repo: string | undefined;
+  backlog: string;
   base: string;
   minAgeHours: number;
   freshHours: number;
@@ -65,6 +66,7 @@ export interface BranchResult extends BranchInput, Classification {
 
 export interface Report {
   repo: string | undefined;
+  backlog: string;
   base: string;
   now: string;
   minAgeHours: number;
