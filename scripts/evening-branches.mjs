@@ -4,16 +4,16 @@ import { realpathSync } from "node:fs";
 import { realRunner, resolveRepo } from "./land-prs.mjs";
 
 export const DECISIONS_HEADING = "## Operator decisions";
-const BACKLOG = "docs/BACKLOG.md";
 const BRANCH_GLOBS = ["claude", "fix"];
 export const ASK_PATTERN = /_Ask:_|\*\*Ask:?\*\*|\bAsk:|_Pick:_|\?\s*$/i;
 
 const USAGE =
-  "usage: node scripts/evening-branches.mjs [--repo owner/repo] [--base main] [--min-age-hours 2] [--fresh-hours 36] [--since-days 7] [--main-since <iso>] [--no-fetch] [--json]";
+  "usage: node scripts/evening-branches.mjs --backlog <path> [--repo owner/repo] [--base main] [--min-age-hours 2] [--fresh-hours 36] [--since-days 7] [--main-since <iso>] [--no-fetch] [--json]";
 
 export function parseArgs(argv) {
   const o = {
     repo: undefined,
+    backlog: undefined,
     base: "main",
     minAgeHours: 2,
     freshHours: 36,
@@ -35,6 +35,7 @@ export function parseArgs(argv) {
       return v;
     };
     if (a === "--repo") o.repo = next();
+    else if (a === "--backlog") o.backlog = next();
     else if (a === "--base") o.base = next();
     else if (a === "--min-age-hours") o.minAgeHours = num();
     else if (a === "--since-days") o.sinceDays = num();
@@ -48,6 +49,8 @@ export function parseArgs(argv) {
     else if (a === "--json") o.json = true;
     else throw new Error(`unknown argument: ${a}`);
   }
+  if (!o.backlog)
+    throw new Error("--backlog <path> is required: the backlog file, relative to the repo root");
   return o;
 }
 
@@ -155,6 +158,8 @@ async function prsFor(ctx, branch) {
 }
 
 export async function eveningBranches(o, deps = {}) {
+  if (!o.backlog) throw new Error("eveningBranches needs o.backlog: the backlog path");
+  const backlog = o.backlog;
   const ctx = {
     run: deps.run ?? realRunner,
     cwd: deps.cwd,
@@ -182,7 +187,7 @@ export async function eveningBranches(o, deps = {}) {
     });
   const horizon = ctx.now / 1000 - o.sinceDays * 86_400;
   const recent = refs.filter((r) => r.tipTime >= horizon);
-  const mainBacklog = await gitOut(ctx, ["show", `${remoteBase}:${BACKLOG}`]);
+  const mainBacklog = await gitOut(ctx, ["show", `${remoteBase}:${backlog}`]);
   const results = [];
   for (const r of recent) {
     const prs = await prsFor(ctx, r.branch);
@@ -198,9 +203,9 @@ export async function eveningBranches(o, deps = {}) {
     const ahead = cherry.split("\n").filter((l) => l.startsWith("+")).length;
     let decisions = { onlyOnBranch: [], alreadyOnMain: [] };
     if (ahead > 0) {
-      const diff = await gitOut(ctx, ["diff", "-U0", `${base}...${r.ref}`, "--", BACKLOG]);
+      const diff = await gitOut(ctx, ["diff", "-U0", `${base}...${r.ref}`, "--", backlog]);
       if (diff.trim()) {
-        const shown = await git(ctx, ["show", `${r.ref}:${BACKLOG}`]);
+        const shown = await git(ctx, ["show", `${r.ref}:${backlog}`]);
         if (shown.code === 0) decisions = decisionLines(shown.stdout, diff, mainBacklog);
       }
     }
@@ -223,8 +228,8 @@ export async function eveningBranches(o, deps = {}) {
     ).trim();
     if (!rev) throw new Error(`--main-since ${o.mainSince}: ${remoteBase} has no commit before it`);
     {
-      const diff = await gitOut(ctx, ["diff", "-U0", `${rev}..${remoteBase}`, "--", BACKLOG]);
-      const before = await gitOut(ctx, ["show", `${rev}:${BACKLOG}`]);
+      const diff = await gitOut(ctx, ["diff", "-U0", `${rev}..${remoteBase}`, "--", backlog]);
+      const before = await gitOut(ctx, ["show", `${rev}:${backlog}`]);
       mainDecisions = {
         since: o.mainSince,
         rev,
@@ -234,6 +239,7 @@ export async function eveningBranches(o, deps = {}) {
   }
   return {
     repo: o.repo,
+    backlog: o.backlog,
     base: o.base,
     now: new Date(ctx.now).toISOString(),
     minAgeHours: o.minAgeHours,
