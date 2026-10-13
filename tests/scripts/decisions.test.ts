@@ -24,6 +24,7 @@ import {
   dedent,
   slugify,
   extractRefs,
+  stripComments,
   knownRepos,
   convertItem,
   convertBacklog,
@@ -828,9 +829,10 @@ describe("round 3 edges", () => {
     ]);
     expect(
       pd("2026-10-12-0900-x.md", file({ first: "<!-- write the ask here -->" })).errors,
-    ).toEqual(["the first line is only a comment, not the ask"]);
+    ).toEqual(["missing first line: the ask"]);
     expect(pd("2026-10-12-0900-x.md", file({ first: "<!-- write the ask" })).errors).toEqual([
-      "the first line is only a comment, not the ask",
+      "a comment opens and never closes",
+      "missing first line: the ask",
     ]);
     expect(pd("2026-10-12-0900-x.md", file({ status: "answered", answer: "" })).errors).toEqual([
       "status is answered but ## Answer is empty",
@@ -880,5 +882,89 @@ describe("round 3 edges", () => {
     expect(r.code).toBe(1);
     expect(r.err).toMatch(/^decisions: git rev-parse no-such-rev-xyz failed: /);
     expect(r.err).not.toContain("    at ");
+    expect(r.err.trim().split("\n")).toHaveLength(1);
+  });
+});
+
+describe("round 4 edges", () => {
+  it("reads the ask past comments, wherever they open and close", () => {
+    expect(
+      pd("2026-10-12-0900-x.md", file({ first: "<!-- note --> Merge #12 now? <!-- x -->" })).ask,
+    ).toBe("Merge #12 now?");
+    expect(
+      pd("2026-10-12-0900-x.md", file({ first: "<!--\nwrite the ask here\n-->\nMerge #12 now?" }))
+        .ask,
+    ).toBe("Merge #12 now?");
+    expect(stripComments("a<!-- x\ny -->b")).toEqual({ text: "a\nb", unclosed: false });
+    expect(stripComments("a <!-- x")).toEqual({ text: "a ", unclosed: true });
+  });
+
+  it("counts a comment or a sub-heading under ## Answer as no answer", () => {
+    for (const answer of ["<!-- operator fills this in -->", "### sub"])
+      expect(pd("2026-10-12-0900-x.md", file({ status: "answered", answer })).errors).toEqual([
+        "status is answered but ## Answer is empty",
+      ]);
+  });
+
+  it("rejects a quoted or bold TODO", () => {
+    for (const first of ["> TODO the ask", "**TODO** the ask", "_TODO_ the ask"])
+      expect(pd("2026-10-12-0900-x.md", file({ first })).errors).toEqual([
+        "the ask is still the TODO placeholder",
+      ]);
+  });
+
+  it("keeps a full owner/repo#N ref whatever the owner, and dedupes refs", () => {
+    expect(extractRefs("see tucksravin/invitations#7").refs).toEqual(["tucksravin/invitations#7"]);
+    expect(pd("2026-10-12-0900-x.md", file({ refs: "[a/b#1, a/b#1]" })).refs).toEqual(["a/b#1"]);
+  });
+
+  it("does not flag a ref merged at the very time of the ask", async () => {
+    const run = fakeGh({
+      "repos/a/b/issues/1": pr("2026-10-12T09:00:00Z", "2026-10-12T09:00:00Z"),
+    });
+    expect((await refState("a/b#1", "2026-10-12T09:00Z", run)).kind).toBe("ok");
+  });
+
+  it("names each UNCHECKED ref in check's output when it looked them up", async () => {
+    const d = dirWith({ "2026-10-12-0900-a.md": file({ refs: "[reddoorla/private-site#7]" }) });
+    const rep = await decisionsReport({ dir: d }, { now: NOW, run: fakeGh({}) });
+    expect(formatCheck(rep)).toBe(
+      "DECISIONS_SUMMARY parsed=1 errors=0 open=1 parked=0 unchecked=1\nUNCHECKED reddoorla/private-site#7 in 2026-10-12-0900-a.md: gh: Not Found (HTTP 404)\n",
+    );
+    const off = await decisionsReport({ dir: d, offline: true }, { now: NOW });
+    expect(formatCheck(off)).toBe(
+      "DECISIONS_SUMMARY parsed=1 errors=0 open=1 parked=0 unchecked=1\n",
+    );
+  });
+
+  it("keeps each flag to the command it belongs to", () => {
+    expect(() => parseArgs(["check", "d", "--from", "a/b#1"])).toThrow("--from belongs to new");
+    expect(() => parseArgs(["list", "d", "--open", "--rev", "x"])).toThrow(
+      "--rev belongs to convert",
+    );
+    expect(() => parseArgs(["new", "d", "x", "--offline"])).toThrow(
+      "--offline belongs to check and list",
+    );
+  });
+
+  it("reports a new file it cannot write in one line", () => {
+    const f = join(dirWith({ "x.txt": "" }), "x.txt");
+    const env = { ...process.env, CLAUDE_CODE_REMOTE_SESSION_ID: "cse_01XYZ" };
+    const r = spawnSync(process.execPath, [SCRIPT, "new", join(f, "sub"), "an-ask"], {
+      encoding: "utf-8",
+      env,
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/^decisions: cannot write .* \((ENOTDIR|EEXIST)\)\n$/);
+  });
+
+  it("runs git in its own repository, whatever the cwd", () => {
+    const out = join(tmpdir(), `decisions-cwd-${process.pid}`);
+    const r = spawnSync(process.execPath, [SCRIPT, "convert", out, "--rev", "HEAD"], {
+      encoding: "utf-8",
+      cwd: tmpdir(),
+    });
+    expect(r.stderr).not.toContain("not a git repository");
+    expect(r.stdout).toMatch(/^CONVERT_SUMMARY rev=[0-9a-f]{8} items=\d+/);
   });
 });

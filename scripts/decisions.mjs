@@ -91,9 +91,28 @@ export function parseArgs(argv) {
     throw new Error("list needs exactly one of --open or --parked");
   if (o.cmd !== "list" && (o.open || o.parked || o.since))
     throw new Error("--open, --parked and --since belong to list");
+  if (o.from !== undefined && o.cmd !== "new") throw new Error("--from belongs to new");
+  if (o.rev !== "origin/main" && o.cmd !== "convert") throw new Error("--rev belongs to convert");
+  if (o.offline && !["check", "list"].includes(o.cmd))
+    throw new Error("--offline belongs to check and list");
   if (o.from !== undefined && !REF_PATTERN.test(o.from))
     throw new Error("--from needs owner/repo#N");
   return o;
+}
+
+export function stripComments(text) {
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const open = text.indexOf("<!--", i);
+    if (open === -1) return { text: out + text.slice(i), unclosed: false };
+    out += text.slice(i, open);
+    const end = text.indexOf("-->", open + 4);
+    if (end === -1) return { text: out, unclosed: true };
+    const inner = text.slice(open, end + 3);
+    out += "\n".repeat(inner.split("\n").length - 1);
+    i = end + 3;
+  }
 }
 
 export function parseDecision(name, text, now = Date.now()) {
@@ -171,20 +190,22 @@ export function parseDecision(name, text, now = Date.now()) {
     if (named !== d.asked.slice(0, 16))
       errors.push(`file name time ${named}Z does not match asked ${d.asked}`);
   }
-  const first = lines.slice(close + 1).find((l) => l.trim() !== "");
+  const { text: visible, unclosed } = stripComments(lines.slice(close + 1).join("\n"));
+  const body = visible.split("\n");
+  if (unclosed) errors.push("a comment opens and never closes");
+  const first = body.find((l) => l.trim() !== "");
   if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
     errors.push("missing first line: the ask");
-  else if (/^(?:[-*+]\s+|\d+\.\s+)?TODO\b/i.test(first.trim()))
+  else if (/^(?:[-*+>_\s]|\d+\.\s)*TODO(?![A-Za-z0-9])/i.test(first.trim()))
     errors.push("the ask is still the TODO placeholder");
-  else if (first.trim().startsWith("<!--"))
-    errors.push("the first line is only a comment, not the ask");
   else d.ask = first.trim();
   if (d.status === "answered") {
-    const body = lines.slice(close + 1);
     const at = body.findIndex((l) => /^##\s+Answer\s*$/.test(l));
     const rest = at === -1 ? [] : body.slice(at + 1);
     const stop = rest.findIndex((l) => /^#{1,2}\s/.test(l));
-    const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter((l) => l.trim() !== "");
+    const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter(
+      (l) => l.trim() !== "" && !/^#{1,6}(\s|$)/.test(l.trim()),
+    );
     if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
   }
   return d;
@@ -298,7 +319,12 @@ function failureLines(rep) {
 }
 
 export function formatCheck(rep) {
-  return [summaryLine(rep.counts), ...failureLines(rep)].join("\n") + "\n";
+  const out = [summaryLine(rep.counts), ...failureLines(rep)];
+  for (const d of rep.decisions)
+    for (const s of d.refStates ?? [])
+      if (s.kind === "unchecked" && s.why !== "--offline")
+        out.push(`UNCHECKED ${s.ref} in ${d.file}: ${s.why}`);
+  return out.join("\n") + "\n";
 }
 
 export function formatList(rep, o) {
@@ -500,7 +526,7 @@ export function extractRefs(text, known = knownRepos(text)) {
     }
     const repo = m[1].includes("/") ? m[1] : `${DEFAULT_OWNER}/${m[1]}`;
     const ref = `${repo}#${m[2]}`;
-    if (REF_PATTERN.test(ref) && known.has(repo)) named.push(ref);
+    if (REF_PATTERN.test(ref) && (m[1].includes("/") || known.has(repo))) named.push(ref);
     else dropped.push(`${m[1]}#${m[2]}`);
   }
   const elsewhere = named.some((r) => !r.startsWith(`${HOME_REPO}#`)) || dropped.length > 0;
@@ -566,7 +592,8 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function gitOut(run, cwd = REPO_ROOT, args) {
   const r = await run("git", args, { cwd, timeoutMs: 120_000 });
-  if (r.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim()}`);
+  if (r.code !== 0)
+    throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim().split("\n")[0]}`);
   return r.stdout;
 }
 
