@@ -4542,6 +4542,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       Google errors keeps its watch for one more night. (b) **Write
       `soft-fail` as a draft does.** It is closer to the brief, but transient
       errors silently drop real watches until the site's next draft.
+      **Answered 2026-10-13 (AskUserQuestion): (a), write nothing on a
+      soft-fail. #1346 lands as built.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
