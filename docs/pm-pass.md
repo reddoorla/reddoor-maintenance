@@ -143,7 +143,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    stop-condition questions there as well as asking (`CLAUDE.md` → "Worker
    sessions ask a blocking question once, with all its context"), so each new line goes into the morning
    report's top of stack with the branch or PR it names. Then run
-   `node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance`
+   `node scripts/evening-branches.mjs --repo reddoorla/reddoor-maintenance --backlog docs/BACKLOG.md`
    and lift every ask it finds only on a branch, in the same way. A worker
    that writes its ask only on its own branch is invisible to a read of
    `main` (#1143, 2026-10-05). It fetches every `claude/*` and `fix/*` branch
