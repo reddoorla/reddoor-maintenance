@@ -4558,6 +4558,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         staged home-base loop, the new Routine prompt and the cutover runbook
         (`session_01BCi5djFrhW63uGS7MiwmXP`), and W4 the 200-line home-base
         `CLAUDE.md` with the rule map (`session_011UosmWgyEfHF9TducWdwNa`).
+        **Follow-up answers 2026-10-13 ~17:45Z (AskUserQuestion), once the
+        four workers had finished:** (a) W1 measured, locally with headless
+        `claude -p`, that a deny list in the user-level
+        `~/.claude/settings.json` applies with two repos under the cwd and
+        stacks with the repo's own file (workspace `e743c37`). The
+        setup-script block goes into the environment **in the 10-23 window**,
+        not before, and is followed there by the five-step live check
+        (runbook step 5a, workspace `fd57bc4`). (b) a0 and a1 are **dropped**:
+        they were archived without their after-attach turns, so this
+        replaces answer (4) above. (c) W4's four keep-or-drop rows are
+        **accepted as picked** (workspace `cutover/claude-md`, `15e4a70`).
+        Your steps before 10-23: add the `RESEND_API_KEY` secret and the
+        `OPERATOR_EMAIL` variable to reddoor-workspace's Actions, and read the
+        staged `CLAUDE.md`. In the window: paste the setup block, then change
+        the Routine's repository and prompt.
 
 122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
       `no-property` or write `soft-fail`?** The brief said the nightly re-check
