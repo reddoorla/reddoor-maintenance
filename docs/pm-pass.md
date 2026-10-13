@@ -52,7 +52,7 @@ The prompt lives here so it can be changed by PR, like everything else.
    `schedule`, which starts them about 3.5–9 h after their cron minute. List anything
    pending by name; do not wait for it.
 8. **No "safe to archive" line.** `CLAUDE.md`'s closing line ("Safe to
-   archive this session." or "Not yet safe to archive: …") does not apply
+   archive this session. …" or "Not yet safe to archive: …") does not apply
    to a Routine session, nor to its cockpit replies for the rest of the day
    (the operator, 2026-10-06). Each fire is a fresh
    session, and the operator does not archive on it.
