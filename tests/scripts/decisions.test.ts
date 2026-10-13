@@ -829,6 +829,9 @@ describe("round 3 edges", () => {
     expect(
       pd("2026-10-12-0900-x.md", file({ first: "<!-- write the ask here -->" })).errors,
     ).toEqual(["the first line is only a comment, not the ask"]);
+    expect(pd("2026-10-12-0900-x.md", file({ first: "<!-- write the ask" })).errors).toEqual([
+      "the first line is only a comment, not the ask",
+    ]);
     expect(pd("2026-10-12-0900-x.md", file({ status: "answered", answer: "" })).errors).toEqual([
       "status is answered but ## Answer is empty",
     ]);
