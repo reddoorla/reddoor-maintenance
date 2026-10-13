@@ -1,0 +1,585 @@
+#!/usr/bin/env node
+import { fileURLToPath } from "node:url";
+import {
+  realpathSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
+import { join } from "node:path";
+import { realRunner } from "./land-prs.mjs";
+
+export const STATUSES = ["open", "answered", "parked", "withdrawn"];
+export const FIELDS = ["status", "asked", "from", "refs"];
+export const NAME_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
+export const ASKED_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/;
+export const SESSION_URL = /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/;
+export const REF_PATTERN = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(\d+)$/;
+export const DEFAULT_OWNER = "reddoorla";
+export const HOME_REPO = "reddoorla/reddoor-maintenance";
+const BACKLOG = "docs/BACKLOG.md";
+const DECISIONS_HEADING = "## Operator decisions";
+
+const USAGE = [
+  "usage: node scripts/decisions.mjs check <dir> [--offline] [--json]",
+  "       node scripts/decisions.mjs list <dir> (--open | --parked) [--since <iso>] [--offline] [--json]",
+  "       node scripts/decisions.mjs new <dir> <slug> [--from owner/repo#N]",
+  "       node scripts/decisions.mjs convert <outdir> [--rev origin/main]",
+].join("\n");
+
+export function parseArgs(argv) {
+  const o = {
+    cmd: argv[0],
+    dir: undefined,
+    slug: undefined,
+    open: false,
+    parked: false,
+    since: undefined,
+    offline: false,
+    json: false,
+    from: undefined,
+    rev: "origin/main",
+  };
+  if (!["check", "list", "new", "convert"].includes(o.cmd)) throw new Error("needs a command");
+  const pos = [];
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    const next = () => {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
+      return v;
+    };
+    if (a === "--open") o.open = true;
+    else if (a === "--parked") o.parked = true;
+    else if (a === "--offline") o.offline = true;
+    else if (a === "--json") o.json = true;
+    else if (a === "--from") o.from = next();
+    else if (a === "--rev") o.rev = next();
+    else if (a === "--since") {
+      const v = next();
+      if (Number.isNaN(Date.parse(v)) || !/(Z|[+-]\d\d:?\d\d)$/.test(v))
+        throw new Error(`${a} needs an ISO time with Z or an offset`);
+      o.since = v;
+    } else if (a.startsWith("--")) throw new Error(`unknown argument: ${a}`);
+    else pos.push(a);
+  }
+  const want = o.cmd === "new" ? 2 : 1;
+  if (pos.length !== want) throw new Error(`${o.cmd} takes ${want} positional argument(s)`);
+  [o.dir, o.slug] = pos;
+  if (o.cmd === "list" && o.open === o.parked)
+    throw new Error("list needs exactly one of --open or --parked");
+  if (o.cmd !== "list" && (o.open || o.parked || o.since))
+    throw new Error("--open, --parked and --since belong to list");
+  if (o.from !== undefined && !REF_PATTERN.test(o.from))
+    throw new Error("--from needs owner/repo#N");
+  return o;
+}
+
+export function parseDecision(name, text) {
+  const errors = [];
+  const d = {
+    file: name,
+    slug: undefined,
+    status: undefined,
+    asked: undefined,
+    from: undefined,
+    refs: [],
+    ask: undefined,
+    errors,
+  };
+  const nm = NAME_PATTERN.exec(name);
+  if (!nm) errors.push("file name is not <YYYY-MM-DD-HHMM>-<slug>.md");
+  else d.slug = nm[6];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  if (lines[0] !== "---") {
+    errors.push("no front matter: the first line is not ---");
+    return d;
+  }
+  const close = lines.indexOf("---", 1);
+  if (close === -1) {
+    errors.push("front matter is not closed with ---");
+    return d;
+  }
+  const seen = new Set();
+  for (const raw of lines.slice(1, close)) {
+    if (raw.trim() === "") continue;
+    const m = /^([a-z]+):\s*(.*?)\s*$/.exec(raw);
+    if (!m) {
+      errors.push(`front matter line is not "key: value": ${raw}`);
+      continue;
+    }
+    const [, key, value] = m;
+    if (!FIELDS.includes(key)) {
+      errors.push(`unknown front matter field: ${key}`);
+      continue;
+    }
+    if (seen.has(key)) {
+      errors.push(`front matter field given twice: ${key}`);
+      continue;
+    }
+    seen.add(key);
+    if (key === "status") {
+      if (!STATUSES.includes(value)) errors.push(`unknown status: ${value || "(empty)"}`);
+      else d.status = value;
+    } else if (key === "asked") {
+      if (!ASKED_PATTERN.test(value) || Number.isNaN(Date.parse(value)))
+        errors.push(`asked is not a UTC time like 2026-10-13T13:51Z: ${value || "(empty)"}`);
+      else d.asked = value;
+    } else if (key === "from") {
+      if (!SESSION_URL.test(value) && !REF_PATTERN.test(value))
+        errors.push(`from is neither a session URL nor owner/repo#N: ${value || "(empty)"}`);
+      else d.from = value;
+    } else if (key === "refs") {
+      const lm = /^\[(.*)\]$/.exec(value);
+      if (!lm) {
+        errors.push(`refs is not a [list]: ${value || "(empty)"}`);
+        continue;
+      }
+      const items = lm[1].trim() === "" ? [] : lm[1].split(",").map((s) => s.trim());
+      for (const r of items) {
+        if (!REF_PATTERN.test(r)) errors.push(`ref is not owner/repo#N: ${r || "(empty)"}`);
+        else if (!d.refs.includes(r)) d.refs.push(r);
+      }
+    }
+  }
+  for (const f of FIELDS) if (!seen.has(f)) errors.push(`missing front matter field: ${f}`);
+  const first = lines.slice(close + 1).find((l) => l.trim() !== "");
+  if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
+    errors.push("missing first line: the ask");
+  else d.ask = first.trim();
+  return d;
+}
+
+export function readDecisionDir(dir) {
+  const names = readdirSync(dir)
+    .filter((n) => n.endsWith(".md") && !n.startsWith("_") && n !== "README.md")
+    .sort();
+  return names.map((n) => parseDecision(n, readFileSync(join(dir, n), "utf-8")));
+}
+
+export async function refState(ref, asked, run) {
+  const m = REF_PATTERN.exec(ref);
+  const path = `repos/${m[1]}/${m[2]}/issues/${m[3]}`;
+  let r;
+  try {
+    r = await run("gh", ["api", path], { timeoutMs: 60_000 });
+  } catch (e) {
+    return { ref, kind: "unchecked", why: String(e?.message ?? e) };
+  }
+  if (r.code !== 0)
+    return {
+      ref,
+      kind: "unchecked",
+      why: (r.stderr || r.stdout || `exit ${r.code}`).trim().split("\n")[0],
+    };
+  let j;
+  try {
+    j = JSON.parse(r.stdout);
+  } catch {
+    return { ref, kind: "unchecked", why: "gh api returned something that is not JSON" };
+  }
+  if (!j.pull_request) return { ref, kind: "issue" };
+  const merged = j.pull_request.merged_at ?? null;
+  const at = merged ?? j.closed_at ?? null;
+  if (at && Date.parse(at) > Date.parse(asked))
+    return { ref, kind: "stale", event: merged ? "merged" : "closed", at };
+  return { ref, kind: "ok" };
+}
+
+export async function decisionsReport(o, deps = {}) {
+  const run = deps.run ?? realRunner;
+  const now = deps.now ?? Date.now();
+  const all = deps.decisions ?? readDecisionDir(o.dir);
+  const good = all.filter((d) => d.errors.length === 0);
+  for (const d of good) {
+    d.ageHours = (now - Date.parse(d.asked)) / 3_600_000;
+    d.refStates = [];
+    if (d.status !== "open") continue;
+    for (const ref of d.refs)
+      d.refStates.push(
+        o.offline
+          ? { ref, kind: "unchecked", why: "--offline" }
+          : await refState(ref, d.asked, run),
+      );
+  }
+  const byAsked = (a, b) =>
+    Date.parse(a.asked) - Date.parse(b.asked) || a.file.localeCompare(b.file);
+  const counts = {
+    parsed: good.length,
+    errors: all.length - good.length,
+    open: good.filter((d) => d.status === "open").length,
+    parked: good.filter((d) => d.status === "parked").length,
+    unchecked: good.reduce(
+      (n, d) => n + d.refStates.filter((s) => s.kind === "unchecked").length,
+      0,
+    ),
+  };
+  return {
+    dir: o.dir,
+    now: new Date(now).toISOString(),
+    counts,
+    ok: counts.errors === 0 && counts.parsed > 0,
+    failed: all.filter((d) => d.errors.length > 0),
+    decisions: good.sort(byAsked),
+  };
+}
+
+export function selectListed(rep, o) {
+  const want = o.open ? "open" : "parked";
+  return rep.decisions.filter(
+    (d) => d.status === want && (!o.since || Date.parse(d.asked) >= Date.parse(o.since)),
+  );
+}
+
+export function summaryLine(c) {
+  return `DECISIONS_SUMMARY parsed=${c.parsed} errors=${c.errors} open=${c.open} parked=${c.parked} unchecked=${c.unchecked}`;
+}
+
+function failureLines(rep) {
+  const out = [];
+  if (rep.counts.parsed === 0) out.push(`ERROR ${rep.dir}: no decision file parsed`);
+  for (const d of rep.failed) for (const e of d.errors) out.push(`ERROR ${d.file}: ${e}`);
+  return out;
+}
+
+export function formatCheck(rep) {
+  return [summaryLine(rep.counts), ...failureLines(rep)].join("\n") + "\n";
+}
+
+export function formatList(rep, o) {
+  const listed = selectListed(rep, o);
+  const out = [summaryLine(rep.counts), ...failureLines(rep)];
+  out.push(
+    `${listed.length} ${o.open ? "open" : "parked"}${o.since ? ` asked since ${o.since}` : ""}, oldest first`,
+  );
+  for (const d of listed) {
+    out.push(`- ${d.ageHours.toFixed(1)} h  ${d.file.replace(/\.md$/, "")}  ${d.ask}  (${d.from})`);
+    for (const s of d.refStates) {
+      if (s.kind === "stale")
+        out.push(`    possibly stale: ${s.ref} ${s.event} ${s.at}, after it was asked`);
+      else if (s.kind === "unchecked") out.push(`    UNCHECKED ${s.ref}: ${s.why}`);
+    }
+  }
+  return out.join("\n") + "\n";
+}
+
+export function sessionUrl(id) {
+  const m = /^cse_([A-Za-z0-9]+)$/.exec(id ?? "") ?? /^session_([A-Za-z0-9]+)$/.exec(id ?? "");
+  return m ? `https://claude.ai/code/session_${m[1]}` : undefined;
+}
+
+export function stamp(ms) {
+  const iso = new Date(ms).toISOString();
+  return {
+    asked: `${iso.slice(0, 16)}Z`,
+    prefix: `${iso.slice(0, 10)}-${iso.slice(11, 13)}${iso.slice(14, 16)}`,
+  };
+}
+
+export function newDecision({ slug, from, now }) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+    throw new Error(`slug must be lowercase words joined by -: ${slug}`);
+  const { asked, prefix } = stamp(now);
+  const text = [
+    "---",
+    "status: open",
+    `asked: ${asked}`,
+    `from: ${from}`,
+    "refs: []",
+    "---",
+    "",
+    "TODO the ask, in one line.",
+    "",
+    "## Options",
+    "",
+    "## Pick",
+    "",
+    "## Answer",
+    "",
+  ].join("\n");
+  return { name: `${prefix}-${slug}.md`, text };
+}
+
+export function backlogItems(text) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((l) => l.startsWith(DECISIONS_HEADING));
+  if (start === -1) return [];
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++)
+    if (/^## /.test(lines[i])) {
+      end = i;
+      break;
+    }
+  const items = [];
+  let cur = null;
+  for (let i = start + 1; i < end; i++) {
+    const m = /^(\d+)\.\s+(.*)$/.exec(lines[i]);
+    if (m) {
+      cur = { n: Number(m[1]), line: i + 1, head: m[2], body: [lines[i]] };
+      items.push(cur);
+    } else if (cur) cur.body.push(lines[i]);
+  }
+  for (const it of items) {
+    while (it.body.length && it.body[it.body.length - 1].trim() === "") it.body.pop();
+    it.text = it.body.join("\n");
+  }
+  return items;
+}
+
+export const ANSWER_MARKERS = [
+  /\*\*Answered\b/,
+  /\banswered\b/i,
+  /\bdecided 20\d\d-/i,
+  /\*\*Done\b/,
+  /\bdone[:\s—-]/i,
+  /\bsettled 20\d\d/i,
+  /\bwithdrawn\b/i,
+  /\bnot an ask\b/i,
+  /\bmerged by the operator\b/i,
+];
+
+export function answerMarker(text) {
+  const r = ANSWER_MARKERS.find((re) => re.test(text));
+  return r ? r.exec(text)[0] : null;
+}
+
+export function itemTitle(text) {
+  const body = text.replace(/^\d+\.\s+/, "");
+  const m = /^\*\*([\s\S]+?)\*\*/.exec(body);
+  const t = m ? m[1] : body.split("\n")[0];
+  return t.replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
+}
+
+export function itemAsk(text) {
+  const lines = text.split("\n");
+  const i = lines.findIndex((l) => /^\s*(?:-\s*)?_Ask:_/.test(l));
+  if (i === -1) return null;
+  const parts = [lines[i].replace(/^\s*(?:-\s*)?_Ask:_\s*/, "")];
+  for (let j = i + 1; j < lines.length; j++) {
+    const l = lines[j];
+    if (l.trim() === "" || /^\s*-\s/.test(l)) break;
+    parts.push(l.trim());
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+export function itemLead(text) {
+  const para = [];
+  for (const l of text.split("\n")) {
+    if (para.length && (l.trim() === "" || /^\s*-\s/.test(l))) break;
+    para.push(l.trim());
+  }
+  const flat = para
+    .join(" ")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const cut = /^(.{20,}?[.?])(\s|$)/.exec(flat);
+  const lead = cut ? cut[1] : flat;
+  return lead.length > 240 ? `${lead.slice(0, 239)}…` : lead;
+}
+
+export function dedent(text) {
+  const [head, ...rest] = text.split("\n");
+  const pads = rest.filter((l) => l.trim()).map((l) => /^ */.exec(l)[0].length);
+  const k = pads.length ? Math.min(...pads) : 0;
+  return [head, ...rest.map((l) => l.slice(Math.min(k, /^ */.exec(l)[0].length)))].join("\n");
+}
+
+export function slugify(n, title) {
+  const words = title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  let s = `od-${n}`;
+  for (const w of words) {
+    if (s.length + w.length + 1 > 60) break;
+    s += `-${w}`;
+  }
+  return s;
+}
+
+export function extractRefs(text) {
+  const out = [];
+  const re = /(?:^|[^\w/.#-])((?:[A-Za-z0-9_.-]+\/)?[A-Za-z0-9_.-]+)?#(\d+)\b/g;
+  for (const m of text.matchAll(re)) {
+    let repo = m[1];
+    if (repo === undefined) repo = HOME_REPO;
+    else if (!repo.includes("/")) repo = `${DEFAULT_OWNER}/${repo}`;
+    const ref = `${repo}#${m[2]}`;
+    if (REF_PATTERN.test(ref) && !out.includes(ref)) out.push(ref);
+  }
+  return out;
+}
+
+export function originNeedle(head) {
+  return head.slice(0, 60);
+}
+
+export function convertItem(it, origin, revSha) {
+  const title = itemTitle(it.text);
+  const askLine = itemAsk(it.text);
+  const ask = askLine ? `${title} — ${askLine}` : itemLead(it.text);
+  const pr = origin && /\(#(\d+)\)\s*$/.exec(origin.subject);
+  if (!origin)
+    return {
+      n: it.n,
+      line: it.line,
+      title,
+      error: "no commit on the rev adds this item's first line",
+    };
+  if (!pr)
+    return {
+      n: it.n,
+      line: it.line,
+      title,
+      error: `the commit that added it names no PR: ${origin.sha.slice(0, 8)} ${origin.subject}`,
+    };
+  const { asked, prefix } = stamp(origin.time * 1000);
+  const name = `${prefix}-${slugify(it.n, title)}.md`;
+  const text = [
+    "---",
+    "status: open",
+    `asked: ${asked}`,
+    `from: ${HOME_REPO}#${pr[1]}`,
+    `refs: [${extractRefs(it.text).join(", ")}]`,
+    "---",
+    "",
+    ask,
+    "",
+    `Converted from ${HOME_REPO}@${revSha.slice(0, 8)}:${BACKLOG}, Operator decisions item ${it.n} (line ${it.line}), as it stood:`,
+    "",
+    dedent(it.text.replace(/^\d+\.\s+/, "")),
+    "",
+    "## Answer",
+    "",
+  ].join("\n");
+  return { n: it.n, line: it.line, title, name, text };
+}
+
+async function gitOut(run, cwd, args) {
+  const r = await run("git", args, { cwd, timeoutMs: 120_000 });
+  if (r.code !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim()}`);
+  return r.stdout;
+}
+
+export async function convertBacklog(o, deps = {}) {
+  const run = deps.run ?? realRunner;
+  const cwd = deps.cwd;
+  const revSha = (await gitOut(run, cwd, ["rev-parse", o.rev])).trim();
+  const text = await gitOut(run, cwd, ["show", `${revSha}:${BACKLOG}`]);
+  const items = backlogItems(text);
+  const answered = [];
+  const converted = [];
+  const unparsed = [];
+  for (const it of items) {
+    const marker = answerMarker(it.text);
+    if (marker) {
+      answered.push({ n: it.n, marker });
+      continue;
+    }
+    const log = await gitOut(run, cwd, [
+      "log",
+      "--reverse",
+      "--format=%H%x09%ct%x09%s",
+      "-S",
+      originNeedle(it.head),
+      revSha,
+      "--",
+      BACKLOG,
+    ]);
+    const first = log.split("\n").find(Boolean);
+    let origin = null;
+    if (first) {
+      const [sha, time, ...rest] = first.split("\t");
+      origin = { sha, time: Number(time), subject: rest.join("\t") };
+    }
+    const c = convertItem(it, origin, revSha);
+    (c.error ? unparsed : converted).push(c);
+  }
+  const names = new Set();
+  for (const c of converted) {
+    let name = c.name;
+    for (let k = 2; names.has(name); k++) name = c.name.replace(/\.md$/, `-${k}.md`);
+    c.name = name;
+    names.add(name);
+  }
+  return { rev: o.rev, revSha, items: items.length, answered, converted, unparsed };
+}
+
+export function formatConvert(c) {
+  const out = [
+    `CONVERT_SUMMARY rev=${c.revSha.slice(0, 8)} items=${c.items} answered=${c.answered.length} open=${c.converted.length + c.unparsed.length} written=${c.converted.length} unparsed=${c.unparsed.length}`,
+  ];
+  for (const x of c.converted) out.push(`- item ${x.n} → ${x.name}`);
+  for (const x of c.unparsed)
+    out.push(`UNPARSED item ${x.n} (line ${x.line}, ${x.title}): ${x.error}`);
+  return out.join("\n") + "\n";
+}
+
+async function main() {
+  let o;
+  try {
+    o = parseArgs(process.argv.slice(2));
+  } catch (e) {
+    process.stderr.write(`decisions: ${e.message}\n${USAGE}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  if (o.cmd === "new") {
+    const from = o.from ?? sessionUrl(process.env.CLAUDE_CODE_REMOTE_SESSION_ID);
+    if (!from) {
+      process.stderr.write(
+        "decisions: CLAUDE_CODE_REMOTE_SESSION_ID is unset; pass --from owner/repo#N\n",
+      );
+      process.exitCode = 2;
+      return;
+    }
+    const d = newDecision({ slug: o.slug, from, now: Date.now() });
+    const path = join(o.dir, d.name);
+    if (existsSync(path)) throw new Error(`${path} already exists`);
+    mkdirSync(o.dir, { recursive: true });
+    writeFileSync(path, d.text);
+    process.stdout.write(`${path}\n`);
+    return;
+  }
+  if (o.cmd === "convert") {
+    const c = await convertBacklog(o);
+    mkdirSync(o.dir, { recursive: true });
+    for (const x of c.converted) writeFileSync(join(o.dir, x.name), x.text);
+    process.stdout.write(formatConvert(c));
+    const rep = await decisionsReport({ dir: o.dir, offline: true });
+    process.stdout.write(formatCheck(rep));
+    if (!rep.ok) process.exitCode = 1;
+    return;
+  }
+  const rep = await decisionsReport(o);
+  if (o.json)
+    process.stdout.write(
+      JSON.stringify(o.cmd === "list" ? { ...rep, listed: selectListed(rep, o) } : rep, null, 2) +
+        "\n",
+    );
+  else process.stdout.write(o.cmd === "list" ? formatList(rep, o) : formatCheck(rep));
+  if (!rep.ok) process.exitCode = 1;
+}
+
+const self = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+  main().catch((e) => {
+    process.stderr.write(`decisions: ${e?.stack ?? e}\n`);
+    process.exitCode = 1;
+  });
+}
