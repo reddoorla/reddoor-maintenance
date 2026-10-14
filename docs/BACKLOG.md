@@ -4649,6 +4649,32 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       **Answered 2026-10-13 (AskUserQuestion): (a), write nothing on a
       soft-fail. #1346 lands as built.**
 
+123.  **P1-51, Williamson launch: the operator's half of the checklist (new
+      2026-10-14).** Both sites went live 10-13; `reddoor-maint launch-check`
+      (reddoorla/reddoor-maintenance#1377) reads each as NOT READY, 2 of 8
+      `ok`. The worker side is done or built: row `url` now
+      `https://www.williamson-construction.com/` and
+      `https://www.williamson-homes.com/`, header images stored, and `/privacy`
+      plus a footer link in reddoorla/williamson-construction-co#29 and
+      reddoorla/williamson-homes#39 (CI green; previews answer 200). Neither
+      Webflow site carried analytics (conversion plan §2), and no Williamson
+      GA or Search Console property is visible to the GA subject, so there is
+      nothing to reuse. _Asks, per site:_ (a) create a GA4 property and a web
+      stream for the `www` host, grant `reports@reddoorla.com` (and every
+      `GA_SUBJECT` subject) Viewer, and send the numeric property ID and the
+      `G-` ID; (b) create a Search Console property (domain, or URL-prefix
+      `https://www.…/`), send the HTML-tag token, then after the tag merges
+      press Verify and add `reports@reddoorla.com`; (c) the report contact and
+      the privacy contact (_pick:_ `brian@williamson-homes.com`, the address
+      the Homes site publishes, unless you name another; Construction's
+      likewise); (d) the schedule (_pick:_ Quarterly, Testing None, counted
+      from the launch day, as most of the fleet runs); (e) merge each repo's
+      PR once a worker adds the contact, the tag and the verification meta to
+      it (one merge per repo); (f) run `reddoor-maint launch <site>` once
+      `launch-check` reads READY, and approve each go-live email. A worker does
+      everything else: the tag (`analytics-tag`), the meta tag, the privacy
+      values, the row writes through the site mirror, and the re-checks.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
