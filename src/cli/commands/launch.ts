@@ -1,9 +1,27 @@
 import { resolve } from "node:path";
 import { launch, type LaunchResult, type LaunchStepResult } from "../../recipes/launch.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
+import {
+  LAUNCH_CHECK_STEPS,
+  launchCheck,
+  parseAllowMissing,
+  type LaunchCheckDeps,
+  type LaunchCheckStep,
+} from "../../recipes/launch-check.js";
+import type { LaunchDeps } from "../../recipes/launch.js";
+
+/** The readiness half of `launch`'s deps: the live check, and the steps the
+ *  operator allowed. Its own function so a test can see what the CLI wires. */
+export function readinessDeps(
+  check: LaunchCheckDeps,
+  allowMissing: ReadonlySet<LaunchCheckStep>,
+): Pick<LaunchDeps, "readiness" | "allowMissing"> {
+  return { readiness: (row) => launchCheck(row, check), allowMissing };
+}
 
 export type LaunchCommandOptions = {
   cwd?: string;
+  allowMissing?: string | string[];
 };
 
 export function formatStep(name: string, r: LaunchStepResult): string {
@@ -16,6 +34,20 @@ export function formatStep(name: string, r: LaunchStepResult): string {
     return `${name.padEnd(20)} drafted ${r.report.reportId}`;
   }
   if (r.kind === "probe") return `${name.padEnd(20)} ok — ${r.message}`;
+  if (r.kind === "readiness") {
+    const head = `${name.padEnd(20)} ${r.ready ? "ok" : "NOT READY"}`;
+    const lines = r.lines.map((l) => {
+      const allowed = l.state !== "ok" && r.allowMissing.has(l.step) ? " (allowed)" : "";
+      return `  ${l.step.padEnd(15)} ${l.state.padEnd(10)} ${l.detail}${allowed}`;
+    });
+    const hint = r.ready
+      ? []
+      : [
+          "  Fix each step (docs/runbooks/site-launch.md), or name it in --allow-missing " +
+            `<${LAUNCH_CHECK_STEPS.join("|")}> to launch without it.`,
+        ];
+    return [head, ...lines, ...hint].join("\n");
+  }
   const rec = r.result;
   if (rec.status === "noop") return `${name.padEnd(20)} noop${rec.notes ? ` — ${rec.notes}` : ""}`;
   if (rec.status === "failed")
@@ -39,6 +71,8 @@ export async function runLaunchCommand(
   site: string,
   opts: LaunchCommandOptions,
 ): Promise<{ output: string; code: number }> {
+  const allow = parseAllowMissing(opts.allowMissing);
+  if (!allow.ok) return { output: allow.error, code: 2 };
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const sites = await resolveSites({ site, cwd });
   const target = sites[0];
@@ -51,7 +85,9 @@ export async function runLaunchCommand(
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   const { readFleetRoster } = await import("../../fleet/roster.js");
+  const { defaultLaunchCheckDeps } = await import("../../recipes/launch-check-io.js");
   const result = await launch(target, {
+    ...readinessDeps(await defaultLaunchCheckDeps(), allow.steps),
     roster: () => readFleetRoster(),
     reportMirror: await makeReportMirror(),
     siteMirror: await makeSiteMirror(),
