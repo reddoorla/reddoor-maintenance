@@ -4756,7 +4756,7 @@ sites=17`, `just_wait_left_out=1`.
 
 ## Done (move items here when they land)
 
-- 2026-10-14 — P1-50: the protection audit reads a not-yet-created Renovate branch as "no branch", not a probe failure (this PR).
+- 2026-10-14 — P1-50: the protection audit reads a not-yet-created Renovate branch as "no branch", not a probe failure (#1368).
   - **Cause.** `branchTip` returned `null` only on HTTP 404. GitHub answers `GET commits/<branch>` for a branch that does not exist with 422 "No commit found for SHA" (measured on vida-legacy-foundation, 2026-10-14 ~14:10Z, for `renovate/staging-major-vitest-monorepo`, `renovate/zz-nonexistent` and a slash-free name alike), and the staging-flow preset made the Dashboard name `renovate/staging-…` branches before Renovate creates them. The throw turned the whole repo into `probe failed`, so alamo-anatomy and vida took `PROTECTION_AUDIT` from 13 gaps to 15 on 10-14.
   - **What changed.** A 422 whose message carries "No commit found for SHA" is `null`, as a 404 is. Any other 422, and a "No commit found" without the 422 status, still throws. Tests drive vida's exact error through `makeGitHub` → `resolveBlockedBranches`; three mutations (drop the 422 case, accept every 422, drop the status check) each turn one red.
   - **Still open:** proof. The next `fleet-security` run's `PROTECTION_AUDIT` must not list either probe failure; the result goes in a later journal entry.
