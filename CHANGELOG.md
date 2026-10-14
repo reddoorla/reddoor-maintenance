@@ -1,5 +1,16 @@
 # @reddoorla/maintenance
 
+## 0.109.0
+
+### Minor Changes
+
+- 917e8bb: `launch-check <site>` reports whether a site is ready to launch, one line per step of `docs/runbooks/site-launch.md` (url, contact, schedule, header image, GA property, GA tag, privacy page, Search Console): `ok`, `missing` or `unverified`. `launch` now runs it before any GitHub write and refuses a site with any step not `ok`, unless that step is named in `--allow-missing`.
+
+### Patch Changes
+
+- 824ef80: `protection-audit` no longer reports a Renovate branch that the Dependency Dashboard names but Renovate has not yet created as a failed probe. GitHub answers that branch's commit lookup with HTTP 422 "No commit found for SHA", not 404, and `branchTip` now reads that answer as "no branch". Every other 422 is still a failed probe.
+- 6ca280f: The `@sveltejs/kit` peer range is now `^2.0.0 || ^3.0.0`. Until now it was `^2.0.0`, so kit 3 sites, the starter among them, got a peer warning on install (P1-47).
+
 ## 0.108.0
 
 ### Minor Changes
