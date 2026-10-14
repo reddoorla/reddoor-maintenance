@@ -4688,6 +4688,18 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       williamson-construction-co `08221a0`). Still waiting on: the IDs and
       tokens. With them, a worker adds the tag and meta to #39 and #29 and
       writes `ga4_property_id` and `search_console_property`.
+      **2026-10-14 ~19:55Z:** the operator created both GA4 properties
+      (Homes 559039043 / `G-21KD0G311C`, Construction 559059283 /
+      `G-70PDG1RJBG`) and verified both Search Console domain properties. The
+      worker recorded them on the rows, added `reports@reddoorla.com` as an owner
+      of both domains (Site Verification API) and added each property to its
+      list, so `reports@` reads all four. It also put the tag, the
+      `@reddoorla/maintenance` ^0.108.0 bump and the CSP hosts on
+      williamson-homes#39 and williamson-construction-co#29 (CI green, ready to
+      merge). `launch-check` reads 6/8 `ok` on both, and the two `missing` lines
+      (`ga-tag`, `privacy`) are what the merges fix. Left for the operator:
+      merge #39 and #29, re-run `launch-check`, run `launch`, approve both go-live
+      emails.
 
 ## Active projects (the operator's list, read by the PM pass)
 
