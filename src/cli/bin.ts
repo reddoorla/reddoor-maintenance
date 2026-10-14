@@ -608,10 +608,7 @@ cli
   );
 
 cli
-  .command(
-    "launch-check <site>",
-    "Is the site ready to launch? One line per step of docs/runbooks/site-launch.md: ok, missing or unverified. Read-only.",
-  )
+  .command("launch-check <site>", "Check a site's launch readiness, one line per step (read-only).")
   .action(async (site: string, opts: { verbose?: boolean }) =>
     runOrExit(
       async () => (await import("./commands/launch-check.js")).runLaunchCheckCommand(site),

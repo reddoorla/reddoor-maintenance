@@ -1338,6 +1338,40 @@ describe("recipes/launch readiness gate", () => {
     expect(checked).toBe("rec_site_acme");
   });
 
+  it("stops, with no GitHub write, when the readiness check throws", async () => {
+    let bootstrapped = false;
+    const d = deps(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...d,
+      bootstrap: async () => {
+        bootstrapped = true;
+        return d.bootstrap();
+      },
+      readiness: async () => {
+        throw new Error("Turso unreachable");
+      },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition", "readiness"]);
+    expect(bootstrapped).toBe(false);
+    const r = result.steps[1]!.result;
+    expect(r.kind === "error" && r.message).toBe("Turso unreachable");
+  });
+
+  it("treats a step the readiness check left out as not ok", async () => {
+    const empty = await launch(siteOf(), { ...deps(websitesSeed()), readiness: async () => [] });
+    expect(empty.complete).toBe(false);
+    const partial = await launch(siteOf(), {
+      ...deps(websitesSeed()),
+      readiness: async () => READY.filter((l) => l.step !== "privacy"),
+    });
+    expect(partial.complete).toBe(false);
+    const r = partial.steps[1]!.result;
+    expect(r.kind === "readiness" && r.lines.find((l) => l.step === "privacy")?.state).toBe(
+      "unverified",
+    );
+  });
+
   it("stops at readiness when no row matches the site", async () => {
     const result = await launch(siteOf(), {
       ...deps({ Websites: [], Reports: [] }),

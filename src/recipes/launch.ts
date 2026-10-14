@@ -20,7 +20,12 @@ import { queueDraft } from "../reports/queue.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
 import type { LighthouseScores } from "../reports/types.js";
-import { blockingLines, type LaunchCheckLine, type LaunchCheckStep } from "./launch-check.js";
+import {
+  LAUNCH_CHECK_STEPS,
+  blockingLines,
+  type LaunchCheckLine,
+  type LaunchCheckStep,
+} from "./launch-check.js";
 
 export type LaunchStepResult =
   | { kind: "recipe"; result: RecipeResult }
@@ -638,6 +643,17 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
     return stop();
   }
   const allowMissing = deps.allowMissing ?? new Set<LaunchCheckStep>();
+  // Every step must have answered. A readiness that returns early, or drops a
+  // line, is a gap in the check, and a gap must never read as a pass.
+  const absent = LAUNCH_CHECK_STEPS.filter((step) => !lines.some((l) => l.step === step));
+  lines = [
+    ...lines,
+    ...absent.map((step) => ({
+      step,
+      state: "unverified" as const,
+      detail: "the readiness check returned no line for this step",
+    })),
+  ];
   const ready = blockingLines(lines, allowMissing).length === 0;
   steps.push({ name: "readiness", result: { kind: "readiness", lines, allowMissing, ready } });
   if (!ready) return stop();

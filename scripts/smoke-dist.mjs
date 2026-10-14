@@ -253,6 +253,7 @@ const expectedSubcommands = [
   // `upgrade`, whose <upgrade> arg cac validates first — hence the skip below).
   "self-updating",
   "launch",
+  "launch-check",
   "github-signals",
   "db",
   "renovate-dispatch",

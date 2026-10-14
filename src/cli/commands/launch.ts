@@ -1,7 +1,23 @@
 import { resolve } from "node:path";
 import { launch, type LaunchResult, type LaunchStepResult } from "../../recipes/launch.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { LAUNCH_CHECK_STEPS, parseAllowMissing } from "../../recipes/launch-check.js";
+import {
+  LAUNCH_CHECK_STEPS,
+  launchCheck,
+  parseAllowMissing,
+  type LaunchCheckDeps,
+  type LaunchCheckStep,
+} from "../../recipes/launch-check.js";
+import type { LaunchDeps } from "../../recipes/launch.js";
+
+/** The readiness half of `launch`'s deps: the live check, and the steps the
+ *  operator allowed. Its own function so a test can see what the CLI wires. */
+export function readinessDeps(
+  check: LaunchCheckDeps,
+  allowMissing: ReadonlySet<LaunchCheckStep>,
+): Pick<LaunchDeps, "readiness" | "allowMissing"> {
+  return { readiness: (row) => launchCheck(row, check), allowMissing };
+}
 
 export type LaunchCommandOptions = {
   cwd?: string;
@@ -69,12 +85,9 @@ export async function runLaunchCommand(
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   const { readFleetRoster } = await import("../../fleet/roster.js");
-  const { launchCheck } = await import("../../recipes/launch-check.js");
   const { defaultLaunchCheckDeps } = await import("../../recipes/launch-check-io.js");
-  const checkDeps = await defaultLaunchCheckDeps();
   const result = await launch(target, {
-    readiness: (row) => launchCheck(row, checkDeps),
-    allowMissing: allow.steps,
+    ...readinessDeps(await defaultLaunchCheckDeps(), allow.steps),
     roster: () => readFleetRoster(),
     reportMirror: await makeReportMirror(),
     siteMirror: await makeSiteMirror(),

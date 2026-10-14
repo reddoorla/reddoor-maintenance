@@ -73,6 +73,7 @@ function goodDeps(over: Partial<LaunchCheckDeps> = {}): LaunchCheckDeps {
       [URL_]: { status: 200, url: URL_, body: HOME },
       "https://www.example.com/privacy": { status: 200, url: "", body: "<h1>Privacy</h1>" },
     }),
+    now: () => new Date("2026-10-14T12:00:00Z"),
     readSearch: async (r) => ({
       ok: true,
       propertyFound: true,
@@ -126,6 +127,24 @@ describe("launchCheck", () => {
         goodDeps(),
       );
       expect(stateOf(lines, "schedule")).toBe("ok");
+    });
+
+    it("is missing when testing_freq is set but testing_day is blank", async () => {
+      const lines = await launchCheck(row({ "testing freq": "Yearly" }), goodDeps());
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      expect(detailOf(lines, "schedule")).toContain("testing_day");
+    });
+
+    it("is missing when maintenance_day is not a date", async () => {
+      const lines = await launchCheck(row({ "maintenance day": "next week" }), goodDeps());
+      expect(stateOf(lines, "schedule")).toBe("missing");
+    });
+
+    it("is missing when maintenance_day is more than 13 months old", async () => {
+      const lines = await launchCheck(row({ "maintenance day": "2025-08-01" }), goodDeps());
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      const recent = await launchCheck(row({ "maintenance day": "2026-01-01" }), goodDeps());
+      expect(stateOf(recent, "schedule")).toBe("ok");
     });
 
     it("is missing for a frequency the code does not know", async () => {
@@ -313,7 +332,41 @@ describe("launchCheck", () => {
     });
   });
 
-  it("is missing a url, and unverified elsewhere, when the home page does not answer", async () => {
+  it("does not count a link to another site's /privacy", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: {
+            status: 200,
+            url: URL_,
+            body: '<a href="https://policies.google.com/privacy">Google</a>',
+          },
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("missing");
+  });
+
+  it("counts an absolute link to the site's own /privacy", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: {
+            status: 200,
+            url: URL_,
+            body: '<a href="https://example.com/privacy/">Privacy</a>',
+          },
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("ok");
+  });
+
+  it("is missing a url when the home page answers 503", async () => {
     const lines = await launchCheck(
       row(),
       goodDeps({ fetchPage: pages({ [URL_]: { status: 503, url: URL_, body: "" } }) }),
@@ -326,6 +379,47 @@ describe("launchCheck", () => {
       const lines = await launchCheck(
         row({ "Search Console property": "sc-domain:elsewhere.com" }),
         goodDeps(),
+      );
+      expect(stateOf(lines, "search-console")).toBe("missing");
+    });
+
+    it("is missing a URL-prefix property for another scheme or host", async () => {
+      for (const p of ["https://example.com/", "http://www.example.com/"]) {
+        const lines = await launchCheck(row({ "Search Console property": p }), goodDeps());
+        expect(stateOf(lines, "search-console"), p).toBe("missing");
+      }
+      const exact = await launchCheck(
+        row({ "Search Console property": "https://www.example.com/" }),
+        goodDeps(),
+      );
+      expect(stateOf(exact, "search-console")).toBe("ok");
+    });
+
+    it("lets a Domain property cover a subdomain", async () => {
+      const lines = await launchCheck(
+        row({
+          url: "https://shop.example.com/",
+          "Search Console property": "sc-domain:example.com",
+        }),
+        goodDeps({
+          fetchPage: pages({
+            "https://shop.example.com/": { status: 200, url: "", body: HOME },
+            "https://shop.example.com/privacy": { status: 200, url: "", body: "" },
+          }),
+        }),
+      );
+      expect(stateOf(lines, "search-console")).toBe("ok");
+      const notSub = await launchCheck(
+        row({ "Search Console property": "sc-domain:ample.com" }),
+        goodDeps(),
+      );
+      expect(stateOf(notSub, "search-console")).toBe("missing");
+    });
+
+    it("is missing when the lookup finds no property", async () => {
+      const lines = await launchCheck(
+        row(),
+        goodDeps({ readSearch: async () => ({ ok: true, propertyFound: false, property: null }) }),
       );
       expect(stateOf(lines, "search-console")).toBe("missing");
     });
@@ -358,6 +452,131 @@ describe("launchCheck", () => {
       );
       expect(stateOf(lines, "search-console")).toBe("ok");
     });
+  });
+});
+
+describe("an error inside a step is unverified, never ok", () => {
+  const boom = async (): Promise<never> => {
+    throw new Error("boom");
+  };
+
+  it("ga-property, when the Data API read throws", async () => {
+    const lines = await launchCheck(row(), goodDeps({ readProperty: boom }));
+    expect(stateOf(lines, "ga-property")).toBe("unverified");
+  });
+
+  it("ga-tag, when the Admin API read throws", async () => {
+    const lines = await launchCheck(row(), goodDeps({ readStreams: boom }));
+    expect(stateOf(lines, "ga-tag")).toBe("unverified");
+  });
+
+  it("search-console, when the lookup throws", async () => {
+    const lines = await launchCheck(row(), goodDeps({ readSearch: boom }));
+    expect(stateOf(lines, "search-console")).toBe("unverified");
+  });
+
+  it("url and privacy, when the home page does not answer at all", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: new Error("ECONNRESET"),
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "url")).toBe("unverified");
+    expect(stateOf(lines, "privacy")).toBe("unverified");
+  });
+
+  it("privacy, when GET /privacy throws", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: URL_, body: HOME },
+          "https://www.example.com/privacy": new Error("ETIMEDOUT"),
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("unverified");
+  });
+});
+
+describe("redirects are judged where they land", () => {
+  it("is missing a url that redirects off the site's hosts", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: "https://parked.example.net/", body: HOME },
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "url")).toBe("missing");
+    expect(detailOf(lines, "url")).toContain("parked.example.net");
+  });
+
+  it("is missing a url that redirects down to http", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: "http://www.example.com/", body: HOME },
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "url")).toBe("missing");
+  });
+
+  it("accepts the apex/www swap", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: "https://example.com/", body: HOME },
+          "https://www.example.com/privacy": {
+            status: 200,
+            url: "https://example.com/privacy/",
+            body: "",
+          },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "url")).toBe("ok");
+    expect(stateOf(lines, "privacy")).toBe("ok");
+  });
+
+  it("is missing a /privacy that redirects to the home page", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: URL_, body: HOME },
+          "https://www.example.com/privacy": { status: 200, url: URL_, body: HOME },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("missing");
+  });
+
+  it("is missing a /privacy served from another host", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: URL_, body: HOME },
+          "https://www.example.com/privacy": {
+            status: 200,
+            url: "https://other.example.net/privacy",
+            body: "",
+          },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("missing");
   });
 });
 

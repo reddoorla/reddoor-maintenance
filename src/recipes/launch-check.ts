@@ -65,6 +65,8 @@ export type LaunchCheckDeps = {
   probeTag: ((url: string) => Promise<TagProbe>) | null;
   /** GET a url, following redirects. Throws when nothing answered. */
   fetchPage: (url: string) => Promise<FetchedPage>;
+  /** The clock the schedule's staleness is read against. Defaults to now. */
+  now?: () => Date;
   /** The Search Console lookup `fetchSearch` runs, AS ONE SUBJECT. */
   readSearch: (row: WebsiteRow, subject: string) => Promise<SearchRead>;
 };
@@ -97,6 +99,27 @@ function httpsOrigin(url: string): string | null {
   }
 }
 
+/**
+ * Why a fetched page is not the site's own, or null when it is. Redirects are
+ * followed, so without this a row url that 301s to a parking page, an old host
+ * or plain http would be judged by whatever answered at the end of the chain.
+ * An empty `url` means the fetch reported none, and is read as the request.
+ */
+function offSite(row: WebsiteRow, page: FetchedPage, requested: string): string | null {
+  const final = page.url || requested;
+  let u: URL;
+  try {
+    u = new URL(final);
+  } catch {
+    return `it ended on ${JSON.stringify(final)}, which is not a url`;
+  }
+  if (u.protocol !== "https:") return `it redirected to ${final}, which is not https`;
+  if (!siteHostnames(hostOf(row.url)).includes(u.hostname.toLowerCase())) {
+    return `it redirected to ${final}, off the site's own hosts`;
+  }
+  return null;
+}
+
 function checkUrl(row: WebsiteRow, home: FetchedPage | Error | null): LaunchCheckLine {
   if (!row.url) return line("url", "missing", "the row has no url");
   if (httpsOrigin(row.url) === null) {
@@ -109,6 +132,8 @@ function checkUrl(row: WebsiteRow, home: FetchedPage | Error | null): LaunchChec
   if (home instanceof Error)
     return line("url", "unverified", `GET ${row.url} failed: ${home.message}`);
   if (home === null) return line("url", "unverified", `GET ${row.url} did not run`);
+  const away = offSite(row, home, row.url);
+  if (away !== null) return line("url", "missing", `GET ${row.url}: ${away}`);
   if (!is2xx(home.status)) return line("url", "missing", `GET ${row.url} answered ${home.status}`);
   return line("url", "ok", `${row.url} answers ${home.status}`);
 }
@@ -124,7 +149,11 @@ function checkContact(row: WebsiteRow): LaunchCheckLine {
 
 const FREQUENCIES = new Set(["None", "Monthly", "Quarterly", "Yearly"]);
 
-function checkSchedule(row: WebsiteRow): LaunchCheckLine {
+/** The same staleness line preflight's `anchor-stale` draws (~13 months). */
+const STALE_ANCHOR_DAYS = 396;
+const DAY_MS = 86_400_000;
+
+function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
   const raw = row.maintenanceFreqRaw?.trim() ?? "";
   if (raw === "") {
     return line(
@@ -147,6 +176,26 @@ function checkSchedule(row: WebsiteRow): LaunchCheckLine {
       "schedule",
       "missing",
       `maintenance_freq is ${raw} but maintenance_day is blank, so the first Maintenance report falls due the day the site turns maintained. Set the day the cycle counts from.`,
+    );
+  }
+  const day = (row.maintenanceDay ?? "").trim();
+  const at = Date.parse(day);
+  if (!Number.isFinite(at)) {
+    return line("schedule", "missing", `maintenance_day ${JSON.stringify(day)} is not a date`);
+  }
+  if (now.getTime() - at > STALE_ANCHOR_DAYS * DAY_MS) {
+    return line(
+      "schedule",
+      "missing",
+      `maintenance_day ${day} is more than 13 months old, so the first Maintenance report drafts back-dated and overdue. Set the day the cycle counts from.`,
+    );
+  }
+  const testing = row.testingFreqRaw?.trim() ?? "";
+  if (testing !== "" && testing !== "None" && !row.testingDay?.trim()) {
+    return line(
+      "schedule",
+      "missing",
+      `testing_freq is ${testing} but testing_day is blank, so the first Testing report falls due the day the site turns maintained. Set the day it counts from, or testing_freq None.`,
     );
   }
   return line("schedule", "ok", `${raw}, counted from ${row.maintenanceDay}`);
@@ -220,7 +269,7 @@ async function checkGaProperty(
       return line(
         "ga-property",
         "missing",
-        `the GA4 Data API refused property ${id} for ${subject}: ${trimStop(read.error)}. Grant ${subject} Viewer on the property.`,
+        `the GA4 Data API refused property ${id} for ${subject}: ${trimStop(read.error)}. Grant ${subject} Viewer on the property: every GA_SUBJECT subject must read it, or the failover list does not cover this site.`,
       );
     }
     unsure.push(`${subject}: ${read.kind}, ${read.error}`);
@@ -250,6 +299,28 @@ function searchHost(s: string): string {
     .split("/")[0]!
     .replace(/^www\./i, "")
     .toLowerCase();
+}
+
+/**
+ * Does a Search Console property cover the site's url? A Domain property
+ * (`sc-domain:example.com`) covers the domain and every subdomain. A URL-prefix
+ * property records only its own scheme and host, so `https://example.com/`
+ * collects nothing for a site served at `https://www.example.com/`.
+ */
+function propertyCovers(property: string, url: string): boolean {
+  const host = hostOf(url).toLowerCase();
+  if (host === "") return false;
+  if (/^sc-domain:/i.test(property)) {
+    const domain = searchHost(property);
+    return host === domain || host.endsWith(`.${domain}`);
+  }
+  try {
+    const p = new URL(property);
+    const u = new URL(url);
+    return p.protocol === u.protocol && p.hostname.toLowerCase() === host;
+  } catch {
+    return false;
+  }
 }
 
 function hostOf(url: string): string {
@@ -355,7 +426,25 @@ async function checkGaTag(
   );
 }
 
-const PRIVACY_LINK = /href\s*=\s*["'](?:https?:\/\/[^"'/]+)?\/privacy\/?["'#?]/i;
+const HREF = /href\s*=\s*["']([^"']*)["']/gi;
+
+/** Does the page link to the site's OWN /privacy? An absolute link counts only
+ *  on the site's hosts: a reCAPTCHA notice links to Google's /privacy, which is
+ *  not this site's policy. */
+function linksToOwnPrivacy(row: WebsiteRow, html: string): boolean {
+  const hosts = siteHostnames(hostOf(row.url));
+  for (const m of html.matchAll(HREF)) {
+    let u: URL;
+    try {
+      u = new URL(m[1]!, row.url);
+    } catch {
+      continue;
+    }
+    if (!hosts.includes(u.hostname.toLowerCase())) continue;
+    if (/^\/privacy\/?$/i.test(u.pathname)) return true;
+  }
+  return false;
+}
 
 async function checkPrivacy(
   row: WebsiteRow,
@@ -376,17 +465,22 @@ async function checkPrivacy(
   } catch (e) {
     return line("privacy", "unverified", `GET ${origin}/privacy failed: ${errorText(e)}`);
   }
+  const away = offSite(row, page, `${origin}/privacy`);
+  if (away !== null) return line("privacy", "missing", `GET ${origin}/privacy: ${away}`);
+  if (page.url && !/^\/privacy\/?$/i.test(new URL(page.url).pathname)) {
+    return line("privacy", "missing", `GET ${origin}/privacy redirected to ${page.url}`);
+  }
   if (!is2xx(page.status)) {
     return line("privacy", "missing", `${origin}/privacy answered ${page.status}`);
   }
-  if (home instanceof Error || home === null) {
+  if (home instanceof Error || home === null || offSite(row, home, row.url) !== null) {
     return line(
       "privacy",
       "unverified",
       `${origin}/privacy answers, but the home page was not read for the link`,
     );
   }
-  if (!PRIVACY_LINK.test(home.body)) {
+  if (!linksToOwnPrivacy(row, home.body)) {
     return line(
       "privacy",
       "missing",
@@ -412,7 +506,7 @@ async function checkSearchConsole(
   if (recorded === "") {
     return line("search-console", "missing", "the row has no search_console_property");
   }
-  if (row.url && searchHost(recorded) !== searchHost(row.url)) {
+  if (!propertyCovers(recorded, row.url)) {
     return line(
       "search-console",
       "missing",
@@ -471,7 +565,7 @@ export async function launchCheck(
   return [
     checkUrl(row, home),
     checkContact(row),
-    checkSchedule(row),
+    checkSchedule(row, deps.now?.() ?? new Date()),
     checkHeaderImage(row),
     await checkGaProperty(row, deps, subjects),
     await checkGaTag(row, deps, subjects, home),
