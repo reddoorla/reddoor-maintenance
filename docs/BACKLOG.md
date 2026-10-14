@@ -4701,6 +4701,23 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       merge #39 and #29, re-run `launch-check`, run `launch`, approve both go-live
       emails.
 
+124.  **P1-47, alamo-anatomy: the preview exit still scrolls to the top
+      (new 2026-10-14; issue reddoorla/alamo-anatomy#82, promotion
+      reddoorla/alamo-anatomy#81 open).** The P1-47 fix is on alamo's
+      `staging`, and its bundle carries `{refreshAll:!0,reset:!1}`. Ending a
+      preview there still lands at y 0 from y 600 [M]. The cause is the site's
+      own code, not the component. `redirectToPreviewURL` sends editors to
+      `/preview<path>`, so ending a preview always changes the pathname, and
+      alamo's root `afterNavigate` (`src/routes/+layout.svelte:23-31`) calls
+      `scrollTo(0, 0)` on every pathname change. Mantis, with the same fix and
+      no such hook, stays at 600. _Ask:_ (a) promote #81 as it is, which fixes
+      the `vite dev` throw, and fix the hook as a follow-up through `staging`
+      and the next promotion; or (b) a worker first opens a `staging` PR
+      that treats `/preview/x` → `/x` as the same page in that hook (the
+      patch is in #82, with a test), merges it on green, and #81 then carries
+      both. _Pick:_ (b). It is a two-line change plus a test, and one
+      promotion is one click instead of two.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
@@ -4812,6 +4829,7 @@ sites=17`, `just_wait_left_out=1`.
   - **Fix.** A local copy, `src/lib/components/PrismicPreview.svelte`, passes `{ refreshAll: true, reset: false }`, the same change as the unreleased prismicio/prismic-svelte#64. That PR already covers it, so no upstream issue was filed. A copy rather than a pnpm patch, because 2.2.2 and 2.2.3 ship the file with different formatting, so a version-keyed patch breaks on the next Renovate bump.
   - **Port note for vida-legacy-foundation, mantis-landscaping, la-homelessness-youth, gallerysonder, alamo-anatomy (the operator's roll-out; nothing was pushed to them).** In each repo, cut a branch from `staging` and copy `src/lib/components/PrismicPreview.svelte` and `src/routes/layout-preview-end.test.ts` from reddoor-starter#188. Where the root layout mounts `PrismicPreview`, change `import { PrismicPreview } from "@prismicio/svelte/kit"` to `import PrismicPreview from "$lib/components/PrismicPreview.svelte"`. If a site's layout differs from the starter's (other `$app/navigation` imports, a different preview-cookie prop), adjust the test's mocks and `data`. Run `pnpm verify`, open the PR into `staging`, then promote `staging` to `main` as usual. Once `@prismicio/svelte` releases a kit 3 version (watch #64), switch the import back and delete the copy.
   - **Still open:** the five sites stay broken in production until that roll-out is promoted.
+  - **Roll-out, 2026-10-14 ~20:30Z (worker `claude/practical-wright-0k26cm`).** The fix is on `staging` in four repos: vida#109, mantis#52, alamo#79 and gallerysonder#125, each squash-merged on green `ci / ci` after a minors-only review round. The minors are filed as vida#110, mantis#53–54, alamo#80 and gallerysonder#126–127. The promotion PRs are open and **not merged**: vida#111, mantis#55, alamo#81 and gallerysonder#128. Each is clean with `main-gate` green, and each should be merged with a merge commit. **la-homelessness-youth has no Prismic at all** (no `@prismicio/*` in `package.json`, the lockfile or `src`), so it had nothing to fix; this entry named it in error. In Chromium, against live deploys, with a hand-set preview cookie and no Prismic write [M]: gallerysonder production y 600 → 0 and staging 600 → 600; mantis `main--` 600 → 0 and `staging--` 600 → 600. On alamo, staging still goes to 0 because of its own `afterNavigate` (Operator decisions 125, alamo#82). Vida's scroll handling moves the page on both deploys, so its check is inconclusive.
 - 2026-10-14 — P1-50: the protection audit reads a not-yet-created Renovate branch as "no branch", not a probe failure (#1368).
   - **Cause.** `branchTip` returned `null` only on HTTP 404. GitHub answers `GET commits/<branch>` for a branch that does not exist with 422 "No commit found for SHA" (measured on vida-legacy-foundation, 2026-10-14 ~14:10Z, for `renovate/staging-major-vitest-monorepo`, `renovate/zz-nonexistent` and a slash-free name alike), and the staging-flow preset made the Dashboard name `renovate/staging-…` branches before Renovate creates them. The throw turned the whole repo into `probe failed`, so alamo-anatomy and vida took `PROTECTION_AUDIT` from 13 gaps to 15 on 10-14.
   - **What changed.** A 422 whose message carries "No commit found for SHA" is `null`, as a 404 is. Any other 422, and a "No commit found" without the 422 status, still throws. Tests drive vida's exact error through `makeGitHub` → `resolveBlockedBranches`; three mutations (drop the 422 case, accept every 422, drop the status check) each turn one red.
