@@ -4717,6 +4717,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       patch is in #82, with a test), merges it on green, and #81 then carries
       both. _Pick:_ (b). It is a two-line change plus a test, and one
       promotion is one click instead of two.
+      **Answered 2026-10-14 (AskUserQuestion): (b), fix the hook first.** A
+      worker opens the `staging` PR from #82's patch with a test, merges it on
+      green, and #81 then carries both.
 
 ## Active projects (the operator's list, read by the PM pass)
 
