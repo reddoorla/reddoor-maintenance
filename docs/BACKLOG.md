@@ -4701,6 +4701,28 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       merge #39 and #29, re-run `launch-check`, run `launch`, approve both go-live
       emails.
 
+124.  **reddoorla/medical-solutions-of-texas#81, MSOT `/privacy` and footer
+      link: merge to production (P1-51, reddoorla/reddoor-maintenance#1376;
+      new 2026-10-14).** `launch-check msot` read 7/8 `ok`, `privacy missing`
+      (`/privacy` 404s while the site loads GA4 `G-BZ0WQMEE8L`). #81 ports the
+      starter's DRAFT, `noindex` page as Data Dynamiq, 1836dig and 29 Navy
+      carry it (item 73), with values the site already publishes: "Medical
+      Solutions of Texas" (footer) and `info@MedicalSolutionsofTX.com`
+      (`/contact`), effective 2026-10-14. It names the services measured in a
+      live capture: GA4, Adobe Fonts, Vimeo, Cloudflare Turnstile, the form
+      ingest and Netlify. No Prismic request reaches a visitor's browser, so
+      Prismic is not named. CI green on `7f29752`; review round 1 found one
+      major (a missing space, "messageand"), fixed and pinned by a test; round 2
+      clean (nits filed as medical-solutions-of-texas#82–#85). Six mutations
+      each turned a test red. _Ask:_ merge #81 (a production deploy of a live
+      client site, which item 73 made the operator's click), yes or no.
+      _Worker's pick:_ yes, for item 73's reason: GA4 is already collecting
+      without a disclosure, and item 45 reviews the wording once for every
+      site. After the merge, a worker re-runs `launch-check msot` for 8/8
+      and closes #1376.
+      **Answered 2026-10-14 (AskUserQuestion): yes, land it from this
+      session.**
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
