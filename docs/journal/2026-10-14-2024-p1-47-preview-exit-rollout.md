@@ -25,6 +25,18 @@ Measured with the page scrolled to 600, then the event:
 - mantis `main--`: 600 → **0**. `staging--`: 600 → **600**.
 - vida: inconclusive. Its sticky covers and smooth-scroll restore move the page on both deploys alike (`/preview` → `/` lands at y 1024 on `main` and `staging`).
 
-**The belief corrected on contact: on alamo the component fix is necessary but not sufficient.** Its staging bundle carries `{refreshAll:!0,reset:!1}`, yet staging still lands at 0. Ending a preview always changes the pathname (`/preview/x` → `/x`), and alamo's root `afterNavigate` calls `scrollTo(0, 0)` on every pathname change. The starter's reproduction could not show this, because it ended a preview on an unprefixed path. The cause and a two-line patch are in alamo#82, and the fork is Operator decisions 125.
+**The belief corrected on contact: on alamo the component fix is necessary but not sufficient.** Its staging bundle carries `{refreshAll:!0,reset:!1}`, yet staging still lands at 0. Ending a preview always changes the pathname (`/preview/x` → `/x`), and alamo's root `afterNavigate` calls `scrollTo(0, 0)` on every pathname change. The starter's reproduction could not show this, because it ended a preview on an unprefixed path. The cause and a two-line patch are in alamo#82. Operator decisions 125 put the fork to the operator, who answered to fix the hook first.
+
+alamo#83 now treats a `from` pathname with a leading `/preview` removed as the same page as `to`. Five mutations each turned a test red:
+
+- the old check;
+- an unanchored `replace("preview", "")`;
+- no `/` fallback for a bare `/preview`;
+- the `scrollTo` removed;
+- the prefix stripped on both sides.
+
+A sixth, removing the regex's `(?=\/|$)` lookahead, turned nothing red. It is equivalent: without the lookahead, `/previewer/x` becomes `er/x`, which can never equal a pathname. So the lookahead was dropped rather than kept as an untested assertion.
+
+After the deploy (21:05Z), alamo's staging stays at 600 for `/preview` → `/` and for `/preview/about` → `/about`, and a plain `/about` → `/contact` click still lands at 0. The review minors are alamo#84–#86. #87 records an unverified read that a `/contact` submission during a preview may end on `/preview/thank-you`, which no route serves.
 
 One process slip: the review agent edited gallerysonder's real `+layout.svelte` after a failed `cd`. It reverted the edit itself, and the four clones were confirmed clean at their pushed heads before anything merged.
