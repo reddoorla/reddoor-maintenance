@@ -424,22 +424,12 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
 }
 
 /**
- * The send-blocking subset for ONE report, at approve time: exactly the
- * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
- * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
- * (operator address resolved as a client's To) plus every {@link healthBlockers}
- * finding (a gating checklist item whose auto-evidence isn't `pass`/`n/a` fails
- * the health gate). PURE — the approve gate, the dashboard's pending-row chip,
- * and the digest collector all call this one function so "approvable" can't
- * drift from "sendable".
- *
- * Deliberately narrower than {@link preflightSite}: schedule hygiene and
- * pending-draft races are fleet/site concerns — blocking THIS report's approval
- * on them would be over-gating.
+ * The recipient half of {@link approveBlockers}: no resolvable To, a malformed
+ * To or CC, and the operator-only To warning. Exported so `launch-check` asks
+ * the same question before a launch that the approve gate asks after it.
  */
-export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightFinding[] {
+export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
-
   const explicitTo = parseAddresses(site.reportRecipientsTo);
   const fallbackTo = parseAddresses(site.pointOfContact);
   const to = explicitTo ?? fallbackTo ?? [];
@@ -469,6 +459,22 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       });
     }
   }
+  if (!isOperatorSite(site)) {
+    const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
+    if (operatorAddrs.length > 0 && operatorAddrs.length === to.length) {
+      findings.push({
+        level: "warn",
+        check: "recipient-operator-address",
+        message: `resolved To is ONLY operator address(es) ${operatorAddrs.join(", ")} — the client will NOT receive this report`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** The header-image half of {@link approveBlockers}, exported for `launch-check`. */
+export function headerImageFindings(site: WebsiteRow): PreflightFinding[] {
+  const findings: PreflightFinding[] = [];
   if (!site.headerImage) {
     findings.push({
       level: "fail",
@@ -482,6 +488,27 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       message: `Header image attachment is '${site.headerImage.type}' (${site.headerImage.filename}) — not a decodable image; the send throws in prepareHeaderImage`,
     });
   }
+  return findings;
+}
+
+/**
+ * The send-blocking subset for ONE report, at approve time: exactly the
+ * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
+ * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
+ * (operator address resolved as a client's To) plus every {@link healthBlockers}
+ * finding (a gating checklist item whose auto-evidence isn't `pass`/`n/a` fails
+ * the health gate). PURE — the approve gate, the dashboard's pending-row chip,
+ * and the digest collector all call this one function so "approvable" can't
+ * drift from "sendable".
+ *
+ * Deliberately narrower than {@link preflightSite}: schedule hygiene and
+ * pending-draft races are fleet/site concerns — blocking THIS report's approval
+ * on them would be over-gating.
+ */
+export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightFinding[] {
+  const findings: PreflightFinding[] = [];
+
+  findings.push(...recipientFindings(site), ...headerImageFindings(site));
   // sendOne throws on a null report.lighthouse (one blank/non-numeric cell nulls
   // all four) — the REPORT's snapshot, not the Websites-row scores.
   if (report.lighthouse === null) {
@@ -491,16 +518,6 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       message:
         "the Reports row has no Lighthouse scores (one blank/non-numeric cell nulls all four) — the send will throw",
     });
-  }
-  if (!isOperatorSite(site)) {
-    const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
-    if (operatorAddrs.length > 0 && operatorAddrs.length === to.length) {
-      findings.push({
-        level: "warn",
-        check: "recipient-operator-address",
-        message: `resolved To is ONLY operator address(es) ${operatorAddrs.join(", ")} — the client will NOT receive this report`,
-      });
-    }
   }
   findings.push(...healthBlockers(report));
   return findings;
