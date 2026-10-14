@@ -4741,6 +4741,10 @@ sites=17`, `just_wait_left_out=1`.
 
 ## Done (move items here when they land)
 
+- 2026-10-14 — P1-49: Vineyard's WCAG 2.1 AA check, audit only (issue #1365; report in reddoor-workspace `audits/2026-10-14-vineyard-wcag/`, `3e06023`).
+  - **Answer.** Not yet WCAG 2.1 AA. There are 17 findings, 4 of them already in vineyard-custom-homes#78. Two are blockers: the portrait-only overlay on phones in landscape (1.3.4), and about 50 project photos with no `alt` (1.1.1). 10 affect keyboard or screen-reader users. Fixing them is about 16–22 h. The report opens with a status paragraph the operator can relay.
+  - **Measured.** axe (wcag2a/2aa/21a/21aa) on all 11 pages at 390 and 1440; Lighthouse through `lighthouseAudit`'s deployed path: `/` 1.00, `/about` 0.85, `/contact` 0.93, `/gallery` 0.90, each project 0.84. The controls passed first: a planted missing alt was caught, the clean fixture passed, and `innerWidth` was logged at 390.
+  - **Still the operator's:** whether to fix, and row 4's brand-colour call. The untracked findings are filed only once vineyard-custom-homes is attached with credentials (see the PR).
 - 2026-10-13 — P1-48: a nightly re-check clears a stale Search Console `no-property` watch (issue #1336, this PR).
   - **Why.** The lookup was written only by a report draft and by an operator's "refresh preview" (P1-36). A property fixed after a site's last draft therefore kept its cockpit watch until the next draft. LAHI's watch line had been false since 10-05, and its next report is due 11-30.
   - **What changed.** `search-console-recheck --fleet --write-back` re-runs the draft's own lookup (`fetchSearch`) for every `maintained` site whose stored outcome is `no-property`. It writes the same three cells through `searchConsoleLookupFields`. A soft-fail writes nothing, so the stored answer stands (Operator decisions 122 kept it: answered (a) on 2026-10-13). A no-property control (`no-such-property-zz9q.invalid`) runs first, and if it misreads, nothing is written. `fleet-lighthouse` runs the command nightly, before `daily-reports` drafts and digests.
