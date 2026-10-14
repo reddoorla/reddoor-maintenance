@@ -4720,6 +4720,8 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       without a disclosure, and item 45 reviews the wording once for every
       site. After the merge, a worker re-runs `launch-check msot` for 8/8
       and closes #1376.
+      **Answered 2026-10-14 (AskUserQuestion): yes, land it from this
+      session.**
 
 ## Active projects (the operator's list, read by the PM pass)
 
