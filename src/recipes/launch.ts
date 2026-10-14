@@ -20,12 +20,19 @@ import { queueDraft } from "../reports/queue.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
 import type { LighthouseScores } from "../reports/types.js";
+import { blockingLines, type LaunchCheckLine, type LaunchCheckStep } from "./launch-check.js";
 
 export type LaunchStepResult =
   | { kind: "recipe"; result: RecipeResult }
   | { kind: "audit"; results: AuditResult[]; scores: LighthouseScores }
   | { kind: "draft"; report: ReportRow }
   | { kind: "probe"; message: string }
+  | {
+      kind: "readiness";
+      lines: LaunchCheckLine[];
+      allowMissing: ReadonlySet<LaunchCheckStep>;
+      ready: boolean;
+    }
   | { kind: "error"; message: string };
 
 export type LaunchResult = {
@@ -55,6 +62,13 @@ export type LaunchDeps = {
   /** HTTP probe for `dev-guard`. Defaults to global fetch. INJECTED in tests,
    *  so a suite never probes a real url. */
   probe?: (url: string) => Promise<{ status: number; body: string }>;
+  /** `launch-check` for the site's row (`docs/runbooks/site-launch.md`).
+   *  Required, not defaulted, for the reason `roster` is: the CLI root wires
+   *  the live check, and a suite must say what it expects. */
+  readiness: (row: WebsiteRow) => Promise<LaunchCheckLine[]>;
+  /** Steps the operator named in `--allow-missing`: launch proceeds past them
+   *  and prints them as allowed. Every other step that is not `ok` stops it. */
+  allowMissing?: ReadonlySet<LaunchCheckStep>;
 };
 
 /** The site's OWN 404. `src/routes/+error.svelte` renders `<h1>{page.status}</h1>`,
@@ -566,9 +580,11 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  *
  * EXECUTION order, stopping on the first error or `failed` recipe:
  *   0. matchingDisposition — filesystem pre-flight, BEFORE any GitHub write.
+ *   0b. readiness — `launch-check` on the Websites row and the live site, also
+ *      before any GitHub write. Any step not `ok` stops the chain unless it is
+ *      named in `allowMissing`.
  *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
- *   2. the Websites-row lookup, which supplies the live url; a url that is not
- *      http(s) stops here.
+ *   2. the row's url (read in 0b); a url that is not http(s) stops here.
  *   3. dev-guard — the same twin, checked against the DEPLOYED url. Its /health
  *      control is also the proof that the url answers, so it runs BEFORE the
  *      audit: a host that does not answer stops the chain unaudited (#1056).
@@ -578,10 +594,10 @@ const defaultProbe = async (url: string): Promise<{ status: number; body: string
  *   6. createReportDraft — reportType "Launch", today's period, the audited scores.
  *
  * The emitted steps read
- * `matching-disposition -> self-updating -> dev-guard -> audit -> draft`, which
+ * `matching-disposition -> readiness -> self-updating -> dev-guard -> audit -> draft`, which
  * is what the CLI prints and what tests/recipes/launch.test.ts asserts. The
- * `audit` step is only pushed once its write succeeds. Only step 0 precedes a
- * GitHub write — dev-guard does not, because it needs the row from step 2.
+ * `audit` step is only pushed once its write succeeds. Steps 0 and 0b precede a
+ * GitHub write; dev-guard does not.
  */
 export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult> {
   const label = siteLabel(site);
@@ -602,6 +618,30 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   });
   if (!disposition.ok) return stop();
 
+  // 0b. Readiness — the row and the live site, before any GitHub write. The
+  //     Websites row is read here, once, and supplies the live url every later
+  //     step uses.
+  const websites = await deps.roster();
+  const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
+  if (!target) {
+    steps.push({
+      name: "readiness",
+      result: { kind: "error", message: `no site row matched site "${label}"` },
+    });
+    return stop();
+  }
+  let lines: LaunchCheckLine[];
+  try {
+    lines = await deps.readiness(target);
+  } catch (err) {
+    steps.push({ name: "readiness", result: errorOf(err) });
+    return stop();
+  }
+  const allowMissing = deps.allowMissing ?? new Set<LaunchCheckStep>();
+  const ready = blockingLines(lines, allowMissing).length === 0;
+  steps.push({ name: "readiness", result: { kind: "readiness", lines, allowMissing, ready } });
+  if (!ready) return stop();
+
   // 1. Bootstrap.
   let recipe: RecipeResult;
   try {
@@ -613,16 +653,7 @@ export async function launch(site: Site, deps: LaunchDeps): Promise<LaunchResult
   steps.push({ name: "self-updating", result: { kind: "recipe", result: recipe } });
   if (recipe.status === "failed") return stop();
 
-  // 2. The Websites row, which supplies the live url every later step uses.
-  const websites = await deps.roster();
-  const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));
-  if (!target) {
-    steps.push({
-      name: "audit",
-      result: { kind: "error", message: `no site row matched site "${label}"` },
-    });
-    return stop();
-  }
+  // 2. The row's url, read in step 0b.
   if (!isHttpUrl(target.url)) {
     steps.push({
       name: "dev-guard",

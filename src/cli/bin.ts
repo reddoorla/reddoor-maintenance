@@ -590,11 +590,31 @@ cli
 cli
   .command(
     "launch <site>",
-    "Bootstrap + first-audit a site, then draft its launch email for approval.",
+    "Check launch readiness, bootstrap + first-audit a site, then draft its launch email for approval.",
   )
-  .action(async (site: string, opts: { cwd?: string; verbose?: boolean }) =>
+  .option(
+    "--allow-missing <step>",
+    "Launch past a launch-check step that is not ok (repeatable or comma-separated)",
+  )
+  .action(
+    async (
+      site: string,
+      opts: { cwd?: string; verbose?: boolean; allowMissing?: string | string[] },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "launch-check <site>",
+    "Is the site ready to launch? One line per step of docs/runbooks/site-launch.md: ok, missing or unverified. Read-only.",
+  )
+  .action(async (site: string, opts: { verbose?: boolean }) =>
     runOrExit(
-      async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+      async () => (await import("./commands/launch-check.js")).runLaunchCheckCommand(site),
       opts,
     ),
   );
