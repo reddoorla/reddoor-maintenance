@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { makeGitHub } from "../../src/github/gh.js";
+import { resolveBlockedBranches } from "../../src/audits/protection-coverage.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
 
 function fakeSpawn(result: Partial<SpawnResult>): {
@@ -685,6 +686,38 @@ describe("makeGitHub", () => {
       await expect(
         makeGitHub({ token: "T", spawn: err.spawn }).branchTip("o/r", "x"),
       ).rejects.toThrow();
+    });
+
+    it("REGRESSION P1-50: a branch the Dashboard names before Renovate creates it is null, not a failed probe", async () => {
+      const missing = fakeSpawn({
+        code: 1,
+        stderr: "gh: No commit found for SHA: renovate/staging-major-vitest-monorepo (HTTP 422)",
+      });
+      const github = makeGitHub({ token: "T", spawn: missing.spawn });
+      expect(await github.branchTip("o/r", "renovate/staging-major-vitest-monorepo")).toBeNull();
+      expect(
+        await resolveBlockedBranches(
+          "o/r",
+          {
+            present: true,
+            blockedBranches: ["renovate/staging-major-vitest-monorepo"],
+            unknownSections: [],
+          },
+          github,
+          new Date("2026-10-14T06:16:00Z"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("any other 422 still throws — only the missing-commit answer means no branch", async () => {
+      const other = fakeSpawn({ code: 1, stderr: "gh: Validation Failed (HTTP 422)" });
+      await expect(
+        makeGitHub({ token: "T", spawn: other.spawn }).branchTip("o/r", "x"),
+      ).rejects.toThrow(/Validation Failed/);
+      const noStatus = fakeSpawn({ code: 1, stderr: "gh: No commit found for SHA: x" });
+      await expect(
+        makeGitHub({ token: "T", spawn: noStatus.spawn }).branchTip("o/r", "x"),
+      ).rejects.toThrow(/No commit found/);
     });
   });
 });

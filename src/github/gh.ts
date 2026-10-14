@@ -949,7 +949,9 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
           '{type: (.author.type // ""), login: (.author.login // ""), email: .commit.author.email, name: .commit.author.name, date: .commit.committer.date}',
         ]);
       } catch (e) {
-        if (/HTTP 404/.test(e instanceof Error ? e.message : String(e))) return null;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/HTTP 404/.test(msg)) return null;
+        if (/HTTP 422/.test(msg) && /No commit found for SHA/.test(msg)) return null;
         throw e;
       }
       const raw = JSON.parse(out) as {
