@@ -134,6 +134,14 @@ function checkUrl(row: WebsiteRow, home: FetchedPage | Error | null): LaunchChec
   if (home === null) return line("url", "unverified", `GET ${row.url} did not run`);
   const away = offSite(row, home, row.url);
   if (away !== null) return line("url", "missing", `GET ${row.url}: ${away}`);
+  const landed = home.url ? hostOf(home.url).toLowerCase() : "";
+  if (landed !== "" && landed !== hostOf(row.url).toLowerCase()) {
+    return line(
+      "url",
+      "missing",
+      `${row.url} redirects to ${home.url}. Record the host the site lands on, which the report, the GA filter and the Search Console check all read.`,
+    );
+  }
   if (!is2xx(home.status)) return line("url", "missing", `GET ${row.url} answered ${home.status}`);
   return line("url", "ok", `${row.url} answers ${home.status}`);
 }
@@ -152,6 +160,25 @@ const FREQUENCIES = new Set(["None", "Monthly", "Quarterly", "Yearly"]);
 /** The same staleness line preflight's `anchor-stale` draws (~13 months). */
 const STALE_ANCHOR_DAYS = 396;
 const DAY_MS = 86_400_000;
+
+/** Why a schedule anchor day is unusable, or null. Not a date; more than ~13
+ *  months old (the first report drafts back-dated and overdue); or more than a
+ *  year ahead (a year typo that would hold the first report for decades). */
+function dayProblem(field: string, value: string, now: Date): string | null {
+  const day = value.trim();
+  const at = Date.parse(day);
+  if (!Number.isFinite(at)) return `${field} ${JSON.stringify(day)} is not a date`;
+  if (now.getTime() - at > STALE_ANCHOR_DAYS * DAY_MS) {
+    return `${field} ${day} is more than 13 months old, so the first report drafts back-dated and overdue. Set the day the cycle counts from.`;
+  }
+  if (at - now.getTime() > MAX_AHEAD_DAYS * DAY_MS) {
+    return `${field} ${day} is more than a year ahead, so the first report would not fall due until then.`;
+  }
+  return null;
+}
+
+/** The furthest ahead an anchor day may sit: one Yearly cycle. */
+const MAX_AHEAD_DAYS = 366;
 
 function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
   const raw = row.maintenanceFreqRaw?.trim() ?? "";
@@ -178,25 +205,19 @@ function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
       `maintenance_freq is ${raw} but maintenance_day is blank, so the first Maintenance report falls due the day the site turns maintained. Set the day the cycle counts from.`,
     );
   }
-  const day = (row.maintenanceDay ?? "").trim();
-  const at = Date.parse(day);
-  if (!Number.isFinite(at)) {
-    return line("schedule", "missing", `maintenance_day ${JSON.stringify(day)} is not a date`);
-  }
-  if (now.getTime() - at > STALE_ANCHOR_DAYS * DAY_MS) {
-    return line(
-      "schedule",
-      "missing",
-      `maintenance_day ${day} is more than 13 months old, so the first Maintenance report drafts back-dated and overdue. Set the day the cycle counts from.`,
-    );
-  }
+  const badDay = dayProblem("maintenance_day", row.maintenanceDay ?? "", now);
+  if (badDay) return line("schedule", "missing", badDay);
   const testing = row.testingFreqRaw?.trim() ?? "";
-  if (testing !== "" && testing !== "None" && !row.testingDay?.trim()) {
-    return line(
-      "schedule",
-      "missing",
-      `testing_freq is ${testing} but testing_day is blank, so the first Testing report falls due the day the site turns maintained. Set the day it counts from, or testing_freq None.`,
-    );
+  if (testing !== "" && testing !== "None") {
+    if (!row.testingDay?.trim()) {
+      return line(
+        "schedule",
+        "missing",
+        `testing_freq is ${testing} but testing_day is blank, so the first Testing report falls due the day the site turns maintained. Set the day it counts from, or testing_freq None.`,
+      );
+    }
+    const badTesting = dayProblem("testing_day", row.testingDay, now);
+    if (badTesting) return line("schedule", "missing", badTesting);
   }
   return line("schedule", "ok", `${raw}, counted from ${row.maintenanceDay}`);
 }
@@ -426,7 +447,7 @@ async function checkGaTag(
   );
 }
 
-const HREF = /href\s*=\s*["']([^"']*)["']/gi;
+const HREF = /(?<![\w-])href\s*=\s*["']([^"']*)["']/gi;
 
 /** Does the page link to the site's OWN /privacy? An absolute link counts only
  *  on the site's hosts: a reCAPTCHA notice links to Google's /privacy, which is

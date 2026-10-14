@@ -135,6 +135,20 @@ describe("launchCheck", () => {
       expect(detailOf(lines, "schedule")).toContain("testing_day");
     });
 
+    it("is missing when maintenance_day is more than a year ahead", async () => {
+      const lines = await launchCheck(row({ "maintenance day": "2062-10-14" }), goodDeps());
+      expect(stateOf(lines, "schedule")).toBe("missing");
+    });
+
+    it("parses testing_day too", async () => {
+      const lines = await launchCheck(
+        row({ "testing freq": "Monthly", "testing day": "banana" }),
+        goodDeps(),
+      );
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      expect(detailOf(lines, "schedule")).toContain("testing_day");
+    });
+
     it("is missing when maintenance_day is not a date", async () => {
       const lines = await launchCheck(row({ "maintenance day": "next week" }), goodDeps());
       expect(stateOf(lines, "schedule")).toBe("missing");
@@ -349,6 +363,19 @@ describe("launchCheck", () => {
     expect(stateOf(lines, "privacy")).toBe("missing");
   });
 
+  it("does not count a data-href attribute as a link", async () => {
+    const lines = await launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: { status: 200, url: URL_, body: '<div data-href="/privacy"></div>' },
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "privacy")).toBe("missing");
+  });
+
   it("counts an absolute link to the site's own /privacy", async () => {
     const lines = await launchCheck(
       row(),
@@ -531,12 +558,26 @@ describe("redirects are judged where they land", () => {
     expect(stateOf(lines, "url")).toBe("missing");
   });
 
-  it("accepts the apex/www swap", async () => {
+  it("is missing a url whose site lands on the other host of the pair", async () => {
+    const lines = await launchCheck(
+      row({ url: "https://example.com/", "Search Console property": "https://example.com/" }),
+      goodDeps({
+        fetchPage: pages({
+          "https://example.com/": { status: 200, url: "https://www.example.com/", body: HOME },
+          "https://example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+    expect(stateOf(lines, "url")).toBe("missing");
+    expect(detailOf(lines, "url")).toContain("https://www.example.com/");
+  });
+
+  it("accepts a /privacy that lands on the apex/www twin", async () => {
     const lines = await launchCheck(
       row(),
       goodDeps({
         fetchPage: pages({
-          [URL_]: { status: 200, url: "https://example.com/", body: HOME },
+          [URL_]: { status: 200, url: URL_, body: HOME },
           "https://www.example.com/privacy": {
             status: 200,
             url: "https://example.com/privacy/",
