@@ -62,7 +62,18 @@ Two orderings carry weight. Everything else can run in parallel.
 | 18  | The nightlies cover the site.                                                                                                                                                                                       | tooling                          | —                   | Only `maintained` sites are swept (`selectFleetSites`, `src/inventory/select.ts`), so lighthouse, smoke and form-e2e start the night after step 17. The Search Console re-check has its own filter (`maintained` and a stored `no-property`), so it too starts only after step 17. Read the site's `site_health` row the next morning. A site that sits `building` after DNS is live is unmonitored. |
 | 19  | The first Maintenance report drafts with an analytics section.                                                                                                                                                      | tooling; operator approves       | —                   | The draft's Users and Google Indexed rows are filled, not blank; the run logs no `⚠ GA skipped` or `⚑ Search` line for the site.                                                                                                                                                                                                                                                                     |
 
-Steps 3, 4, 8 and 10 are in Google's consoles and are the operator's. Steps
+Steps 3, 4, 8 and 10 were the operator's in Google's consoles until
+2026-10-14. That day the operator granted the service account's
+domain-wide delegation `analytics.edit`, `analytics.manage.users`, `webmasters`
+and `siteverification`, so a worker can now do them through the APIs (tested by
+minting a token for each scope, as the GA subject). Two things learned doing
+step 10 for Williamson: Search Console's API cannot add a _user_, only the Site
+Verification API can add an _owner_ to a resource the acting account already
+owns; and an added owner still reads `User does not have sufficient permission`
+until it adds the property to its own list (`PUT webmasters/v3/sites/{site}` as
+that owner), after which it reads `siteOwner`. Creating a GA property is still
+a new kind of write for agents: until `AUTONOMY.md` names its tier, ask before
+creating one unattended. Steps
 6, 7 and 9 are PRs in the site's repo; check its ruleset for whether `main`
 takes a direct merge or goes through staging. Row writes go through the
 existing commands and mirrors only (`ensure-site`, the dashboard's site page,
