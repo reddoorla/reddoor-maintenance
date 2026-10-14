@@ -4674,6 +4674,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `launch-check` reads READY, and approve each go-live email. A worker does
       everything else: the tag (`analytics-tag`), the meta tag, the privacy
       values, the row writes through the site mirror, and the re-checks.
+      **Answered 2026-10-14 (AskUserQuestion): (a)+(b) the operator creates
+      both GA4 properties and both Search Console properties and sends the
+      numeric property IDs, `G-` IDs and verification tokens; (c) each site's
+      published `info@` (`info@williamson-construction.com`,
+      `info@williamson-homes.com`), not Brian; (d) Quarterly from launch,
+      Testing None; (e)/(f) one merge per repo, then the operator runs
+      `launch` and approves.** Done the same hour: `point_of_contact`,
+      `maintenance_freq` Quarterly, `testing_freq` None and `maintenance_day`
+      2026-10-14 on both rows (site mirror), and the privacy contact and
+      effective date on both PRs (williamson-homes `6af5aa3`,
+      williamson-construction-co `08221a0`). Still waiting on: the IDs and
+      tokens. With them, a worker adds the tag and meta to #39 and #29 and
+      writes `ga4_property_id` and `search_console_property`.
 
 ## Active projects (the operator's list, read by the PM pass)
 
