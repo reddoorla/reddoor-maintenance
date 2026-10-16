@@ -119,7 +119,8 @@ and renames what arrived.
   "Finished uploading…" would match. The commit does not name the stored
   file, which is why step 4 matches by hash.
 - The 09-29 version (roalson-interests
-  `tools/listing-packages/build/upload.sh` and `frbatch.mjs`) found no
+  `tools/listing-packages/build/upload.sh` and `frbatch.mjs` at `90c6d9e`,
+  removed in roalson-interests#302) found no
   completion state and slept max(45 s, 5 s per MB) per batch. On 10-16, six
   files in two batches took 40 s in all, and 39 s with the commit-based
   wait.

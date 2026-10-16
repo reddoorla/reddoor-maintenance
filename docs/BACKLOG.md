@@ -4895,6 +4895,11 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       with the round's minors. Round 2 was minors only, filed as #1396–#1401.
       A second live run after the fixes (six files, two batches, 39 s)
       matched Dropbox's `content_hash` on every file [M].
+      **Follow-up done 2026-10-16 (roalson-interests#302, `03d6e9a`):**
+      roalson-interests no longer carries the old `upload.sh` and
+      `frbatch.mjs`. Its `tools/listing-packages/README.md` names
+      `dropbox.mjs` first and this script second. The runbook's mention of
+      the old copy is pinned to `90c6d9e`.
 
 ## Active projects (the operator's list, read by the PM pass)
 
