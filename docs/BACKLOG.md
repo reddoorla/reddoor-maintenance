@@ -4797,6 +4797,29 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       it clears the advisories before the 10-25 Maintenance report is
       drafted. _Due:_ 2026-10-22, so the report drafts clean.
 
+127.  **Dropbox binaries from a cloud session: keep the file-request
+      uploader beside the coming app and refresh-token route? (new
+      2026-10-16, branch `claude/tender-bohr-eh2rwb` at `fd2a3f4e`, no PR
+      yet).** Built and proven live today:
+      `scripts/dropbox-file-request-upload.mjs`, ported from roalson-interests'
+      `upload.sh` and `frbatch.mjs`, with 19 unit tests (9 mutations, each
+      red), a runbook and one `CLAUDE.md` line. Every test upload into
+      `/Tucker Lemos/Claude uploader test 2026-10-16`, from 1 byte to 8.4 MB,
+      matched the size and `content_hash` that Dropbox reported [M]. At
+      ~16:45Z the operator said a Dropbox app with a refresh token, built
+      elsewhere, should supersede it "unless you see a reason to keep both".
+      _Ask:_ (a) land it as the fallback: the `CLAUDE.md` line calls it the
+      route for when the API credentials are missing or fail, and the app's
+      PR rewrites that line to name the API first; or (b) close the branch
+      unmerged and keep only a journal entry of what was measured. _Pick:_
+      (a). It needs no secret, only the connector, so it works in any
+      session or environment the new credentials have not reached; a saved
+      environment variable reaches only sessions started after it, and this
+      session still held the dead `sl.` token at 16:31Z. It is already built
+      and proven, so keeping it costs one script. The case against it: a
+      script driving Dropbox's upload page breaks silently when the page
+      changes, and a fallback nobody runs goes stale.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
