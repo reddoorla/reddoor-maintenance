@@ -4835,6 +4835,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       requests read `is_open: false` once their deadlines passed, so neither
       needs closing. At 17:31Z `jdgy7hgrr2hx22f3thh5`'s page already refused
       uploads while `is_open` still read `true` (item 128's journal entry).
+      **Done 2026-10-16 18:22Z [M] (#1388):** the operator re-authorized
+      the app and replaced `DROPBOX_REFRESH_TOKEN`. In a container started at
+      18:20:34Z, `check` printed `granted` for both write scopes. The
+      end-to-end test passed: three uploads (37,748,741 bytes through
+      start, one append and finish; an accented name; an empty file) each
+      matched Dropbox's `content_hash`, `--no-overwrite` refused a changed
+      file, and `close-request` closed a throwaway request, confirmed through
+      the connector. The test folder and request were deleted. All seven
+      file requests read `is_open: false` through `file_requests/list_v2`.
 
 128.  **Dropbox binaries from a cloud session: keep the file-request
       uploader beside the coming app and refresh-token route? (new
@@ -4874,6 +4883,9 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       `CLAUDE.md` bullet says never to use file requests, so when this lands
       the two must agree: the API first, and this script only when the API
       credentials are missing or fail.
+      **Unblocked 2026-10-16 (#1388 landed):** the API route is on `main`,
+      and its `CLAUDE.md` bullet already names this script as the fallback,
+      so the resume steps above apply as written.
 
 ## Active projects (the operator's list, read by the PM pass)
 

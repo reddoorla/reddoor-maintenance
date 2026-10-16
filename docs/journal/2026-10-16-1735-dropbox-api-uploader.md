@@ -1,5 +1,7 @@
 ## 2026-10-16 — Dropbox API uploader built, held on a refresh token that predates its scopes (#1388 held, #1389)
 
+> Superseded in part by 2026-10-16 — Dropbox API uploader passes end to end and lands.
+
 The goal was a reliable way for a cloud session to put a binary (PDF, image)
 into the Reddoor Dropbox, replacing the file-request workaround. The Dropbox
 connector writes only text. The workaround drives Dropbox's upload page with

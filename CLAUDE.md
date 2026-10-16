@@ -279,8 +279,10 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
 - **A binary (PDF, image) goes into Dropbox with
-  `node scripts/dropbox.mjs upload <folder> <file…>`**, never through a file
-  request, which leaves an open request behind for the operator. The script
+  `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
+  request, which leaves an open request behind. A file request is only the
+  fallback for a session whose API credentials are missing or fail
+  (Operator decisions 128). The script
   mints a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
   `DROPBOX_REFRESH_TOKEN`, resolves paths in the team space, and checks each
   file's `content_hash`. Run `check` first: it names the account and proves the
