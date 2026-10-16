@@ -4831,6 +4831,49 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       Review rounds: 1 and 2 each had one major (duplicate file names
       overwriting each other, case-sensitively and then case-insensitively),
       both fixed; round 3 is recorded in #1388.
+      **2026-10-16 17:51Z [M, Dropbox `list_file_requests`]:** both
+      requests read `is_open: false` once their deadlines passed, so neither
+      needs closing. At 17:31Z `jdgy7hgrr2hx22f3thh5`'s page already refused
+      uploads while `is_open` still read `true` (item 128's journal entry).
+
+128.  **Dropbox binaries from a cloud session: keep the file-request
+      uploader beside the coming app and refresh-token route? (new
+      2026-10-16, branch `claude/tender-bohr-eh2rwb` at `fd2a3f4e`, no PR
+      yet).** Built and proven live today:
+      `scripts/dropbox-file-request-upload.mjs`, ported from roalson-interests'
+      `upload.sh` and `frbatch.mjs`, with 19 unit tests (9 mutations, each
+      red), a runbook and one `CLAUDE.md` line. Every test upload into
+      `/Tucker Lemos/Claude uploader test 2026-10-16`, from 1 byte to 8.4 MB,
+      matched the size and `content_hash` that Dropbox reported [M]. At
+      ~16:45Z the operator said a Dropbox app with a refresh token, built
+      elsewhere, should supersede it "unless you see a reason to keep both".
+      _Ask:_ (a) land it as the fallback: the `CLAUDE.md` line calls it the
+      route for when the API credentials are missing or fail, and the app's
+      PR rewrites that line to name the API first; or (b) close the branch
+      unmerged and keep only a journal entry of what was measured. _Pick:_
+      (a). It needs no secret, only the connector, so it works in any
+      session or environment the new credentials have not reached; a saved
+      environment variable reaches only sessions started after it, and this
+      session still held the dead `sl.` token at 16:31Z. It is already built
+      and proven, so keeping it costs one script. The case against it: a
+      script driving Dropbox's upload page breaks silently when the page
+      changes, and a fallback nobody runs goes stale.
+      **Answered 2026-10-16 (AskUserQuestion): (a), land it as the
+      fallback.** The `CLAUDE.md` line and the runbook call it the route for
+      a session without working Dropbox API credentials; the app's PR
+      rewrites the line to name the API first.
+      **Paused 2026-10-16 ~16:50Z (the operator): not before the app and
+      refresh-token work lands, or the two will conflict.** The branch
+      `claude/tender-bohr-eh2rwb` (`3926b85f`) holds the script, its tests,
+      the runbook and the fallback `CLAUDE.md` line; no PR is open. To
+      resume: merge `main` into the branch; put the `CLAUDE.md` line after
+      the API route's, as its fallback; point the runbook's opening at the
+      API route; run the script's tests and `pnpm lint`; open the PR with the
+      mutation table from the 2026-10-16 journal entry; give it the 3-lens
+      review; land it. The app work is #1388, held on item 127. Its
+      `CLAUDE.md` bullet says never to use file requests, so when this lands
+      the two must agree: the API first, and this script only when the API
+      credentials are missing or fail.
 
 ## Active projects (the operator's list, read by the PM pass)
 
