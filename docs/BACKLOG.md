@@ -4819,6 +4819,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       and proven, so keeping it costs one script. The case against it: a
       script driving Dropbox's upload page breaks silently when the page
       changes, and a fallback nobody runs goes stale.
+      **Answered 2026-10-16 (AskUserQuestion): (a), land it as the
+      fallback.** The `CLAUDE.md` line and the runbook call it the route for
+      a session without working Dropbox API credentials; the app's PR
+      rewrites the line to name the API first.
 
 ## Active projects (the operator's list, read by the PM pass)
 
