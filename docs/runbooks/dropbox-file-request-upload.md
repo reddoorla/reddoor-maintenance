@@ -46,6 +46,15 @@ then verifies and renames what arrived.
    cannot be the team root or a personal root such as `/Tucker Lemos`; a
    missing child folder is created.
 
+   At the deadline the request's page stops taking uploads. It reads "This
+   file request has been closed, deleted, or never existed", and the script
+   fails with "no drop zone". The connector's `is_open` can lag behind the
+   page: `jdgy7hgrr2hx22f3thh5` (deadline 17:30Z) still read `is_open: true`
+   at 17:31Z and read `false` at 17:51Z, while `rwq45cqgv3weniwpv46n`
+   (deadline 17:50Z) already read `false` at 17:51Z. An audit for open
+   requests should therefore count a request whose `deadline` has passed as
+   closed.
+
 3. **Run the script** from a checkout with dependencies installed (a
    worktree needs its own `pnpm install --frozen-lockfile`). It loads
    Chromium through this repo's `@playwright/test`, so no scratch install of
