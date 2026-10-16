@@ -4823,6 +4823,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       fallback.** The `CLAUDE.md` line and the runbook call it the route for
       a session without working Dropbox API credentials; the app's PR
       rewrites the line to name the API first.
+      **Paused 2026-10-16 ~16:50Z (the operator): not before the app and
+      refresh-token work lands, or the two will conflict.** The branch
+      `claude/tender-bohr-eh2rwb` (`fea66996`) holds the script, its tests,
+      the runbook and the fallback `CLAUDE.md` line; no PR is open. To
+      resume: merge `main` into the branch; put the `CLAUDE.md` line after
+      the API route's, as its fallback; point the runbook's opening at the
+      API route; run the script's tests and `pnpm lint`; open the PR with the
+      mutation table from the 2026-10-16 journal entry; give it the 3-lens
+      review; land it.
 
 ## Active projects (the operator's list, read by the PM pass)
 
