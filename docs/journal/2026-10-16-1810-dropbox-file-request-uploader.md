@@ -9,7 +9,7 @@ creates one, a headless Chromium fills its public page, and the connector
 verifies and renames what arrived. `scripts/dropbox-file-request-upload.mjs`
 is that route, with a runbook (`docs/runbooks/dropbox-file-request-upload.md`)
 and one `CLAUDE.md` line. All of it sits on `claude/tender-bohr-eh2rwb`
-(`fea66996`), unmerged, for the reason at the end.
+(`3926b85f`), unmerged, for the reason at the end.
 
 **A belief corrected before any code.** The brief said `upload.sh` and
 `frbatch.mjs` were absent from roalson-interests `main`. They have been there

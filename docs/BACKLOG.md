@@ -4864,7 +4864,7 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       rewrites the line to name the API first.
       **Paused 2026-10-16 ~16:50Z (the operator): not before the app and
       refresh-token work lands, or the two will conflict.** The branch
-      `claude/tender-bohr-eh2rwb` (`fea66996`) holds the script, its tests,
+      `claude/tender-bohr-eh2rwb` (`3926b85f`) holds the script, its tests,
       the runbook and the fallback `CLAUDE.md` line; no PR is open. To
       resume: merge `main` into the branch; put the `CLAUDE.md` line after
       the API route's, as its fallback; point the runbook's opening at the
