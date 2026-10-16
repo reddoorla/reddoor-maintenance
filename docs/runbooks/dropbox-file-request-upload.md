@@ -1,20 +1,25 @@
 # Runbook — Putting a binary file in Dropbox from a cloud session
 
 **Try the API first: `node scripts/dropbox.mjs check`.** When it names the
-account and prints `granted` for both write scopes, upload with
+account and prints `granted` for `files.content.write`, upload with
 `node scripts/dropbox.mjs upload <folder> <file…>` and stop reading here.
 That route (#1388, Operator decisions 127) overwrites in place, keeps the
 file's own name and checks every `content_hash` itself.
 
-**Use `scripts/dropbox-file-request-upload.mjs` only when `check` fails**:
-`DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` or `DROPBOX_REFRESH_TOKEN` is
-missing, refused or short of a scope. That can happen in a session started
-before the variables were saved (a saved value reaches only later sessions)
-or in another environment. This is the fallback (Operator decisions 128). The
-Dropbox connector creates only UTF-8 text files (`create_file`), but a Dropbox
-**file request** needs no secret at all. The connector creates one on the
-destination folder, the script fills its public upload page in headless
-Chromium, and the connector then verifies and renames what arrived.
+**Use `scripts/dropbox-file-request-upload.mjs` only when the API cannot
+upload**: `check` stops before naming the account (`DROPBOX_APP_KEY`,
+`DROPBOX_APP_SECRET` or `DROPBOX_REFRESH_TOKEN` missing or refused), or it
+prints `MISSING` for `files.content.write`. If only `file_requests.write` is
+missing, `dropbox.mjs upload` still works; use it. The variables can be
+missing from a container that started before they were saved. A running
+container keeps the environment it started with, while a new session, or
+this one after its container restarts, reads the saved value (2026-10-16: a
+container booted at 18:46Z saw values saved at about 18:20Z). This is the
+fallback (Operator decisions 128). The Dropbox connector creates only UTF-8
+text files (`create_file`), but a Dropbox **file request** needs no secret at
+all. The connector creates one on the destination folder, the script fills
+its public upload page in headless Chromium, and the connector then verifies
+and renames what arrived.
 
 ## Steps
 
@@ -38,12 +43,13 @@ Chromium, and the connector then verifies and renames what arrived.
    ```
 
    Leave `deadline_allow_late_uploads` out. The connector can create a
-   request but cannot close one, and in a session on this route
-   `node scripts/dropbox.mjs close-request <id>` cannot either, because its
-   credentials are what failed. A request with no deadline stays open until
-   someone closes it by hand under Dropbox → File requests. Four stayed
-   open from 2026-09-29 to 10-13 (`docs/BACKLOG.md` item 81), and the 10-13
-   sign-off upload left a fifth (`0nohnhi2368naltaor5k`). Dropbox accepts a
+   request but cannot close one, and
+   `node scripts/dropbox.mjs close-request <id>` works only when `check`
+   printed `granted` for `file_requests.write`.
+   A request with no deadline stays open until someone closes it by hand
+   under Dropbox → File requests. Four were open until 10-13, three of them
+   since 2026-09-29 and one since 10-08 (`docs/BACKLOG.md` item 81), and the
+   10-13 sign-off upload left a fifth (`0nohnhi2368naltaor5k`). Dropbox accepts a
    deadline only on eligible plans; the Reddoor Creative team account is one
    (10-16: `rwq45cqgv3weniwpv46n` and `jdgy7hgrr2hx22f3thh5`). The destination
    cannot be the team root or a personal root such as `/Tucker Lemos`; a
@@ -76,16 +82,22 @@ Chromium, and the connector then verifies and renames what arrived.
    each upload.
 
 4. **Verify with the connector**, because the script cannot see the folder.
-   `list_folder` gives each new file's size. `download_link` (up to 25
-   entries per call) gives its `content_hash`; `get_file_metadata` and
-   `list_folder` do not. Never fetch the URL that `download_link` returns: it
-   is single-use, and anyone holding it can read the file. Each file's size
-   and `content_hash` must equal a row of the table. Match by hash, not by
-   name, because of step 1. A row that no file matches did not arrive.
+   `list_folder` (`recursive: false`) gives each file's size.
+   `download_link` (up to 25 entries per call) gives its `content_hash`;
+   `get_file_metadata` and `list_folder` do not. Call it on each new file and
+   on each file already named as a row's expected name. Never fetch the URL
+   it returns, and do not paste it anywhere: it is single-use, and anyone
+   holding it can read the file. Each row's size and `content_hash` must
+   equal a file's. Match by hash, not by name, because of step 1. A row that
+   no file in the folder matches did not arrive; a row whose bytes were
+   already there under its expected name matches that older file.
 
 5. **Rename** each file to the table's rename target with `move` in the same
    folder. A move can answer `in_progress`; poll `check_job_status` until it
-   completes.
+   completes. This route cannot replace a file: if the rename target already
+   exists, the move fails that entry with a destination conflict. Do not set
+   `autorename`, which gives the file a different name. Move the old file
+   aside first, or ask before deleting it.
 
 ## How the upload page behaves (measured 2026-10-16)
 
@@ -106,13 +118,15 @@ Chromium, and the connector then verifies and renames what arrived.
   files in two batches took 40 s in all.
 - `content_hash` is the SHA-256 of the concatenated SHA-256 digests of each
   4 MiB block. The unit tests pin six values that Dropbox reported for
-  files this script uploaded, from 1 byte to 8,388,610 bytes (one to three
-  blocks).
+  files sent through a file request, from 1 byte to 8,388,610 bytes (one to
+  three blocks).
 
 ## Not yet tried
 
 - The laptop. It should work there when Playwright's Chromium is installed;
-  the script uses the proxy only when `HTTPS_PROXY` is set.
+  the script uses the proxy only when `HTTPS_PROXY` is set. Per `CLAUDE.md`
+  ("No local browser while agents run"), run it there only in a session with
+  no agents live.
 - Large files. Each batch passes its files into the page as base64, so memory
   is a few times the batch's size. The largest file tried is 8.4 MB; the
   09-29 script moved 46 PDFs of about 6 MB each.

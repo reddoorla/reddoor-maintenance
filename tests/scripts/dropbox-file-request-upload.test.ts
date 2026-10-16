@@ -14,10 +14,16 @@ import {
   plan,
   table,
   commitComplete,
+  commitName,
+  verdicts,
+  afterError,
+  squash,
+  exitCode,
+  MAX_BATCH_BYTES,
 } from "../../scripts/dropbox-file-request-upload.mjs";
 
 const SCRIPT = join(__dirname, "../../scripts/dropbox-file-request-upload.mjs");
-const URL_OK = "https://www.dropbox.com/request/jdgy7hgrr2hx22f3thh5";
+const URL_OK = "https://www.dropbox.com/request/notarealrequest0000";
 
 const roots: string[] = [];
 afterAll(() => {
@@ -95,6 +101,19 @@ describe("batches", () => {
     expect(batches(xs, 4).map((b) => b.length)).toEqual([4, 4, 4]);
     expect(batches([])).toEqual([]);
   });
+
+  it("also starts a new batch before it would pass the byte limit", () => {
+    const mb = 1024 * 1024;
+    expect(MAX_BATCH_BYTES).toBe(128 * mb);
+    const sizes = [100 * mb, 20 * mb, 10 * mb, 1, 128 * mb, 1];
+    const got = batches(sizes.map((size) => ({ size })));
+    expect(got.map((b) => b.map((x) => x.size))).toEqual([
+      [100 * mb, 20 * mb],
+      [10 * mb, 1],
+      [128 * mb],
+      [1],
+    ]);
+  });
 });
 
 describe("timeoutMs", () => {
@@ -138,11 +157,43 @@ describe("parseArgs", () => {
     );
   });
 
+  it("refuses a lookalike host and a Dropbox URL embedded in another host's", () => {
+    expect(() => parseArgs(["https://www-dropbox.com/request/abc", "R", "a.pdf"], env)).toThrow(
+      /file request/,
+    );
+    expect(() =>
+      parseArgs(
+        ["https://attacker.example/?u=https://www.dropbox.com/request/abc", "R", "a.pdf"],
+        env,
+      ),
+    ).toThrow(/file request/);
+  });
+
   it("refuses a missing name, no files, an unknown flag, and two files with one name", () => {
     expect(() => parseArgs([URL_OK, "", "a.pdf"], env)).toThrow(/name/);
+    expect(() => parseArgs([URL_OK, "  ", "a.pdf"], env)).toThrow(/name/);
     expect(() => parseArgs([URL_OK, "R"], env)).toThrow(/file/);
     expect(() => parseArgs([URL_OK, "R", "a.pdf", "--batch=3"], env)).toThrow(/--batch=3/);
     expect(() => parseArgs([URL_OK, "R", "x/a.pdf", "y/a.pdf"], env)).toThrow(/a\.pdf/);
+  });
+
+  it("refuses two names that Dropbox would treat as one", () => {
+    expect(() => parseArgs([URL_OK, "R", "x/Report.pdf", "y/report.pdf"], env)).toThrow(
+      /report\.pdf/,
+    );
+    expect(() => parseArgs([URL_OK, "R", "x/Résumé.pdf", "y/Résumé.pdf"], env)).toThrow(/sum/);
+  });
+
+  it("trims the uploader name", () => {
+    expect(parseArgs([URL_OK, " Reddoor (Claude) ", "a.pdf"], env).name).toBe("Reddoor (Claude)");
+  });
+
+  it("refuses an uploader name that is a file, so a forgotten name cannot swallow one", () => {
+    const d = scratch();
+    const f = join(d, "Hwy 46 West.pdf");
+    writeFileSync(f, pattern(10));
+    expect(() => parseArgs([URL_OK, f, join(d, "Lot 12.pdf")], env)).toThrow(/looks like a file/);
+    expect(() => parseArgs([URL_OK, "out/x", "a.pdf"], env)).toThrow(/looks like a file/);
   });
 });
 
@@ -161,10 +212,80 @@ describe("plan and table", () => {
         renameTo: "probe 1000.bin",
       },
     ]);
-    const t = table(rows);
-    expect(t).toContain("1000");
-    expect(t).toContain("c88e98bd565d6e001a0a37ac287032e1183923f35f6fde42c14210cbe2098d7c");
-    expect(t).toContain("Uploader probe - probe 1000.bin -> probe 1000.bin");
+    expect(table(rows).split("\n")).toEqual([
+      "bytes\tcontent_hash\texpected name -> rename to",
+      "1000\tc88e98bd565d6e001a0a37ac287032e1183923f35f6fde42c14210cbe2098d7c\tUploader probe - probe 1000.bin -> probe 1000.bin",
+    ]);
+  });
+
+  it("refuses something that is not a regular file", () => {
+    const d = scratch();
+    expect(() => plan([d], "R")).toThrow(/not a file/);
+  });
+
+  it("refuses a file over the byte limit and points at dropbox.mjs", () => {
+    const d = scratch();
+    const f = join(d, "big.bin");
+    writeFileSync(f, pattern(11));
+    expect(() => plan([f], "R", 10)).toThrow(/dropbox\.mjs/);
+    expect(plan([f], "R", 11)).toHaveLength(1);
+  });
+});
+
+describe("commitName", () => {
+  it("reads the file name from a Dropbox commit URL and ignores everything else", () => {
+    expect(
+      commitName(
+        "https://www.dropbox.com/drops/commit_file_request_by_token?client_ts=1&name=uploader%20test%20c%204194305.bin&t=x",
+      ),
+    ).toBe("uploader test c 4194305.bin");
+    expect(
+      commitName("https://evil.example/drops/commit_file_request_by_token?name=a.pdf"),
+    ).toBeNull();
+    expect(commitName("https://www.dropbox.com/drops/log_upload_complete?name=a.pdf")).toBeNull();
+    expect(commitName("data:text/plain,hi")).toBeNull();
+  });
+});
+
+describe("verdicts and exitCode", () => {
+  const row = (file: string) => ({
+    file,
+    size: 1,
+    contentHash: "x",
+    uploadedAs: `R - ${file}`,
+    renameTo: file,
+  });
+
+  it("counts a file only when its own commit answered complete", () => {
+    const rows = [row("a.pdf"), row("b.pdf"), row("c.pdf"), row("d.pdf")];
+    const committed = new Map([
+      ["a.pdf", { status: 200, text: '{"status": "complete"}' }],
+      ["b.pdf", { status: 200, text: '{"status": "error"}' }],
+      ["c.pdf", { status: 409, text: '{"status": "complete"}' }],
+    ]);
+    const v = verdicts(rows, committed);
+    expect(v.map((x) => x.ok)).toEqual([true, false, false, false]);
+    expect(v[3]?.why).toBe("no commit seen");
+    expect(v[2]?.why).toContain("409");
+    expect(exitCode(v)).toBe(1);
+    expect(exitCode(v.slice(0, 1))).toBe(0);
+    expect(exitCode([])).toBe(1);
+  });
+
+  it("keeps the commits already seen when the batch then fails", () => {
+    const rows = [row("a.pdf"), row("b.pdf")];
+    const committed = new Map([["a.pdf", { status: 200, text: '{"status": "complete"}' }]]);
+    const v = afterError(rows, committed, "timed out");
+    expect(v.map((x) => [x.ok, x.why])).toEqual([
+      [true, 'commit answered 200 {"status": "complete"}'],
+      [false, "timed out"],
+    ]);
+  });
+});
+
+describe("squash", () => {
+  it("collapses runs of whitespace the way innerText does", () => {
+    expect(squash("  Hwy 46  West.pdf\n")).toBe("Hwy 46 West.pdf");
   });
 });
 
@@ -180,9 +301,18 @@ describe("commitComplete", () => {
 
 describe("the command", () => {
   function run(args: string[], env: Record<string, string> = {}) {
-    const clean = { ...process.env, ...env };
+    const clean: Record<string, string | undefined> = {
+      ...process.env,
+      HTTPS_PROXY: "http://127.0.0.1:9",
+      ...env,
+    };
+    delete clean.https_proxy;
     if (!("UPLOADER_EMAIL" in env)) delete clean.UPLOADER_EMAIL;
-    return spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf-8", env: clean });
+    return spawnSync(process.execPath, [SCRIPT, ...args], {
+      encoding: "utf-8",
+      env: clean,
+      timeout: 30_000,
+    });
   }
 
   it("--dry-run prints the table and the verification step, and opens no browser", () => {
@@ -194,6 +324,7 @@ describe("the command", () => {
     expect(r.stdout).toContain("c88e98bd565d6e001a0a37ac287032e1183923f35f6fde42c14210cbe2098d7c");
     expect(r.stdout).toContain("download_link");
     expect(r.stdout).toContain("content_hash");
+    expect(r.stdout).toContain("Never fetch the");
     expect(r.stdout).not.toContain("batch 1");
   });
 

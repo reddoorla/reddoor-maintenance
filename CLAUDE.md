@@ -280,15 +280,16 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
 - **A binary (PDF, image) goes into Dropbox with
   `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
-  request. A file request is only the fallback for a session whose API
-  credentials are missing or fail: `scripts/dropbox-file-request-upload.mjs`,
-  steps in `docs/runbooks/dropbox-file-request-upload.md` (Operator
-  decisions 128). `dropbox.mjs`
-  mints a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
-  `DROPBOX_REFRESH_TOKEN`, resolves paths in the team space, and checks each
-  file's `content_hash`. Run `check` first: it names the account and proves the
-  token holds both write scopes. The connector writes only text, and
-  `DROPBOX_ACCESS_TOKEN` is a dead short-lived token.
+  request. The script mints a token from `DROPBOX_APP_KEY`,
+  `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN`, resolves paths in the team
+  space, and checks each file's `content_hash`. Run `check` first: it names the
+  account and proves the token holds both write scopes. Only when the API
+  cannot upload (`check` fails before naming the account, or prints `MISSING`
+  for `files.content.write`) is a file request the fallback:
+  `scripts/dropbox-file-request-upload.mjs`, with its steps in
+  `docs/runbooks/dropbox-file-request-upload.md` (Operator decisions 128). The
+  connector writes only text, and `DROPBOX_ACCESS_TOKEN` is a dead short-lived
+  token.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
   `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
   to the session answer on the API, so attach a fleet repo with `add_repo`
