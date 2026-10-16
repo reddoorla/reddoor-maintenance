@@ -4797,7 +4797,46 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       it clears the advisories before the 10-25 Maintenance report is
       drafted. _Due:_ 2026-10-22, so the report drafts clean.
 
-127.  **Dropbox binaries from a cloud session: keep the file-request
+127.  **Dropbox API uploader: re-authorize the app so its refresh token
+      carries the write scopes (new 2026-10-16, #1388 held as a draft,
+      branch `claude/gifted-goldberg-03dgfe`).** Built:
+      `scripts/dropbox.mjs` (`check`, `upload`, `close-request`, `hash`), 39
+      tests, 21 mutations, each red, and one `CLAUDE.md` bullet. Proven live
+      [M]: a wrong refresh token is refused (400 `invalid_grant`), and the
+      real one names Tucker Lemos on Reddoor Creative. The path-root header
+      resolves `/Design Resources`. The local `content_hash` matches
+      Dropbox's on four real team files of 1 to 10 blocks. At 16:49Z the app
+      lacked `files.content.write`, `file_requests.write` and
+      `file_requests.read` (400 "app not permitted"). After the operator
+      updated the permissions at 16:53Z, the same calls answer 401
+      `missing_scope`: the app has the scopes, but the refresh token was
+      authorized before they were added [M]. So nothing can upload yet, and
+      two file requests are still open: `rwq45cqgv3weniwpv46n` (style guide,
+      deadline 17:50Z) and `jdgy7hgrr2hx22f3thh5` (the tender-bohr session's
+      test, deadline 17:30Z). _Ask:_ redo the one-time authorization and
+      replace `DROPBOX_REFRESH_TOKEN` in the environment settings. Then
+      either (a) say so, and this session starts a fresh session, the only
+      kind that sees the new value, to run #1388's end-to-end test, close
+      both requests and land it; or (b) leave it for whichever session next
+      picks up this line. _Pick:_ (a). The script is finished and proven on
+      the read side, and only the token is missing. If #1387 is answered
+      "keep", its `CLAUDE.md` bullet must stop calling file requests the
+      route, because #1388's says "never".
+      **Answered 2026-10-16 (AskUserQuestion): (b), later, from the
+      backlog.** #1388 stays a held draft. The session that picks this up
+      must start after `DROPBOX_REFRESH_TOKEN` is replaced. It runs
+      `node scripts/dropbox.mjs check`, which must print `granted` for both
+      scopes, then the end-to-end test in #1388's body. It closes both
+      requests, posts the output on #1388, marks it ready and lands it.
+      Review rounds: 1 and 2 each had one major (duplicate file names
+      overwriting each other, case-sensitively and then case-insensitively),
+      both fixed; round 3 is recorded in #1388.
+      **2026-10-16 17:51Z [M, Dropbox `list_file_requests`]:** both
+      requests read `is_open: false` once their deadlines passed, so neither
+      needs closing. At 17:31Z `jdgy7hgrr2hx22f3thh5`'s page already refused
+      uploads while `is_open` still read `true` (item 128's journal entry).
+
+128.  **Dropbox binaries from a cloud session: keep the file-request
       uploader beside the coming app and refresh-token route? (new
       2026-10-16, branch `claude/tender-bohr-eh2rwb` at `fd2a3f4e`, no PR
       yet).** Built and proven live today:
@@ -4831,7 +4870,10 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       the API route's, as its fallback; point the runbook's opening at the
       API route; run the script's tests and `pnpm lint`; open the PR with the
       mutation table from the 2026-10-16 journal entry; give it the 3-lens
-      review; land it.
+      review; land it. The app work is #1388, held on item 127. Its
+      `CLAUDE.md` bullet says never to use file requests, so when this lands
+      the two must agree: the API first, and this script only when the API
+      credentials are missing or fail.
 
 ## Active projects (the operator's list, read by the PM pass)
 

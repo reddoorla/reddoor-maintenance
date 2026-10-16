@@ -90,11 +90,15 @@ value: same `sl.` prefix, 401 `invalid_access_token` at 16:31Z. An
 environment variable saved mid-session reaches only sessions started after
 it. At about 16:45Z the operator said a Dropbox app with a refresh token,
 built elsewhere, should supersede this "unless you see a reason to keep both".
-I asked (Operator decisions 127): the file request needs no secret, only the
+I asked (Operator decisions 128): the file request needs no secret, only the
 connector, so it still works in any session the new credentials have not
 reached. The answer was to land it as the fallback. Then: pause it until the
 app work lands, or the two will conflict. So no PR is open for the script.
-Line 127 has the steps to resume: merge `main` in, put the `CLAUDE.md` line
+The app route reached `main` as Operator decisions 127 (#1389) while this
+entry was being written: `scripts/dropbox.mjs` in #1388, held as a draft until
+the refresh token is authorized again with the write scopes. Its `CLAUDE.md`
+bullet says never to use file requests, so the two bullets must be made to
+agree when this one lands. Line 128 has the steps to resume: merge `main` in, put the `CLAUDE.md` line
 after the API route's as its fallback, point the runbook at the API route,
 re-run tests and lint, open the PR with the table above, review, land.
 
