@@ -75,11 +75,14 @@ and renames what arrived.
    ```
 
    It prints one row per file (bytes, `content_hash`, expected name, rename
-   target), uploads in batches of five, one page per batch, and then prints
-   `committed` or `FAILED` for each file. It exits 0 when every file
-   committed, 1 when any failed, and 2 on bad arguments. `--dry-run` prints
-   the table and uploads nothing. Dropbox emails the request's owner about
-   each upload.
+   target). It uploads in batches of at most five files and 128 MiB, one page
+   per batch, and prints `committed` or `FAILED` for each file as its batch
+   ends. It exits 0 when every file committed, 1 when any failed, and 2 on
+   bad arguments: among them a file over 128 MiB (use `dropbox.mjs`), two
+   names Dropbox would treat as one, and an uploader name that is itself a
+   file, which usually means the name was left out. `--dry-run` prints the
+   table and uploads nothing. Dropbox emails the request's owner about each
+   upload.
 
 4. **Verify with the connector**, because the script cannot see the folder.
    `list_folder` (`recursive: false`) gives each file's size.
@@ -109,13 +112,17 @@ and renames what arrived.
 - Uploading sends 4 MiB blocks to `dl-web.dropbox.com/put_block_returning_token`,
   then one `POST /drops/commit_file_request_by_token?name=<file>` per file,
   which answers 200 `{"status": "complete"}`. The page then shows "Finished
-  uploading". The script waits for that text, up to max(120 s, 10 s per MB),
-  and counts a file as committed only when its commit answered that way. The
-  commit does not name the stored file, which is why step 4 matches by hash.
+  uploading". The script waits for every file's commit, up to max(120 s,
+  10 s per MB) per batch, and counts a file as committed only when its own
+  commit answered that way; a commit already seen still counts if the batch
+  fails later. It does not rely on the page text, which a file named
+  "Finished uploading…" would match. The commit does not name the stored
+  file, which is why step 4 matches by hash.
 - The 09-29 version (roalson-interests
   `tools/listing-packages/build/upload.sh` and `frbatch.mjs`) found no
   completion state and slept max(45 s, 5 s per MB) per batch. On 10-16, six
-  files in two batches took 40 s in all.
+  files in two batches took 40 s in all, and 39 s with the commit-based
+  wait.
 - `content_hash` is the SHA-256 of the concatenated SHA-256 digests of each
   4 MiB block. The unit tests pin six values that Dropbox reported for
   files sent through a file request, from 1 byte to 8,388,610 bytes (one to
@@ -127,6 +134,8 @@ and renames what arrived.
   the script uses the proxy only when `HTTPS_PROXY` is set. Per `CLAUDE.md`
   ("No local browser while agents run"), run it there only in a session with
   no agents live.
-- Large files. Each batch passes its files into the page as base64, so memory
-  is a few times the batch's size. The largest file tried is 8.4 MB; the
-  09-29 script moved 46 PDFs of about 6 MB each.
+- Large files. Each batch passes its files into the page as base64 in one
+  message, so memory is several times the batch's size, and Node cannot make
+  a string past about 512 M characters (a 384 MiB file). The 128 MiB cap
+  stays well under that. The largest file tried is 8.4 MB; the 09-29 script
+  moved 46 PDFs of about 6 MB each.
