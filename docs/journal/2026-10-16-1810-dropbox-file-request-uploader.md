@@ -1,5 +1,7 @@
 ## 2026-10-16 — The Dropbox file-request uploader is ported here and proven by `content_hash`, then held behind the app route (#1387, branch `claude/tender-bohr-eh2rwb`)
 
+> Superseded in part by 2026-10-16 — The Dropbox file-request uploader lands as the API route's fallback.
+
 The brief: put the Dropbox file-request uploader where sessions look for
 tools, in this repo, instead of in a client repo. The Dropbox connector writes
 only UTF-8 text, and the environment's `DROPBOX_ACCESS_TOKEN` is a

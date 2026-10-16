@@ -4886,6 +4886,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       **Unblocked 2026-10-16 (#1388 landed):** the API route is on `main`,
       and its `CLAUDE.md` bullet already names this script as the fallback,
       so the resume steps above apply as written.
+      **Done 2026-10-16 (#1395):** landed as the fallback. The script imports
+      `dropbox.mjs`'s `contentHash`. #1388's `CLAUDE.md` bullet names it after
+      "Run `check` first", for when `dropbox.mjs` cannot upload, with no
+      second bullet. The runbook opens with `dropbox.mjs check`. Review round
+      1 had one major (the runbook said a saved environment value reaches
+      only later sessions; it reaches a container when it next starts), fixed
+      with the round's minors. Round 2 was minors only, filed as #1396–#1401.
+      A second live run after the fixes (six files, two batches, 39 s)
+      matched Dropbox's `content_hash` on every file [M].
 
 ## Active projects (the operator's list, read by the PM pass)
 
