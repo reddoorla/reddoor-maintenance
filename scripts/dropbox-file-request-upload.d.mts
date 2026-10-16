@@ -1,4 +1,3 @@
-export const BLOCK: number;
 export const BATCH: number;
 export const USAGE: string;
 export const VERIFY: string;
@@ -18,7 +17,6 @@ export interface Row {
   renameTo: string;
 }
 
-export function contentHash(buf: Uint8Array): string;
 export function parseArgs(argv: string[], env?: Record<string, string | undefined>): Options;
 export function uploadedName(name: string, file: string): string;
 export function batches<T>(items: T[], n?: number): T[][];

@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { contentHash } from "./dropbox.mjs";
 
-export const BLOCK = 4 * 1024 * 1024;
 export const BATCH = 5;
 const REQUEST = /^https:\/\/www\.dropbox\.com\/request\/[A-Za-z0-9]+\/?$/;
 
 export const USAGE = `usage: node scripts/dropbox-file-request-upload.mjs [--dry-run] <file-request-url> <uploader-name> <file>...
 
 Puts binary files into Dropbox through a file request's public upload page, driven by headless Chromium.
+It is the fallback: when "node scripts/dropbox.mjs check" passes, upload with scripts/dropbox.mjs instead.
 Create the request first with the Dropbox connector's create_file_request, with a deadline and no
 deadline_allow_late_uploads, so it closes itself. UPLOADER_EMAIL must be set: use the Dropbox account's
 own address (the connector's who_am_i). --dry-run prints the table below and uploads nothing.
@@ -23,18 +23,6 @@ content_hash, not by name: when the expected name is already taken, Dropbox stor
 A row that no file matches did not arrive.
 rename: then move each file to its "rename to" name with the connector's move, polling check_job_status
 while it answers in_progress.`;
-
-export function contentHash(buf) {
-  const outer = createHash("sha256");
-  for (let i = 0; i < buf.length; i += BLOCK) {
-    outer.update(
-      createHash("sha256")
-        .update(buf.subarray(i, i + BLOCK))
-        .digest(),
-    );
-  }
-  return outer.digest("hex");
-}
 
 export function parseArgs(argv, env = process.env) {
   const flags = argv.filter((a) => a.startsWith("--"));

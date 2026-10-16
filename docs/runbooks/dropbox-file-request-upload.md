@@ -1,20 +1,20 @@
 # Runbook — Putting a binary file in Dropbox from a cloud session
 
-**Use `scripts/dropbox-file-request-upload.mjs` when the session has no
-working Dropbox API credentials.** It is the fallback route (Operator
-decisions 128). The first choice is the Dropbox app with a refresh token,
-`scripts/dropbox.mjs` (#1388, Operator decisions 127), wherever its
-credentials work.
+**Try the API first: `node scripts/dropbox.mjs check`.** When it names the
+account and prints `granted` for both write scopes, upload with
+`node scripts/dropbox.mjs upload <folder> <file…>` and stop reading here.
+That route (#1388, Operator decisions 127) overwrites in place, keeps the
+file's own name and checks every `content_hash` itself.
 
-The Dropbox connector creates only UTF-8 text files (`create_file`). Until
-now the environment's `DROPBOX_ACCESS_TOKEN` was a short-lived `sl.` token,
-which Dropbox expires four hours after issue, so the value a session started
-with was usually dead: it answered 401 `invalid_access_token` on 2026-09-29,
-10-13 and 10-16. A new value saved in the environment's settings reaches only
-sessions started after the save. What needs no secret at all is a Dropbox
-**file request**. The connector creates one on the destination folder, the
-script fills its public upload page in headless Chromium, and the connector
-then verifies and renames what arrived.
+**Use `scripts/dropbox-file-request-upload.mjs` only when `check` fails**:
+`DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` or `DROPBOX_REFRESH_TOKEN` is
+missing, refused or short of a scope. That can happen in a session started
+before the variables were saved (a saved value reaches only later sessions)
+or in another environment. This is the fallback (Operator decisions 128). The
+Dropbox connector creates only UTF-8 text files (`create_file`), but a Dropbox
+**file request** needs no secret at all. The connector creates one on the
+destination folder, the script fills its public upload page in headless
+Chromium, and the connector then verifies and renames what arrived.
 
 ## Steps
 
@@ -38,8 +38,10 @@ then verifies and renames what arrived.
    ```
 
    Leave `deadline_allow_late_uploads` out. The connector can create a
-   request but cannot close one, and a request with no deadline stays open
-   until someone closes it by hand under Dropbox → File requests. Four stayed
+   request but cannot close one, and in a session on this route
+   `node scripts/dropbox.mjs close-request <id>` cannot either, because its
+   credentials are what failed. A request with no deadline stays open until
+   someone closes it by hand under Dropbox → File requests. Four stayed
    open from 2026-09-29 to 10-13 (`docs/BACKLOG.md` item 81), and the 10-13
    sign-off upload left a fifth (`0nohnhi2368naltaor5k`). Dropbox accepts a
    deadline only on eligible plans; the Reddoor Creative team account is one

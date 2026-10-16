@@ -276,14 +276,14 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
   killed it first). It installs into the main
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
-- **A binary (PDF, image) goes into Dropbox with `scripts/dropbox-file-request-upload.mjs`** when the session has no working Dropbox API credentials. It needs only the connector, which writes text alone. `docs/runbooks/dropbox-file-request-upload.md` has the steps, the deadline that closes the request, and the hash check.
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
 - **A binary (PDF, image) goes into Dropbox with
   `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
-  request, which leaves an open request behind. A file request is only the
-  fallback for a session whose API credentials are missing or fail
-  (Operator decisions 128). The script
+  request. A file request is only the fallback for a session whose API
+  credentials are missing or fail: `scripts/dropbox-file-request-upload.mjs`,
+  steps in `docs/runbooks/dropbox-file-request-upload.md` (Operator
+  decisions 128). `dropbox.mjs`
   mints a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
   `DROPBOX_REFRESH_TOKEN`, resolves paths in the team space, and checks each
   file's `content_hash`. Run `check` first: it names the account and proves the

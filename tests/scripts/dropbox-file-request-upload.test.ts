@@ -4,10 +4,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { contentHash } from "../../scripts/dropbox.mjs";
 import {
-  BLOCK,
   BATCH,
-  contentHash,
   parseArgs,
   uploadedName,
   batches,
@@ -37,7 +36,7 @@ function pattern(n: number, k = 1) {
   return b;
 }
 
-describe("contentHash matches what Dropbox reported for the same bytes", () => {
+describe("the shared contentHash matches what Dropbox reported for files sent through a file request", () => {
   it("1000 bytes, one partial block", () => {
     expect(contentHash(pattern(1000))).toBe(
       "c88e98bd565d6e001a0a37ac287032e1183923f35f6fde42c14210cbe2098d7c",
@@ -74,10 +73,6 @@ describe("contentHash matches what Dropbox reported for the same bytes", () => {
   it("is not the plain SHA-256 of the file", () => {
     const plain = createHash("sha256").update(pattern(1000)).digest("hex");
     expect(contentHash(pattern(1000))).not.toBe(plain);
-  });
-
-  it("uses 4 MiB blocks", () => {
-    expect(BLOCK).toBe(4 * 1024 * 1024);
   });
 });
 
