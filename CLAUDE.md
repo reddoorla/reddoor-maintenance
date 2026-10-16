@@ -276,7 +276,7 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   arrives as a `cloud-session-setup:` message (unless the 900 s hook timeout
   killed it first). It installs into the main
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
-- **A binary (PDF, image) goes into Dropbox with `scripts/dropbox-file-request-upload.mjs`**, through a file request created with a deadline; `docs/runbooks/dropbox-file-request-upload.md` has the steps and the hash check. The connector writes only text, and `DROPBOX_ACCESS_TOKEN` is a four-hour token.
+- **A binary (PDF, image) goes into Dropbox with `scripts/dropbox-file-request-upload.mjs`** when the session has no working Dropbox API credentials. It needs only the connector, which writes text alone. `docs/runbooks/dropbox-file-request-upload.md` has the steps, the deadline that closes the request, and the hash check.
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**

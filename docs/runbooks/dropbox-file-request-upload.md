@@ -1,14 +1,19 @@
 # Runbook — Putting a binary file in Dropbox from a cloud session
 
-**Use `scripts/dropbox-file-request-upload.mjs`.** The Dropbox connector
-creates only UTF-8 text files (`create_file`). The environment's
-`DROPBOX_ACCESS_TOKEN` is a short-lived `sl.` token, and Dropbox expires those
-four hours after issue, so the value a session starts with is usually dead: it
-answered 401 `invalid_access_token` on 2026-09-29, 10-13 and 10-16. A new value
-saved in the environment's settings reaches only sessions started after the
-save. What works is a Dropbox **file request**. The connector creates one on
-the destination folder, the script fills its public upload page in headless
-Chromium, and the connector then verifies and renames what arrived.
+**Use `scripts/dropbox-file-request-upload.mjs` when the session has no
+working Dropbox API credentials.** It is the fallback route. The operator is
+setting up a Dropbox app with a refresh token (Operator decisions 127), and
+once that lands, the API is the first choice wherever its credentials work.
+
+The Dropbox connector creates only UTF-8 text files (`create_file`). Until
+now the environment's `DROPBOX_ACCESS_TOKEN` was a short-lived `sl.` token,
+which Dropbox expires four hours after issue, so the value a session started
+with was usually dead: it answered 401 `invalid_access_token` on 2026-09-29,
+10-13 and 10-16. A new value saved in the environment's settings reaches only
+sessions started after the save. What needs no secret at all is a Dropbox
+**file request**. The connector creates one on the destination folder, the
+script fills its public upload page in headless Chromium, and the connector
+then verifies and renames what arrived.
 
 ## Steps
 
