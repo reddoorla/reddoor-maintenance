@@ -1,9 +1,10 @@
 # Runbook — Putting a binary file in Dropbox from a cloud session
 
 **Use `scripts/dropbox-file-request-upload.mjs` when the session has no
-working Dropbox API credentials.** It is the fallback route. The operator is
-setting up a Dropbox app with a refresh token (Operator decisions 128), and
-once that lands, the API is the first choice wherever its credentials work.
+working Dropbox API credentials.** It is the fallback route (Operator
+decisions 128). The first choice is the Dropbox app with a refresh token,
+`scripts/dropbox.mjs` (#1388, Operator decisions 127), wherever its
+credentials work.
 
 The Dropbox connector creates only UTF-8 text files (`create_file`). Until
 now the environment's `DROPBOX_ACCESS_TOKEN` was a short-lived `sl.` token,
