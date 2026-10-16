@@ -71,6 +71,15 @@ token may do. Only calling the endpoints can.
     still being sent.
   - The hash is computed over the bytes actually sent.
   - Network failures name their cause.
+- Round 3 found only minors, so it counted as clean, and they are filed as
+  #1390 to #1394. The one most likely to bite is #1390: `files/upload`
+  silently creates a mistyped folder. The rest: an overwrite is not
+  announced (#1391), `check` exits 0 on a `file_requests` 409 other than
+  `not_found` (#1392), 409 `too_many_write_operations` is not retried
+  (#1393), and a file growing during a session upload reports `ok` (#1394).
+  Its last nit stands as the open instrument question: `check` has never
+  printed `granted` against the real API. That is step one of #1388's
+  end-to-end test.
 - The tests started at 39 with 21 mutations. They ended at 56 tests and 42
   mutations, each red. Four mutations survived along the way, and each
   survivor got a test.
