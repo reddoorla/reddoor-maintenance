@@ -2,7 +2,7 @@
 
 **Use `scripts/dropbox-file-request-upload.mjs` when the session has no
 working Dropbox API credentials.** It is the fallback route. The operator is
-setting up a Dropbox app with a refresh token (Operator decisions 127), and
+setting up a Dropbox app with a refresh token (Operator decisions 128), and
 once that lands, the API is the first choice wherever its credentials work.
 
 The Dropbox connector creates only UTF-8 text files (`create_file`). Until
