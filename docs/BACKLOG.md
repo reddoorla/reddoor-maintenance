@@ -4822,6 +4822,15 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       the read side, and only the token is missing. If #1387 is answered
       "keep", its `CLAUDE.md` bullet must stop calling file requests the
       route, because #1388's says "never".
+      **Answered 2026-10-16 (AskUserQuestion): (b), later, from the
+      backlog.** #1388 stays a held draft. The session that picks this up
+      must start after `DROPBOX_REFRESH_TOKEN` is replaced. It runs
+      `node scripts/dropbox.mjs check`, which must print `granted` for both
+      scopes, then the end-to-end test in #1388's body. It closes both
+      requests, posts the output on #1388, marks it ready and lands it.
+      Review rounds: 1 and 2 each had one major (duplicate file names
+      overwriting each other, case-sensitively and then case-insensitively),
+      both fixed; round 3 is recorded in #1388.
 
 ## Active projects (the operator's list, read by the PM pass)
 
