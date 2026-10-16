@@ -7,10 +7,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const BLOCK = 4 * 1024 * 1024;
-export const SIMPLE_LIMIT = 150 * 1000 * 1000;
 export const CHUNK = 16 * 1024 * 1024;
+export const SIMPLE_LIMIT = CHUNK;
 export const ENV_VARS = ["DROPBOX_APP_KEY", "DROPBOX_APP_SECRET", "DROPBOX_REFRESH_TOKEN"];
 export const MAX_ATTEMPTS = 4;
+export const MAX_WAIT_S = 60;
+export const PROBE_ID = "dropbox-mjs-scope-probe";
 
 const API = "https://api.dropboxapi.com";
 const CONTENT = "https://content.dropboxapi.com";
@@ -40,10 +42,14 @@ export class DropboxError extends Error {
   }
 }
 
-function summary(body) {
+export function summary(body) {
   if (body && typeof body === "object") {
     if (typeof body.error_summary === "string") return body.error_summary;
-    if (typeof body.error === "string") return body.error;
+    if (typeof body.error === "string") {
+      return typeof body.error_description === "string"
+        ? `${body.error}: ${body.error_description}`
+        : body.error;
+    }
     return JSON.stringify(body).slice(0, 300);
   }
   return String(body ?? "").slice(0, 300);
@@ -77,6 +83,15 @@ export function parseArgs(argv) {
       throw new Error("upload needs a Dropbox folder and at least one file");
     if (!folder.startsWith("/"))
       throw new Error(`the Dropbox folder must start with "/", got ${folder}`);
+    const seen = new Map();
+    for (const f of files) {
+      const name = basename(f);
+      if (seen.has(name))
+        throw new Error(
+          `${seen.get(name)} and ${f} would both upload to ${dropboxPath(folder, f)}`,
+        );
+      seen.set(name, f);
+    }
     return { cmd, folder, files, overwrite: !flags.includes("--no-overwrite") };
   }
   if (cmd === "close-request") {
@@ -90,35 +105,47 @@ export function parseArgs(argv) {
   throw new Error(cmd ? `unknown command: ${cmd}` : "no command given");
 }
 
-export function contentHash(buf) {
+export function contentHasher() {
   const outer = createHash("sha256");
-  for (let i = 0; i < buf.length; i += BLOCK) {
-    outer.update(
-      createHash("sha256")
-        .update(buf.subarray(i, i + BLOCK))
-        .digest(),
-    );
-  }
-  return outer.digest("hex");
+  let block = createHash("sha256");
+  let filled = 0;
+  return {
+    update(buf) {
+      for (let i = 0; i < buf.length;) {
+        const n = Math.min(BLOCK - filled, buf.length - i);
+        block.update(buf.subarray(i, i + n));
+        filled += n;
+        i += n;
+        if (filled === BLOCK) {
+          outer.update(block.digest());
+          block = createHash("sha256");
+          filled = 0;
+        }
+      }
+      return this;
+    },
+    digest() {
+      if (filled) outer.update(block.digest());
+      return outer.digest("hex");
+    },
+  };
+}
+
+export function contentHash(buf) {
+  return contentHasher().update(buf).digest();
 }
 
 export async function contentHashFile(path) {
   const fh = await open(path, "r");
   try {
-    const outer = createHash("sha256");
+    const h = contentHasher();
     const buf = Buffer.alloc(BLOCK);
     for (;;) {
-      let n = 0;
-      while (n < BLOCK) {
-        const { bytesRead } = await fh.read(buf, n, BLOCK - n, null);
-        if (!bytesRead) break;
-        n += bytesRead;
-      }
-      if (!n) break;
-      outer.update(createHash("sha256").update(buf.subarray(0, n)).digest());
-      if (n < BLOCK) break;
+      const { bytesRead } = await fh.read(buf, 0, BLOCK, null);
+      if (!bytesRead) break;
+      h.update(buf.subarray(0, bytesRead));
     }
-    return outer.digest("hex");
+    return h.digest();
   } finally {
     await fh.close();
   }
@@ -155,10 +182,19 @@ async function parseBody(res) {
 async function send(deps, endpoint, url, init) {
   const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   for (let attempt = 1; ; attempt++) {
-    const res = await deps.fetch(url, init);
+    let res;
+    try {
+      res = await deps.fetch(url, init);
+    } catch (e) {
+      const cause = e?.cause?.code ?? e?.cause?.message;
+      throw new Error(`${endpoint}: ${e?.message ?? e}${cause ? ` (${cause})` : ""}`, {
+        cause: e,
+      });
+    }
     if (res.status === 429 && attempt < MAX_ATTEMPTS) {
+      await res.body?.cancel().catch(() => undefined);
       const after = Number(res.headers?.get?.("retry-after"));
-      await sleep(Math.min(Number.isFinite(after) && after > 0 ? after : 1, 60) * 1000);
+      await sleep(Math.min(Number.isFinite(after) && after > 0 ? after : 1, MAX_WAIT_S) * 1000);
       continue;
     }
     const body = await parseBody(res);
@@ -204,6 +240,16 @@ export async function connect(deps) {
   return { ...deps, token, root, account };
 }
 
+export function accountLine(ctx) {
+  const a = ctx.account;
+  const team = a?.team?.name ? `, team ${a.team.name}` : "";
+  const space =
+    ctx.root === a?.root_info?.home_namespace_id
+      ? "personal space: the root is the home folder"
+      : "team space";
+  return `account: ${a?.name?.display_name} <${a?.email}>${team}, root namespace ${ctx.root} (${space})`;
+}
+
 export function rpc(ctx, endpoint, arg) {
   return send(ctx, endpoint, `${API}/2/${endpoint}`, {
     method: "POST",
@@ -229,6 +275,30 @@ export function contentCall(ctx, endpoint, arg, data) {
   });
 }
 
+export async function probeScopes(ctx) {
+  const probes = [
+    [
+      "files.content.write",
+      () => contentCall(ctx, "files/upload_session/start", { close: true }, Buffer.alloc(0)),
+    ],
+    ["file_requests.write", () => rpc(ctx, "file_requests/update", { id: PROBE_ID })],
+  ];
+  const out = [];
+  for (const [scope, call] of probes) {
+    try {
+      await call();
+      out.push({ scope, state: "granted", detail: "" });
+    } catch (e) {
+      if (e instanceof DropboxError && e.scope)
+        out.push({ scope, state: "MISSING", detail: e.message });
+      else if (e instanceof DropboxError && e.status === 409)
+        out.push({ scope, state: "granted", detail: "" });
+      else out.push({ scope, state: "UNKNOWN", detail: e.message });
+    }
+  }
+  return out;
+}
+
 async function readChunk(fh, position, length) {
   const buf = Buffer.alloc(length);
   let n = 0;
@@ -239,6 +309,12 @@ async function readChunk(fh, position, length) {
     n += bytesRead;
   }
   return buf;
+}
+
+function fileMeta(endpoint, meta) {
+  if (!meta || typeof meta !== "object")
+    throw new Error(`${endpoint}: no file metadata in the response`);
+  return meta;
 }
 
 export async function uploadFile(ctx, local, folder, opts = {}) {
@@ -252,54 +328,57 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
     mute: false,
   };
   const { size } = await stat(local);
-  let localHash;
+  const hash = contentHasher();
   let meta;
   if (size <= simpleLimit) {
     const data = await readFile(local);
     if (data.length !== size) throw new Error(`${local} changed size while being read`);
-    localHash = contentHash(data);
-    meta = await contentCall(ctx, "files/upload", commit, data);
+    hash.update(data);
+    meta = fileMeta("files/upload", await contentCall(ctx, "files/upload", commit, data));
   } else {
-    localHash = await contentHashFile(local);
     const fh = await open(local, "r");
     try {
-      let offset = Math.min(chunk, size);
-      const started = await contentCall(
-        ctx,
-        "files/upload_session/start",
-        { close: false },
-        await readChunk(fh, 0, offset),
-      );
-      const cursor = { session_id: started.session_id, offset };
+      const first = await readChunk(fh, 0, Math.min(chunk, size));
+      hash.update(first);
+      const started = await contentCall(ctx, "files/upload_session/start", { close: false }, first);
+      const session_id = started?.session_id;
+      if (!session_id) throw new Error("files/upload_session/start: no session_id in the response");
+      let offset = first.length;
       while (size - offset > chunk) {
+        const part = await readChunk(fh, offset, chunk);
+        hash.update(part);
         await contentCall(
           ctx,
           "files/upload_session/append_v2",
-          { cursor: { ...cursor, offset }, close: false },
-          await readChunk(fh, offset, chunk),
+          { cursor: { session_id, offset }, close: false },
+          part,
         );
-        offset += chunk;
+        offset += part.length;
       }
       const last = await readChunk(fh, offset, size - offset);
-      meta = await contentCall(
-        ctx,
+      hash.update(last);
+      meta = fileMeta(
         "files/upload_session/finish",
-        { cursor: { ...cursor, offset }, commit },
-        last,
+        await contentCall(
+          ctx,
+          "files/upload_session/finish",
+          { cursor: { session_id, offset }, commit },
+          last,
+        ),
       );
     } finally {
       await fh.close();
     }
   }
-  const ok = meta?.content_hash === localHash && meta?.size === size;
+  const localHash = hash.digest();
   return {
     local,
-    path: meta?.path_display ?? path,
+    path: meta.path_display ?? path,
     size,
-    remoteSize: meta?.size,
+    remoteSize: meta.size,
     localHash,
-    remoteHash: meta?.content_hash,
-    ok,
+    remoteHash: meta.content_hash,
+    ok: meta.content_hash === localHash && meta.size === size,
   };
 }
 
@@ -309,26 +388,31 @@ export async function closeRequest(ctx, id) {
 }
 
 export async function run(o, deps) {
-  const out = [];
+  const lines = [];
+  const say = (line) => {
+    lines.push(line);
+    deps.emit?.(line);
+  };
   let code = 0;
   if (o.cmd === "hash") {
-    for (const f of o.files) out.push(`${await contentHashFile(f)}  ${f}`);
-    return { code, lines: out };
+    for (const f of o.files) say(`${await contentHashFile(f)}  ${f}`);
+    return { code, lines };
   }
   const ctx = await connect(deps);
-  const a = ctx.account;
-  out.push(
-    `account: ${a?.name?.display_name} <${a?.email}>${a?.team?.name ? `, team ${a.team.name}` : ""}, root namespace ${ctx.root}`,
-  );
-  if (o.cmd === "upload") {
+  say(accountLine(ctx));
+  if (o.cmd === "check") {
+    for (const p of await probeScopes(ctx)) {
+      if (p.state !== "granted") code = 1;
+      say(`${p.scope}: ${p.state}${p.detail ? ` (${p.detail})` : ""}`);
+    }
+  } else if (o.cmd === "upload") {
     for (const f of o.files) {
       try {
         const r = await uploadFile(ctx, f, o.folder, { overwrite: o.overwrite });
-        if (r.ok)
-          out.push(`ok ${r.path} ${r.size} bytes content_hash ${r.remoteHash} matches local`);
+        if (r.ok) say(`ok ${r.path} ${r.size} bytes content_hash ${r.remoteHash} matches local`);
         else {
           code = 1;
-          out.push(
+          say(
             `MISMATCH ${r.path}: local ${r.size} bytes ${r.localHash}, Dropbox ${r.remoteSize} bytes ${r.remoteHash}`,
           );
         }
@@ -338,7 +422,7 @@ export async function run(o, deps) {
           !o.overwrite &&
           e instanceof DropboxError &&
           /^path\/conflict\/file/.test(summary(e.body));
-        out.push(
+        say(
           conflict
             ? `exists, not overwritten (--no-overwrite): ${dropboxPath(o.folder, f)}`
             : `FAILED ${f}: ${e.message}`,
@@ -350,14 +434,14 @@ export async function run(o, deps) {
       try {
         const r = await closeRequest(ctx, id);
         if (!r.ok) code = 1;
-        out.push(`${r.ok ? "closed" : "STILL OPEN"} ${r.id} "${r.title}" is_open: ${r.is_open}`);
+        say(`${r.ok ? "closed" : "STILL OPEN"} ${r.id} "${r.title}" is_open: ${r.is_open}`);
       } catch (e) {
         code = 1;
-        out.push(`FAILED ${id}: ${e.message}`);
+        say(`FAILED ${id}: ${e.message}`);
       }
     }
   }
-  return { code, lines: out };
+  return { code, lines };
 }
 
 export function proxyReexecEnv(env) {
@@ -380,16 +464,18 @@ async function main() {
     const child = spawnSync(
       process.execPath,
       [...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)],
-      {
-        stdio: "inherit",
-        env,
-      },
+      { stdio: "inherit", env },
     );
+    if (child.error) process.stderr.write(`dropbox: re-exec failed: ${child.error.message}\n`);
+    else if (child.signal) process.stderr.write(`dropbox: re-exec killed by ${child.signal}\n`);
     process.exitCode = child.status ?? 1;
     return;
   }
-  const r = await run(o, { fetch, env: process.env });
-  process.stdout.write(r.lines.join("\n") + "\n");
+  const r = await run(o, {
+    fetch,
+    env: process.env,
+    emit: (line) => process.stdout.write(line + "\n"),
+  });
   process.exitCode = r.code;
 }
 

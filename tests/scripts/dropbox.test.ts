@@ -7,7 +7,11 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   BLOCK,
+  CHUNK,
+  SIMPLE_LIMIT,
   MAX_ATTEMPTS,
+  MAX_WAIT_S,
+  PROBE_ID,
   DropboxError,
   missingScope,
   parseArgs,
@@ -19,6 +23,7 @@ import {
   rootHeader,
   mintToken,
   connect,
+  accountLine,
   uploadFile,
   closeRequest,
   run,
@@ -179,6 +184,15 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["close-request", "--no-overwrite", "abc"])).toThrow(/unknown option/);
     expect(() => parseArgs(["check", "extra"])).toThrow(/no arguments/);
   });
+
+  it("refuses two files that would land on the same Dropbox path", () => {
+    expect(() => parseArgs(["upload", "/X", "a/deck.pdf", "b/deck.pdf"])).toThrow(
+      "a/deck.pdf and b/deck.pdf would both upload to /X/deck.pdf",
+    );
+    expect(parseArgs(["upload", "/X", "a/deck.pdf", "b/Deck.pdf"])).toMatchObject({
+      files: ["a/deck.pdf", "b/Deck.pdf"],
+    });
+  });
 });
 
 describe("small helpers", () => {
@@ -254,8 +268,26 @@ describe("mintToken and connect", () => {
       () => new Error("resolved"),
       (e: Error) => e,
     )) as Error;
-    expect(err.message).toBe("oauth2/token: HTTP 400 invalid_grant");
+    expect(err.message).toBe(
+      "oauth2/token: HTTP 400 invalid_grant: refresh token is invalid or revoked",
+    );
     for (const v of Object.values(ENV)) expect(err.message).not.toContain(v);
+    expect(err.message).not.toContain(Buffer.from("k3y:s3cret").toString("base64"));
+  });
+
+  it("names the endpoint and the cause of a network failure, and no credential", async () => {
+    const local = file("net.pdf", pattern(3));
+    const fetch: FetchLike = async () => {
+      throw new TypeError("fetch failed", {
+        cause: Object.assign(new Error("x"), { code: "ECONNRESET" }),
+      });
+    };
+    const err = (await uploadFile(ctxWith(fetch), local, "/X").then(
+      () => new Error("resolved"),
+      (e: Error) => e,
+    )) as Error;
+    expect(err.message).toBe("files/upload: fetch failed (ECONNRESET)");
+    expect(err.message).not.toContain("tok");
   });
 
   it("takes the path root from the account's root namespace", async () => {
@@ -313,6 +345,48 @@ describe("uploadFile", () => {
     expect(r.ok).toBe(false);
     expect(r.localHash).toBe(contentHash(data));
     expect(r.remoteHash).toBe(contentHash(other));
+  });
+
+  it("keeps a file at the limit in one call and moves one byte more to a session", async () => {
+    const at = file("at-limit.bin", pattern(64));
+    const over = file("over-limit.bin", pattern(65));
+    const reply = (ep: string): Reply =>
+      ep === "files/upload_session/start"
+        ? { body: { session_id: "s" } }
+        : { body: { size: 0, content_hash: "" } };
+    const one = fake(reply);
+    await uploadFile(ctxWith(one.fetch), at, "/X", { simpleLimit: 64, chunk: 64 });
+    expect(one.calls.map((c) => c.url.split("/2/")[1])).toEqual(["files/upload"]);
+    const two = fake(reply);
+    await uploadFile(ctxWith(two.fetch), over, "/X", { simpleLimit: 64, chunk: 64 });
+    expect(two.calls.map((c) => c.url.split("/2/")[1])).toEqual([
+      "files/upload_session/start",
+      "files/upload_session/finish",
+    ]);
+  });
+
+  it("never sends one request larger than a chunk by default", () => {
+    expect(SIMPLE_LIMIT).toBe(CHUNK);
+    expect(CHUNK % BLOCK).toBe(0);
+  });
+
+  it("sends a non-ASCII file name as an ASCII header that decodes to the same path", async () => {
+    const local = file("Résumé — Q4.pdf", pattern(5));
+    const { fetch, calls } = fake(() => ({
+      body: { size: 5, content_hash: contentHash(pattern(5)) },
+    }));
+    await uploadFile(ctxWith(fetch), local, "/Clients/Café");
+    const raw = calls[0]!.init.headers["Dropbox-API-Arg"]!;
+    expect(raw).toMatch(/^[\x20-\x7e]+$/);
+    expect(JSON.parse(raw).path).toBe("/Clients/Café/Résumé — Q4.pdf");
+  });
+
+  it("refuses a 200 that carries no file metadata", async () => {
+    const local = file("empty-reply.pdf", pattern(5));
+    const { fetch } = fake(() => ({ body: "null" }));
+    await expect(uploadFile(ctxWith(fetch), local, "/X")).rejects.toThrow(
+      "files/upload: no file metadata in the response",
+    );
   });
 
   it("advances the cursor on every append", async () => {
@@ -412,6 +486,47 @@ describe("retries", () => {
     expect(waits).toEqual([3000]);
   });
 
+  it("caps a long Retry-After and waits a second when there is none", async () => {
+    const waits: number[] = [];
+    const { fetch } = fake((_ep, _c, all) =>
+      all.length === 1
+        ? { status: 429, headers: { "Retry-After": "600" } }
+        : all.length === 2
+          ? { status: 429 }
+          : { body: { is_open: false, id: "a" } },
+    );
+    await closeRequest(
+      ctxWith(fetch, async (ms) => {
+        waits.push(ms);
+      }),
+      "a",
+    );
+    expect(waits).toEqual([MAX_WAIT_S * 1000, 1000]);
+  });
+
+  it("resends the same offset and bytes when an append is rate-limited", async () => {
+    const data = pattern(100);
+    const local = file("retry-append.bin", data);
+    let appends = 0;
+    const { fetch, calls } = fake((ep) => {
+      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
+      if (ep === "files/upload_session/append_v2" && appends++ === 0) return { status: 429 };
+      if (ep === "files/upload_session/append_v2") return { body: null };
+      return { body: { size: 100, content_hash: contentHash(data) } };
+    });
+    const r = await uploadFile(
+      ctxWith(fetch, async () => {}),
+      local,
+      "/X",
+      { simpleLimit: 10, chunk: 40 },
+    );
+    expect(r.ok).toBe(true);
+    const sent = calls.filter((c) => c.url.endsWith("append_v2"));
+    expect(sent.map((c) => argOf(c).cursor.offset)).toEqual([40, 40]);
+    expect(bytes(sent[0]!).equals(bytes(sent[1]!))).toBe(true);
+    expect(argOf(calls.at(-1)!).cursor.offset).toBe(80);
+  });
+
   it("gives up after its last attempt", async () => {
     const { fetch, calls } = fake(() => ({
       status: 429,
@@ -454,13 +569,69 @@ describe("run", () => {
     );
   }
 
-  it("names the account and the root it writes under", async () => {
-    const { fetch } = session(() => ({}));
+  it("check names the account and proves each write scope without changing anything", async () => {
+    const { fetch, calls } = session((ep) =>
+      ep === "files/upload_session/start"
+        ? { body: { session_id: "s" } }
+        : { status: 409, body: { error_summary: "not_found/", error: { ".tag": "not_found" } } },
+    );
     const r = await run({ cmd: "check" }, { fetch, env: ENV });
     expect(r.code).toBe(0);
     expect(r.lines).toEqual([
-      "account: Tucker Lemos <tucker@reddoorla.com>, team Reddoor Creative, root namespace 3244718323",
+      "account: Tucker Lemos <tucker@reddoorla.com>, team Reddoor Creative, root namespace 3244718323 (team space)",
+      "files.content.write: granted",
+      "file_requests.write: granted",
     ]);
+    const start = calls.find((c) => c.url.endsWith("upload_session/start"))!;
+    expect(argOf(start)).toEqual({ close: true });
+    expect(bytes(start)).toHaveLength(0);
+    const update = calls.find((c) => c.url.endsWith("file_requests/update"))!;
+    expect(JSON.parse(update.init.body as string)).toEqual({ id: PROBE_ID });
+  });
+
+  it("check fails on a missing scope and on an answer it cannot read", async () => {
+    const { fetch } = session((ep) =>
+      ep === "files/upload_session/start"
+        ? {
+            status: 401,
+            body: { error: { ".tag": "missing_scope", required_scope: "files.content.write" } },
+          }
+        : { status: 400, body: "Error in call to API function: bad id" },
+    );
+    const r = await run({ cmd: "check" }, { fetch, env: ENV });
+    expect(r.code).toBe(1);
+    expect(r.lines[1]).toMatch(
+      /^files\.content\.write: MISSING \(files\/upload_session\/start: missing_scope files\.content\.write\. The app has it/,
+    );
+    expect(r.lines[2]).toBe(
+      "file_requests.write: UNKNOWN (file_requests/update: HTTP 400 Error in call to API function: bad id)",
+    );
+  });
+
+  it("says when the root is only the personal home folder", () => {
+    const personal = {
+      ...ACCOUNT,
+      team: {},
+      root_info: { root_namespace_id: "1", home_namespace_id: "1" },
+    };
+    expect(accountLine({ ...ctxWith(async () => respond({})), root: "1", account: personal })).toBe(
+      "account: Tucker Lemos <tucker@reddoorla.com>, root namespace 1 (personal space: the root is the home folder)",
+    );
+  });
+
+  it("emits each line as it happens", async () => {
+    const data = pattern(4);
+    const local = file("emit.png", data);
+    const seen: string[] = [];
+    const { fetch } = session(() => ({
+      body: { path_display: "/X/emit.png", size: 4, content_hash: contentHash(data) },
+    }));
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true },
+      { fetch, env: ENV, emit: (l) => seen.push(l) },
+    );
+    expect(seen).toEqual(r.lines);
+    expect(seen).toHaveLength(2);
   });
 
   it("prints a match line per file and exits 0", async () => {
@@ -517,7 +688,7 @@ describe("run", () => {
     const local = file("folder-there.pdf", pattern(3));
     const { fetch } = session(() => ({
       status: 409,
-      body: { error_summary: "path/conflict/file/..", error: { ".tag": "path" } },
+      body: { error_summary: "path/conflict/folder/..", error: { ".tag": "path" } },
     }));
     const r = await run(
       { cmd: "upload", folder: "/X", files: [local], overwrite: true },
@@ -525,7 +696,22 @@ describe("run", () => {
     );
     expect(r.code).toBe(1);
     expect(r.lines[1]).toMatch(
-      /^FAILED .*folder-there\.pdf: files\/upload: HTTP 409 path\/conflict\/file\/\.\.$/,
+      /^FAILED .*folder-there\.pdf: files\/upload: HTTP 409 path\/conflict\/folder\/\.\.$/,
+    );
+  });
+
+  it("only calls a file conflict a kept file when --no-overwrite asked for it", async () => {
+    const local = file("guard.pdf", pattern(3));
+    const { fetch } = session(() => ({
+      status: 409,
+      body: { error_summary: "path/conflict/file/..", error: { ".tag": "path" } },
+    }));
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true },
+      { fetch, env: ENV },
+    );
+    expect(r.lines[1]).toMatch(
+      /^FAILED .*guard\.pdf: files\/upload: HTTP 409 path\/conflict\/file\/\.\.$/,
     );
   });
 
@@ -618,6 +804,15 @@ describe("CLI", () => {
     const r = spawnSync(process.execPath, [SCRIPT, "hash", local], { encoding: "utf8", env: bare });
     expect(r.status).toBe(0);
     expect(r.stdout).toBe(`${contentHash(data)}  ${local}\n`);
+  });
+
+  it("re-executes through HTTPS_PROXY and reports why the connection failed", () => {
+    const r = spawnSync(process.execPath, [SCRIPT, "check"], {
+      encoding: "utf8",
+      env: { ...bare, ...ENV, HTTPS_PROXY: "http://127.0.0.1:9" },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toBe("dropbox: oauth2/token: fetch failed (ECONNREFUSED)\n");
   });
 
   it("names missing credentials and exits 1 without touching the network", () => {

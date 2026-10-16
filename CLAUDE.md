@@ -283,8 +283,9 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   request, which stays open until someone closes it by hand. The script mints
   a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
   `DROPBOX_REFRESH_TOKEN`, writes in the team space, and checks each file's
-  `content_hash`. `check` proves the credentials. The connector writes only
-  text, and `DROPBOX_ACCESS_TOKEN` is a dead short-lived token.
+  `content_hash`. Run `check` first: it names the account and proves the
+  token holds both write scopes. The connector writes only text, and
+  `DROPBOX_ACCESS_TOKEN` is a dead short-lived token.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
   `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
   to the session answer on the API, so attach a fleet repo with `add_repo`

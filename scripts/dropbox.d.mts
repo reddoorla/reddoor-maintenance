@@ -3,6 +3,8 @@ export const SIMPLE_LIMIT: number;
 export const CHUNK: number;
 export const ENV_VARS: string[];
 export const MAX_ATTEMPTS: number;
+export const MAX_WAIT_S: number;
+export const PROBE_ID: string;
 export const USAGE: string;
 
 export interface HeadersLike {
@@ -12,6 +14,7 @@ export interface HeadersLike {
 export interface ResponseLike {
   status: number;
   headers?: HeadersLike;
+  body?: { cancel(): Promise<void> } | null;
   text(): Promise<string>;
 }
 
@@ -27,6 +30,7 @@ export interface Deps {
   fetch: FetchLike;
   env: Record<string, string | undefined>;
   sleep?: (ms: number) => Promise<void>;
+  emit?: (line: string) => void;
 }
 
 export interface Account {
@@ -65,6 +69,17 @@ export interface CloseResult {
   ok: boolean;
 }
 
+export interface ScopeProbe {
+  scope: string;
+  state: "granted" | "MISSING" | "UNKNOWN";
+  detail: string;
+}
+
+export interface ContentHasher {
+  update(buf: Uint8Array): ContentHasher;
+  digest(): string;
+}
+
 export class DropboxError extends Error {
   constructor(endpoint: string, status: number, body: unknown);
   endpoint: string;
@@ -73,8 +88,10 @@ export class DropboxError extends Error {
   scope: string | null;
 }
 
+export function summary(body: unknown): string;
 export function missingScope(body: unknown): string | null;
 export function parseArgs(argv: string[]): Options;
+export function contentHasher(): ContentHasher;
 export function contentHash(buf: Uint8Array): string;
 export function contentHashFile(path: string): Promise<string>;
 export function headerJson(value: unknown): string;
@@ -83,6 +100,8 @@ export function missingEnv(env: Record<string, string | undefined>): string[];
 export function rootHeader(rootNamespaceId: string): string;
 export function mintToken(deps: Deps): Promise<string>;
 export function connect(deps: Deps): Promise<Ctx>;
+export function accountLine(ctx: Ctx): string;
+export function probeScopes(ctx: Ctx): Promise<ScopeProbe[]>;
 export function rpc(ctx: Ctx, endpoint: string, arg: unknown): Promise<unknown>;
 export function contentCall(
   ctx: Ctx,
