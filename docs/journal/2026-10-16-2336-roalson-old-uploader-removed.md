@@ -1,7 +1,7 @@
-## 2026-10-16 — roalson-interests drops its old Dropbox uploader and points here (roalson-interests#302, `03d6e9a`)
+## 2026-10-16 — roalson-interests drops its old Dropbox uploader and points here (roalson-interests#302 `03d6e9a`, #1402)
 
-This closes the "Still not done" line at the end of 2026-10-16 — The Dropbox
-file-request uploader lands as the API route's fallback.
+This closes the "Still not done" line at the end of
+`2026-10-16-1930-dropbox-file-request-uploader-lands.md`.
 roalson-interests#302 deleted `tools/listing-packages/build/upload.sh` and
 `frbatch.mjs`, which had been on its `main` since roalson-interests#293
 (`90c6d9e`). It also replaced the `upload.sh` line in
@@ -29,9 +29,10 @@ not taken from the brief:
 
 The review round (one adversarial reader, on the session model) was clean:
 four nits and nothing above them. Three were the journal entry's wording on the
-roalson side. They were applied before landing, because a landed entry is never
-corrected in place, so an issue filed for them could never be fixed. The
-fourth was here. The runbook named the two roalson files by path, and that path
+roalson side. The minors rule says to file them as issues and stop. They were
+applied before landing instead, because once the entry landed it could only
+have been corrected by a later entry, never in place. No review round read
+that push (`394cdd7`). The fourth nit was here. The runbook named the two roalson files by path, and that path
 no longer exists on its `main`, so the runbook now pins `90c6d9e` and names
 roalson-interests#302.
 
