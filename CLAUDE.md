@@ -278,6 +278,16 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
+- **A binary (PDF, image) goes into Dropbox with
+  `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
+  request, which leaves an open request behind. A file request is only the
+  fallback for a session whose API credentials are missing or fail
+  (Operator decisions 128). The script
+  mints a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
+  `DROPBOX_REFRESH_TOKEN`, resolves paths in the team space, and checks each
+  file's `content_hash`. Run `check` first: it names the account and proves the
+  token holds both write scopes. The connector writes only text, and
+  `DROPBOX_ACCESS_TOKEN` is a dead short-lived token.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
   `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
   to the session answer on the API, so attach a fleet repo with `add_repo`
