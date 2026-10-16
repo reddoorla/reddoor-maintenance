@@ -16,6 +16,7 @@ import {
   missingScope,
   parseArgs,
   contentHash,
+  contentHasher,
   contentHashFile,
   headerJson,
   dropboxPath,
@@ -40,12 +41,12 @@ const ENV = {
   DROPBOX_APP_SECRET: "s3cret",
   DROPBOX_REFRESH_TOKEN: "r3fresh",
 };
-const ROOT = "3244718323";
+const ROOT = "1111111111";
 const ACCOUNT = {
-  name: { display_name: "Tucker Lemos" },
-  email: "tucker@reddoorla.com",
-  team: { name: "Reddoor Creative" },
-  root_info: { root_namespace_id: ROOT, home_namespace_id: "2263648307" },
+  name: { display_name: "Ada Example" },
+  email: "ada@example.com",
+  team: { name: "Example Team" },
+  root_info: { root_namespace_id: ROOT, home_namespace_id: "2222222222" },
 };
 
 type Call = { url: string; init: RequestInitLike };
@@ -138,6 +139,21 @@ describe("contentHash", () => {
     expect(contentHash(one)).not.toBe(createHash("sha256").update(one).digest("hex"));
   });
 
+  it("gives the same answer whatever the update boundaries", () => {
+    const data = pattern(2 * BLOCK + 8);
+    const expected = contentHash(data);
+    for (const cuts of [[3, BLOCK], [1, 1, BLOCK - 2, 7], [BLOCK + 1], [0, 5, 0]]) {
+      const h = contentHasher();
+      let at = 0;
+      for (const n of cuts) {
+        h.update(data.subarray(at, at + n));
+        at += n;
+      }
+      h.update(data.subarray(at));
+      expect(h.digest()).toBe(expected);
+    }
+  });
+
   it("gives the same answer streaming from disk as from memory", async () => {
     for (const n of [0, 1, BLOCK - 1, BLOCK, BLOCK + 1, 2 * BLOCK + 5]) {
       const data = pattern(n);
@@ -189,8 +205,11 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["upload", "/X", "a/deck.pdf", "b/deck.pdf"])).toThrow(
       "a/deck.pdf and b/deck.pdf would both upload to /X/deck.pdf",
     );
-    expect(parseArgs(["upload", "/X", "a/deck.pdf", "b/Deck.pdf"])).toMatchObject({
-      files: ["a/deck.pdf", "b/Deck.pdf"],
+    expect(() => parseArgs(["upload", "/X", "shots/Logo.png", "export/logo.png"])).toThrow(
+      "shots/Logo.png and export/logo.png would both upload to /X/logo.png",
+    );
+    expect(parseArgs(["upload", "/X", "a/deck.pdf", "b/deck-2.pdf"])).toMatchObject({
+      files: ["a/deck.pdf", "b/deck-2.pdf"],
     });
   });
 });
@@ -273,6 +292,18 @@ describe("mintToken and connect", () => {
     );
     for (const v of Object.values(ENV)) expect(err.message).not.toContain(v);
     expect(err.message).not.toContain(Buffer.from("k3y:s3cret").toString("base64"));
+  });
+
+  it("names the endpoint when the response body cannot be read", async () => {
+    const fetch: FetchLike = async () => ({
+      status: 200,
+      text: async () => {
+        throw new TypeError("terminated");
+      },
+    });
+    await expect(closeRequest(ctxWith(fetch), "a")).rejects.toThrow(
+      "file_requests/update: reading the response failed: terminated",
+    );
   });
 
   it("names the endpoint and the cause of a network failure, and no credential", async () => {
@@ -578,7 +609,7 @@ describe("run", () => {
     const r = await run({ cmd: "check" }, { fetch, env: ENV });
     expect(r.code).toBe(0);
     expect(r.lines).toEqual([
-      "account: Tucker Lemos <tucker@reddoorla.com>, team Reddoor Creative, root namespace 3244718323 (team space)",
+      "account: Ada Example <ada@example.com>, team Example Team, root namespace 1111111111 (team space)",
       "files.content.write: granted",
       "file_requests.write: granted",
     ]);
@@ -608,6 +639,16 @@ describe("run", () => {
     );
   });
 
+  it("check shows a 409 other than not_found beside the granted scope", async () => {
+    const { fetch } = session((ep) =>
+      ep === "files/upload_session/start"
+        ? { body: { session_id: "s" } }
+        : { status: 409, body: { error_summary: "disabled_for_team/" } },
+    );
+    const r = await run({ cmd: "check" }, { fetch, env: ENV });
+    expect(r.lines[2]).toBe("file_requests.write: granted (HTTP 409 disabled_for_team/)");
+  });
+
   it("says when the root is only the personal home folder", () => {
     const personal = {
       ...ACCOUNT,
@@ -615,7 +656,7 @@ describe("run", () => {
       root_info: { root_namespace_id: "1", home_namespace_id: "1" },
     };
     expect(accountLine({ ...ctxWith(async () => respond({})), root: "1", account: personal })).toBe(
-      "account: Tucker Lemos <tucker@reddoorla.com>, root namespace 1 (personal space: the root is the home folder)",
+      "account: Ada Example <ada@example.com>, root namespace 1 (personal space: the root is the home folder)",
     );
   });
 
@@ -623,15 +664,14 @@ describe("run", () => {
     const data = pattern(4);
     const local = file("emit.png", data);
     const seen: string[] = [];
-    const { fetch } = session(() => ({
+    const { fetch, calls } = session(() => ({
       body: { path_display: "/X/emit.png", size: 4, content_hash: contentHash(data) },
     }));
     const r = await run(
       { cmd: "upload", folder: "/X", files: [local], overwrite: true },
-      { fetch, env: ENV, emit: (l) => seen.push(l) },
+      { fetch, env: ENV, emit: (l) => seen.push(`${calls.length} ${l}`) },
     );
-    expect(seen).toEqual(r.lines);
-    expect(seen).toHaveLength(2);
+    expect(seen).toEqual([`2 ${r.lines[0]}`, `3 ${r.lines[1]}`]);
   });
 
   it("prints a match line per file and exits 0", async () => {
@@ -712,6 +752,22 @@ describe("run", () => {
     );
     expect(r.lines[1]).toMatch(
       /^FAILED .*guard\.pdf: files\/upload: HTTP 409 path\/conflict\/file\/\.\.$/,
+    );
+  });
+
+  it("does not call a file in the folder path an existing file", async () => {
+    const local = file("ancestor.pdf", pattern(3));
+    const { fetch } = session(() => ({
+      status: 409,
+      body: { error_summary: "path/conflict/file_ancestor/..", error: { ".tag": "path" } },
+    }));
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: false },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines[1]).toMatch(
+      /^FAILED .*ancestor\.pdf: files\/upload: HTTP 409 path\/conflict\/file_ancestor\/\.\.$/,
     );
   });
 

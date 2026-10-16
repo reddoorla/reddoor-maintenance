@@ -85,7 +85,7 @@ export function parseArgs(argv) {
       throw new Error(`the Dropbox folder must start with "/", got ${folder}`);
     const seen = new Map();
     for (const f of files) {
-      const name = basename(f);
+      const name = basename(f).normalize("NFC").toLowerCase();
       if (seen.has(name))
         throw new Error(
           `${seen.get(name)} and ${f} would both upload to ${dropboxPath(folder, f)}`,
@@ -197,7 +197,12 @@ async function send(deps, endpoint, url, init) {
       await sleep(Math.min(Number.isFinite(after) && after > 0 ? after : 1, MAX_WAIT_S) * 1000);
       continue;
     }
-    const body = await parseBody(res);
+    let body;
+    try {
+      body = await parseBody(res);
+    } catch (e) {
+      throw new Error(`${endpoint}: reading the response failed: ${e?.message ?? e}`, { cause: e });
+    }
     if (res.status !== 200) throw new DropboxError(endpoint, res.status, body);
     return body;
   }
@@ -291,9 +296,14 @@ export async function probeScopes(ctx) {
     } catch (e) {
       if (e instanceof DropboxError && e.scope)
         out.push({ scope, state: "MISSING", detail: e.message });
-      else if (e instanceof DropboxError && e.status === 409)
-        out.push({ scope, state: "granted", detail: "" });
-      else out.push({ scope, state: "UNKNOWN", detail: e.message });
+      else if (e instanceof DropboxError && e.status === 409) {
+        const s = summary(e.body);
+        out.push({
+          scope,
+          state: "granted",
+          detail: /^not_found\//.test(s) ? "" : `HTTP 409 ${s}`,
+        });
+      } else out.push({ scope, state: "UNKNOWN", detail: e.message });
     }
   }
   return out;
@@ -421,7 +431,7 @@ export async function run(o, deps) {
         const conflict =
           !o.overwrite &&
           e instanceof DropboxError &&
-          /^path\/conflict\/file/.test(summary(e.body));
+          /^path\/conflict\/file\//.test(summary(e.body));
         say(
           conflict
             ? `exists, not overwritten (--no-overwrite): ${dropboxPath(o.folder, f)}`

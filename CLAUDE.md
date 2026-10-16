@@ -280,10 +280,10 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
 - **A binary (PDF, image) goes into Dropbox with
   `node scripts/dropbox.mjs upload <folder> <file…>`**, never through a file
-  request, which stays open until someone closes it by hand. The script mints
-  a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
-  `DROPBOX_REFRESH_TOKEN`, writes in the team space, and checks each file's
-  `content_hash`. Run `check` first: it names the account and proves the
+  request, which leaves an open request behind for the operator. The script
+  mints a token from `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and
+  `DROPBOX_REFRESH_TOKEN`, resolves paths in the team space, and checks each
+  file's `content_hash`. Run `check` first: it names the account and proves the
   token holds both write scopes. The connector writes only text, and
   `DROPBOX_ACCESS_TOKEN` is a dead short-lived token.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
