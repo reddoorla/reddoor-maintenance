@@ -195,6 +195,12 @@ production (Opus at `xhigh`) only if both runs pass and its pooled errors and mi
 2 and 1 of production's. The control may rank only when production passes both runs, the
 referee upholds every label it rules on, and pooled errors spread by at least 3.
 
+The 2026-10-19 run (`results/2026-10-19-refute-repo.json`) saturated. Production passed both
+runs at 36/36, and so did every other run but two: Sonnet `medium` run 2 confirmed r33, though
+its own reason said the order was the opposite, and a Haiku skeptic made one MCP call it was told
+not to make. Pooled errors spread by 1, so the rule does not rank the arms. About 80% of an Opus
+run's cost is each fresh skeptic's cache write, so effort barely moves the cost and the model does.
+
 ## Scoring
 
 Each field has a kind. The kinds apply these rules before comparing:
