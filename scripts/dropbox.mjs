@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
-import { realpathSync } from "node:fs";
 import { basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isMain, proxyReexecEnv, sleep as realSleep } from "./lib/cli.mjs";
+
+export { proxyReexecEnv };
 
 export const BLOCK = 4 * 1024 * 1024;
 export const CHUNK = 16 * 1024 * 1024;
@@ -192,7 +194,7 @@ export function resendable(endpoint, errorSummary) {
 }
 
 async function send(deps, endpoint, url, init) {
-  const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const sleep = deps.sleep ?? realSleep;
   for (let attempt = 1; ; attempt++) {
     let res;
     try {
@@ -476,12 +478,6 @@ export async function run(o, deps) {
   return { code, lines };
 }
 
-export function proxyReexecEnv(env) {
-  const proxy = env.HTTPS_PROXY || env.https_proxy;
-  if (!proxy || env.NODE_USE_ENV_PROXY === "1") return null;
-  return { ...env, NODE_USE_ENV_PROXY: "1" };
-}
-
 async function main() {
   let o;
   try {
@@ -511,14 +507,7 @@ async function main() {
   process.exitCode = r.code;
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`dropbox: ${e?.message ?? e}\n`);
     process.exitCode = 1;
