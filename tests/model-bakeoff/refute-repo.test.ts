@@ -1,0 +1,489 @@
+import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as task from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
+import {
+  parseEvidenceRef,
+  refutePrompt,
+  verdictSchema,
+} from "../../scripts/meta-week/lib/refute-claims.mjs";
+import { scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
+import { readAgentTranscript } from "../../scripts/model-bakeoff/lib/transcripts.mjs";
+import {
+  combineItems,
+  expectedWork,
+  extractArgs,
+  mergeAgents,
+  secretReads,
+  type Collected,
+} from "../../scripts/model-bakeoff/bakeoff.mjs";
+
+const REPO = fileURLToPath(new URL("../..", import.meta.url));
+const WORKFLOW = join(REPO, ".claude/workflows/model-bakeoff.workflow.js");
+const { DATA } = task;
+
+const pinned = (from: string) =>
+  execFileSync("git", ["show", `${DATA.pin}:${from}`], { cwd: REPO, encoding: "utf8" });
+const lines: Record<string, string[]> = Object.fromEntries(
+  Object.entries(DATA.files).map(([to, f]) => [to, pinned(f.from).split("\n")]),
+);
+
+describe("the refute-repo key", () => {
+  it("has 30+ claims, 10+ of them false, under opaque shuffled ids", () => {
+    expect(DATA.claims.length).toBeGreaterThanOrEqual(30);
+    expect(DATA.claims.filter((c) => c.label === "refuted").length).toBeGreaterThanOrEqual(10);
+    expect(DATA.claims.map((c) => c.id)).toEqual(
+      DATA.claims.map((_, i) => `r${String(i + 1).padStart(2, "0")}`),
+    );
+    // No run of more than three claims shares a label, so position gives nothing away.
+    let run = 1;
+    for (let i = 1; i < DATA.claims.length; i++) {
+      run = DATA.claims[i]!.label === DATA.claims[i - 1]!.label ? run + 1 : 1;
+      expect(run).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("gives each kind only a label its verdict schema can return", () => {
+    for (const c of DATA.claims) {
+      const { verdict } = verdictSchema(c.kind ?? "docs").properties as {
+        verdict: { enum: string[] };
+      };
+      const allowed = verdict.enum;
+      expect(allowed, c.id).toContain(c.label);
+      expect(c.label, c.id).not.toBe("unclear");
+    }
+  });
+
+  it("pins every file to bytes that git can re-fetch at the pin", () => {
+    for (const f of Object.values(DATA.files)) {
+      const sha = createHash("sha256").update(pinned(f.from)).digest("hex");
+      expect(sha, f.from).toBe(f.sha256);
+    }
+  });
+
+  it("decides every label on a line the claim cites, whose text is at that line at the pin", () => {
+    for (const c of DATA.claims) {
+      const refs = c.evidence.map((e) => parseEvidenceRef(e)!);
+      for (const r of refs) {
+        expect(r, `${c.id} ${JSON.stringify(c.evidence)}`).not.toBeNull();
+        const file = lines[r.path];
+        expect(file, `${c.id}: ${r.path} is not a pinned file`).toBeDefined();
+        expect(r.to, `${c.id}: ${r.path} ends at line ${file!.length}`).toBeLessThanOrEqual(
+          file!.length,
+        );
+      }
+      expect(c.decides.length, c.id).toBeGreaterThan(0);
+      for (const d of c.decides) {
+        const at = parseEvidenceRef(d.at)!;
+        expect(lines[at.path]?.[at.from - 1], `${c.id} ${d.at}`).toContain(d.text);
+        const cited = refs.some((r) => r.path === at.path && r.from <= at.from && at.from <= r.to);
+        expect(cited, `${c.id}: ${d.at} is outside the claim's evidence`).toBe(true);
+      }
+    }
+  });
+
+  it("covers the three subtle shapes the brief names", () => {
+    const shapes = DATA.claims.filter((c) => c.label === "refuted").map((c) => c.shape);
+    expect(shapes.filter((s) => s === "dropped condition").length).toBeGreaterThanOrEqual(3);
+    expect(shapes.filter((s) => s === "wrong default").length).toBeGreaterThanOrEqual(3);
+    expect(shapes.filter((s) => /wrong (event|hook|list)/.test(s)).length).toBeGreaterThanOrEqual(
+      3,
+    );
+  });
+});
+
+describe("what the arms are given", () => {
+  const dir = "/run/input";
+
+  it("is the production skeptic prompt and per-kind schema, one item per claim", () => {
+    const items = task.items(dir);
+    const claims = task.claims();
+    expect(items.map((i) => i.id)).toEqual(DATA.claims.map((c) => c.id));
+    items.forEach((item, i) => {
+      const c = claims[i]!;
+      expect(item.prompt).toBe(refutePrompt(c, dir));
+      expect(item.schema).toEqual(verdictSchema(c.kind));
+    });
+  });
+
+  it("never names a label, the key or the run's truth", () => {
+    const text = [
+      ...task.items(dir).map((i) => i.prompt),
+      task.prompt(dir),
+      JSON.stringify(task.claims()),
+    ].join("\n");
+    for (const s of [...task.secrets, "label", "decides", "shape"]) expect(text).not.toContain(s);
+  });
+
+  it("copies exactly the pinned files into the frozen input", () => {
+    const names = task.sources.flatMap((s) =>
+      execFileSync("git", ["ls-tree", "--name-only", `${DATA.pin}:${s.from}`], {
+        cwd: REPO,
+        encoding: "utf8",
+      })
+        .split("\n")
+        .filter((n) => s.match.test(n))
+        .map((n) => `${s.to}/${n}`),
+    );
+    expect(names.sort()).toEqual(Object.keys(DATA.files).sort());
+  });
+
+  it("builds workflow args that carry the items", () => {
+    const args = extractArgs(task, dir) as { items: { id: string }[] };
+    expect(args.items.map((i) => i.id)).toEqual(DATA.claims.map((c) => c.id));
+  });
+});
+
+describe("truth refuses any bytes but the pin's", () => {
+  const frozen = () => {
+    const d = mkdtempSync(join(tmpdir(), "refute-input-"));
+    for (const [to, f] of Object.entries(DATA.files)) {
+      mkdirSync(dirname(join(d, to)), { recursive: true });
+      writeFileSync(join(d, to), pinned(f.from));
+    }
+    return d;
+  };
+
+  it("passes the pinned copy and fails a one-byte change", () => {
+    const d = frozen();
+    expect(task.truth(d)).toEqual(task.labels());
+    writeFileSync(join(d, "workflows/ci.yml"), pinned(".github/workflows/ci.yml") + " ");
+    expect(() => task.truth(d)).toThrow(/workflows\/ci\.yml/);
+  });
+});
+
+// The scorer is proved before any arm runs: the truth against itself is perfect, and a copy
+// with three verdicts changed fails exactly those three, in the harness's checks and in the
+// decision rule alike.
+describe("the scorer", () => {
+  const truth = task.labels();
+  const flip = { r01: "confirmed", r02: "refuted", r07: "refuted" } as Record<string, string>;
+  const perturbed = {
+    verdicts: truth.verdicts.map((v) => ({ ...v, verdict: flip[v.id] ?? v.verdict })),
+  };
+
+  it("scores the truth against itself as perfect", () => {
+    expect(scoreRun(task, truth, truth).filter((c) => !c.ok)).toEqual([]);
+    const t = task.tally(truth);
+    expect(t).toEqual({ misses: [], wrongKills: [], unconfirmed: [], behaviour: [], errors: [] });
+    expect(task.passes(t)).toBe(true);
+  });
+
+  it("fails a perturbed copy exactly where it was changed", () => {
+    const bad = scoreRun(task, truth, perturbed).filter((c) => !c.ok);
+    expect(bad.map((c) => c.check).sort()).toEqual([
+      "verdicts r01 / verdict",
+      "verdicts r02 / verdict",
+      "verdicts r07 / verdict",
+    ]);
+    expect(task.tally(perturbed)).toEqual({
+      misses: ["r01"],
+      wrongKills: ["r02", "r07"],
+      unconfirmed: ["r02"],
+      behaviour: ["r07"],
+      errors: ["r01", "r02", "r07"],
+    });
+  });
+
+  it("counts a claim with no verdict as an error, and a missed false claim as a miss", () => {
+    const t = task.tally({ verdicts: truth.verdicts.filter((v) => v.id !== "r03") });
+    expect(t.errors).toEqual(["r03"]);
+    expect(t.misses).toEqual(["r03"]);
+    expect(task.tally(null).errors).toHaveLength(DATA.claims.length);
+  });
+});
+
+describe("assemble records verdicts as production does", () => {
+  const dir = "/run/input";
+  const quoted = (id: string, verdict: string, src: string) => ({
+    id,
+    verdict,
+    reason: "r",
+    quote: "q",
+    quoteSource: src,
+    evidenceRead: [],
+    readFailed: [],
+    restsOnAbsence: false,
+  });
+
+  it("downgrades an unquoted or off-evidence confirmation to unclear", () => {
+    const out = task.assemble(
+      {
+        r02: quoted("r02", "confirmed", `${dir}/workflows/ci.yml:13`),
+        r04: { ...quoted("r04", "confirmed", "workflows/fleet-nightly.yml:43"), quote: "" },
+        r06: quoted("r06", "confirmed", `${dir}/bakeoff/score.mjs:2`),
+      },
+      dir,
+    );
+    expect(out.verdicts.map((v) => [v.id, v.verdict, v.downgraded])).toEqual([
+      ["r02", "confirmed", false],
+      ["r04", "unclear", true],
+      ["r06", "unclear", true],
+    ]);
+  });
+
+  it("rewrites a behaviour claim's confirmation to untested, and keys by the spawned claim", () => {
+    const out = task.assemble({ r07: quoted("c99", "confirmed", "workflows/ci.yml:98") }, dir);
+    expect(out.verdicts).toEqual([
+      { id: "r07", verdict: "untested", raw: "confirmed", downgraded: true },
+    ]);
+  });
+});
+
+describe("the decision rule", () => {
+  const truth = task.labels();
+  const run = (
+    id: string,
+    model: string,
+    effort: string,
+    changes: Record<string, string> = {},
+  ) => ({
+    id,
+    model,
+    effort,
+    cost: 1,
+    output: {
+      verdicts: truth.verdicts.map((v) => ({ ...v, verdict: changes[v.id] ?? v.verdict })),
+    },
+  });
+  // r01, r03, r05 are false; r02, r04, r06 true documentary; r07 is an untested behaviour claim.
+  const prod = [run("gold", "opus", "xhigh"), run("opus-xhigh-2", "opus", "xhigh")];
+
+  it("passes a run at each limit and fails it one past", () => {
+    const at = (c: Record<string, string>) => task.passes(task.tally(run("x", "m", "e", c).output));
+    expect(at({ r01: "unclear" })).toBe(true);
+    expect(at({ r01: "unclear", r03: "confirmed" })).toBe(false);
+    expect(at({ r02: "refuted" })).toBe(true);
+    expect(at({ r02: "refuted", r04: "refuted" })).toBe(false);
+    expect(at({ r02: "unclear", r04: "unclear" })).toBe(true);
+    expect(at({ r02: "unclear", r04: "unclear", r06: "unclear" })).toBe(false);
+    expect(at({ r07: "refuted" })).toBe(false);
+  });
+
+  it("qualifies a config within production's errors plus 2 and misses plus 1, both runs passing", () => {
+    const spread = [run("haiku-1", "haiku", "medium", { r01: "x", r03: "x", r05: "x" })];
+    const d = task.decide([
+      ...prod,
+      run("s-1", "sonnet", "high", { r01: "unclear", r02: "unclear" }),
+      run("s-2", "sonnet", "high"),
+      run("l-1", "opus", "low", { r01: "unclear" }),
+      run("l-2", "opus", "low", { r03: "unclear" }),
+      ...spread,
+    ]);
+    const by = Object.fromEntries(d.ranked.map((c) => [c.config, c]));
+    expect(by["sonnet @ high"]).toMatchObject({
+      errors: 2,
+      misses: 1,
+      allPass: true,
+      qualifies: true,
+    });
+    expect(by["opus @ low"]).toMatchObject({
+      errors: 2,
+      misses: 2,
+      allPass: true,
+      qualifies: false,
+    });
+    expect(by["haiku @ medium"]).toMatchObject({ allPass: false, qualifies: false });
+    expect(d.ranked.map((c) => c.config)).toEqual([
+      "opus @ xhigh",
+      "sonnet @ high",
+      "opus @ low",
+      "haiku @ medium",
+    ]);
+    expect(d).toMatchObject({ spread: 3, canRank: true, reasons: [] });
+  });
+
+  it("refuses to rank when production fails, the key is disputed, or the arms saturate", () => {
+    expect(task.decide(prod).reasons).toEqual(["saturated: pooled errors spread by 0"]);
+    const failing = [
+      run("gold", "opus", "xhigh", { r01: "x", r03: "x" }),
+      run("opus-xhigh-2", "opus", "xhigh"),
+      run("h", "haiku", "medium", { r01: "x", r03: "x", r05: "x", r09: "x", r11: "x" }),
+    ];
+    expect(task.decide(failing).reasons).toEqual(["production did not pass both its runs"]);
+    const spread = [...prod, run("h", "haiku", "medium", { r01: "x", r03: "x", r05: "x" })];
+    expect(task.decide(spread, [{ check: "verdicts r10 / verdict" }]).reasons).toEqual([
+      "the referee refuted the key on verdicts r10 / verdict",
+    ]);
+    expect(task.decide(spread.slice(2)).reasons[0]).toBe("production (opus @ xhigh) did not run");
+  });
+});
+
+// ---- the harness's fan-out ---------------------------------------------------------------
+
+const user = (text: string) => JSON.stringify({ message: { role: "user", content: text } });
+const assistant = (id: string, content: unknown[], effort: string, model: string, out = 2) =>
+  JSON.stringify({
+    effort,
+    message: {
+      id,
+      model,
+      role: "assistant",
+      content,
+      usage: { input_tokens: 1000, output_tokens: out },
+    },
+  });
+const structured = (input: unknown) => ({
+  type: "tool_use",
+  id: "so",
+  name: "StructuredOutput",
+  input,
+});
+
+/** Runs the workflow script with a stub runtime and returns the prompts it would spawn. */
+async function runWorkflow(args: Record<string, unknown>) {
+  const src = readFileSync(WORKFLOW, "utf8").replace(/^export const meta/m, "const meta");
+  const calls: { prompt: string; opts: Record<string, unknown> }[] = [];
+  const agent = async (prompt: string, opts: Record<string, unknown>) => {
+    calls.push({ prompt, opts });
+    return {};
+  };
+  const parallel = (thunks: (() => Promise<unknown>)[]) => Promise.all(thunks.map((t) => t()));
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const body = new AsyncFunction("args", "agent", "parallel", "phase", "log", src);
+  const result = await body(
+    args,
+    agent,
+    parallel,
+    () => {},
+    () => {},
+  );
+  return { result, calls };
+}
+
+describe("the workflow's item mode", () => {
+  const run = "/r";
+  const args = { ...extractArgs(task, `${run}/input`, task.arms, `${run}/work`) };
+
+  it("spawns one agent per arm and claim, each marked and in its own work dir", async () => {
+    const { calls } = await runWorkflow({ ...args, only: ["gold", "haiku-medium-1"] });
+    expect(calls).toHaveLength(2 * DATA.claims.length);
+    const first = calls[0]!;
+    expect(first.opts).toMatchObject({ model: "opus", effort: "xhigh", label: "gold:gold/r01" });
+    const t = readAgentTranscript(user(first.prompt));
+    expect(t.marker).toEqual({ kind: "arm", id: "gold", item: "r01" });
+    expect(first.prompt).toContain(`${expectedWork(args as never, t.marker!)}.`);
+    expect(expectedWork(args as never, t.marker!)).toBe("/r/work/gold/r01");
+    const haiku = calls.find((c) => c.opts.label === "arm:haiku-medium-1/r07")!;
+    expect(haiku.opts).toMatchObject({ model: "haiku", effort: "medium" });
+    expect(haiku.opts.schema).toEqual(verdictSchema("behavior"));
+    expect(haiku.prompt.startsWith(task.items(`${run}/input`)[6]!.prompt)).toBe(true);
+  });
+
+  it("refuses an `only` that names no arm of the run, before any agent", async () => {
+    const { result, calls } = await runWorkflow({ ...args, only: ["gold", "nobody"] });
+    expect(result.error).toMatch(/args\.only/);
+    expect(calls).toEqual([]);
+  });
+
+  it("still runs a whole-task run as one agent per arm", async () => {
+    const { items: _items, ...whole } = args as Record<string, unknown>;
+    const { calls } = await runWorkflow(whole);
+    expect(calls).toHaveLength(1 + task.arms.length);
+    expect(readAgentTranscript(user(calls[1]!.prompt)).marker).toEqual({
+      kind: "arm",
+      id: "opus-xhigh-2",
+    });
+  });
+});
+
+describe("collecting and combining an item run", () => {
+  const H = { id: "h", model: "haiku", effort: "medium" };
+  const ARGS = {
+    dir: "/r/input",
+    work: "/r/work",
+    gold: { id: "gold", model: "opus", effort: "xhigh" },
+    arms: [H],
+    items: [{ id: "r01" }, { id: "r02" }],
+  };
+  const transcript = (
+    arm: string,
+    item: string,
+    out: unknown,
+    extra: { effort?: string; marker?: string; file?: string } = {},
+  ) =>
+    ({
+      ...readAgentTranscript(
+        [
+          user(
+            `claim\nYour own scratch directory is /r/work/${arm}/${item}. In /r/input.\n\n(${extra.marker ?? `BAKEOFF-ARM: ${arm} ITEM: ${item}`})`,
+          ),
+          assistant(
+            `${arm}-${item}`,
+            [structured(out)],
+            extra.effort ?? "medium",
+            "claude-haiku-5-5",
+            2000,
+          ),
+        ].join("\n"),
+      ),
+      transcript: extra.file ?? `/t/${arm}-${item}.jsonl`,
+    }) as Collected;
+
+  it("keys each transcript by arm and item, and refuses a stray or missing item", () => {
+    const { agents, errors } = mergeAgents(
+      {},
+      [
+        transcript("h", "r01", {}),
+        transcript("h", "r09", {}),
+        transcript("h", "r02", {}, { marker: "BAKEOFF-ARM: h" }),
+      ],
+      ARGS,
+    );
+    expect(Object.keys(agents)).toEqual(["h/r01"]);
+    expect(errors).toEqual([
+      "/t/h-r09.jsonl: marker h/r09 names no item of this run",
+      "/t/h-r02.jsonl: marker h names no item of this run",
+    ]);
+    const { items: _items, ...plain } = ARGS;
+    expect(mergeAgents({}, [transcript("h", "r01", {})], plain).errors).toEqual([
+      "/t/h-r01.jsonl: marker h/r01 names an item, and this run has none",
+    ]);
+  });
+
+  it("sums cost and requests over the items, checks each, and reports a missing one", () => {
+    const { agents } = mergeAgents({}, [transcript("h", "r01", { verdict: "refuted" })], ARGS);
+    const fake = { assemble: (o: Record<string, unknown>) => ({ got: Object.keys(o) }) };
+    const one = combineItems(fake, ARGS, agents, H);
+    expect(one.problems).toEqual(["h/r02: no transcript found"]);
+    expect(one.record).toMatchObject({ requests: 1, structured: { got: ["r01"] } });
+    const both = mergeAgents(agents, [transcript("h", "r02", {}, { effort: "high" })], ARGS);
+    const two = combineItems(fake, ARGS, both.agents, H);
+    expect(two.problems).toEqual(["h/r02: asked for effort medium, transcripts show high"]);
+    expect(two.record!.requests).toBe(2);
+    expect(two.record!.efforts).toEqual(["high", "medium"]);
+    expect(two.record!.cost).toBeCloseTo(2 * one.record!.cost!, 10);
+    expect(combineItems(fake, ARGS, {}, H).record).toBeNull();
+  });
+
+  it("names any agent that read or grepped for the answer key", () => {
+    const agents = {
+      "h/r01": { bash: ["cat /r/input/bakeoff/arms.mjs"], reads: [] },
+      "h/r02": { bash: [], reads: [JSON.stringify({ file_path: "/r/truth.json" })] },
+      "gold/r01": { bash: ["grep -rn r01 scripts/model-bakeoff/tasks/refute-repo.data.json"] },
+    };
+    expect(secretReads(task.secrets, agents)).toEqual([
+      "h/r02: read or ran a command naming truth.json",
+      "gold/r01: read or ran a command naming refute-repo",
+    ]);
+  });
+
+  it("records Read, Grep and Glob inputs as reads", () => {
+    const t = readAgentTranscript(
+      [
+        user("x\n\n(BAKEOFF-ARM: h ITEM: r01)"),
+        assistant(
+          "m",
+          [{ type: "tool_use", name: "Read", input: { file_path: "/r/truth.json" } }],
+          "medium",
+          "claude-haiku-5-5",
+        ),
+      ].join("\n"),
+    );
+    expect(t.reads).toEqual(['{"file_path":"/r/truth.json"}']);
+  });
+});

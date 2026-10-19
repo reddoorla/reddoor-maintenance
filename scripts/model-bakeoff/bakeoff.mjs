@@ -85,6 +85,7 @@ export function extractArgs(
     prompt: task.prompt(inputDir),
     goldAddendum: task.goldAddendum,
     schema: task.schema,
+    ...(task.items ? { items: task.items(inputDir) } : {}),
     gold: task.gold,
     arms,
   };
@@ -115,12 +116,16 @@ async function prepare(opts) {
   console.log(`workflow args: ${join(run, "workflow-args.json")}`);
 }
 
+// An item task (one agent per arm and item) keys each transcript by `<arm>/<item>`.
+const armRunId = (marker) =>
+  marker.item === undefined ? marker.id : `${marker.id}/${marker.item}`;
+
 export function agentKey(marker) {
-  return marker.kind === "arm" ? marker.id : `referee:${marker.id}`;
+  return marker.kind === "arm" ? armRunId(marker) : `referee:${marker.id}`;
 }
 
 export function expectedWork(args, marker) {
-  return workDir(args.work, marker.kind === "arm" ? marker.id : `referee-${marker.id}`);
+  return workDir(args.work, marker.kind === "arm" ? armRunId(marker) : `referee-${marker.id}`);
 }
 
 export function mergeAgents(prior, found, args) {
@@ -140,6 +145,15 @@ export function mergeAgents(prior, found, args) {
     }
     if (t.marker.kind === "arm" && !armIds.has(t.marker.id)) {
       errors.push(`${t.transcript}: marker ${key} names no arm of this run`);
+      continue;
+    }
+    if (t.marker.kind === "arm" && Array.isArray(args.items)) {
+      if (!args.items.some((i) => i.id === t.marker.item)) {
+        errors.push(`${t.transcript}: marker ${key} names no item of this run`);
+        continue;
+      }
+    } else if (t.marker.item !== undefined) {
+      errors.push(`${t.transcript}: marker ${key} names an item, and this run has none`);
       continue;
     }
     const work = expectedWork(args, t.marker);
@@ -215,6 +229,57 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   return problems;
 }
 
+/**
+ * One record per arm of an item run, built from its per-item transcripts, so the rest of
+ * `score` treats it as one agent. Each item agent is checked on its own first: what ran, its
+ * output, its writes (inside `<work>/<arm>/<item>`). The arm's output is `task.assemble`d
+ * from the item outputs it has, and a missing item is a problem, scored as an absent answer.
+ */
+export function combineItems(task, args, agents, arm) {
+  const problems = [];
+  const parts = [];
+  const outputs = {};
+  for (const item of args.items) {
+    const key = `${arm.id}/${item.id}`;
+    const a = agents[key];
+    if (!a) {
+      problems.push(`${key}: no transcript found`);
+      continue;
+    }
+    problems.push(...verifyRan(arm, a, workDir(args.work, key)));
+    parts.push(a);
+    if (a.structured) outputs[item.id] = a.structured;
+  }
+  if (parts.length === 0) return { record: null, problems };
+  const union = (f) => [...new Set(parts.flatMap(f))].sort();
+  const sum = (f) => parts.reduce((n, a) => n + f(a), 0);
+  return {
+    record: {
+      models: union((a) => a.models),
+      efforts: union((a) => a.efforts),
+      requests: sum((a) => a.requests),
+      cost: parts.some((a) => a.cost === null) ? null : sum((a) => a.cost),
+      longPrompt: sum((a) => a.longPrompt),
+      bash: parts.flatMap((a) => a.bash || []),
+      reads: parts.flatMap((a) => a.reads || []),
+      structured: task.assemble(outputs, args.dir),
+    },
+    problems,
+  };
+}
+
+/** Agents whose commands or reads name one of the task's secrets, such as its answer key. */
+export function secretReads(secrets, agents) {
+  const hits = [];
+  for (const [k, a] of Object.entries(agents)) {
+    const seen = [...(a.bash || []), ...(a.reads || [])];
+    for (const s of secrets) {
+      if (seen.some((x) => x.includes(s))) hits.push(`${k}: read or ran a command naming ${s}`);
+    }
+  }
+  return hits;
+}
+
 export function nextRound(agents) {
   let max = 0;
   for (const k of Object.keys(agents)) {
@@ -228,8 +293,17 @@ async function score(opts) {
   const run = resolve(opts.run);
   const args = readJson(join(run, "workflow-args.json"));
   const task = await loadTask(args.task);
-  const agents = readJson(join(run, "runs.json"));
+  const transcripts = readJson(join(run, "runs.json"));
   const problems = [];
+  if (task.secrets) problems.push(...secretReads(task.secrets, transcripts));
+  const agents = { ...transcripts };
+  if (Array.isArray(args.items)) {
+    for (const arm of [args.gold, ...args.arms]) {
+      const { record, problems: p } = combineItems(task, args, transcripts, arm);
+      problems.push(...p);
+      if (record) agents[arm.id] = record;
+    }
+  }
   if (resolve(args.dir) !== join(run, "input")) {
     problems.push(`args.dir ${args.dir} is not this run's frozen input ${join(run, "input")}`);
   }
@@ -257,7 +331,7 @@ async function score(opts) {
       problems.push(`${arm.id}: no transcript found`);
       continue;
     }
-    problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
+    if (!args.items) problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
     checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
   }
@@ -319,6 +393,13 @@ async function score(opts) {
         errors: per[a.id]?.errors.slice(0, 20) || [],
       })),
   };
+  if (task.decision) {
+    result.decision = task.decision(
+      Object.fromEntries(all.filter((a) => agents[a.id]).map((a) => [a.id, agents[a.id]])),
+      args.dir,
+      referenceErrors,
+    );
+  }
   writeJson(join(run, "result.json"), result);
   console.log(formatResult(result));
   if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
@@ -337,6 +418,7 @@ export function formatResult(r) {
       `| ${a.id} | ${a.asked} | ${a.ran} | ${a.score} | ${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(2)} | ${a.requests} | ${a.longPrompt} |`,
     );
   }
+  if (r.decision?.lines) lines.push("", ...r.decision.lines);
   if (r.problems.length) lines.push("", "Problems:", ...r.problems.map((p) => `- ${p}`));
   return lines.join("\n");
 }
