@@ -508,7 +508,8 @@ const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, watch: 
  * with every reason combined. PURE. A `waiting` item never enters (markWaiting: the
  * fleet is still fixing it on schedule). A vuln whose wait has failed but whose
  * auto-fix is not exhausted is amber `watch`; an exhausted vuln (`item.autoFixExhausted`)
- * is a hard `broken` break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
+ * is a hard `broken` break, as is any non-vuln attention item; a broken site's escalated vulns
+ * are still named among its reasons. The whole watch tier folds into `watch`.
  * Order: broken → watch → approval; within broken, critical-first; then site name.
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
@@ -548,8 +549,11 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     if (card.tier === "attention") {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
-      // break. A site with any hard break is broken and its self-patching vulns are not
-      // separately listed (it is already red). Single-source the predicate so the two
+      // break. A site with any hard break is broken, and its self-patching vulns are
+      // still named on that row: markWaiting keeps a vuln off the card while it waits,
+      // so one that reaches it has failed its wait or could not be dated, and dropping
+      // it hid a held High advisory behind an unrelated CI line (29 Navy, 2026-10-19,
+      // P1-54). Single-source the predicate so the two
       // partitions can never drift out of lockstep.
       const isSelfPatchingVuln = (it: AttentionItem): boolean =>
         it.kind === "vuln" && it.autoFixExhausted !== true;
@@ -558,6 +562,10 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       if (hardBroken.length > 0) {
         const a = get(card.site.name);
         for (const it of hardBroken) {
+          a.reasons.push(it.title);
+          if (it.severity === "critical") a.hasCritical = true;
+        }
+        for (const it of selfPatchingVulns) {
           a.reasons.push(it.title);
           if (it.severity === "critical") a.hasCritical = true;
         }
