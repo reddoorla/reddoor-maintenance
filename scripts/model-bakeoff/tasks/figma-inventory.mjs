@@ -215,7 +215,12 @@ function jsxText(raw) {
             .join(" "),
         )
       : decode(t);
-    if (n + 1 < parts.length) out += parts[n + 1] ?? parts[n + 2] ?? parts[n + 3] ?? "";
+    if (n + 1 < parts.length) {
+      const literal = parts[n + 1] ?? parts[n + 2] ?? parts[n + 3] ?? "";
+      if (/\$\{|\\/.test(literal))
+        throw new Error(`jsx: cannot read the interpolation or escape in ${literal.slice(0, 60)}`);
+      out += literal;
+    }
   }
   // Any other expression ({label}, {cond && <p/>}, a comment) renders something this reader
   // cannot know, so the truth refuses it rather than scoring its source text.
@@ -395,14 +400,19 @@ export function inventory(metadataJson, designContextJson) {
       instances: visibleInstances(s),
     };
   });
-  const seen = new Set();
-  for (const f of fields) {
-    // A component rendered twice repeats its node ids; the prompt does not say how to list
-    // that, so the truth refuses it rather than choose for the arms.
-    if (seen.has(f.id)) throw new Error(`field ${f.id} is rendered more than once`);
-    seen.add(f.id);
-  }
+  refuseRepeats([], slices);
+  refuseRepeats([], fields);
   return { slices, fields };
+}
+
+// A component rendered twice, on one page or on two, repeats its node ids. The prompt does not
+// say how to list that, so the truth refuses it rather than choose for the arms.
+function refuseRepeats(before, items) {
+  const seen = new Set(before.map((x) => x.id));
+  for (const x of items) {
+    if (seen.has(x.id)) throw new Error(`${x.id} is rendered more than once`);
+    seen.add(x.id);
+  }
 }
 
 export function truth(dir) {
@@ -427,6 +437,8 @@ export function truth(dir) {
   const out = { slices: [], fields: [] };
   for (const node of nodes) {
     const inv = inventory(read(`metadata-${node}.json`), read(`design-context-${node}.json`));
+    refuseRepeats(out.slices, inv.slices);
+    refuseRepeats(out.fields, inv.fields);
     out.slices.push(...inv.slices);
     out.fields.push(...inv.fields);
   }

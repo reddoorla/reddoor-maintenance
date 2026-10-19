@@ -171,6 +171,14 @@ describe("figma-inventory truth", () => {
     refuses(CODE.replace("src={imgLogo}", "src={imgMissing}"), /src is not one of the asset/);
     refuses(CODE.replace('href="https://example.com/a.pdf"', "href={url}"), /href=\{url\}/);
     refuses(CODE.replace("Read the notice", "Rock &mdash; roll"), /unknown entity &mdash;/);
+    refuses(CODE.replace("{`San Antonio's best `}", "{`Hi ${name}`}"), /interpolation or escape/);
+    refuses(CODE.replace("{`San Antonio's best `}", '{"a\\nb"}'), /interpolation or escape/);
+  });
+
+  it("keeps a template literal's own spaces between literals", () => {
+    const code = CODE.replace("{`San Antonio's best `}", "{`a `}{`b`}");
+    const f = inventory(META, frozen("get_design_context", "1:1", code)).fields[0];
+    expect(f?.text).toBe("a b\nSince 1983.");
   });
 
   it("reads single-quoted asset constants", () => {
@@ -323,6 +331,19 @@ describe("figma-inventory truth over a run folder", () => {
     const t = task.truth(dir);
     expect(t.slices.map((s) => s.id)).toEqual(["1:2", "1:7", "1:13", "5:2"]);
     expect(t.fields.at(-1)).toEqual({ id: "5:3", slice: "5:2", tag: "p", text: "Hi", href: "" });
+  });
+
+  it("refuses a component whose fields repeat on a second page", () => {
+    const dup = frozen(
+      "get_design_context",
+      "5:1",
+      second.code.replace('<p data-node-id="5:3">Hi</p>', '<p data-node-id="2:2">Hi</p>'),
+    );
+    const dir = folder({
+      "1-1": [META, DC],
+      "5-1": [frozen("get_metadata", "5:1", second.meta), dup],
+    });
+    expect(() => task.truth(dir)).toThrow(/2:2 is rendered more than once/);
   });
 
   it("names the missing half of a page, and --root when the folder is empty", () => {

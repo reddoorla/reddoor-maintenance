@@ -140,10 +140,17 @@ the two tools. Drop any `text` entry that Claude Code added rather than the conn
 the `[OUTPUT TRUNCATED]` note it appends when a response is too long to show in full; the note
 would tell the arms that the data is incomplete when it is not.
 
-The truth refuses what it cannot read rather than guess: a JSX expression other than a string
-or template literal, a capitalised tag it found no `function` for, an `<img>` whose `src` is not
-an asset constant, an `href={...}` expression, an unknown entity, a metadata tag it cannot
-parse, and a field id rendered more than once, which the prompt does not say how to list.
+The truth refuses what it cannot read rather than guess. It refuses:
+
+- a JSX expression other than a plain string or template literal, and a literal with `${…}` or
+  an escape in it;
+- a capitalised tag it found no `function` for;
+- an `<img>` whose `src` is not an asset constant;
+- an `href={…}` expression;
+- an unknown entity;
+- a metadata tag it cannot parse;
+- a node id rendered more than once, on one page or across pages, which the prompt does not
+  say how to list.
 
 ## Scoring
 
