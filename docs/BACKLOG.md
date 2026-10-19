@@ -5170,7 +5170,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       first; or (c) hold it. _Pick:_ (a). The scorer only reports; it gates
       nothing and touches no production path. t5-census was shown to score
       byte-identically to `main` in three rounds. The result is the
-      ceiling either way.
+      ceiling either way. **Answered 2026-10-19 (AskUserQuestion): (a),
+      land #1475 as it is.** The worker lands it with `land-prs.mjs`, posts
+      the row-6 result on workspace#1 and lands its journal entry.
 
 ## Active projects (the operator's list, read by the PM pass)
 
