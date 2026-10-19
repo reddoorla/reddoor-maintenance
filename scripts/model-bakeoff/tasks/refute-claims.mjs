@@ -46,7 +46,8 @@ export const CLAIMS = [
   ["c16", ["corpus/env-vars.md:329"]],
 ];
 
-// The bytes the anchors above were written against. `truth` refuses a frozen input whose
+// The bytes the anchors above were written against: the six docs pages fetched on 2026-10-19
+// and the in-repo token meter. `truth` refuses a frozen input whose
 // pages differ, because a moved line silently changes what every claim citing it says.
 export const PAGES = {
   "corpus/hooks.md": "5599b94537beb359bfe35dfa7538503194ea78b8d824fcaccba068915d6a77d7",
@@ -56,8 +57,13 @@ export const PAGES = {
   "corpus/sub-agents.md": "2ef84ba688983c9d7c28015fd3b06a9056b0be11efc7ff8f4b39552d36582d8a",
   "corpus/cli-reference.md": "81d5a5b49f43566ba0f43c7725dae858cad39c20b297cc5efbde5e4759462cbf",
   "corpus/interactive-mode.md": "c5c6c87891f9cb427800ffaf72770c72dd9effe82a4cf25d2d67b944ea193aac",
+  // In the repo, but edited since the control was written (2026-09-17), so pinned too.
+  "meta/10-token-meter.md": "b4f5a095540057a85828a22e013113b56f69974f432c9d44478ea20b7a83bd7a",
 };
 
+// The docs pages are gitignored, so fetch them before `prepare`, or it stops on ENOENT:
+//   node scripts/meta-week/fetch-corpus.mjs   (reports drift against the 2026-09-14 manifest,
+//   which is expected; `truth` checks the bytes against PAGES instead)
 export const sources = [
   {
     from: "docs/meta-week/_corpus",
@@ -140,14 +146,18 @@ export function prompt(dir) {
 // runs it, not a scripted reference. The reference is the answer key.
 export const goldAddendum = "";
 
-export function verifyPages(dir) {
-  const bad = Object.entries(PAGES)
-    .filter(([p, sha]) => {
-      const got = createHash("sha256")
+export function verifyPages(dir, pages = PAGES) {
+  const sha = (p) => {
+    try {
+      return createHash("sha256")
         .update(readFileSync(join(dir, p)))
         .digest("hex");
-      return got !== sha;
-    })
+    } catch {
+      return null;
+    }
+  };
+  const bad = Object.entries(pages)
+    .filter(([p, want]) => sha(p) !== want)
     .map(([p]) => p);
   if (bad.length) {
     throw new Error(
@@ -172,7 +182,7 @@ export function truth(dir) {
   return labels();
 }
 
-// ---- the decision metric, written before the first run --------------------------------
+// ---- the decision metric ---------------------------------------------------------------
 //
 // Each arm's verdicts go through `enforceQuoteRule`, the workflow's own instrument, first:
 // an unquoted confirmation counts as "unclear" and a behaviour claim can only be "refuted" or
@@ -180,14 +190,17 @@ export function truth(dir) {
 //
 // - catches: false claims (labelled "refuted") the arm refuted. c17 is the seeded one; the
 //   other six are the earlier survey's wrong forms, c07 among them (the error R4 names).
-// - wrongRefutations: claims labelled "confirmed" or "untested" that the arm refuted.
+// - wrongRefutations: true claims (labelled "confirmed" or "untested") the arm refuted.
+// - unconfirmed: the 9 true documentary claims the arm did not confirm, refuted or not.
 //
-// An arm passes a run when it catches every false claim and refutes fewer true claims than
-// the workflow's own ship line, 2: the PASS control fails a round that refutes 2 or more.
-// That is at most one wrong refutation, so it is always within one of the gold run, the
-// example tolerance in the brief; a margin over the gold could never bind on top of it. An
-// arm qualifies only if every run of it passes. The gold run is held to the same line, and a
-// gold that fails it is reported, not used to excuse an arm.
+// A run passes on the PASS control's own lines (the workflow header and the key's
+// passExpectation): every false claim caught, c03 "untested", and fewer than 2 of the 9 true
+// documentary claims left unconfirmed. Counting "unclear" there, not only "refuted", is what
+// fails an arm that never confirms anything, and an unquoted confirmation the quote rule
+// downgrades. An arm qualifies only if every run of it passes; the gold is held to the same
+// lines. The pre-run version (b7c5b538) counted only refutations, over 10 claims with c03
+// among them, and passed an arm that confirmed nothing; review round 1 caught it. No arm of
+// the 2026-10-19 run passes under one version and fails under the other.
 
 export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
   const all = claims();
@@ -202,7 +215,8 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
     trueClaims: 0,
     wrongRefutations: 0,
     wrong: [],
-    unclearOnTrue: [],
+    unconfirmed: [],
+    behavior: null,
     noVerdict: [],
     downgraded: [],
   };
@@ -213,17 +227,19 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
     const effective = v ? enforceQuoteRule(v, c, dir) : null;
     if (effective && effective.downgraded) t.downgraded.push(c.id);
     const verdict = effective ? effective.verdict : null;
+    if (c.kind === "behavior") t.behavior = verdict;
     if (label === "refuted") {
       t.falseClaims++;
       if (verdict === "refuted") t.catches++;
       else t.missed.push(c.id);
-    } else {
-      t.trueClaims++;
-      if (verdict === "refuted") {
-        t.wrongRefutations++;
-        t.wrong.push(c.id);
-      } else if (verdict !== label) t.unclearOnTrue.push(c.id);
+      continue;
     }
+    t.trueClaims++;
+    if (verdict === "refuted") {
+      t.wrongRefutations++;
+      t.wrong.push(c.id);
+    }
+    if (c.kind !== "behavior" && verdict !== "confirmed") t.unconfirmed.push(c.id);
   }
   return t;
 }
@@ -231,7 +247,7 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
 export const SHIP_LINE = 2;
 
 export function passes(t) {
-  return t.missed.length === 0 && t.wrongRefutations < SHIP_LINE;
+  return t.missed.length === 0 && t.behavior === "untested" && t.unconfirmed.length < SHIP_LINE;
 }
 
 export const arms = [

@@ -30,13 +30,14 @@ export interface Tally {
   trueClaims: number;
   wrongRefutations: number;
   wrong: string[];
-  unclearOnTrue: string[];
+  unconfirmed: string[];
+  behavior: string | null;
   noVerdict: string[];
   downgraded: string[];
 }
 export function claims(seeded?: unknown[]): Claim[];
 export function prompt(dir: string): string;
-export function verifyPages(dir: string): void;
+export function verifyPages(dir: string, pages?: Record<string, string>): void;
 export function labels(key?: Key): { verdicts: { id: string; verdict: string }[] };
 export function truth(dir: string): { verdicts: { id: string; verdict: string }[] };
 export function tally(output: unknown, dir: string, key?: Key): Tally;
