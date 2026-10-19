@@ -1,10 +1,23 @@
+import { availableParallelism } from "node:os";
 import { coverageConfigDefaults, defineConfig } from "vitest/config";
+
+/**
+ * Every core on a CI runner, vitest's default elsewhere. In run mode vitest
+ * starts `availableParallelism() - 1` workers, which is 3 on the 4-core
+ * ubuntu-latest runner, and the suite is throughput-bound: on 2026-10-19 the
+ * coverage run on 4 cores took 205–229 s with 3 workers and 167–170 s with 4
+ * (#1507). A laptop keeps the default, because other sessions share its cores.
+ */
+export function maxWorkersFor(env: NodeJS.ProcessEnv): number | undefined {
+  return env.CI ? availableParallelism() : undefined;
+}
 
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
     testTimeout: 120_000,
+    maxWorkers: maxWorkersFor(process.env),
     // Hooks default to 10 s: on 2026-09-15 two local workers sharing 8 CPUs with CI lost whole files to a beforeAll timeout.
     hookTimeout: 120_000,
     reporters: ["default"],
