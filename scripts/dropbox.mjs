@@ -179,6 +179,18 @@ async function parseBody(res) {
   }
 }
 
+// A 409 too_many_write_operations that Dropbox raised before taking the request can be
+// sent again unchanged: the top-level shape anywhere, and files/upload's WriteError
+// (path/too_many_write_operations), since one-call upload keeps nothing on failure. On
+// upload_session/finish, path/too_many_write_operations comes after the bytes were already
+// appended to the session (files.stone UploadSessionFinishError.path: "retry with empty data
+// body and updated offset"), so resending the same cursor and bytes would only meet
+// incorrect_offset. That one is left to fail with its own error.
+export function resendable(endpoint, errorSummary) {
+  if (/^too_many_write_operations\//.test(errorSummary)) return true;
+  return endpoint === "files/upload" && /^path\/too_many_write_operations\//.test(errorSummary);
+}
+
 async function send(deps, endpoint, url, init) {
   const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   for (let attempt = 1; ; attempt++) {
@@ -206,13 +218,7 @@ async function send(deps, endpoint, url, init) {
     } catch (e) {
       throw new Error(`${endpoint}: reading the response failed: ${e?.message ?? e}`, { cause: e });
     }
-    // Dropbox rejects a write with 409 too_many_write_operations before committing it,
-    // so the same request can be sent again (WriteError, UploadSessionFinishError).
-    if (
-      res.status === 409 &&
-      attempt < MAX_ATTEMPTS &&
-      /too_many_write_operations/.test(summary(body))
-    ) {
+    if (res.status === 409 && attempt < MAX_ATTEMPTS && resendable(endpoint, summary(body))) {
       await backOff();
       continue;
     }

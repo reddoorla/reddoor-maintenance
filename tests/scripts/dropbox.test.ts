@@ -29,6 +29,7 @@ import {
   closeRequest,
   run,
   proxyReexecEnv,
+  resendable,
   type Ctx,
   type FetchLike,
   type RequestInitLike,
@@ -574,14 +575,37 @@ describe("retries", () => {
     expect(argOf(calls.at(-1)!).cursor.offset).toBe(80);
   });
 
-  it("backs off and resends a finish that met too_many_write_operations", async () => {
-    const data = pattern(100);
-    const local = file("busy-finish.bin", data);
-    const waits: number[] = [];
+  // A session that holds what it was sent, as Dropbox does: bytes at an offset other than the
+  // held length get incorrect_offset. failFinish picks how the first finish fails:
+  // "top" is rejected before the append, "path" after it (files.stone UploadSessionFinishError).
+  function sessionDropbox(failFinish: "top" | "path") {
+    let held = Buffer.alloc(0);
     let finishes = 0;
-    const { fetch, calls } = fake((ep) => {
-      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
-      if (ep === "files/upload_session/finish" && finishes++ === 0)
+    return fake((ep, call) => {
+      const body = bytes(call);
+      if (ep === "files/upload_session/start") {
+        held = body;
+        return { body: { session_id: "s" } };
+      }
+      const offset = argOf(call).cursor.offset;
+      if (offset !== held.length)
+        return {
+          status: 409,
+          body: {
+            error_summary: `${ep.endsWith("finish") ? "lookup_failed/" : ""}incorrect_offset/..`,
+            error: { ".tag": "incorrect_offset", correct_offset: held.length },
+          },
+        };
+      if (ep === "files/upload_session/finish" && finishes++ === 0) {
+        if (failFinish === "top")
+          return {
+            status: 409,
+            body: {
+              error_summary: "too_many_write_operations/..",
+              error: { ".tag": "too_many_write_operations" },
+            },
+          };
+        held = Buffer.concat([held, body]);
         return {
           status: 409,
           body: {
@@ -589,8 +613,19 @@ describe("retries", () => {
             error: { ".tag": "path", path: { ".tag": "too_many_write_operations" } },
           },
         };
-      return { body: { size: 100, content_hash: contentHash(data) } };
+      }
+      held = Buffer.concat([held, body]);
+      if (ep === "files/upload_session/finish")
+        return { body: { size: held.length, content_hash: contentHash(held) } };
+      return { body: null };
     });
+  }
+
+  it("backs off and resends a finish that met the top-level too_many_write_operations", async () => {
+    const data = pattern(100);
+    const local = file("busy-finish.bin", data);
+    const waits: number[] = [];
+    const { fetch, calls } = sessionDropbox("top");
     const r = await uploadFile(
       ctxWith(fetch, async (ms) => {
         waits.push(ms);
@@ -600,12 +635,40 @@ describe("retries", () => {
       { simpleLimit: 10, chunk: 60 },
     );
     expect(r.ok).toBe(true);
+    expect(r.remoteSize).toBe(100);
     const sent = calls.filter((c) => c.url.endsWith("finish"));
     expect(sent).toHaveLength(2);
     expect(argOf(sent[0]!)).toEqual(argOf(sent[1]!));
     expect(bytes(sent[0]!).equals(bytes(sent[1]!))).toBe(true);
     expect(calls.filter((c) => c.url.endsWith("upload_session/start"))).toHaveLength(1);
     expect(waits).toEqual([1000]);
+  });
+
+  it("does not resend a finish whose path/too_many_write_operations came after the append", async () => {
+    const local = file("busy-finish-path.bin", pattern(100));
+    const { fetch, calls } = sessionDropbox("path");
+    await expect(
+      uploadFile(
+        ctxWith(fetch, async () => {}),
+        local,
+        "/X",
+        { simpleLimit: 10, chunk: 60 },
+      ),
+    ).rejects.toThrow(
+      /^files\/upload_session\/finish: HTTP 409 path\/too_many_write_operations\/\.\.$/,
+    );
+    expect(calls.filter((c) => c.url.endsWith("finish"))).toHaveLength(1);
+  });
+
+  it("resends only the too_many_write_operations shapes Dropbox raised before taking the request", () => {
+    expect(resendable("files/upload", "path/too_many_write_operations/.")).toBe(true);
+    expect(resendable("files/upload", "too_many_write_operations/")).toBe(true);
+    expect(resendable("files/upload_session/finish", "too_many_write_operations/..")).toBe(true);
+    expect(resendable("files/upload_session/finish", "path/too_many_write_operations/..")).toBe(
+      false,
+    );
+    expect(resendable("files/upload", "path/conflict/file/..")).toBe(false);
+    expect(resendable("files/upload", "path/too_many_write_operations_x/")).toBe(false);
   });
 
   it("resends a one-call upload that met too_many_write_operations", async () => {
@@ -741,7 +804,7 @@ describe("run", () => {
   });
 
   it("check exits 1 on a file-request 409 other than not_found, since close-request would fail", async () => {
-    for (const s of ["disabled_for_team/", "email_unverified/", "no_permission/"]) {
+    for (const s of ["disabled_for_team/", "email_unverified/", "no_permission/", "not_found_x/"]) {
       const { fetch } = session((ep) =>
         ep === "files/upload_session/start"
           ? { body: { session_id: "s" } }
