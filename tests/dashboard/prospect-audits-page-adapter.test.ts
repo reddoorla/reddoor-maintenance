@@ -25,6 +25,7 @@ vi.mock("../../src/db/client.js", async (importOriginal) => {
 });
 
 import prospectAuditsPage, { config } from "../../netlify/functions/prospect-audits-page.mjs";
+import { authHeader } from "../_helpers/basic-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 afterEach(() => {
@@ -38,11 +39,6 @@ function get(headers: Record<string, string> = {}): Request {
   return new Request("https://dash.reddoor.test/audits", { method: "GET", headers });
 }
 
-/** A valid Basic header for the given password (username is ignored by the gate). */
-function authHeader(password: string): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`tucker:${password}`).toString("base64")}` };
-}
-
 describe("prospect-audits-page adapter — method + env/auth gating", () => {
   it("405s a non-GET method", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
@@ -50,7 +46,7 @@ describe("prospect-audits-page adapter — method + env/auth gating", () => {
     const res = await prospectAuditsPage(
       new Request("https://dash.reddoor.test/audits", {
         method: "POST",
-        headers: authHeader("s3cret"),
+        headers: authHeader("s3cret", "tucker"),
       }),
       ctx,
     );
@@ -78,7 +74,7 @@ describe("prospect-audits-page adapter — method + env/auth gating", () => {
   it("refuses a request whose Basic password is wrong", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     process.env.TURSO_DATABASE_URL = ":memory:";
-    const res = await prospectAuditsPage(get(authHeader("nope")), ctx);
+    const res = await prospectAuditsPage(get(authHeader("nope", "tucker")), ctx);
     expect(res.status).toBe(302);
   });
 
@@ -92,7 +88,7 @@ describe("prospect-audits-page adapter — method + env/auth gating", () => {
   it("500s when Turso env is missing — but only AFTER auth passes", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     delete process.env.TURSO_DATABASE_URL;
-    const res = await prospectAuditsPage(get(authHeader("s3cret")), ctx);
+    const res = await prospectAuditsPage(get(authHeader("s3cret", "tucker")), ctx);
     expect(res.status).toBe(500);
   });
 });
@@ -117,7 +113,7 @@ describe("prospect-audits-page adapter — authenticated render", () => {
       status: "partial",
     });
 
-    const res = await prospectAuditsPage(get(authHeader("s3cret")), ctx);
+    const res = await prospectAuditsPage(get(authHeader("s3cret", "tucker")), ctx);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
 
@@ -132,7 +128,7 @@ describe("prospect-audits-page adapter — authenticated render", () => {
   it("renders the empty state when there are no audits yet", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     process.env.TURSO_DATABASE_URL = ":memory:";
-    const res = await prospectAuditsPage(get(authHeader("s3cret")), ctx);
+    const res = await prospectAuditsPage(get(authHeader("s3cret", "tucker")), ctx);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("No audits yet");
