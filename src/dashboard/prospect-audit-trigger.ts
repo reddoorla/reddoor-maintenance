@@ -1,4 +1,3 @@
-import { assertUrlSegment } from "../github/gh.js";
 import { OPERATOR_GOALS } from "../prospect/goals.js";
 import { makeGitHubRest } from "../github/gh-rest.js";
 import { isHttpUrl, isPrivateOrLoopbackHost, hostnameOf } from "../util/url.js";
@@ -96,15 +95,13 @@ export type ProspectAuditDispatcher = (
   target: ProspectAuditDispatchTarget,
 ) => Promise<ProspectAuditDispatchResult>;
 
-const GITHUB_API = "https://api.github.com";
-
 /**
  * The actual dispatch call: a GitHub Actions `workflow_dispatch` against
- * `target.repo`'s default branch, carrying `target.inputs`. Built on
- * `makeGitHubRest` for `defaultBranch` (repo lookup), but hand-rolls the
- * dispatch POST itself — `GitHubRest.dispatchWorkflow` (src/github/gh-rest.ts)
- * only sends `{ ref }`, with no `inputs` support, and this endpoint's whole
- * point is passing `url`/`business`/`requested_by` through to the runner.
+ * `target.repo`'s default branch, carrying `target.inputs`, through
+ * `makeGitHubRest`'s `defaultBranch` and `dispatchWorkflow`. Those throw on any
+ * failure; this wrapper turns the throw into `{ ok: false, error }` with the
+ * thrown message as the error, which is what the operator reads after "Could
+ * not start the audit:".
  *
  * This is the one piece of the module that is "GitHub Actions" — everything
  * else depends only on the narrow {@link ProspectAuditDispatcher} shape, so
@@ -115,42 +112,11 @@ export function makeWorkflowDispatchDispatcher(deps: {
   token: string;
   fetch?: typeof fetch;
 }): ProspectAuditDispatcher {
-  const doFetch = deps.fetch ?? fetch;
-  const gh = makeGitHubRest({ token: deps.token, fetch: doFetch });
+  const gh = makeGitHubRest(deps);
   return async ({ repo, workflowFile, inputs }) => {
     try {
-      const [owner, name, ...rest] = repo.split("/");
-      if (!owner || !name || rest.length > 0) {
-        return { ok: false, error: `expected "owner/repo", got ${JSON.stringify(repo)}` };
-      }
       const ref = await gh.defaultBranch(repo);
-      // Defense in depth, mirroring gh-rest.ts's own dispatchWorkflow — every
-      // segment below interpolates into the API path.
-      assertUrlSegment("path", owner);
-      assertUrlSegment("path", name);
-      assertUrlSegment("path", workflowFile);
-      assertUrlSegment("branch", ref);
-      const res = await doFetch(
-        `${GITHUB_API}/repos/${owner}/${name}/actions/workflows/${workflowFile}/dispatches`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${deps.token}`,
-            accept: "application/vnd.github+json",
-            "x-github-api-version": "2022-11-28",
-            "user-agent": "reddoor-maintenance-dashboard",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ ref, inputs }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => "<no body>");
-        return {
-          ok: false,
-          error: `GitHub workflow_dispatch ${owner}/${name}/${workflowFile} failed (${res.status}): ${body.slice(0, 300)}`,
-        };
-      }
+      await gh.dispatchWorkflow(repo, workflowFile, ref, inputs);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
