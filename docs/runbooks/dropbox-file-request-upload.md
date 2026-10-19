@@ -10,7 +10,9 @@ file's own name and checks every `content_hash` itself.
 upload**: `check` stops before naming the account (`DROPBOX_APP_KEY`,
 `DROPBOX_APP_SECRET` or `DROPBOX_REFRESH_TOKEN` missing or refused), or it
 prints `MISSING` for `files.content.write`. If only `file_requests.write` is
-missing, `dropbox.mjs upload` still works; use it. The variables can be
+missing, `dropbox.mjs upload` still works; use it. If it prints `UNKNOWN`
+for `files.content.write` (a proxy 403 or a 5xx), re-run `check`; if that
+persists, treat the API as unable to upload. The variables can be
 missing from a container that started before they were saved. A running
 container keeps the environment it started with, while a new session, or
 this one after its container restarts, reads the saved value (2026-10-16: a
@@ -78,9 +80,10 @@ and renames what arrived.
    target). It uploads in batches of at most five files and 128 MiB, one page
    per batch, and prints `committed` or `FAILED` for each file as its batch
    ends. It exits 0 when every file committed, 1 when any failed, and 2 on
-   bad arguments: among them a file over 128 MiB (use `dropbox.mjs`), two
-   names Dropbox would treat as one, and an uploader name that is itself a
-   file, which usually means the name was left out. `--dry-run` prints the
+   bad arguments: among them a file over 128 MiB (it needs
+   `dropbox.mjs upload` once `check` passes), two names Dropbox would treat
+   as one, and an uploader name that contains `/` or `\` or names an entry
+   in the working directory, which usually means the name was left out. `--dry-run` prints the
    table and uploads nothing. Dropbox emails the request's owner about each
    upload.
 
@@ -112,8 +115,10 @@ and renames what arrived.
 - Uploading sends 4 MiB blocks to `dl-web.dropbox.com/put_block_returning_token`,
   then one `POST /drops/commit_file_request_by_token?name=<file>` per file,
   which answers 200 `{"status": "complete"}`. The page then shows "Finished
-  uploading". The script waits for every file's commit, up to max(120 s,
-  10 s per MB) per batch, and counts a file as committed only when its own
+  uploading". The script waits until every file's commit has answered
+  complete, up to max(120 s, 10 s per MB) per batch, so a commit the page
+  retries after a 5xx is not cut off (a commit that never completes is
+  reported FAILED at that deadline); it counts a file as committed only when its own
   commit answered that way; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored

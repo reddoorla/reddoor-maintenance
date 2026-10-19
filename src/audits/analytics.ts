@@ -1033,12 +1033,6 @@ export async function scanCheckout(
   return { references, foreignFile, complete };
 }
 
-/** Back-compat shim for callers that only need the first foreign file. */
-export async function findForeignAnalytics(sitePath: string): Promise<string | null> {
-  const scan = await scanCheckout(sitePath);
-  return scan === null ? null : scan.foreignFile === null ? null : join(sitePath, scan.foreignFile);
-}
-
 async function readIfPresent(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
