@@ -26,6 +26,7 @@ import {
   setProspectAuditOverrides,
 } from "../../src/db/prospect-audits.js";
 import auditReportJson, { config } from "../../netlify/functions/audit-report-json.mjs";
+import { config as prospectReportConfig } from "../../netlify/functions/prospect-report.mjs";
 
 const ORIGINAL_ENV = { ...process.env };
 afterEach(() => {
@@ -206,7 +207,13 @@ describe("audit-report-json — routing", () => {
   });
 
   it("is rate limited, like the public report route it mirrors", () => {
-    expect(config.rateLimit).toBeDefined();
+    expect(config.rateLimit).toEqual({ windowSize: 60, windowLimit: 120, aggregateBy: ["ip"] });
+    // Same window and the same per-IP key as prospect-report.mts. The limit is
+    // twice that route's 60 and has been since #605 introduced the route.
+    expect(config.rateLimit).toMatchObject({
+      windowSize: prospectReportConfig.rateLimit?.windowSize,
+      aggregateBy: prospectReportConfig.rateLimit?.aggregateBy,
+    });
   });
 });
 
