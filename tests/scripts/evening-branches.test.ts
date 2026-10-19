@@ -194,21 +194,29 @@ describe("classify", () => {
 
 describe("parseArgs", () => {
   it("defaults", () => {
-    expect(parseArgs([])).toMatchObject({
+    const B = ["--backlog", "docs/BACKLOG.md"];
+    expect(parseArgs(B)).toMatchObject({
+      backlog: "docs/BACKLOG.md",
       base: "main",
       minAgeHours: 2,
       freshHours: 36,
       sinceDays: 7,
       fetch: true,
     });
-    expect(parseArgs(["--main-since", "2026-10-05T12:07:00Z"]).mainSince).toBe(
+    expect(parseArgs([...B, "--main-since", "2026-10-05T12:07:00Z"]).mainSince).toBe(
       "2026-10-05T12:07:00Z",
     );
-    expect(() => parseArgs(["--main-since", "yesterday"])).toThrow(/ISO/);
-    expect(() => parseArgs(["--main-since", "2026-10-05T12:07:00"])).toThrow(/offset/);
-    expect(parseArgs(["--main-since", "2026-10-05T05:07:00-07:00"]).mainSince).toBe(
+    expect(() => parseArgs([...B, "--main-since", "yesterday"])).toThrow(/ISO/);
+    expect(() => parseArgs([...B, "--main-since", "2026-10-05T12:07:00"])).toThrow(/offset/);
+    expect(parseArgs([...B, "--main-since", "2026-10-05T05:07:00-07:00"]).mainSince).toBe(
       "2026-10-05T05:07:00-07:00",
     );
+  });
+  it("requires --backlog, with no default path", () => {
+    expect(() => parseArgs([])).toThrow(/--backlog <path> is required/);
+    expect(() => parseArgs(["--repo", REPO])).toThrow(/--backlog <path> is required/);
+    expect(() => parseArgs(["--backlog"])).toThrow(/needs a value/);
+    expect(parseArgs(["--backlog", "backlog/BACKLOG.md"]).backlog).toBe("backlog/BACKLOG.md");
   });
   it("refuses an unknown flag and a missing value", () => {
     expect(() => parseArgs(["--nope"])).toThrow(/unknown/);
@@ -291,6 +299,7 @@ function fakeRun(
 
 const OPTS: Options = {
   repo: REPO,
+  backlog: "docs/BACKLOG.md",
   base: "main",
   minAgeHours: 2,
   freshHours: 36,
@@ -406,6 +415,28 @@ describe("eveningBranches, end to end on a fake runner", () => {
     expect(calls.some((c) => c.startsWith("git fetch"))).toBe(false);
   });
 
+  it("reads and diffs only the backlog path it is given", async () => {
+    const { run, calls } = fakeRun(branches, withDecision(TODAY_ASK), diffAdding(6, TODAY_ASK));
+    const rep = await eveningBranches(
+      { ...OPTS, backlog: "BACKLOG.md", mainSince: "2026-10-05T12:07:00Z" },
+      { run, now: NOW },
+    );
+    expect(rep.backlog).toBe("BACKLOG.md");
+    expect(calls).toContain("git show origin/main:BACKLOG.md");
+    expect(calls).toContain(`git show ${MORNING_SHA}:BACKLOG.md`);
+    expect(calls.some((c) => /^git diff -U0 .* -- BACKLOG\.md$/.test(c))).toBe(true);
+    expect(calls.filter((c) => c.includes("docs/BACKLOG.md"))).toEqual([]);
+  });
+
+  it("refuses to run without a backlog path", async () => {
+    const { run, calls } = fakeRun(branches);
+    const { backlog: _, ...noBacklog } = OPTS;
+    await expect(eveningBranches(noBacklog as Options, { run, now: NOW })).rejects.toThrow(
+      /needs o\.backlog/,
+    );
+    expect(calls).toEqual([]);
+  });
+
   it("a failed PR lookup stops the run instead of reading as no PR", async () => {
     const { run } = fakeRun(branches);
     const failing = async (cmd: string, args: string[]): Promise<RunResult> =>
@@ -511,6 +542,7 @@ describe("eveningBranches, end to end on a fake runner", () => {
     });
     const text = formatReport({
       repo: REPO,
+      backlog: "docs/BACKLOG.md",
       base: "main",
       now: "x",
       minAgeHours: 2,

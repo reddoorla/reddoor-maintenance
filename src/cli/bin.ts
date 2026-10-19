@@ -590,11 +590,28 @@ cli
 cli
   .command(
     "launch <site>",
-    "Bootstrap + first-audit a site, then draft its launch email for approval.",
+    "Check launch readiness, bootstrap + first-audit a site, then draft its launch email for approval.",
   )
-  .action(async (site: string, opts: { cwd?: string; verbose?: boolean }) =>
+  .option(
+    "--allow-missing <step>",
+    "Launch past a launch-check step that is not ok (repeatable or comma-separated)",
+  )
+  .action(
+    async (
+      site: string,
+      opts: { cwd?: string; verbose?: boolean; allowMissing?: string | string[] },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("launch-check <site>", "Check a site's launch readiness, one line per step (read-only).")
+  .action(async (site: string, opts: { verbose?: boolean }) =>
     runOrExit(
-      async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+      async () => (await import("./commands/launch-check.js")).runLaunchCheckCommand(site),
       opts,
     ),
   );
@@ -887,6 +904,24 @@ cli
     runOrExit(
       async () =>
         (await import("./commands/roster-urls.js")).runRosterUrlsCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "search-console-recheck",
+    "Re-run the Search Console lookup for maintained sites whose stored outcome is no-property (site_health).",
+  )
+  .option("--fleet", "Re-check every maintained no-property site in the Turso roster.")
+  .option("--write-back", "Write search_console_outcome / _resolved / _checked_at to site_health.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/search-console-recheck.js")).runSearchConsoleRecheckCommand({
           fleet: opts.fleet,
           writeBack: opts.writeBack,
         }),

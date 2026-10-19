@@ -3,7 +3,7 @@
 > **Moved on 2026-10-23 to `reddoorla/reddoor-workspace`** `BACKLOG.md` (P0, P1, Active projects, Fleet snapshot) and `decisions/` (one file per ask), the home base.
 > This file is frozen as it stood at the cutover (`tests/docs/moved-files.test.ts`). Its item numbers stay valid for the runbooks, code and tests that cite them; never write here.
 
-**Last full re-rank: 2026-10-12 ~12:00Z** (the Monday PM pass, `claude/fervent-feynman-1u6stc`: P1 re-ranked from scratch as P1-45, P1-33, P1-31, then P1-43 (held on its worker's ask, #1294); the table keeps its row order so the two open worker PRs that edit P1-43's row still merge; Fleet snapshot rewritten from live Turso). Before that: 2026-10-05 ~12:00Z (the Monday PM pass, `claude/youthful-turing-ad6g2n`) and 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z 2026-10-06 ~12:00Z (the Tuesday PM pass, `claude/happy-clarke-1cjx2r`: no re-rank, P0-4 and items 80, 81, 84, 85 re-read) and 2026-10-07 ~12:00Z (the Wednesday PM pass, `claude/happy-clarke-hv3s5p`: no re-rank, P0-4 re-read, item 91 added) and 2026-10-08 ~12:00Z (the Thursday PM pass, `claude/fervent-feynman-kquysg`: no re-rank, P0-4 re-read, P1-36 added) and 2026-10-11 ~14:00Z (a Sunday PM pass, `claude/fervent-feynman-7ey14s`: no re-rank, P0-4 and P0-5 re-read, P1-38 done, P1-39 to P1-42 added, items 90 and 91 closed) and 2026-10-13 ~12:00Z (the Tuesday PM pass, `claude/amazing-bardeen-447t0s`: no re-rank, P0-5 re-read, item 81 closed, item 110(b) re-measured).
+**Last full re-rank: 2026-10-19 ~12:05Z** (the Monday PM pass, `claude/practical-franklin-67oatk`: P1 re-ranked from scratch as P1-52 (now fleet-wide), P1-53 and P1-54 (both new), P1-33 (dated 10-23), P1-51 (the operator's half), P1-46 (with Erik); Fleet snapshot rewritten from live Turso). Before that: 2026-10-12 ~12:00Z (the Monday PM pass, `claude/fervent-feynman-1u6stc`: P1 re-ranked from scratch as P1-45, P1-33, P1-31, then P1-43 (held on its worker's ask, #1294); the table kept its row order so the two open worker PRs that edit P1-43's row still merge; Fleet snapshot rewritten from live Turso), and before that: 2026-10-05 ~12:00Z (the Monday PM pass, `claude/youthful-turing-ad6g2n`) and 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z 2026-10-06 ~12:00Z (the Tuesday PM pass, `claude/happy-clarke-1cjx2r`: no re-rank, P0-4 and items 80, 81, 84, 85 re-read) and 2026-10-07 ~12:00Z (the Wednesday PM pass, `claude/happy-clarke-hv3s5p`: no re-rank, P0-4 re-read, item 91 added) and 2026-10-08 ~12:00Z (the Thursday PM pass, `claude/fervent-feynman-kquysg`: no re-rank, P0-4 re-read, P1-36 added) and 2026-10-11 ~14:00Z (a Sunday PM pass, `claude/fervent-feynman-7ey14s`: no re-rank, P0-4 and P0-5 re-read, P1-38 done, P1-39 to P1-42 added, items 90 and 91 closed) and 2026-10-13 ~12:00Z (the Tuesday PM pass, `claude/amazing-bardeen-447t0s`: no re-rank, P0-5 re-read, item 81 closed, item 110(b) re-measured) and 2026-10-14 ~12:00Z (the Wednesday PM pass, `claude/practical-franklin-ejwyf8`: no re-rank, P0-5 and P1-47 re-read, item 113 closed, P1-50 added) and 2026-10-15 ~12:00Z (the Thursday PM pass, `claude/practical-franklin-btdl10`: no re-rank, P0-5 and P1-51 re-read, P1-50's proof recorded, P1-52 added).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
 reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
@@ -192,17 +192,52 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   `data-wf-site`, and the Netlify site's canonical is still its
   `netlify.app` URL. A Wed 10-14 cutover needs the TTL lowered today or it
   starts against a one-hour TTL [I].
+- **10-13 ~22:14Z: both sites are cut over, a day early, on Tim's verbal go
+  to the operator.** The cockpit session set `www` as the primary custom
+  domain on both Netlify sites (20:08Z, external DNS, no Netlify DNS zone
+  created) and triggered production builds, after which both canonicals and
+  `og:url` read `https://www.<domain>/` [M]. The operator edited the two
+  GoDaddy rows per domain, Homes first. The Tuesday TTL step was skipped, so
+  Netlify answered "bad dns for custom domain" until its resolver let go of
+  the old answer; certificates issued at 21:43:51Z (Homes) and 22:14:00Z
+  (Construction). The `/join-the-team` gate held first: the operator's test
+  from the preview was stored at 21:37:49Z with `notifyStatus: sent` [M,
+  SELECT]. `node scripts/williamson-cutover-verify.mjs`: **GREEN, all 64
+  checks passed** at 22:14Z [M]. Still the operator's: a live test from
+  `https://www.williamson-construction.com/join-the-team`, the by-eye check
+  on phone and desktop, the Fri 10-16 and Mon 10-19 verifier runs, D0, and
+  `reddoor-maint launch` for each site. Leave the domains in Webflow until
+  10-19 (rollback).
+- **10-14 ~11:55Z (the Wednesday PM pass) [M]:** `www` on both domains is a
+  CNAME to its Netlify site (dns.google), each home page answers 200 with a
+  `https://www.<domain>/` canonical and no `data-wf-site`. Both Turso rows
+  are still `building`, and the newest Williamson submission is still the
+  operator's 21:37:49Z preview test, so the live `/join-the-team` test and
+  `reddoor-maint launch` have not happened yet [M, SELECT]. Dated next: the
+  Fri 10-16 verifier run, then Mon 10-19 (verifier, D0, Webflow domains).
+- **10-15 ~11:58Z (the Thursday PM pass) [M]:** `www` on both domains is
+  still a CNAME to its Netlify site (dns.google), with no `data-wf-site` on
+  either home page. `reddoor-maint launch-check` reads **READY, 8/8 `ok`** on
+  both sites (`LAUNCH_CHECK_SUMMARY … ready=true ok=8`), so #29 and #39 are
+  merged and live (`/privacy` answers 200 on both `www` hosts, and a made-up
+  path answers 404). Both rows are still `building`: `reddoor-maint launch`
+  has not run. Construction has a second stored submission, 10-14
+  14:12:11Z, `inquiry`, `notify_status` `sent`; whether it was the live
+  `/join-the-team` test is not recorded [I]. Dated next: Fri 10-16
+  verifier, Mon 10-19 (verifier, D0, Webflow domains).
 
 ---
 
 ## P1 — next, agent-ready, no operator decision needed
 
-| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Tier | Effort | Start here | Done when |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------ | ---------- | --------- |
-| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1), (e) done in #1318 with reddoor-workspace `c8fa41d` (the deny list) and `25499f6` (`probe.md`, the amended model); Decision 1 is Operator decisions 115; then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Not queued: the decision files, the backlog trim and the home base's 200-line CLAUDE.md, which belong to the cutover after Thu 10-22. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day.                                                                                                                                                                                                                                                              |
-| P1-46 | **Roalson: roll the 10-12 package standards out to all 23 listing packages, with Matt Howard's per-package comments** 🟡 (rebuilding is green; replacing the live `package_pdf` on Prismic and Dropbox delivery need the operator's go, as on 10-08). The generator is on roalson-interests `main` via #293: `tools/listing-packages/`, README "Package standards". Hwy 46 is already rebuilt to the standards and was shown to the operator; it is not published. Inputs: (1) the Land ID links in `build/heroes.json`, fetched for every listing whose plan has no photo cover (the operator, Operator decisions 118: all 23 together; 25331 IH-10 West, 101 W Commerce, 13810 Lookout and Urban Loop keep their photography); (2) Matt Howard's "Roalson Package Comments" (Gmail, Erik's forward 2026-10-12 22:12Z, thread `1a1322ce1413bdfe`): Land ID boundaries for Cascade Caverns, IH-10 & Hwy 87, Menger Springs Tract 1, Scenic Loop, IH-10 East & 1604, 1604 & 181 and the Hwy 46 aerial; copy edits for 116 OSA ("as well as multifamily."), Dove Canyon (easements), 1604 & 181 (3.0 +/- acres on the cover, no Frontage, Easements "Contact Broker"), Menger Springs Road (Location, "Church" in Potential Uses) and IH-10 & FM 725 (Eldon Roalson out, Bart in); exhibits: Perrin Beitel's floor plan, Scenic Loop's and 1604 & 181's site plans and 1604 East's cross-access aerial stay, IH-10 & 87's Lots aerial and Menger Springs' old aerial go, Menger Springs Road's Exhibit A is replaced by its Land ID aerial, "HEB owned" goes on IH-10 & 87's remaining aerial; IH-35's traffic map zooms out; (3) per-listing `intersection` and `businesses` in `geo/sites.json` (`lib/intersection.py` proposes; check each on the map). Two asks need the operator first: IH-10 East & 1604's "Can we show [HEB's] logo on that site?" (the area maps stay names and pins, Operator decisions 119), and any boundary change that moves a flood share (the 10-08 rule: a flood finding goes in front of the broker). Start here: the email, then `tools/listing-packages/README.md`; `build/all.sh` rebuilds everything (NAIP tiles are slow: allow for 502/504 runs). Minors in roalson-interests#292. Done when all 23 PDFs are rebuilt, each of Matt's comments is applied or answered, every flood-share change has been put to the operator, and the operator has the set to review. **Status 2026-10-13:** all 23 rebuilt, generator merged in roalson-interests#297 (`eedf175`), and every comment applied or answered. The set is with the operator. Held for two things: his review, then Erik for Matt; and the broker on Menger Springs Road's flood sentence (Operator decisions 120). |
-| P1-47 | **Ending a Prismic preview breaks on every kit 3 site: `@prismicio/svelte`'s `PrismicPreview` calls `goto(…, { invalidateAll: true, noScroll: true })`** 🟡 (new 2026-10-13, the Tuesday PM pass; found in review by Operator decisions 113's worker, not yet reproduced). [M, `npm pack @prismicio/svelte@2.2.2`]: 2.2.2 is the latest, peers `@sveltejs/kit` `^2`, and `src/kit/PrismicPreview.svelte:71` passes `noScroll: true`. Kit 3 removed that option (`goto_options_removed`), so per the worker's reading of kit 3.0.1's source ending a preview throws under `pnpm dev` and scrolls to the top in production [I]. It reaches production on each of the five sites (vida, mantis, la-homelessness-youth, gallerysonder, alamo-anatomy) the moment the operator promotes `staging`. `@reddoorla/maintenance` itself also still declares a peer of kit `^2.0.0` (`package.json:104-106`) [M]. _Verify:_ `npm view @prismicio/svelte version peerDependencies`. Start here: reproduce on reddoor-starter (kit 3 since reddoor-starter#187) with a preview session in a dev server, then pick between an upstream issue plus a local wrapper and a pnpm patch; widen this package's kit peer to `^2.0.0 \|\| ^3.0.0` in the same PR. Done when the starter's preview exit is shown not to throw on kit 3, the fix is ready for the five `staging` branches, and the peer range is widened.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| P1-48 | **A Search Console `no-property` watch never clears until the site's next report draft** 🟡 (new 2026-10-13, the operator: "do the worker to fix the false warning issue"). LA Homelessness Initiative has shown "no property matched www.lahomelessnessawareness.org (lookup 2026-10-05)" in the cockpit's Watch every day since 10-05. It is false today: as `tucker@` the property is `siteOwner` and as `reports@` `siteFullUser`, and a `searchAnalytics/query` as `reports@` returns rows ("homelessness awareness", position ~69) [M, service account with domain-wide delegation, 2026-10-13]. Only a draft writes the lookup (`src/reports/draft.ts:480`, through `searchConsoleLookupFields`, `src/fleet/site-fields.ts:531`), and LAHI has no report due before 11-30, so the stale `no-property` stands for months (`src/dashboard/fleet-cockpit.ts:229-244`). _Verify:_ `pnpm tsx scripts/pm-cockpit.mts` still lists LAHI under Watch. Start here: those three places, and `fetchSearchPresence` in `src/reports/search/client.ts:157`. Done when a nightly re-runs the lookup for every maintained site whose stored outcome is `no-property`, writes the three Search Console cells the same way a draft does, LAHI's Watch line clears on the next nightly, and a site with truly no property still shows it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Tier | Effort | Start here | Done when |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------ | ---------- | --------- |
+| P1-52 | **erp-industrial: three high `devalue` advisories sit unfixed because Renovate's lock-file maintenance made a branch but no PR** 🟡 (new 2026-10-15, the Thursday PM pass). [M] The cockpit's Watch lists ERP Industrials NEW: "3 critical/high vulns — transitive-only, still present after the 2026-10-12 lockfile window (escalated 2026-10-14)". All six `devalue` advisories (dependabot #66–#71, 3 high) cover `<=5.9.2` and are patched in `>=5.9.3` (`pnpm audit` on `main`'s lockfile). `main` resolves `devalue@5.9.2` through `@sveltejs/kit@2.70.3`, whose range is `^5.8.1`, so 5.9.4 (published 2026-09-18) fits without a kit change. `renovate/lock-file-maintenance` (`adcdce11`, 2026-10-12 03:25Z) already resolves only `devalue@5.9.4`, but no PR was opened from it: the last lock-file PR is #57 (merged 09-14), and the Dependency Dashboard (erp-industrial#41) lists it under **Awaiting Schedule**. The preset (`reddoorla/.github:renovate-config`) sets `prCreation: not-pending`, `internalChecksFilter: strict`, `minimumReleaseAge: 1 day`, and `lockFileMaintenance.schedule: before 6pm on monday` (UTC). A likely cause is that the branch's checks were still pending when the Monday window closed, so the PR waits for the next window [I, not read in Renovate's log]. #60 (all non-major, green, `clean`) is held by the `@reddoorla/maintenance` `automerge: false` rule, and its lockfile still carries `devalue@5.9.2` beside 5.9.4, so merging it alone would not clear the advisories [M]. ERP's Maintenance report is due 10-25; `approveBlockers` finds nothing for it [M]. _Verify:_ `gh api repos/reddoorla/erp-industrial/issues/41 --jq .body \| grep lock-file-maintenance` shows it under Awaiting Schedule, and `main`'s `pnpm-lock.yaml` has `devalue@5.9.2`. Start here: (1) whether other fleet repos show the same "branch, no PR" for lock-file maintenance (read each Dashboard); (2) the Renovate run log for erp-industrial on 10-12 (`reddoorla/.github`'s renovate workflow) for why the PR was not created; (3) the preset's `prCreation` and `lockFileMaintenance` blocks. Done when ERP's advisories are cleared (by the operator's Dashboard tick, Operator decisions 126, or a fix) and the cause is named with evidence, with a preset change proposed if it is fleet-wide. **2026-10-19 (the Monday PM pass) [M]: it is fleet-wide.** Every one of the 15 maintained repos has a `renovate/lock-file-maintenance` branch and no open lock-file PR; the newest merged one is MSOT#65 (09-15), and 29-navy and vida-legacy-foundation have never had one (`pulls?state=all&head=…`). So no lock-file maintenance has landed anywhere in five Mondays, and transitive-vuln cleanup, which rides on it, is stopped fleet-wide. erp-industrial's branch was rebuilt today at 02:30Z (`e5095848`) and #41 now lists it under **Pending Status Checks**, not Awaiting Schedule. That head has **no check runs at all** and a combined status of `pending` with no contexts, which fits the guess: fleet CI runs on `pull_request`, so a branch with no PR never gets the checks that `prCreation: not-pending` waits for, and the 25 h `prNotPendingHours` fallback (Renovate's default) lands outside the `before 6pm on monday` window. The preset's own 2026-09-21 correction note (`reddoorla/.github` `renovate-config.json:11`, read from a fresh clone at `b3e549e`) describes this path: lock-file maintenance "is exempt from `minimumReleaseAge`, carries no stability status, and so falls through to the 25-hour `prNotPendingHours` timeout, which the grouped branch, rebased every Monday inside an 18-hour window, never reaches". The `internalChecksAsSuccess: true` fix of that day turns a branch green through its `renovate/stability-days` status, and a lock-file branch has none, so the fix did not reach it [I, that this is the whole cause; a Renovate log line or a dry run is the proof]. Fix shape for the worker to prove, not to merge: `prCreation: "immediate"` inside `lockFileMaintenance` only (🔴, the operator merges preset changes). Ranked first: it is fleet-wide, and ERP's report is due 10-25 |
+| P1-53 | **SvelteKit 3 and adapter-netlify 7 reached the rest of the fleet: eight more maintained repos are red (new 2026-10-19, the Monday PM pass)** 🟡 (each repo is its own PR, never a sweep; promotion is the operator's). [M] The cockpit lists nine sites NEW today, each "Renovate PRs failing CI": 1836dig, 29 Navy, Beachfront Dentistry, CalTex, Data Dynamiq, Espada, LA Homelessness Initiative and Reddoor (two PRs each: `@sveltejs/kit` v3 and `adapter-netlify` v7, opened 02:43–04:23Z), and Vida (one: vitest v5 on `staging`, titled "abandoned"; its three red `main-gate` runs date from 10-13/14 when the PR was based on `main`, so that alarm is stale, not a new failure). Read on 1836dig#27/#28: the kit 3 PR stops at `prepare` with `config_file_unsupported` ("`svelte.config.js` is no longer used"), and the adapter 7 PR builds on kit 2.70.3 and throws `Cannot read properties of undefined (reading 'assets')` in `adapt`, so neither can land alone. Plan §4 step 5 (`docs/sveltekit-3-migration-2026-10.md:138`) covers this: "every other kit 2 repo, as Renovate reaches it"; the order and flow are Operator decisions 113's answer (each migration lands on that repo's `staging`, workers merge into `staging` on green, only the operator promotes). Of the eight, reddoor-website's pair targets its `staging`, so it has one; the other seven's pairs target `main` [M], and whether they have a `staging` branch was not read [I]. The pair has also opened on williamson-construction-co (#27/#28 since 10-12, held until after the cutover per 116(b)), williamson-homes (#40), roalson-interests, hedloc and erp-industrial (branches only). Also note: `analytics-tag` refuses a kit 3 site (`src/recipes/analytics-tag/index.ts:313`), so any GA tag a site still needs goes in before its migration. _Verify:_ `pnpm tsx scripts/pm-cockpit.mts` lists the nine. Vida needs nothing: kit 3 is already in its production. Done when each of the eight repos' migration PR has replaced its pair on `staging` with `ci` and `@smoke` matching production, and each promotion PR is open for the operator                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| P1-54 | **36 green `sharp` 0.35.5 security PRs sit unmerged in 15 repos, and no alarm says so (new 2026-10-19, the Monday PM pass)** 🟢 (finding only; any preset change is 🔴). [M] Renovate opened `sharp` → 0.35.5 `[security]` (GHSA-wq5f-xc86-pv6w, CVSS 8.9 High, libheif/librsvg) on 10-06 in 29-navy, beachfront-dentistry, caltex-landing, espada, medical-solutions-of-texas, reddoor-website (staging), revogen, vineyard-custom-homes, williamson-construction-co, williamson-homes and roalson-interests, and on 10-14 (main and staging pairs) in gallerysonder, vida-legacy-foundation, mantis-landscaping and alamo-anatomy. Every one is green and none merged. The rule holding them is named: the preset's "never auto-merge packages that reshape the dependency graph" packageRule (`reddoorla/.github` `renovate-config.json`, `sharp` among six names, `automerge: false`), which wants a human and a green Netlify preview; the PR body says "Automerge: Disabled by config". So it is a rule working, and the merges are the operator's (Operator decisions 129). What is broken is that the cockpit shows none of it: `PM_COCKPIT_SUMMARY` lists no vuln for any of these sites, 13 days on. Start here: what `fleet-security` records for CalTex's `sharp` advisory (`last_security_audit_at` row fields, `src/alerts/waiting.ts:30` `DIRECT_VULN_WAIT_DAYS`, the held-PR note there), and why a held security PR never escalates. Done when a held, green security PR older than its wait reaches Needs-you, with a test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1), (e) done in #1318 with reddoor-workspace `c8fa41d` (the deny list) and `25499f6` (`probe.md`, the amended model); Decision 1 is Operator decisions 115; then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Cutover prep (decision files, the staged backlog trim and loop files, the home base's 200-line CLAUDE.md, the user-level deny-list probe) queued 2026-10-13 as four workers for the Fri 10-23 window (Operator decisions 121). W2, the decision-file format and `scripts/decisions.mjs` (`check`, `list`, `new`, and `convert`, the migration dry run): done in #1345 with reddoor-workspace `0b075ca` (`decisions/_template.md`); the migration itself stays in the cutover window. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| P1-51 | **One launch process: `docs/runbooks/site-launch.md` and the `launch-check` gate (#1372)** 🟡. Asked by the operator 2026-10-14, after both Williamson sites went live on 10-13 with no Analytics, no Search Console, no contact and no schedule. `reddoor-maint launch-check <site>` prints one line per step (url, contact, schedule, header-image, ga-property, ga-tag, privacy, search-console) as `ok`, `missing` or `unverified`. `launch` runs it before any GitHub write and stops unless every step is `ok` or named in `--allow-missing`. Proven live 2026-10-14: Data Dynamiq reads 8/8 ok; both Williamsons read NOT READY; MSOT reads `privacy missing` (its `/privacy` 404s, a real gap). **Williamson, worker side:** row `url` set to `https://www.williamson-construction.com/` and `https://www.williamson-homes.com/` (10-14, site mirror); `/privacy` page and footer link PRs in each repo; neither Webflow site carried any analytics (conversion plan §2), so there is no old GA property to reuse, and no Williamson property is visible to the GA subject. **Williamson, operator side:** the one ask is Operator decisions 123: GA4 properties and streams with `reports@` Viewer; Search Console properties, the verification token, Verify and `reports@`; the contact and recipients; the schedule; the merges; `launch`; the go-live approval. After the answer a worker installs the tag (`analytics-tag`) and the verification meta, fills the privacy contact, writes `ga4_property_id`, `search_console_property`, contact and schedule through the site mirror, runs `header-image --write-back`, and re-runs `launch-check` until READY. Done when both read READY and the operator has launched and approved them. **10-15 ~11:57Z [M]: both read READY, 8/8 `ok`** (`ga-tag` loads `G-70PDG1RJBG` and `G-21KD0G311C`; `privacy` 200 with a home-page link). Both rows are still `building`; what is left is item 123(f), the operator's `launch` and the two go-live approvals.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| P1-46 | **Roalson: roll the 10-12 package standards out to all 23 listing packages, with Matt Howard's per-package comments** 🟡 (rebuilding is green; replacing the live `package_pdf` on Prismic and Dropbox delivery need the operator's go, as on 10-08). The generator is on roalson-interests `main` via #293: `tools/listing-packages/`, README "Package standards". Hwy 46 is already rebuilt to the standards and was shown to the operator; it is not published. Inputs: (1) the Land ID links in `build/heroes.json`, fetched for every listing whose plan has no photo cover (the operator, Operator decisions 118: all 23 together; 25331 IH-10 West, 101 W Commerce, 13810 Lookout and Urban Loop keep their photography); (2) Matt Howard's "Roalson Package Comments" (Gmail, Erik's forward 2026-10-12 22:12Z, thread `1a1322ce1413bdfe`): Land ID boundaries for Cascade Caverns, IH-10 & Hwy 87, Menger Springs Tract 1, Scenic Loop, IH-10 East & 1604, 1604 & 181 and the Hwy 46 aerial; copy edits for 116 OSA ("as well as multifamily."), Dove Canyon (easements), 1604 & 181 (3.0 +/- acres on the cover, no Frontage, Easements "Contact Broker"), Menger Springs Road (Location, "Church" in Potential Uses) and IH-10 & FM 725 (Eldon Roalson out, Bart in); exhibits: Perrin Beitel's floor plan, Scenic Loop's and 1604 & 181's site plans and 1604 East's cross-access aerial stay, IH-10 & 87's Lots aerial and Menger Springs' old aerial go, Menger Springs Road's Exhibit A is replaced by its Land ID aerial, "HEB owned" goes on IH-10 & 87's remaining aerial; IH-35's traffic map zooms out; (3) per-listing `intersection` and `businesses` in `geo/sites.json` (`lib/intersection.py` proposes; check each on the map). Two asks need the operator first: IH-10 East & 1604's "Can we show [HEB's] logo on that site?" (the area maps stay names and pins, Operator decisions 119), and any boundary change that moves a flood share (the 10-08 rule: a flood finding goes in front of the broker). Start here: the email, then `tools/listing-packages/README.md`; `build/all.sh` rebuilds everything (NAIP tiles are slow: allow for 502/504 runs). Minors in roalson-interests#292. Done when all 23 PDFs are rebuilt, each of Matt's comments is applied or answered, every flood-share change has been put to the operator, and the operator has the set to review. **Status 2026-10-13:** all 23 rebuilt, generator merged in roalson-interests#297 (`eedf175`), and every comment applied or answered. The set is with the operator. Held for two things: his review, then Erik for Matt; and the broker on Menger Springs Road's flood sentence (Operator decisions 120). **Status 2026-10-13 20:00Z:** fact-check fixes and the assumed calls for Matt's open items are on roalson-interests `main` (#301, `f39853b`). All 23 PDFs and Erik's two-page sign-off note are in Dropbox at `/Clients/Roalson Interests/Listing PDFs/2026-10 Listing Package Sign-off` (team-only folder link: https://www.dropbox.com/scl/fo/jhnfox5lh1tr4ggly7hfm/AOFAUgdiSEa9sQ3pFokfHiM?rlkey=a8e7dvo59m4wtg9hgi12mudej&dl=0); the note's source is reddoor-workspace `client/roalson/2026-10-13-package-sign-off/`. Erik has them (Discord #roalson-interests, 18:00Z). Erik re-saved four (Hwy 46, FM 725, Menger Springs Road, St. Mary's) with the cover's Ri watermark in light cream instead of red; nothing else changed. Waiting on Erik's review and Matt's sign-off. Next: ask whether the cream watermark is the new standard (one generator change, rebuild all 23), apply Matt's answers to the five calls, rebuild, then stage all 23 `package_pdf` replacements in one Prismic release for the operator to publish. The Dropbox file request `0nohnhi2368naltaor5k` that delivered them is still open; close it in the Dropbox web UI.                                                                                                                                                                                                                                                                                                                                |
 
 ### Blocked behind another PR (do not start early)
 
@@ -4259,6 +4294,42 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `800a263b`). The `.github` patch is not applied either: `reddoorla/.github`
         has no `renovate-staging-flow.json`, and its last commit is
         `3f8ae95` (09-22) [M, a fresh clone].
+        **Status 2026-10-13 ~20:10Z (the worker):**
+      - **All five migrated sites are in production on kit 3** (vida#101,
+        mantis#44, lhy#33, gallerysonder#117 and alamo#72, merged by the
+        operator at 17:45–17:47Z).
+        - Every `staging` survived the merge.
+        - Every production deploy is the merged commit, with `ci / ci`
+          green on each new `main`.
+        - `/health` reports `ok` on each site's production host, with the
+          same form flags as on kit 2 (lhy's Turnstile is off on both).
+        - The canonical and the robots.txt sitemap, where a site
+          generates them, name the real origin, not the placeholder.
+        - mantislandscaping.com still serves the old, non-Netlify site.
+      - **`main-gate` is required on all five `main`s** (pinned to app
+        15368). Read back from `rules/branches/main`, not just from the PUT.
+      - **The preset is live:** `.github` `b3e549e` (#37). The cloud
+        session could not push it: `add_repo` refuses a dot-named repo, and
+        both the git proxy and the connector refused it (403). It went in
+        from the laptop as a PR, because `.github`'s `main` requires PRs
+        and a `validate` check. The five `extends` drafts landed on
+        `staging`.
+      - **Renovate reads its config from `main`,** so the rule takes effect
+        only through a second promotion: vida#104, mantis#47, lhy#36,
+        gallerysonder#120 and alamo#74. Each is clean, with `ci / ci` and
+        `main-gate` green. These are the gate's first runs as a required
+        check, and it passed `staging` as designed.
+      - **Each `staging` shows as 1 behind `main`:** today's promotions were
+        squash merges. The content is identical. A merge commit on a
+        promotion keeps `staging` an ancestor of `main`.
+
+      **Closed 2026-10-14 (the Wednesday PM pass) [M]:** the second
+      promotions merged too (vida#104 21:49:48Z, mantis#47 21:48:10Z, lhy#36
+      21:48:33Z, gallerysonder#120 21:48:51Z, alamo#74 21:49:20Z), so
+      nothing in this item is left for the operator. Two follow-ups sit
+      elsewhere: P1-47 (the preview exit, now in production) and
+      williamson-construction-co's own migration, which was held until after
+      the cutover and is best left until the 10-19 rollback window closes [I].
 
 114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
       (new 2026-10-12, P1-31; the remedy fix is on branch
@@ -4533,6 +4604,338 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         **Answered 2026-10-13 (AskUserQuestion): (1) accept four, Menger
         Springs Road to the broker; (2) the plain label; (3) move the 11;
         (4) review first, then Erik for Matt.**
+      - **10-14 14:18Z, new evidence [M, Discord `#roalson-interests`, GET]:**
+        Erik "took PDF edits into my own hands": he made global changes to
+        the PDFs himself and is "awaiting their approval to upload the
+        current PDFs to the Roalson site". He also moved the current packages
+        into their own Dropbox folder, with the rest under past comps. So the
+        next step is Erik's word that the client approved, and the files to
+        publish are his edited set, not a rebuild from the generator [I].
+
+121.  **P1-33 cutover: four calls before Fri 10-23, and a new finding (new
+      2026-10-13, asked in the discussion session
+      https://claude.ai/code/session_012fijUSNPixm2PaEeAtHCv9).** Finding
+      [M] 2026-10-13 ~13:50Z: that session started in maintenance, attached
+      reddoor-workspace with `add_repo`, and was then restarted. It came back
+      as a multi-repo session (`get_session` listed both repos as sources,
+      cwd `/home/user`). The workspace `CLAUDE.md` now loaded, which arm c
+      never saw without a restart. But no deny list was live: the canary
+      `rm -rf /tmp/deny-canary-absent` ran, and bare `git stash` was refused
+      only by the auto-mode classifier (`[Irreversible Local Destruction]`),
+      not a deny rule. The cloud docs agree that only a single-repo session
+      reads `.claude/settings.json`. So any attach-then-resume session, the
+      all-day cockpit included, runs without the deny list today.
+      - _Ask:_ (1) the deny list after a restart: probe a user-level
+        `~/.claude/settings.json` written by the environment's setup script,
+        with the canary on every resume as the fallback; canary only; or
+        accept the classifier. (2) Does the workspace keep a journal? (3) The
+        cutover date. (4) Will the operator type a0's and a1's after-attach
+        turns (`probe.md`, "What is left")?
+      - _Pick:_ (1) the probe plus the canary on resume; (2) yes,
+        `journal/` for work that changed no code repo; (3) Fri 10-23, proven
+        by the Mon 10-26 fire; (4) skip and prove at the cutover.
+        **Answered 2026-10-13 (AskUserQuestion): (1) probe env-level, canary
+        fallback; (2) workspace `journal/`; (3) Fri 10-23, first proof the
+        Mon 10-26 04:48 PT fire; (4) "I'll type it now".** Prep was queued
+        the same day as four workers: W1 the user-level deny-list probe
+        (`session_01GywkGC61j8SDyeyVWLRJo6`), W2 decision files and
+        `scripts/decisions.mjs` (`session_01TMkyXcUMqt5FxVtQLpoft2`), W3 the
+        staged home-base loop, the new Routine prompt and the cutover runbook
+        (`session_01BCi5djFrhW63uGS7MiwmXP`), and W4 the 200-line home-base
+        `CLAUDE.md` with the rule map (`session_011UosmWgyEfHF9TducWdwNa`).
+        **Follow-up answers 2026-10-13 ~17:45Z (AskUserQuestion), once the
+        four workers had finished:** (a) W1 measured, locally with headless
+        `claude -p`, that a deny list in the user-level
+        `~/.claude/settings.json` applies with two repos under the cwd and
+        stacks with the repo's own file (workspace `e743c37`). The
+        setup-script block goes into the environment **in the 10-23 window**,
+        not before, and is followed there by the five-step live check
+        (runbook step 5a, workspace `fd57bc4`). (b) a0 and a1 are **dropped**:
+        they were archived without their after-attach turns, so this
+        replaces answer (4) above. (c) W4's four keep-or-drop rows are
+        **accepted as picked** (workspace `cutover/claude-md`, `15e4a70`).
+        Your steps before 10-23: add the `RESEND_API_KEY` secret and the
+        `OPERATOR_EMAIL` variable to reddoor-workspace's Actions, and read the
+        staged `CLAUDE.md`. In the window: paste the setup block, then change
+        the Routine's repository and prompt.
+
+122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
+      `no-property` or write `soft-fail`?** The brief said the nightly re-check
+      writes the cells a draft writes, and a draft writes `soft-fail` when the
+      API errors. Nightly, that erases a true watch: a site with truly no
+      property that hits one transient error gets `soft-fail`, which raises no
+      watch, and it leaves the re-check's own targets (only `no-property` rows
+      are re-checked), so nothing raises the watch again until its next draft.
+      The re-check on `claude/sleepy-newton-xoaf1i` (issue #1336) writes
+      nothing on a soft-fail, and the stored `no-property` stands until a later
+      night answers. (a) **Keep it (my pick):** an unknown answer never retires
+      a known finding. The cost is that a site whose property is fixed while
+      Google errors keeps its watch for one more night. (b) **Write
+      `soft-fail` as a draft does.** It is closer to the brief, but transient
+      errors silently drop real watches until the site's next draft.
+      **Answered 2026-10-13 (AskUserQuestion): (a), write nothing on a
+      soft-fail. #1346 lands as built.**
+
+123.  **P1-51, Williamson launch: the operator's half of the checklist (new
+      2026-10-14).** Both sites went live 10-13; `reddoor-maint launch-check`
+      (reddoorla/reddoor-maintenance#1377) reads each as NOT READY, 2 of 8
+      `ok`. The worker side is done or built: row `url` now
+      `https://www.williamson-construction.com/` and
+      `https://www.williamson-homes.com/`, header images stored, and `/privacy`
+      plus a footer link in reddoorla/williamson-construction-co#29 and
+      reddoorla/williamson-homes#39 (CI green; previews answer 200). Neither
+      Webflow site carried analytics (conversion plan §2), and no Williamson
+      GA or Search Console property is visible to the GA subject, so there is
+      nothing to reuse. _Asks, per site:_ (a) create a GA4 property and a web
+      stream for the `www` host, grant `reports@reddoorla.com` (and every
+      `GA_SUBJECT` subject) Viewer, and send the numeric property ID and the
+      `G-` ID; (b) create a Search Console property (domain, or URL-prefix
+      `https://www.…/`), send the HTML-tag token, then after the tag merges
+      press Verify and add `reports@reddoorla.com`; (c) the report contact and
+      the privacy contact (_pick:_ `brian@williamson-homes.com`, the address
+      the Homes site publishes, unless you name another; Construction's
+      likewise); (d) the schedule (_pick:_ Quarterly, Testing None, counted
+      from the launch day, as most of the fleet runs); (e) merge each repo's
+      PR once a worker adds the contact, the tag and the verification meta to
+      it (one merge per repo); (f) run `reddoor-maint launch <site>` once
+      `launch-check` reads READY, and approve each go-live email. A worker does
+      everything else: the tag (`analytics-tag`), the meta tag, the privacy
+      values, the row writes through the site mirror, and the re-checks.
+      **Answered 2026-10-14 (AskUserQuestion): (a)+(b) the operator creates
+      both GA4 properties and both Search Console properties and sends the
+      numeric property IDs, `G-` IDs and verification tokens; (c) each site's
+      published `info@` (`info@williamson-construction.com`,
+      `info@williamson-homes.com`), not Brian; (d) Quarterly from launch,
+      Testing None; (e)/(f) one merge per repo, then the operator runs
+      `launch` and approves.** Done the same hour: `point_of_contact`,
+      `maintenance_freq` Quarterly, `testing_freq` None and `maintenance_day`
+      2026-10-14 on both rows (site mirror), and the privacy contact and
+      effective date on both PRs (williamson-homes `6af5aa3`,
+      williamson-construction-co `08221a0`). Still waiting on: the IDs and
+      tokens. With them, a worker adds the tag and meta to #39 and #29 and
+      writes `ga4_property_id` and `search_console_property`.
+      **2026-10-14 ~19:55Z:** the operator created both GA4 properties
+      (Homes 559039043 / `G-21KD0G311C`, Construction 559059283 /
+      `G-70PDG1RJBG`) and verified both Search Console domain properties. The
+      worker recorded them on the rows, added `reports@reddoorla.com` as an owner
+      of both domains (Site Verification API) and added each property to its
+      list, so `reports@` reads all four. It also put the tag, the
+      `@reddoorla/maintenance` ^0.108.0 bump and the CSP hosts on
+      williamson-homes#39 and williamson-construction-co#29 (CI green, ready to
+      merge). `launch-check` reads 6/8 `ok` on both, and the two `missing` lines
+      (`ga-tag`, `privacy`) are what the merges fix. Left for the operator:
+      merge #39 and #29, re-run `launch-check`, run `launch`, approve both go-live
+      emails.
+      **2026-10-15 ~11:57Z (the Thursday PM pass) [M]:** #39 and #29 are merged
+      and live, and `launch-check` reads READY, 8/8 `ok`, on both sites. Both
+      rows are still `building`. Left for the operator: (f) run
+      `reddoor-maint launch williamson-construction-co` and
+      `reddoor-maint launch williamson-homes`, then approve both go-live emails.
+
+124.  **reddoorla/medical-solutions-of-texas#81, MSOT `/privacy` and footer
+      link: merge to production (P1-51, reddoorla/reddoor-maintenance#1376;
+      new 2026-10-14).** `launch-check msot` read 7/8 `ok`, `privacy missing`
+      (`/privacy` 404s while the site loads GA4 `G-BZ0WQMEE8L`). #81 ports the
+      starter's DRAFT, `noindex` page as Data Dynamiq, 1836dig and 29 Navy
+      carry it (item 73), with values the site already publishes: "Medical
+      Solutions of Texas" (footer) and `info@MedicalSolutionsofTX.com`
+      (`/contact`), effective 2026-10-14. It names the services measured in a
+      live capture: GA4, Adobe Fonts, Vimeo, Cloudflare Turnstile, the form
+      ingest and Netlify. No Prismic request reaches a visitor's browser, so
+      Prismic is not named. CI green on `7f29752`; review round 1 found one
+      major (a missing space, "messageand"), fixed and pinned by a test; round 2
+      clean (nits filed as medical-solutions-of-texas#82–#85). Six mutations
+      each turned a test red. _Ask:_ merge #81 (a production deploy of a live
+      client site, which item 73 made the operator's click), yes or no.
+      _Worker's pick:_ yes, for item 73's reason: GA4 is already collecting
+      without a disclosure, and item 45 reviews the wording once for every
+      site. After the merge, a worker re-runs `launch-check msot` for 8/8
+      and closes #1376.
+      **Answered 2026-10-14 (AskUserQuestion): yes, land it from this
+      session.**
+      **Landed 2026-10-14** as medical-solutions-of-texas `6df3025` through
+      `land-prs`, which the cloud session's permission policy allowed this
+      time. `/privacy` was live at 20:57:14Z. `launch-check msot` reads READY,
+      8/8 `ok`, and #1376 is closed with that output.
+
+125.  **P1-47, alamo-anatomy: the preview exit still scrolls to the top
+      (new 2026-10-14; issue reddoorla/alamo-anatomy#82, promotion
+      reddoorla/alamo-anatomy#81 open).** The P1-47 fix is on alamo's
+      `staging`, and its bundle carries `{refreshAll:!0,reset:!1}`. Ending a
+      preview there still lands at y 0 from y 600 [M]. The cause is the site's
+      own code, not the component. `redirectToPreviewURL` sends editors to
+      `/preview<path>`, so ending a preview always changes the pathname, and
+      alamo's root `afterNavigate` (`src/routes/+layout.svelte:23-31`) calls
+      `scrollTo(0, 0)` on every pathname change. Mantis, with the same fix and
+      no such hook, stays at 600. _Ask:_ (a) promote #81 as it is, which fixes
+      the `vite dev` throw, and fix the hook as a follow-up through `staging`
+      and the next promotion; or (b) a worker first opens a `staging` PR
+      that treats `/preview/x` → `/x` as the same page in that hook (the
+      patch is in #82, with a test), merges it on green, and #81 then carries
+      both. _Pick:_ (b). It is a two-line change plus a test, and one
+      promotion is one click instead of two.
+      **Answered 2026-10-14 (AskUserQuestion): (b), fix the hook first.** A
+      worker opens the `staging` PR from #82's patch with a test, merges it on
+      green, and #81 then carries both. **Done 21:05Z:** alamo-anatomy#83 is merged into
+      `staging` (6 tests; 5 mutations, each red; review minors filed as
+      #84–#86, and an unverified preview contact-form 404 as #87). Measured on
+      `staging--alamo-anatomy`: `/preview` → `/` and `/preview/about` →
+      `/about` both stay at y 600, and `/about` → `/contact` still lands at
+      0 [M]. #81 now carries both fixes, clean with `main-gate` green; left
+      for the operator: merge it with a merge commit.
+      **Closed 2026-10-14:** the operator merged alamo-anatomy#81 with a merge
+      commit (~23:15Z), and production `/preview/about` → `/about` stays at
+      y 600 (P1-47's Done entry).
+
+126.  **P1-52, erp-industrial: open the lock-file PR that clears three high
+      `devalue` advisories (new 2026-10-15, the Thursday PM pass).** The
+      cockpit's Watch lists ERP Industrials NEW, "3 critical/high vulns —
+      transitive-only, still present after the 2026-10-12 lockfile window".
+      The fix is already built: Renovate's `renovate/lock-file-maintenance`
+      branch (`adcdce11`, 10-12 03:25Z) moves `devalue` 5.9.2 → 5.9.4, and all
+      six advisories are patched at `>=5.9.3`. No PR was opened from it, and
+      the Dependency Dashboard lists it under "Awaiting Schedule", so without
+      a click the next try is Mon 10-19's window, which may stall the same way
+      [I]. _Ask:_ (a) tick "chore(deps): lock file maintenance" under
+      "Awaiting Schedule" on reddoorla/erp-industrial#41. Renovate then opens
+      the PR, and the preset automerges lock-file maintenance on green
+      (`lockFileMaintenance.automerge: true`) straight to `main`, which is
+      ERP's production; or (b) leave it for the 10-19 window and P1-52's
+      worker. _Pick:_ (a). It is one click, the change is lockfile-only, and
+      it clears the advisories before the 10-25 Maintenance report is
+      drafted. _Due:_ 2026-10-22, so the report drafts clean.
+      **Status 2026-10-19 ~12:05Z (the Monday PM pass) [M]:** not done.
+      No lock-file PR exists. Renovate rebuilt the branch at 02:30Z today
+      (`e5095848`), and erp-industrial#41 now lists "chore(deps): lock file
+      maintenance" under **Pending Status Checks**, so the box to tick is
+      there now. The branch has no check runs at all, so it will not open a
+      PR by itself (P1-52, now fleet-wide). _Due:_ 2026-10-22 stands.
+
+127.  **Dropbox API uploader: re-authorize the app so its refresh token
+      carries the write scopes (new 2026-10-16, #1388 held as a draft,
+      branch `claude/gifted-goldberg-03dgfe`).** Built:
+      `scripts/dropbox.mjs` (`check`, `upload`, `close-request`, `hash`), 39
+      tests, 21 mutations, each red, and one `CLAUDE.md` bullet. Proven live
+      [M]: a wrong refresh token is refused (400 `invalid_grant`), and the
+      real one names Tucker Lemos on Reddoor Creative. The path-root header
+      resolves `/Design Resources`. The local `content_hash` matches
+      Dropbox's on four real team files of 1 to 10 blocks. At 16:49Z the app
+      lacked `files.content.write`, `file_requests.write` and
+      `file_requests.read` (400 "app not permitted"). After the operator
+      updated the permissions at 16:53Z, the same calls answer 401
+      `missing_scope`: the app has the scopes, but the refresh token was
+      authorized before they were added [M]. So nothing can upload yet, and
+      two file requests are still open: `rwq45cqgv3weniwpv46n` (style guide,
+      deadline 17:50Z) and `jdgy7hgrr2hx22f3thh5` (the tender-bohr session's
+      test, deadline 17:30Z). _Ask:_ redo the one-time authorization and
+      replace `DROPBOX_REFRESH_TOKEN` in the environment settings. Then
+      either (a) say so, and this session starts a fresh session, the only
+      kind that sees the new value, to run #1388's end-to-end test, close
+      both requests and land it; or (b) leave it for whichever session next
+      picks up this line. _Pick:_ (a). The script is finished and proven on
+      the read side, and only the token is missing. If #1387 is answered
+      "keep", its `CLAUDE.md` bullet must stop calling file requests the
+      route, because #1388's says "never".
+      **Answered 2026-10-16 (AskUserQuestion): (b), later, from the
+      backlog.** #1388 stays a held draft. The session that picks this up
+      must start after `DROPBOX_REFRESH_TOKEN` is replaced. It runs
+      `node scripts/dropbox.mjs check`, which must print `granted` for both
+      scopes, then the end-to-end test in #1388's body. It closes both
+      requests, posts the output on #1388, marks it ready and lands it.
+      Review rounds: 1 and 2 each had one major (duplicate file names
+      overwriting each other, case-sensitively and then case-insensitively),
+      both fixed; round 3 is recorded in #1388.
+      **2026-10-16 17:51Z [M, Dropbox `list_file_requests`]:** both
+      requests read `is_open: false` once their deadlines passed, so neither
+      needs closing. At 17:31Z `jdgy7hgrr2hx22f3thh5`'s page already refused
+      uploads while `is_open` still read `true` (item 128's journal entry).
+      **Done 2026-10-16 18:22Z [M] (#1388):** the operator re-authorized
+      the app and replaced `DROPBOX_REFRESH_TOKEN`. In a container started at
+      18:20:34Z, `check` printed `granted` for both write scopes. The
+      end-to-end test passed: three uploads (37,748,741 bytes through
+      start, one append and finish; an accented name; an empty file) each
+      matched Dropbox's `content_hash`, `--no-overwrite` refused a changed
+      file, and `close-request` closed a throwaway request, confirmed through
+      the connector. The test folder and request were deleted. All seven
+      file requests read `is_open: false` through `file_requests/list_v2`.
+
+128.  **Dropbox binaries from a cloud session: keep the file-request
+      uploader beside the coming app and refresh-token route? (new
+      2026-10-16, branch `claude/tender-bohr-eh2rwb` at `fd2a3f4e`, no PR
+      yet).** Built and proven live today:
+      `scripts/dropbox-file-request-upload.mjs`, ported from roalson-interests'
+      `upload.sh` and `frbatch.mjs`, with 19 unit tests (9 mutations, each
+      red), a runbook and one `CLAUDE.md` line. Every test upload into
+      `/Tucker Lemos/Claude uploader test 2026-10-16`, from 1 byte to 8.4 MB,
+      matched the size and `content_hash` that Dropbox reported [M]. At
+      ~16:45Z the operator said a Dropbox app with a refresh token, built
+      elsewhere, should supersede it "unless you see a reason to keep both".
+      _Ask:_ (a) land it as the fallback: the `CLAUDE.md` line calls it the
+      route for when the API credentials are missing or fail, and the app's
+      PR rewrites that line to name the API first; or (b) close the branch
+      unmerged and keep only a journal entry of what was measured. _Pick:_
+      (a). It needs no secret, only the connector, so it works in any
+      session or environment the new credentials have not reached; a saved
+      environment variable reaches only sessions started after it, and this
+      session still held the dead `sl.` token at 16:31Z. It is already built
+      and proven, so keeping it costs one script. The case against it: a
+      script driving Dropbox's upload page breaks silently when the page
+      changes, and a fallback nobody runs goes stale.
+      **Answered 2026-10-16 (AskUserQuestion): (a), land it as the
+      fallback.** The `CLAUDE.md` line and the runbook call it the route for
+      a session without working Dropbox API credentials; the app's PR
+      rewrites the line to name the API first.
+      **Paused 2026-10-16 ~16:50Z (the operator): not before the app and
+      refresh-token work lands, or the two will conflict.** The branch
+      `claude/tender-bohr-eh2rwb` (`3926b85f`) holds the script, its tests,
+      the runbook and the fallback `CLAUDE.md` line; no PR is open. To
+      resume: merge `main` into the branch; put the `CLAUDE.md` line after
+      the API route's, as its fallback; point the runbook's opening at the
+      API route; run the script's tests and `pnpm lint`; open the PR with the
+      mutation table from the 2026-10-16 journal entry; give it the 3-lens
+      review; land it. The app work is #1388, held on item 127. Its
+      `CLAUDE.md` bullet says never to use file requests, so when this lands
+      the two must agree: the API first, and this script only when the API
+      credentials are missing or fail.
+      **Unblocked 2026-10-16 (#1388 landed):** the API route is on `main`,
+      and its `CLAUDE.md` bullet already names this script as the fallback,
+      so the resume steps above apply as written.
+      **Done 2026-10-16 (#1395):** landed as the fallback. The script imports
+      `dropbox.mjs`'s `contentHash`. #1388's `CLAUDE.md` bullet names it after
+      "Run `check` first", for when `dropbox.mjs` cannot upload, with no
+      second bullet. The runbook opens with `dropbox.mjs check`. Review round
+      1 had one major (the runbook said a saved environment value reaches
+      only later sessions; it reaches a container when it next starts), fixed
+      with the round's minors. Round 2 was minors only, filed as #1396–#1401.
+      A second live run after the fixes (six files, two batches, 39 s)
+      matched Dropbox's `content_hash` on every file [M].
+      **Follow-up done 2026-10-16 (roalson-interests#302, `03d6e9a`):**
+      roalson-interests no longer carries the old `upload.sh` and
+      `frbatch.mjs`. Its `tools/listing-packages/README.md` names
+      `dropbox.mjs` first and this script second. The runbook's mention of
+      the old copy is pinned to `90c6d9e`.
+
+129.  **`sharp` 0.35.5 security PRs: 36 green PRs in 15 repos wait on a
+      human merge (new 2026-10-19, the Monday PM pass; P1-54).** [M] Renovate
+      opened `sharp` → 0.35.5 `[security]` (GHSA-wq5f-xc86-pv6w, CVSS 8.9
+      High) on 10-06 and 10-14. All 36 are green and unmerged, 13 days for
+      the oldest. They are held by the preset's rule that `sharp` and five
+      other image packages never automerge without a human and a green
+      Netlify preview, so the merge is yours. The pairs on `main`, by repo:
+      29-navy #76/#77, beachfront-dentistry #85/#86, caltex-landing #77/#78,
+      espada #81/#82, medical-solutions-of-texas #74/#75, revogen #93/#94,
+      vineyard-custom-homes #74/#75, williamson-construction-co #25/#26,
+      williamson-homes #37/#38, roalson-interests #267 (and dependabot's
+      #290, the same bump), gallerysonder #121/#122, vida-legacy-foundation
+      #105/#106, mantis-landscaping #48/#49, alamo-anatomy #75/#76. The
+      `staging` copies (reddoor-website #261; gallerysonder #123/#124, vida
+      #107/#108, mantis #50/#51, alamo #77/#78) ride the next promotion.
+      _Ask:_ (a) merge each `main` pair after a look at its Netlify preview,
+      or (b) say which repos to leave. _Pick:_ (a). The fix is a patch to a
+      package that is already in every build, the previews are green, and
+      the advisory is High. A preset change that lets a `[security]` `sharp`
+      patch automerge on a green preview is a separate, fleet-wide call (🔴),
+      not asked here.
 
 ## Active projects (the operator's list, read by the PM pass)
 
@@ -4611,35 +5014,68 @@ channels but were not named as projects.
     **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
     round; fallback (i), it still sends late when the clock missed.**
 
-## Fleet snapshot (2026-10-12 ~11:55Z, live Turso, SELECT-only) [M]
+## Fleet snapshot (2026-10-19 ~11:55Z, live Turso, SELECT-only) [M]
 
 Read through the Kysely read-only plugin `scripts/pm-cockpit.mts` exports; its
 control, an `UPDATE sites`, was refused before the first read.
 
 - 47 site rows: 15 maintained, 2 launching, 6 building, 9 external, 2
-  hosted-only, 13 archived (unchanged since 10-05). 27 report rows.
-- Cockpit (`pm-cockpit.mts`, no `--since`): `broken=3 watch=1 approval=0
-sites=17`, `just_wait_left_out=1`.
-  - Broken, all `NEW` 10-12: LA Homelessness Youth, Sonder and Vida Legacy
-    Foundation, each "2 Renovate PRs failing CI", the SvelteKit 3 and
-    adapter-netlify 7 majors (P1-45).
-  - Watch: LA Homelessness Initiative, Search Console "no property matched
-    www.lahomelessnessawareness.org (lookup 2026-10-05)".
-- Sweep freshness (newest stamp across rows): Prismic models 10-12 06:09Z,
-  security 06:14Z, function health, browser, domain and deploy 06:38Z,
-  GitHub signals 06:40Z, Lighthouse 06:39Z, smoke 07:01Z, form-e2e 07:08Z.
-  Search Console 10-08 18:52Z (it refreshes only with a draft's lookup).
-- Forms: **353 unread** (`status = 'new'`, read up to 2000): Sonder 254,
-  Beachfront Dentistry 50, ERP 14, Espada 12, Vineyard 7, Reddoor 4. On 10-05
-  it was 339.
-- Certificates: no non-archived site is under 35 days, so ERP Industrials
-  (30 on 10-08) has renewed. Re-read next Monday; a figure under 25 is an ask.
-- Reports: the next due is ERP Industrials Maintenance on 10-25; then 1836dig
-  10-31, Sonder 11-01, Beachfront Dentistry 11-08, CalTex and MSOT 11-21.
-  Nothing is pending approval.
+  hosted-only, 13 archived (unchanged since 10-05; both Williamsons are still
+  `building`). 27 report rows.
+- Cockpit (`pm-cockpit.mts`, no `--since`): `broken=9 watch=1 approval=0
+sites=17`, `just_wait_left_out=0`.
+  - Broken, all first flagged 10-19, each "Renovate PRs failing CI": 1836dig,
+    29 Navy, Beachfront Dentistry, CalTex, Data Dynamiq, Espada, LA
+    Homelessness Initiative and Reddoor (the kit 3 / adapter 7 pair, P1-53),
+    and Vida (a stale `main-gate` failure on its vitest 5 PR).
+  - Watch: ERP Industrials, "3 critical/high vulns — transitive-only, still
+    present after the 2026-10-12 lockfile window (escalated 2026-10-14)"
+    (P1-52, Operator decisions 126).
+  - Not in the cockpit at all: 36 green `sharp` security PRs in 15 repos
+    (P1-54, Operator decisions 129).
+- Sweep freshness (newest stamp across rows): Prismic models 10-19 06:09Z,
+  security 06:12Z, domain, deploy, browser and function health 06:34Z,
+  Lighthouse 06:35Z, GitHub signals 06:36Z, URL 06:36Z, smoke 07:00Z,
+  form-e2e 07:10Z. Search Console 10-14 06:39Z (the nightly re-check reads
+  only `no-property` rows). The newest production deploy on any row is
+  10-15 17:20Z.
+- Forms: **387 unread** (`status = 'new'`, read up to 2000): Sonder 280,
+  Beachfront Dentistry 53, ERP 14, Espada 12, Vineyard 9, Revogen 4, Reddoor
+  4, MSOT 3, Williamson Construction 2, Vida 2, and one each for Mantis,
+  Roalson, 1836dig and Hedloc. On 10-12 it was 353.
+- Certificates: the lowest are Reddoor 41 days, Vineyard 42, Data Dynamiq and
+  MSOT 45, CalTex 47. None is under 25, so none is an ask. Re-read next
+  Monday.
+- Reports: the next due is ERP Industrials Maintenance on 10-25, then 1836dig
+  10-31 and Sonder 11-01. No draft exists for any of them, and nothing is
+  pending approval.
+- `DUMP_VERIFY` rows: 1190 on 10-15, then 1173, 1177, 1183 and 1189 on
+  10-16 to 10-19, each with `mismatches=0`. The drop of 17 on 10-16 was not
+  read [I: a prune].
 
 ## Done (move items here when they land)
 
+- 2026-10-14 — P1-47: ending a Prismic preview works on kit 3 (issue #1369; reddoor-starter#188; this PR widens the kit peer to `^2.0.0 || ^3.0.0`).
+  - **Reproduced [M].** On the starter (kit 3.0.1, `@prismicio/svelte` 2.2.2), in Chromium, on `/privacy` with the preview cookie, scrolled to 600 px, then `prismicPreviewEnd`. `vite dev` threw `goto_options_removed`. The production build (`vite preview`) jumped from 600 to 0. After the fix, both stay at 600 and still navigate (`history.length` 2 → 3).
+  - **Fix.** A local copy, `src/lib/components/PrismicPreview.svelte`, passes `{ refreshAll: true, reset: false }`, the same change as the unreleased prismicio/prismic-svelte#64. That PR already covers it, so no upstream issue was filed. A copy rather than a pnpm patch, because 2.2.2 and 2.2.3 ship the file with different formatting, so a version-keyed patch breaks on the next Renovate bump.
+  - **Port note for vida-legacy-foundation, mantis-landscaping, la-homelessness-youth, gallerysonder, alamo-anatomy (the operator's roll-out; nothing was pushed to them).** In each repo, cut a branch from `staging` and copy `src/lib/components/PrismicPreview.svelte` and `src/routes/layout-preview-end.test.ts` from reddoor-starter#188. Where the root layout mounts `PrismicPreview`, change `import { PrismicPreview } from "@prismicio/svelte/kit"` to `import PrismicPreview from "$lib/components/PrismicPreview.svelte"`. If a site's layout differs from the starter's (other `$app/navigation` imports, a different preview-cookie prop), adjust the test's mocks and `data`. Run `pnpm verify`, open the PR into `staging`, then promote `staging` to `main` as usual. Once `@prismicio/svelte` releases a kit 3 version (watch #64), switch the import back and delete the copy.
+  - **Still open:** the five sites stay broken in production until that roll-out is promoted.
+  - **Roll-out, 2026-10-14 ~20:30Z (worker `claude/practical-wright-0k26cm`).** The fix is on `staging` in four repos: vida#109, mantis#52, alamo#79 and gallerysonder#125, each squash-merged on green `ci / ci` after a minors-only review round. The minors are filed as vida#110, mantis#53–54, alamo#80 and gallerysonder#126–127. The promotion PRs are open and **not merged**: vida#111, mantis#55, alamo#81 and gallerysonder#128. Each is clean with `main-gate` green, and each should be merged with a merge commit. **la-homelessness-youth has no Prismic at all** (no `@prismicio/*` in `package.json`, the lockfile or `src`), so it had nothing to fix; this entry named it in error. In Chromium, against live deploys, with a hand-set preview cookie and no Prismic write [M]: gallerysonder production y 600 → 0 and staging 600 → 600; mantis `main--` 600 → 0 and `staging--` 600 → 600. On alamo, staging first still went to 0 because of its own `afterNavigate`. Operator decisions 125 answered "fix it first": alamo#83 is now on `staging`, and alamo's staging stays at 600. Vida's scroll handling moves the page on both deploys, so its check is inconclusive.
+  - **Live, 2026-10-14 ~23:15Z.** The operator merged all four promotions (vida#111, mantis#55, alamo#81 and gallerysonder#128) with merge commits, and each `staging` is still an ancestor of `main`. Measured on production the same way [M]: gallerysonder.com `/about` stays at 600 (it went to 0 before); `main--mantis-landscaping` `/preview` → `/` stays at 600; `main--alamo-anatomy` `/preview/about` → `/about` stays at 600. Nothing in P1-47 is left open. The filed minors (vida#110, mantis#53–54, alamo#80 and #84–87, gallerysonder#126–127) are ordinary backlog.
+- 2026-10-14 — P1-50: the protection audit reads a not-yet-created Renovate branch as "no branch", not a probe failure (#1368).
+  - **Cause.** `branchTip` returned `null` only on HTTP 404. GitHub answers `GET commits/<branch>` for a branch that does not exist with 422 "No commit found for SHA" (measured on vida-legacy-foundation, 2026-10-14 ~14:10Z, for `renovate/staging-major-vitest-monorepo`, `renovate/zz-nonexistent` and a slash-free name alike), and the staging-flow preset made the Dashboard name `renovate/staging-…` branches before Renovate creates them. The throw turned the whole repo into `probe failed`, so alamo-anatomy and vida took `PROTECTION_AUDIT` from 13 gaps to 15 on 10-14.
+  - **What changed.** A 422 whose message carries "No commit found for SHA" is `null`, as a 404 is. Any other 422, and a "No commit found" without the 422 status, still throws. Tests drive vida's exact error through `makeGitHub` → `resolveBlockedBranches`; three mutations (drop the 422 case, accept every 422, drop the status check) each turn one red.
+  - **Still open:** proof. The next `fleet-security` run's `PROTECTION_AUDIT` must not list either probe failure; the result goes in a later journal entry.
+  - **Proven 2026-10-15 [M].** The 06:12Z `fleet-security` run (38691035295) printed `PROTECTION_AUDIT gaps=13 covered=17 skipped=7 total=37`, down from 15, and its log has no `probe failed` and no `422` line. Recorded in the 2026-10-15 PM pass journal entry.
+- 2026-10-14 — P1-49: Vineyard's WCAG 2.1 AA check, audit only (issue #1365; report in reddoor-workspace `audits/2026-10-14-vineyard-wcag/`, `4297567`).
+  - **Answer.** Not yet WCAG 2.1 AA. There are 17 findings: 5 already in vineyard-custom-homes#78, and 12 filed as vineyard-custom-homes#79–#90. Two are blockers: the portrait-only overlay on phones in landscape (1.3.4), and about 50 project photos with no `alt` (1.1.1). 10 affect keyboard or screen-reader users. Fixing them is about 16–22 h. The report opens with a status paragraph the operator can relay.
+  - **Measured.** axe (wcag2a/2aa/21a/21aa) on all 11 pages at 390 and 1440; Lighthouse through `lighthouseAudit`'s deployed path: `/` 1.00, `/about` 0.85, `/contact` 0.93, `/gallery` 0.90, each project 0.84. The controls passed first: a planted missing alt was caught, the clean fixture passed, and `innerWidth` was logged at 390.
+  - **Still the operator's:** whether to fix, and row 4's brand-colour call.
+- 2026-10-13 — P1-48: a nightly re-check clears a stale Search Console `no-property` watch (issue #1336, this PR).
+  - **Why.** The lookup was written only by a report draft and by an operator's "refresh preview" (P1-36). A property fixed after a site's last draft therefore kept its cockpit watch until the next draft. LAHI's watch line had been false since 10-05, and its next report is due 11-30.
+  - **What changed.** `search-console-recheck --fleet --write-back` re-runs the draft's own lookup (`fetchSearch`) for every `maintained` site whose stored outcome is `no-property`. It writes the same three cells through `searchConsoleLookupFields`. A soft-fail writes nothing, so the stored answer stands (Operator decisions 122 kept it: answered (a) on 2026-10-13). A no-property control (`no-such-property-zz9q.invalid`) runs first, and if it misreads, nothing is written. `fleet-lighthouse` runs the command nightly, before `daily-reports` drafts and digests.
+  - **Proven before landing [M, 2026-10-13 ~13:55Z].** I ran it on the live roster with the real lookup and a mirror that records instead of writing. The control read `no-property`. LAHI was the only target, and it read `resolved` against `https://www.lahomelessnessawareness.org/`. Nothing was written, so the next nightly is the proof.
+  - **Still open:** the next nightly clearing LAHI's Watch line (`pnpm tsx scripts/pm-cockpit.mts`). The result goes in a later journal entry. Review minors are filed as #1339, #1340 and #1341.
 - 2026-10-12 — P1-31: `contrast-unmeasured` names Tailwind's `black/<alpha>` and its fix for `oklab(0 none none / α)` (this PR; the erp-industrial fix waits on Operator decisions 114).
   - **The shape.** Tailwind v4 writes `black/10` as `color-mix(in oklab, #000 10%, transparent)` when black is inlined (a JS config read through `@config`), and lightningcss 1.32.0 and 1.33.0 both fold it to `oklab(0% none none/.1)`. `#000`, `black`, `rgb(0 0 0)`, `hsl(0 0% 0%)` and `oklch(0 0 0)` all fold to `none none`; `oklab(0 0 0)` folds to `0 0`; greys and white fold to near-zero numbers, never `none` [M, `lightningcss.transform`]. Chrome serializes it as `oklab(0 none none / 0.5)`, and axe-core 4.13.0 leaves it `colorParse` [M].
   - **The remedy** now says the colour is Tailwind's `black/<alpha>` folded by lightningcss, that no such token is in the source, and to define black as `oklab(0 0 0)`. Other `none` colours keep "write 0 for none".

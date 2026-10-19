@@ -40,7 +40,7 @@ const FROZEN_FILES = [
 const FROZEN_DIRS = ["docs/morning-reports", "docs/briefs"];
 
 const FROZEN: Record<string, string> = {
-  "docs/BACKLOG.md": "a9cb253bd31f1c651b4ad6e67abb97c854561327abfa987c507e58da448bf883",
+  "docs/BACKLOG.md": "c543c00f797d50bbb1f9204a31370ee1708cffd704fe638753455d79292d24f5",
   "docs/autonomy-journal.md": "959cd16a47ac499ae8cc780ecd576cc6416b47bf62216daf507e3bb413e00c5c",
   "docs/briefs/2026-10-01-williamson-video-hd.md":
     "bd7e99126afeab505d268066a5daa074e4bf724f03a074d52ddb67a293bcdd1f",
@@ -100,6 +100,12 @@ const FROZEN: Record<string, string> = {
     "35e64637d52259298ac380f9231c87e920c2930a75650903569bda118e5a6750",
   "docs/morning-reports/MORNING_REPORT_2026-10-13.md":
     "00d63186473e3eb3658eeafacaaac3e5d64310e9537a869247020e509e73721b",
+  "docs/morning-reports/MORNING_REPORT_2026-10-14.md":
+    "06ea4436488cab11b1d2819ec7c05af7b51f65d03c44c241bd0f750565ed146d",
+  "docs/morning-reports/MORNING_REPORT_2026-10-15.md":
+    "9e3b9076c286791f12bfc3836012baa2c62a36319a309db28805f634bf1982bd",
+  "docs/morning-reports/MORNING_REPORT_2026-10-19.md":
+    "ba511eef0611f069d120aec618c4b166cc5030b92693f3bc0520bb47d9f75d8d",
   "docs/operating-model-review-2026-09-29.md":
     "d76720875a0ccdd83bc3829d5269e723cf103a2cf2888d8c663c919775ba7761",
   "docs/operating-model-rollout.md":

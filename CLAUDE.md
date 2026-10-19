@@ -185,6 +185,32 @@ a long status message. So a worker started from a backlog item or a brief
   test went red, and put the table in the PR body. A test no mutation turns
   red is not yet evidence (see "Prove the instrument", above).
 
+## Research runs on Sonnet; writing and review run on the session model
+
+Set by the operator 2026-09-30. Agents that read and extract (a site crawl, a
+Discord channel, a folder of PDFs, a repo, a list of claims to verify) run on
+Sonnet at medium effort. Synthesis, adversarial review, and anything that
+writes prose the operator or a client will read run on the session's own
+model. Both the Agent tool and the Workflow `agent()` call take `model` and
+`effort` per call, and both inherit the session by default, so the light tier
+has to be named on every research call. The day it was set, a seven-reader
+sweep had inherited the session model and was on course to take twice as long
+as the extraction warranted; the readers were restarted on Sonnet and the two
+already finished were kept from cache.
+
+**The verdict on a claim is review, not research.** Gathering the evidence for
+a list of claims runs on Sonnet. The agent that rules each claim true or false
+(a refuter, a sceptic, a judge) stays on the session model. On 2026-09-14 (R8 in
+`docs/superpowers/specs/2026-09-14-operating-model-recommendations.md`) Sonnet at
+medium agreed with Opus on 16 of 17 verdicts, 2.3 times faster at about the same
+token count. Its one miss was the planted false claim, which it confirmed while
+quoting the line that refutes it. So the saving is speed and price per token,
+not tokens.
+
+This section sat on an unmerged branch (`claude/practical-ride-kbipzv`) from
+2026-09-30 until 2026-10-13. One session in that gap ran about 330 agents, all
+on the session model, because this file never told it otherwise.
+
 ## Before a fleet sweep, ask which repos can receive a push
 
 ```sh
@@ -252,6 +278,18 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`.
 - **Credentials are the environment's variables**, not `credentials.env` or
   `.env`. `loadCredentialsIntoEnv` lets `process.env` win.
+- **A binary (PDF, image) goes into Dropbox with
+  `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
+  request. The script mints a token from `DROPBOX_APP_KEY`,
+  `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN`, resolves paths in the team
+  space, and checks each file's `content_hash`. Run `check` first: it names the
+  account and proves the token holds both write scopes. Only when the API
+  cannot upload (`check` fails before naming the account, or prints `MISSING`
+  for `files.content.write`) is a file request the fallback:
+  `scripts/dropbox-file-request-upload.mjs`, with its steps in
+  `docs/runbooks/dropbox-file-request-upload.md` (Operator decisions 128). The
+  connector writes only text, and `DROPBOX_ACCESS_TOKEN` is a dead short-lived
+  token.
 - **GitHub goes through a proxy that replaces the `Authorization` header.**
   `GH_TOKEN` is inert (a bogus token gets the same 200), and only repos attached
   to the session answer on the API, so attach a fleet repo with `add_repo`
@@ -291,16 +329,13 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   `~/.claude` memory or plugins, not the other checkouts. `.session-logs/` dies
   with the container, so the journal entry has to be committed and pushed
   before the session ends.
-- **When the task is done, tell the operator it is safe to archive the
-  session.** Archiving reclaims the container and ends the session's arc of
-  work: the operator archives on that line instead of re-reading the
-  transcript. So "safe" means three things, and all must hold:
-  - **Every original ask is cleared, checked against the live result.**
-    Re-read the ask the session started from: the brief, and the client's
-    own message if there is one. Go through it item by item against what a
-    visitor sees now, not against merged PRs or staged releases. A fix
-    whose code is live but whose content sits in an unpublished release is
-    not cleared. Name it in the archive line instead.
+- **End each session by saying two things: whether archiving it loses
+  anything, and whether its task is done.** Archiving reclaims the container
+  and ends the session's arc of work: the operator archives on that line
+  instead of re-reading the transcript. The two answers are independent, and
+  one line used to blur them (2026-10-13: "Not yet safe to archive … so
+  archiving this one loses nothing"). **"Safe to archive" means archiving
+  loses nothing**, and two things must hold:
   - **Nothing lives only in the container.**
     - Every commit is pushed, in every repo the session touched. The stop
       hook checks only the checkout it runs in.
@@ -312,7 +347,15 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
     is still this session's when the answer would send it straight back to
     work, such as "yes, merge it" leading to a land. Handing that to a fresh
     session throws away the context. The same goes for a follow-up the
-    session itself started and is best placed to finish.
+    session itself started and is best placed to finish, unless the operator
+    has said to hand it to another session.
+
+  **"Done" means every original ask is cleared, checked against the live
+  result.** Re-read the ask the session started from: the brief, and the
+  client's own message if there is one. Go through it item by item against
+  what a visitor sees now, not against merged PRs or staged releases. A fix
+  whose code is live but whose content sits in an unpublished release is not
+  done.
 
   **One session, one task** (the operator, 2026-10-06). A session exists
   for the ask it was started with. A new ask that arrives mid-session, from
@@ -323,11 +366,18 @@ A cloud container is not the laptop. Measured from inside one on 2026-09-28:
   10-06 it declared itself done while Erik's next ask, a worker's
   unpublished release, still had not reached the site.
 
-  End the final message with one line, "Safe to archive this session.", or
-  name what still holds it open: "Not yet safe to archive: #1234 is waiting
-  on CI." For a decision, the line is like "Not yet safe to archive: if
-  Operator decisions 73 is yes, this session lands data-dynamiq#59." A
-  handed-off blocker makes the session resumable, not finished.
+  End the final message with one line in one of three forms:
+  - "Safe to archive this session. The task is done."
+  - "Safe to archive this session. The task is not done: <what a visitor
+    still does not see, what it waits on, and where the handoff is written
+    down>." For example: "Safe to archive this session. The task is not
+    done: the 23 packages go live after Matt signs off and the operator
+    approves the Prismic release; P1-46 in `docs/BACKLOG.md` has the next
+    steps."
+  - "Not yet safe to archive: <what still holds this session>." For example:
+    "Not yet safe to archive: #1234 is waiting on CI." For a decision: "Not
+    yet safe to archive: if Operator decisions 73 is yes, this session lands
+    data-dynamiq#59."
 
 ## Non-code work lives in `reddoorla/reddoor-workspace`
 
