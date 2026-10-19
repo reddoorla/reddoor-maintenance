@@ -25,8 +25,8 @@ These are workspace#1's nine steps, with where each one happens.
 1. **Freeze the input.** `prepare` copies the task's sources into `<run>/input`, sets every file
    to mode 444 and every directory to 555, and records a manifest of each file's mode and sha256
    and the mode of the folder and each directory in it. A cloud container runs as root, so the
-   permission bits alone do not stop a write. `score` therefore re-reads the folder and reports any change as a problem. Each
-   agent also gets its own scratch directory, `<run>/work/<id>`, and is told to write nowhere
+   permission bits alone do not stop a write. `score` therefore re-reads the folder and reports
+   any change as a problem. Each agent also gets its own scratch directory, `<run>/work/<id>`, and is told to write nowhere
    else. On 2026-10-19 the first row-4 run gave no such directory, and all four Haiku runs wrote
    the same `census/census.py` at once, so one ran another's script. `score` now reports any
    Write or Edit outside an agent's own directory. It cannot see a Bash redirect.
@@ -99,7 +99,7 @@ The Bash check finds the command word of every simple command and judges that wo
 drops heredoc bodies, keeps a quoted single word as the word (`"gh"`, `-X 'POST'`) and blanks
 other quoted text, then splits on newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks, brackets
 and braces. In each piece it skips shell keywords (`do`, `then`, `if`, `!`, `time` and the like),
-variable assignments, `command`/`exec`, and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`,
+variable assignments, `command`/`exec`/`builtin`, and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`,
 `timeout`, `xargs`, `env`) with their options and option values. The command word is then
 forbidden when it is `gh`; `git` with a writing subcommand (`push`, `commit`, `rm` and the like)
 after any global options; `curl` with a write method, `--data`, `--form`, `--json`,
