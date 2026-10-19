@@ -69,6 +69,9 @@ export interface RunSummary {
   otherFindings: number;
   unruled: number;
   disputedDefects: string[];
+  upheldDefects: string[];
+  noOutput: boolean;
+  split?: number;
 }
 export interface Group {
   runs: number;
@@ -77,6 +80,8 @@ export interface Group {
   criticalMissed: number;
   falsePositives: number;
   unruled: number;
+  split: number;
+  noOutput: number;
   verdict: string;
   reasons?: string[];
 }
@@ -109,6 +114,7 @@ export function summarize(input: {
   tolerance: Tolerance;
   excluded: { id: string; reason: string }[];
   refutedDefects: string[];
+  splitDefects: string[];
   perRun: Record<string, RunSummary>;
   groups: Record<string, Group>;
   gold?: RunSummary;

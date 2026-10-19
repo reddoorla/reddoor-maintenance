@@ -10,7 +10,7 @@
   },
   "matching": "A finding in the right case and file within NEAR_LINES (10) of a seeded range is a candidate; the referee rules each candidate. Changed after the first score, before the referee ran: overlap alone had credited a different defect on r09 line 118 in every run that flagged it.",
   "keyCorrection": "After the run, review found two keyed defects not visible in their cases: d2 (r03 hard-codes GA to 0, so no double count exists in that change) and d9 (a feature gap the change did not introduce). They are kept in key.json with `excluded` and not scored. `corrected` is the reported reading; `preRegistered` scores all nine, with the same scorer.",
-  "readAudit": "Every arm transcript was searched for a git command and for any Read, Grep or Glob path outside the run's input folder (and tool-results): none in any of the 11. Arms ran in the repository checkout, so the answer key and the fix commits were reachable; the audit, not a sandbox, is the evidence they were not read.",
+  "readAudit": "Every arm transcript was searched for a git command in any Bash call, for Bash commands naming the repository (key.json, model-bakeoff, /home/user), and for any Read, Grep or Glob path outside the run's input folder and tool-results: none in any of the 11. The arms read almost entirely through Bash cat, sed and grep on input/cases. Round 2's validity reviewer repeated the search over every Bash command independently and found the same. Arms ran in the repository checkout, so the answer key and the fix commits were reachable; the audit, not a sandbox, is the evidence they were not read.",
   "tolerance": {
     "comparator": "opus-xhigh",
     "foundSlackPerRun": 1,
@@ -398,6 +398,7 @@
       }
     ],
     "refutedDefects": [],
+    "splitDefects": [],
     "perRun": {
       "gold": {
         "found": 3,
@@ -416,7 +417,17 @@
         "realOnControls": 0,
         "otherFindings": 4,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-medium-1": {
         "found": 3,
@@ -435,7 +446,14 @@
         "realOnControls": 0,
         "otherFindings": 1,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-medium-2": {
         "found": 2,
@@ -455,7 +473,10 @@
         "realOnControls": 0,
         "otherFindings": 0,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d5-clone-argv-injection", "d6-clone-path-traversal", "d8-position-zero"],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-high-1": {
         "found": 1,
@@ -476,7 +497,14 @@
         "realOnControls": 0,
         "otherFindings": 1,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-high-2": {
         "found": 4,
@@ -490,7 +518,17 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-low-1": {
         "found": 1,
@@ -511,7 +549,10 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d6-clone-path-traversal"],
+        "noOutput": false,
+        "split": 0
       },
       "opus-low-2": {
         "found": 1,
@@ -536,7 +577,10 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d3-branch-tip-422"],
+        "noOutput": false,
+        "split": 0
       },
       "opus-medium-1": {
         "found": 4,
@@ -550,7 +594,17 @@
         "realOnControls": 0,
         "otherFindings": 3,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-medium-2": {
         "found": 4,
@@ -564,7 +618,17 @@
         "realOnControls": 0,
         "otherFindings": 3,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-xhigh-1": {
         "found": 4,
@@ -578,7 +642,17 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-xhigh-2": {
         "found": 3,
@@ -597,7 +671,16 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       }
     },
     "groups": {
@@ -608,6 +691,8 @@
         "criticalMissed": 1,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 1 seeded critical(s)"]
       },
@@ -618,6 +703,8 @@
         "criticalMissed": 2,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 2 seeded critical(s)"]
       },
@@ -628,6 +715,8 @@
         "criticalMissed": 5,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 5 seeded critical(s)", "found 2, below 5"]
       },
@@ -638,6 +727,8 @@
         "criticalMissed": 0,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "within"
       },
       "opus-xhigh": {
@@ -647,6 +738,8 @@
         "criticalMissed": 1,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "comparator",
         "reasons": ["missed 1 seeded critical(s)"]
       }
@@ -668,7 +761,17 @@
       "realOnControls": 0,
       "otherFindings": 4,
       "unruled": 0,
-      "disputedDefects": []
+      "disputedDefects": [],
+      "upheldDefects": [
+        "d3-branch-tip-422",
+        "d4-reply-first-match",
+        "d5-clone-argv-injection",
+        "d6-clone-path-traversal",
+        "d7-uid-lookup-collision",
+        "d8-position-zero"
+      ],
+      "noOutput": false,
+      "split": 0
     }
   },
   "preRegistered": {
@@ -680,6 +783,8 @@
         "criticalMissed": 3,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 3 seeded critical(s)"]
       },
@@ -690,6 +795,8 @@
         "criticalMissed": 4,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 4 seeded critical(s)"]
       },
@@ -700,6 +807,8 @@
         "criticalMissed": 7,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 7 seeded critical(s)", "found 2, below 5"]
       },
@@ -710,6 +819,8 @@
         "criticalMissed": 2,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "outside",
         "reasons": ["missed 2 seeded critical(s)"]
       },
@@ -720,6 +831,8 @@
         "criticalMissed": 3,
         "falsePositives": 0,
         "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
         "verdict": "comparator",
         "reasons": ["missed 3 seeded critical(s)"]
       }
@@ -744,7 +857,17 @@
         "realOnControls": 0,
         "otherFindings": 4,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-medium-1": {
         "found": 3,
@@ -765,7 +888,14 @@
         "realOnControls": 0,
         "otherFindings": 1,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-medium-2": {
         "found": 2,
@@ -787,7 +917,10 @@
         "realOnControls": 0,
         "otherFindings": 0,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d5-clone-argv-injection", "d6-clone-path-traversal", "d8-position-zero"],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-high-1": {
         "found": 1,
@@ -814,7 +947,14 @@
         "realOnControls": 0,
         "otherFindings": 1,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "sonnet-high-2": {
         "found": 4,
@@ -834,7 +974,17 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-low-1": {
         "found": 1,
@@ -861,7 +1011,10 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d6-clone-path-traversal"],
+        "noOutput": false,
+        "split": 0
       },
       "opus-low-2": {
         "found": 1,
@@ -889,7 +1042,10 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": ["d3-branch-tip-422"],
+        "noOutput": false,
+        "split": 0
       },
       "opus-medium-1": {
         "found": 4,
@@ -909,7 +1065,17 @@
         "realOnControls": 0,
         "otherFindings": 3,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-medium-2": {
         "found": 4,
@@ -929,7 +1095,17 @@
         "realOnControls": 0,
         "otherFindings": 3,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-xhigh-1": {
         "found": 4,
@@ -949,7 +1125,17 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       },
       "opus-xhigh-2": {
         "found": 3,
@@ -970,7 +1156,16 @@
         "realOnControls": 0,
         "otherFindings": 2,
         "unruled": 0,
-        "disputedDefects": []
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
       }
     }
   },

@@ -168,7 +168,7 @@
       "description": "Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\".",
       "fix": "c60219f1 (#129)",
       "record": "fix commit c60219f1",
-      "note": "The referee noted Search Console average positions are normally at least 1; the fix floors at 1 as a guard, and no real \"#0\" is recorded."
+      "note": "Likely not reachable: Search Console average positions are 1-based, so never below 1; the fix floors at 1 as a guard, and no real \"#0\" is recorded. Every run missed it, so it moves no arm."
     },
     {
       "id": "d9-approved-no-refresh",

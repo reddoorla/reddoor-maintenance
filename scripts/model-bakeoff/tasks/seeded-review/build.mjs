@@ -11,12 +11,24 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../../..");
+// No user, system or environment config reaches git: only the repository's own, and
+// the -c pins below override every diff knob that changes output bytes.
+const GIT_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => k !== "GIT_DIFF_OPTS" && !k.startsWith("GIT_CONFIG")),
+);
+Object.assign(GIT_ENV, { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
 const git = (...args) =>
-  execFileSync("git", args, { cwd: REPO, encoding: "utf8", maxBuffer: 64 << 20 });
+  execFileSync("git", args, { cwd: REPO, env: GIT_ENV, encoding: "utf8", maxBuffer: 64 << 20 });
 
 export const DIFF_ARGS = Object.freeze([
-  "-c",
-  "core.quotePath=true",
+  ...[
+    "core.quotePath=true",
+    "diff.suppressBlankEmpty=false",
+    "diff.interHunkContext=0",
+    "diff.indentHeuristic=true",
+    "diff.relative=false",
+    "diff.mnemonicPrefix=false",
+  ].flatMap((kv) => ["-c", kv]),
   "diff",
   "--no-color",
   "--no-ext-diff",
@@ -38,21 +50,36 @@ export function cleanDiff(text) {
     .join("\n");
 }
 
+/** Writes every case's two files into `dir`, which must exist and be empty. */
+export function buildCases(dir, key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8"))) {
+  for (const c of key.cases) {
+    const files = caseFiles(c);
+    const diff = cleanDiff(git(...DIFF_ARGS, `${c.commit}^`, c.commit, "--", c.path));
+    if (!diff.trim()) throw new Error(`${c.case}: ${c.commit} does not change ${c.path}`);
+    writeFileSync(join(dir, files.diff), diff);
+    writeFileSync(join(dir, files.after), git("show", "--no-textconv", `${c.commit}:${c.path}`));
+  }
+  return key.cases;
+}
+
+/** True when every case's commit and its parent are in this clone's history. */
+export function haveHistory(key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8"))) {
+  try {
+    for (const c of key.cases)
+      for (const rev of [c.commit, `${c.commit}^`]) git("cat-file", "-e", `${rev}^{commit}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8"));
   const out = join(HERE, "cases");
   // Build beside cases/ and swap it in only once every case is written.
   const next = join(HERE, "cases.next");
   rmSync(next, { recursive: true, force: true });
   mkdirSync(next);
-  for (const c of key.cases) {
-    const files = caseFiles(c);
-    const diff = cleanDiff(git(...DIFF_ARGS, `${c.commit}^`, c.commit, "--", c.path));
-    if (!diff.trim()) throw new Error(`${c.case}: ${c.commit} does not change ${c.path}`);
-    writeFileSync(join(next, files.diff), diff);
-    writeFileSync(join(next, files.after), git("show", "--no-textconv", `${c.commit}:${c.path}`));
-    console.log(`${c.case} ${c.kind} ${c.commit} ${c.path}`);
-  }
+  for (const c of buildCases(next)) console.log(`${c.case} ${c.kind} ${c.commit} ${c.path}`);
   rmSync(out, { recursive: true, force: true });
   renameSync(next, out);
 }

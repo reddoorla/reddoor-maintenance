@@ -25,6 +25,9 @@ export const sources = [
 export const NEAR_LINES = 10;
 
 /**
+ * The critical-miss rule is absolute, not relative to the comparator: an arm that misses a
+ * seeded critical is outside even when the comparator missed it too.
+ *
  * Written on 2026-10-19, before any arm ran. The comparator is Opus at the session
  * effort (xhigh on the operator's laptop), which is what review runs on today. An arm
  * group (its runs pooled) is within tolerance only when every rule holds.
@@ -248,10 +251,11 @@ export function scoreRun(_task, reference, output) {
   for (const c of reference.controls) {
     for (const f of usable.filter((x) => normCase(x.case) === normCase(c.case))) {
       const armRaw = describe(f);
-      const name = `controls ${c.case} / finding ${normPath(f.file)}:${span(f).join("-")} #${hash(armRaw)}`;
-      // A finding listed twice is one false positive, not two.
-      if (seen.has(name)) continue;
-      seen.add(name);
+      const where = `${normPath(f.file)}:${span(f).join("-")}`;
+      const name = `controls ${c.case} / finding ${where} #${hash(armRaw)}`;
+      // A finding listed twice, however reworded, is one false positive, not two.
+      if (seen.has(`${c.case} ${where}`)) continue;
+      seen.add(`${c.case} ${where}`);
       checks.push({
         collection: "controls",
         key: c.case,
@@ -299,10 +303,11 @@ export function runSummary(reference, checks, rulings, output, refuted = new Set
   const found = [];
   const missed = [];
   const disputed = [];
+  const upheld = [];
   let unruled = 0;
   for (const c of checks.filter((x) => x.collection === "defects")) {
     const r = ruled(c);
-    if (r?.refCorrect === false) disputed.push(c.key);
+    if (r) (r.refCorrect === false ? disputed : upheld).push(c.key);
     if (refuted.has(c.key)) continue;
     if (!c.ok && c.armRaw !== MISSING && !r) unruled++;
     (c.ok || r?.armCorrect === true ? found : missed).push(c.key);
@@ -345,6 +350,8 @@ export function runSummary(reference, checks, rulings, output, refuted = new Set
     otherFindings: other,
     unruled,
     disputedDefects: disputed,
+    upheldDefects: upheld,
+    noOutput: !Array.isArray(output?.findings),
   };
 }
 
@@ -361,6 +368,8 @@ export function decide(perRun, tolerance = TOLERANCE) {
       criticalMissed: 0,
       falsePositives: 0,
       unruled: 0,
+      split: 0,
+      noOutput: 0,
     });
     g.runs++;
     g.found += s.found;
@@ -368,6 +377,8 @@ export function decide(perRun, tolerance = TOLERANCE) {
     g.criticalMissed += s.criticalMissed.length;
     g.falsePositives += s.falsePositives;
     g.unruled += s.unruled;
+    g.split += s.split ?? 0;
+    g.noOutput += s.noOutput ? 1 : 0;
   }
   const base = groups[tolerance.comparator];
   for (const [name, g] of Object.entries(groups)) {
@@ -377,6 +388,14 @@ export function decide(perRun, tolerance = TOLERANCE) {
     }
     if (g.unruled || base.unruled) {
       g.verdict = "pending: the referee has not ruled on everything";
+      continue;
+    }
+    if (g.split || base.split) {
+      g.verdict = "pending: the referee's rulings split on whether a seeded defect is real";
+      continue;
+    }
+    if (g.noOutput || base.noOutput) {
+      g.verdict = "pending: a run returned no output";
       continue;
     }
     const reasons = [];
@@ -396,21 +415,30 @@ export function decide(perRun, tolerance = TOLERANCE) {
 
 /** Called by bakeoff.mjs `score`: the task's own metric, beside the generic per-check score. */
 export function summarize({ reference, checksByArm, rulings, outputs }) {
-  const refuted = new Set();
+  // A defect is refuted only when every ruling on it says it is not a defect; a split
+  // between rulings refutes nothing and leaves every verdict pending.
+  const disputed = new Set();
+  const upheld = new Set();
   for (const [armId, checks] of Object.entries(checksByArm)) {
-    for (const id of runSummary(reference, checks, rulings, outputs[armId]).disputedDefects) {
-      refuted.add(id);
-    }
+    const r = runSummary(reference, checks, rulings, outputs[armId]);
+    r.disputedDefects.forEach((id) => disputed.add(id));
+    r.upheldDefects.forEach((id) => upheld.add(id));
   }
+  const refuted = new Set([...disputed].filter((id) => !upheld.has(id)));
+  const split = [...disputed].filter((id) => upheld.has(id));
   const perRun = {};
   for (const [armId, checks] of Object.entries(checksByArm)) {
-    perRun[armId] = runSummary(reference, checks, rulings, outputs[armId], refuted);
+    perRun[armId] = {
+      ...runSummary(reference, checks, rulings, outputs[armId], refuted),
+      split: split.length,
+    };
   }
   const { gold: goldRun, ...armRuns } = perRun;
   return {
     tolerance: TOLERANCE,
     excluded: reference.excluded ?? [],
     refutedDefects: [...refuted],
+    splitDefects: split,
     perRun,
     groups: decide(armRuns),
     gold: goldRun,

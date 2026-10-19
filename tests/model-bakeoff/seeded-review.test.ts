@@ -4,7 +4,14 @@ import { groupDisagreements, disagreementId } from "../../scripts/model-bakeoff/
 import { scorerFor } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 import * as review from "../../scripts/model-bakeoff/tasks/seeded-review.mjs";
-import { cleanDiff } from "../../scripts/model-bakeoff/tasks/seeded-review/build.mjs";
+import {
+  buildCases,
+  cleanDiff,
+  haveHistory,
+} from "../../scripts/model-bakeoff/tasks/seeded-review/build.mjs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   Check,
   Finding,
@@ -77,6 +84,23 @@ describe("seeded-review key", () => {
       "d7-uid-lookup-collision",
     ]);
     expect(t.controls.map((c) => c.case)).toEqual(["r02", "r06", "r10"]);
+  });
+
+  it.skipIf(!haveHistory())("matches what build.mjs rebuilds from git, byte for byte", () => {
+    const dir = mkdtempSync(join(tmpdir(), "seeded-review-"));
+    try {
+      buildCases(dir);
+      const committed = join(CASES, "cases");
+      expect(readdirSync(dir).sort()).toEqual(readdirSync(committed).sort());
+      for (const name of readdirSync(dir)) {
+        expect(
+          readFileSync(join(dir, name)).equals(readFileSync(join(committed, name))),
+          name,
+        ).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("drops index lines so a diff names no blob to look up", () => {
@@ -194,9 +218,54 @@ describe("scoring one run", () => {
     expect(review.runSummary(ref, review.scoreRun(null, ref, out), {}, out).otherFindings).toBe(1);
   });
 
-  it("counts a finding listed twice on a control as one false positive", () => {
+  it("counts a finding listed twice on a control as one false positive, however reworded", () => {
     const twice = f("r02", "src/a.ts", 5);
     expect(summary([twice, { ...twice }], false).falsePositives).toBe(1);
+    expect(
+      summary([twice, { ...twice, summary: "bug.", severity: "minor" }], false).falsePositives,
+    ).toBe(1);
+  });
+
+  it("refutes nothing when the rulings on a defect split, and gives no verdict", () => {
+    const out = { findings: [f("r01", "src/a.ts", 11)], unverified: [] };
+    const other = { findings: [f("r01", "src/a.ts", 12)], unverified: [] };
+    const checksByArm = {
+      "opus-xhigh-1": review.scoreRun(null, REF, out),
+      "opus-xhigh-2": review.scoreRun(null, REF, out),
+      "x-1": review.scoreRun(null, REF, other),
+      "x-2": review.scoreRun(null, REF, other),
+    };
+    const [a] = groupDisagreements({ a: checksByArm["opus-xhigh-1"] });
+    const [b] = groupDisagreements({ b: checksByArm["x-1"] });
+    const rulings = {
+      [a!.id]: { id: a!.id, armCorrect: true, refCorrect: true },
+      [b!.id]: { id: b!.id, armCorrect: false, refCorrect: false },
+    };
+    const s = review.summarize({
+      reference: REF,
+      checksByArm,
+      rulings,
+      outputs: { "opus-xhigh-1": out, "opus-xhigh-2": out, "x-1": other, "x-2": other },
+    });
+    expect(s.refutedDefects).toEqual([]);
+    expect(s.splitDefects).toEqual(["d-crit"]);
+    expect(s.groups["x"]!.verdict).toMatch(/^pending/);
+  });
+
+  it("gives no verdict when a run returned no output", () => {
+    const out = { findings: [], unverified: [] };
+    const s = review.summarize({
+      reference: REF,
+      checksByArm: {
+        "opus-xhigh-1": review.scoreRun(null, REF, out),
+        "opus-xhigh-2": review.scoreRun(null, REF, out),
+        "x-1": review.scoreRun(null, REF, out),
+        "x-2": review.scoreRun(null, REF, null),
+      },
+      rulings: {},
+      outputs: { "opus-xhigh-1": out, "opus-xhigh-2": out, "x-1": out, "x-2": null },
+    });
+    expect(s.groups["x"]!.verdict).toBe("pending: a run returned no output");
   });
 
   it("fails the well-formed check for a finding whose case names no case, so it cannot vanish", () => {
@@ -277,6 +346,8 @@ describe("the decision rule", () => {
     otherFindings: 0,
     unruled: 0,
     disputedDefects: [],
+    upheldDefects: [],
+    noOutput: false,
   });
 
   it("gives no verdict while anything is unruled", () => {
