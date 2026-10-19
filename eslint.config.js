@@ -59,6 +59,8 @@ export default [
       // Webflow reference captures: the site's own served JS, kept byte for byte.
       "captures/*/files/",
       "captures/*/pages/",
+      // The seeded-review bake-off's cases: old commits' files, kept byte for byte.
+      "scripts/model-bakeoff/tasks/seeded-review/cases/",
     ],
   },
 ];

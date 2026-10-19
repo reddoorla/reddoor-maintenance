@@ -16,6 +16,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
 | `tasks/*.mjs`                                 | One file per task type                                                                                                                     |
+| `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                  |
 | `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
 
 ## The recipe
@@ -130,6 +131,28 @@ an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
+`figma-inventory` (row 2) reads Figma connector output that is not in this repo. The output is
+a client's design, and the repo is public. Its `--root` is a folder holding one
+`metadata-<node>.json` and one `design-context-<node>.json` per page frame. Each file is the
+connector's own response, `{ tool, input, fetchedAt, text }`, copied byte for byte out of the
+session transcript that called `get_metadata` and `get_design_context`, so no arm ever calls
+Figma. The truth parses both files and refuses a page whose top-level children differ between
+the two tools. Drop any `text` entry that Claude Code added rather than the connector, such as
+the `[OUTPUT TRUNCATED]` note it appends when a response is too long to show in full; the note
+would tell the arms that the data is incomplete when it is not.
+
+The truth refuses what it cannot read rather than guess. It refuses:
+
+- a JSX expression other than a plain string or template literal, and a literal with `${…}` or
+  an escape in it;
+- a capitalised tag it found no `function` for;
+- an `<img>` whose `src` is not an asset constant;
+- an `href={…}` expression;
+- an unknown entity;
+- a metadata tag it cannot parse;
+- a node id rendered more than once, on one page or across pages, which the prompt does not
+  say how to list.
+
 ## Scoring
 
 Each field has a kind. The kinds apply these rules before comparing:
@@ -184,6 +207,18 @@ Add `tasks/<id>.mjs` exporting:
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
   with `referee`. `--arms` on `prepare` replaces this list only.
 - `gold`: one `{ id: "gold", model, effort }`, exported on its own.
+- `scoreRun`, `referenceFaults`, `extraCandidates`: optional, each replacing the function of that
+  name in `lib/score.mjs` for this task. A task whose metric is not field equality, such as
+  `seeded-review`'s recall of seeded defects, returns checks in the same shape, so the referee,
+  `groupDisagreements` and `finalScores` work unchanged.
+- `summarize({ reference, checksByArm, rulings, outputs })` and `formatSummary(summary)`: optional.
+  `score` stores the summary in `result.json` as `summary` and prints it under the table.
+
+Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
+this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
+from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
+transcript for a git command and for a read outside `<run>/input`, and record the result. The
+2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,
