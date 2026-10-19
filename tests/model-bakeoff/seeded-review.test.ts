@@ -50,9 +50,19 @@ const f = (c: string, file: string, a: number, b = a, summary = "bug"): Finding 
   summary,
 });
 
-const summary = (findings: Finding[], rulings = {}) => {
+/** Every referee item ruled the same way: ARM right (or wrong), the reference right. */
+const ruleAll = (checks: Check[], armCorrect = true) =>
+  Object.fromEntries(
+    groupDisagreements({ arm: checks }).map((g) => [
+      g.id,
+      { id: g.id, armCorrect, refCorrect: true },
+    ]),
+  );
+
+const summary = (findings: Finding[], rule?: boolean) => {
   const out = { findings, unverified: [] };
-  return review.runSummary(REF, review.scoreRun(null, REF, out), rulings, out);
+  const checks = review.scoreRun(null, REF, out);
+  return review.runSummary(REF, checks, rule === undefined ? {} : ruleAll(checks, rule), out);
 };
 
 describe("seeded-review key", () => {
@@ -76,35 +86,35 @@ describe("seeded-review key", () => {
 });
 
 describe("matching a finding to a seeded defect", () => {
-  it("matches the right case and file when the ranges overlap, by path suffix too", () => {
-    expect(review.relation(f("r01", "src/a.ts", 12, 15), REF.defects[0]!)).toBe("match");
-    expect(review.relation(f("R01", "b/src/a.ts", 9, 10), REF.defects[0]!)).toBe("match");
-    expect(review.relation(f("r01", "a.ts", 11), REF.defects[0]!)).toBe("match");
-    expect(review.relation(f("r03", "src/b.ts", 91), REF.defects[1]!)).toBe("match");
+  it("makes a candidate of the right case and file when the ranges overlap, by path suffix too", () => {
+    expect(review.relation(f("r01", "src/a.ts", 12, 15), REF.defects[0]!)).toBe("overlap");
+    expect(review.relation(f("R01", "b/src/a.ts", 9, 10), REF.defects[0]!)).toBe("overlap");
+    expect(review.relation(f("r01", "a.ts", 11), REF.defects[0]!)).toBe("overlap");
+    expect(review.relation(f("r03", "src/b.ts", 91), REF.defects[1]!)).toBe("overlap");
   });
 
   it("never matches a finding in the wrong file, even on the same lines", () => {
     expect(review.relation(f("r01", "src/other.ts", 10, 12), REF.defects[0]!)).toBeNull();
     expect(review.relation(f("r01", "lib/src/a.ts.bak", 10, 12), REF.defects[0]!)).toBeNull();
-    expect(summary([f("r01", "src/other.ts", 10, 12)]).found).toBe(0);
+    expect(summary([f("r01", "src/other.ts", 10, 12)], true).found).toBe(0);
   });
 
   it("never matches a finding in the wrong case", () => {
     expect(review.relation(f("r03", "src/a.ts", 10, 12), REF.defects[0]!)).toBeNull();
   });
 
-  it("sends a near miss and a too-wide finding to the referee, not to a match", () => {
-    expect(review.relation(f("r01", "src/a.ts", 20), REF.defects[0]!)).toBe("near");
+  it("makes a candidate of a finding up to NEAR_LINES away, and of nothing farther", () => {
+    expect(review.relation(f("r01", "src/a.ts", 22), REF.defects[0]!)).toBe("near");
     expect(review.relation(f("r01", "src/a.ts", 23), REF.defects[0]!)).toBeNull();
-    expect(review.relation(f("r01", "src/a.ts", 1, 40), REF.defects[0]!)).toBe("near");
     expect(review.relation({ case: "r01", file: "src/a.ts" }, REF.defects[0]!)).toBeNull();
   });
 });
 
 describe("scoring one run", () => {
-  it("scores the key against itself as perfect", () => {
+  it("scores the key against itself as perfect once the referee confirms each candidate", () => {
     const self = REF.defects.map((d) => f(d.case, d.file, d.ranges[0]![0], d.ranges[0]![1]));
-    expect(summary(self)).toMatchObject({
+    expect(summary(self)).toMatchObject({ found: 0, unruled: 2 });
+    expect(summary(self, true)).toMatchObject({
       found: 2,
       of: 2,
       criticalFound: 1,
@@ -117,7 +127,7 @@ describe("scoring one run", () => {
   it("fails exactly where the key was perturbed", () => {
     const self = REF.defects.map((d) => f(d.case, d.file, d.ranges[0]![0], d.ranges[0]![1]));
     self[0] = f("r01", "src/elsewhere.ts", 10, 12);
-    expect(summary(self)).toMatchObject({
+    expect(summary(self, true)).toMatchObject({
       found: 1,
       missed: ["d-crit"],
       criticalMissed: ["d-crit"],
@@ -125,7 +135,7 @@ describe("scoring one run", () => {
   });
 
   it("counts a finding on a clean control as a false positive, never as a hit", () => {
-    const s = summary([f("r02", "src/a.ts", 10, 12)]);
+    const s = summary([f("r02", "src/a.ts", 10, 12)], false);
     expect(s.found).toBe(0);
     expect(s.criticalMissed).toEqual(["d-crit"]);
     expect(s.falsePositives).toBe(1);
@@ -158,6 +168,23 @@ describe("scoring one run", () => {
       realOnControls: 1,
       unruled: 0,
     });
+  });
+
+  it("credits no overlapping finding the referee rules a different defect", () => {
+    expect(
+      summary([f("r01", "src/a.ts", 11, 11, "an unrelated rounding slip")], false),
+    ).toMatchObject({
+      found: 0,
+      unruled: 0,
+    });
+  });
+
+  it("names a seeded defect the referee refuted", () => {
+    const out = { findings: [f("r03", "src/b.ts", 40)], unverified: [] };
+    const checks = review.scoreRun(null, REF, out);
+    const [g] = groupDisagreements({ arm: checks });
+    const rulings = { [g!.id]: { id: g!.id, armCorrect: false, refCorrect: false } };
+    expect(review.runSummary(REF, checks, rulings, out).disputedDefects).toEqual(["d-plain"]);
   });
 
   it("sends nothing to the referee for a defect no finding came near", () => {
@@ -194,6 +221,7 @@ describe("the decision rule", () => {
     realOnControls: 0,
     otherFindings: 0,
     unruled: 0,
+    disputedDefects: [],
   });
 
   it("puts an arm within tolerance when it is close on recall and false positives", () => {

@@ -9,7 +9,6 @@ export const goldAddendum: string;
 export const arms: Arm[];
 export const gold: Arm;
 export const NEAR_LINES: number;
-export const MAX_SPAN: number;
 export interface Tolerance {
   comparator: string;
   foundSlackPerRun: number;
@@ -67,6 +66,7 @@ export interface RunSummary {
   realOnControls: number;
   otherFindings: number;
   unruled: number;
+  disputedDefects: string[];
 }
 export interface Group {
   runs: number;
@@ -81,7 +81,7 @@ export function prompt(dir: string): string;
 export function truth(dir: string): Reference;
 export function sameFile(a: unknown, b: unknown): boolean;
 export function span(f: Finding): [number, number] | null;
-export function relation(f: Finding, d: Defect): "match" | "near" | null;
+export function relation(f: Finding, d: Defect): "overlap" | "near" | null;
 export function scoreRun(task: unknown, reference: Reference, output: unknown): Check[];
 export function referenceFaults(): string[];
 export function extraCandidates(): Record<string, never>;

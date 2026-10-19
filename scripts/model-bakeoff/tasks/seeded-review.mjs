@@ -16,10 +16,13 @@ export const sources = [
   { from: "scripts/model-bakeoff/tasks/seeded-review/cases", match: /^r\d+\./, to: "cases" },
 ];
 
-/** A finding this many lines from a seeded range, in the right case and file, goes to the referee. */
+/**
+ * A finding in the right case and file that overlaps a seeded range, or comes within this many
+ * lines of it, is a candidate. The referee rules on every candidate, because the first run
+ * showed overlap alone crediting a different defect on the same line: every run that flagged
+ * r09 line 118 described a rounding mismatch, not the seeded "#0".
+ */
 export const NEAR_LINES = 10;
-/** A finding wider than this matches nothing mechanically; the referee decides. */
-export const MAX_SPAN = 25;
 
 /**
  * Written on 2026-10-19, before any arm ran. The comparator is Opus at the session
@@ -177,13 +180,13 @@ export function span(f) {
 
 const gap = ([a, b], [c, d]) => (b < c ? c - b : d < a ? a - d : 0);
 
-/** How one finding stands to one defect: "match", "near" or null. */
+/** How one finding stands to one defect: "overlap", "near" or null (not a candidate). */
 export function relation(f, d) {
   if (normCase(f?.case) !== normCase(d.case) || !sameFile(f?.file, d.file)) return null;
   const s = span(f);
   if (!s) return null;
   const g = Math.min(...d.ranges.map((r) => gap(s, r)));
-  if (g === 0 && s[1] - s[0] + 1 <= MAX_SPAN) return "match";
+  if (g === 0) return "overlap";
   return g <= NEAR_LINES ? "near" : null;
 }
 
@@ -205,23 +208,13 @@ export function scoreRun(_task, reference, output) {
     };
     const where = `${d.case} ${d.file}:${d.ranges.map((r) => r.join("-")).join(",")}`;
     const refRaw = `Seeded defect at ${where}: ${d.description} ARM is correct only if one of its findings identifies this same defect.`;
-    const match = usable.find((f) => relation(f, d) === "match");
-    const near = usable.filter((f) => relation(f, d) === "near");
-    if (match) {
-      checks.push({
-        ...check,
-        ok: true,
-        armKey: "found",
-        refKey: "found",
-        armRaw: describe(match),
-        refRaw,
-      });
-    } else if (near.length) {
-      const armRaw = near.map(describe).join(" || ");
+    const candidates = usable.filter((f) => relation(f, d));
+    if (candidates.length) {
+      const armRaw = candidates.map((f) => `(${relation(f, d)}) ${describe(f)}`).join(" || ");
       checks.push({
         ...check,
         ok: false,
-        armKey: `near ${hash(armRaw)}`,
+        armKey: `candidates ${hash(armRaw)}`,
         refKey: "found",
         armRaw,
         refRaw,
@@ -283,10 +276,12 @@ export function runSummary(reference, checks, rulings, output) {
   const ruled = (c) => (c.ok ? undefined : rulings[disagreementId(c)]);
   const found = [];
   const missed = [];
+  const disputed = [];
   let unruled = 0;
   for (const c of checks.filter((x) => x.collection === "defects")) {
     const r = ruled(c);
     if (!c.ok && c.armRaw !== MISSING && !r) unruled++;
+    if (r?.refCorrect === false) disputed.push(c.key);
     (c.ok || r?.armCorrect === true ? found : missed).push(c.key);
   }
   const controlChecks = checks.filter((x) => x.collection === "controls");
@@ -318,6 +313,7 @@ export function runSummary(reference, checks, rulings, output) {
     realOnControls,
     otherFindings: other,
     unruled,
+    disputedDefects: disputed,
   };
 }
 
