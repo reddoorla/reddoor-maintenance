@@ -96,6 +96,74 @@ describe("the refute-repo key", () => {
   });
 });
 
+// Every label a call can settle is settled by calling the pinned code, not by reading it.
+// r32's first wording ("a kind that has no pipeline throws") was keyed untested and is false
+// for number, boolean and file; the review before the run caught it, and this would have.
+describe("the pinned code agrees with the key", () => {
+  const load = async () => {
+    const d = mkdtempSync(join(tmpdir(), "refute-pin-"));
+    for (const name of ["arms", "ledger", "score"]) {
+      writeFileSync(join(d, `${name}.mjs`), pinned(`scripts/model-bakeoff/lib/${name}.mjs`));
+    }
+    return {
+      arms: await import(join(d, "arms.mjs")),
+      ledger: await import(join(d, "ledger.mjs")),
+      score: await import(join(d, "score.mjs")),
+    };
+  };
+  const label = (id: string) => DATA.claims.find((c) => c.id === id)!.label;
+
+  it("settles r01, r10, r17, r31 (ledger), r13, r21, r28, r35 (arms), r18, r26, r32 (score)", async () => {
+    const { arms, ledger, score } = await load();
+    const line = (id: string, usage: object, effort?: string) =>
+      JSON.stringify({ ...(effort ? { effort } : {}), message: { id, role: "assistant", usage } });
+    const recs = ledger.usageRecords([
+      line("m", { input_tokens: 1 }, "low"),
+      line("m", { input_tokens: 2 }, "low"),
+      line("n", { input_tokens: 3 }),
+    ]).records;
+    // r01: the last line of a repeated message.id is kept, not the first.
+    expect(recs.find((r: { id: string }) => r.id === "m").usage.in).toBe(2);
+    expect(label("r01")).toBe("refuted");
+    // r31: a usage line with an id and no effort is recorded as (unset).
+    expect(recs.find((r: { id: string }) => r.id === "n").effort).toBe("(unset)");
+    expect(label("r31")).toBe("confirmed");
+    // r10: cache reads count toward Haiku's 100K threshold.
+    const u = { in: 10, out: 0, cr: 100000, cw: 0, cw5m: 0, cw1h: 0 };
+    expect(ledger.priceRequest("claude-haiku-5-5", u).longPrompt).toBe(true);
+    expect(label("r10")).toBe("refuted");
+    // r17: an unsplit cache write is counted at the 5-minute rate.
+    const unsplit = ledger.usageRecords([line("w", { cache_creation_input_tokens: 7 })]).records;
+    expect(unsplit[0].usage).toMatchObject({ cw5m: 7, cw1h: 0 });
+    expect(label("r17")).toBe("confirmed");
+    // r13: a leading hyphen is refused. r21: null and "" are "no effort".
+    expect(arms.validateArm({ id: "-a", model: "m", effort: "low" })[0]).toMatch(/must match/);
+    expect(label("r13")).toBe("refuted");
+    for (const effort of [null, ""]) {
+      expect(arms.validateArm({ id: "a", model: "m", effort })[0]).toMatch(/has no effort/);
+    }
+    expect(label("r21")).toBe("refuted");
+    // r28: gold and referee* are reserved. r35: readOnlyRules forbids gh.
+    expect(arms.validateArms([{ id: "gold", model: "m", effort: "low" }])).not.toEqual([]);
+    expect(arms.validateArms([{ id: "referee-x", model: "m", effort: "low" }])).not.toEqual([]);
+    expect(label("r28")).toBe("confirmed");
+    expect(arms.readOnlyRules("/d", "/w")).toContain("Do not run gh,");
+    expect(label("r35")).toBe("refuted");
+    // r18, r26: no hex, no plus. r32: "date" throws.
+    expect(score.normalise("0x10", "number")).toBe("NaN:0x10");
+    expect(label("r18")).toBe("refuted");
+    expect(score.normalise("+5", "number")).not.toBe("5");
+    expect(label("r26")).toBe("refuted");
+    expect(() => score.normalise("x", "date")).toThrow(/unknown kind/);
+    expect(label("r32")).toBe("untested");
+    // r05, r11: string keeps punctuation; name drops a title followed by whitespace.
+    expect(score.normalise("a.b", "string")).toBe("a.b");
+    expect(label("r05")).toBe("refuted");
+    expect(score.normalise("Dr. Who", "name")).toBe("who");
+    expect(label("r11")).toBe("confirmed");
+  });
+});
+
 describe("what the arms are given", () => {
   const dir = "/run/input";
 

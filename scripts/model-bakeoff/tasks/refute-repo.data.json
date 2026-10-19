@@ -34,7 +34,12 @@
       "evidence": ["bakeoff/ledger.mjs:58-87"],
       "label": "refuted",
       "shape": "wrong pick",
-      "decides": [{ "at": "bakeoff/ledger.mjs:78", "text": "byId.set(m.id, {" }],
+      "decides": [
+        {
+          "at": "bakeoff/ledger.mjs:78",
+          "text": "byId.set(m.id, {"
+        }
+      ],
       "why": "Line 77 counts the repeat, then line 78 sets the entry unconditionally, so each later line overwrites the earlier one: the last line's usage is kept."
     },
     {
@@ -48,7 +53,10 @@
           "at": "workflows/ci.yml:13",
           "text": "branches: [main, changeset-release/main, staging]"
         },
-        { "at": "workflows/ci.yml:14", "text": "pull_request:" }
+        {
+          "at": "workflows/ci.yml:14",
+          "text": "pull_request:"
+        }
       ],
       "why": "Line 13 is the push filter; line 14 is a bare pull_request trigger."
     },
@@ -58,7 +66,12 @@
       "evidence": ["claude/settings.json:103-113"],
       "label": "refuted",
       "shape": "field given to the wrong event",
-      "decides": [{ "at": "claude/settings.json:103", "text": "\"SubagentStop\": [" }],
+      "decides": [
+        {
+          "at": "claude/settings.json:103",
+          "text": "\"SubagentStop\": ["
+        }
+      ],
       "why": "The event is SubagentStop, not Stop. The matcher is right."
     },
     {
@@ -68,8 +81,14 @@
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "workflows/fleet-nightly.yml:31", "text": "timeout-minutes: 300" },
-        { "at": "workflows/fleet-nightly.yml:43", "text": "timeout-minutes: 290" }
+        {
+          "at": "workflows/fleet-nightly.yml:31",
+          "text": "timeout-minutes: 300"
+        },
+        {
+          "at": "workflows/fleet-nightly.yml:43",
+          "text": "timeout-minutes: 290"
+        }
       ],
       "why": "Both numbers are on the cited lines."
     },
@@ -108,7 +127,12 @@
       "evidence": ["workflows/ci.yml:84-99"],
       "label": "untested",
       "shape": "behaviour, consistent",
-      "decides": [{ "at": "workflows/ci.yml:98", "text": "exit 1" }],
+      "decides": [
+        {
+          "at": "workflows/ci.yml:98",
+          "text": "exit 1"
+        }
+      ],
       "why": "The step is written to exit 1 on a dirty tree, so no line contradicts the claim; only a run settles it."
     },
     {
@@ -118,19 +142,30 @@
       "label": "refuted",
       "shape": "field given to the wrong list",
       "decides": [
-        { "at": "claude/settings.json:40", "text": "\"ask\": [" },
-        { "at": "claude/settings.json:50", "text": "\"Bash(gh secret:*)\"," }
+        {
+          "at": "claude/settings.json:40",
+          "text": "\"ask\": ["
+        },
+        {
+          "at": "claude/settings.json:50",
+          "text": "\"Bash(gh secret:*)\","
+        }
       ],
       "why": "`gh secret` is in the ask list (lines 40-56), which closes the deny list at line 39."
     },
     {
       "id": "r09",
-      "claim": "fleet-nightly runs on a schedule at 02:17 UTC every day, and can also be started by hand with workflow_dispatch.",
+      "claim": "fleet-nightly runs every day at 02:17 by its cron schedule, and can also be started by hand with workflow_dispatch.",
       "evidence": ["workflows/fleet-nightly.yml:3-6"],
       "label": "confirmed",
       "shape": "true",
-      "decides": [{ "at": "workflows/fleet-nightly.yml:5", "text": "- cron: \"17 2 * * *\"" }],
-      "why": "Cron fields are UTC; line 6 is workflow_dispatch."
+      "decides": [
+        {
+          "at": "workflows/fleet-nightly.yml:5",
+          "text": "- cron: \"17 2 * * *\""
+        }
+      ],
+      "why": "Line 5 is the cron; line 6 is workflow_dispatch."
     },
     {
       "id": "r10",
@@ -138,12 +173,17 @@
       "evidence": ["bakeoff/ledger.mjs:7-14", "bakeoff/ledger.mjs:89-98"],
       "label": "refuted",
       "shape": "dropped condition",
-      "decides": [{ "at": "bakeoff/ledger.mjs:92", "text": "const prompt = u.in + u.cr + u.cw;" }],
+      "decides": [
+        {
+          "at": "bakeoff/ledger.mjs:92",
+          "text": "const prompt = u.in + u.cr + u.cw;"
+        }
+      ],
       "why": "The threshold is compared against input plus cache read plus cache write."
     },
     {
       "id": "r11",
-      "claim": "In score.mjs the `name` kind removes a leading title such as Dr. or Mr. before it folds case and drops punctuation.",
+      "claim": "In score.mjs the `name` kind removes a leading title followed by whitespace, such as \"Dr. \" or \"Mr. \", before it folds case and drops punctuation.",
       "evidence": ["bakeoff/score.mjs:1-13"],
       "label": "confirmed",
       "shape": "true",
@@ -175,18 +215,29 @@
       "evidence": ["bakeoff/arms.mjs:3", "bakeoff/arms.mjs:9-11"],
       "label": "refuted",
       "shape": "dropped condition",
-      "decides": [{ "at": "bakeoff/arms.mjs:3", "text": "const ARM_ID = /^[a-z0-9][a-z0-9-]*$/;" }],
+      "decides": [
+        {
+          "at": "bakeoff/arms.mjs:3",
+          "text": "const ARM_ID = /^[a-z0-9][a-z0-9-]*$/;"
+        }
+      ],
       "why": "The first character must be a letter or a digit."
     },
     {
       "id": "r14",
       "claim": "In .claude/settings.json the cloud-session-setup hook is a SessionStart hook with matcher `startup|resume` and a 900-second timeout.",
-      "evidence": ["claude/settings.json:92-101"],
+      "evidence": ["claude/settings.json:73", "claude/settings.json:92-101"],
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "claude/settings.json:93", "text": "\"matcher\": \"startup|resume\"," },
-        { "at": "claude/settings.json:98", "text": "\"timeout\": 900" }
+        {
+          "at": "claude/settings.json:93",
+          "text": "\"matcher\": \"startup|resume\","
+        },
+        {
+          "at": "claude/settings.json:98",
+          "text": "\"timeout\": 900"
+        }
       ],
       "why": "Both are in the entry that runs cloud-session-setup.sh, inside the SessionStart array that opens at line 73."
     },
@@ -206,13 +257,19 @@
     },
     {
       "id": "r16",
-      "claim": "Of the six `pnpm` gate steps at the end of ci.yml, `pnpm typecheck` runs before `pnpm lint`, and `pnpm test:dist` runs last.",
-      "evidence": ["workflows/ci.yml:77-82"],
+      "claim": "Of the six `pnpm verify` gate steps in ci.yml, `pnpm typecheck` runs before `pnpm lint`, and `pnpm test:dist` runs last.",
+      "evidence": ["workflows/ci.yml:64-82"],
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "workflows/ci.yml:77", "text": "- run: pnpm typecheck" },
-        { "at": "workflows/ci.yml:82", "text": "- run: pnpm test:dist" }
+        {
+          "at": "workflows/ci.yml:77",
+          "text": "- run: pnpm typecheck"
+        },
+        {
+          "at": "workflows/ci.yml:82",
+          "text": "- run: pnpm test:dist"
+        }
       ],
       "why": "Lines 77-82 in order."
     },
@@ -222,7 +279,12 @@
       "evidence": ["bakeoff/ledger.mjs:28-44"],
       "label": "confirmed",
       "shape": "true",
-      "decides": [{ "at": "bakeoff/ledger.mjs:40", "text": "cw5m: split5m + unsplit," }],
+      "decides": [
+        {
+          "at": "bakeoff/ledger.mjs:40",
+          "text": "cw5m: split5m + unsplit,"
+        }
+      ],
       "why": "Line 34 computes the unsplit part and line 40 adds it to cw5m."
     },
     {
@@ -250,7 +312,12 @@
       "evidence": ["claude/settings.json:72-114"],
       "label": "refuted",
       "shape": "wrong default",
-      "decides": [{ "at": "claude/settings.json:98", "text": "\"timeout\": 900" }],
+      "decides": [
+        {
+          "at": "claude/settings.json:98",
+          "text": "\"timeout\": 900"
+        }
+      ],
       "why": "One hook sets a timeout, and it is 900."
     },
     {
@@ -259,7 +326,12 @@
       "evidence": ["workflows/fleet-nightly.yml:19-21"],
       "label": "confirmed",
       "shape": "true",
-      "decides": [{ "at": "workflows/fleet-nightly.yml:21", "text": "cancel-in-progress: false" }],
+      "decides": [
+        {
+          "at": "workflows/fleet-nightly.yml:21",
+          "text": "cancel-in-progress: false"
+        }
+      ],
       "why": "Line 21."
     },
     {
@@ -283,8 +355,14 @@
       "label": "refuted",
       "shape": "field given to the wrong event",
       "decides": [
-        { "at": "workflows/ci.yml:4", "text": "push:" },
-        { "at": "workflows/ci.yml:13", "text": "branches: [main, changeset-release/main, staging]" }
+        {
+          "at": "workflows/ci.yml:4",
+          "text": "push:"
+        },
+        {
+          "at": "workflows/ci.yml:13",
+          "text": "branches: [main, changeset-release/main, staging]"
+        }
       ],
       "why": "The filter is under push (line 4); pull_request at line 14 has none."
     },
@@ -308,7 +386,12 @@
       "evidence": ["claude/settings.json:73-82"],
       "label": "refuted",
       "shape": "field given to the wrong hook",
-      "decides": [{ "at": "claude/settings.json:75", "text": "\"matcher\": \"resume|compact\"," }],
+      "decides": [
+        {
+          "at": "claude/settings.json:75",
+          "text": "\"matcher\": \"resume|compact\","
+        }
+      ],
       "why": "Its matcher is resume|compact; startup|resume belongs to the two hooks after it."
     },
     {
@@ -317,7 +400,12 @@
       "evidence": ["workflows/fleet-nightly.yml:7-12"],
       "label": "refuted",
       "shape": "wrong default",
-      "decides": [{ "at": "workflows/fleet-nightly.yml:11", "text": "default: \"\"" }],
+      "decides": [
+        {
+          "at": "workflows/fleet-nightly.yml:11",
+          "text": "default: \"\""
+        }
+      ],
       "why": "The default is the empty string, meaning all nightlies; fleet-smoke is only the description's example."
     },
     {
@@ -341,8 +429,14 @@
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "workflows/ci.yml:19", "text": "timeout-minutes: 35" },
-        { "at": "workflows/ci.yml:54", "text": "timeout-minutes: 20" }
+        {
+          "at": "workflows/ci.yml:19",
+          "text": "timeout-minutes: 35"
+        },
+        {
+          "at": "workflows/ci.yml:54",
+          "text": "timeout-minutes: 20"
+        }
       ],
       "why": "Lines 19 and 54."
     },
@@ -367,12 +461,18 @@
     {
       "id": "r29",
       "claim": "The sandbox in .claude/settings.json excludes `gh *` and `git *` commands.",
-      "evidence": ["claude/settings.json:138-140"],
+      "evidence": ["claude/settings.json:115", "claude/settings.json:138-140"],
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "claude/settings.json:139", "text": "\"gh *\"," },
-        { "at": "claude/settings.json:140", "text": "\"git *\"," }
+        {
+          "at": "claude/settings.json:139",
+          "text": "\"gh *\","
+        },
+        {
+          "at": "claude/settings.json:140",
+          "text": "\"git *\","
+        }
       ],
       "why": "Both are in excludedCommands, which opens at line 138."
     },
@@ -392,18 +492,23 @@
     },
     {
       "id": "r31",
-      "claim": "usageRecords in ledger.mjs records a transcript line with no `effort` field under the effort `(unset)`.",
-      "evidence": ["bakeoff/ledger.mjs:78-84"],
+      "claim": "usageRecords in ledger.mjs records an assistant usage line that has a message.id but no `effort` field under the effort `(unset)`.",
+      "evidence": ["bakeoff/ledger.mjs:58-87"],
       "label": "confirmed",
       "shape": "true",
-      "decides": [{ "at": "bakeoff/ledger.mjs:81", "text": "effort: o.effort || \"(unset)\"," }],
+      "decides": [
+        {
+          "at": "bakeoff/ledger.mjs:81",
+          "text": "effort: o.effort || \"(unset)\","
+        }
+      ],
       "why": "Line 81."
     },
     {
       "id": "r32",
       "kind": "behavior",
-      "claim": "Calling normalise in score.mjs with a kind that has no pipeline and no custom function throws an error.",
-      "evidence": ["bakeoff/score.mjs:24-55"],
+      "claim": "Calling normalise in score.mjs as normalise(\"x\", \"date\"), with no custom kinds, throws an error.",
+      "evidence": ["bakeoff/score.mjs:9-13", "bakeoff/score.mjs:24-55"],
       "label": "untested",
       "shape": "behaviour, consistent",
       "decides": [
@@ -412,7 +517,7 @@
           "text": "if (!steps) throw new Error(`unknown kind ${kind}`);"
         }
       ],
-      "why": "The code is consistent with the claim; a behaviour claim takes untested unless a line contradicts it."
+      "why": "\"date\" is not a set: kind, a custom kind, number, boolean or file, and PIPELINES has no \"date\", so line 53 throws. The code is consistent with the claim; a behaviour claim takes untested unless a line contradicts it. (The first wording, \"a kind that has no pipeline\", was refuted by number, boolean and file: review before the run.)"
     },
     {
       "id": "r33",
@@ -421,8 +526,14 @@
       "label": "refuted",
       "shape": "wrong order",
       "decides": [
-        { "at": "workflows/ci.yml:79", "text": "- run: pnpm check:match-harness-snapshots" },
-        { "at": "workflows/ci.yml:80", "text": "- run: pnpm build" }
+        {
+          "at": "workflows/ci.yml:79",
+          "text": "- run: pnpm check:match-harness-snapshots"
+        },
+        {
+          "at": "workflows/ci.yml:80",
+          "text": "- run: pnpm build"
+        }
       ],
       "why": "The snapshot check is line 79, the build line 80."
     },
@@ -433,7 +544,10 @@
       "label": "confirmed",
       "shape": "true",
       "decides": [
-        { "at": "claude/settings.json:30", "text": "\"Bash(git push --force-with-lease:*)\"," }
+        {
+          "at": "claude/settings.json:30",
+          "text": "\"Bash(git push --force-with-lease:*)\","
+        }
       ],
       "why": "Lines 28-30, inside deny."
     },
@@ -444,7 +558,10 @@
       "label": "refuted",
       "shape": "dropped condition",
       "decides": [
-        { "at": "bakeoff/arms.mjs:68", "text": "\"Do not run gh, git push, git commit," }
+        {
+          "at": "bakeoff/arms.mjs:68",
+          "text": "\"Do not run gh, git push, git commit,"
+        }
       ],
       "why": "gh is the first command line 68 forbids."
     },
