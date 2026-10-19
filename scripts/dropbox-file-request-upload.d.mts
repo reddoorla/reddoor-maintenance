@@ -44,3 +44,19 @@ export function afterError(
 ): Verdict[];
 export function squash(s: string): string;
 export function exitCode(results: Verdict[]): number;
+
+export interface Payload {
+  name: string;
+  type: string;
+  b64: string;
+}
+
+export function payloadFor(rows: Row[]): Payload[];
+export function missingAfterDrop(body: string, names: string[]): string[];
+export function waitForCommits(
+  committed: Map<string, { status: number; text: string }>,
+  names: string[],
+  until: number,
+  sleep: (ms: number) => Promise<unknown>,
+  now?: () => number,
+): Promise<void>;
