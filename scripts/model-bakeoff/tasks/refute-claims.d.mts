@@ -17,7 +17,7 @@ export const SHIP_LINE: number;
 export interface Claim {
   id: string;
   claim: string;
-  kind: string;
+  kind: "docs" | "behavior";
   evidence: string[];
 }
 export interface Key {
