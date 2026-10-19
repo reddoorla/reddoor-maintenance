@@ -5152,6 +5152,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       reproduced red and green against a copy of the harness whose scorer
       was edited after `start`. Every round's majors were in what the skill
       certifies, not in what it runs, and the measured result never moved.
+      **Answered 2026-10-19 (AskUserQuestion): (a), land #21 with the fix.**
+      The worker lands claude-skills#21, then this repo's README pointer and
+      Done row, posts the result on workspace#1 and clears box 1's note.
 
 ## Active projects (the operator's list, read by the PM pass)
 
