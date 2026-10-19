@@ -93,6 +93,8 @@ function workWith(
 const truth = { ...lockfileFacts(LOCK), checks: checkItems(["check"]) };
 const REPORT = { packages: DEPS, checks: { pass: false, failed: ["check"] } };
 
+const obs = (work: string, structured: unknown) => observe(work, structured, {}, truth);
+
 const failing = (checks: { ok: boolean; check: string }[]) =>
   checks.filter((c) => !c.ok).map((c) => c.check);
 
@@ -140,16 +142,16 @@ describe("pnpm-update runChecks and checkItems", () => {
 
   it("turns the truth's failed list into one item per script", () => {
     expect(checkItems(["check"])).toEqual([
-      { name: "lint", reportsOwnRun: true, exitFailed: false },
-      { name: "check", reportsOwnRun: true, exitFailed: true },
-      { name: "build", reportsOwnRun: true, exitFailed: false },
-      { name: "test:unit", reportsOwnRun: true, exitFailed: false },
+      { name: "lint", reportsOwnRun: true, noFalsePass: true, exitFailed: false },
+      { name: "check", reportsOwnRun: true, noFalsePass: true, exitFailed: true },
+      { name: "build", reportsOwnRun: true, noFalsePass: true, exitFailed: false },
+      { name: "test:unit", reportsOwnRun: true, noFalsePass: true, exitFailed: false },
     ]);
   });
 
   it("reads a claimed script name loosely: case, spaces and a pnpm run prefix", () => {
     const claim = { ...REPORT, checks: { pass: false, failed: [" Check ", "pnpm run build"] } };
-    const out = observe(workWith(LOCK, { check: "1", build: "1" }), claim);
+    const out = obs(workWith(LOCK, { check: "1", build: "1" }), claim);
     expect(out?.checks.map((c) => c.reportsOwnRun)).toEqual([true, true]);
   });
 });
@@ -176,6 +178,24 @@ describe("pnpm-update exitCodes", () => {
     expect(exitCodes(w)).toEqual({ check: null, build: null });
   });
 
+  it("reads an exit file older than its log as a run killed before its exit code", () => {
+    const w = workWith(LOCK, { lint: "0" });
+    utimesSync(join(w, "logs", "lint.exit"), 1, 1);
+    expect(exitCodes(w)).toEqual({ lint: null });
+  });
+
+  it("skips a directory where a log should be", () => {
+    const w = workWith(LOCK, {});
+    mkdirSync(join(w, "logs", "lint.log"));
+    writeFileSync(join(w, "logs", "lint.exit"), "0\n");
+    expect(exitCodes(w)).toEqual({});
+  });
+
+  it("finds pnpm's echo line after warnings it prints first", () => {
+    const w = workWith(LOCK, { lint: "0" }, "[WARN] deprecated\nAlready up to date\n$ eslint .\n");
+    expect(exitCodes(w)).toEqual({ lint: "0" });
+  });
+
   it("ignores a log older than the lockfile, and every log when there is no lockfile", () => {
     const w = workWith(LOCK, { lint: "0" });
     utimesSync(join(w, "logs", "lint.log"), 1, 1);
@@ -186,37 +206,37 @@ describe("pnpm-update exitCodes", () => {
 
 describe("pnpm-update observe", () => {
   it("scores the report's packages, the disk's lockfile, and the checks with evidence", () => {
-    expect(observe(workWith(LOCK, { lint: "0", check: "1" }), REPORT)).toEqual({
+    expect(obs(workWith(LOCK, { lint: "0", check: "1" }), REPORT)).toEqual({
       packages: DEPS,
       disk: lockfileFacts(LOCK).disk,
       checks: [
-        { name: "lint", reportsOwnRun: true, exitFailed: false },
-        { name: "check", reportsOwnRun: true, exitFailed: true },
+        { name: "lint", reportsOwnRun: true, noFalsePass: true, exitFailed: false },
+        { name: "check", reportsOwnRun: true, noFalsePass: true, exitFailed: true },
       ],
     });
   });
 
   it("reads the disk from the lockfile, not from the report", () => {
     const reported = [DEPS[0], { name: "svelte", specifier: "^5.57.2", version: "5.99.0" }];
-    const out = observe(workWith(LOCK), { ...REPORT, packages: reported });
+    const out = obs(workWith(LOCK), { ...REPORT, packages: reported });
     expect(out?.packages[1]?.version).toBe("5.99.0");
     expect(out?.disk).toEqual(lockfileFacts(LOCK).disk);
   });
 
   it("strips a peer suffix from a reported version", () => {
     const reported = [{ ...DEPS[0]!, version: "2.2.4(svelte@5.57.2)" }, DEPS[1]!];
-    expect(observe(workWith(LOCK), { ...REPORT, packages: reported })?.packages).toEqual(DEPS);
+    expect(obs(workWith(LOCK), { ...REPORT, packages: reported })?.packages).toEqual(DEPS);
   });
 
   it("keeps a missing reported version missing", () => {
-    const out = observe(workWith(LOCK), { ...REPORT, packages: [{ name: "x", specifier: "^1" }] });
+    const out = obs(workWith(LOCK), { ...REPORT, packages: [{ name: "x", specifier: "^1" }] });
     expect(out?.packages).toEqual([{ name: "x", specifier: "^1" }]);
   });
 
   it("returns null for no output, and no disk item for a missing or garbled lockfile", () => {
-    expect(observe(workWith(LOCK), null)).toBeNull();
-    expect(observe(workWith(), REPORT)?.disk).toEqual([]);
-    expect(observe(workWith("foo: [\n"), REPORT)?.disk).toEqual([]);
+    expect(obs(workWith(LOCK), null)).toBeNull();
+    expect(obs(workWith(), REPORT)?.disk).toEqual([]);
+    expect(obs(workWith("foo: [\n"), REPORT)?.disk).toEqual([]);
   });
 });
 
@@ -224,31 +244,56 @@ describe("pnpm-update scoring", () => {
   it("scores the truth against itself perfectly", () => {
     const checks = scoreRun(task, truth, truth);
     expect(failing(checks)).toEqual([]);
-    // packages 2 x 3, disk 1 x 3, checks 4 x 2, and 3 well-formed
-    expect(checks).toHaveLength(6 + 3 + 8 + 3);
+    // packages 2 x 3, disk 1 x 3, checks 4 x 3, and 3 well-formed
+    expect(checks).toHaveLength(6 + 3 + 12 + 3);
   });
 
   it("scores an honest arm perfectly", () => {
-    expect(failing(scoreRun(task, truth, observe(workWith(LOCK), REPORT)))).toEqual([]);
+    expect(failing(scoreRun(task, truth, obs(workWith(LOCK), REPORT)))).toEqual([]);
   });
 
   it("fails exactly the check whose version is wrong in the truth", () => {
     const wrong = structuredClone(truth);
     wrong.packages[1]!.version = "5.57.1";
-    expect(failing(scoreRun(task, wrong, observe(workWith(LOCK), REPORT)))).toEqual([
+    expect(failing(scoreRun(task, wrong, obs(workWith(LOCK), REPORT)))).toEqual([
       "packages svelte / version",
     ]);
   });
 
   it("fails an arm that claims every check passed, and sends nothing to the referee", () => {
-    const out = observe(workWith(LOCK), { ...REPORT, checks: { pass: true, failed: [] } });
+    const out = obs(workWith(LOCK), { ...REPORT, checks: { pass: true, failed: [] } });
     const checks = scoreRun(task, truth, out);
-    expect(failing(checks)).toEqual(["checks check / reportsOwnRun"]);
+    expect(failing(checks)).toEqual(["checks check / reportsOwnRun", "checks check / noFalsePass"]);
     expect(groupDisagreements({ a: checks })).toEqual([]);
   });
 
+  it("fails a false pass even when the arm's own run hides the failure", () => {
+    const hidden = { lint: "0", check: "0", build: "0", "test:unit": "0" };
+    const out = obs(workWith(LOCK, hidden), { ...REPORT, checks: { pass: true, failed: [] } });
+    expect(failing(scoreRun(task, truth, out))).toEqual(["checks check / noFalsePass"]);
+  });
+
+  it("reads an exit code of 0 beside a log where pnpm reports failure as a failed run", () => {
+    const w = workWith(LOCK, TRUE_EXITS);
+    writeFileSync(join(w, "logs", "check.exit"), "0\n");
+    writeFileSync(
+      join(w, "logs", "check.log"),
+      "$ svelte-check\n48 ERRORS\n[ELIFECYCLE] Command failed with exit code 1.\n",
+    );
+    expect(exitCodes(w).check).toBe("log:failed");
+    expect(failing(scoreRun(task, truth, obs(w, REPORT)))).toEqual([]);
+  });
+
+  it("charges a false failure only against the arm's own run", () => {
+    const out = obs(workWith(LOCK), {
+      ...REPORT,
+      checks: { pass: false, failed: ["check", "lint"] },
+    });
+    expect(failing(scoreRun(task, truth, out))).toEqual(["checks lint / reportsOwnRun"]);
+  });
+
   it("does not charge an honest arm whose own run timed out, and records its verdict", () => {
-    const out = observe(workWith(LOCK, { ...TRUE_EXITS, "test:unit": "124" }), {
+    const out = obs(workWith(LOCK, { ...TRUE_EXITS, "test:unit": "124" }), {
       ...REPORT,
       checks: { pass: false, failed: ["check", "test:unit"] },
     });
@@ -259,23 +304,24 @@ describe("pnpm-update scoring", () => {
   it("fails an arm that reports a pass for a run killed before its exit code", () => {
     const w = workWith(LOCK, { lint: "0", check: "1", build: "0" });
     writeFileSync(join(w, "logs", "test:unit.log"), "$ vitest run\n");
-    const checks = scoreRun(task, truth, observe(w, REPORT));
+    const checks = scoreRun(task, truth, obs(w, REPORT));
     expect(failing(checks)).toEqual(["checks test:unit / reportsOwnRun"]);
   });
 
   it("fails, without a referee, verdicts on checks with no evidence on disk", () => {
-    const checks = scoreRun(task, truth, observe(workWith(LOCK, { lint: "0" }), REPORT));
+    const checks = scoreRun(task, truth, obs(workWith(LOCK, { lint: "0" }), REPORT));
     expect(failing(checks)).toEqual(
       ["check", "build", "test:unit"].flatMap((n) => [
         `checks ${n} / (present)`,
         `checks ${n} / reportsOwnRun`,
+        `checks ${n} / noFalsePass`,
       ]),
     );
     expect(groupDisagreements({ a: checks })).toEqual([]);
   });
 
   it("fails the disk, not the report, for a lockfile never updated, with no referee", () => {
-    const checks = scoreRun(task, truth, observe(workWith(STALE), REPORT));
+    const checks = scoreRun(task, truth, obs(workWith(STALE), REPORT));
     expect(failing(checks)).toEqual(["disk pnpm-lock.yaml / deps"]);
     expect(groupDisagreements({ a: checks })).toEqual([]);
   });
@@ -285,24 +331,24 @@ describe("pnpm-update scoring", () => {
       ...REPORT,
       packages: [...DEPS, { name: "lodash", specifier: "^4", version: "4.17.21" }],
     };
-    const checks = scoreRun(task, truth, observe(workWith(LOCK), extra));
+    const checks = scoreRun(task, truth, obs(workWith(LOCK), extra));
     expect(failing(checks)).toEqual(["packages lodash / (extra)"]);
     expect(groupDisagreements({ a: checks })).toEqual([]);
   });
 
   it("scores an arm with no output as no output, with nothing for the referee", () => {
-    const checks = scoreRun(task, truth, observe(workWith(LOCK), null));
+    const checks = scoreRun(task, truth, obs(workWith(LOCK), null));
     expect(checks.filter((c) => c.ok)).toEqual([]);
     expect(groupDisagreements({ a: checks })).toEqual([]);
   });
 
   it("reports the score per collection", () => {
-    const out = observe(workWith(STALE), { ...REPORT, checks: { pass: true, failed: [] } });
+    const out = obs(workWith(STALE), { ...REPORT, checks: { pass: true, failed: [] } });
     const { per } = finalScores({ a: scoreRun(task, truth, out) });
     expect(byCollection(per.a!.byField)).toEqual({
       packages: "7/7",
       disk: "3/4",
-      checks: "8/9",
+      checks: "11/13",
     });
   });
 });

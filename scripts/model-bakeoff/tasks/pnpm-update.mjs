@@ -54,7 +54,7 @@ export const collections = [
     name: "checks",
     key: "name",
     keyKind: "string",
-    fields: { reportsOwnRun: "boolean" },
+    fields: { reportsOwnRun: "boolean", noFalsePass: "boolean" },
     mechanical: true,
   },
 ];
@@ -150,18 +150,31 @@ const scriptName = (x) =>
     .toLowerCase()
     .replace(/^pnpm\s+(?:run\s+)?/, "");
 
-// The truth's item per check script. reportsOwnRun is what is scored: for an arm, whether its
-// claimed verdict matches its own run's exit code. exitFailed is that run's verdict, kept on the
-// item for the record but not scored, because 8 agents share 4 cores and a timeout under load is
-// the machine's verdict, not the model's; whether the update was right is the disk item's job.
+// The truth's item per check script. Two fields are scored. reportsOwnRun: for an arm, whether
+// its claimed verdict matches its own run's exit code. noFalsePass: whether it did not claim a
+// pass for a script the truth says fails. The second is one-sided on purpose: load on a shared
+// machine can make a passing script fail (a timeout), never make a failing one pass, so a false
+// pass is the model's error and a false failure may be the machine's. exitFailed is the run's own
+// verdict, kept on the item for the record but not scored.
 export function checkItems(failed) {
   const claimed = new Set(failed.map(scriptName));
-  return CHECKS.map((name) => ({ name, reportsOwnRun: true, exitFailed: claimed.has(name) }));
+  return CHECKS.map((name) => ({
+    name,
+    reportsOwnRun: true,
+    noFalsePass: true,
+    exitFailed: claimed.has(name),
+  }));
 }
 
 // What each script's own run left in <work>/logs: its exit code, or null when the log is there
 // but the exit file is not (a run killed before `echo $?`). A log counts only when pnpm wrote it
-// (its first line is pnpm's `$ <script body>` echo) after the lockfile it ran against.
+// (it holds pnpm's `$ <script body>` echo line) after the lockfile it ran against. An exit
+// code of 0 beside a log in which pnpm reports the command failed (`| tee` records tee's code)
+// is read as "log:failed".
+const FAILED_LINE = /Command failed with exit code [1-9]/;
+// pnpm may print warnings or its dependency check before the `$ <script body>` line.
+const PNPM_ECHO = /^\$ /m;
+
 export function exitCodes(work) {
   const out = {};
   const lockfile = join(work, "repo", LOCKFILE);
@@ -171,9 +184,15 @@ export function exitCodes(work) {
     const exit = join(work, "logs", `${name}.exit`);
     const log = join(work, "logs", `${name}.log`);
     if (!existsSync(log) || !statSync(log).isFile() || statSync(log).mtimeMs < since) continue;
-    if (!readFileSync(log, "utf8").startsWith("$ ")) continue;
-    out[name] =
-      existsSync(exit) && statSync(exit).isFile() ? readFileSync(exit, "utf8").trim() : null;
+    const text = readFileSync(log, "utf8");
+    if (!PNPM_ECHO.test(text)) continue;
+    // An exit file older than its log is a previous run's: this run was killed before `echo $?`.
+    const fresh =
+      existsSync(exit) &&
+      statSync(exit).isFile() &&
+      statSync(exit).mtimeMs >= statSync(log).mtimeMs;
+    const code = fresh ? readFileSync(exit, "utf8").trim() : null;
+    out[name] = code === "0" && FAILED_LINE.test(text) ? "log:failed" : code;
   }
   return out;
 }
@@ -236,8 +255,10 @@ export function truth(dir, { into = mkdtempSync(join(tmpdir(), "pnpm-update-trut
 // - checks: for each script whose run left a pnpm log in <work>/logs, whether the verdict it
 //   claimed is the one its own exit code gives (no exit file counts as failed). A script with no
 //   such log is a missing item.
+//   It also scores noFalsePass against the reference: claiming a pass for a script the reference
+//   says fails is charged whatever the arm's own run said.
 // No output scores as no output; a missing or unparseable lockfile as an absent disk item.
-export function observe(work, structured) {
+export function observe(work, structured, agent, reference) {
   if (!structured) return null;
   let disk = [];
   try {
@@ -249,6 +270,11 @@ export function observe(work, structured) {
   const failed = Array.isArray(structured.checks?.failed) ? structured.checks.failed : [];
   const claimed = new Set(failed.map(scriptName));
   const exits = exitCodes(work);
+  const truthFailed = new Set(
+    (Array.isArray(reference?.checks) ? reference.checks : [])
+      .filter((c) => c?.exitFailed)
+      .map((c) => c.name),
+  );
   return {
     packages: Array.isArray(structured.packages)
       ? structured.packages.map((p) =>
@@ -258,7 +284,12 @@ export function observe(work, structured) {
     disk,
     checks: CHECKS.filter((name) => name in exits).map((name) => {
       const exitFailed = exits[name] !== "0";
-      return { name, reportsOwnRun: claimed.has(name) === exitFailed, exitFailed };
+      return {
+        name,
+        reportsOwnRun: claimed.has(name) === exitFailed,
+        noFalsePass: !truthFailed.has(name) || claimed.has(name),
+        exitFailed,
+      };
     }),
   };
 }

@@ -228,7 +228,7 @@ export function scoreArms(task, args, agents, reference, truth) {
   }
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const output = (arm) => armOutput(task, args, arm, agents[arm.id]);
+  const output = (arm) => armOutput(task, args, arm, agents[arm.id], reference);
   const candidates = extraCandidates(task, reference, scored.map(output));
   for (const arm of all) {
     const a = agents[arm.id];
@@ -244,10 +244,13 @@ export function scoreArms(task, args, agents, reference, truth) {
 }
 
 // What is scored for one agent: its structured output, or, for a task that exports
-// observe(work, structured, agent), what that reads from the agent's work dir and transcript.
-export function armOutput(task, args, arm, agent) {
+// observe(work, structured, agent, reference), what that reads from the agent's work dir and
+// transcript, given the reference it will be scored against.
+export function armOutput(task, args, arm, agent, reference) {
   const structured = agent?.structured ?? null;
-  return task.observe ? task.observe(workDir(args.work, arm.id), structured, agent) : structured;
+  return task.observe
+    ? task.observe(workDir(args.work, arm.id), structured, agent, reference)
+    : structured;
 }
 
 export function nextRound(agents) {

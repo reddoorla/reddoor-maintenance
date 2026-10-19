@@ -28,6 +28,7 @@ export function runChecks(run: (args: string[]) => number): { pass: boolean; fai
 export interface CheckItem {
   name: string;
   reportsOwnRun: boolean;
+  noFalsePass: boolean;
   exitFailed: boolean;
 }
 export function checkItems(failed: string[]): CheckItem[];
@@ -36,6 +37,8 @@ export function truth(dir: string, opts?: { into?: string }): Facts & { checks: 
 export function observe(
   work: string,
   structured: unknown,
+  agent?: unknown,
+  reference?: unknown,
 ): (Facts & { checks: CheckItem[] }) | null;
 export function snapshot(opts: { repo: string; commit: string; out: string }): {
   takenAt: string;

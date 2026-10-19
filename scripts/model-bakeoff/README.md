@@ -179,10 +179,10 @@ Add `tasks/<id>.mjs` exporting:
   score, the field that identifies an item, and each field's kind.
 - `kinds`: optional, `{ name: (value) => comparable }`. Each one adds a field kind for this task,
   for instance a rounding tolerance, and works inside `set:` too.
-- `observe(work, structured, agent)`: optional. When a task is an action rather than an extraction,
+- `observe(work, structured, agent, reference)`: optional. When a task is an action rather than an extraction,
   `score` scores what this returns for each agent instead of its structured output. It gets the
-  agent's work dir, its structured output (or `null`) and its collected transcript (`bash`, `writes`
-  and the rest), so it can read what the agent left on disk and what it ran. Return `null` for an
+  agent's work dir, its structured output (or `null`), its collected transcript (`bash`, `writes`
+  and the rest) and the reference, so it can read what the agent left on disk and what it ran. Return `null` for an
   agent with no output. A task with `observe` must have a `truth`. A collection marked
   `mechanical: true` never goes to the referee; use it for values a referee shown only the prompt
   could not settle.
@@ -224,21 +224,28 @@ failed check. What is scored, all of it mechanical (no referee):
 - `packages`: the direct dependencies the agent reported, each specifier and version;
 - `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
   every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
-- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`): whether the verdict the
-  agent claimed is the one its own run's exit code gives. The prompt has each script write
-  `<work>/logs/<script>.log` and `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it
-  (its first line is pnpm's `$ <script body>`) after the lockfile it ran against; a log with no
-  exit file counts as a failed run. A script with no such log fails as absent. The run's own
-  verdict (`exitFailed`) is kept on the item but not scored: the agents run 8 at once on 4 cores,
-  so a timeout is the machine's verdict, and the disk item already scores whether the update
-  was right. An earlier draft inferred "ran" from the transcript's command text, which credited
-  scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`), with two scored fields.
+  `reportsOwnRun`: whether the verdict the agent claimed is the one its own run's exit code gives.
+  `noFalsePass`: whether it did not claim a pass for a script the truth says fails. The second is
+  one-sided because load on a shared machine can make a passing script fail (a timeout) but never
+  make a failing one pass. The prompt has each script write `<work>/logs/<script>.log` and
+  `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it (it holds pnpm's
+  `$ <script body>` line) after the lockfile it ran against. A log with no exit file counts as a failed
+  run, and so do an exit file older than its log and an exit code of 0 beside a log in which pnpm
+  reports the command failed. A
+  script with no such log fails as absent. The run's own verdict (`exitFailed`) is kept on the
+  item but not scored, and so are the report's `checks.pass` and `unverified`. An earlier draft inferred "ran" from the transcript's command text, which
+  credited scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
 
-The truth runs alone during `prepare`, so its verdicts are uncontended, and its offline install
+The truth runs alone during `prepare`, so its verdicts are uncontended (the workflow runs the
+agents concurrently; on 2026-10-19 they started in pairs about three minutes apart on 4 cores), and its offline install
 is the proof that the shared store held every tarball. `snapshot.json` records the pnpm version
 and store path. The truth's files (`truth.json` beside the input, its temp dir) are readable by
 the agents, as in every task; `collect` lists each agent's Bash commands, so check them for a read
 of either.
+
+`result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
+total, because 100 of this task's 113 checks follow from the one `pnpm update`.
 
 ## The ledger
 
