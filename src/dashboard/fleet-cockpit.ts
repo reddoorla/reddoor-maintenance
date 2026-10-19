@@ -550,9 +550,10 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
       // break. A site with any hard break is broken, and its self-patching vulns are
-      // still named on that row: a vuln reaches a card only once its wait has failed
-      // (markWaiting), so dropping it hid a held High advisory behind an unrelated CI
-      // line (29 Navy, 2026-10-19, P1-54). Single-source the predicate so the two
+      // still named on that row: markWaiting keeps a vuln off the card while it waits,
+      // so one that reaches it has failed its wait or could not be dated, and dropping
+      // it hid a held High advisory behind an unrelated CI line (29 Navy, 2026-10-19,
+      // P1-54). Single-source the predicate so the two
       // partitions can never drift out of lockstep.
       const isSelfPatchingVuln = (it: AttentionItem): boolean =>
         it.kind === "vuln" && it.autoFixExhausted !== true;
@@ -564,7 +565,10 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
           a.reasons.push(it.title);
           if (it.severity === "critical") a.hasCritical = true;
         }
-        for (const it of selfPatchingVulns) a.reasons.push(it.title);
+        for (const it of selfPatchingVulns) {
+          a.reasons.push(it.title);
+          if (it.severity === "critical") a.hasCritical = true;
+        }
         a.broken = true;
       } else if (selfPatchingVulns.length > 0) {
         const a = get(card.site.name);

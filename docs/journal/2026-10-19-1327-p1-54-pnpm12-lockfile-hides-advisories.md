@@ -27,9 +27,17 @@ two sites that store any vuln today. The fleet moved to pnpm 12 with `renovate/p
 09-22, so this has been dark for about four weeks, not 13 days.
 
 The fix is in `src/audits/security.ts`. When the clone's lockfile has more than
-one `lockfileVersion:` line, the audit skips Dependabot and runs `pnpm audit`,
-the fallback that was already there. It sets each advisory's `relationship`
-from whether `package.json` names the module. Without that, every transitive
+one `lockfileVersion:` line, the audit runs `pnpm audit` (the fallback that
+was already there) and adds it to Dependabot's answer. An advisory both
+sources report is counted once. The first version skipped Dependabot
+entirely. Review round 1 called that a major: the graph still sees Actions and
+the pnpm binary, so a real alert on either would have been dropped for a
+`pnpm audit` pass. If `pnpm audit` cannot run, the site is skipped and no
+counts are written, rather than reporting Dependabot's empty answer. Each
+advisory's `relationship` comes from whether `package.json` names the module,
+including through an `npm:` alias. In a workspace it is left unknown, because a
+member's own `package.json` would make a direct dependency read as transitive,
+and that mutes the counter. Without a relationship at all, every transitive
 `devalue` advisory would count as a direct one, the auto-fix counter would
 climb, and about twenty sites would read "auto-fix failed" within three nights.
 The fallback was proven before anything was built on it. On the real clone,
@@ -40,7 +48,7 @@ falls to 5. It also works on the runner's pnpm: 11.11.0 switches itself to
 12.5.1 inside the clone (`--version` prints 12.5.1 there and 11.11.0 in `/tmp`),
 and the audit still finds sharp. The production `securityAudit`, run on the
 clone with Dependabot stubbed to its real answer (`[]`), returns
-`fail | pnpm audit: 9 vulnerabilities (0C/6H/2M/1L)`, with sharp `direct` and
+`fail | pnpm audit + Dependabot: 9 vulnerabilities (0C/6H/2M/1L)`, with sharp `direct` and
 the rest `transitive`. That matches what Dependabot records for 29 Navy.
 
 **A recorded advisory was hidden by the feed.** 29 Navy's sharp advisory was
