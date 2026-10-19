@@ -130,16 +130,17 @@ command; on each `find -exec`, `-execdir`, `-ok` or `-okdir` command; on a hered
 shell (`sh <<EOF`, `cat <<EOF | bash`); on the `$(…)` and backtick bodies inside an unquoted
 heredoc body, which the shell expands whatever the heredoc feeds (`cat <<EOF` with `$(gh api x)`
 in it fails, `cat <<'EOF'` does not); on a here-string fed to a shell (`sh <<< 'git push'`); and
-on what `echo` or `printf` pipes into a shell reading its stdin (`echo 'git push' | sh`, or any
-`echo` in a `( … )` or `{ …; }` group piped into one). A `$(which gh)` or `$(command -v gh)` is
-read as the name it resolves. So
+on what an `echo` or `printf` directly before the pipe feeds a shell reading its stdin
+(`echo 'git push' | sh`, but not `echo 'git push' >/dev/null | sh`). A `$(which gh)` or
+`$(command -v gh)` is read as the name it resolves. So
 `grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a quoted heredoc written to a
 file that mentions `gh api` pass, and so do lookups such as `which gh` and `command -v gh`, which
 run nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run
 inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a shell reading stdin
-from anything but `echo` or `printf` (`cat f | sh`, `sh < f`, `curl u | sh`), a resolved path
-other than `which` or `command -v` (`$(type -P gh)`, a variable holding `gh`), and a subcommand
-named through a variable (`git $op`). It is a tripwire, not a sandbox.
+from anything but a lone `echo` or `printf` (`cat f | sh`, `sh < f`, `curl u | sh`, a group or
+loop such as `(echo 'git push') | sh`, or a filter between, as in `echo … | cat | sh`; #1438), a
+resolved path other than `which` or `command -v` (`$(type -P gh)`, a variable holding `gh`), and
+a subcommand named through a variable (`git $op`). It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 

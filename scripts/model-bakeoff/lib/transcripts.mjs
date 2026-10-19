@@ -145,6 +145,7 @@ export function lex(text) {
   const segs = [];
   let tokens = [];
   let cur = null;
+  let operator = false;
   let between = "";
   const endToken = () => {
     if (cur !== null) tokens.push(cur);
@@ -162,6 +163,8 @@ export function lex(text) {
   };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    const wasOperator = operator;
+    operator = false;
     if (ch === "'") {
       const end = text.indexOf("'", i + 1);
       const stop = end === -1 ? text.length : end;
@@ -188,7 +191,7 @@ export function lex(text) {
       i++;
     } else if (ch === "{" || (ch === "}" && (cur !== null || tokens.length > 0))) {
       cur = (cur ?? "") + ch;
-    } else if (ch === "&" && (cur === null ? text[i + 1] === ">" : /[<>]$/.test(cur))) {
+    } else if (ch === "&" && (cur === null ? text[i + 1] === ">" : wasOperator)) {
       cur = (cur ?? "") + ch;
     } else if (SEPARATORS.has(ch)) {
       endSegment(ch === "\n" ? "" : ch);
@@ -196,6 +199,7 @@ export function lex(text) {
       endToken();
     } else {
       cur = (cur ?? "") + ch;
+      operator = ch === "<" || ch === ">";
     }
   }
   endSegment();
@@ -476,6 +480,7 @@ function shellBody(args) {
 function echoed(tokens, depth) {
   const c = commandOf(tokens);
   if (!c || !["echo", "printf"].includes(c.name)) return false;
+  if (tokens.some((a) => /^(1?>|&>)/.test(a))) return false;
   const text = c.args.filter((a) => !/^-[neE]+$/.test(a) && !isRedirect(a)).join(" ");
   return forbiddenCommand(text.replace(/\\n/g, "\n"), depth + 1);
 }
@@ -506,22 +511,9 @@ export function forbiddenCommand(command, depth = 0) {
   if (depth > 4) return false;
   const { text, bodies } = heredocs(command.replace(RESOLVED, (_m, a, b) => a ?? b));
   const segs = lex(text);
-  const groups = [];
-  let lastEchoed = -1;
   for (let i = 0; i < segs.length; i++) {
-    const tokens = segs[i];
-    let start = i - 1;
-    for (const ch of tokens.before) {
-      if (ch === "(") groups.push(i);
-      else if ((ch === ")" || ch === "}") && groups.length) start = groups.pop();
-    }
-    for (let k = 0; k < tokens.length && KEYWORDS.has(tokens[k]); k++) {
-      if (tokens[k] === "{") groups.push(i);
-    }
-    const piped = /^[;&)}]*\|&?$/.test(tokens.before);
-    if (segmentForbidden(tokens, piped && lastEchoed !== -1 && lastEchoed >= start, depth))
-      return true;
-    if (echoed(tokens, depth)) lastEchoed = i;
+    const piped = i > 0 && /^\|&?$/.test(segs[i].before);
+    if (segmentForbidden(segs[i], piped && echoed(segs[i - 1], depth), depth)) return true;
   }
   for (const body of substitutions(text)) {
     if (forbiddenCommand(body, depth + 1)) return true;
