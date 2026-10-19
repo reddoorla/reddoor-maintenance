@@ -232,6 +232,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
   launched from the laptop and chose no Launch email, so the drafts are
   withdrawn). Left on P0-5: D0, Webflow billing and then the domains, the
   operator's. Record it when reported.
+- **10-19 ~22:40Z (the operator, cockpit session): D0 is done.** They
+  cancelled Webflow billing. Whether the two domains are also removed from
+  Webflow was not said; that is the one step left on P0-5.
 
 ---
 
