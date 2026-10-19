@@ -21,7 +21,7 @@ export interface AgentTranscript {
   longPrompt: number;
   bash: string[];
   writes: string[];
-  reads: string[];
+  reads?: string[];
   otherTools: string[];
   prompt: string;
   forbidden: string[];
