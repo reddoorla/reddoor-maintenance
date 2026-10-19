@@ -150,7 +150,12 @@ export function scoreRun(
           refKey,
           armRaw: has ? raw(o[field]) : MISSING,
           refRaw: raw(r[field]),
-          ...(col.mechanical ? { mechanical: true } : {}),
+          // An item may mark itself mechanical only where the scorer built it (observe()), never in
+          // an agent's own report, where it would keep a wrong reference from the referee.
+          ...(col.mechanical || (o?.mechanical === true && typeof spec.observe === "function")
+            ? { mechanical: true }
+            : {}),
+          ...(col.refFixed ? { refFixed: true } : {}),
         });
       }
     }
@@ -221,7 +226,7 @@ export function finalScores(checksByArm, rulings = {}) {
       if (!r) continue;
       if (!verdicts.has(c.check)) verdicts.set(c.check, { yes: [], no: [], odd: false });
       const v = verdicts.get(c.check);
-      v[r.refCorrect === false ? "no" : "yes"].push(r);
+      v[r.refCorrect === false && !c.refFixed ? "no" : "yes"].push(r);
       if ((c.field === PRESENT || c.field === EXTRA) && r.armCorrect === r.refCorrect) v.odd = true;
     }
   }
