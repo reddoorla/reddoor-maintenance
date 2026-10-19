@@ -116,7 +116,14 @@ setting or the order below, so this is a runbook rather than a template there.
   PR with head `main` and base `staging`, and merge it on green. Its head is
   `main`, which `main`'s own ruleset protects from auto-delete. Without this
   step the promotion PR conflicts on `package.json` and `pnpm-lock.yaml` as
-  soon as both branches have moved.
+  soon as both branches have moved. Merge it as a **merge commit**, never a
+  squash: a squash keeps the resolved tree but drops `main` as a parent, so
+  the promotion PR still conflicts. `land-prs.mjs` squashes wherever the base
+  allows it, so merge this one with `PUT pulls/{n}/merge` and
+  `merge_method=merge`, pinned to the green head's `sha`. When the two sides
+  conflict, the head cannot be `main` itself: cut a branch from `staging`,
+  merge `main` into it, and regenerate the lockfile with `pnpm install`
+  (caltex-landing#88 squashed and had to be redone as #89, 2026-10-19).
 - Open the promotion PR (head `staging`, base `main`). Say what it carries since
   the last promotion and what was checked on the staging URL.
 
