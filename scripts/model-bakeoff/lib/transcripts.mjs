@@ -222,11 +222,29 @@ export function segments(command) {
 }
 
 const isRedirect = (t) => /^\d*(<<?|>>?|&>|>&|<&)/.test(t);
+const BARE_OPERATOR = /^\d*(<<?<?|>>?|&>>?|>&|<&|>\|)$/;
+
+function plainArgs(tokens, args) {
+  const offset = tokens.length - args.length;
+  const plain = [];
+  for (let k = 0; k < args.length; k++) {
+    if (tokens.redirects?.has(k + offset) && isRedirect(args[k])) {
+      if (BARE_OPERATOR.test(args[k])) k++;
+      continue;
+    }
+    plain.push(args[k]);
+  }
+  return plain;
+}
 
 export function commandOf(tokens) {
   let i = 0;
   while (i < tokens.length) {
     const t = tokens[i];
+    if (/^\{[A-Za-z_]\w*\}$/.test(t) && isRedirect(tokens[i + 1] ?? "")) {
+      i++;
+      continue;
+    }
     if (isRedirect(t)) {
       i += /^\d*(<<?|>>?|&>|>&|<&)$/.test(t) ? 2 : 1;
       continue;
@@ -491,10 +509,11 @@ function shellBody(args) {
 function echoed(tokens, depth) {
   const c = commandOf(tokens);
   if (!c || !["echo", "printf"].includes(c.name)) return false;
-  const redirect = (a, k) => tokens.redirects.has(k) && isRedirect(a);
-  if (tokens.some((a, k) => redirect(a, k) && /^(1?>|&>)/.test(a))) return false;
-  const offset = tokens.length - c.args.length;
-  const text = c.args.filter((a, k) => !/^-[neE]+$/.test(a) && !redirect(a, k + offset)).join(" ");
+  const away = (a, k) => tokens.redirects.has(k) && /^(1?>|&>)/.test(a);
+  if (tokens.some(away)) return false;
+  const text = plainArgs(tokens, c.args)
+    .filter((a) => !/^-[neE]+$/.test(a))
+    .join(" ");
   return forbiddenCommand(text.replace(/\\n/g, "\n"), depth + 1);
 }
 
@@ -502,9 +521,10 @@ function segmentForbidden(tokens, fedForbidden, depth) {
   const c = commandOf(tokens);
   if (!c) return false;
   if (c.name === "gh") return true;
-  if (c.name === "git" && gitWrites(c.args, depth)) return true;
-  if (c.name === "curl" && curlWrites(c.args)) return true;
-  if (c.name === "wget" && wgetWrites(c.args)) return true;
+  const args = plainArgs(tokens, c.args);
+  if (c.name === "git" && gitWrites(args, depth)) return true;
+  if (c.name === "curl" && curlWrites(args)) return true;
+  if (c.name === "wget" && wgetWrites(args)) return true;
   if (c.name === "eval" && forbiddenCommand(c.args.join(" "), depth + 1)) return true;
   if (c.name === "find" && depth < 4) {
     if (findExecs(c.args).some((g) => segmentForbidden(g, false, depth + 1))) return true;
