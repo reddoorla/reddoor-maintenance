@@ -17,7 +17,8 @@ export type SearchConsoleRecheckDeps = {
   roster: FleetRoster;
   /** site_health writer (default: `makeHealthMirror`). A null fails the run. */
   makeMirror: () => Promise<HealthMirror | null>;
-  /** The draft's own lookup (default: `fetchSearch`). */
+  /** The draft's own lookup (default: `fetchSearch`, quiet: this command prints
+   *  its own line per site, so the draft's advice would only double it). */
   search: (site: WebsiteRow, periodStart: Date, periodEnd: Date) => Promise<RecheckLookup>;
   /** Whether GA/Search Console credentials are present (default: `readGaConfig`). */
   gaConfigured: () => boolean;
@@ -59,8 +60,13 @@ export async function runSearchConsoleRecheckCommand(
       return readFleetRoster();
     })
   )();
+  // The cockpit's own condition for the watch (fleet-cockpit.ts): an unstamped
+  // no-property row raises none, so a re-check must not stamp one into a watch.
   const targets = websites.filter(
-    (w) => w.status === "maintained" && w.searchConsoleOutcome === "no-property",
+    (w) =>
+      w.status === "maintained" &&
+      w.searchConsoleOutcome === "no-property" &&
+      Number.isFinite(Date.parse(w.searchConsoleCheckedAt ?? "")),
   );
   const lines: string[] = [];
   if (targets.length === 0) {
@@ -87,7 +93,7 @@ export async function runSearchConsoleRecheckCommand(
     deps.search ??
     (async (site: WebsiteRow, start: Date, end: Date) => {
       const { fetchSearch } = await import("../../reports/draft.js");
-      return fetchSearch(site, start, end);
+      return fetchSearch(site, start, end, { quiet: true });
     });
 
   const end = now();
@@ -107,8 +113,14 @@ export async function runSearchConsoleRecheckCommand(
     end,
   );
   if (control.lookup?.outcome !== "no-property") {
+    const read = control.lookup?.outcome ?? "not run";
+    // A soft-fail on a host that cannot exist is almost always the key, not Google.
+    const cause =
+      read === "soft-fail"
+        ? "; likeliest cause: the service-account key file (GA_SA_KEY_PATH, written from GA_SA_KEY_JSON) is missing or unreadable"
+        : "";
     return {
-      output: `::error::search-console-recheck: no-property control ${NO_PROPERTY_CONTROL_URL} read ${control.lookup?.outcome ?? "not run"}, expected no-property — nothing written`,
+      output: `::error::search-console-recheck: no-property control ${NO_PROPERTY_CONTROL_URL} read ${read}, expected no-property${cause} — nothing written`,
       code: 1,
     };
   }
