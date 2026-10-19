@@ -15,7 +15,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
-| `tasks/*.mjs`                                 | One file per task type                                                                                                                     |
+| `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                              |
 | `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                  |
 | `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
 
@@ -232,6 +232,59 @@ this repository's own history, as `seeded-review` is, can be answered by `git lo
 from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
 transcript for a git command and for a read outside `<run>/input`, and record the result. The
 2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
+
+### A task that changes a repository
+
+Some tasks are not extractions: the agent edits code, and what counts is the tree it leaves, not
+what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked example, with
+`observe` (above) to read the tree, plus these:
+
+- `setup({ input, work, ids, root })` runs in `prepare` after the sources are copied and before
+  the input is frozen. `root` is `--root` when it is given. t4 writes the plan into the input and
+  gives every agent the pinned tree in `<work>/<id>/repo`, as a one-commit repository installed
+  offline, so the commit that implemented the task is not in its history. The agents need Write
+  and Edit there, which the existing rules already allow: their work dir is theirs, and `score`
+  still reports a Write or Edit anywhere else. It does not see a Bash write, or anything the
+  agent's own code does when it runs its tests, so an agent can write outside its work dir
+  unreported.
+- t4's `observe` runs the gates (below), about two minutes an agent, and caches each result in
+  `<run>/evaluated.json`. Delete that file to evaluate again.
+- t4 marks only its `gates` collection `mechanical`: an exit code has nothing for a referee to read.
+- An item with `mechanical: true` in `observe`'s output makes that item's field checks mechanical
+  too (an agent's own report cannot do this); t4 marks a held-out
+  test that never ran (a crash, a missing export), which has no failure for a referee to read.
+- `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
+  an arm that differs, but its `refCorrect: false` on a field check refutes nothing, so the arms that matched the
+  reference keep that check and no contradiction is reported. t4's held-out tests are `refFixed`,
+  since passing the plan's own test is never wrong.
+
+t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` from the pinned
+commit and copies in only the files the plan names, so a change the agent leaves anywhere else (a
+`package.json` script, a config) can fail scope but does not reach a gate. That is a tripwire, not
+a sandbox: the gates execute the agent's code, which can write anywhere the scorer can (another
+agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. Running each agent
+and each gate in its own namespace would close that; until then, read the plan's files of every
+agent for `node:fs`, `child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
+agent's own `vitest run` there, with no secrets in the environment. Then the plan's own test file, taken
+from the implementing commit, replaces the agent's version and runs alone, in a second tree
+(`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
+`(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
+each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file before
+the swap: the plan asks for its tests, so the file must exist and run with a test passing and none
+failing. A step that times out (15 minutes) fails its gate; only a missing binary or a failed
+install, which are the harness's, stops `score`. A held-out test can fail on a detail the plan leaves open (run 1: a
+synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
+failure's first line and the paths of the agent's code and of the test as run. Each arm's failure
+is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files that differ from the pinned commit are a
+non-empty subset of the files the plan names. They are found by `git status` with the scorer's own
+repository of the pin as `--git-dir` and the agent's tree as `--work-tree`, never with the agent's
+`.git`: its config could name an `fsmonitor` to run, and its index could hide a change.
+
+Every install, the agents' and the scorer's, copies packages out of the pnpm store
+(`package-import-method=copy`). pnpm's default hardlinks every `node_modules` file to one store
+inode, so an agent writing inside its `node_modules` would change every other agent's tree too.
+Reads are not tracked: an agent could read the `--root` clone or an earlier run's `eval` directory,
+where the plan's test sits. Audit the transcripts for those paths before reporting a run.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,
