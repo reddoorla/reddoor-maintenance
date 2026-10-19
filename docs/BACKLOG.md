@@ -4658,6 +4658,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `OPERATOR_EMAIL` variable to reddoor-workspace's Actions, and read the
         staged `CLAUDE.md`. In the window: paste the setup block, then change
         the Routine's repository and prompt.
+        **Status 2026-10-19 ~13:30Z (a worker, `claude/determined-mendel-ykcemv`):**
+        both cutover drafts carry `main` again, by merge commits, and are still
+        drafts. #1347 merged `main`: `docs/pm-pass.md` stays the
+        stub, the BACKLOG pointer lines sit above the 10-19 re-rank, and
+        `FROZEN` is re-frozen (BACKLOG's digest and the 10-14, 10-15 and 10-19
+        morning reports). Its red `build` was only `moved-files.test.ts` reading
+        main's newer BACKLOG, not a code break. #1342 carries main's one Dropbox
+        bullet (#1388, #1395) as this repo's third cloud rule, because it names
+        this repo's scripts and runbook; the model rule (#1362) and the two-part
+        archive line (#1363) went to the home base instead, on reddoor-workspace
+        `cutover/claude-md` (`09564d5`), with the map's check passing against
+        `4083be93`. Every PM pass edits BACKLOG, so #1347 goes red again on the
+        next one: re-freeze it in the window (runbook step 5), as planned.
 
 122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
       `no-property` or write `soft-fail`?** The brief said the nightly re-check
