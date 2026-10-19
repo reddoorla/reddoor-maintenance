@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
 import {
@@ -21,6 +21,7 @@ import {
   withRenovatePinsFrom,
   RENOVATE_ACTION_CONFIG,
 } from "./sync-configs/renovate-action.js";
+import { readTextIfExists } from "../util/fs.js";
 
 export type SyncConfigsOptions = {
   which?: ConfigName[];
@@ -108,14 +109,6 @@ export function isConfigName(value: string): value is ConfigName {
   return (ALL_CONFIG_NAMES as string[]).includes(value);
 }
 
-async function readMaybe(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
-
 export async function planTemplateDiffs(
   cwd: string,
   templates: ConfigTemplate[],
@@ -128,12 +121,12 @@ export async function planTemplateDiffs(
   // vite.config.ts nor the choice, so with no sveltekit.config.js it writes no
   // config (a second one nothing reads) and no eslint.config.js importing one.
   // A kit spec it cannot read gets neither: either guess breaks one major.
-  const kitConfigPresent = kit3 && (await readMaybe(join(cwd, KIT_CONFIG_PATH))) !== null;
+  const kitConfigPresent = kit3 && (await readTextIfExists(join(cwd, KIT_CONFIG_PATH))) !== null;
   const skipKitFiles = kitMajor === "unreadable" || (kit3 && !kitConfigPresent);
   for (const base of templates) {
     const t = templateForKit(base, kit3 ? kitMajor : null);
     if (skipKitFiles && (t.config === SVELTE_CONFIG || t.config === "eslint")) continue;
-    const existing = await readMaybe(join(cwd, t.path));
+    const existing = await readTextIfExists(join(cwd, t.path));
     if (existing === t.contents) continue;
     // svelte.config is compliance-checked, not exact-matched: an existing config
     // already on the canonical pattern is left alone so its aliases/compilerOptions
@@ -221,7 +214,7 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
   }
   if (kitMajor === null || kitMajor < 3) return [];
   const hazards: KitHazard[] = [];
-  if ((await readMaybe(join(cwd, "svelte.config.js"))) !== null) {
+  if ((await readTextIfExists(join(cwd, "svelte.config.js"))) !== null) {
     hazards.push({
       path: "svelte.config.js",
       configs: [SVELTE_CONFIG],
@@ -231,9 +224,9 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
         `(the starter keeps them in ${KIT_CONFIG_PATH}) and delete it`,
     });
   }
-  const eslint = await readMaybe(join(cwd, "eslint.config.js"));
+  const eslint = await readTextIfExists(join(cwd, "eslint.config.js"));
   if (
-    (await readMaybe(join(cwd, KIT_CONFIG_PATH))) === null &&
+    (await readTextIfExists(join(cwd, KIT_CONFIG_PATH))) === null &&
     eslint !== null &&
     /["']\.\/svelte\.config\.js["']/.test(eslint)
   ) {
@@ -264,7 +257,7 @@ export async function planGitignore(
   cwd: string,
   tracked?: readonly string[],
 ): Promise<GitignorePlan> {
-  const existing = await readMaybe(join(cwd, ".gitignore"));
+  const existing = await readTextIfExists(join(cwd, ".gitignore"));
   const merge = mergeGitignore(existing, CANONICAL_GITIGNORE_ENTRIES);
   tracked ??= await listTrackedFiles(cwd);
   const toUntrack = findTrackedArtifacts(tracked, CANONICAL_GITIGNORE_ENTRIES);

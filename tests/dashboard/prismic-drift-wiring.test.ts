@@ -6,9 +6,9 @@ import {
 } from "../../src/dashboard/fleet-cockpit.js";
 import { collectAttention, runDigest } from "../../src/reports/digest.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
-import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
+import { captureClient } from "../_helpers/resend-client.js";
 
 /** #646 step 4: the digest reads its datasets from Turso, through injected readers;
  *  `collectAttention` takes the rows outright. */
@@ -77,17 +77,6 @@ const siteRecord = (over: Record<string, unknown> = {}): RawRow => ({
     ...over,
   },
 });
-
-function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
-  const captured: ResendSendInput[] = [];
-  const client: ResendClient = {
-    send: async (input: ResendSendInput) => {
-      captured.push(input);
-      return { messageId: "msg_1" };
-    },
-  };
-  return { client, captured };
-}
 
 // The alarm-inversion failure this whole column exists to close is a nightly
 // verdict that reaches the operator NOWHERE. A collector wired into one surface
@@ -225,7 +214,7 @@ describe("prismic drift wiring — the digest", () => {
   // clock.
   it("the drift item actually lands in the operator's digest EMAIL", async () => {
     const records = [siteRecord()];
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_1");
     const result = await runDigest({
       digestState: memoryDigestState(),
       ...io(records),
@@ -247,7 +236,7 @@ describe("prismic drift wiring — the digest", () => {
         "Prismic Models Drift": "write token rejected (403)",
       }),
     ];
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_1");
     await runDigest({
       digestState: memoryDigestState(),
       ...io(records),
@@ -264,7 +253,7 @@ describe("prismic drift wiring — the digest", () => {
 
   it("a clean fleet still skips — the collector adds no noise of its own", async () => {
     const records = [siteRecord({ "Prismic Models": "pass", "Prismic Models Drift": undefined })];
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_1");
     // `now: NOW` is load-bearing, not decoration. The fixture's "Prismic Models Checked At"
     // is FRESH (2026-08-12T06:00Z); a `pass` older than PRISMIC_STALE_PASS_DAYS (7) raises
     // prismic-stale, which makes the digest SEND instead of skip. Omitting `now` ran this

@@ -517,17 +517,23 @@ export function analyticsEnrolled(row: WebsiteRow): boolean {
  *
  * When the Search Console API errors it logs a one-line warning and returns `softFailed: true`.
  * Never throws, so a search problem can never block a draft.
+ *
+ * `quiet` drops the three ⚑ advice lines (no credentials, no property, default query
+ * missed) for a caller that reports the outcome itself: `search-console-recheck` prints
+ * its own line per site, and its no-property control is meant to match nothing (#1340).
+ * The ⚠ soft-fail line still prints, because it carries the error and the outcome does not.
  */
 export async function fetchSearch(
   siteRow: WebsiteRow,
   periodStart: Date,
   periodEnd: Date,
+  opts: { quiet?: boolean } = {},
 ): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
   const enrolled = searchEnrolled(siteRow);
   if (!cfg || !enrolled) {
     const notConfigured = enrolled && !cfg;
-    if (notConfigured) {
+    if (notConfigured && !opts.quiet) {
       console.warn(
         `⚑ Search: no GA/Search Console credentials in this environment (GA_SUBJECT unset) — the Google Indexed check could not run for ${siteRow.name}.`,
       );
@@ -556,13 +562,13 @@ export async function fetchSearch(
       periodEnd,
     );
     const propertyMissing = !value.propertyFound;
-    if (propertyMissing) {
+    if (propertyMissing && !opts.quiet) {
       console.warn(
         `⚑ Search: no Search Console property matched ${siteRow.url} for ${siteRow.name} — verify the domain property exists and the service account has access. (A "Search query" change cannot fix this.)`,
       );
     }
     const defaultQueryMissed = value.propertyFound && usedDefault && value.position === null;
-    if (defaultQueryMissed) {
+    if (defaultQueryMissed && !opts.quiet) {
       console.warn(
         `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit search query on the site to track brand presence.`,
       );

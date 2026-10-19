@@ -13,6 +13,12 @@ import { searchConsoleLookupFields } from "../../src/fleet/site-fields.js";
 import { assignTier } from "../../src/dashboard/fleet-cockpit.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
+// #1341: the real-lookup block below runs the command's default `search`, which
+// is the draft's own `fetchSearch`. Only the Google call is mocked; every other
+// test injects `search`, so this mock never reaches them.
+vi.mock("../../src/reports/search/client.js", () => ({ fetchSearchPresence: vi.fn() }));
+import { fetchSearchPresence } from "../../src/reports/search/client.js";
+
 const NOW = new Date("2026-10-14T03:00:00.000Z");
 const STALE = "2026-10-05T09:00:00.000Z";
 
@@ -143,6 +149,10 @@ describe("runSearchConsoleRecheckCommand", () => {
       row("ok", { searchConsoleOutcome: "resolved" }),
       row("unknown", { searchConsoleOutcome: "soft-fail" }),
       row("blank", { searchConsoleOutcome: null, searchConsoleCheckedAt: null }),
+      // #1341: the cockpit raises no watch for an unstamped no-property row, so
+      // the re-check must not stamp one into existence.
+      row("unstamped", { searchConsoleCheckedAt: null }),
+      row("garbled", { searchConsoleCheckedAt: "not a date" }),
       row("building", { status: "building" }),
       row("hosted", { status: "hosted-only" }),
       row("archived", { status: "archived" }),
@@ -217,6 +227,17 @@ describe("runSearchConsoleRecheckCommand", () => {
     expect(r.output).toContain("::error::search-console-recheck: no-property control");
   });
 
+  it("names the key file as the likeliest cause when the control soft-fails (#1340)", async () => {
+    const lahi = row("lahi");
+    const search = async (site: WebsiteRow) =>
+      site.url === NO_PROPERTY_CONTROL_URL ? SOFT_FAIL : resolvedAs("x");
+    const r = await runSearchConsoleRecheckCommand(
+      { fleet: true, writeBack: true },
+      deps([lahi], {}, { search }),
+    );
+    expect(r.output).toMatch(/read soft-fail.*GA_SA_KEY_PATH.*GA_SA_KEY_JSON/);
+  });
+
   it("runs the control through the target's own lookup path, with no pinned property", async () => {
     const seen: WebsiteRow[] = [];
     const lahi = row("lahi", {
@@ -267,6 +288,56 @@ describe("runSearchConsoleRecheckCommand", () => {
     );
     expect(throwing.code).toBe(1);
     expect(throwing.output).toContain("mirrored=0 mirror_failed=1");
+  });
+});
+
+describe("search-console-recheck through the draft's real fetchSearch (#1341, #1340)", () => {
+  const env = { ...process.env };
+  afterEach(() => {
+    process.env = { ...env };
+    vi.mocked(fetchSearchPresence).mockReset();
+  });
+
+  const NOT_FOUND = { foundOnPage1: false, position: null, propertyFound: false };
+
+  async function runReal(roster: WebsiteRow[]) {
+    process.env.GA_SUBJECT = "reports@reddoorla.example";
+    process.env.GA_SA_KEY_PATH = "/nonexistent/ga-service-account.json";
+    const writes: Write[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await runSearchConsoleRecheckCommand(
+      { fleet: true, writeBack: true },
+      { roster: async () => roster, makeMirror: recordingMirror(writes), now: () => NOW },
+    );
+    return { r, writes, warned: warn.mock.calls.map((c) => String(c[0])) };
+  }
+
+  it("the control reaches the Google lookup for its impossible host", async () => {
+    vi.mocked(fetchSearchPresence).mockResolvedValue(NOT_FOUND);
+    const lahi = row("lahi");
+    const { r, writes } = await runReal([lahi]);
+    const hosts = vi.mocked(fetchSearchPresence).mock.calls.map((c) => c[0].host);
+    expect(hosts).toEqual([NO_PROPERTY_CONTROL_URL, lahi.url]);
+    expect(r.code).toBe(0);
+    expect(Object.keys(byId(writes))).toEqual(["lahi"]);
+  });
+
+  it("prints each still-missing site once, and never tells the log to fix the control", async () => {
+    vi.mocked(fetchSearchPresence).mockResolvedValue(NOT_FOUND);
+    const lahi = row("lahi");
+    const { r, warned } = await runReal([lahi]);
+    expect(r.output).toContain(`::warning::search-console-recheck: lahi ${lahi.url} no-property`);
+    expect(warned.filter((w) => w.includes("no Search Console property matched"))).toEqual([]);
+  });
+
+  it("still logs why a lookup soft-failed, which the command's own line does not carry", async () => {
+    vi.mocked(fetchSearchPresence)
+      .mockResolvedValueOnce(NOT_FOUND)
+      .mockRejectedValueOnce(new Error("quota exceeded"));
+    const lahi = row("lahi");
+    const { r, warned } = await runReal([lahi]);
+    expect(r.output).toContain(`::warning::search-console-recheck: lahi ${lahi.url} soft-fail`);
+    expect(warned.some((w) => w.includes("quota exceeded"))).toBe(true);
   });
 });
 
