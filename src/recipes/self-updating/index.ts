@@ -252,18 +252,21 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         );
       });
     if (!existingContexts.includes(REQUIRED_CHECK)) {
-      // protectBranch issues a full PUT that REPLACES required-status-check contexts.
-      // Send the UNION of the branch's existing required contexts + our REQUIRED_CHECK
-      // so we ADD the CI gate without silently dropping any other checks the repo
-      // already requires. (When the branch has no protection yet, existingContexts is
-      // [] and this is just [REQUIRED_CHECK] — the original behavior.) Dedupe defends
-      // against REQUIRED_CHECK already appearing among the existing contexts.
+      // protectBranch issues a full PUT that REPLACES the whole protection object,
+      // so it reads the existing object itself and carries every field forward
+      // (reviews, restrictions, enforce_admins, the flags, existing checks with
+      // their app bindings), adding only the checks named here (#998). Its own
+      // read fails closed like the one above. The union below is belt and braces:
+      // protectBranch would keep the existing contexts anyway. (When the branch
+      // has no protection yet, this is just [REQUIRED_CHECK] on a fresh object.)
       const contexts = [...new Set([...existingContexts, REQUIRED_CHECK])];
       await github.protectBranch(repo, base, contexts);
       actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
     }
     // Ruleset ensure — the layer that binds ADMINS. Classic protection above
-    // keeps `enforce_admins: false`, which is exactly the hole the 2026-07-26
+    // carries forward whatever `enforce_admins` the branch already has (only a
+    // branch with no protection at all gets `true`), and the fleet's hand-set
+    // classic protection had `enforce_admins: false`: exactly the hole the 2026-07-26
     // bulk `gh pr merge --auto` sweep walked through (two unreviewed MAJORS
     // merged). The 2026-08-01 audit then found the six NEWEST repos with no
     // ruleset at all — every hand-applied sweep regrows its gap at the next
