@@ -5140,6 +5140,8 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       **Answered 2026-10-19 (AskUserQuestion): (a), the 19 items only.**
       Blux retirement and the workflow composite action stay out of this
       session.
+      **Done 2026-10-19:** all 19 items landed or closed (#1427–#1494, 24
+      issues closed); journal `docs/journal/2026-10-19-2044-maintenance-cleanup.md`.
 
 133.  **P1-63, bake-off tripwire minors: land #1444 after five review rounds,
       or hold it (new 2026-10-19, branch `claude/p1-63-tripwire-minors`,
