@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
-import {
-  realpathSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  statSync,
-} from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { realRunner } from "./land-prs.mjs";
+import { isMain } from "./lib/cli.mjs";
 
 export const STATUSES = ["open", "answered", "parked", "withdrawn"];
 export const FIELDS = ["status", "asked", "from", "refs"];
@@ -779,14 +772,7 @@ async function main() {
   if (!rep.ok) process.exitCode = 1;
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`decisions: ${e?.message ?? e}\n`);
     process.exitCode = 1;
