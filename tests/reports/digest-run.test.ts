@@ -453,20 +453,6 @@ describe("runDigest", () => {
     expect(captured[0]!.to).toEqual([OPERATOR_FALLBACK]);
   });
 
-  // ── error contract ──────────────────────────────────────────────────────────
-
-  it("returns code 1 and a tidy message when resend.send rejects", async () => {
-    const tables = { Reports: [readyReport()], Websites: [siteRow()] };
-    const result = await runDigest({
-      digestState: memoryDigestState(),
-      ...io(tables),
-      resend: rejectClient("network error"),
-      baseUrl: "https://reddoor-maintenance.netlify.app",
-    });
-    expect(result.code).toBe(1);
-    expect(result.output).toBe("digest failed: network error");
-  });
-
   // ── idempotency-conflict graceful skip ───────────────────────────────────────
 
   it("treats a same-day Resend idempotency-conflict as a graceful skip (code 0), not a failure", async () => {
@@ -534,7 +520,7 @@ describe("runDigest", () => {
     ).rejects.toThrow("missing RESEND_API_KEY");
   });
 
-  it("returns {code:1} for a plain Error with no exitCode (runtime errors are swallowed)", async () => {
+  it("returns {code:1} and a tidy message when resend.send rejects with a plain Error (no exitCode: swallowed)", async () => {
     const tables = { Reports: [readyReport()], Websites: [siteRow()] };
     const result = await runDigest({
       digestState: memoryDigestState(),
