@@ -77,7 +77,7 @@ export function heredocs(command) {
   const bodies = [];
   const text = command.replace(HEREDOC, (m, q, _word, _rest, body, offset, whole) => {
     const lineStart = whole.lastIndexOf("\n", offset - 1) + 1;
-    const expands = q === "" && !m.slice(0, m.indexOf("\n")).includes("\\");
+    const expands = q === "" && !/^<<-?[ \t]*\\/.test(m);
     bodies.push({
       opener: whole.slice(lineStart, offset) + m.slice(0, m.indexOf("\n")),
       body,
@@ -153,7 +153,7 @@ export function lex(text) {
   const endSegment = (sep = "$(") => {
     endToken();
     if (tokens.length) {
-      Object.defineProperty(tokens, "piped", { value: /^\|&?$/.test(between) });
+      Object.defineProperty(tokens, "piped", { value: /^(\)|[;&]?})?\|&?$/.test(between) });
       segs.push(tokens);
       between = "";
     }
@@ -186,6 +186,11 @@ export function lex(text) {
     } else if (ch === "$" && text[i + 1] === "(") {
       endSegment();
       i++;
+    } else if (
+      (ch === "{" || ch === "}") &&
+      (cur !== null || (ch === "{" && /\S/.test(text[i + 1] ?? " ")))
+    ) {
+      cur = (cur ?? "") + ch;
     } else if (SEPARATORS.has(ch)) {
       endSegment(ch === "\n" ? "" : ch);
     } else if (/\s/.test(ch)) {
@@ -243,7 +248,7 @@ export function commandOf(tokens) {
   return null;
 }
 
-function gitWrites(args) {
+function gitWrites(args, depth) {
   let j = 0;
   while (j < args.length && args[j].startsWith("-")) j += GIT_VALUE_OPTIONS.has(args[j]) ? 2 : 1;
   const sub = args[j];
@@ -271,7 +276,6 @@ function gitWrites(args) {
         "--no-contains",
         "--merged",
         "--no-merged",
-        "--sort",
         "--points-at",
         "-v",
         "--verify",
@@ -310,8 +314,6 @@ function gitWrites(args) {
         "--no-merged",
         "--points-at",
         "--show-current",
-        "--sort",
-        "--format",
       ) &&
         rest.some((a) => !a.startsWith("-")))
     );
@@ -329,7 +331,19 @@ function gitWrites(args) {
       )
     )
       return true;
-    if (has("--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list")) return false;
+    if (
+      has(
+        "--get",
+        "--get-all",
+        "--get-regexp",
+        "--get-urlmatch",
+        "--get-color",
+        "--get-colorbool",
+        "-l",
+        "--list",
+      )
+    )
+      return false;
     const valueOptions = ["-f", "--file", "--blob", "--type", "--default", "--comment"];
     const words = [];
     for (let k = 0; k < rest.length; k++) {
@@ -345,6 +359,7 @@ function gitWrites(args) {
   if (sub === "worktree") return rest[0] !== "list";
   if (sub === "remote") {
     const op = firstWord();
+    if (op === "prune" && rest.some((a) => a === "-n" || a === "--dry-run")) return false;
     return op !== undefined && !["show", "get-url"].includes(op);
   }
   if (sub === "notes") {
@@ -353,6 +368,14 @@ function gitWrites(args) {
   }
   if (sub === "submodule") {
     const op = firstWord();
+    if (op === "foreach")
+      return forbiddenCommand(
+        rest
+          .slice(rest.indexOf(op) + 1)
+          .filter((a) => !a.startsWith("-"))
+          .join(" "),
+        depth + 1,
+      );
     return op !== undefined && !["status", "summary"].includes(op);
   }
   return true;
@@ -458,7 +481,7 @@ function segmentForbidden(tokens, previous, depth) {
   const c = commandOf(tokens);
   if (!c) return false;
   if (c.name === "gh") return true;
-  if (c.name === "git" && gitWrites(c.args)) return true;
+  if (c.name === "git" && gitWrites(c.args, depth)) return true;
   if (c.name === "curl" && curlWrites(c.args)) return true;
   if (c.name === "wget" && wgetWrites(c.args)) return true;
   if (c.name === "eval" && forbiddenCommand(c.args.join(" "), depth + 1)) return true;
@@ -468,8 +491,9 @@ function segmentForbidden(tokens, previous, depth) {
   if (SHELLS.has(c.name)) {
     const body = shellBody(c.args);
     if (body && forbiddenCommand(body, depth + 1)) return true;
-    const herestring = c.args.indexOf("<<<");
-    if (herestring !== -1 && forbiddenCommand(c.args[herestring + 1] || "", depth + 1)) return true;
+    const k = c.args.findIndex((a) => a.startsWith("<<<"));
+    const fed = k === -1 ? null : c.args[k].slice(3) || c.args[k + 1] || "";
+    if (fed && forbiddenCommand(fed, depth + 1)) return true;
     if (!body && tokens.piped && previous && readsStdin(c.args)) {
       const feeder = commandOf(previous);
       if (feeder && ["echo", "printf"].includes(feeder.name)) {

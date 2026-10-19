@@ -329,6 +329,17 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     "$(which gh) api x",
     '"$(command -v gh)" api x',
     "`which git` push",
+    "git branch --sort=-committerdate b3",
+    "git branch --format='%(refname:short)' newb",
+    "git tag --sort=version:refname v9",
+    "find . -name '*.md' -exec grep -q TODO {} \\; -exec git add {} \\;",
+    "find . -exec grep -q x {} ';' -exec gh api {} ';'",
+    "cat <<EOF | sed 's/\\./-/g'\n$(gh api x)\nEOF",
+    "cat <<EOF > a.txt # note \\ here\n`gh api x`\nEOF",
+    "sh <<<'git push'",
+    'sh <<<"gh api x"',
+    "(echo 'git push') | sh",
+    "{ echo 'git push'; } | sh",
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -385,6 +396,13 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     "wget -q -O - https://example.com",
     "$(which node) -v",
     "which gh",
+    "git submodule foreach 'git log -1'",
+    "git remote prune --dry-run origin",
+    "git remote prune -n origin",
+    "git config --get-color color.diff.new blue",
+    "git tag --sort=-creatordate",
+    "echo ${HOME}",
+    "(echo 'git log') | sh",
   ])("lets the read %s through", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(false);
   });
