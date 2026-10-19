@@ -1,0 +1,377 @@
+{
+  "date": "2026-10-19",
+  "task": "t4-plan-task",
+  "row": 1,
+  "pinnedCommit": "67d27a5eb8a6091d03350006fff8fe4fe54e6782",
+  "implementingCommit": "8644d8c2c96a40e39d4d76c097af1f6bb3f5d049",
+  "planSource": "reddoorla/roalson-interests#253's description, written beside the code, not before it: roalson-interests has no committed plans",
+  "checksPerRun": 32,
+  "proof": {
+    "run": "proof4, final scorer",
+    "truthVsTruth": "32/32",
+    "knownGood": "32/32 (gold and good: the implementing commit's four files on the pin)",
+    "perturbed": {
+      "noop": "20/32: own-tests, scope, and 10 tests that never ran (mechanical)",
+      "extra": "31/32: scope (tests/interaction/hover-activate.spec.ts)",
+      "penGuard": "29/32: suite, own-tests, and 'ignores touch and pen' (refereed)",
+      "misformatted": "31/32: lint",
+      "attack": "30/32: typecheck and scope (package.json check script set to true and hidden with assume-unchanged in the agent's own .git, an fsmonitor hook in its .git/config, a type error); the hook did not run",
+      "notests": "30/32: own-tests, and suite (the regenerated capability index still counts the deleted test file)"
+    }
+  },
+  "transcriptAudit": "No agent read or named the --root clone, the implementing commit, an eval dir, t4.json or another arm's work dir, fetched anything, or edited .git. opus-xhigh-1 wrote and deleted node_modules/.probe-tmp.mjs (a new file, not a shared inode). No agent's plan files use node:fs, child_process, process.env or vitest internals. Monitor was used three times, each a read-only wait on a background vitest run.",
+  "runs": [
+    {
+      "run": "run1",
+      "workflowRuns": {
+        "extract": "wf_596c0d74-80d",
+        "referee": ["wf_9b365958-b41", "wf_cfb4d47c-5ac", "wf_9070a762-059"]
+      },
+      "problems": [
+        "sonnet-medium-1: used tools outside the allowlist: Monitor",
+        "opus-low-1: used tools outside the allowlist: Monitor"
+      ],
+      "disagreements": 3,
+      "unruled": 0,
+      "referenceErrors": [],
+      "arms": [
+        {
+          "id": "gold",
+          "asked": "opus @ high",
+          "ran": "claude-opus-5-5 @ high",
+          "score": "32/32",
+          "cost": 1.0310966000000001,
+          "requests": 20,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "9/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "haiku-medium-1",
+          "asked": "haiku @ medium",
+          "ran": "claude-haiku-5-5 @ medium",
+          "score": "32/32",
+          "cost": 0.053824555,
+          "requests": 14,
+          "longPrompt": 5,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "sonnet-medium-1",
+          "asked": "sonnet @ medium",
+          "ran": "claude-sonnet-5-5 @ medium",
+          "score": "32/32",
+          "cost": 0.3976805,
+          "requests": 11,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "9/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "opus-low-1",
+          "asked": "opus @ low",
+          "ran": "claude-opus-5-5 @ low",
+          "score": "32/32",
+          "cost": 0.3943366,
+          "requests": 8,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "opus-xhigh-1",
+          "asked": "opus @ xhigh",
+          "ran": "claude-opus-5-5 @ xhigh",
+          "score": "32/32",
+          "cost": 1.4960372000000002,
+          "requests": 32,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "9/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        }
+      ],
+      "refereeCost": 1.4363188,
+      "rulings": [
+        {
+          "round": "r1-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: assertionerror: expected \"vi.fn()\" to not be called at all, but actually been called 1 times. the agent's code is /home/user/bakeoff/run1/work/go",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Gold's onLeave does cancel the dwell on pointerleave, but only when pointerType === \"mouse\". The test dispatches a bare MouseEvent(\"pointerleave\"), which has no pointerType, so the handler returns early and the timer fires. In a browser, a mouse's pointerleave carries pointerType \"mouse\", and the plan says the action \"only accepts pointerType === 'mouse'\", so the filter is a reasonable reading of an open detail. Cancelling on every pointerleave (what the test demands) is also consistent with the plan, so both sides are correct."
+        },
+        {
+          "round": "r1-1",
+          "id": "tests hoverActivate asks for a fine hovering pointer at the given width / result :: failed: assertionerror: expected [] to include '(hover: hover) and (pointer: fine) an\u2026'. the agent's code is /home/user/bakeoff/run1/work/sonnet-medium-1/re",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Sonnet's allowed() asks matchMedia with exactly `${FINE_HOVER} and (min-width: ${minWidth}px)`, which is the string the plan requires. It asks lazily, on each pointer event and on update, not when the action is created, so a test that creates the action and checks right away records no query. The plan fixes the query string but not when it is asked. The code also always attaches listeners and gates each one with the query; the plan's 'listens only when \u2026 matches' is met in effect, though not literally. A test that also asks at creation is stricter, not opposite, so REFERENCE is correct too. This ruling is closer than the other two."
+        },
+        {
+          "round": "r1-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: assertionerror: expected \"vi.fn()\" to not be called at all, but actually been called 1 times. the agent's code is /home/user/bakeoff/run1/work/op",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "This is the same pattern as gold. opus-xhigh-1's onleave calls disarm() only when event.pointerType === \"mouse\", and the test's bare MouseEvent(\"pointerleave\") has an undefined pointerType, so the dwell is not dropped. A real mouse pointerleave would cancel it, as the plan asks. Filtering by pointerType is an open detail the plan arguably invites, and the stricter test does not contradict the plan."
+        },
+        {
+          "round": "r2-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: assertionerror: expected \"vi.fn()\" to not be called at all, but actually been called 1 times. the agent's code is /home/user/bakeoff/run1/eval/go",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Both correct. Gold's onLeave returns early unless pointerType === 'mouse'. The test sends `new MouseEvent('pointerleave')`, which has no pointerType (undefined), so the dwell is not cancelled. In a browser, the mouse that started the dwell sends a pointerleave with pointerType 'mouse', and gold cancels it, as the plan asks. The plan also says the action 'only accepts pointerType === \"mouse\"', so filtering the leave event is a defensible reading. Whether an untyped or non-mouse leave must cancel is a detail the plan leaves open. The test, which wants any leave to cancel, does not contradict the plan, so a passing implementation is also right."
+        },
+        {
+          "round": "r2-1",
+          "id": "tests hoverActivate asks for a fine hovering pointer at the given width / result :: failed: assertionerror: expected [] to include '(hover: hover) and (pointer: fine) an\u2026'. the agent's code is /home/user/bakeoff/run1/eval/sonnet-medium-1/tr",
+          "armCorrect": false,
+          "refCorrect": true,
+          "note": "ARM is wrong. The plan says 'The action listens only when (hover: hover) and (pointer: fine) matches and the width is at least lg', which means the query decides whether listeners are attached. Sonnet calls attach() unconditionally at creation and calls matchMedia only lazily, inside allowed(), on a pointer event or an update. A freshly created action therefore never asks the query, so `queries` is []. The query string itself is correct, but the gate the plan names is missing. Asking at mount does not contradict the plan, so REFERENCE is correct."
+        },
+        {
+          "round": "r2-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: assertionerror: expected \"vi.fn()\" to not be called at all, but actually been called 1 times. the agent's code is /home/user/bakeoff/run1/eval/op",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Both correct, for the same reason as gold. opus-xhigh-1's onleave returns unless event.pointerType === 'mouse', and the test's synthetic `new MouseEvent('pointerleave')` has pointerType undefined, so disarm() is skipped. A real mouse leave sends pointerType 'mouse' and does drop the dwell, which is what the plan asks. Applying the plan's 'only accepts pointerType === \"mouse\"' to the leave event is a reading the plan leaves open. The test's stricter demand does not contradict the plan."
+        },
+        {
+          "round": "r3-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times [gold]",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "The test sends `new MouseEvent(\"pointerleave\")`, and in jsdom its pointerType is undefined (I checked this). Gold's onLeave returns early unless pointerType is \"mouse\", so the dwell still fires and the failure is real. The plan says pointerleave drops a pending dwell and that the action accepts only mouse pointer events. It does not say whether the mouse-only filter also covers pointerleave. Gold cancels on a real mouse leave, which is what the plan asks for. Passing the test does not contradict the plan either, so both sides are correct."
+        },
+        {
+          "round": "r3-1",
+          "id": "tests hoverActivate asks for a fine hovering pointer at the given width / result :: failed: AssertionError: expected [] to include '(hover: hover) and (pointer: fine) an\u2026' [sonnet-medium-1]",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Sonnet asks window.matchMedia for exactly the string the plan gives, `${FINE_HOVER} and (min-width: ${minWidth}px)`, but only inside allowed(). That runs on each pointer event and on update, not when the action is created. The listeners are always attached and each event is checked against the query, so in practice it acts only while the query matches. The test expects the query at creation time. The plan does not say when the query is asked, so ARM is correct. Passing the test is also consistent with the plan, so REFERENCE is correct as well."
+        },
+        {
+          "round": "r3-1",
+          "id": "tests hoverActivate drops a pending dwell when the pointer leaves the list / result :: failed: AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times [opus-xhigh-1]",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "This is the same mechanism as gold. opus-xhigh's onleave returns early unless pointerType is \"mouse\", and the test's MouseEvent has no pointerType in jsdom, so the dwell is not dropped. A real mouse pointerleave does drop it, as the plan asks. Whether the plan's mouse-only rule applies to pointerleave is left open, so ARM is correct. A pass would not contradict the plan either, so REFERENCE is correct too."
+        }
+      ]
+    },
+    {
+      "run": "run2",
+      "workflowRuns": {
+        "extract": "wf_103ff163-073",
+        "referee": ["wf_e51089b9-652", "wf_fe5c89f8-55f"]
+      },
+      "problems": ["opus-low-2: used tools outside the allowlist: Monitor"],
+      "disagreements": 1,
+      "unruled": 0,
+      "referenceErrors": [],
+      "arms": [
+        {
+          "id": "gold",
+          "asked": "opus @ high",
+          "ran": "claude-opus-5-5 @ high",
+          "score": "32/32",
+          "cost": 1.0459867999999999,
+          "requests": 20,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "haiku-medium-2",
+          "asked": "haiku @ medium",
+          "ran": "claude-haiku-5-5 @ medium",
+          "score": "32/32",
+          "cost": 0.097117765,
+          "requests": 18,
+          "longPrompt": 12,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "sonnet-medium-2",
+          "asked": "sonnet @ medium",
+          "ran": "claude-sonnet-5-5 @ medium",
+          "score": "32/32",
+          "cost": 0.32054879999999997,
+          "requests": 7,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "9/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "opus-low-2",
+          "asked": "opus @ low",
+          "ran": "claude-opus-5-5 @ low",
+          "score": "32/32",
+          "cost": 0.4527596,
+          "requests": 11,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        },
+        {
+          "id": "opus-xhigh-2",
+          "asked": "opus @ xhigh",
+          "ran": "claude-opus-5-5 @ xhigh",
+          "score": "32/32",
+          "cost": 1.8458486000000005,
+          "requests": 38,
+          "longPrompt": 0,
+          "errors": [],
+          "heldOutStrict": "10/10",
+          "gates": {
+            "typecheck": true,
+            "lint": true,
+            "suite": true,
+            "own-tests": true,
+            "scope": true
+          },
+          "changed": [
+            "docs/COMPONENTS.md",
+            "src/lib/actions/hoverActivate.test.ts",
+            "src/lib/actions/hoverActivate.ts",
+            "src/lib/components/PropertyListing.svelte"
+          ]
+        }
+      ],
+      "refereeCost": 0.706556,
+      "rulings": [
+        {
+          "round": "r1-1",
+          "id": "tests hoverActivate asks for a fine hovering pointer at the given width / result",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "Both sides are right. The agent's hoverActivate.ts builds exactly `${FINE_HOVER} and (min-width: ${minWidth}px)`, which is what plan.md specifies. It asks matchMedia lazily, inside active(), which runs only on a pointer event or an update(), and it ignores mouse events while the query fails. The held-out test asks nothing of the action after mounting, so `queries` is still [] when it checks. That explains the failure. plan.md fixes the query string but not when it must be asked. 'Listens only when ... matches' is also met by checking the query on each event. So the failure comes from a detail the plan leaves open. An implementation that asks at mount, and so passes, also complies, because the test does not demand the opposite of the plan."
+        },
+        {
+          "round": "r2-1",
+          "id": "tests hoverActivate asks for a fine hovering pointer at the given width / result :: failed: AssertionError: expected [] to include '(hover: hover) and (pointer: fine) an\u2026' [sonnet-medium-2]",
+          "armCorrect": true,
+          "refCorrect": true,
+          "note": "The agent's code builds exactly the string `${FINE_HOVER} and (min-width: ${minWidth}px)` that plan.md requires. It just doesn't call matchMedia until the first pointer event or an update(). The test creates the action and dispatches no event, so `queries` stays [] and the test fails. Plan.md fixes the query string but never says when it must be asked. ('Listens only when ... matches' at most hints at a check on mount.) Behaviourally the gate works: the media-query-false test passes. So the failure comes from a timing detail the plan leaves open, and ARM is correct. Checking the query on mount is consistent with the plan too, so an implementation that passes this test is also correct, and REFERENCE stands."
+        }
+      ]
+    }
+  ]
+}
