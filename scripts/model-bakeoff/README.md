@@ -16,6 +16,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                          |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its arm, what ran, its structured output, any forbidden command               |
 | `tasks/*.mjs`                                 | One file per task type                                                                                       |
+| `results/*.json`                              | One file per measured run: scores, what ran, and cost per arm, as posted to workspace#1                      |
 
 ## The recipe
 

@@ -111,11 +111,18 @@ export function finalScores(checksByArm, rulings = {}) {
   const per = {};
   const referenceErrors = [];
   const seenRefError = new Set();
+  const refWrong = new Set();
+  for (const checks of Object.values(checksByArm)) {
+    for (const c of checks) {
+      const r = c.ok || c.armRaw === MISSING ? undefined : rulings[disagreementId(c)];
+      if (r && r.refCorrect === false) refWrong.add(c.check);
+    }
+  }
   for (const [arm, checks] of Object.entries(checksByArm)) {
     const p = { total: 0, correct: 0, unruled: 0, byField: {}, errors: [] };
     for (const c of checks) {
-      let ok = c.ok;
-      if (!ok) {
+      let ok = c.ok && !refWrong.has(c.check);
+      if (!c.ok) {
         const r = c.armRaw === MISSING ? undefined : rulings[disagreementId(c)];
         if (r === undefined && c.armRaw !== MISSING) p.unruled++;
         ok = r ? r.armCorrect === true : false;

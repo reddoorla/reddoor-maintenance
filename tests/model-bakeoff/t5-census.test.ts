@@ -41,6 +41,11 @@ describe("t5-census truth", () => {
     expect(workflowFacts("y.yml", "on: push\njobs:\n  a: {}\n").triggers).toEqual(["push"]);
   });
 
+  it('counts a bare "node:" literal, as the 2026-10-19 referee ruled', () => {
+    const text = 'if (!s.startsWith("node:")) {}\n// node: builtins pass\n';
+    expect(scriptFacts("c.mjs", text).nodeImports).toEqual(["node:"]);
+  });
+
   it("counts newlines, the shebang, node: literals and `gh api`", () => {
     const text =
       '#!/usr/bin/env node\nimport fs from "node:fs";\nconst p = await import(`node:path`);\n// gh api repos\n';

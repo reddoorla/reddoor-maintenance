@@ -119,6 +119,17 @@ describe("disagreements and rulings", () => {
     ]);
   });
 
+  it("fails an arm that agrees with a reference the referee ruled wrong", () => {
+    const withAgreer = { ...checksByArm, w: scoreRun(spec, ref, ref) };
+    const [crons] = groupDisagreements(withAgreer);
+    const rulings = {
+      [crons!.id]: { id: crons!.id, armCorrect: true, refCorrect: false },
+    };
+    const { per } = finalScores(withAgreer, rulings);
+    expect(per.w).toMatchObject({ total: 4, correct: 3 });
+    expect(per.w!.errors.map((e) => e.check)).toEqual(["workflows a.yml / crons"]);
+  });
+
   it("never credits a missing value, whatever a ruling says", () => {
     const missing = scoreRun(spec, ref, { workflows: [] });
     const id = `workflows a.yml / jobs :: ${MISSING}`;

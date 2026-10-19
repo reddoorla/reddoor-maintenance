@@ -1,0 +1,220 @@
+{
+  "date": "2026-10-19",
+  "task": "t5-census",
+  "row": 4,
+  "inputCommit": "4083be934b2676630fa57483dac69ad635042a71",
+  "files": 38,
+  "checksPerRun": 188,
+  "workflowRuns": ["wf_e5761827-0f0", "wf_2bd845fe-567"],
+  "reference": "script truth",
+  "problems": [],
+  "disagreements": 1,
+  "unruled": 0,
+  "referenceErrors": [
+    {
+      "check": "scripts central-dep-blocker.mjs / nodeImports",
+      "reference": "[]",
+      "note": "Line 42 contains the quoted string literal \"node:\" (in specifier.startsWith(\"node:\")). The task asks for every quoted string literal that starts with `node:`, so it counts. The only other occurrence, on line 40, is inside a comment and is not quoted. So the answer is [\"node:\"], not []."
+    }
+  ],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ high",
+      "ran": "claude-opus-5-5 @ high",
+      "score": "188/188",
+      "cost": 0.8090924,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-low-1",
+      "asked": "haiku @ low",
+      "ran": "claude-haiku-5-5 @ low",
+      "score": "188/188",
+      "cost": 0.017633305000000002,
+      "requests": 6,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-low-2",
+      "asked": "haiku @ low",
+      "ran": "claude-haiku-5-5 @ low",
+      "score": "188/188",
+      "cost": 0.01297797,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-medium-1",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "188/188",
+      "cost": 0.015548305,
+      "requests": 8,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-medium-2",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "187/188",
+      "cost": 0.012674595,
+      "requests": 6,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "scripts central-dep-blocker.mjs / nodeImports",
+          "got": "[]",
+          "expected": "[]"
+        }
+      ]
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "188/188",
+      "cost": 0.29738929999999997,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "188/188",
+      "cost": 0.2318362,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "188/188",
+      "cost": 0.3589368,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "188/188",
+      "cost": 0.35329520000000003,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    }
+  ],
+  "agents": {
+    "opus-low-2": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "repeatsDropped": 2,
+      "cost": 0.35329520000000003,
+      "longPrompt": 0,
+      "bashCommands": 3,
+      "forbidden": []
+    },
+    "sonnet-medium-2": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 5,
+      "repeatsDropped": 4,
+      "cost": 0.2318362,
+      "longPrompt": 0,
+      "bashCommands": 4,
+      "forbidden": []
+    },
+    "haiku-low-2": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 7,
+      "repeatsDropped": 6,
+      "cost": 0.01297797,
+      "longPrompt": 0,
+      "bashCommands": 6,
+      "forbidden": []
+    },
+    "haiku-medium-2": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 6,
+      "repeatsDropped": 7,
+      "cost": 0.012674595,
+      "longPrompt": 0,
+      "bashCommands": 5,
+      "forbidden": []
+    },
+    "gold": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 7,
+      "repeatsDropped": 10,
+      "cost": 0.8090924,
+      "longPrompt": 0,
+      "bashCommands": 9,
+      "forbidden": []
+    },
+    "sonnet-medium-1": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 4,
+      "repeatsDropped": 4,
+      "cost": 0.29738929999999997,
+      "longPrompt": 0,
+      "bashCommands": 3,
+      "forbidden": []
+    },
+    "haiku-low-1": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 6,
+      "repeatsDropped": 5,
+      "cost": 0.017633305000000002,
+      "longPrompt": 0,
+      "bashCommands": 4,
+      "forbidden": []
+    },
+    "opus-low-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "repeatsDropped": 2,
+      "cost": 0.3589368,
+      "longPrompt": 0,
+      "bashCommands": 4,
+      "forbidden": []
+    },
+    "haiku-medium-1": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 8,
+      "repeatsDropped": 8,
+      "cost": 0.015548305,
+      "longPrompt": 0,
+      "bashCommands": 7,
+      "forbidden": []
+    },
+    "referee:1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 2,
+      "repeatsDropped": 1,
+      "cost": 0.38292800000000005,
+      "longPrompt": 0,
+      "bashCommands": 1,
+      "forbidden": []
+    }
+  }
+}
