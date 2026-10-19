@@ -117,6 +117,13 @@ async function prepare(opts) {
   console.log(`workflow args: ${join(run, "workflow-args.json")}`);
 }
 
+/** The scorer a task uses: lib/score.mjs's, with any of these three the task exports in its place. */
+export function scorerFor(task) {
+  const s = { referenceFaults, extraCandidates, scoreRun };
+  for (const k of Object.keys(s)) if (typeof task[k] === "function") s[k] = task[k];
+  return s;
+}
+
 export function agentKey(marker) {
   return marker.kind === "arm" ? marker.id : `referee:${marker.id}`;
 }
@@ -265,7 +272,8 @@ async function score(opts) {
   const truth = readJson(join(run, "truth.json"));
   const gold = agents.gold?.structured;
   const reference = referenceFor(task, truth, gold);
-  problems.push(...referenceFaults(task, reference));
+  const scorer = scorerFor(task);
+  problems.push(...scorer.referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
   const evaluated = task.evaluate
@@ -277,7 +285,7 @@ async function score(opts) {
       )
     : null;
   const outputOf = (id) => (evaluated ? evaluated[id] : agents[id].structured);
-  const candidates = extraCandidates(
+  const candidates = scorer.extraCandidates(
     task,
     reference,
     scored.map((arm) => outputOf(arm.id)),
@@ -291,7 +299,7 @@ async function score(opts) {
     }
     problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, outputOf(arm.id), candidates);
+    checksByArm[arm.id] = scorer.scoreRun(task, reference, outputOf(arm.id), candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
@@ -351,8 +359,17 @@ async function score(opts) {
         errors: per[a.id]?.errors.slice(0, 20) || [],
       })),
   };
+  if (typeof task.summarize === "function") {
+    const outputs = Object.fromEntries(
+      Object.keys(checksByArm).map((k) => [k, agents[k].structured]),
+    );
+    result.summary = task.summarize({ reference, checksByArm, rulings, outputs });
+  }
   writeJson(join(run, "result.json"), result);
   console.log(formatResult(result));
+  if (result.summary && typeof task.formatSummary === "function") {
+    console.log(task.formatSummary(result.summary));
+  }
   if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
   if (problems.length) process.exitCode = 1;
 }

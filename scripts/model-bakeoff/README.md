@@ -16,6 +16,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
 | `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                              |
+| `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                  |
 | `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
 
 ## The recipe
@@ -206,6 +207,18 @@ Add `tasks/<id>.mjs` exporting:
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
   with `referee`. `--arms` on `prepare` replaces this list only.
 - `gold`: one `{ id: "gold", model, effort }`, exported on its own.
+- `scoreRun`, `referenceFaults`, `extraCandidates`: optional, each replacing the function of that
+  name in `lib/score.mjs` for this task. A task whose metric is not field equality, such as
+  `seeded-review`'s recall of seeded defects, returns checks in the same shape, so the referee,
+  `groupDisagreements` and `finalScores` work unchanged.
+- `summarize({ reference, checksByArm, rulings, outputs })` and `formatSummary(summary)`: optional.
+  `score` stores the summary in `result.json` as `summary` and prints it under the table.
+
+Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
+this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
+from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
+transcript for a git command and for a read outside `<run>/input`, and record the result. The
+2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
 
 ### A task that changes a repository
 
