@@ -8,6 +8,7 @@
 // src/prospect/email.ts's OWN sending mechanics — the injected ResendClient,
 // escaping, the attachment — are covered offline in tests/prospect/email.test.ts.
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
 import type { SendAuditEmailResult } from "../../src/prospect/email.js";
@@ -51,6 +52,7 @@ const ORIGINAL_ENV = { ...process.env };
  *  files use, trimmed to what this file needs. */
 function stubDeps(): PipelineDeps {
   return {
+    ...offlineNetworkDeps(),
     crawl: {
       async fetchUrl(url: string) {
         if (url === "https://acme.example/")
