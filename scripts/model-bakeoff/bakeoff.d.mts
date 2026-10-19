@@ -18,10 +18,26 @@ export function extractArgs(
 ): Record<string, unknown>;
 export type Collected = AgentTranscript & { transcript: string };
 export function agentKey(marker: { kind: "arm" | "referee"; id: string }): string;
+export interface RunArgs {
+  dir: string;
+  work: string;
+  gold: Arm;
+  arms: Arm[];
+}
+export function expectedWork(
+  args: RunArgs,
+  marker: { kind: "arm" | "referee"; id: string },
+): string;
 export function mergeAgents(
   prior: Record<string, Collected>,
   found: Collected[],
+  args: RunArgs,
 ): { agents: Record<string, Collected>; errors: string[] };
-export function verifyRan(arm: Arm, agent: AgentTranscript, work?: string): string[];
+export function verifyRan(
+  arm: Arm,
+  agent: AgentTranscript,
+  work?: string,
+  opts?: { needOutput?: boolean },
+): string[];
 export function nextRound(agents: Record<string, unknown>): number;
 export function formatResult(r: Record<string, unknown>): string;

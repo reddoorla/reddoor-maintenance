@@ -16,7 +16,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                      |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, MCP calls and forbidden commands |
 | `tasks/*.mjs`                                 | One file per task type                                                                                                   |
-| `results/*.json`                              | One file per measured run: scores, what ran, and cost per arm, as posted to workspace#1                                  |
+| `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                          |
 
 ## The recipe
 
@@ -61,8 +61,8 @@ node scripts/model-bakeoff/bakeoff.mjs prepare --task t5-census --out <run>
 ```
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
-`scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`. Its result gives the transcript
-directory.
+`scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
+transcript directory: `~/.claude/projects/<project>/<session>/subagents/workflows/<run id>/`.
 
 ```sh
 node scripts/model-bakeoff/bakeoff.mjs collect --run <run> --transcripts <transcript dir>
@@ -70,21 +70,36 @@ node scripts/model-bakeoff/bakeoff.mjs score --run <run>
 ```
 
 If `score` reports unruled disagreements, run the workflow again with `<run>/referee-args.json`,
-then `collect` (with that run's transcript directory) and `score` again. `collect` refuses two
-transcripts that claim the same marker.
+then `collect` (with that run's transcript directory) and `score` again.
+
+`collect` refuses, and writes nothing, when:
+
+- two transcripts claim the same marker;
+- a transcript's marker names no arm of this run;
+- a prompt does not name this run's input folder and that agent's work dir, which catches a
+  transcript directory from another run passed by mistake;
+- a prompt holds more than one marker, or does not end with one.
 
 `score` exits non-zero on any of these problems, and `<run>/result.json` holds the full result:
 
-- the input changed;
-- an arm has no transcript, or no accepted structured output;
-- an arm or referee ran on a model or effort it did not ask for;
-- a disagreement is still unruled;
-- an agent wrote outside its own directory, used an MCP tool, or ran a forbidden Bash command.
+- `args.dir` is not `<run>/input`, or the input changed;
+- an arm or the gold has no transcript, or no accepted structured output;
+- an arm, the gold or a referee ran on a model or effort it did not ask for;
+- a disagreement is still unruled, or a referee chunk returned nothing while one is;
+- the referee's rulings disagree about whether the reference is right on one check;
+- an agent wrote outside its own directory (paths resolved; a relative path counts as outside),
+  used a tool outside the allowlist (`Read`, `Bash`, `Glob`, `Grep`, `Write`, `Edit`,
+  `NotebookEdit`, `StructuredOutput`, `ToolSearch`), or ran a forbidden Bash command.
 
-The Bash check is a pattern match over the command with quoted text removed. It looks for `gh`
-in command position, git subcommands that write (`push`, `commit`, `rm` and the like, after any
-global options), and `curl` with a write method or a request body. It is a tripwire, not a
-sandbox.
+It also exits non-zero when there is no reference at all: no truth, and no gold output.
+
+The Bash check is a pattern match over each command with quoted text removed, and over the body
+of any `sh -c`, `bash -c` or `eval`. It looks for `gh` at the start of a command or line, after a
+pipe or separator, or after `sudo`, `xargs`, `time`, `command`, `exec`, `nice`, `env`, `timeout`
+or a variable assignment. It looks for git subcommands that write (`push`, `commit`, `rm` and the
+like) after `-c`/`-C`, `--git-dir`/`--work-tree` or `--opt=value` options. And it looks for
+`curl` with a write method, `--data`, `--form`, `--json`, `--upload-file`, or a `-d`, `-F` or `-T`
+flag. It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
@@ -101,12 +116,18 @@ Each field has a kind. The kinds apply these rules before comparing:
 | `titlePrefix` | A leading Det., Detective, Dr., Mr., Mrs. or Ms. removed | `name`                                      |
 | sets          | Order ignored; duplicates and empty members dropped      | `set:<kind>`                                |
 
-`number` takes a number, or a string of decimal digits with an optional sign and fraction. A
-blank, a null and `0x10` are not numbers. `boolean` takes `true` and `false`, or those words.
-`file` keys an item by its base name, so `workflows/ci.yml` and `CI.yml` are the same item.
+`number` takes a number, or a string of decimal digits with an optional minus sign, fraction and
+exponent. A blank, a null, `+5` and `0x10` are not numbers. `boolean` takes `true` and `false`,
+or those words. `file` keys an item by its base name, so `workflows/ci.yml` and `CI.yml` are the
+same item.
 
-Each collection also gets one check that the arm listed no item the reference lacks, and no item
-twice. Where an item appears twice, the first entry is the one scored.
+Each reference item gets a `(present)` check, so an item the arm left out goes to the referee like
+any other disagreement. If the referee rules that the reference item does not exist, that item's
+field checks are dropped for every arm, and an arm that listed it loses its `(present)` check.
+Each collection also gets one check that the arm listed no item the reference lacks and no item
+twice, with the extras and the duplicates recorded separately. Where an item appears twice, the
+first entry is the one scored. So a t5-census run has 228 checks: 188 fields, 38 `(present)` and
+2 collection checks.
 
 ## Adding a task type
 
@@ -125,7 +146,9 @@ Add `tasks/<id>.mjs` exporting:
   for instance a rounding tolerance, and works inside `set:` too.
 - `truth(dir)`: optional, the script-computed reference. Leave it out when no script can compute
   the answer, and the gold run becomes the reference.
-- `arms`: an array of `{ id, model, effort }`. `gold` is one, and its `id` must be `"gold"`.
+- `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
+  with `referee`. `--arms` on `prepare` replaces this list only.
+- `gold`: one `{ id: "gold", model, effort }`, exported on its own.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,
@@ -140,7 +163,7 @@ node scripts/model-bakeoff/ledger.mjs [--root <dir>] [--since <ISO date>] [--unt
 ```
 
 It reads `~/.claude/projects` by default, or `LEDGER_ROOT`, or `--root`. `--since` and `--until`
-select files by modification time, not by message timestamp, as #2 did. It sorts each file into
+select files by modification time, as #2 did, not by message timestamp. It sorts each file into
 main session, plain subagent or workflow subagent by its path, as #2 did, and prints how many
 files fit none of the three. It keeps the last line for each `message.id` within a file, then
 keeps one record per `message.id` across files, and reports both repeat counts.

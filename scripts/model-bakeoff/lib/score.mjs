@@ -14,7 +14,8 @@ const PIPELINES = Object.freeze({
 
 export const MISSING = "<missing>";
 
-const NUMBER = /^-?\d+(\.\d+)?$/;
+const NUMBER = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
+export const PRESENT = "(present)";
 
 const str = (v) => (v === null || v === undefined ? "" : String(v));
 
@@ -66,12 +67,24 @@ export function scoreRun(spec, reference, output) {
     const extras = [];
     for (const x of items(output)) {
       const k = keyOf(x);
-      if (out.has(k)) duplicates.push(raw(x && x[col.key]));
+      if (out.has(k)) duplicates.push(k);
       else out.set(k, x);
-      if (!ref.has(k)) extras.push(raw(x && x[col.key]));
+      if (!ref.has(k)) extras.push(k);
     }
     for (const [k, r] of ref) {
       const o = out.get(k);
+      const presence = o ? "present" : "absent";
+      checks.push({
+        collection: col.name,
+        key: k,
+        field: PRESENT,
+        check: `${col.name} ${r[col.key]} / ${PRESENT}`,
+        ok: Boolean(o),
+        armKey: presence,
+        refKey: "present",
+        armRaw: presence,
+        refRaw: "present",
+      });
       for (const [field, kind] of Object.entries(col.fields)) {
         const has = Boolean(o) && o[field] !== undefined;
         const armKey = has ? normalise(o[field], kind, custom) : MISSING;
@@ -89,7 +102,10 @@ export function scoreRun(spec, reference, output) {
         });
       }
     }
-    const extraKey = JSON.stringify([...new Set([...extras, ...duplicates])].sort());
+    const extraKey = JSON.stringify({
+      extras: [...new Set(extras)].sort(),
+      duplicates: duplicates.sort(),
+    });
     checks.push({
       collection: col.name,
       key: "(set)",
@@ -98,7 +114,7 @@ export function scoreRun(spec, reference, output) {
       ok: extras.length === 0 && duplicates.length === 0,
       armKey: extraKey,
       refKey: "[]",
-      armRaw: extras.length || duplicates.length ? JSON.stringify({ extras, duplicates }) : "[]",
+      armRaw: extras.length || duplicates.length ? extraKey : "[]",
       refRaw: "[]",
     });
   }
@@ -128,22 +144,37 @@ export function finalScores(checksByArm, rulings = {}) {
   const per = {};
   const referenceErrors = [];
   const seenRefError = new Set();
-  const refWrong = new Map();
+  const verdicts = new Map();
   for (const checks of Object.values(checksByArm)) {
     for (const c of checks) {
       const r = c.ok || c.armRaw === MISSING ? undefined : rulings[disagreementId(c)];
-      if (r && r.refCorrect === false) refWrong.set(c.check, r);
+      if (!r) continue;
+      if (!verdicts.has(c.check)) verdicts.set(c.check, { yes: [], no: [] });
+      verdicts.get(c.check)[r.refCorrect === false ? "no" : "yes"].push(r);
     }
+  }
+  const refWrong = new Map();
+  const contradictions = [];
+  for (const [check, v] of verdicts) {
+    if (v.no.length && v.yes.length) contradictions.push(check);
+    else if (v.no.length) refWrong.set(check, v.no[0]);
+  }
+  const itemOf = (c) => `${c.collection}\u0000${c.key}`;
+  const refutedItems = new Set();
+  for (const checks of Object.values(checksByArm)) {
+    for (const c of checks)
+      if (c.field === PRESENT && refWrong.has(c.check)) refutedItems.add(itemOf(c));
   }
   for (const [arm, checks] of Object.entries(checksByArm)) {
     const p = { total: 0, correct: 0, unruled: 0, byField: {}, errors: [] };
     for (const c of checks) {
+      if (c.field !== PRESENT && refutedItems.has(itemOf(c))) continue;
       let ok = c.ok && !refWrong.has(c.check);
       if (!c.ok) {
         const r = c.armRaw === MISSING ? undefined : rulings[disagreementId(c)];
         if (r === undefined && c.armRaw !== MISSING) p.unruled++;
         ok = r ? r.armCorrect === true : false;
-        if (r && r.refCorrect === false && !seenRefError.has(c.check)) {
+        if (r && refWrong.has(c.check) && !seenRefError.has(c.check)) {
           seenRefError.add(c.check);
           referenceErrors.push({ check: c.check, reference: c.refRaw, note: r.note || "" });
         }
@@ -163,5 +194,5 @@ export function finalScores(checksByArm, rulings = {}) {
     }
     per[arm] = p;
   }
-  return { per, referenceErrors };
+  return { per, referenceErrors, contradictions };
 }

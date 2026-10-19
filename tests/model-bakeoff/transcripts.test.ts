@@ -93,7 +93,7 @@ describe("readAgentTranscript", () => {
       ].join("\n"),
     );
     expect(t.writes).toEqual(["/w/a/x.py", "/tmp/y.py"]);
-    expect(t.mcp).toEqual(["mcp__github__issue_write"]);
+    expect(t.otherTools).toEqual(["mcp__github__issue_write"]);
   });
 });
 
@@ -114,6 +114,16 @@ describe("forbiddenCommand", () => {
     "curl -d a=1 https://x",
     "curl --data @f https://x",
     "git rm a.txt",
+    "cd x\ngh api repos/a/b",
+    "bash -c 'gh api x'",
+    'sh -c "git push"',
+    "eval 'git commit -m x'",
+    "ls | xargs gh pr list",
+    "time gh api x",
+    "command gh api x",
+    "git --git-dir /x commit -m y",
+    "curl --json {} https://x",
+    "curl -d@f https://x",
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -162,7 +172,7 @@ describe("verifyRan", () => {
     );
     expect(verifyRan({ id: "a", model: "haiku", effort: "low" }, t, "/run/work/a")).toEqual([
       "a: no accepted structured output",
-      "a: used MCP tools: mcp__github__push_files",
+      "a: used tools outside the allowlist: mcp__github__push_files",
       "a: wrote outside /run/work/a: /run/work/ab/x.py",
     ]);
   });
@@ -182,31 +192,51 @@ describe("verifyRan", () => {
 });
 
 describe("collecting several rounds", () => {
-  const referee = (id: string, transcript: string, ruling: string) =>
+  const ARGS = {
+    dir: "/r/input",
+    work: "/r/work",
+    gold: { id: "gold", model: "opus", effort: "high" },
+    arms: [{ id: "a", model: "haiku", effort: "low" }],
+  };
+  const prompt = (dir: string, work: string, marker: string) =>
+    `Census of ${dir}.\nYour own scratch directory is ${work}. Create it.\n\n(${marker})`;
+  const referee = (id: string, transcript: string, ruling: string, dir = ARGS.dir) =>
     ({
       ...readAgentTranscript(
         [
-          user(`(BAKEOFF-REFEREE: ${id})`),
+          user(prompt(dir, `/r/work/referee-${id}`, `BAKEOFF-REFEREE: ${id}`)),
           assistant("m", [output({ rulings: [{ id: ruling }] })], "high", "claude-opus-5-5"),
+        ].join("\n"),
+      ),
+      transcript,
+    }) as Collected;
+  const arm = (id: string, transcript: string, dir = ARGS.dir) =>
+    ({
+      ...readAgentTranscript(
+        [
+          user(prompt(dir, `/r/work/${id}`, `BAKEOFF-ARM: ${id}`)),
+          assistant("m", [output({})]),
         ].join("\n"),
       ),
       transcript,
     }) as Collected;
 
   it("keeps round 1's rulings when round 2 arrives, and numbers the next round", () => {
-    const first = mergeAgents({}, [referee("r1-1", "/t/wf1/agent-z.jsonl", "A")]);
+    const first = mergeAgents({}, [referee("r1-1", "/t/wf1/agent-z.jsonl", "A")], ARGS);
+    expect(first.errors).toEqual([]);
     expect(nextRound(first.agents)).toBe(2);
-    const second = mergeAgents(first.agents, [referee("r2-1", "/t/wf2/agent-a.jsonl", "B")]);
+    const second = mergeAgents(first.agents, [referee("r2-1", "/t/wf2/agent-a.jsonl", "B")], ARGS);
     expect(second.errors).toEqual([]);
     expect(Object.keys(second.agents).sort()).toEqual(["referee:r1-1", "referee:r2-1"]);
     expect(nextRound(second.agents)).toBe(3);
   });
 
   it("refuses two transcripts that claim the same marker", () => {
-    const { errors } = mergeAgents({}, [
-      referee("r1-1", "/t/wf1/agent-z.jsonl", "A"),
-      referee("r1-1", "/t/wf2/agent-a.jsonl", "B"),
-    ]);
+    const { errors } = mergeAgents(
+      {},
+      [referee("r1-1", "/t/wf1/agent-z.jsonl", "A"), referee("r1-1", "/t/wf2/agent-a.jsonl", "B")],
+      ARGS,
+    );
     expect(errors).toEqual([
       "referee:r1-1 has two transcripts: /t/wf1/agent-z.jsonl and /t/wf2/agent-a.jsonl",
     ]);
@@ -214,7 +244,48 @@ describe("collecting several rounds", () => {
 
   it("accepts the same transcript collected twice", () => {
     const one = referee("r1-1", "/t/wf1/agent-z.jsonl", "A");
-    const first = mergeAgents({}, [one]);
-    expect(mergeAgents(first.agents, [one]).errors).toEqual([]);
+    const first = mergeAgents({}, [one], ARGS);
+    expect(mergeAgents(first.agents, [one], ARGS).errors).toEqual([]);
+  });
+
+  it("refuses a transcript from another run, and a marker that names no arm", () => {
+    const { agents, errors } = mergeAgents(
+      {},
+      [
+        arm("a", "/t/old/agent-1.jsonl", "/other/input"),
+        arm("stranger", "/t/wf/agent-2.jsonl"),
+        arm("a", "/t/wf/agent-3.jsonl"),
+      ],
+      ARGS,
+    );
+    expect(errors).toEqual([
+      "/t/old/agent-1.jsonl: a's prompt does not name this run's input /r/input and work dir /r/work/a",
+      "/t/wf/agent-2.jsonl: marker stranger names no arm of this run",
+    ]);
+    expect(Object.keys(agents)).toEqual(["a"]);
+  });
+});
+
+describe("a referee chunk that returned nothing", () => {
+  it("stops counting once no disagreement is left unruled", () => {
+    const empty = readAgentTranscript(
+      [user("(BAKEOFF-REFEREE: r1-1)"), assistant("m", [], "high", "claude-opus-5-5")].join("\n"),
+    );
+    expect(verifyRan(REFEREE, empty)).toEqual(["referee:r1-1: no accepted structured output"]);
+    expect(verifyRan(REFEREE, empty, undefined, { needOutput: false })).toEqual([]);
+  });
+});
+
+describe("verifyRan's write check", () => {
+  it("resolves .. and treats a relative path as outside", () => {
+    const t = {
+      ...readAgentTranscript(
+        [user("(BAKEOFF-ARM: a)"), assistant("m", [output({})], "low")].join("\n"),
+      ),
+      writes: ["/r/work/a/../b/census.py", "census.py", "/r/work/a/sub/ok.py"],
+    };
+    expect(verifyRan({ id: "a", model: "haiku", effort: "low" }, t, "/r/work/a")).toEqual([
+      "a: wrote outside /r/work/a: /r/work/a/../b/census.py, census.py",
+    ]);
   });
 });

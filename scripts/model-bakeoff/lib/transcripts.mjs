@@ -3,13 +3,26 @@ import { splitLines, usageRecords, priceRequest } from "./ledger.mjs";
 const MARKER = /\(BAKEOFF-(ARM|REFEREE): ([a-z0-9][a-z0-9-]*)\)\s*$/;
 const ANY_MARKER = /\(BAKEOFF-(?:ARM|REFEREE): [a-z0-9][a-z0-9-]*\)/g;
 const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
+export const ALLOWED_TOOLS = Object.freeze([
+  "Read",
+  "Bash",
+  "Glob",
+  "Grep",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "StructuredOutput",
+  "ToolSearch",
+]);
 
 export const FORBIDDEN = Object.freeze([
-  /(^|[;&|(`]|\$\()\s*(sudo\s+)?(env\s+)?(\w+=\S*\s+)*(\S*\/)?gh(\s|$)/,
+  /(^|[;&|(`\n]|\$\()\s*((sudo|xargs|time|command|exec|nice|env|timeout\s+\S+)(\s+-\S+)*\s+)*(\w+=\S*\s+)*(\S*\/)?gh(\s|$)/m,
   /\bwhich\s+gh\b/,
-  /\bgit\b(\s+(-[cC]\s+\S+|--?[\w-]+(=\S+)?))*\s+(push|commit|tag|reset|checkout|switch|stash|rm|add|mv|merge|rebase|clean|restore|apply|am|cherry-pick|revert)\b/,
-  /\bcurl\b.*(\s-X\s*(POST|PUT|PATCH|DELETE)\b|\s--request(\s+|=)(POST|PUT|PATCH|DELETE)\b|\s(-d|-F|--data[\w-]*|--form|--upload-file|-T)(\s|=))/i,
+  /\bgit\b(\s+(--(git-dir|work-tree|namespace|exec-path)\s+\S+|-[cC]\s+\S+|--?[\w-]+(=\S+)?))*\s+(push|commit|tag|reset|checkout|switch|stash|rm|add|mv|merge|rebase|clean|restore|apply|am|cherry-pick|revert)\b/,
+  /\bcurl\b.*(\s-X\s*(POST|PUT|PATCH|DELETE)\b|\s--request(\s+|=)(POST|PUT|PATCH|DELETE)\b|\s--(data[\w-]*|form|upload-file|json)(\s|=)|\s-[A-Za-z]*[dFT])/i,
 ]);
+
+const NESTED = /\b(?:(?:ba|z|da)?sh\s+-[a-z]*c|eval)\s+(['"])((?:\\.|(?!\1)[\s\S])*)\1/g;
 
 export function unquoted(command) {
   return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) =>
@@ -17,9 +30,14 @@ export function unquoted(command) {
   );
 }
 
-export function forbiddenCommand(command) {
+export function forbiddenCommand(command, depth = 0) {
   const plain = unquoted(command);
-  return FORBIDDEN.some((re) => re.test(plain));
+  if (FORBIDDEN.some((re) => re.test(plain))) return true;
+  if (depth > 3) return false;
+  for (const m of command.matchAll(NESTED)) {
+    if (forbiddenCommand(m[2], depth + 1)) return true;
+  }
+  return false;
 }
 
 function textOf(content) {
@@ -37,7 +55,8 @@ export function readAgentTranscript(text) {
   const failed = new Set();
   const bash = [];
   const writes = [];
-  const mcp = [];
+  const otherTools = [];
+  let prompt = "";
   for (const line of lines) {
     let o;
     try {
@@ -50,6 +69,7 @@ export function readAgentTranscript(text) {
     if (!sawUser && m.role === "user") {
       sawUser = true;
       const t = textOf(m.content);
+      prompt = t;
       const hit = MARKER.exec(t);
       const count = (t.match(ANY_MARKER) || []).length;
       if (hit && count === 1) marker = { kind: hit[1] === "ARM" ? "arm" : "referee", id: hit[2] };
@@ -66,7 +86,7 @@ export function readAgentTranscript(text) {
         if (WRITE_TOOLS.has(b.name) && b.input) {
           writes.push(String(b.input.file_path ?? b.input.notebook_path ?? ""));
         }
-        if (typeof b.name === "string" && b.name.startsWith("mcp__")) mcp.push(b.name);
+        if (!ALLOWED_TOOLS.includes(b.name)) otherTools.push(String(b.name));
       }
     }
     if (m.role === "user" && Array.isArray(m.content)) {
@@ -99,7 +119,8 @@ export function readAgentTranscript(text) {
     longPrompt,
     bash,
     writes,
-    mcp,
-    forbidden: bash.filter(forbiddenCommand),
+    otherTools,
+    prompt,
+    forbidden: bash.filter((c) => forbiddenCommand(c)),
   };
 }

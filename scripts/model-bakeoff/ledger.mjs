@@ -27,7 +27,7 @@ function walk(d, out = []) {
     if (e.isDirectory()) walk(p, out);
     else if (e.name.endsWith(".jsonl")) out.push(p);
   }
-  return out;
+  return out.sort();
 }
 
 export function ledger(root, { since, until } = {}) {

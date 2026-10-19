@@ -94,7 +94,7 @@ describe("scoreRun", () => {
       ],
     };
     const checks = scoreRun(spec, ref, out);
-    expect(checks).toHaveLength(5);
+    expect(checks).toHaveLength(7);
     expect(checks.every((c) => c.ok)).toBe(true);
   });
 
@@ -102,6 +102,7 @@ describe("scoreRun", () => {
     const checks = scoreRun(spec, ref, { workflows: [{ file: "a.yml", crons: [], jobs: 2 }] });
     expect(checks.filter((c) => !c.ok).map((c) => c.check)).toEqual([
       "workflows a.yml / crons",
+      "workflows b.yml / (present)",
       "workflows b.yml / crons",
       "workflows b.yml / jobs",
     ]);
@@ -112,7 +113,7 @@ describe("scoreRun", () => {
     const checks = scoreRun(spec, ref, {
       workflows: [ref.workflows[0], { file: "b.yml" }],
     });
-    const b = checks.filter((c) => c.key === "b.yml");
+    const b = checks.filter((c) => c.key === "b.yml" && c.field !== "(present)");
     expect(b.map((c) => [c.field, c.ok, c.armKey])).toEqual([
       ["crons", false, MISSING],
       ["jobs", false, MISSING],
@@ -128,6 +129,15 @@ describe("scoreRun", () => {
     expect(extra.ok).toBe(false);
     expect(JSON.parse(extra.armRaw)).toEqual({ extras: ["invented.yml"], duplicates: ["a.yml"] });
     expect(checks.filter((c) => !c.ok)).toHaveLength(1);
+  });
+
+  it("keeps an extra item and a duplicate apart, so one ruling cannot cover both", () => {
+    const once = scoreRun(spec, ref, { workflows: [...ref.workflows, { file: "x.yml" }] });
+    const twice = scoreRun(spec, ref, {
+      workflows: [...ref.workflows, { file: "x.yml" }, { file: "workflows/X.yml" }],
+    });
+    const d = groupDisagreements({ once, twice }).filter((g) => g.check.includes("extra"));
+    expect(d.map((g) => g.arms)).toEqual([["once"], ["twice"]]);
   });
 
   it("keeps the first of two entries for one key rather than the last", () => {
@@ -167,7 +177,7 @@ describe("disagreements and rulings", () => {
       [crons!.id]: { id: crons!.id, armCorrect: true, refCorrect: false, note: "n" },
     };
     const { per, referenceErrors } = finalScores(checksByArm, rulings);
-    expect(per.x).toMatchObject({ total: 5, correct: 4, unruled: 1 });
+    expect(per.x).toMatchObject({ total: 7, correct: 6, unruled: 1 });
     expect(referenceErrors).toEqual([
       { check: "workflows a.yml / crons", reference: '["0 9 * * 1-5"]', note: "n" },
     ]);
@@ -180,7 +190,7 @@ describe("disagreements and rulings", () => {
       [crons!.id]: { id: crons!.id, armCorrect: true, refCorrect: false, note: "it is []" },
     };
     const { per } = finalScores(withAgreer, rulings);
-    expect(per.w).toMatchObject({ total: 5, correct: 4 });
+    expect(per.w).toMatchObject({ total: 7, correct: 6 });
     expect(per.w!.errors).toEqual([
       {
         check: "workflows a.yml / crons",
@@ -188,6 +198,34 @@ describe("disagreements and rulings", () => {
         expected: 'not ["0 9 * * 1-5"] (the referee refuted the reference: it is [])',
       },
     ]);
+  });
+
+  it("sends an item the arm omitted to the referee, and drops it for everyone if refuted", () => {
+    const omits = scoreRun(spec, ref, { workflows: [ref.workflows[0]] });
+    const copies = scoreRun(spec, ref, ref);
+    const [presence] = groupDisagreements({ omits, copies });
+    expect(presence).toMatchObject({ check: "workflows b.yml / (present)", armRaw: "absent" });
+    const rulings = {
+      [presence!.id]: { id: presence!.id, armCorrect: true, refCorrect: false, note: "no b.yml" },
+    };
+    const { per } = finalScores({ omits, copies }, rulings);
+    expect(per.omits).toMatchObject({ total: 5, correct: 5 });
+    expect(per.copies).toMatchObject({ total: 5, correct: 4 });
+  });
+
+  it("reports contradictory rulings on one check instead of applying either", () => {
+    const arms = {
+      a: scoreRun(spec, ref, ref),
+      b: scoreRun(spec, ref, { workflows: [{ ...ref.workflows[0], jobs: 3 }, ref.workflows[1]] }),
+      c: scoreRun(spec, ref, { workflows: [{ ...ref.workflows[0], jobs: 4 }, ref.workflows[1]] }),
+    };
+    const d = groupDisagreements(arms);
+    const rulings = Object.fromEntries(
+      d.map((g, i) => [g.id, { id: g.id, armCorrect: false, refCorrect: i === 0 ? false : true }]),
+    );
+    const { per, contradictions } = finalScores(arms, rulings);
+    expect(contradictions).toEqual(["workflows a.yml / jobs"]);
+    expect(per.a!.correct).toBe(per.a!.total);
   });
 
   it("never credits a missing value, whatever a ruling says", () => {

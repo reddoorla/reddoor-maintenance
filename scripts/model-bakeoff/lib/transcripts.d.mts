@@ -1,6 +1,7 @@
 export const FORBIDDEN: readonly RegExp[];
+export const ALLOWED_TOOLS: readonly string[];
 export function unquoted(command: string): string;
-export function forbiddenCommand(command: string): boolean;
+export function forbiddenCommand(command: string, depth?: number): boolean;
 export interface AgentTranscript {
   marker: { kind: "arm" | "referee"; id: string } | null;
   markerError: string | null;
@@ -13,7 +14,8 @@ export interface AgentTranscript {
   longPrompt: number;
   bash: string[];
   writes: string[];
-  mcp: string[];
+  otherTools: string[];
+  prompt: string;
   forbidden: string[];
 }
 export function readAgentTranscript(text: string): AgentTranscript;

@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-19",
+  "task": "t5-census",
+  "row": 4,
+  "inputCommit": "4083be934b2676630fa57483dac69ad635042a71",
+  "inputFiles": 38,
+  "checksPerRun": 228,
+  "workflowRuns": {
+    "extract": "wf_72444f31-951",
+    "referee": ["wf_72d2b31c-042"]
+  },
+  "reference": "script truth",
+  "problems": [],
+  "disagreements": 1,
+  "unruled": 0,
+  "referenceErrors": [],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ high",
+      "ran": "claude-opus-5-5 @ high",
+      "score": "228/228",
+      "cost": 0.7085064000000002,
+      "requests": 10,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-low-1",
+      "asked": "haiku @ low",
+      "ran": "claude-haiku-5-5 @ low",
+      "score": "228/228",
+      "cost": 0.015831,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-low-2",
+      "asked": "haiku @ low",
+      "ran": "claude-haiku-5-5 @ low",
+      "score": "227/228",
+      "cost": 0.01372622,
+      "requests": 6,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "scripts central-dep-blocker.mjs / nodeImports",
+          "got": "[]",
+          "expected": "[\"node:\"]"
+        }
+      ]
+    },
+    {
+      "id": "haiku-medium-1",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "228/228",
+      "cost": 0.013508130000000004,
+      "requests": 9,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-medium-2",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "228/228",
+      "cost": 0.013041675,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "228/228",
+      "cost": 0.2645886,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "228/228",
+      "cost": 0.2898577,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "228/228",
+      "cost": 0.367626,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "228/228",
+      "cost": 0.34244220000000003,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    }
+  ],
+  "rulings": [
+    {
+      "id": "scripts central-dep-blocker.mjs / nodeImports :: []",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "Line 42 holds the quoted literal \"node:\" (in specifier.startsWith(\"node:\")). It is a quoted string literal that starts with `node:`, so it meets the task's definition and the field is [\"node:\"]. The file has no other node: literals; line 40 mentions node: only in an unquoted comment. ARM's [] leaves this literal out."
+    }
+  ],
+  "agents": {
+    "haiku-medium-1": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 9,
+      "repeatsDropped": 9,
+      "cost": 0.013508130000000004,
+      "longPrompt": 0,
+      "bashCommands": 8,
+      "writes": [],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "haiku-low-2": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 6,
+      "repeatsDropped": 6,
+      "cost": 0.01372622,
+      "longPrompt": 0,
+      "bashCommands": 5,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/haiku-low-2/census.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "gold": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 10,
+      "repeatsDropped": 11,
+      "cost": 0.7085064000000002,
+      "longPrompt": 0,
+      "bashCommands": 9,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/gold/census.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "opus-low-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "repeatsDropped": 4,
+      "cost": 0.367626,
+      "longPrompt": 0,
+      "bashCommands": 3,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/opus-low-1/c.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "sonnet-medium-1": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 5,
+      "repeatsDropped": 5,
+      "cost": 0.2645886,
+      "longPrompt": 0,
+      "bashCommands": 4,
+      "writes": [],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "opus-low-2": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 4,
+      "repeatsDropped": 4,
+      "cost": 0.34244220000000003,
+      "longPrompt": 0,
+      "bashCommands": 3,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/opus-low-2/c.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "haiku-medium-2": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 7,
+      "repeatsDropped": 6,
+      "cost": 0.013041675,
+      "longPrompt": 0,
+      "bashCommands": 5,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/haiku-medium-2/census.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "haiku-low-1": {
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "repeatsDropped": 3,
+      "cost": 0.015831,
+      "longPrompt": 0,
+      "bashCommands": 3,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/haiku-low-1/census.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "sonnet-medium-2": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 7,
+      "repeatsDropped": 6,
+      "cost": 0.2898577,
+      "longPrompt": 0,
+      "bashCommands": 5,
+      "writes": [
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/sonnet-medium-2/s.mjs",
+        "/tmp/claude-0/-home-user-reddoor-maintenance/a151caf7-c1dd-5c17-8570-d00423584a56/scratchpad/run-t5b/work/sonnet-medium-2/w.py"
+      ],
+      "otherTools": [],
+      "forbidden": []
+    },
+    "referee:r1-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 3,
+      "repeatsDropped": 1,
+      "cost": 0.4051854,
+      "longPrompt": 0,
+      "bashCommands": 2,
+      "writes": [],
+      "otherTools": [],
+      "forbidden": []
+    }
+  }
+}

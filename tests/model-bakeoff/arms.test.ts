@@ -48,6 +48,12 @@ describe("validateArms", () => {
     expect(extractArgs(census, "/tmp/x").arms).toEqual(census.arms);
   });
 
+  it("reserves the referee prefix for referees", () => {
+    expect(validateArms([{ id: "referee-r1-1", model: "haiku", effort: "low" }])).toEqual([
+      "arm id referee-r1-1 is reserved for referees",
+    ]);
+  });
+
   it("requires the gold's id to be gold", () => {
     const arm = { id: "opus-low-1", model: "opus", effort: "low" };
     expect(validateRun([arm], { ...arm })).toEqual(['gold id must be "gold", not "opus-low-1"']);

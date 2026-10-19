@@ -45,6 +45,11 @@ function validateArms(arms) {
     if (a) seen.add(a.id);
   }
   if (arms.some((a) => a && a.id === "gold")) errors.push('arm id "gold" is reserved');
+  for (const a of arms) {
+    if (a && typeof a.id === "string" && a.id.startsWith("referee")) {
+      errors.push(`arm id ${a.id} is reserved for referees`);
+    }
+  }
   return errors;
 }
 
@@ -145,7 +150,7 @@ const rulings = await parallel(
   args.chunks.map(
     (chunk, i) => () =>
       agent(
-        `You are the referee for a model bake-off. The source files are in ${args.dir}. Every participant was given this task:\n\n----- TASK -----\n${args.prompt}\n----- END TASK -----\n\nBelow are disagreements between a participant's value (ARM) and the reference value (REFERENCE) for one field. For EACH item, read the source yourself, with scripts where a count or a match is involved, and decide independently whether ARM is correct and whether REFERENCE is correct. Both can be correct (the same fact written differently); both can be wrong. Return one ruling per item with its id copied exactly, and a short note whenever you rule against REFERENCE.\n\n${readOnlyRules(args.dir, workDir(args.work, `referee-r${args.round}-${i + 1}`))}\n\nITEMS (JSON):\n${JSON.stringify(chunk, null, 1)}\n\n(${refereeMarker(args.round, i + 1)})`,
+        `You are the referee for a model bake-off. The source files are in ${args.dir}. Every participant was given this task:\n\n----- TASK -----\n${args.prompt}\n----- END TASK -----\n\nBelow are disagreements between a participant's value (ARM) and the reference value (REFERENCE) for one field. For EACH item, read the source yourself, with scripts where a count or a match is involved, and decide independently whether ARM is correct and whether REFERENCE is correct. Both can be correct (the same fact written differently); both can be wrong. Return one ruling per item with its id copied exactly, and a short note whenever you rule against REFERENCE.\n\n${readOnlyRules(args.dir, workDir(args.work, `referee-r${args.round}-${i + 1}`))}\n\nITEMS (JSON):\n${JSON.stringify(chunk, null, 1).replace(/BAKEOFF-/g, "BAKEOFF_")}\n\n(${refereeMarker(args.round, i + 1)})`,
         {
           label: `referee:r${args.round}-${i + 1}/${args.chunks.length}`,
           phase: "Adjudicate",

@@ -33,6 +33,11 @@ export function validateArms(arms) {
     if (a) seen.add(a.id);
   }
   if (arms.some((a) => a && a.id === "gold")) errors.push('arm id "gold" is reserved');
+  for (const a of arms) {
+    if (a && typeof a.id === "string" && a.id.startsWith("referee")) {
+      errors.push(`arm id ${a.id} is reserved for referees`);
+    }
+  }
   return errors;
 }
 

@@ -1,5 +1,6 @@
 export const RULES: Readonly<Record<string, (s: string) => string>>;
 export const MISSING: string;
+export const PRESENT: string;
 export type Kinds = Record<string, (value: unknown) => unknown>;
 export function normalise(value: unknown, kind: string, custom?: Kinds): string;
 export interface Collection {
@@ -52,4 +53,5 @@ export function finalScores(
 ): {
   per: Record<string, ArmScore>;
   referenceErrors: { check: string; reference: string; note: string }[];
+  contradictions: string[];
 };

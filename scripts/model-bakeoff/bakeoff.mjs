@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { validateRun, workDir } from "./lib/arms.mjs";
@@ -112,9 +112,14 @@ export function agentKey(marker) {
   return marker.kind === "arm" ? marker.id : `referee:${marker.id}`;
 }
 
-export function mergeAgents(prior, found) {
+export function expectedWork(args, marker) {
+  return workDir(args.work, marker.kind === "arm" ? marker.id : `referee-${marker.id}`);
+}
+
+export function mergeAgents(prior, found, args) {
   const agents = { ...prior };
   const errors = [];
+  const armIds = new Set([args.gold.id, ...args.arms.map((a) => a.id)]);
   for (const t of found) {
     if (t.markerError) {
       errors.push(`${t.transcript}: ${t.markerError}`);
@@ -122,6 +127,17 @@ export function mergeAgents(prior, found) {
     }
     if (!t.marker) continue;
     const key = agentKey(t.marker);
+    if (t.marker.kind === "arm" && !armIds.has(t.marker.id)) {
+      errors.push(`${t.transcript}: marker ${key} names no arm of this run`);
+      continue;
+    }
+    const work = expectedWork(args, t.marker);
+    if (!t.prompt.includes(args.dir) || !t.prompt.includes(`${work}.`)) {
+      errors.push(
+        `${t.transcript}: ${key}'s prompt does not name this run's input ${args.dir} and work dir ${work}`,
+      );
+      continue;
+    }
     if (agents[key] && agents[key].transcript !== t.transcript) {
       errors.push(`${key} has two transcripts: ${agents[key].transcript} and ${t.transcript}`);
       continue;
@@ -139,12 +155,13 @@ function collect(opts) {
     transcript: f,
     ...readAgentTranscript(readFileSync(f, "utf8")),
   }));
-  const { agents, errors } = mergeAgents(prior, found);
+  const args = readJson(join(run, "workflow-args.json"));
+  const { agents, errors } = mergeAgents(prior, found, args);
   if (errors.length) throw new Error(`collect refused:\n  ${errors.join("\n  ")}`);
   writeJson(join(run, "runs.json"), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
-      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} mcp=${a.mcp.length}`,
+      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
     );
   }
 }
@@ -155,7 +172,7 @@ const MODEL_IDS = {
   opus: "claude-opus-5-5",
 };
 
-export function verifyRan(arm, agent, work) {
+export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   const problems = [];
   const label = agent.marker ? agentKey(agent.marker) : arm.id;
   const want = MODEL_IDS[arm.model] || arm.model;
@@ -169,12 +186,19 @@ export function verifyRan(arm, agent, work) {
       `${label}: asked for effort ${arm.effort}, transcripts show ${agent.efforts.join(", ") || "none"}`,
     );
   }
-  if (!agent.structured) problems.push(`${label}: no accepted structured output`);
+  if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);
   if (agent.forbidden.length)
     problems.push(`${label}: ran forbidden commands: ${agent.forbidden.join(" ;; ")}`);
-  if (agent.mcp?.length) problems.push(`${label}: used MCP tools: ${agent.mcp.join(", ")}`);
+  if (agent.otherTools?.length) {
+    problems.push(`${label}: used tools outside the allowlist: ${agent.otherTools.join(", ")}`);
+  }
   if (work) {
-    const outside = (agent.writes || []).filter((p) => p !== work && !p.startsWith(`${work}/`));
+    const root = resolve(work);
+    const outside = (agent.writes || []).filter((p) => {
+      if (!isAbsolute(p)) return true;
+      const r = resolve(p);
+      return r !== root && !r.startsWith(`${root}/`);
+    });
     if (outside.length) problems.push(`${label}: wrote outside ${work}: ${outside.join(", ")}`);
   }
   return problems;
@@ -220,13 +244,16 @@ async function score(opts) {
     checksByArm[arm.id] = scoreRun(task, reference, a.structured || {});
   }
   const rulings = {};
-  for (const [k, a] of Object.entries(agents)) {
-    if (!k.startsWith("referee:")) continue;
-    problems.push(...verifyRan(REFEREE, a, workDir(args.work, k.replace(":", "-"))));
+  const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
+  for (const [, a] of referees) {
     for (const r of a.structured?.rulings || []) rulings[r.id] = r;
   }
   const disagreements = groupDisagreements(checksByArm).filter((d) => d.armRaw !== MISSING);
   const unruled = disagreements.filter((d) => !rulings[d.id]);
+  for (const [k, a] of referees) {
+    const work = workDir(args.work, k.replace(":", "-"));
+    problems.push(...verifyRan(REFEREE, a, work, { needOutput: unruled.length > 0 }));
+  }
   if (unruled.length) {
     problems.push(`${unruled.length} disagreements are unruled; run the referee before reporting`);
     const chunks = [];
@@ -245,7 +272,10 @@ async function score(opts) {
       ),
     });
   }
-  const { per, referenceErrors } = finalScores(checksByArm, rulings);
+  const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
+  for (const c of contradictions) {
+    problems.push(`${c}: the referee's rulings disagree about whether the reference is right`);
+  }
   const result = {
     task: args.task,
     reference: truth ? "script truth" : "gold run",
