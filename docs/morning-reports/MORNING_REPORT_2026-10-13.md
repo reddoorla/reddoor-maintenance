@@ -1,5 +1,7 @@
 # Morning brief — 2026-10-13 (PM pass, Tuesday, 11:51Z)
 
+> Superseded in part by 2026-10-19 — Morning brief (its "Refute the week's claims"): `@reddoorla/maintenance` peers kit `^2.0.0 || ^3.0.0` since #1370 (10-14), no longer `^2.0.0` only.
+
 ## One-line verdict
 
 **All eight nightlies finished green by 07:06Z, the cockpit shows nothing broken, and no report needs approval. Four things are yours. Williamson's Tuesday DNS step has not run, and #williamson has been silent since 10-11, so Wednesday's cutover is at risk. The five kit 3 `staging` branches are waiting for you to promote them. The Routine still runs its old two-pass prompt. The 23 Roalson packages are waiting for your review.**
