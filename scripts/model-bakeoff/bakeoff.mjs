@@ -69,6 +69,15 @@ function freeze(dir) {
   for (const d of dirs.reverse()) chmodSync(d, 0o555);
 }
 
+// Item ids travel in the transcript marker, which reads only this shape.
+const ITEM_ID = /^[a-z0-9][a-z0-9-]*$/;
+
+function checkedItems(items) {
+  const bad = items.filter((i) => !ITEM_ID.test(i.id)).map((i) => JSON.stringify(i.id));
+  if (bad.length) throw new Error(`item ids must match ${ITEM_ID}: ${bad.join(", ")}`);
+  return items;
+}
+
 export function extractArgs(
   task,
   inputDir,
@@ -85,7 +94,7 @@ export function extractArgs(
     prompt: task.prompt(inputDir),
     goldAddendum: task.goldAddendum,
     schema: task.schema,
-    ...(task.items ? { items: task.items(inputDir) } : {}),
+    ...(task.items ? { items: checkedItems(task.items(inputDir)) } : {}),
     gold: task.gold,
     arms,
   };
@@ -262,7 +271,7 @@ export function combineItems(task, args, agents, arm) {
       longPrompt: sum((a) => a.longPrompt),
       bash: parts.flatMap((a) => a.bash || []),
       reads: parts.flatMap((a) => a.reads || []),
-      structured: task.assemble(outputs, args.dir),
+      structured: Object.keys(outputs).length ? task.assemble(outputs, args.dir) : null,
     },
     problems,
   };
@@ -295,12 +304,19 @@ async function score(opts) {
   const task = await loadTask(args.task);
   const transcripts = readJson(join(run, "runs.json"));
   const problems = [];
-  if (task.secrets) problems.push(...secretReads(task.secrets, transcripts));
+  // Arms `score` found a problem in, for a task's decision hook.
+  const invalid = new Set();
+  if (task.secrets) {
+    const hits = secretReads(task.secrets, transcripts);
+    problems.push(...hits);
+    for (const h of hits) invalid.add(h.split(/[/:]/)[0]);
+  }
   const agents = { ...transcripts };
   if (Array.isArray(args.items)) {
     for (const arm of [args.gold, ...args.arms]) {
       const { record, problems: p } = combineItems(task, args, transcripts, arm);
       problems.push(...p);
+      if (p.length) invalid.add(arm.id);
       if (record) agents[arm.id] = record;
     }
   }
@@ -331,7 +347,11 @@ async function score(opts) {
       problems.push(`${arm.id}: no transcript found`);
       continue;
     }
-    if (!args.items) problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
+    if (!args.items) {
+      const p = verifyRan(arm, a, workDir(args.work, arm.id));
+      problems.push(...p);
+      if (p.length) invalid.add(arm.id);
+    }
     if (arm.id === "gold" && !truth) continue;
     checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
   }
@@ -397,7 +417,7 @@ async function score(opts) {
     result.decision = task.decision(
       Object.fromEntries(all.filter((a) => agents[a.id]).map((a) => [a.id, agents[a.id]])),
       args.dir,
-      referenceErrors,
+      { arms: all, invalid: [...invalid], referenceErrors, unruled: unruled.length },
     );
   }
   writeJson(join(run, "result.json"), result);
@@ -423,7 +443,41 @@ export function formatResult(r) {
   return lines.join("\n");
 }
 
-const COMMANDS = { prepare, collect, score };
+/**
+ * One launcher script per arm (gold included), each embedding the run's workflow args with
+ * `only` set to that arm and calling the bake-off workflow as a child. A workflow runs at
+ * most min(16, CPUs - 2) agents at once, two in a 4-CPU container, and an item run's args
+ * are too large to paste into a Workflow call; launching each file with `scriptPath` gives
+ * every arm its own slots without retyping the args.
+ */
+export function launchers(args, workflowPath) {
+  return [args.gold, ...args.arms].map((a) => ({
+    id: a.id,
+    script: [
+      "export const meta = {",
+      `  name: "bakeoff-${args.task}-${a.id}",`,
+      `  description: "Bake-off ${args.task}: arm ${a.id} (${a.model} @ ${a.effort})",`,
+      "};",
+      "",
+      `return await workflow({ scriptPath: ${JSON.stringify(workflowPath)} }, ${JSON.stringify({ ...args, only: [a.id] })});`,
+      "",
+    ].join("\n"),
+  }));
+}
+
+function split(opts) {
+  const run = resolve(opts.run);
+  const args = readJson(join(run, "workflow-args.json"));
+  const dir = join(run, "launch");
+  mkdirSync(dir, { recursive: true });
+  const workflow = join(REPO, ".claude/workflows/model-bakeoff.workflow.js");
+  for (const l of launchers(args, workflow)) {
+    writeFileSync(join(dir, `${l.id}.workflow.js`), l.script);
+    console.log(join(dir, `${l.id}.workflow.js`));
+  }
+}
+
+const COMMANDS = { prepare, collect, score, split };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { positionals, values } = parseArgs({
@@ -440,7 +494,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const cmd = COMMANDS[positionals[0]];
   if (!cmd) {
     console.error(
-      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | collect --run <dir> --transcripts <dir> | score --run <dir>",
+      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir>",
     );
     process.exit(2);
   }

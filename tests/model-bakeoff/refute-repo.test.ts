@@ -17,6 +17,7 @@ import {
   combineItems,
   expectedWork,
   extractArgs,
+  launchers,
   mergeAgents,
   secretReads,
   type Collected,
@@ -200,9 +201,11 @@ describe("what the arms are given", () => {
     expect(names.sort()).toEqual(Object.keys(DATA.files).sort());
   });
 
-  it("builds workflow args that carry the items", () => {
+  it("builds workflow args that carry the items, and refuses an id the marker cannot carry", () => {
     const args = extractArgs(task, dir) as { items: { id: string }[] };
     expect(args.items.map((i) => i.id)).toEqual(DATA.claims.map((c) => c.id));
+    const bad = { ...task, items: () => [{ id: "R01", prompt: "p", schema: {} }] };
+    expect(() => extractArgs(bad, dir)).toThrow(/item ids must match/);
   });
 });
 
@@ -294,11 +297,23 @@ describe("assemble records verdicts as production does", () => {
     ]);
   });
 
-  it("rewrites a behaviour claim's confirmation to untested, and keys by the spawned claim", () => {
-    const out = task.assemble({ r07: quoted("c99", "confirmed", "workflows/ci.yml:98") }, dir);
+  it("rewrites a behaviour claim's confirmation to untested", () => {
+    const out = task.assemble({ r07: quoted("r07", "confirmed", "workflows/ci.yml:98") }, dir);
     expect(out.verdicts).toEqual([
       { id: "r07", verdict: "untested", raw: "confirmed", downgraded: true },
     ]);
+  });
+
+  it("gives a claim no verdict when its skeptic typed another id, as production files it", () => {
+    const out = task.assemble(
+      {
+        r01: quoted("r1", "refuted", "bakeoff/ledger.mjs:78"),
+        r07: quoted("R07", "untested", "workflows/ci.yml:98"),
+      },
+      dir,
+    );
+    expect(out.verdicts).toEqual([]);
+    expect(task.tally(out).errors).toContain("r01");
   });
 });
 
@@ -374,10 +389,56 @@ describe("the decision rule", () => {
     ];
     expect(task.decide(failing).reasons).toEqual(["production did not pass both its runs"]);
     const spread = [...prod, run("h", "haiku", "medium", { r01: "x", r03: "x", r05: "x" })];
-    expect(task.decide(spread, [{ check: "verdicts r10 / verdict" }]).reasons).toEqual([
-      "the referee refuted the key on verdicts r10 / verdict",
+    const disputed = task.decide(spread, {
+      referenceErrors: [{ check: "verdicts r10 / verdict" }],
+    });
+    expect(disputed.reasons).toEqual(["the referee refuted the key on verdicts r10 / verdict"]);
+    expect(disputed.ranked.some((c) => c.qualifies)).toBe(false);
+    expect(task.decide(spread, { unruled: 4 }).reasons).toEqual([
+      "4 disagreements are still unruled by the referee",
     ]);
     expect(task.decide(spread.slice(2)).reasons[0]).toBe("production (opus @ xhigh) did not run");
+  });
+
+  it("neither passes nor qualifies a config short of two runs, or with a run score faulted", () => {
+    const h = (id: string, c: Record<string, string> = {}) => run(id, "haiku", "medium", c);
+    const lone = task.decide([
+      prod[0]!,
+      h("h-1"),
+      run("s", "sonnet", "high", { r01: "x", r03: "x", r05: "x" }),
+    ]);
+    expect(lone.reasons[0]).toBe("production has 1 valid-or-not runs, not 2");
+    const by = Object.fromEntries(lone.ranked.map((c) => [c.config, c]));
+    expect(by["haiku @ medium"]).toMatchObject({
+      errors: 0,
+      complete: false,
+      allPass: false,
+      qualifies: false,
+    });
+    const spread = run("s", "sonnet", "high", { r01: "x", r03: "x", r05: "x" });
+    const faulted = task.decide([...prod, h("h-1"), { ...h("h-2"), invalid: true }, spread]);
+    expect(faulted.canRank).toBe(true);
+    expect(faulted.perRun.find((r) => r.id === "h-2")).toMatchObject({
+      invalid: true,
+      pass: false,
+    });
+    expect(faulted.ranked.find((c) => c.config === "haiku @ medium")!.qualifies).toBe(false);
+  });
+
+  it("reads the run's own arms, so an --arms file is reported under the config it asked for", () => {
+    const records = Object.fromEntries(
+      [...prod, run("opus-medium-1", "sonnet", "low")].map((r) => [
+        r.id,
+        { structured: r.output, cost: r.cost },
+      ]),
+    );
+    const arms = [
+      { id: "gold", model: "opus", effort: "xhigh" },
+      { id: "opus-xhigh-2", model: "opus", effort: "xhigh" },
+      { id: "opus-medium-1", model: "sonnet", effort: "low" },
+    ];
+    const d = task.decision(records, "/d", { arms });
+    expect(d.ranked.map((c) => c.config).sort()).toEqual(["opus @ xhigh", "sonnet @ low"]);
   });
 });
 
@@ -526,6 +587,8 @@ describe("collecting and combining an item run", () => {
     expect(two.record!.efforts).toEqual(["high", "medium"]);
     expect(two.record!.cost).toBeCloseTo(2 * one.record!.cost!, 10);
     expect(combineItems(fake, ARGS, {}, H).record).toBeNull();
+    const silent = mergeAgents({}, [transcript("h", "r01", null)], ARGS).agents;
+    expect(combineItems(fake, ARGS, silent, H).record!.structured).toBeNull();
   });
 
   it("names any agent that read or grepped for the answer key", () => {
@@ -533,10 +596,11 @@ describe("collecting and combining an item run", () => {
       "h/r01": { bash: ["cat /r/input/bakeoff/arms.mjs"], reads: [] },
       "h/r02": { bash: [], reads: [JSON.stringify({ file_path: "/r/truth.json" })] },
       "gold/r01": { bash: ["grep -rn r01 scripts/model-bakeoff/tasks/refute-repo.data.json"] },
+      "gold/r02": { bash: ["sed -n '58,87p' /tmp/refute-repo-1/input/bakeoff/ledger.mjs"] },
     };
     expect(secretReads(task.secrets, agents)).toEqual([
       "h/r02: read or ran a command naming truth.json",
-      "gold/r01: read or ran a command naming refute-repo",
+      "gold/r01: read or ran a command naming refute-repo.data.json",
     ]);
   });
 
@@ -553,5 +617,33 @@ describe("collecting and combining an item run", () => {
       ].join("\n"),
     );
     expect(t.reads).toEqual(['{"file_path":"/r/truth.json"}']);
+  });
+});
+
+describe("split", () => {
+  it("writes one launcher per arm that runs only that arm through the workflow", async () => {
+    const args = extractArgs(task, "/r/input", task.arms, "/r/work") as Parameters<
+      typeof launchers
+    >[0];
+    const ls = launchers(args, WORKFLOW);
+    expect(ls.map((l) => l.id)).toEqual(["gold", ...task.arms.map((a) => a.id)]);
+    const l = ls[1]!;
+    expect(l.script).toMatch(
+      /^export const meta = \{\n {2}name: "bakeoff-refute-repo-opus-xhigh-2",/,
+    );
+    let seen: { ref: unknown; args: Record<string, unknown> } | null = null;
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+    const body = new AsyncFunction(
+      "workflow",
+      l.script.replace(/^export const meta/m, "const meta"),
+    );
+    await body(async (ref: unknown, a: Record<string, unknown>) => {
+      seen = { ref, args: a };
+    });
+    expect(seen!.ref).toEqual({ scriptPath: WORKFLOW });
+    expect(seen!.args).toEqual({ ...args, only: ["opus-xhigh-2"] });
+    const { calls } = await runWorkflow(seen!.args);
+    expect(calls).toHaveLength(DATA.claims.length);
+    expect(calls.every((c) => c.opts.model === "opus" && c.opts.effort === "xhigh")).toBe(true);
   });
 });

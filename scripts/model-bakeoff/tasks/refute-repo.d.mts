@@ -41,10 +41,17 @@ export interface Config {
   misses: number;
   cost: number | null;
   allPass: boolean;
+  complete: boolean;
   qualifies: boolean;
 }
 export interface Decision {
-  perRun: (Tally & { id: string; config: string; cost: number | null; pass: boolean })[];
+  perRun: (Tally & {
+    id: string;
+    config: string;
+    cost: number | null;
+    invalid: boolean;
+    pass: boolean;
+  })[];
   ranked: Config[];
   spread: number;
   canRank: boolean;
@@ -63,6 +70,7 @@ export const schema: Record<string, unknown>;
 export const goldAddendum: string;
 export const TOLERANCE: Readonly<Tolerance>;
 export const PRODUCTION: Readonly<{ model: string; effort: string }>;
+export const RUNS_PER_CONFIG: number;
 export const arms: Arm[];
 export const gold: Arm;
 export function claims(data?: RepoData): {
@@ -81,6 +89,10 @@ export function labels(data?: RepoData): Verdicts;
 export function truth(dir: string): Verdicts;
 export function tally(output: Verdicts | null, data?: RepoData): Tally;
 export function passes(t: Tally, tol?: Tolerance): boolean;
+export interface DecisionContext {
+  referenceErrors?: { check: string }[];
+  unruled?: number;
+}
 export function decide(
   runs: {
     id: string;
@@ -88,13 +100,14 @@ export function decide(
     effort: string;
     output: Verdicts | null;
     cost: number | null;
+    invalid?: boolean;
   }[],
-  referenceErrors?: { check: string }[],
+  ctx?: DecisionContext,
   tol?: Tolerance,
   data?: RepoData,
 ): Decision;
 export function decision(
   records: Record<string, { structured: unknown; cost: number | null }>,
   dir: string,
-  referenceErrors?: { check: string }[],
+  ctx?: DecisionContext & { arms?: Arm[]; invalid?: string[] },
 ): Decision;

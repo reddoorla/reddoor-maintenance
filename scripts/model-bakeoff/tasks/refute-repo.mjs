@@ -45,7 +45,9 @@ export const sources = Object.values(
 }));
 
 // Any agent whose commands or reads name these has looked at the answer key.
-export const secrets = ["refute-repo", "truth.json"];
+// File names, not the task id: a run directory may well be called refute-repo-1, and every
+// skeptic names its input folder.
+export const secrets = ["refute-repo.data.json", "truth.json"];
 
 /** The claims as the workflow validates them, labels stripped. */
 export function claims(data = DATA) {
@@ -108,15 +110,17 @@ export const collections = [
 
 /**
  * The arm's verdicts as production records them: each skeptic's output through the workflow's
- * own `enforceQuoteRule`, keyed by the claim the agent was spawned for (not the id it typed).
+ * own `enforceQuoteRule`. Production files a verdict under the id the skeptic typed
+ * (`byId.get(r.id)`), so a skeptic that mistypes its claim's id leaves that claim with no
+ * verdict here too, rather than being credited for an answer production would drop.
  */
 export function assemble(outputs, dir) {
   return {
     verdicts: claims()
-      .filter((c) => outputs[c.id])
+      .filter((c) => outputs[c.id] && outputs[c.id].id === c.id)
       .map((c) => {
         const out = outputs[c.id];
-        const v = enforceQuoteRule({ ...out, id: c.id }, c, dir);
+        const v = enforceQuoteRule(out, c, dir);
         return { id: c.id, verdict: v.verdict, raw: out.verdict, downgraded: v.downgraded };
       }),
   };
@@ -170,6 +174,11 @@ export function truth(dir) {
 // - the referee upheld every label it was asked about (a disputed label is a defect in the
 //   control: fix the key and score again);
 // - pooled errors spread by at least 3 across configs. Less is reported as saturated.
+// - no disagreement is still waiting on the referee.
+//
+// A config with fewer than RUNS_PER_CONFIG runs, or with a run `score` found a problem in
+// (wrong model or effort, a missing item, a forbidden command), neither passes nor qualifies,
+// and none qualifies while the control may not rank.
 
 export const TOLERANCE = Object.freeze({
   misses: 1,
@@ -181,6 +190,8 @@ export const TOLERANCE = Object.freeze({
 });
 
 export const PRODUCTION = Object.freeze({ model: "opus", effort: "xhigh" });
+
+export const RUNS_PER_CONFIG = 2;
 
 export function tally(output, data = DATA) {
   const given = new Map();
@@ -214,13 +225,27 @@ export function passes(t, tol = TOLERANCE) {
 const configOf = (arm) => `${arm.model} @ ${arm.effort}`;
 
 /**
- * `runs` is `[{ id, model, effort, output, cost }]`, one per run. Returns each run's tally, each
- * config's pooled numbers in rank order, and whether this run may rank at all.
+ * `runs` is `[{ id, model, effort, output, cost, invalid? }]`, one per run; `invalid` marks a
+ * run `score` found a problem in. Returns each run's tally, each config's pooled numbers in rank
+ * order, and whether this run may rank at all.
  */
-export function decide(runs, referenceErrors = [], tol = TOLERANCE, data = DATA) {
+export function decide(
+  runs,
+  { referenceErrors = [], unruled = 0 } = {},
+  tol = TOLERANCE,
+  data = DATA,
+) {
   const perRun = runs.map((r) => {
     const t = tally(r.output, data);
-    return { id: r.id, config: configOf(r), cost: r.cost, ...t, pass: passes(t, tol) };
+    const invalid = Boolean(r.invalid);
+    return {
+      id: r.id,
+      config: configOf(r),
+      cost: r.cost,
+      ...t,
+      invalid,
+      pass: !invalid && passes(t, tol),
+    };
   });
   const configs = new Map();
   for (const r of perRun) {
@@ -238,6 +263,10 @@ export function decide(runs, referenceErrors = [], tol = TOLERANCE, data = DATA)
     c.allPass = (c.allPass ?? true) && r.pass;
     configs.set(r.config, c);
   }
+  for (const c of configs.values()) {
+    c.complete = c.runs.length === RUNS_PER_CONFIG;
+    c.allPass = c.allPass && c.complete;
+  }
   const ranked = [...configs.values()].sort(
     (a, b) =>
       a.errors - b.errors || a.misses - b.misses || (a.cost ?? Infinity) - (b.cost ?? Infinity),
@@ -245,7 +274,10 @@ export function decide(runs, referenceErrors = [], tol = TOLERANCE, data = DATA)
   const prod = configs.get(configOf(PRODUCTION));
   const reasons = [];
   if (!prod) reasons.push("production (opus @ xhigh) did not run");
+  else if (!prod.complete)
+    reasons.push(`production has ${prod.runs.length} valid-or-not runs, not ${RUNS_PER_CONFIG}`);
   else if (!prod.allPass) reasons.push("production did not pass both its runs");
+  if (unruled > 0) reasons.push(`${unruled} disagreements are still unruled by the referee`);
   if (referenceErrors.length) {
     reasons.push(
       `the referee refuted the key on ${referenceErrors.map((e) => e.check).join("; ")}`,
@@ -253,37 +285,49 @@ export function decide(runs, referenceErrors = [], tol = TOLERANCE, data = DATA)
   }
   const spread = ranked.length ? ranked[ranked.length - 1].errors - ranked[0].errors : 0;
   if (spread < tol.minSpread) reasons.push(`saturated: pooled errors spread by ${spread}`);
+  const canRank = reasons.length === 0;
   for (const c of ranked) {
     c.qualifies =
+      canRank &&
       Boolean(prod) &&
       c.allPass &&
       c.errors <= prod.errors + tol.errorsOverProduction &&
       c.misses <= prod.misses + tol.missesOverProduction;
   }
-  return { perRun, ranked, spread, canRank: reasons.length === 0, reasons };
+  return { perRun, ranked, spread, canRank, reasons };
 }
 
-/** The `score` hook: the decision, and its lines for the report. */
-export function decision(records, dir, referenceErrors = []) {
-  const runs = [gold, ...arms]
+/**
+ * The `score` hook: the decision, and its lines for the report. `ctx.arms` is the run's own
+ * gold and arms (an `--arms` file replaces the defaults), `ctx.invalid` the arm ids `score`
+ * found a problem in.
+ */
+export function decision(records, dir, ctx = {}) {
+  const { arms: runArms = [gold, ...arms], invalid = [], referenceErrors = [], unruled = 0 } = ctx;
+  const runs = runArms
     .filter((a) => records[a.id])
-    .map((a) => ({ ...a, output: records[a.id].structured, cost: records[a.id].cost }));
-  const d = decide(runs, referenceErrors);
+    .map((a) => ({
+      ...a,
+      output: records[a.id].structured,
+      cost: records[a.id].cost,
+      invalid: invalid.includes(a.id),
+    }));
+  const d = decide(runs, { referenceErrors, unruled });
   const money = (n) => (n === null ? "unpriced" : `$${n.toFixed(2)}`);
   const ids = (xs) => (xs.length ? xs.join(" ") : "none");
   d.lines = [
-    "| Config | Runs | Pooled errors | Pooled misses | Every run passes | Qualifies | Cost (both runs) |",
+    "| Config | Runs | Pooled errors | Pooled misses | Every run passes | Qualifies | Cost (all runs) |",
     "|---|---|---|---|---|---|---|",
     ...d.ranked.map(
       (c) =>
         `| ${c.config} | ${c.runs.join(", ")} | ${c.errors} | ${c.misses} | ${c.allPass ? "yes" : "no"} | ${c.qualifies ? "yes" : "no"} | ${money(c.cost)} |`,
     ),
     "",
-    "| Run | Misses (false not refuted) | Wrong kills (true refuted) | Unconfirmed true docs | Behaviour off | Pass |",
-    "|---|---|---|---|---|---|",
+    "| Run | Misses (false not refuted) | Wrong kills (true refuted) | Unconfirmed true docs | Behaviour off | Problem | Pass |",
+    "|---|---|---|---|---|---|---|",
     ...d.perRun.map(
       (r) =>
-        `| ${r.id} | ${ids(r.misses)} | ${ids(r.wrongKills)} | ${ids(r.unconfirmed)} | ${ids(r.behaviour)} | ${r.pass ? "yes" : "no"} |`,
+        `| ${r.id} | ${ids(r.misses)} | ${ids(r.wrongKills)} | ${ids(r.unconfirmed)} | ${ids(r.behaviour)} | ${r.invalid ? "yes" : "no"} | ${r.pass ? "yes" : "no"} |`,
     ),
     "",
     d.canRank
