@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
+import { writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditResult, Site } from "../types.js";
@@ -10,6 +10,7 @@ import type { AuditContext } from "./util/inject.js";
 import { readSiteConfig } from "./util/site-config.js";
 import { withFreePort } from "../util/free-port.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
+import { readJsonIfExists } from "../util/fs.js";
 
 type ManifestEntry = {
   url: string;
@@ -52,15 +53,6 @@ type NormalizedLhciResult = {
   failingAudits: FailingAudit[];
   assertionsRead: boolean;
 };
-
-async function readJsonMaybe<T>(path: string): Promise<T | null> {
-  try {
-    const raw = await readFile(path, "utf-8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
 
 type LhrFile = {
   requestedUrl: string;
@@ -121,7 +113,7 @@ async function readLhrEntries(resultsDir: string): Promise<ManifestEntry[]> {
   const entries: ManifestEntry[] = [];
   for (const f of files) {
     if (!f.startsWith("lhr-") || !f.endsWith(".json")) continue;
-    const lhr = await readJsonMaybe<LhrFile>(join(resultsDir, f));
+    const lhr = await readJsonIfExists<LhrFile>(join(resultsDir, f));
     if (!lhr || !lhr.categories) continue;
     const summary: Record<string, number> = {};
     for (const [k, v] of Object.entries(lhr.categories)) {
@@ -216,7 +208,7 @@ async function parseLhciResults(
     };
   }
 
-  const assertionFile = await readJsonMaybe<AssertionResult[]>(
+  const assertionFile = await readJsonIfExists<AssertionResult[]>(
     join(resultsDir, "assertion-results.json"),
   );
   const assertionResults = Array.isArray(assertionFile) ? assertionFile : [];

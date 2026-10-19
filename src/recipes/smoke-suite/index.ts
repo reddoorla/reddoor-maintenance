@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -14,6 +14,7 @@ import {
   PLAYWRIGHT_CONFIG_TEMPLATE,
   PLAYWRIGHT_CONFIG_PRE_R11,
 } from "./template.js";
+import { pathExists, readTextIfExists } from "../../util/fs.js";
 
 export type SmokeSuiteDeps = {
   spawn: SpawnFn;
@@ -42,23 +43,6 @@ type PackageJson = {
   devDependencies?: Record<string, string>;
   dependencies?: Record<string, string>;
 };
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readIfExists(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
 
 /** The template's default hydration marker, and the sentence explaining it —
  *  swapped for a fallback explanation when the marker deviates. Must match
@@ -135,7 +119,7 @@ async function detectHydrationMarker(
   let sawFooter = false;
   let sawMain = false;
   for (const rel of svelteFiles) {
-    const text = (await readIfExists(join(cwd, "src", rel))) ?? "";
+    const text = (await readTextIfExists(join(cwd, "src", rel))) ?? "";
     if (WRITES_HYDRATED_MARKER.test(withoutComments(text))) return HYDRATED_MARKER;
     if (/<footer[\s>/]/.test(text)) sawFooter = true;
     if (/<main[\s>/]/.test(text)) sawMain = true;
@@ -165,7 +149,7 @@ export async function smokeSuite(
       // package.json noops cleanly (spec: structurally unrecognizable → noop),
       // BEFORE apply writes any file. A bad JSON that only threw in apply would
       // leave the (safely-restored) branch as a `failed`, not the graceful noop.
-      const raw = await readIfExists(pkgPath);
+      const raw = await readTextIfExists(pkgPath);
       if (raw === null) {
         return { kind: "noop", notes: "no package.json (not a node project)" };
       }
@@ -192,7 +176,7 @@ export async function smokeSuite(
       //    `main`, then `body`, so the suite proves paint instead of
       //    false-failing.
       let routesTemplate = SMOKE_ROUTES_TEMPLATE;
-      if (!(await fileExists(join(cwd, SMOKE_ROUTES_RELATIVE)))) {
+      if (!(await pathExists(join(cwd, SMOKE_ROUTES_RELATIVE)))) {
         const marker = await detectHydrationMarker(cwd);
         if (marker !== HYDRATED_MARKER) {
           routesTemplate = SMOKE_ROUTES_TEMPLATE.replace(
@@ -213,7 +197,7 @@ export async function smokeSuite(
       ];
       for (const [rel, tmpl] of specFiles) {
         const target = join(cwd, rel);
-        if (!(await fileExists(target))) {
+        if (!(await pathExists(target))) {
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, tmpl, "utf-8");
           written.push(rel);
@@ -225,7 +209,7 @@ export async function smokeSuite(
       //    write R1.1; already has REDDOOR_SMOKE_PORT → leave; exact pre-R1.1
       //    shared-base → safe-replace wholesale; anything else → flag for manual.
       const cfgPath = join(cwd, PLAYWRIGHT_CONFIG_RELATIVE);
-      const existingCfg = await readIfExists(cfgPath);
+      const existingCfg = await readTextIfExists(cfgPath);
       if (existingCfg === null) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
         written.push(PLAYWRIGHT_CONFIG_RELATIVE);

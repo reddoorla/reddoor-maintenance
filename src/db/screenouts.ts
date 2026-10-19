@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import type { Db } from "./client.js";
+import { ymd } from "../util/date.js";
 
 export type ScreenOutReason = "honeypot" | "too-fast";
 export type ScreenOutTotals = { honeypot: number; tooFast: number; markedSpam: number };
@@ -122,8 +123,7 @@ export async function screenOutTotalsForSite(
 
 /** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries. */
 export function screenOutsSince(now: Date, days: number): string {
-  const d = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  return d.toISOString().slice(0, 10);
+  return ymd(new Date(now.getTime() - days * 24 * 60 * 60 * 1000));
 }
 
 /** Set the (site, date) bucket to exact totals. Replace-upsert (DO UPDATE SET col
