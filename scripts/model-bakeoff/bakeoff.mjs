@@ -444,22 +444,30 @@ export function formatResult(r) {
 }
 
 /**
- * One launcher script per arm (gold included), each embedding the run's workflow args with
- * `only` set to that arm and calling the bake-off workflow as a child. A workflow runs at
- * most min(16, CPUs - 2) agents at once, two in a 4-CPU container, and an item run's args
- * are too large to paste into a Workflow call; launching each file with `scriptPath` gives
- * every arm its own slots without retyping the args.
+ * One launcher script per arm (gold included). Each holds the bake-off workflow's body,
+ * wrapped in a function and called with the run's workflow args, `only` set to that arm. A
+ * workflow runs at most min(16, CPUs - 2) agents at once, two in a 4-CPU container, and an
+ * item run's args are too large to paste into a Workflow call; launching each file with
+ * `scriptPath` gives every arm its own slots without retyping the args. The body is embedded
+ * rather than loaded with `workflow({ scriptPath })`, which refuses a file outside the
+ * session's working directory, such as a worktree's.
  */
-export function launchers(args, workflowPath) {
+export function launchers(args, source) {
+  const meta = /^export const meta = \{[\s\S]*?\n\};\n/m;
+  if (!meta.test(source)) throw new Error("the workflow source has no `export const meta` block");
+  const body = source.replace(meta, "");
   return [args.gold, ...args.arms].map((a) => ({
     id: a.id,
     script: [
       "export const meta = {",
       `  name: "bakeoff-${args.task}-${a.id}",`,
       `  description: "Bake-off ${args.task}: arm ${a.id} (${a.model} @ ${a.effort})",`,
+      '  phases: [{ title: "Extract" }],',
       "};",
       "",
-      `return await workflow({ scriptPath: ${JSON.stringify(workflowPath)} }, ${JSON.stringify({ ...args, only: [a.id] })});`,
+      "return await (async (args) => {",
+      body,
+      `})(${JSON.stringify({ ...args, only: [a.id] })});`,
       "",
     ].join("\n"),
   }));
@@ -470,8 +478,8 @@ function split(opts) {
   const args = readJson(join(run, "workflow-args.json"));
   const dir = join(run, "launch");
   mkdirSync(dir, { recursive: true });
-  const workflow = join(REPO, ".claude/workflows/model-bakeoff.workflow.js");
-  for (const l of launchers(args, workflow)) {
+  const source = readFileSync(join(REPO, ".claude/workflows/model-bakeoff.workflow.js"), "utf8");
+  for (const l of launchers(args, source)) {
     writeFileSync(join(dir, `${l.id}.workflow.js`), l.script);
     console.log(join(dir, `${l.id}.workflow.js`));
   }

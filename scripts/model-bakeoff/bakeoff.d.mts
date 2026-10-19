@@ -56,5 +56,5 @@ export function nextRound(agents: Record<string, unknown>): number;
 export function formatResult(r: Record<string, unknown>): string;
 export function launchers(
   args: { task: string; gold: Arm; arms: Arm[] } & Record<string, unknown>,
-  workflowPath: string,
+  source: string,
 ): { id: string; script: string }[];

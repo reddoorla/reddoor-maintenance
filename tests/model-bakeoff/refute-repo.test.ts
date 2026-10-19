@@ -621,29 +621,37 @@ describe("collecting and combining an item run", () => {
 });
 
 describe("split", () => {
-  it("writes one launcher per arm that runs only that arm through the workflow", async () => {
+  it("writes one self-contained launcher per arm that runs only that arm", async () => {
     const args = extractArgs(task, "/r/input", task.arms, "/r/work") as Parameters<
       typeof launchers
     >[0];
-    const ls = launchers(args, WORKFLOW);
+    const ls = launchers(args, readFileSync(WORKFLOW, "utf8"));
     expect(ls.map((l) => l.id)).toEqual(["gold", ...task.arms.map((a) => a.id)]);
     const l = ls[1]!;
     expect(l.script).toMatch(
       /^export const meta = \{\n {2}name: "bakeoff-refute-repo-opus-xhigh-2",/,
     );
-    let seen: { ref: unknown; args: Record<string, unknown> } | null = null;
+    expect(l.script.match(/export const meta/g)).toHaveLength(1);
+    const calls: Record<string, unknown>[] = [];
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
     const body = new AsyncFunction(
-      "workflow",
+      "agent",
+      "parallel",
+      "phase",
+      "log",
       l.script.replace(/^export const meta/m, "const meta"),
     );
-    await body(async (ref: unknown, a: Record<string, unknown>) => {
-      seen = { ref, args: a };
-    });
-    expect(seen!.ref).toEqual({ scriptPath: WORKFLOW });
-    expect(seen!.args).toEqual({ ...args, only: ["opus-xhigh-2"] });
-    const { calls } = await runWorkflow(seen!.args);
+    await body(
+      async (_p: string, opts: Record<string, unknown>) => {
+        calls.push(opts);
+        return {};
+      },
+      (thunks: (() => Promise<unknown>)[]) => Promise.all(thunks.map((t) => t())),
+      () => {},
+      () => {},
+    );
     expect(calls).toHaveLength(DATA.claims.length);
-    expect(calls.every((c) => c.opts.model === "opus" && c.opts.effort === "xhigh")).toBe(true);
+    expect(calls.every((c) => c.model === "opus" && c.effort === "xhigh")).toBe(true);
+    expect(() => launchers(args, "no meta here")).toThrow(/meta/);
   });
 });
