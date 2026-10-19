@@ -202,10 +202,11 @@ describe("an ordinary careful site passes the whole battery", () => {
   });
 
   it("carries a receipt on every check that reached a verdict", () => {
-    for (const c of checks) {
-      if (c.status === "pass" || c.status === "fail") {
-        expect(c.evidence, `${c.key} reached a verdict with no receipt`).toBeTruthy();
-      }
+    const verdicts = checks.filter((c) => c.status === "pass" || c.status === "fail");
+    // Without this the loop passes vacuously when nothing reaches a verdict.
+    expect(verdicts.length).toBeGreaterThan(0);
+    for (const c of verdicts) {
+      expect(c.evidence, `${c.key} reached a verdict with no receipt`).toBeTruthy();
     }
   });
 
