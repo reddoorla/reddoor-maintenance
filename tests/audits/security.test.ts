@@ -674,9 +674,7 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     "        version: 0.35.4",
     "",
   ].join("\n");
-  const pnpm11Lockfile = ["lockfileVersion: '9.0'", "", "importers:", "", "  .: {}", ""].join(
-    "\n",
-  );
+  const pnpm11Lockfile = ["lockfileVersion: '9.0'", "", "importers:", "", "  .: {}", ""].join("\n");
   const pnpmAuditOut = JSON.stringify({
     metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0 } },
     advisories: {

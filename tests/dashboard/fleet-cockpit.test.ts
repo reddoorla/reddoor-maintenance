@@ -1266,13 +1266,13 @@ describe("buildNeedsYouFeed", () => {
     expect(stuck).toHaveLength(1);
     expect(stuck[0]!.group).toBe("broken");
   });
-  it("keeps a hard-broken site broken and omits its self-patching vuln from the reasons", () => {
+  it("keeps a hard-broken site broken and still names its escalated vuln", () => {
     const feed = buildNeedsYouFeed(
       feedModel({ cards: [attnCard("Acme", [ci("Acme"), vuln("Acme", { exhausted: false })])] }),
     );
     expect(feed).toHaveLength(1);
     expect(feed[0]!.group).toBe("broken");
-    expect(feed[0]!.reasons).toEqual(["CI red"]);
+    expect(feed[0]!.reasons).toEqual(["CI red", "critical vuln"]);
   });
   it("merges a broken site's pending report into the same broken row", () => {
     const feed = buildNeedsYouFeed(

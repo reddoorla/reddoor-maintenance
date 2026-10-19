@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
@@ -18,8 +20,9 @@ type AdvisoryEntry = {
   /** Dependency graph scope from Dependabot ("runtime" | "development"); absent for the
    *  lockfile `pnpm audit` fallback, which carries no per-package scope. Display-only. */
   scope?: "runtime" | "development";
-  /** Dependency graph relationship from Dependabot; absent when GitHub reports "unknown"
-   *  or for the `pnpm audit` fallback. "transitive" = no direct-dep fix vehicle, so the
+  /** Dependency graph relationship from Dependabot, or for the lockfile fallback whether
+   *  `package.json` names the module; absent when GitHub reports "unknown" or `package.json`
+   *  cannot be read. "transitive" = no direct-dep fix vehicle, so the
    *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
   relationship?: "direct" | "transitive" | "inconclusive";
 };
@@ -331,6 +334,48 @@ async function dependabotAudit(
   };
 }
 
+/** True when `pnpm-lock.yaml` holds more than one YAML document. pnpm 12 writes its own
+ *  `packageManagerDependencies` as a first document and the project's dependencies as a second;
+ *  GitHub's dependency graph reads only the first, so Dependabot sees pnpm and nothing else and
+ *  answers "0 alerts" for every advisory in the tree (caltex-landing's graph listed 22 packages,
+ *  all pnpm binaries and Actions, while `pnpm audit` found sharp's GHSA-wq5f-xc86-pv6w; P1-54).
+ *  An unreadable lockfile is false: no evidence, so Dependabot stays the source. */
+async function lockfileHiddenFromDependencyGraph(dir: string): Promise<boolean> {
+  let text: string;
+  try {
+    text = await readFile(join(dir, "pnpm-lock.yaml"), "utf8");
+  } catch {
+    return false;
+  }
+  return (text.match(/^lockfileVersion:/gm) ?? []).length > 1;
+}
+
+/** The packages `package.json` names itself, or null when it cannot be read. An advisory on one
+ *  of them has a direct-dep fix vehicle; any other is transitive. The lockfile audit carries no
+ *  relationship of its own, and without one every transitive advisory would read as a failed
+ *  direct auto-fix. */
+async function directDependencies(dir: string): Promise<Set<string> | null> {
+  try {
+    const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const names = new Set<string>();
+    for (const field of [
+      "dependencies",
+      "devDependencies",
+      "optionalDependencies",
+      "peerDependencies",
+    ]) {
+      const deps = pkg[field];
+      if (deps && typeof deps === "object") for (const n of Object.keys(deps)) names.add(n);
+    }
+    return names;
+  } catch {
+    return null;
+  }
+}
+
 export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
   const site = ctx.site;
@@ -339,7 +384,15 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   // Prefer GitHub Dependabot alerts (ground truth: prod+dev, GitHub Advisory DB) for repo-backed
   // sites. The lockfile `pnpm audit` below stays the fallback for sites with no GitHub repo, no
   // token, or a transient API failure — a Dependabot hiccup must never fail an otherwise-fine site.
-  if (site.gitRepo) {
+  // A lockfile the dependency graph cannot read makes Dependabot's answer empty, not clean.
+  const graphBlind = await lockfileHiddenFromDependencyGraph(site.path);
+  if (site.gitRepo && graphBlind) {
+    console.error(
+      `[security] ${label}: pnpm-lock.yaml has more than one YAML document, which GitHub's ` +
+        `dependency graph cannot read — audited with pnpm audit instead of Dependabot`,
+    );
+  }
+  if (site.gitRepo && !graphBlind) {
     const dependabot = ctx.dependabotDeps ?? defaultDependabotDeps();
     if (dependabot) {
       const viaDependabot = await dependabotAudit(dependabot, site.gitRepo, label);
@@ -385,8 +438,12 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
     critical: parsed.metadata?.vulnerabilities?.critical ?? 0,
   };
 
-  const advisories =
-    used === "pnpm audit" ? extractAdvisoriesFromPnpm(parsed) : extractAdvisoriesFromNpm(parsed);
+  const direct = await directDependencies(site.path);
+  const advisories = (
+    used === "pnpm audit" ? extractAdvisoriesFromPnpm(parsed) : extractAdvisoriesFromNpm(parsed)
+  ).map((a): AdvisoryEntry =>
+    direct ? { ...a, relationship: direct.has(a.module) ? "direct" : "transitive" } : a,
+  );
 
   const status = classify(counts);
   const total = counts.low + counts.moderate + counts.high + counts.critical;
