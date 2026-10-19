@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -10,6 +10,7 @@ import {
   HEALTH_ENDPOINT_TEMPLATE,
   HEALTH_ENDPOINT_TEMPLATE_NO_PRISMIC,
 } from "./template.js";
+import { pathExists } from "../../util/fs.js";
 
 export type HealthEndpointDeps = {
   spawn: SpawnFn;
@@ -32,18 +33,9 @@ const PRISMICIO_CANDIDATES = [
   "src/lib/prismicio.mjs",
 ];
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function siteHasPrismic(sitePath: string): Promise<boolean> {
   for (const rel of PRISMICIO_CANDIDATES) {
-    if (await fileExists(join(sitePath, rel))) return true;
+    if (await pathExists(join(sitePath, rel))) return true;
   }
   return false;
 }
@@ -71,7 +63,7 @@ export async function healthEndpoint(
     name: "health-endpoint",
     site,
     plan: async () => {
-      if (await fileExists(target)) {
+      if (await pathExists(target)) {
         return { kind: "noop", notes: `${HEALTH_ENDPOINT_RELATIVE} already exists` };
       }
       const hasPrismic = await siteHasPrismic(site.path);

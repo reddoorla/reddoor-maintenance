@@ -9,6 +9,7 @@ import type { ProspectAuditResult } from "../../prospect/types.js";
 import type { SendAuditEmailResult } from "../../prospect/email.js";
 import type { SiteGoal } from "../../prospect/goals.js";
 import { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../../prospect/daily-cap.js";
+import { filenameSlug } from "../../util/slug.js";
 
 /** The operator-selectable goals, in the order the dispatch dropdown lists
  *  them. `unknown` is deliberately absent: it is a finding the audit can reach
@@ -104,16 +105,6 @@ function auditStatus(result: ProspectAuditResult): FinishedProspectAuditStatus {
   return allStagesOk ? "complete" : "partial";
 }
 
-/** Filesystem-safe, never empty. Collapses anything outside [a-z0-9.-] to a
- *  single dash so a hostname becomes a sane filename fragment. */
-function slugify(s: string): string {
-  const slug = s
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "prospect";
-}
-
 /**
  * Last-resort write when NEITHER `--out` nor the database persist made it —
  * the one situation a paid, already-run audit must never end in silently. Lands
@@ -129,7 +120,7 @@ async function writeRecoveryFiles(
   const dir = resolve("reports");
   await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const base = `prospect-audit-${slugify(hostnameOf(result.url))}-${stamp}`;
+  const base = `prospect-audit-${filenameSlug(hostnameOf(result.url))}-${stamp}`;
   const htmlPath = resolve(dir, `${base}.html`);
   const jsonPath = resolve(dir, `${base}.json`);
   await writeFile(htmlPath, html, "utf-8");

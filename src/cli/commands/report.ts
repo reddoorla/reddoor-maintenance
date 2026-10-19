@@ -1,4 +1,3 @@
-import type { Db } from "../../db/client.js";
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
 import { findDueReports, nextDueDates, reportPeriodKey } from "../../reports/due.js";
@@ -15,6 +14,7 @@ import type { ScheduleMirror } from "../../audits/health-mirror.js";
 import type { ReportMirror } from "../../reports/report-mirror.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
+import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
@@ -78,26 +78,6 @@ export function parseSingleSiteReportType(raw: string | undefined): ReportType {
  *  production default; the trailing slash (if any) is trimmed by runDigest. */
 function dashboardBaseUrl(): string {
   return process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app";
-}
-
-/** One lazily-opened, once-closed libSQL connection for a command's reads (#646
- *  step 4). Lazy because the command that owns it may return before any read
- *  happens, and opening a database to do nothing is how a test — or a `--help`
- *  path — ends up needing `TURSO_DATABASE_URL`. */
-function lazyFleetDb(): { get: () => Promise<Db>; close: () => Promise<void> } {
-  let db: Db | null = null;
-  return {
-    get: async () => {
-      if (!db) {
-        const { openDb, readDbConfig } = await import("../../db/client.js");
-        db = await openDb(readDbConfig());
-      }
-      return db;
-    },
-    close: async () => {
-      if (db) await db.destroy();
-    },
-  };
 }
 
 export async function runReportCommand(
