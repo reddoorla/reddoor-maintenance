@@ -5170,7 +5170,19 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       landing does not make them worse. The tripwire only reports and gates
       nothing in production. **Answered 2026-10-19 (AskUserQuestion): (b),
       a sixth round on `0fbf1f77`, then land.** The worker runs it and lands
-      #1444 if it is clean or minors-only, filing any minors as issues. The
+      #1444 if it is clean or minors-only, filing any minors as issues.
+      **Round 6 (2026-10-19 ~17:15Z) was not clean**: 2 majors, both
+      reproduced. (1) `git -C repo>/dev/null commit -m x` went unflagged; it
+      was a regression from round 5's word split at `>`. (2) Reads with a
+      redirect were flagged, e.g. `git config user.email 2>/dev/null` and
+      `git remote -v 2>&1`. The redirect counted as a positional word. That
+      predates round 5, and some forms were introduced earlier in this PR.
+      Both are fixed in `f0aafb38`: redirects and their targets are dropped
+      from the git, curl and wget args, as bash drops them from argv. There
+      is a test per form and a mutation each, and no round has seen the fix.
+      The round-6 minor (`{fd}>/dev/null gh`) is fixed too, and its nit
+      (`"3">x`) is on #1456. _New ask:_ land at `f0aafb38`, run a seventh
+      round, or hold. The
       rounds:
       - Round 1: 4 majors.
       - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
