@@ -4671,6 +4671,13 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         `cutover/claude-md` (`09564d5`), with the map's check passing against
         `4083be93`. Every PM pass edits BACKLOG, so #1347 goes red again on the
         next one: re-freeze it in the window (runbook step 5), as planned.
+        **Status 2026-10-19 ~14:10Z (the cockpit session):** the operator's
+        two pre-window steps are done, on his word in the cockpit: the
+        `RESEND_API_KEY` secret and the `OPERATOR_EMAIL` variable are in
+        reddoor-workspace's Actions (not read back: the proxy refuses the
+        Actions secrets and variables API), and he read the staged `CLAUDE.md`
+        on workspace `cutover/claude-md` at `09564d5` and accepts it as is.
+        What is left of 121 is the Fri 10-23 window itself.
 
 122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
       `no-property` or write `soft-fail`?** The brief said the nightly re-check
