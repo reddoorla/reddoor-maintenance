@@ -306,10 +306,15 @@ async function score(opts) {
   const problems = [];
   // Arms `score` found a problem in, for a task's decision hook.
   const invalid = new Set();
+  // Problems that are no one arm's: they stop a task's decision from ranking at all.
+  const blockers = [];
   if (task.secrets) {
     const hits = secretReads(task.secrets, transcripts);
     problems.push(...hits);
-    for (const h of hits) invalid.add(h.split(/[/:]/)[0]);
+    for (const h of hits) {
+      if (h.startsWith("referee:")) blockers.push(h);
+      else invalid.add(h.split(/[/:]/)[0]);
+    }
   }
   const agents = { ...transcripts };
   if (Array.isArray(args.items)) {
@@ -321,12 +326,16 @@ async function score(opts) {
     }
   }
   if (resolve(args.dir) !== join(run, "input")) {
-    problems.push(`args.dir ${args.dir} is not this run's frozen input ${join(run, "input")}`);
+    const p = `args.dir ${args.dir} is not this run's frozen input ${join(run, "input")}`;
+    problems.push(p);
+    blockers.push(p);
   }
   const before = readJson(join(run, "manifest.json"));
   const after = manifest(join(run, "input"));
-  if (JSON.stringify(before) !== JSON.stringify(after))
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
     problems.push("the frozen input changed during the run");
+    blockers.push("the frozen input changed during the run");
+  }
   const truth = readJson(join(run, "truth.json"));
   const gold = agents.gold?.structured;
   const reference = truth ?? gold;
@@ -392,6 +401,7 @@ async function score(opts) {
   }
   for (const c of contradictions) {
     problems.push(`${c}: the referee's rulings disagree about whether the reference is right`);
+    blockers.push(`${c}: the referee's rulings disagree about whether the reference is right`);
   }
   const result = {
     task: args.task,
@@ -417,7 +427,7 @@ async function score(opts) {
     result.decision = task.decision(
       Object.fromEntries(all.filter((a) => agents[a.id]).map((a) => [a.id, agents[a.id]])),
       args.dir,
-      { arms: all, invalid: [...invalid], referenceErrors, unruled: unruled.length },
+      { arms: all, invalid: [...invalid], referenceErrors, unruled: unruled.length, blockers },
     );
   }
   writeJson(join(run, "result.json"), result);

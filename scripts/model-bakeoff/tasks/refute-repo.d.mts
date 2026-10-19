@@ -42,6 +42,7 @@ export interface Config {
   cost: number | null;
   allPass: boolean;
   complete: boolean;
+  valid: boolean;
   qualifies: boolean;
 }
 export interface Decision {
@@ -92,6 +93,7 @@ export function passes(t: Tally, tol?: Tolerance): boolean;
 export interface DecisionContext {
   referenceErrors?: { check: string }[];
   unruled?: number;
+  blockers?: string[];
 }
 export function decide(
   runs: {

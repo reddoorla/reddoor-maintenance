@@ -172,6 +172,7 @@
         "cost": 0.4821286550000001,
         "allPass": false,
         "complete": true,
+        "valid": false,
         "qualifies": false
       },
       {
@@ -182,6 +183,7 @@
         "cost": 9.490697899999999,
         "allPass": true,
         "complete": true,
+        "valid": true,
         "qualifies": false
       },
       {
@@ -192,6 +194,7 @@
         "cost": 14.9533094,
         "allPass": true,
         "complete": true,
+        "valid": true,
         "qualifies": false
       },
       {
@@ -202,6 +205,7 @@
         "cost": 15.393361200000001,
         "allPass": true,
         "complete": true,
+        "valid": true,
         "qualifies": false
       },
       {
@@ -212,6 +216,7 @@
         "cost": 17.156689,
         "allPass": true,
         "complete": true,
+        "valid": true,
         "qualifies": false
       },
       {
@@ -222,6 +227,7 @@
         "cost": 9.1632717,
         "allPass": true,
         "complete": true,
+        "valid": true,
         "qualifies": false
       }
     ],

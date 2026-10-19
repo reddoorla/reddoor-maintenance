@@ -18,6 +18,7 @@ import {
   expectedWork,
   extractArgs,
   launchers,
+  manifest,
   mergeAgents,
   secretReads,
   type Collected,
@@ -348,7 +349,10 @@ describe("the decision rule", () => {
   });
 
   it("qualifies a config within production's errors plus 2 and misses plus 1, both runs passing", () => {
-    const spread = [run("haiku-1", "haiku", "medium", { r01: "x", r03: "x", r05: "x" })];
+    const spread = [
+      run("haiku-1", "haiku", "medium", { r01: "x", r03: "x" }),
+      run("haiku-2", "haiku", "medium", { r05: "x" }),
+    ];
     const d = task.decide([
       ...prod,
       run("s-1", "sonnet", "high", { r01: "unclear", r02: "unclear" }),
@@ -381,14 +385,19 @@ describe("the decision rule", () => {
   });
 
   it("refuses to rank when production fails, the key is disputed, or the arms saturate", () => {
+    const h = (c1: Record<string, string>, c2: Record<string, string> = {}) => [
+      run("h-1", "haiku", "medium", c1),
+      run("h-2", "haiku", "medium", c2),
+    ];
     expect(task.decide(prod).reasons).toEqual(["saturated: pooled errors spread by 0"]);
     const failing = [
       run("gold", "opus", "xhigh", { r01: "x", r03: "x" }),
       run("opus-xhigh-2", "opus", "xhigh"),
-      run("h", "haiku", "medium", { r01: "x", r03: "x", r05: "x", r09: "x", r11: "x" }),
+      ...h({ r01: "x", r03: "x", r05: "x" }, { r09: "x", r11: "x" }),
     ];
     expect(task.decide(failing).reasons).toEqual(["production did not pass both its runs"]);
-    const spread = [...prod, run("h", "haiku", "medium", { r01: "x", r03: "x", r05: "x" })];
+    const spread = [...prod, ...h({ r01: "x", r03: "x", r05: "x" })];
+    expect(task.decide(spread).canRank).toBe(true);
     const disputed = task.decide(spread, {
       referenceErrors: [{ check: "verdicts r10 / verdict" }],
     });
@@ -397,32 +406,38 @@ describe("the decision rule", () => {
     expect(task.decide(spread, { unruled: 4 }).reasons).toEqual([
       "4 disagreements are still unruled by the referee",
     ]);
+    expect(
+      task.decide(spread, { blockers: ["the frozen input changed during the run"] }).reasons,
+    ).toEqual(["the frozen input changed during the run"]);
     expect(task.decide(spread.slice(2)).reasons[0]).toBe("production (opus @ xhigh) did not run");
   });
 
-  it("neither passes nor qualifies a config short of two runs, or with a run score faulted", () => {
-    const h = (id: string, c: Record<string, string> = {}) => run(id, "haiku", "medium", c);
-    const lone = task.decide([
-      prod[0]!,
-      h("h-1"),
-      run("s", "sonnet", "high", { r01: "x", r03: "x", r05: "x" }),
+  it("leaves a config short of two runs, or with a faulted run, out of the spread", () => {
+    const allWrong = Object.fromEntries(DATA.claims.map((c) => [c.id, "x"]));
+    const perfect = [...prod, run("s-1", "sonnet", "high"), run("s-2", "sonnet", "high")];
+    const crashed = task.decide([
+      ...perfect,
+      run("h-1", "haiku", "medium"),
+      { ...run("h-2", "haiku", "medium", allWrong), invalid: true },
     ]);
-    expect(lone.reasons[0]).toBe("production has 1 valid-or-not runs, not 2");
-    const by = Object.fromEntries(lone.ranked.map((c) => [c.config, c]));
-    expect(by["haiku @ medium"]).toMatchObject({
-      errors: 0,
+    expect(crashed).toMatchObject({ spread: 0, canRank: false });
+    expect(crashed.ranked.some((c) => c.qualifies)).toBe(false);
+    const lone = task.decide([...perfect, run("h-1", "haiku", "medium", allWrong)]);
+    expect(lone).toMatchObject({ spread: 0, canRank: false });
+    const hLone = lone.ranked.find((c) => c.config === "haiku @ medium")!;
+    expect(hLone).toMatchObject({
       complete: false,
+      valid: false,
       allPass: false,
       qualifies: false,
     });
-    const spread = run("s", "sonnet", "high", { r01: "x", r03: "x", r05: "x" });
-    const faulted = task.decide([...prod, h("h-1"), { ...h("h-2"), invalid: true }, spread]);
-    expect(faulted.canRank).toBe(true);
-    expect(faulted.perRun.find((r) => r.id === "h-2")).toMatchObject({
+    expect(crashed.perRun.find((r) => r.id === "h-2")).toMatchObject({
       invalid: true,
       pass: false,
     });
-    expect(faulted.ranked.find((c) => c.config === "haiku @ medium")!.qualifies).toBe(false);
+    expect(task.decide([prod[0]!, ...perfect.slice(2)]).reasons[0]).toBe(
+      "production has 1 valid-or-not runs, not 2",
+    );
   });
 
   it("reads the run's own arms, so an --arms file is reported under the config it asked for", () => {
@@ -653,5 +668,77 @@ describe("split", () => {
     expect(calls).toHaveLength(DATA.claims.length);
     expect(calls.every((c) => c.model === "opus" && c.effort === "xhigh")).toBe(true);
     expect(() => launchers(args, "no meta here")).toThrow(/meta/);
+  });
+});
+
+// `score` end to end on an item run: a frozen input of the pinned files, two runs of
+// production and a perfect copy of the key as their verdicts. A brace-less `if` once pushed
+// "the frozen input changed" on every score; only a run through the CLI shows that.
+describe("score on an item run", () => {
+  const CLI = join(REPO, "scripts/model-bakeoff/bakeoff.mjs");
+  const build = () => {
+    const run = mkdtempSync(join(tmpdir(), "rr-score-"));
+    const input = join(run, "input");
+    for (const [to, f] of Object.entries(DATA.files)) {
+      mkdirSync(dirname(join(input, to)), { recursive: true });
+      writeFileSync(join(input, to), pinned(f.from));
+    }
+    const arm = { id: "opus-xhigh-2", model: "opus", effort: "xhigh" };
+    const args = extractArgs(task, input, [arm], join(run, "work"));
+    const runs: Record<string, unknown> = {};
+    for (const id of ["gold", arm.id]) {
+      for (const c of DATA.claims) {
+        runs[`${id}/${c.id}`] = {
+          transcript: `/t/${id}-${c.id}.jsonl`,
+          marker: { kind: "arm", id, item: c.id },
+          markerError: null,
+          structured: {
+            id: c.id,
+            verdict: c.label,
+            quote: "q",
+            quoteSource: c.decides[0]!.at,
+          },
+          models: ["claude-opus-5-5"],
+          efforts: ["xhigh"],
+          requests: 1,
+          repeats: 0,
+          cost: 0.01,
+          longPrompt: 0,
+          bash: [],
+          writes: [],
+          reads: [],
+          otherTools: [],
+          forbidden: [],
+          prompt: "",
+        };
+      }
+    }
+    writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest(input)));
+    writeFileSync(join(run, "truth.json"), JSON.stringify(task.truth(input)));
+    writeFileSync(join(run, "workflow-args.json"), JSON.stringify(args));
+    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    return run;
+  };
+  const score = (run: string) => {
+    try {
+      execFileSync(process.execPath, [CLI, "score", "--run", run], { encoding: "utf8" });
+    } catch {
+      // A saturated or incomplete run exits 1; the result file is what is checked.
+    }
+    return JSON.parse(readFileSync(join(run, "result.json"), "utf8"));
+  };
+
+  it("scores a clean run without inventing a problem, and finds a changed input", () => {
+    const run = build();
+    const clean = score(run);
+    expect(clean.problems).toEqual([]);
+    expect(clean.arms.map((a: { score: string }) => a.score)).toEqual(["73/73", "73/73"]);
+    expect(clean.decision.reasons).toEqual(["saturated: pooled errors spread by 0"]);
+    const m = JSON.parse(readFileSync(join(run, "manifest.json"), "utf8"));
+    m["workflows/ci.yml"] = "444:0";
+    writeFileSync(join(run, "manifest.json"), JSON.stringify(m));
+    const changed = score(run);
+    expect(changed.problems).toContain("the frozen input changed during the run");
+    expect(changed.decision.reasons).toContain("the frozen input changed during the run");
   });
 });

@@ -40,7 +40,7 @@ export const sources = Object.values(
   }, {}),
 ).map(({ from, names, to }) => ({
   from,
-  match: new RegExp(`^(${names.map((n) => n.replace(/[.]/g, "\\.")).join("|")})$`),
+  match: new RegExp(`^(${names.map((n) => n.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")).join("|")})$`),
   to,
 }));
 
@@ -176,9 +176,12 @@ export function truth(dir) {
 // - pooled errors spread by at least 3 across configs. Less is reported as saturated.
 // - no disagreement is still waiting on the referee.
 //
-// A config with fewer than RUNS_PER_CONFIG runs, or with a run `score` found a problem in
+// A config without exactly RUNS_PER_CONFIG runs, or with a run `score` found a problem in
 // (wrong model or effort, a missing item, a forbidden command), neither passes nor qualifies,
-// and none qualifies while the control may not rank.
+// and none qualifies while the control may not rank. Neither kind counts toward the spread: a
+// run that crashed or returned nothing must not turn a saturated control into a ranking one.
+// Any problem `score` finds that is not one arm's (the input changed, the referee contradicts
+// itself, a referee read the key) is a `blocker`, and stops the ranking too.
 
 export const TOLERANCE = Object.freeze({
   misses: 1,
@@ -231,7 +234,7 @@ const configOf = (arm) => `${arm.model} @ ${arm.effort}`;
  */
 export function decide(
   runs,
-  { referenceErrors = [], unruled = 0 } = {},
+  { referenceErrors = [], unruled = 0, blockers = [] } = {},
   tol = TOLERANCE,
   data = DATA,
 ) {
@@ -265,6 +268,7 @@ export function decide(
   }
   for (const c of configs.values()) {
     c.complete = c.runs.length === RUNS_PER_CONFIG;
+    c.valid = c.complete && perRun.every((r) => r.config !== c.config || !r.invalid);
     c.allPass = c.allPass && c.complete;
   }
   const ranked = [...configs.values()].sort(
@@ -283,7 +287,9 @@ export function decide(
       `the referee refuted the key on ${referenceErrors.map((e) => e.check).join("; ")}`,
     );
   }
-  const spread = ranked.length ? ranked[ranked.length - 1].errors - ranked[0].errors : 0;
+  for (const b of blockers) reasons.push(b);
+  const counted = ranked.filter((c) => c.valid);
+  const spread = counted.length ? counted[counted.length - 1].errors - counted[0].errors : 0;
   if (spread < tol.minSpread) reasons.push(`saturated: pooled errors spread by ${spread}`);
   const canRank = reasons.length === 0;
   for (const c of ranked) {
@@ -303,7 +309,13 @@ export function decide(
  * found a problem in.
  */
 export function decision(records, dir, ctx = {}) {
-  const { arms: runArms = [gold, ...arms], invalid = [], referenceErrors = [], unruled = 0 } = ctx;
+  const {
+    arms: runArms = [gold, ...arms],
+    invalid = [],
+    referenceErrors = [],
+    unruled = 0,
+    blockers = [],
+  } = ctx;
   const runs = runArms
     .filter((a) => records[a.id])
     .map((a) => ({
@@ -312,7 +324,7 @@ export function decision(records, dir, ctx = {}) {
       cost: records[a.id].cost,
       invalid: invalid.includes(a.id),
     }));
-  const d = decide(runs, { referenceErrors, unruled });
+  const d = decide(runs, { referenceErrors, unruled, blockers });
   const money = (n) => (n === null ? "unpriced" : `$${n.toFixed(2)}`);
   const ids = (xs) => (xs.length ? xs.join(" ") : "none");
   d.lines = [

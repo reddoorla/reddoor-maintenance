@@ -171,7 +171,9 @@ directory: it merges into the run's `runs.json`.
 
 A task may also export `secrets` (strings, such as its answer key's file name): `score` reports
 any agent whose Bash commands or Read, Grep or Glob inputs name one. And `decision(records,
-dir, referenceErrors)`, whose `lines` `score` prints under the table.
+dir, ctx)`, whose `lines` `score` prints under the table. `ctx` holds the run's `arms` (gold
+first), the arm ids `score` found a problem in (`invalid`), the referee's `referenceErrors`, the
+`unruled` count, and `blockers`: problems that are no one arm's, such as a changed input.
 
 ### `refute-repo` (row 5, second control)
 
@@ -193,7 +195,9 @@ with at most 1 false claim missed, 1 true claim refuted, 2 true documentary clai
 and both `untested` labels returned. A config pools its two runs; it qualifies to replace
 production (Opus at `xhigh`) only if both runs pass and its pooled errors and misses are within
 2 and 1 of production's. The control may rank only when production passes both runs, the
-referee upholds every label it rules on, and pooled errors spread by at least 3.
+referee upholds every label it rules on, no disagreement is unruled, `score` found no problem
+outside one arm, and pooled errors spread by at least 3 across the configs with two runs and no
+faulted run.
 
 The 2026-10-19 run (`results/2026-10-19-refute-repo.json`) saturated. Production passed both
 runs at 36/36, and so did every other run but two: Sonnet `medium` run 2 confirmed r33, though
