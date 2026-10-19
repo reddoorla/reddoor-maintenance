@@ -5204,7 +5204,35 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
         `echo gh pr ''>/dev/null | sh` and `echo gh pr create>|/dev/null | sh`.
         `"gi\⏎t" push` was missed. `echo gh pr $(true) | sh` was missed.
 
-134.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
+134.  **P1-58, bake-off row 6 (dependency bumps): land #1475 after five
+      review rounds, or hold it (new 2026-10-19, branch
+      `claude/p1-58-bakeoff-pnpm-update`,
+      reddoorla/reddoor-maintenance#1475).** [M] The PR adds
+      `scripts/model-bakeoff/tasks/pnpm-update.mjs` (the registry frozen as
+      a pnpm metadata-cache snapshot, every arm and the truth running
+      `pnpm update --offline`) and an additive harness hook so an action
+      task is scored from each arm's disk. On reddoor-starter `2a9f493`
+      every arm scored 117/117: Haiku 5.5 `low` and `medium` at about $0.013
+      a run, Sonnet `medium` $0.24, Opus `low` $0.50, the Opus `high` gold
+      $0.80. The bump breaks the starter's `svelte-check` (48 errors,
+      `@types/node` stops arriving transitively), and every arm reported it.
+      All five rounds were dirty, every finding in the scorer, none in the
+      models. Round 5 found two reproduced defects, neither of which any
+      run3 arm triggered. A headline `checks.pass: true` beside
+      `failed: ["check"]` scored perfect, and the failure regex matched
+      execa's "Command failed with exit code 1" inside a passing test log.
+      Both are fixed with tests that a mutation turns red, and run3 still
+      scores 117/117. No round has reviewed those fixes. Minors are filed
+      as #1476 to #1480. _Ask:_ (a) land #1475 as it is, with round 5's
+      fixes unreviewed, once CI is green; (b) run a sixth review round
+      first; or (c) hold it. _Pick:_ (a). The scorer only reports; it gates
+      nothing and touches no production path. t5-census was shown to score
+      byte-identically to `main` in three rounds. The result is the
+      ceiling either way. **Answered 2026-10-19 (AskUserQuestion): (a),
+      land #1475 as it is.** The worker lands it with `land-prs.mjs`, posts
+      the row-6 result on workspace#1 and lands its journal entry.
+
+135.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
       five review rounds, or hold it (new 2026-10-19, branch
       `claude/p1-62-bakeoff-skill` in claude-skills).** [M] The PR adds
       `skills/bakeoff/` to claude-skills, which drives
@@ -5387,7 +5415,7 @@ sites=17`, `just_wait_left_out=0`.
   - **Fix.** A multi-document lockfile adds `pnpm audit` to Dependabot's answer, counting an advisory both report once, with `relationship` taken from `package.json` (left unknown in a workspace). The real clone gives `0C/6H/2M/1L` with sharp `direct`. The control, the sharp 0.35.5 branch, drops sharp. A broken site's Needs-you row now names its escalated vulns.
   - **Still open:** proof. Tomorrow's 06:11Z sweep must store CalTex's sharp advisory, and CalTex should then reach Needs-you about 10-24, when its 4-day wait from the first record ends. Expect about twenty sites to pick up real High advisories in that wave. The merges are still Operator decisions 129.
 
-- 2026-10-19 — P1-62: the `/bakeoff` skill drives `scripts/model-bakeoff/` end to end (reddoorla/claude-skills#21; Operator decisions 134 answered (a); minors claude-skills#16–#20).
+- 2026-10-19 — P1-62: the `/bakeoff` skill drives `scripts/model-bakeoff/` end to end (reddoorla/claude-skills#21; Operator decisions 135 answered (a); minors claude-skills#16–#20).
   - **What.** `skills/bakeoff/` in claude-skills runs `start` (it refuses arms without an explicit effort, single-run cheap arms and a set `CLAUDE_CODE_EFFORT_LEVEL`, then proves the scorer), the Workflow, `collect`, the referee rounds, `score` and `report`. `report` prices the run with `ledger.mjs` and drafts the workspace#1 comment without posting it. `scripts/model-bakeoff/README.md` points to it.
   - **Proven [M].** A fresh session installed it from its branch and ran t5-census end to end: every step exited 0, one referee round, $2.38. Both of the day's runs are on reddoorla/reddoor-workspace#1, and box 1's note there is cleared.
   - **Finding.** Across six runs, Haiku 5.5 at `medium` missed one check (the bare `"node:"` literal again), so by the strict decision rule Sonnet 5.5 at `medium` is the cheapest arm that matched on every check. That bears on P1-56's Haiku sweep route (#1425); the call is the operator's.
