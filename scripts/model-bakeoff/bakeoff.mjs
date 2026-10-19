@@ -215,6 +215,13 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   return problems;
 }
 
+// What is scored for one agent: its structured output, or, for a task that exports
+// observe(work, structured), what that reads from the agent's work dir.
+export function armOutput(task, args, arm, agent) {
+  const structured = agent?.structured ?? null;
+  return task.observe ? task.observe(workDir(args.work, arm.id), structured) : structured;
+}
+
 export function nextRound(agents) {
   let max = 0;
   for (const k of Object.keys(agents)) {
@@ -245,11 +252,8 @@ async function score(opts) {
   problems.push(...referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const candidates = extraCandidates(
-    task,
-    reference,
-    scored.map((arm) => agents[arm.id].structured),
-  );
+  const output = (arm) => armOutput(task, args, arm, agents[arm.id]);
+  const candidates = extraCandidates(task, reference, scored.map(output));
   const checksByArm = {};
   for (const arm of all) {
     const a = agents[arm.id];
@@ -259,7 +263,7 @@ async function score(opts) {
     }
     problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
+    checksByArm[arm.id] = scoreRun(task, reference, output(arm), candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));

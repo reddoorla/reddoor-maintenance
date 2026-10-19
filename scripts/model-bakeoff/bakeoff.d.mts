@@ -39,5 +39,11 @@ export function verifyRan(
   work?: string,
   opts?: { needOutput?: boolean },
 ): string[];
+export function armOutput(
+  task: { observe?: (work: string, structured: unknown) => unknown },
+  args: { work: string },
+  arm: Arm,
+  agent: { structured?: unknown } | undefined,
+): unknown;
 export function nextRound(agents: Record<string, unknown>): number;
 export function formatResult(r: Record<string, unknown>): string;

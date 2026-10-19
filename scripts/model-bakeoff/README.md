@@ -179,6 +179,10 @@ Add `tasks/<id>.mjs` exporting:
   score, the field that identifies an item, and each field's kind.
 - `kinds`: optional, `{ name: (value) => comparable }`. Each one adds a field kind for this task,
   for instance a rounding tolerance, and works inside `set:` too.
+- `observe(work, structured)`: optional. When a task is an action rather than an extraction, `score`
+  scores what this returns for each agent instead of its structured output. It gets the agent's work
+  dir and its structured output (or `null`), so the task can read what the agent left on disk.
+  `pnpm-update` reads each agent's lockfile from `<work>/repo` this way.
 - `truth(dir)`: optional, the script-computed reference. Leave it out when no script can compute
   the answer, and the gold run becomes the reference.
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
@@ -190,6 +194,26 @@ Then score a perturbed copy, which must fail exactly where it was changed. That 
 not the truth. The 2026-10-19 row-4 run did both before the first arm ran, and the referee still
 found the truth wrong on one check: the script missed a bare `"node:"` literal that eight of nine
 runs had found.
+
+## The `pnpm-update` task (row 6)
+
+The input is two tarballs, not a folder of sources, because `sources` copies flat files only. Build
+them first, then prepare from them:
+
+```sh
+node scripts/model-bakeoff/tasks/pnpm-update.mjs snapshot --repo <checkout> --commit <sha> --out <snap>
+node scripts/model-bakeoff/bakeoff.mjs prepare --task pnpm-update --root <snap> --out <run>
+```
+
+`repo.tar` is `git archive` of the commit. `registry.tar` is the pnpm metadata cache
+(`XDG_CACHE_HOME`) after one online `pnpm update --lockfile-only`; the snapshot also installs the
+result once, so the shared store holds every tarball. Every agent and the truth then run
+`pnpm update --offline` against their own copy of that cache, so the registry is frozen at the
+minute in `snapshot.json`. With an empty cache the offline update fails, which is the negative
+control. `prepare` computes the truth by running the same steps (about 90 seconds): the direct
+dependencies' specifiers and versions, every package key in the lockfile, and whether `lint`,
+`check`, `build` and `test:unit` pass. pnpm 12 writes the lockfile as two YAML documents; the
+project is the last.
 
 ## The ledger
 
