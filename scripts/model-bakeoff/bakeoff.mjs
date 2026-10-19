@@ -115,6 +115,13 @@ async function prepare(opts) {
   console.log(`workflow args: ${join(run, "workflow-args.json")}`);
 }
 
+/** The scorer a task uses: lib/score.mjs's, with any of these three the task exports in its place. */
+export function scorerFor(task) {
+  const s = { referenceFaults, extraCandidates, scoreRun };
+  for (const k of Object.keys(s)) if (typeof task[k] === "function") s[k] = task[k];
+  return s;
+}
+
 export function agentKey(marker) {
   return marker.kind === "arm" ? marker.id : `referee:${marker.id}`;
 }
@@ -215,6 +222,45 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   return problems;
 }
 
+// Scores the gold (when a truth exists) and every arm. A task with observe() must have a truth:
+// the gold's raw output is not in the shape observe() returns, so it cannot be the reference.
+export function scoreArms(task, args, agents, reference, truth) {
+  const problems = [];
+  const checksByArm = {};
+  if (task.observe && !truth) {
+    problems.push(
+      `${args.task}: a task with observe() needs a truth; the gold cannot be the reference`,
+    );
+    return { checksByArm, problems };
+  }
+  const all = [args.gold, ...args.arms];
+  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
+  const output = (arm) => armOutput(task, args, arm, agents[arm.id], reference);
+  const scorer = scorerFor(task);
+  const candidates = scorer.extraCandidates(task, reference, scored.map(output));
+  for (const arm of all) {
+    const a = agents[arm.id];
+    if (!a) {
+      problems.push(`${arm.id}: no transcript found`);
+      continue;
+    }
+    problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
+    if (arm.id === "gold" && !truth) continue;
+    checksByArm[arm.id] = scorer.scoreRun(task, reference, output(arm), candidates);
+  }
+  return { checksByArm, problems };
+}
+
+// What is scored for one agent: its structured output, or, for a task that exports
+// observe(work, structured, agent, reference), what that reads from the agent's work dir and
+// transcript, given the reference it will be scored against.
+export function armOutput(task, args, arm, agent, reference) {
+  const structured = agent?.structured ?? null;
+  return task.observe
+    ? task.observe(workDir(args.work, arm.id), structured, agent, reference)
+    : structured;
+}
+
 export function nextRound(agents) {
   let max = 0;
   for (const k of Object.keys(agents)) {
@@ -242,25 +288,11 @@ async function score(opts) {
   const reference = truth ?? gold;
   if (!reference)
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
-  problems.push(...referenceFaults(task, reference));
+  const scorer = scorerFor(task);
+  problems.push(...scorer.referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
-  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const candidates = extraCandidates(
-    task,
-    reference,
-    scored.map((arm) => agents[arm.id].structured),
-  );
-  const checksByArm = {};
-  for (const arm of all) {
-    const a = agents[arm.id];
-    if (!a) {
-      problems.push(`${arm.id}: no transcript found`);
-      continue;
-    }
-    problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
-    if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
-  }
+  const { checksByArm, problems: armProblems } = scoreArms(task, args, agents, reference, truth);
+  problems.push(...armProblems);
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
   for (const [, a] of referees) {
@@ -316,13 +348,35 @@ async function score(opts) {
         cost: agents[a.id].cost,
         requests: agents[a.id].requests,
         longPrompt: agents[a.id].longPrompt,
+        byCollection: per[a.id] ? byCollection(per[a.id].byField) : undefined,
         errors: per[a.id]?.errors.slice(0, 20) || [],
       })),
   };
+  if (typeof task.summarize === "function") {
+    const outputs = Object.fromEntries(
+      Object.keys(checksByArm).map((k) => [k, agents[k].structured]),
+    );
+    result.summary = task.summarize({ reference, checksByArm, rulings, outputs });
+  }
   writeJson(join(run, "result.json"), result);
   console.log(formatResult(result));
+  if (result.summary && typeof task.formatSummary === "function") {
+    console.log(task.formatSummary(result.summary));
+  }
   if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
   if (problems.length) process.exitCode = 1;
+}
+
+// "correct/total" per collection, so a total dominated by one collection cannot hide another.
+export function byCollection(byField) {
+  const out = {};
+  for (const [key, { total, correct }] of Object.entries(byField)) {
+    const col = key.slice(0, key.indexOf("."));
+    const c = (out[col] ??= { total: 0, correct: 0 });
+    c.total += total;
+    c.correct += correct;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, `${v.correct}/${v.total}`]));
 }
 
 export function formatResult(r) {

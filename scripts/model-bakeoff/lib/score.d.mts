@@ -8,6 +8,8 @@ export interface Collection {
   key: string;
   keyKind: string;
   fields: Record<string, string>;
+  /** Every check in it is settled by the scorer alone and never goes to the referee. */
+  mechanical?: boolean;
 }
 export interface Check {
   collection: string;

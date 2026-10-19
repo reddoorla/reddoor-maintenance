@@ -21,6 +21,7 @@ vi.mock("../../src/db/fleet-state.js", async (orig) => {
 
 import { listSites } from "../../src/db/fleet-state.js";
 import fleetTable, { config } from "../../netlify/functions/fleet-table.mjs";
+import { authHeader } from "../_helpers/basic-auth.js";
 
 const listSitesMock = vi.mocked(listSites);
 
@@ -44,11 +45,6 @@ function get(
   headers: Record<string, string> = {},
 ): Request {
   return req(url, "GET", headers);
-}
-
-/** A valid Basic header for the given password (username is ignored by the gate). */
-function authHeader(password: string): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`x:${password}`).toString("base64")}` };
 }
 
 describe("fleet-table adapter — method + env/auth gating", () => {
