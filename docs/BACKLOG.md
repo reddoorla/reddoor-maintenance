@@ -4852,6 +4852,13 @@ williamson-construction-co` and `… williamson-homes` from the laptop
       maintenance" under **Pending Status Checks**, so the box to tick is
       there now. The branch has no check runs at all, so it will not open a
       PR by itself (P1-52, now fleet-wide). _Due:_ 2026-10-22 stands.
+      **Status 2026-10-19 14:01Z (the cockpit session) [M]:** still not
+      done. Item 130's preset fix is live (`reddoorla/.github#38`), but
+      `renovate/lock-file-maintenance` is still `e5095848` and no PR has
+      opened from it. Whether the #41 box is ticked was not read (the repo is
+      not attached to this session). The cockpit re-checks for the PR later
+      today; if none has opened by the end of today's window, the tick is
+      still the operator's. _Due:_ 2026-10-22 stands.
 
 127.  **Dropbox API uploader: re-authorize the app so its refresh token
       carries the write scopes (new 2026-10-16, #1388 held as a draft,
@@ -5008,6 +5015,13 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       **Answered 2026-10-19 (AskUserQuestion): (a), apply the patch.** The
       operator applies it to `reddoorla/.github`; no session can reach that
       repo.
+      **Closed 2026-10-19 ~14:00Z (the cockpit session) [M]:** the operator
+      merged it as `reddoorla/.github#38` (`2de84b3`, 13:55Z), and
+      `renovate-config.json` on that repo's `main` now reads
+      `lockFileMaintenance.prCreation: "immediate"`. One correction to the
+      text above: an anonymous `git clone` of `reddoorla/.github` through the
+      git proxy works (the repo is public), so a cloud session can read it;
+      it still cannot push to it or reach it through the API or `add_repo`.
 
 ## Active projects (the operator's list, read by the PM pass)
 
