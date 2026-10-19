@@ -5064,6 +5064,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       tripwire only reports; it does not gate the merge, and nothing in the
       PR touches production. (c) is the better long-term design, but it
       changes agent definitions, which this slice's brief rules out.
+      **Answered 2026-10-19 (AskUserQuestion): (a), land #1417 now.** The
+      worker lands it with `land-prs.mjs`, ticks workspace#1's first two
+      acceptance boxes and writes the journal entry.
 
 ## Active projects (the operator's list, read by the PM pass)
 
