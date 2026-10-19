@@ -1,7 +1,9 @@
 import { splitLines, usageRecords, priceRequest } from "./ledger.mjs";
 
-const MARKER = /\(BAKEOFF-(ARM|REFEREE): ([a-z0-9][a-z0-9-]*)\)\s*$/;
-const ANY_MARKER = /\(BAKEOFF-(?:ARM|REFEREE): [a-z0-9][a-z0-9-]*\)/g;
+const MARKER =
+  /\(BAKEOFF-(ARM|REFEREE): ([a-z0-9][a-z0-9-]*)(?: ITEM: ([a-z0-9][a-z0-9-]*))?\)\s*$/;
+const ANY_MARKER = /\(BAKEOFF-(?:ARM|REFEREE): [a-z0-9][a-z0-9-]*(?: ITEM: [a-z0-9][a-z0-9-]*)?\)/g;
+const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
 const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
 export const ALLOWED_TOOLS = Object.freeze([
   "Read",
@@ -378,6 +380,7 @@ export function readAgentTranscript(text) {
   const bash = [];
   const writes = [];
   const otherTools = [];
+  const reads = [];
   let prompt = "";
   for (const line of lines) {
     let o;
@@ -394,8 +397,10 @@ export function readAgentTranscript(text) {
       prompt = t;
       const hit = MARKER.exec(t);
       const count = (t.match(ANY_MARKER) || []).length;
-      if (hit && count === 1) marker = { kind: hit[1] === "ARM" ? "arm" : "referee", id: hit[2] };
-      else if (count > 0)
+      if (hit && count === 1) {
+        marker = { kind: hit[1] === "ARM" ? "arm" : "referee", id: hit[2] };
+        if (hit[3] !== undefined) marker.item = hit[3];
+      } else if (count > 0)
         markerError = `the first prompt holds ${count} markers and does not end with exactly one`;
     }
     if (m.role === "assistant" && Array.isArray(m.content)) {
@@ -408,6 +413,7 @@ export function readAgentTranscript(text) {
         if (WRITE_TOOLS.has(b.name) && b.input) {
           writes.push(String(b.input.file_path ?? b.input.notebook_path ?? ""));
         }
+        if (READ_TOOLS.has(b.name) && b.input) reads.push(JSON.stringify(b.input));
         if (!ALLOWED_TOOLS.includes(b.name)) otherTools.push(String(b.name));
       }
     }
@@ -441,6 +447,7 @@ export function readAgentTranscript(text) {
     longPrompt,
     bash,
     writes,
+    reads,
     otherTools,
     prompt,
     forbidden: bash.filter((c) => forbiddenCommand(c)),

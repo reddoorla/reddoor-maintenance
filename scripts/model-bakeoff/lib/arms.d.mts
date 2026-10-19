@@ -11,3 +11,4 @@ export function armMarker(id: string): string;
 export function refereeMarker(round: number, n: number): string;
 export function workDir(root: string, id: string): string;
 export function readOnlyRules(dir: string, work: string): string;
+export function itemMarker(id: string, item: string): string;
