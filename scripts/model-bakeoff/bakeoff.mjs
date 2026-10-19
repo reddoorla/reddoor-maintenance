@@ -336,6 +336,7 @@ async function score(opts) {
         cost: agents[a.id].cost,
         requests: agents[a.id].requests,
         longPrompt: agents[a.id].longPrompt,
+        byCollection: per[a.id] ? byCollection(per[a.id].byField) : undefined,
         errors: per[a.id]?.errors.slice(0, 20) || [],
       })),
   };
@@ -343,6 +344,18 @@ async function score(opts) {
   console.log(formatResult(result));
   if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
   if (problems.length) process.exitCode = 1;
+}
+
+// "correct/total" per collection, so a total dominated by one collection cannot hide another.
+export function byCollection(byField) {
+  const out = {};
+  for (const [key, { total, correct }] of Object.entries(byField)) {
+    const col = key.slice(0, key.indexOf("."));
+    const c = (out[col] ??= { total: 0, correct: 0 });
+    c.total += total;
+    c.correct += correct;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, `${v.correct}/${v.total}`]));
 }
 
 export function formatResult(r) {

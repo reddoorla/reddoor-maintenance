@@ -224,9 +224,12 @@ failed check. What is scored, all of it mechanical (no referee):
 - `packages`: the direct dependencies the agent reported, each specifier and version;
 - `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
   every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
-- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`) with whether it failed. An
-  agent's item is listed only when its transcript shows it ran `pnpm run <script>`, so a verdict on
-  a script it never ran fails as absent.
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`), with the verdict the agent
+  claimed and the verdict its own exit code gives. The prompt has each script write
+  `<work>/logs/<script>.log` and `<work>/logs/<script>.exit`; an item is listed only when both
+  exist and the log is not empty, so a verdict on a script the agent never ran fails as absent.
+  An earlier draft inferred this from the transcript's command text, which credited scripts that
+  were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
 
 ## The ledger
 

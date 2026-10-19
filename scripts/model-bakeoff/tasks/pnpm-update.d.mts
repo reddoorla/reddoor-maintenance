@@ -25,17 +25,18 @@ export interface Facts {
 export function prompt(dir: string): string;
 export function lockfileFacts(text: string): Facts;
 export function runChecks(run: (args: string[]) => number): { pass: boolean; failed: string[] };
-export function checkItems(failed: string[]): { name: string; failed: boolean }[];
-export function ranScript(commands: string[], script: string): boolean;
-export function truth(
-  dir: string,
-  opts?: { into?: string },
-): Facts & { checks: { name: string; failed: boolean }[] };
+export interface CheckItem {
+  name: string;
+  failed: boolean;
+  exitFailed: boolean;
+}
+export function checkItems(failed: string[]): CheckItem[];
+export function exitCodes(work: string): Record<string, string>;
+export function truth(dir: string, opts?: { into?: string }): Facts & { checks: CheckItem[] };
 export function observe(
   work: string,
   structured: unknown,
-  agent?: { bash?: string[] },
-): (Facts & { checks: { name: string; failed: boolean }[] }) | null;
+): (Facts & { checks: CheckItem[] }) | null;
 export function snapshot(opts: { repo: string; commit: string; out: string }): {
   takenAt: string;
   commit: string;

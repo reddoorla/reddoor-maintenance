@@ -47,10 +47,14 @@ export function scoreArms(
   truth: unknown,
 ): { checksByArm: Record<string, import("./lib/score.mjs").Check[]>; problems: string[] };
 export function armOutput(
-  task: { observe?: (work: string, structured: unknown, agent?: unknown) => unknown },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the agent is whatever collect stored
+  task: { observe?: (work: string, structured: any, agent?: any) => unknown },
   args: { work: string },
   arm: Arm,
-  agent: { structured?: unknown } | undefined,
+  agent: (Partial<Collected> & { structured?: unknown }) | undefined,
 ): unknown;
 export function nextRound(agents: Record<string, unknown>): number;
+export function byCollection(
+  byField: Record<string, { total: number; correct: number }>,
+): Record<string, string>;
 export function formatResult(r: Record<string, unknown>): string;

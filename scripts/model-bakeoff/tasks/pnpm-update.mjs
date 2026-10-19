@@ -8,6 +8,7 @@ import {
   openSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,7 +54,7 @@ export const collections = [
     name: "checks",
     key: "name",
     keyKind: "string",
-    fields: { failed: "boolean" },
+    fields: { failed: "boolean", exitFailed: "boolean" },
     mechanical: true,
   },
 ];
@@ -94,15 +95,16 @@ export function prompt(dir) {
     "1. Unpack: `mkdir -p <work>/repo <work>/cache`, then `tar -xf " +
       `${dir}/repo.tar -C <work>/repo\` and \`tar -xf ${dir}/registry.tar -C <work>/cache\`.`,
     `2. In <work>/repo, run exactly \`${env} pnpm ${UPDATE.join(" ")}\`. Use no other flags and name no packages: the offline flag makes pnpm resolve from the snapshot, so every run sees the same registry.`,
-    `3. In <work>/repo, run \`${env} pnpm ${INSTALL.join(" ")}\`, then each of ${CHECKS.map((c) => `\`pnpm run ${c}\``).join(", ")} in that order, running every one even if an earlier one fails. Give each command a timeout of at least 10 minutes.`,
-    "4. Do not edit any file in the repository yourself, and do not try to fix a failure: report it.",
+    `3. In <work>/repo, run \`${env} pnpm ${INSTALL.join(" ")}\`, then \`mkdir -p <work>/logs\`.`,
+    `4. In <work>/repo, for each script S of ${CHECKS.join(", ")}, in that order, run \`pnpm run S > <work>/logs/S.log 2>&1; echo $? > <work>/logs/S.exit\` (so the files for test:unit are test:unit.log and test:unit.exit). Run every one whatever the earlier ones did, and give each a timeout of at least 10 minutes.`,
+    "5. Do not edit any file in the repository yourself.",
     "",
     "Report:",
     `- packages: one entry for every direct dependency (the dependencies and devDependencies of the importer "." in <work>/repo/${LOCKFILE} after step 2), with name, specifier (as the lockfile now records it) and version (the resolved version, without any parenthesised peer suffix).`,
-    `- checks: pass is true only if every one of the ${CHECKS.length} \`pnpm run\` commands exited 0; failed lists the script names (e.g. "lint") that exited non-zero, or [].`,
+    `- checks: pass is true only if every one of the ${CHECKS.length} scripts exited 0; failed lists the names of the scripts that exited non-zero, or [].`,
     "- unverified: anything you could not establish (empty if none).",
     "",
-    "pnpm writes to its shared package store and to <work>/cache; both are allowed. Your lockfile is read from <work>/repo after you finish, so leave it there.",
+    "pnpm writes to its shared package store and to <work>/cache; both are allowed. Your lockfile and <work>/logs are read after you finish, so leave them there.",
   ].join("\n");
 }
 
@@ -142,27 +144,31 @@ export function runChecks(run) {
   return { pass: failed.length === 0, failed };
 }
 
-// One item per check script: whether it failed.
+const scriptName = (x) =>
+  String(x)
+    .trim()
+    .toLowerCase()
+    .replace(/^pnpm\s+(?:run\s+)?/, "");
+
+// One item per check script: whether it failed, as claimed and as its exit code says. For the
+// truth the two are the same thing.
 export function checkItems(failed) {
-  return CHECKS.map((name) => ({ name, failed: failed.includes(name) }));
+  const claimed = new Set(failed.map(scriptName));
+  return CHECKS.map((name) => ({ name, failed: claimed.has(name), exitFailed: claimed.has(name) }));
 }
 
-// Whether a Bash command ran `pnpm run <script>` (or `pnpm <script>`) for this script, written
-// out or as `for v in <words>; do ... pnpm run $v ...; done`, the form most arms use.
-export function ranScript(commands, script) {
-  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const runs = (word) => new RegExp(`\\bpnpm\\s+(?:run\\s+)?${word}(?=$|[\\s;&|)'"])`, "m");
-  const literal = runs(esc(script));
-  const loop = /\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b([\s\S]*?)\bdone\b/g;
-  return commands.some((raw) => {
-    const c = String(raw);
-    if (literal.test(c)) return true;
-    for (const [, v, list, body] of c.matchAll(loop)) {
-      const words = list.split(/\s+/).map((w) => w.replace(/^["']|["']$/g, ""));
-      if (words.includes(script) && runs(`"?\\$\\{?${v}\\}?"?`).test(body)) return true;
+// The exit code an arm's own run of each script left in <work>/logs/<script>.exit, for every
+// script whose log is non-empty: what ran is read from disk, never inferred from command text.
+export function exitCodes(work) {
+  const out = {};
+  for (const name of CHECKS) {
+    const exit = join(work, "logs", `${name}.exit`);
+    const log = join(work, "logs", `${name}.log`);
+    if (existsSync(exit) && existsSync(log) && statSync(log).size > 0) {
+      out[name] = readFileSync(exit, "utf8").trim();
     }
-    return false;
-  });
+  }
+  return out;
 }
 
 // Returns the exit status, logging to logDir/<label>.log when given. A run killed by the timeout
@@ -220,10 +226,10 @@ export function truth(dir, { into = mkdtempSync(join(tmpdir(), "pnpm-update-trut
 // - packages: the direct dependencies it reported, one check per field;
 // - disk: what its own <work>/repo/pnpm-lock.yaml holds, as two sets (direct dependencies and
 //   every package), so a wrong update fails there whatever the report says;
-// - checks: its verdict on each check script, listed only when its transcript shows it ran that
-//   script, so a verdict it never ran is a missing item, not a lucky guess.
+// - checks: for each script it left a log and an exit code for in <work>/logs, its claimed
+//   verdict and the verdict its exit code gives. A script with no such evidence is a missing item.
 // No output scores as no output; a missing or unparseable lockfile as an absent disk item.
-export function observe(work, structured, agent) {
+export function observe(work, structured) {
   if (!structured) return null;
   let disk = [];
   try {
@@ -233,13 +239,17 @@ export function observe(work, structured, agent) {
     disk = [];
   }
   const failed = Array.isArray(structured.checks?.failed) ? structured.checks.failed : [];
-  const commands = agent?.bash || [];
+  const exits = exitCodes(work);
   return {
     packages: Array.isArray(structured.packages)
-      ? structured.packages.map((p) => ({ ...p, version: stripPeers(p?.version) }))
+      ? structured.packages.map((p) =>
+          p && p.version !== undefined ? { ...p, version: stripPeers(p.version) } : p,
+        )
       : [],
     disk,
-    checks: checkItems(failed).filter((c) => ranScript(commands, c.name)),
+    checks: checkItems(failed)
+      .filter((c) => c.name in exits)
+      .map((c) => ({ ...c, exitFailed: exits[c.name] !== "0" })),
   };
 }
 
@@ -249,10 +259,10 @@ export function observe(work, structured, agent) {
 // offline runs can install. The offline runs need that store, and pnpm itself, still in place.
 export function snapshot({ repo, commit, out }) {
   if (existsSync(out)) throw new Error(`${out} exists; pick a fresh --out`);
-  mkdirSync(out, { recursive: true });
   const sha = execFileSync("git", ["-C", repo, "rev-parse", "--verify", `${commit}^{commit}`], {
     encoding: "utf8",
   }).trim();
+  mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-"));
   try {
     const tree = join(work, "repo");
@@ -271,6 +281,9 @@ export function snapshot({ repo, commit, out }) {
       JSON.stringify({ repo: resolve(repo), commit: sha, takenAt }, null, 1) + "\n",
     );
     return { takenAt, commit: sha };
+  } catch (e) {
+    rmSync(out, { recursive: true, force: true });
+    throw e;
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -297,6 +310,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.error("usage: pnpm-update.mjs snapshot --repo <checkout> --commit <sha> --out <dir>");
     process.exit(2);
   }
-  const { takenAt, commit } = snapshot(values);
-  console.log(`snapshot of ${commit} taken at ${takenAt} in ${resolve(values.out)}`);
+  try {
+    const { takenAt, commit } = snapshot(values);
+    console.log(`snapshot of ${commit} taken at ${takenAt} in ${resolve(values.out)}`);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
 }
