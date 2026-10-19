@@ -10,11 +10,12 @@ import {
 } from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import { isGitWorkTree } from "../../util/git.js";
-import type { ConfigName, RecipeResult, Site } from "../../types.js";
+import type { ConfigName, Site } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { formatRecipeResult } from "../fleet/format-recipe-result.js";
 
 export type SyncConfigsCommandOptions = {
   only?: string;
@@ -138,11 +139,6 @@ async function runDry(
   return `${appendSkipNotice(blocks.join("\n\n"), skipped)}\n\n${lines.join("\n")}`;
 }
 
-function formatResult(r: RecipeResult): string {
-  if (r.status === "noop") return `[${r.site}] noop: ${r.notes ?? "all configs in sync"}`;
-  return `[${r.site}] applied: ${r.commits.length} commit(s)\n${r.notes ?? ""}`;
-}
-
 export async function runSyncConfigsCommand(
   site: string | undefined,
   opts: SyncConfigsCommandOptions,
@@ -173,7 +169,9 @@ export async function runSyncConfigsCommand(
     syncConfigs(s, which ? { which } : {}),
   );
 
-  const output = results.map(formatResult).join("\n");
+  const output = results
+    .map((r) => formatRecipeResult(r, { noopNote: "all configs in sync" }))
+    .join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;
   return { output: appendSkipNotice(output, skipped), code };
 }
