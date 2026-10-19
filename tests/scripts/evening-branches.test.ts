@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   parseArgs,
   sectionRange,
@@ -256,6 +261,7 @@ function fakeRun(
       return ok(JSON.stringify(branches.find((b) => b.name === head)?.prs ?? []));
     }
     const [sub, ...rest] = args;
+    if (sub === "rev-parse") return ok("/repo\n");
     if (sub === "fetch") return ok();
     if (sub === "rev-list") return ok(revList);
     if (sub === "merge-base") {
@@ -391,19 +397,19 @@ describe("eveningBranches, end to end on a fake runner", () => {
     const { run } = fakeRun(branches);
     const text = formatReport(await eveningBranches(OPTS, { run, now: NOW }));
     expect(text.split("\n")[0]).toMatch(
-      /^EVENING_BRANCHES_SUMMARY asks=1 decision_lines=0 stale=3 stale_fresh=2 scanned=7 older_skipped=1 /,
+      /^EVENING_BRANCHES_SUMMARY asks=1 decision_lines=0 stale=3 stale_fresh=2 scanned=7 older_skipped=1 now=\S+ backlog=docs\/BACKLOG\.md$/,
     );
     expect(text).toContain("L6: - _Ask:_ (a) split the workflow");
     expect(text).toContain("older claude/last-week: 1 commit(s) not on main, no PR");
     expect(text).toContain("NEW   claude/jolly-keller-9h8tzh: 3 commit(s) not on main, no PR");
   });
 
-  it("issues only reads: git fetch/for-each-ref/show/cherry/diff and gh api GET", async () => {
+  it("issues only reads: git rev-parse/fetch/for-each-ref/show/cherry/diff and gh api GET", async () => {
     const { run, calls } = fakeRun(branches);
     await eveningBranches(OPTS, { run, now: NOW });
     for (const c of calls) {
       expect(c).toMatch(
-        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1 --first-parent|merge-base --is-ancestor) |gh api repos\/)/,
+        /^(git rev-parse --show-toplevel$|git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1 --first-parent|merge-base --is-ancestor) |gh api repos\/)/,
       );
       expect(c).not.toMatch(/--method|-X |push|DELETE/);
     }
@@ -569,5 +575,67 @@ describe("eveningBranches, end to end on a fake runner", () => {
   it("without --main-since there is no main section", async () => {
     const { run } = fakeRun(branches);
     expect((await eveningBranches(OPTS, { run, now: NOW })).mainDecisions).toBeNull();
+  });
+});
+
+describe("the CLI, run on a real repository", () => {
+  const SCRIPT = fileURLToPath(new URL("../../scripts/evening-branches.mjs", import.meta.url));
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const r of roots) rmSync(r, { recursive: true, force: true });
+  });
+  const git = (cwd: string, args: string[], at?: string) => {
+    const env = at ? { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : process.env;
+    const r = spawnSync("git", args, { cwd, encoding: "utf-8", env });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout;
+  };
+  const commit = (dir: string, body: string, at: string) => {
+    writeFileSync(join(dir, "docs/BACKLOG.md"), body);
+    git(dir, ["add", "-A"]);
+    git(dir, ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", at], at);
+  };
+
+  const fixture = () => {
+    const dir = mkdtempSync(join(tmpdir(), "evening-branches-"));
+    roots.push(dir);
+    git(dir, ["init", "-q", "--initial-branch=main"]);
+    mkdirSync(join(dir, "docs"));
+    commit(dir, MAIN_BACKLOG + "\n", "2026-10-05T10:00:00Z");
+    commit(dir, withDecision(TODAY_ASK) + "\n", "2026-10-05T13:00:00Z");
+    git(dir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    return dir;
+  };
+  const summary = (cwd: string) => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        SCRIPT,
+        "--repo",
+        REPO,
+        "--backlog",
+        "docs/BACKLOG.md",
+        "--main-since",
+        "2026-10-05T12:07:00Z",
+        "--no-fetch",
+        "--since-days",
+        "0",
+      ],
+      { cwd, encoding: "utf-8" },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    return r.stdout.split("\n")[0]!;
+  };
+
+  it("--main-since reads the same lines from a subdirectory as from the root (#1348)", () => {
+    const dir = fixture();
+    expect(summary(dir)).toMatch(/^EVENING_BRANCHES_SUMMARY main_decision_lines=1 /);
+    expect(summary(join(dir, "docs"))).toMatch(/^EVENING_BRANCHES_SUMMARY main_decision_lines=1 /);
+  });
+
+  it("the summary line names the backlog as given, relative to the repo root, from any cwd (#1349)", () => {
+    const dir = fixture();
+    expect(summary(join(dir, "docs"))).toMatch(/ backlog=docs\/BACKLOG\.md$/);
   });
 });

@@ -166,6 +166,9 @@ export async function eveningBranches(o, deps = {}) {
     repo: o.repo,
     now: deps.now ?? Date.now(),
   };
+  // `git diff -- <path>` resolves the path against the cwd but `git show rev:path`
+  // against the repo root, so run every git call from the root (#1348).
+  ctx.cwd = (await gitOut(ctx, ["rev-parse", "--show-toplevel"])).trim();
   const remoteBase = `origin/${o.base}`;
   if (o.fetch) {
     const specs = [`+refs/heads/${o.base}:refs/remotes/${remoteBase}`];
@@ -266,7 +269,7 @@ export function formatReport(rep) {
   const stale = rep.branches.filter((b) => b.stale);
   const freshStale = stale.filter((b) => b.fresh);
   out.push(
-    `EVENING_BRANCHES_SUMMARY ${rep.mainDecisions ? `main_decision_lines=${rep.mainDecisions.lines.length} ` : ""}asks=${asks.length} decision_lines=${questions.length} stale=${stale.length} stale_fresh=${freshStale.length} scanned=${rep.scanned} older_skipped=${rep.olderSkipped} now=${rep.now}`,
+    `EVENING_BRANCHES_SUMMARY ${rep.mainDecisions ? `main_decision_lines=${rep.mainDecisions.lines.length} ` : ""}asks=${asks.length} decision_lines=${questions.length} stale=${stale.length} stale_fresh=${freshStale.length} scanned=${rep.scanned} older_skipped=${rep.olderSkipped} now=${rep.now} backlog=${rep.backlog}`,
   );
   const lines = (title, list) => {
     out.push("");
