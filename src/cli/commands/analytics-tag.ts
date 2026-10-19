@@ -3,6 +3,7 @@ import { analyticsTag, isBareHost } from "../../recipes/analytics-tag/index.js";
 import { MEASUREMENT_ID_RE } from "../../recipes/analytics-tag/template.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
+import { formatRecipeResult } from "../fleet/format-recipe-result.js";
 
 export type AnalyticsTagCommandOptions = {
   /** cac type-coerces a numeric option value, so `--measurement-id 556916505`,
@@ -11,12 +12,6 @@ export type AnalyticsTagCommandOptions = {
   productionHost?: string | number;
   cwd?: string;
 };
-
-function formatResult(r: RecipeResult): string {
-  if (r.status === "noop") return `[${r.site}] noop: ${r.notes ?? ""}`;
-  if (r.status === "failed") return `[${r.site}] failed: ${r.notes ?? ""}`;
-  return `[${r.site}] applied: ${r.commits.length} commit(s)\n${r.notes ?? ""}`;
-}
 
 /**
  * Deliberately ONE SITE AT A TIME, with no `--fleet` mode.
@@ -84,7 +79,7 @@ export async function runAnalyticsTagCommand(
   ];
 
   return {
-    output: results.map(formatResult).join("\n"),
+    output: results.map((r) => formatRecipeResult(r)).join("\n"),
     code: results.some((r) => r.status === "failed") ? 1 : 0,
   };
 }
