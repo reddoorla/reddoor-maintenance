@@ -348,6 +348,15 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     'echo "<html>"&gh api x',
     "echo a\\>&gh api x",
     "printf '%s\\n' \"=>\"&gh api x",
+    "cd repo && \\\n  gh pr create --fill",
+    "git \\\n  push origin main",
+    "git -C repo \\\n  commit -m x",
+    "env \\\n  gh api x",
+    'echo "gh api x" | \\\n  sh',
+    "echo '>/tmp/out' gh pr merge 1 | bash",
+    "echo \"gh pr merge 1\" '>/dev/null' | bash",
+    'echo ">x; gh pr merge" | bash',
+    'echo "gh api x" 2>|f | bash',
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -428,6 +437,8 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     '{ echo "gh api x"; ( case a in a) ls;; esac ) | sh; }',
     '( echo "gh api x"; ( ls ${a:-$(pwd)} ) | sh )',
     "ls a>&gh api x",
+    "echo hi >|gh",
+    "git log \\\n  --oneline -3",
   ])("lets the read %s through", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(false);
   });

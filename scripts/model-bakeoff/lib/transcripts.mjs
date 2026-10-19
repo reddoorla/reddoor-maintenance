@@ -146,19 +146,29 @@ export function lex(text) {
   let tokens = [];
   let cur = null;
   let operator = false;
+  let quotedStart = false;
+  let bare = new Set();
   let between = "";
+  const begin = (quoted) => {
+    if (cur === null) quotedStart = quoted;
+  };
   const endToken = () => {
-    if (cur !== null) tokens.push(cur);
+    if (cur !== null) {
+      if (!quotedStart) bare.add(tokens.length);
+      tokens.push(cur);
+    }
     cur = null;
   };
   const endSegment = (sep = "$(") => {
     endToken();
     if (tokens.length) {
       Object.defineProperty(tokens, "before", { value: between });
+      Object.defineProperty(tokens, "bare", { value: bare });
       segs.push(tokens);
       between = "";
     }
     tokens = [];
+    bare = new Set();
     between += sep;
   };
   for (let i = 0; i < text.length; i++) {
@@ -166,11 +176,13 @@ export function lex(text) {
     const wasOperator = operator;
     operator = false;
     if (ch === "'") {
+      begin(true);
       const end = text.indexOf("'", i + 1);
       const stop = end === -1 ? text.length : end;
       cur = (cur ?? "") + text.slice(i + 1, stop);
       i = stop;
     } else if (ch === '"') {
+      begin(true);
       let j = i + 1;
       let value = "";
       while (j < text.length && text[j] !== '"') {
@@ -181,7 +193,10 @@ export function lex(text) {
       }
       cur = (cur ?? "") + value;
       i = j;
+    } else if (ch === "\\" && text[i + 1] === "\n") {
+      i++;
     } else if (ch === "\\") {
+      begin(true);
       cur = (cur ?? "") + (text[i + 1] ?? "");
       i++;
     } else if (ch === "#" && cur === null) {
@@ -189,15 +204,20 @@ export function lex(text) {
     } else if (ch === "$" && text[i + 1] === "(") {
       endSegment();
       i++;
-    } else if (ch === "{" || (ch === "}" && (cur !== null || tokens.length > 0))) {
-      cur = (cur ?? "") + ch;
-    } else if (ch === "&" && (cur === null ? text[i + 1] === ">" : wasOperator)) {
+    } else if (
+      ch === "{" ||
+      (ch === "}" && (cur !== null || tokens.length > 0)) ||
+      (ch === "&" && (cur === null ? text[i + 1] === ">" : wasOperator)) ||
+      (ch === "|" && wasOperator)
+    ) {
+      begin(false);
       cur = (cur ?? "") + ch;
     } else if (SEPARATORS.has(ch)) {
       endSegment(ch === "\n" ? "" : ch);
     } else if (/\s/.test(ch)) {
       endToken();
     } else {
+      begin(false);
       cur = (cur ?? "") + ch;
       operator = ch === "<" || ch === ">";
     }
@@ -480,8 +500,10 @@ function shellBody(args) {
 function echoed(tokens, depth) {
   const c = commandOf(tokens);
   if (!c || !["echo", "printf"].includes(c.name)) return false;
-  if (tokens.some((a) => /^(1?>|&>)/.test(a))) return false;
-  const text = c.args.filter((a) => !/^-[neE]+$/.test(a) && !isRedirect(a)).join(" ");
+  const redirect = (a, k) => tokens.bare.has(k) && isRedirect(a);
+  if (tokens.some((a, k) => redirect(a, k) && /^(1?>|&>)/.test(a))) return false;
+  const offset = tokens.length - c.args.length;
+  const text = c.args.filter((a, k) => !/^-[neE]+$/.test(a) && !redirect(a, k + offset)).join(" ");
   return forbiddenCommand(text.replace(/\\n/g, "\n"), depth + 1);
 }
 
