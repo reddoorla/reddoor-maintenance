@@ -15,28 +15,20 @@ export const ALLOWED_TOOLS = Object.freeze([
   "ToolSearch",
 ]);
 
-const NESTED =
-  /(?:^|[;&|(\n]\s*|\b(?:then|do|else)\s+)(?:(?:ba|z|da)?sh(?:\s+(?:[-+][a-z]*o\s+\S+|--?[\w-]+))*?\s+-[a-z]*c[a-z]*(?:\s+--)?|eval)\s+(['"])((?:\\.|(?!\1)[\s\S])*)\1/g;
-
 const HEREDOC = /<<-?[ \t]*\\?(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n[ \t]*\2(?=\n|$)/g;
-const SEPARATORS = /\n|;|&&|\|\||\||&|\$\(|`|\(|\)|\{|\}/;
 const SHELLS = new Set(["sh", "bash", "zsh", "dash"]);
 const KEYWORDS = new Set(["do", "then", "else", "elif", "if", "while", "until", "!", "time"]);
 const WRAPPERS = new Set(["sudo", "nohup", "stdbuf", "nice", "timeout", "xargs", "env"]);
-const WRAPPER_VALUE_OPTIONS = new Set([
-  "--user",
-  "--group",
-  "--chdir",
-  "--unset",
-  "--signal",
-  "--kill-after",
-  "--adjustment",
-  "--max-args",
-  "--replace",
-  "--delimiter",
-]);
+const WRAPPER_VALUE_OPTIONS = {
+  sudo: ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"],
+  nohup: [],
+  stdbuf: ["-i", "-o", "-e"],
+  nice: ["-n", "--adjustment"],
+  timeout: ["-s", "-k", "--signal", "--kill-after"],
+  xargs: ["-n", "-I", "-L", "-P", "-d", "-s", "-E", "-a", "--max-args", "--replace", "--delimiter"],
+  env: ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
+};
 const PREFIXES = new Set(["command", "exec", "builtin"]);
-const LOOKUPS = new Set(["which", "type", "hash", "whereis"]);
 const GIT_VALUE_OPTIONS = new Set([
   "-C",
   "-c",
@@ -75,12 +67,6 @@ const GIT_WRITES = new Set([
 const CURL_VALUE_LETTERS = new Set([..."oHAuwebcrmKEUxYyzCDQtP"]);
 const WRITE_METHODS = /^(POST|PUT|PATCH|DELETE)$/i;
 
-export function unquoted(command) {
-  return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) =>
-    /^(["'])[\w./@:=+-]+\1$/.test(q) ? q.slice(1, -1) : "''",
-  );
-}
-
 export function heredocs(command) {
   const bodies = [];
   const text = command.replace(HEREDOC, (m, _q, _word, _rest, body, offset, whole) => {
@@ -112,6 +98,10 @@ export function substitutions(text) {
       quote = "'";
       continue;
     }
+    if (ch === "#" && quote === null && (i === 0 || /[\s;&|(]/.test(text[i - 1]))) {
+      while (i + 1 < text.length && text[i + 1] !== "\n") i++;
+      continue;
+    }
     if (ch === '"') {
       quote = quote === '"' ? null : '"';
       continue;
@@ -137,11 +127,61 @@ export function substitutions(text) {
   return bodies;
 }
 
+const SEPARATORS = new Set(["\n", ";", "|", "&", "(", ")", "{", "}", "`"]);
+
+export function lex(text) {
+  const segs = [];
+  let tokens = [];
+  let cur = null;
+  const endToken = () => {
+    if (cur !== null) tokens.push(cur);
+    cur = null;
+  };
+  const endSegment = () => {
+    endToken();
+    if (tokens.length) segs.push(tokens);
+    tokens = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "'") {
+      const end = text.indexOf("'", i + 1);
+      const stop = end === -1 ? text.length : end;
+      cur = (cur ?? "") + text.slice(i + 1, stop);
+      i = stop;
+    } else if (ch === '"') {
+      let j = i + 1;
+      let value = "";
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === "\\" && j + 1 < text.length) {
+          value += text[j + 1];
+          j += 2;
+        } else value += text[j++];
+      }
+      cur = (cur ?? "") + value;
+      i = j;
+    } else if (ch === "\\") {
+      cur = (cur ?? "") + (text[i + 1] ?? "");
+      i++;
+    } else if (ch === "#" && cur === null) {
+      while (i + 1 < text.length && text[i + 1] !== "\n") i++;
+    } else if (ch === "$" && text[i + 1] === "(") {
+      endSegment();
+      i++;
+    } else if (SEPARATORS.has(ch)) {
+      endSegment();
+    } else if (/\s/.test(ch)) {
+      endToken();
+    } else {
+      cur = (cur ?? "") + ch;
+    }
+  }
+  endSegment();
+  return segs;
+}
+
 export function segments(command) {
-  return unquoted(withoutHeredocs(command))
-    .split(SEPARATORS)
-    .map((s) => s.trim().split(/\s+/).filter(Boolean))
-    .filter((t) => t.length > 0);
+  return lex(withoutHeredocs(command));
 }
 
 const isRedirect = (t) => /^\d*(<<?|>>?|&>|>&|<&)/.test(t);
@@ -166,7 +206,7 @@ export function commandOf(tokens) {
       i++;
       while (i < tokens.length && tokens[i].startsWith("-")) {
         const option = tokens[i++];
-        if (option === "-v" || option === "-V") return { name: "which", args: tokens.slice(i) };
+        if (option === "-v" || option === "-V") return null;
         if (option === "-a") i++;
       }
       continue;
@@ -175,7 +215,7 @@ export function commandOf(tokens) {
       i++;
       while (i < tokens.length && (tokens[i].startsWith("-") || /^\d+[smhd]?$/.test(tokens[i]))) {
         const option = tokens[i++];
-        const takesValue = /^-[A-Za-z]$/.test(option) || WRAPPER_VALUE_OPTIONS.has(option);
+        const takesValue = WRAPPER_VALUE_OPTIONS[base].includes(option);
         if (takesValue && i < tokens.length && !tokens[i].startsWith("-")) i++;
       }
       continue;
@@ -227,8 +267,24 @@ function gitWrites(args) {
   return true;
 }
 
+function shortCluster(a) {
+  return a.startsWith("-") && !a.startsWith("--") && /^-[A-Za-z]/.test(a);
+}
+
+function curlGet(args) {
+  return args.some((a) => {
+    if (a === "--get") return true;
+    if (!shortCluster(a)) return false;
+    for (const letter of a.slice(1)) {
+      if (letter === "G") return true;
+      if (letter === "X" || CURL_VALUE_LETTERS.has(letter)) return false;
+    }
+    return false;
+  });
+}
+
 function curlWrites(args) {
-  if (args.some((a) => a === "-G" || a === "--get")) return false;
+  const get = curlGet(args);
   for (let k = 0; k < args.length; k++) {
     const a = args[k];
     if (a === "--request") {
@@ -240,8 +296,12 @@ function curlWrites(args) {
       if (WRITE_METHODS.test(a.slice(10))) return true;
       continue;
     }
-    if (/^--(data[\w-]*|form|upload-file|json)(=|$)/.test(a)) return true;
-    if (a.startsWith("--") || !/^-[A-Za-z]/.test(a)) continue;
+    if (/^--(form|upload-file|json)(=|$)/.test(a)) return true;
+    if (/^--data[\w-]*(=|$)/.test(a)) {
+      if (!get) return true;
+      continue;
+    }
+    if (!shortCluster(a)) continue;
     for (let p = 1; p < a.length; p++) {
       const letter = a[p];
       if (letter === "X") {
@@ -249,7 +309,12 @@ function curlWrites(args) {
         if (WRITE_METHODS.test(method)) return true;
         break;
       }
-      if (letter === "d" || letter === "F" || letter === "T") return true;
+      if (letter === "F" || letter === "T") return true;
+      if (letter === "d") {
+        if (!get) return true;
+        if (p === a.length - 1) k++;
+        break;
+      }
       if (CURL_VALUE_LETTERS.has(letter)) {
         if (p === a.length - 1) k++;
         break;
@@ -272,23 +337,20 @@ function shellBody(args) {
 export function forbiddenCommand(command, depth = 0) {
   if (depth > 4) return false;
   const { text, bodies } = heredocs(command);
-  for (const tokens of segments(text)) {
+  for (const tokens of lex(text)) {
     const c = commandOf(tokens);
     if (!c) continue;
     if (c.name === "gh") return true;
-    if (LOOKUPS.has(c.name) && c.args.includes("gh")) return true;
     if (c.name === "git" && gitWrites(c.args)) return true;
     if (c.name === "curl" && curlWrites(c.args)) return true;
+    if (c.name === "eval" && forbiddenCommand(c.args.join(" "), depth + 1)) return true;
     if (SHELLS.has(c.name)) {
       const body = shellBody(c.args);
-      if (body && body !== "''" && forbiddenCommand(body, depth + 1)) return true;
+      if (body && forbiddenCommand(body, depth + 1)) return true;
     }
   }
   for (const body of substitutions(text)) {
     if (forbiddenCommand(body, depth + 1)) return true;
-  }
-  for (const m of text.matchAll(NESTED)) {
-    if (forbiddenCommand(m[2], depth + 1)) return true;
   }
   for (const { opener, body } of bodies) {
     const feeds = segments(opener).some((t) => {

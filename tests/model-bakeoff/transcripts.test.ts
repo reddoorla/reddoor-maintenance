@@ -106,7 +106,6 @@ describe("forbiddenCommand", () => {
     "git --no-pager push",
     "/usr/bin/gh api -X POST repos/x",
     '"gh" issue create',
-    "$(which gh) api",
     "echo done; gh pr list",
     "GH_TOKEN=x gh api user",
     "curl -s -X POST https://api.github.com/x",
@@ -143,7 +142,6 @@ describe("forbiddenCommand", () => {
     "curl -sd x=1 https://x",
     'a="$(gh api x)"',
     'x="$(gh api "repos/$r")"',
-    'echo "$(which gh)"',
     'echo "`gh api x`"',
     'echo "x $(git push) y"',
     'n="$(curl -sX POST url)"',
@@ -163,14 +161,22 @@ describe("forbiddenCommand", () => {
     "git worktree add ../x",
     "git init x",
     "git config user.name x",
-    "command -v gh",
     "exec -a name gh",
-    "type gh",
     "2>/dev/null gh api",
     ">f gh",
     "gh>out",
     "env --chdir /x gh",
     "sudo --user bob gh",
+    "curl -G -X POST https://api.github.com/x",
+    "curl -X POST -G u",
+    "curl --get -XPUT u",
+    "curl -G --request DELETE u",
+    "curl -G -T f u",
+    "curl -G --upload-file f u",
+    "curl -sGX POST u",
+    "env -i git push",
+    "xargs -r git rm",
+    "sudo -E git push",
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -203,6 +209,15 @@ describe("forbiddenCommand", () => {
     "curl -o -T url",
     "curl -G -d q=1 url",
     'curl -G --data-urlencode "q=x" url',
+    "curl -sG -d q=1 u",
+    "which python3 node gh jq",
+    'test -x "$(command -v gh)"',
+    "command -v gh",
+    "find . -name '*.mjs' | xargs -r grep -l gh",
+    "ls # list; gh is not used here",
+    "# find every `gh api` call\ngrep -rn 'gh api' scripts",
+    "# count the (gh api) calls\ngrep -c 'gh api' f",
+    "curl -Gs --data-urlencode q=1 u",
     "git tag --list",
     'git tag -l "v*"',
     "git tag --sort=-creatordate | head",
@@ -267,6 +282,15 @@ describe("verifyRan", () => {
       "referee:r1-1: asked for claude-opus-5-5, transcripts show claude-sonnet-5-5",
       "referee:r1-1: asked for effort high, transcripts show xhigh",
     ]);
+  });
+});
+
+describe("forbiddenCommand on pathological input", () => {
+  it("stays linear on the shapes CodeQL flagged", () => {
+    const started = performance.now();
+    expect(forbiddenCommand("sh " + "-o -- ".repeat(20000))).toBe(false);
+    expect(forbiddenCommand("sh -" + "-- -".repeat(20000))).toBe(false);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });
 

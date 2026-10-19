@@ -5,7 +5,7 @@ import {
   finalScores,
   groupDisagreements,
   normalise,
-  referenceDuplicates,
+  referenceFaults,
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
 
@@ -128,7 +128,7 @@ describe("scoreRun", () => {
     };
     const checks = scoreRun(spec, ref, out);
     expect(checks.filter((c) => !c.ok).map((c) => [c.check, c.armRaw])).toEqual([
-      ["workflows invented.yml / (extra)", "listed"],
+      ["workflows invented.yml / (extra)", 'listed, as "invented.yml"'],
       ["workflows / (well-formed)", JSON.stringify({ duplicates: ["a.yml"], keyless: 0 })],
     ]);
   });
@@ -223,10 +223,31 @@ describe("scoreRun", () => {
     expect(finalScores({ twice }).per.twice).toMatchObject({ total: 7, correct: 6, unruled: 0 });
   });
 
-  it("reports a reference that lists one item twice", () => {
-    expect(referenceDuplicates(spec, { workflows: [...ref.workflows, ref.workflows[1]] })).toEqual([
-      "workflows b.yml",
+  it("reports a reference that lists one item twice, or an item with no key", () => {
+    expect(
+      referenceFaults(spec, { workflows: [...ref.workflows, ref.workflows[1], { jobs: 1 }] }),
+    ).toEqual([
+      "the reference lists workflows b.yml more than once; the first entry is used",
+      "the reference has 1 workflows item(s) with no file; they are not scored",
     ]);
+  });
+
+  it("keys an extra item by its normalised key, so a new spelling keeps the ruling", () => {
+    const a = { workflows: [...ref.workflows, { file: "ci.yml" }] };
+    const b = { workflows: [...ref.workflows, { file: "CI.yml" }] };
+    const one = groupDisagreements({ a: scoreRun(spec, ref, a, extraCandidates(spec, ref, [a])) });
+    const two = groupDisagreements({
+      a: scoreRun(spec, ref, a, extraCandidates(spec, ref, [a, b])),
+      b: scoreRun(spec, ref, b, extraCandidates(spec, ref, [a, b])),
+    });
+    expect(two.map((g) => g.id)).toEqual(one.map((g) => g.id));
+    expect(one[0]!.armRaw).toBe('listed, as "ci.yml"');
+  });
+
+  it("fails an arm with no output mechanically, without a referee round", () => {
+    const { per } = finalScores({ none: scoreRun(spec, ref, null) });
+    expect(groupDisagreements({ none: scoreRun(spec, ref, null) })).toEqual([]);
+    expect(per.none).toMatchObject({ correct: 0, unruled: 0 });
   });
 
   it("keeps the first of two entries for one key rather than the last", () => {

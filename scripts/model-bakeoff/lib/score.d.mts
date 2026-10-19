@@ -44,7 +44,7 @@ export interface ArmScore {
 export type Spec = { collections: Collection[]; kinds?: Kinds };
 export const EXTRA: string;
 export const WELL_FORMED: string;
-export function referenceDuplicates(spec: Spec, reference: unknown): string[];
+export function referenceFaults(spec: Spec, reference: unknown): string[];
 export function extraCandidates(
   spec: Spec,
   reference: unknown,

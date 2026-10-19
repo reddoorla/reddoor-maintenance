@@ -19,7 +19,7 @@ import {
   extraCandidates,
   finalScores,
   groupDisagreements,
-  referenceDuplicates,
+  referenceFaults,
   scoreRun,
 } from "./lib/score.mjs";
 import { readAgentTranscript } from "./lib/transcripts.mjs";
@@ -242,9 +242,7 @@ async function score(opts) {
   const reference = truth ?? gold;
   if (!reference)
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
-  for (const d of referenceDuplicates(task, reference)) {
-    problems.push(`the reference lists ${d} more than once; the first entry is used`);
-  }
+  problems.push(...referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
   const candidates = extraCandidates(

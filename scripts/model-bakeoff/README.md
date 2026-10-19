@@ -84,7 +84,8 @@ then `collect` (with that run's transcript directory) and `score` again.
 `score` exits non-zero on any of these problems, and `<run>/result.json` holds the full result:
 
 - `args.dir` is not `<run>/input`, or the input changed;
-- the reference lists one item twice (the first entry is used);
+- the reference lists one item twice (the first entry is used), or has an item with no key (it
+  is not scored);
 - an arm or the gold has no transcript, or no accepted structured output;
 - an arm, the gold or a referee ran on a model or effort it did not ask for;
 - a disagreement is still unruled, or a referee chunk returned nothing while one is;
@@ -100,28 +101,32 @@ then `collect` (with that run's transcript directory) and `score` again.
 It also exits non-zero when there is no reference at all: no truth, and no gold output.
 
 The Bash check finds the command word of every simple command and judges that word alone. It
-sets heredoc bodies aside, keeps a quoted single word as the word (`"gh"`, `-X 'POST'`) and
-blanks other quoted text, then splits on newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks,
-brackets and braces. In each piece it skips redirections, shell keywords (`do`, `then`, `if`,
-`!`, `time` and the like), variable assignments, `command`/`exec`/`builtin` with their options,
-and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`, `timeout`, `xargs`, `env`) with their options and
-option values. The command word is then forbidden when it is:
+sets heredoc bodies aside and drops `#` comments, then reads the command with a small
+quote-aware lexer: a quoted string becomes one token holding its text (`"gh"` is `gh`,
+`-X 'POST'` is `POST`), and segments end at newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks,
+parentheses and braces outside quotes. In each segment it skips redirections, shell keywords
+(`do`, `then`, `if`, `!`, `time` and the like), variable assignments, `command`/`exec`/`builtin`
+with their options, and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`, `timeout`, `xargs`, `env`)
+with their options, skipping a value only after the options that take one (`xargs -n 1`,
+`sudo -u bob`, `timeout -s KILL 5`). The command word is then forbidden when it is:
 
-- `gh`, or `which`, `type`, `hash`, `whereis` or `command -v` naming `gh`;
+- `gh`;
 - `git` with a subcommand that writes, after any global options: `push`, `pull`, `commit`, `rm`,
   `add`, `merge`, `rebase`, `reset`, `init` and the like, but not the read forms `tag -l`,
   `stash list`, `apply --stat`, `config --get`, `worktree list`, `branch -a` or `--help`;
 - `curl` with a write method (`-X POST` in any case, inside a cluster such as `-sX PUT`, or
-  `--request`), `--data`, `--form`, `--json`, `--upload-file`, or `-d`, `-F` or `-T` in a short
-  cluster, unless `-G`/`--get` makes it a GET.
+  `--request`), `--form`, `--json`, `--upload-file`, `-F` or `-T`, whatever else is set; or with
+  `--data` or `-d` unless `-G`/`--get` (alone or in a cluster such as `-sG`) makes that a GET.
 
 It repeats the check on every `$(…)` and backtick body, inside double quotes too; on the body of
 `sh -c`, `bash -c` (options such as `-euo pipefail` allowed before `-c`) or `eval` when that is the
 command; and on a heredoc body fed to a shell (`sh <<EOF`, `cat <<EOF | bash`). So
 `grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a heredoc written to a file that
-mentions `gh api` pass, while `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail.
-Commands run inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`) are not
-seen. It is a tripwire, not a sandbox.
+mentions `gh api` pass, and so do lookups such as `which gh` and `command -v gh`, which run
+nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run
+inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a resolved path such as
+`$(which gh) api`, text piped into a shell's stdin (`echo 'git push' | sh`), substitutions inside
+an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
@@ -150,11 +155,13 @@ Every item that some arm listed and the reference lacks gets an `(extra)` check,
 gets that check, whether it listed the item or not, so all arms share one denominator. The
 referee rules on each extra item once. If it rules that the item really exists, the arms that
 left it out fail that check, and `score` reports the item as a problem, because the reference
-lacks it and its field values are not scored until the reference is fixed. An extra item's name
-is the lexically smallest spelling any arm used, so adding or reordering arms keeps its rulings.
-Each collection also gets a `(well-formed)` check per arm: no item listed twice, no item without
-a key, and an output at all. These are mechanical faults, so they never go to the referee, and
-where an item appears twice the first entry is the one scored. The 2026-10-19 t5-census run had
+lacks it and its field values are not scored until the reference is fixed. An extra check is
+named by the item's normalised key, so adding or reordering arms keeps its rulings, and the
+referee is shown each arm's own spelling. Each collection also gets a `(well-formed)` check per
+arm: no item listed twice, no item without a key, and an output at all. These are mechanical
+faults, so they never go to the referee, and where an item appears twice the first entry is the
+one scored. An arm that returned no output fails every check mechanically, without a referee
+round. The 2026-10-19 t5-census run had
 no extra items, so each run had 228 checks: 188 fields, 38 `(present)` and 2 `(well-formed)`.
 
 ## Adding a task type

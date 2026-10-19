@@ -147,7 +147,9 @@ export function scriptFacts(file, text) {
     file,
     lines: (text.match(/\n/g) || []).length,
     shebang: text.startsWith("#!"),
-    nodeImports: [...new Set([...text.matchAll(/["'`](node:[^"'`\s]*)["'`]/g)].map((m) => m[1]))],
+    nodeImports: [
+      ...new Set([...text.matchAll(/(["'`])(node:(?:(?!\1)[^\\\n])*)\1/g)].map((m) => m[2])),
+    ],
     ghApi: text.includes("gh api"),
   };
 }

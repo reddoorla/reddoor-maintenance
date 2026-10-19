@@ -76,12 +76,20 @@ function collectionTools(spec, col) {
   return { custom, firstByKey };
 }
 
-export function referenceDuplicates(spec, reference) {
-  return spec.collections.flatMap((col) =>
-    collectionTools(spec, col)
-      .firstByKey(reference)
-      .duplicates.map((d) => `${col.name} ${d}`),
-  );
+export function referenceFaults(spec, reference) {
+  return spec.collections.flatMap((col) => {
+    const { duplicates, keyless } = collectionTools(spec, col).firstByKey(reference);
+    return [
+      ...duplicates.map(
+        (d) => `the reference lists ${col.name} ${d} more than once; the first entry is used`,
+      ),
+      ...(keyless
+        ? [
+            `the reference has ${keyless} ${col.name} item(s) with no ${col.key}; they are not scored`,
+          ]
+        : []),
+    ];
+  });
 }
 
 export function extraCandidates(spec, reference, outputs) {
@@ -126,6 +134,7 @@ export function scoreRun(
         refKey: "present",
         armRaw: presence,
         refRaw: "present",
+        ...(answered ? {} : { mechanical: true }),
       });
       for (const [field, kind] of Object.entries(col.fields)) {
         const has = Boolean(o) && o[field] !== undefined;
@@ -150,12 +159,12 @@ export function scoreRun(
         collection: col.name,
         key: k,
         field: EXTRA,
-        check: `${col.name} ${name} / ${EXTRA}`,
+        check: `${col.name} ${k} / ${EXTRA}`,
         ok: !out.has(k),
         armKey: listed,
         refKey: "not listed",
-        armRaw: listed,
-        refRaw: "not listed",
+        armRaw: out.has(k) ? `listed, as ${JSON.stringify(raw(out.get(k)[col.key]))}` : listed,
+        refRaw: `not listed (first spelled ${JSON.stringify(name)})`,
       });
     }
     const faults = answered ? { duplicates: duplicates.sort(), keyless } : { noOutput: true };
@@ -249,7 +258,7 @@ export function finalScores(checksByArm, rulings = {}) {
       if (ok) bf.correct++;
       if (!ok) {
         const refuted = refWrong.get(c.check);
-        const opposite = { "not listed": "listed", present: "absent" }[c.refRaw];
+        const opposite = { "not listed": "listed", present: "absent" }[c.refKey];
         const expected = refuted
           ? `${opposite ?? `not ${c.refRaw}`} (the referee refuted the reference: ${refuted.note || "no note"})`
           : c.refRaw;

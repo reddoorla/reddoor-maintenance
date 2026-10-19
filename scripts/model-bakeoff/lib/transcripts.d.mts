@@ -7,7 +7,7 @@ export function substitutions(text: string): string[];
 export function segments(command: string): string[][];
 export function commandOf(tokens: string[]): { name: string; args: string[] } | null;
 export const ALLOWED_TOOLS: readonly string[];
-export function unquoted(command: string): string;
+export function lex(text: string): string[][];
 export function forbiddenCommand(command: string, depth?: number): boolean;
 export interface AgentTranscript {
   marker: { kind: "arm" | "referee"; id: string } | null;
