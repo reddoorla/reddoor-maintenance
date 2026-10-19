@@ -171,7 +171,10 @@ export function checkItems(failed) {
 // (it holds pnpm's `$ <script body>` echo line) after the lockfile it ran against. An exit
 // code of 0 beside a log in which pnpm reports the command failed (`| tee` records tee's code)
 // is read as "log:failed".
-const FAILED_LINE = /Command failed with exit code [1-9]/;
+// pnpm's own failure line ("[ELIFECYCLE] Command failed with exit code 1." in pnpm 12, " ELIFECYCLE
+// Command failed…" before), not the same words printed by a passing test (execa errors read
+// "Command failed with exit code 1: <cmd>").
+const FAILED_LINE = /^\s*\[?ELIFECYCLE\]?\s+Command failed with exit code [1-9]/m;
 // pnpm may print warnings or its dependency check before the `$ <script body>` line.
 const PNPM_ECHO = /^\$ /m;
 
@@ -267,7 +270,12 @@ export function observe(work, structured, agent, reference) {
   } catch {
     disk = [];
   }
-  const failed = Array.isArray(structured.checks?.failed) ? structured.checks.failed : [];
+  // A headline `pass: true` claims every script passed, whatever `failed` lists: reading the
+  // report at its most favourable keeps an "all green" summary from hiding a failure.
+  const failed =
+    structured.checks?.pass !== true && Array.isArray(structured.checks?.failed)
+      ? structured.checks.failed
+      : [];
   const claimed = new Set(failed.map(scriptName));
   const exits = exitCodes(work);
   const truthFailed = new Set(

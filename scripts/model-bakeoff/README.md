@@ -234,7 +234,8 @@ failed check. What is scored, all of it mechanical (no referee):
   run, and so do an exit file older than its log and an exit code of 0 beside a log in which pnpm
   reports the command failed. A
   script with no such log fails as absent. The run's own verdict (`exitFailed`) is kept on the
-  item but not scored, and so are the report's `checks.pass` and `unverified`. An earlier draft inferred "ran" from the transcript's command text, which
+  item but not scored. A headline `checks.pass: true` is read as claiming every script passed,
+  whatever `failed` lists; `unverified` is not scored. An earlier draft inferred "ran" from the transcript's command text, which
   credited scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
 
 The truth runs alone during `prepare`, so its verdicts are uncontended (the workflow runs the
@@ -245,7 +246,7 @@ the agents, as in every task; `collect` lists each agent's Bash commands, so che
 of either.
 
 `result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
-total, because 100 of this task's 113 checks follow from the one `pnpm update`.
+total, because 104 of this task's 117 checks (packages and disk) follow from the one `pnpm update`.
 
 ## The ledger
 

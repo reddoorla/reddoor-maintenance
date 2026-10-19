@@ -240,5 +240,16 @@
       "writes": []
     }
   },
-  "concurrency": "the workflow started the 8 agents in pairs about three minutes apart (lockfile mtimes 16:28, 16:31, 16:34, 16:37 UTC) on 4 cores; all 32 exit codes matched the truth"
+  "concurrency": "the workflow started the 8 agents in pairs about three minutes apart (lockfile mtimes 16:28, 16:31, 16:34, 16:37 UTC) on 4 cores; all 32 exit codes matched the truth",
+  "referenceErrors": [],
+  "caveats": [
+    "Ceiling: every agent scored 117/117 with 0 disagreements, so this run bounds the error rate on this recipe and does not rank the arms.",
+    "104 of the 117 checks (packages 100, disk 4) follow from the one prescribed pnpm update; read byCollection, not the total. The checks collection (13) is where an arm could misreport.",
+    "n=1: one repo (reddoor-starter 2a9f493), one registry snapshot, two runs per Haiku and Sonnet setting and one of Opus low.",
+    "Recipe-following, not judgment: the prompt dictates every command. Whether the bump caused the check failure was not scored. Only the gold established it (it diffed @types/node between the lockfiles before and after); every cheaper arm named the symptom (missing node types) and said in unverified that it had not established the cause.",
+    "Not reproducible in a fresh container: the offline runs need this machine's shared pnpm store and pnpm 12.5.1; the truth's offline install at prepare is the proof the store was complete then.",
+    "The rule that load can fail a passing script but never pass a failing one (why noFalsePass is one-sided and exitFailed unscored) was exercised only by unit tests: all 32 exit codes matched the truth in this run.",
+    "A misnamed script in failed (e.g. svelte-check for check) is charged like a hidden failure; the prompt names the scripts."
+  ],
+  "costNote": "Mean cost per run: Haiku low $0.0132, Haiku medium $0.0128, Sonnet medium $0.2388, Opus low $0.4956 (one run), gold Opus high $0.7984. The two Haiku settings are indistinguishable at this n."
 }
