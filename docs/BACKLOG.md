@@ -5122,6 +5122,30 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
+132.  **Maintenance cleanup: confirm scope and order (new 2026-10-19,
+      branch `claude/keen-ptolemy-jg3o8g`, worklist
+      `docs/superpowers/specs/2026-10-19-cleanup-worklist.md`).** [M] Five
+      Sonnet surveys of `main` at `2459645a` found the suite healthy (9,614
+      tests, 0 tautologies, 0 unawaited `.rejects`, no `.only`/`.skip`) and
+      no unreachable `src` file. Of the 56 open issues, 5 can be closed with
+      evidence and about 22 are review minors in 7 themes. The rest are
+      fleet, bot or operator issues. Nineteen agent-ready items are planned,
+      about 17 PRs: CLI `formatResult` x10 deduped (fixing `bump-deps` and
+      `upgrade` printing a failed recipe as `applied: 0 commit(s)`), the
+      form-e2e fixture waits (one file is 163 s of a 4m22s–5m00s CI test
+      step), six themed minor batches, #998, hollow and weak tests, dead
+      exports, and shared helpers in `src/util`, `scripts/lib` and
+      `tests/_helpers`. _Ask:_ (a) run the 19 items in the worklist's order;
+      (b) also retire the dormant Blux emit, catalog, freeze and migrate
+      pipelines (about 3,800 `src` and 4,574 test lines, keeping
+      `blux convert`); (c) also move the 40 workflow failure-issue steps
+      into a composite action. _Pick:_ (a) only. (b) is the biggest cut but
+      `reddoor-starter-blux` still renders `blux_*` slices, and (c) rewrites
+      every alarm path, which can only be proven on `main`.
+      **Answered 2026-10-19 (AskUserQuestion): (a), the 19 items only.**
+      Blux retirement and the workflow composite action stay out of this
+      session.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
