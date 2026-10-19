@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import type { GoalRequirement } from "../../src/prospect/goals.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -107,6 +108,7 @@ const analyzeOutput = {
 };
 
 const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
+  ...offlineNetworkDeps(),
   crawl: crawlDeps(),
   analyze: { run: async () => analyzeOutput },
   engines: [
@@ -158,6 +160,27 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
 });
 
 describe("runProspectAudit", () => {
+  it("makes no request of its own under the suite's deps", async () => {
+    // The HTTP probes, RDAP and its bootstrap, the basics and asset probes and
+    // the Anthropic SDK all reach the network through fetch, so a fetch that
+    // records and refuses catches any of them left on its default. (The SPF and
+    // MX lookups use node:dns, which this cannot see.) A key is set because
+    // without one the accuracy stage's default never makes its request, and
+    // this would pass on a machine that has none while failing on one that does.
+    const fetchSpy = vi.fn(async (_input: unknown) => {
+      throw new Error("network disabled in tests");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test-not-a-key");
+    try {
+      await runProspectAudit(HOME, {}, deps());
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([]);
+  });
+
   it("returns every stage populated on a healthy run", async () => {
     const result = await runProspectAudit(HOME, {}, deps());
     expect(result.url).toBe(HOME);

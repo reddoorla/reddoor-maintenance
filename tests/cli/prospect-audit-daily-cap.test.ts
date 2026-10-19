@@ -13,6 +13,7 @@
  * is what the SQL does under concurrency, which no fake can show.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import type { KyselyPlugin } from "kysely";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
 import { respondToProspectAuditTrigger } from "../../src/dashboard/prospect-audit-trigger.js";
@@ -62,6 +63,7 @@ function stubDeps(): { deps: PipelineDeps; crawled: () => number } {
   return {
     crawled: () => crawls,
     deps: {
+      ...offlineNetworkDeps(),
       crawl: {
         async fetchUrl() {
           // Serves ANY url, so a run that should have been refused fails on the
