@@ -51,3 +51,6 @@ docs/meta-week/_corpus/
 
 # Sessions' running journal notes (CLAUDE.md "The work journal"); the scratchpad dies with the session.
 .session-logs/
+
+# A failed seeded-review build leaves its half-built cases here.
+scripts/model-bakeoff/tasks/seeded-review/cases.next/

@@ -54,8 +54,6 @@ export const CANONICAL_STATUSES: readonly Status[] = [
   "archived",
 ] as const;
 
-const CANONICAL_SET: ReadonlySet<string> = new Set<string>(CANONICAL_STATUSES);
-
 /**
  * Map a raw Status cell (a record's field value, or the `sites.status` column) to
  * the canonical vocabulary. Applied at BOTH read seams so the rest of the code
@@ -87,9 +85,4 @@ export function canonicalizeStatus(raw: unknown): Status | null {
   if (typeof raw !== "string") return null;
   // Canonical values pass through; so does anything else, unchanged — see above.
   return raw as Status;
-}
-
-/** True when `s` is one of the canonical statuses (not a blind-cast typo). */
-export function isCanonicalStatus(s: string): s is Status {
-  return CANONICAL_SET.has(s);
 }
