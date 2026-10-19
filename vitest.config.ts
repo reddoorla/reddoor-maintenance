@@ -12,12 +12,14 @@ export function maxWorkersFor(env: NodeJS.ProcessEnv): number | undefined {
   return env.CI ? availableParallelism() : undefined;
 }
 
+const workers = maxWorkersFor(process.env);
+
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
     testTimeout: 120_000,
-    maxWorkers: maxWorkersFor(process.env),
+    ...(workers === undefined ? {} : { maxWorkers: workers }),
     // Hooks default to 10 s: on 2026-09-15 two local workers sharing 8 CPUs with CI lost whole files to a beforeAll timeout.
     hookTimeout: 120_000,
     reporters: ["default"],
