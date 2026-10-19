@@ -205,16 +205,6 @@ describe("makeGitHub", () => {
     ]);
   });
 
-  it("protectBranch requires the named checks", async () => {
-    const { spawn, calls } = fakeSpawn({});
-    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci"]);
-    const joined = calls[0]!.args.join(" ");
-    expect(calls[0]!.args[0]).toBe("api");
-    expect(calls[0]!.args).toContain("PUT");
-    expect(joined).toContain("repos/o/r/branches/main/protection");
-    expect(joined).toContain("ci");
-  });
-
   it("setRepoSecret calls gh secret set", async () => {
     const { spawn, calls } = fakeSpawn({});
     await makeGitHub({ token: "T", spawn }).setRepoSecret("o/r", "SOME_SECRET", "v");
@@ -944,5 +934,244 @@ describe("makeGitHub.branchRequiredChecks (#892: what requires CI on a Renovate 
     await expect(
       makeGitHub({ token: "T", spawn: rulesRefused.spawn }).branchRequiredChecks("o/r", "staging"),
     ).rejects.toThrow(/HTTP 403/);
+  });
+});
+
+// --- protectBranch carries the branch's existing protection forward (#998). ---
+// The PUT replaces the whole protection object, so every field it omits or
+// nulls is a field it removes. Shapes are GitHub REST's: "Get branch
+// protection" (GET) and "Update branch protection" (PUT) on
+// /repos/{owner}/{repo}/branches/{branch}/protection. The two differ: the GET
+// wraps booleans as {enabled}, and lists users/teams/apps as objects where
+// the PUT takes logins and slugs.
+describe("protectBranch carries forward existing protection (#998)", () => {
+  /** A fake gh: the GET answers `get`; the PUT's --input body is captured. */
+  function protectionSpawn(get: Partial<SpawnResult>): {
+    spawn: SpawnFn;
+    puts: unknown[];
+    calls: string[][];
+  } {
+    const puts: unknown[] = [];
+    const calls: string[][] = [];
+    const spawn: SpawnFn = async (_cmd, args) => {
+      calls.push([...args]);
+      if (args.includes("PUT")) {
+        const i = args.indexOf("--input");
+        puts.push(JSON.parse(readFileSync(args[i + 1]!, "utf-8")));
+        return { code: 0, stdout: "{}", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "", ...get };
+    };
+    return { spawn, puts, calls };
+  }
+
+  const API = "https://api.github.com/repos/o/r/branches/main/protection";
+  /** A GET response for an org repo with every PUT-settable field set. */
+  const FULL_GET = {
+    url: API,
+    required_status_checks: {
+      url: `${API}/required_status_checks`,
+      strict: false,
+      contexts: ["build", "lint"],
+      contexts_url: `${API}/required_status_checks/contexts`,
+      checks: [
+        { context: "build", app_id: 15368 },
+        { context: "lint", app_id: null },
+      ],
+    },
+    enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+    required_pull_request_reviews: {
+      url: `${API}/required_pull_request_reviews`,
+      dismissal_restrictions: {
+        url: `${API}/dismissal_restrictions`,
+        users_url: `${API}/dismissal_restrictions/users`,
+        teams_url: `${API}/dismissal_restrictions/teams`,
+        users: [{ login: "octocat", id: 1, type: "User" }],
+        teams: [{ slug: "justice-league", id: 1, name: "Justice League" }],
+        apps: [{ slug: "octoapp", id: 1, name: "Octocat App" }],
+      },
+      dismiss_stale_reviews: true,
+      require_code_owner_reviews: true,
+      required_approving_review_count: 2,
+      require_last_push_approval: true,
+      bypass_pull_request_allowances: {
+        users: [{ login: "hubot", id: 2 }],
+        teams: [{ slug: "ops", id: 2 }],
+        apps: [{ slug: "renovate", id: 2 }],
+      },
+    },
+    restrictions: {
+      url: `${API}/restrictions`,
+      users_url: `${API}/restrictions/users`,
+      teams_url: `${API}/restrictions/teams`,
+      apps_url: `${API}/restrictions/apps`,
+      users: [{ login: "octocat", id: 1 }],
+      teams: [{ slug: "justice-league", id: 1 }],
+      apps: [{ slug: "octoapp", id: 1 }],
+    },
+    required_linear_history: { enabled: true },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false },
+    block_creations: { enabled: true },
+    required_conversation_resolution: { enabled: true },
+    lock_branch: { enabled: false },
+    allow_fork_syncing: { enabled: true },
+    required_signatures: { url: `${API}/required_signatures`, enabled: true },
+  };
+
+  it("reads the protection before it writes, on the same branch", async () => {
+    const { spawn, calls } = protectionSpawn({ stdout: JSON.stringify(FULL_GET) });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]);
+    expect(calls[0]).toEqual(["api", "repos/o/r/branches/main/protection"]);
+    expect(calls[1]!.slice(0, 4)).toEqual([
+      "api",
+      "-X",
+      "PUT",
+      "repos/o/r/branches/main/protection",
+    ]);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("keeps reviews, restrictions, enforce_admins and every flag; adds only the new check", async () => {
+    const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(FULL_GET) });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", [
+      "build",
+      "lint",
+      "ci / ci",
+    ]);
+    expect(puts).toEqual([
+      {
+        required_status_checks: {
+          strict: false,
+          checks: [
+            { context: "build", app_id: 15368 },
+            // GET's null app_id means "any app"; the PUT spells that -1.
+            // Omitting it would let GitHub pin the check to whichever app
+            // last reported it.
+            { context: "lint", app_id: -1 },
+            { context: "ci / ci" },
+          ],
+        },
+        enforce_admins: false,
+        required_pull_request_reviews: {
+          dismissal_restrictions: {
+            users: ["octocat"],
+            teams: ["justice-league"],
+            apps: ["octoapp"],
+          },
+          dismiss_stale_reviews: true,
+          require_code_owner_reviews: true,
+          required_approving_review_count: 2,
+          require_last_push_approval: true,
+          bypass_pull_request_allowances: {
+            users: ["hubot"],
+            teams: ["ops"],
+            apps: ["renovate"],
+          },
+        },
+        restrictions: { users: ["octocat"], teams: ["justice-league"], apps: ["octoapp"] },
+        required_linear_history: true,
+        allow_force_pushes: false,
+        allow_deletions: false,
+        block_creations: true,
+        required_conversation_resolution: true,
+        lock_branch: false,
+        allow_fork_syncing: true,
+      },
+    ]);
+  });
+
+  it("never drops an existing check, even when the caller names only the new one", async () => {
+    const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(FULL_GET) });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]);
+    const body = puts[0] as { required_status_checks: { checks: Array<{ context: string }> } };
+    expect(body.required_status_checks.checks.map((c) => c.context)).toEqual([
+      "build",
+      "lint",
+      "ci / ci",
+    ]);
+  });
+
+  it("carries enforce_admins: true forward as true", async () => {
+    const get = { ...FULL_GET, enforce_admins: { url: `${API}/enforce_admins`, enabled: true } };
+    const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(get) });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]);
+    expect((puts[0] as { enforce_admins: unknown }).enforce_admins).toBe(true);
+  });
+
+  it("protection with required_status_checks: null keeps the rest and gains the check", async () => {
+    // A user-owned repo: no restrictions, no dismissal restrictions (both are
+    // org-only), reviews required, status checks absent.
+    const get = {
+      url: API,
+      required_status_checks: null,
+      enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+      required_pull_request_reviews: {
+        url: `${API}/required_pull_request_reviews`,
+        dismiss_stale_reviews: false,
+        require_code_owner_reviews: false,
+        required_approving_review_count: 1,
+        require_last_push_approval: false,
+      },
+      required_linear_history: { enabled: false },
+      allow_force_pushes: { enabled: false },
+      allow_deletions: { enabled: false },
+      block_creations: { enabled: false },
+      required_conversation_resolution: { enabled: false },
+      lock_branch: { enabled: false },
+      allow_fork_syncing: { enabled: false },
+    };
+    const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(get) });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]);
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: false,
+        required_pull_request_reviews: {
+          dismiss_stale_reviews: false,
+          require_code_owner_reviews: false,
+          required_approving_review_count: 1,
+          require_last_push_approval: false,
+        },
+        restrictions: null,
+        required_linear_history: false,
+        allow_force_pushes: false,
+        allow_deletions: false,
+        block_creations: false,
+        required_conversation_resolution: false,
+        lock_branch: false,
+        allow_fork_syncing: false,
+      },
+    ]);
+  });
+
+  it("404 Branch not protected: a fresh protection, with nothing to carry forward", async () => {
+    const { spawn, puts } = protectionSpawn({
+      code: 1,
+      stderr: "gh: Branch not protected (HTTP 404)",
+    });
+    await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]);
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: true,
+        required_pull_request_reviews: null,
+        restrictions: null,
+      },
+    ]);
+  });
+
+  it.each([
+    ["a refusal", { code: 1, stderr: "gh: Resource not accessible by integration (HTTP 403)" }],
+    ["a server error", { code: 1, stderr: "gh: Server Error (HTTP 500)" }],
+    ["a missing branch", { code: 1, stderr: "gh: Branch not found (HTTP 404)" }],
+    ["a body that is not JSON", { code: 0, stdout: "<html>" }],
+    ["a body that is not an object", { code: 0, stdout: "[]" }],
+  ])("a failed read (%s) throws and never PUTs", async (_, get) => {
+    const { spawn, puts } = protectionSpawn(get);
+    await expect(
+      makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]),
+    ).rejects.toThrow(/protectBranch\(o\/r:main\)/);
+    expect(puts).toEqual([]);
   });
 });
