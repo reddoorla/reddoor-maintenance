@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { runProspectAudit, ACCURACY_SKIPPED } from "../../src/prospect/pipeline.js";
 import { checkAccuracy } from "../../src/prospect/accuracy.js";
 import { readFileSync } from "node:fs";
@@ -61,6 +62,7 @@ const brandedEngine = (fullAnswer: string | undefined) => [
 
 function deps(over: Record<string, unknown> = {}) {
   return {
+    ...offlineNetworkDeps(),
     crawl: crawlDeps(),
     analyze: { run: async () => analyzeOutput },
     engines: brandedEngine("Acme Roofing has served Boise since 1994."),

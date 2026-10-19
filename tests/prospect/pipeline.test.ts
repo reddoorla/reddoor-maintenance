@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import type { GoalRequirement } from "../../src/prospect/goals.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -107,6 +108,7 @@ const analyzeOutput = {
 };
 
 const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
+  ...offlineNetworkDeps(),
   crawl: crawlDeps(),
   analyze: { run: async () => analyzeOutput },
   engines: [
@@ -158,6 +160,22 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
 });
 
 describe("runProspectAudit", () => {
+  it("makes no request of its own under the suite's deps", async () => {
+    // Every default that reaches the network does it through fetch (the HTTP
+    // probes, RDAP and its bootstrap, the basics and asset probes), so a fetch
+    // that records and refuses is the check that `deps()` really is offline.
+    const fetchSpy = vi.fn(async (_input: unknown) => {
+      throw new Error("network disabled in tests");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      await runProspectAudit(HOME, {}, deps());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([]);
+  });
+
   it("returns every stage populated on a healthy run", async () => {
     const result = await runProspectAudit(HOME, {}, deps());
     expect(result.url).toBe(HOME);

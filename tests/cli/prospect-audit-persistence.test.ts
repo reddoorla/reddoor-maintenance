@@ -8,6 +8,7 @@
 // prospect-audit-command.test.ts exercises, since that file always deletes
 // TURSO_DATABASE_URL — actually runs.
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -45,6 +46,7 @@ const ORIGINAL_ENV = { ...process.env };
  *  uses, factored out so each persistence scenario only states what differs. */
 function stubDeps(): PipelineDeps {
   return {
+    ...offlineNetworkDeps(),
     crawl: {
       async fetchUrl(url: string) {
         if (url === "https://acme.example/")

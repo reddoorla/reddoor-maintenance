@@ -6,6 +6,7 @@
 // black-box rehearsal: real runProspectAudit, stubbed network/model deps,
 // straight into the real renderProspectReport.
 import { describe, it, expect } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -46,6 +47,7 @@ const crawlDeps: CrawlDeps = {
 };
 
 const deps: PipelineDeps = {
+  ...offlineNetworkDeps(),
   crawl: crawlDeps,
   analyze: {
     run: async () => ({
