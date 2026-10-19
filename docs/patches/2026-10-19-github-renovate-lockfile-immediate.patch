@@ -1,0 +1,68 @@
+From 67a390df56baa82bd7a9414b574cf57177bf5987 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 19 Oct 2026 13:19:34 +0000
+Subject: [PATCH] fix(renovate): lock-file maintenance opens its PR
+ immediately, so it can open inside the Monday window
+
+A lock-file branch carries no status and no check run, so it reads
+pending forever under prCreation: not-pending. The run that rebuilds it
+returns before PR creation, and every later in-window run finds it
+younger than prNotPendingHours (25). No lock-file PR had opened anywhere
+in the fleet since 2026-09-15 (reddoorla/reddoor-maintenance P1-52).
+
+prCreation: immediate is set inside lockFileMaintenance only. Proven by
+Renovate's own debug dry run on erp-industrial (#72): the control arm
+logs "Branch is 10 hours old - skipping PR creation", the treatment arm
+"Would create PR: chore(deps): lock file maintenance", and the two arms'
+action lists differ by that one line. validate.yml now refuses
+not-pending without it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LoyTPrkcc4JpVd5JvLF48R
+---
+ .github/workflows/validate.yml | 6 ++++++
+ renovate-config.json           | 4 +++-
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
+index 70eca58..187d134 100644
+--- a/.github/workflows/validate.yml
++++ b/.github/workflows/validate.yml
+@@ -57,6 +57,12 @@ jobs:
+             // the only thing holding back an automerge before CI has run (reddoor-maintenance#892).
+             if (["not-pending", "status-success"].includes(cfg.prCreation) && cfg.internalChecksAsSuccess !== true)
+               throw new Error("prCreation:" + cfg.prCreation + " without internalChecksAsSuccess:true: no PR can ever open on PR-only CI (2026-08-12 freeze class)");
++            // A lock-file branch carries no renovate/ status (minimumReleaseAge is null for it) and no check run, so it reads
++            // pending forever under not-pending: a run that pushes it returns before PR creation, and a run that does not
++            // sees it younger than prNotPendingHours (25) inside the Monday window. No lock-file PR opened fleet-wide from
++            // 2026-09-15 to 2026-10-19 (reddoor-maintenance P1-52).
++            if (["not-pending", "status-success"].includes(cfg.prCreation) && cfg.lockFileMaintenance?.enabled && cfg.lockFileMaintenance.prCreation !== "immediate")
++              throw new Error("lockFileMaintenance without prCreation:immediate under prCreation:" + cfg.prCreation + ": no lock-file PR can open inside the Monday window (P1-52)");
+             console.log("renovate-config.json OK:", automergeRules.length, "automerge rule(s), platformAutomerge false everywhere");
+           '
+       - name: renovate-staging-flow.json parses, grants no automerge, and keeps its three base-bound rules
+diff --git a/renovate-config.json b/renovate-config.json
+index 8c18a4d..788ab78 100644
+--- a/renovate-config.json
++++ b/renovate-config.json
+@@ -10,6 +10,7 @@
+     "`prCreation: not-pending` with `internalChecksFilter: strict` is Renovate's documented answer: pending releases are filtered out of the candidate set, and the PR is only opened once nothing about it is pending, so every PR Renovate opens can merge inside the same window that opened it. A release landing too close to the window waits for the next Monday instead of opening a PR that cannot merge — the same end-to-end latency as before, without a confusing PR sitting open and unmergeable in between. `internalChecksFilter` is already Renovate's default and is pinned only so this fleet-wide contract does not depend on an unstated upstream default.",
+     "CORRECTION (2026-09-21): #28 TOOK TWO OF THE THREE OPTIONS RENOVATE'S DOCS PRESCRIBE, AND THE MISSING ONE STOPPED EVERY ROUTINE PR IN THE FLEET FOR 40 DAYS. The paragraph above calls `prCreation: not-pending` with `internalChecksFilter: strict` 'Renovate's documented answer'. The documented answer has a third part, printed as a warning under `minimumReleaseAge`: 'If your CI runs only on pull_request events (so Renovate branches have no checks), also set internalChecksAsSuccess=true so the release-age check can turn the branch green - otherwise PR creation may be deferred indefinitely.' That is this fleet exactly. CI runs on `pull_request` only, so a Renovate branch carries one status, Renovate's own `renovate/stability-days`, and zero check runs; Renovate does not count its own statuses toward the branch status unless `internalChecksAsSuccess` is true, so the branch read as pending on every run and no PR was created. Measured 2026-09-20: the last `renovate/all-minor-patch` PR anywhere in the fleet was created 2026-08-10 and the last one merged 2026-08-12, the day #28 landed; the fleet-security sweep printed `RENOVATE_OUTCOME drought=20 delivering=1`; sites sat on `@reddoorla/maintenance` 0.81 to 0.95 against 0.98 published. What hid it: lock-file-maintenance PRs kept appearing (gallerysonder#88, created 2026-08-31), because that update type is exempt from `minimumReleaseAge`, carries no stability status, and so falls through to the 25-hour `prNotPendingHours` timeout, which the grouped branch, rebased every Monday inside an 18-hour window, never reaches. Proven on one repo before it shipped here, both arms inside the same Monday window (2026-09-21 UTC). PASS arm, reddoor-starter with the option set in its own renovate.json (reddoor-starter#154, merged 02:23Z): its first run afterwards rebased every branch onto the moved main and opened nothing, which is Renovate's ordinary early return on any run that pushes a commit while `prCreation` is not `immediate`, so PR creation is only ever attempted on a run that pushes nothing; its second run, 02:28Z, pushed nothing and opened reddoor-starter#155 (`renovate/all-minor-patch`), #156 and #157, the first routine Renovate PRs anywhere in the fleet since 2026-08-10. Control, espada on the unchanged preset: its 01:57Z scheduled run rebased `renovate/all-minor-patch` at 01:58Z and opened no PR, and a second run at 02:28Z, from a branch state identical to the starter's (tip on current main, `renovate/stability-days: success`, zero check runs, dashboard 'Pending Status Checks'), pushed nothing and again opened nothing. `validate.yml` now refuses `prCreation: not-pending` without `internalChecksAsSuccess: true`. Note that invariant (1) below was written the same day as #28, and #28 broke it anyway: the option that left the PR pending at creation time was `prCreation` itself. EXPECT A WAVE: the first in-window run after this lands opens roughly six weeks of held PRs in every repo (one grouped minor/patch PR plus each pending major), throttled by `prHourlyLimit`. Groups containing a never-automerge package wait for a human, as designed.",
+     "THE SAFETY PROPERTY MOVED, AND THIS IS NOW INVARIANT (3) (2026-09-21). `internalChecksAsSuccess: true` also feeds the branch status Renovate uses for AUTOMERGE. Read from Renovate's source: PR creation under `not-pending` only happens on a run that pushed nothing (the two exceptions, artifact errors and a requested rebase, cannot be followed by a same-run merge), and on exactly those runs the branch worker goes straight on to `checkAutoMerge`; with this option true the platform layer no longer demotes an all-`renovate/` success set to pending, and with zero check runs registered it returns green. So for an automerge-eligible group Renovate ATTEMPTS THE MERGE IN THE SAME RUN THAT OPENS THE PR, before CI has started. Before 2026-08-12 a branch could never be green without real check runs, so Renovate itself waited for CI; now it does not, and what holds the merge back is GitHub refusing it because a required status check has not passed. Renovate then merges on a later run once CI is green: the same outcome as before, for a different reason. THEREFORE: every repo that extends this preset MUST have a required status check on every branch Renovate merges into, with no bypass actor for the reddoor-renovate App. Swept 2026-09-21: true of all 27 repos on their default branch (`ci / ci` on 25, `build`, `validate`; `bypass_actors` empty on all), and false of exactly one Renovate base branch, reddoor-website's `staging`, which the last packageRule covers. A repo bootstrapped without the ruleset, a bypass actor added, or a required check renamed so the rule no longer matches, would let an un-built dependency bump land unattended; the nightly protection audit is the instrument that has to catch that (reddoor-maintenance#892). Lock-file maintenance is NOT exposed UNDER THIS PRESET: with `minimumReleaseAge: null` and no merge confidence configured it carries no `renovate/` status, so its branch stays pending until real checks report. That is a property of this file, not of Renovate: enabling merge confidence adds a `renovate/merge-confidence` status that the same filter treats identically, and would expose it. The option that would restore the old property outright, rather than document its loss, is to run CI on `push` to `renovate/**` so Renovate branches carry real check runs.",
++    "LOCK-FILE MAINTENANCE OPENS ITS PR IMMEDIATELY (2026-10-19, reddoor-maintenance P1-52). The 2026-09-21 fix above reached every update type but this one. On 2026-10-19 all 15 maintained repos carried a `renovate/lock-file-maintenance` branch and none had an open lock-file PR; the newest merged one was medical-solutions-of-texas#65 (2026-09-15), and 29-navy and vida-legacy-foundation had never had one. A lock-file branch carries no status and no check run (fleet CI runs on `pull_request` only, and `minimumReleaseAge: null` gives it no `renovate/stability-days`), so its combined status is `pending` with no contexts and Renovate's GitHub platform returns yellow for it whatever `internalChecksAsSuccess` says. Under `prCreation: not-pending` two paths in Renovate 44.151.2 then refuse the PR. (1) A run that pushes a commit to a branch with no PR returns before PR creation whenever `prCreation` is not `immediate` (`Branch status pending, current sha`). (2) A run that pushes nothing reaches `ensurePr`, which skips a yellow branch younger than `prNotPendingHours` (25). The weekly refresh nearly always changes the lockfile, so the first Monday run rebuilds the branch (path 1) and every later in-window run finds it under 18 hours old (path 2); it is 25 hours old only outside the window, where Renovate creates no PR at all. Measured: erp-industrial's branch was rebuilt 2026-10-12 03:25Z and again 2026-10-19 02:30Z, and Renovate's own dry run with debug logging, on the unchanged preset inside the window, logged `Branch is 10 hours old - skipping PR creation as prNotPendingHours is set to 25` for it (erp-industrial#72, `control` arm). With `lockFileMaintenance.prCreation: immediate` added and nothing else changed, the same run logged `DRY-RUN: Would create PR: chore(deps): lock file maintenance`, and the two arms' full lists of actions differed by that one line (`immediate` arm). The option is set inside `lockFileMaintenance` only, so no other update type changes. It does not loosen the merge: the PR still merges only through Renovate's automerge check on a later run, which needs a green branch status, and with zero check runs and zero statuses that status stays yellow until CI reports; the required status check on the base branch (invariant 3) still holds it. `validate.yml` now refuses `prCreation: not-pending` without this.",
+     "SCOPE CORRECTION (2026-08-12, same day as #28). #28's original text claimed the 2026-08-10 batch had frozen this way — '18 non-major PRs across the fleet sat CI-green, CLEAN and unmerged'. That was wrong, and the error is worth keeping visible because it is easy to repeat. 16 of those 17 site PRs were never automerge-eligible at all: `group:allNonMajor` had grouped `@reddoorla/maintenance` into each one, and the never-auto-merge packageRule below therefore applied to the whole grouped branch. They were correctly awaiting a human and a green Netlify deploy preview, exactly as designed. Only reddoor-maintenance#509 — the one group with no held package in it — was actually subject to the window/age interaction described above. The real blast radius is 'automerge-eligible groups', which on most weeks is a small number, not the fleet.",
+     "TWO INVARIANTS, both learned the hard way. (1) Any future option that can leave a PR pending at creation time must be checked against the Monday-only window before it ships: a gate that clears one day after the window closes is a gate that never opens. (2) Before calling a batch of open PRs 'stuck', check whether a packageRule is deliberately holding them. Under `group:allNonMajor` a single held package — `@reddoorla/maintenance` is in nearly every site's group — makes the entire grouped branch non-automergeable. A PR that is green, CLEAN and unmerged is far more often a rule working than a rule broken."
+   ],
+@@ -27,7 +28,8 @@
+       "before 6pm on monday"
+     ],
+     "automerge": true,
+-    "platformAutomerge": false
++    "platformAutomerge": false,
++    "prCreation": "immediate"
+   },
+   "osvVulnerabilityAlerts": true,
+   "vulnerabilityAlerts": {
+-- 
+2.43.0
+
