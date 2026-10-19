@@ -39,7 +39,18 @@ describe("storeHeaderImage + the read layer", () => {
       generatedAt: null,
     });
     await mirrorSiteInsert(db, site("recA", "Acme"), NOW.toISOString());
-    expect((await getSiteBySlug(db, "acme"))?.headerImage).not.toBeNull();
+    expect((await getSiteBySlug(db, "acme"))?.headerImage).toEqual({
+      url: "",
+      filename: "acme.jpg",
+      type: "image/jpeg",
+    });
+    // The metadata surviving is not the image surviving: the bytes must too.
+    expect(await loadHeaderImage(db, "recA")).toEqual({
+      bytes: PNG,
+      filename: "acme.jpg",
+      contentType: "image/jpeg",
+      generatedAt: null,
+    });
   });
 });
 

@@ -308,29 +308,32 @@ describe("same-domain spoof suppression", () => {
 
   it("still autoresponds to genuine outside leads", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "lead@gmail.com" }))).not.toBeNull();
+    expect(buildAutoresponder(site, makeSubmissionRow({ email: "lead@gmail.com" }))).toMatchObject({
+      to: ["lead@gmail.com"],
+      subject: "We got your message",
+    });
   });
 
   it("does not match a lookalike domain that merely ends with the site host", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
     expect(
       buildAutoresponder(site, makeSubmissionRow({ email: "x@notacme.example.com.evil.net" })),
-    ).not.toBeNull();
+    ).toMatchObject({ to: ["x@notacme.example.com.evil.net"], subject: "We got your message" });
     const apex = makeWebsiteRow({ url: "https://solutionsoftx.com" });
     expect(
       buildAutoresponder(apex, makeSubmissionRow({ email: "x@medicalsolutionsoftx.com" })),
-    ).not.toBeNull();
+    ).toMatchObject({ to: ["x@medicalsolutionsoftx.com"], subject: "We got your message" });
   });
 
   it("fails open when the site url is empty or unparseable", () => {
     const empty = makeWebsiteRow({ url: "" });
     expect(
       buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" })),
-    ).not.toBeNull();
+    ).toMatchObject({ to: ["info@acme.example.com"], subject: "We got your message" });
     const junk = makeWebsiteRow({ url: "not a url" });
     expect(
       buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" })),
-    ).not.toBeNull();
+    ).toMatchObject({ to: ["info@acme.example.com"], subject: "We got your message" });
   });
 });
 
