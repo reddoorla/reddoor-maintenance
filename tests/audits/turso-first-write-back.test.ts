@@ -6,6 +6,7 @@ import {
 } from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
+import { recordingMirror } from "../_helpers/recording-mirror.js";
 
 const ROWS = [
   { id: "recA", fields: { Name: "Acme Co", Status: "maintained" } },
@@ -35,18 +36,9 @@ async function roster() {
   return websiteRowsFrom(ROWS);
 }
 
-function recordingMirror() {
-  const seen: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
-  const mirror = async (siteId: string, fields: Record<string, unknown>) => {
-    seen.push({ siteId, fields });
-    return true;
-  };
-  return { mirror, seen };
-}
-
 describe("fleet audit write-back writes Turso", () => {
   it("mirrors each site in roster order (known-good control)", async () => {
-    const { mirror, seen } = recordingMirror();
+    const { mirror, calls: seen } = recordingMirror();
     const out = await writeFleetAudits({
       websites: await roster(),
       results: [lighthouse("acme-co", SCORES), lighthouse("beta-corp", SCORES)],
@@ -60,7 +52,7 @@ describe("fleet audit write-back writes Turso", () => {
   });
 
   it("mirrors a Lighthouse-miss site's other audits, then files it as failed", async () => {
-    const { mirror, seen } = recordingMirror();
+    const { mirror, calls: seen } = recordingMirror();
     const out = await writeFleetAudits({
       websites: await roster(),
       results: [lighthouse("beta-corp", {}), a11y("beta-corp")],

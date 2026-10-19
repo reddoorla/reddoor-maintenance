@@ -3,20 +3,7 @@ import { writeBackOneSite } from "../../src/audits/write-audits.js";
 import type { AuditResult } from "../../src/types.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-
-type MirrorCall = { id: string; fields: Record<string, unknown> };
-
-function recordingMirror(): {
-  mirrorHealth: (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
-  calls: MirrorCall[];
-} {
-  const calls: MirrorCall[] = [];
-  const mirrorHealth = async (siteId: string, fields: Record<string, unknown>) => {
-    calls.push({ id: siteId, fields });
-    return true;
-  };
-  return { mirrorHealth, calls };
-}
+import { recordingMirror } from "../_helpers/recording-mirror.js";
 
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
@@ -116,7 +103,7 @@ const domResult = (certDaysRemaining: number | null): AuditResult =>
 
 describe("writeBackOneSite", () => {
   it("writes lighthouse scores when a real-scores lighthouse result is present", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const summary = await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -138,7 +125,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("writes a11y / deps / security counts alongside lighthouse when all four ran", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const summary = await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -180,7 +167,7 @@ describe("writeBackOneSite", () => {
         url: null,
       })),
     ];
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -203,7 +190,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("writes an empty advisory list ('[]') on a clean security run so a stale list clears", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -214,7 +201,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -235,7 +222,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("CLEARS Cert days remaining (writes null) when the domain probe found no cert / didn't resolve", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -254,7 +241,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("merges the browser verdicts into the single atomic write", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const browserResult: AuditResult = {
       audit: "browser",
       site: "acme",
@@ -293,7 +280,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -309,7 +296,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -324,7 +311,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("omits Deps Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -339,7 +326,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("skips audit types whose result is missing or skipped (predicate false)", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const summary = await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -373,7 +360,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("throws exit-code-1 with hasRealScores message when lighthouse has no scores", async () => {
-    const { mirrorHealth } = recordingMirror();
+    const { mirror: mirrorHealth } = recordingMirror();
     await expect(
       writeBackOneSite({
         mirrorHealth,
@@ -399,7 +386,7 @@ describe("writeBackOneSite", () => {
   // a11y/deps/security results. The non-Lighthouse audits must be persisted
   // first; the function still throws exit-code-1 so the site is flagged.
   it("persists a11y/deps/security even when lighthouse has no scores, then still throws exit-code-1", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await expect(
       writeBackOneSite({
         mirrorHealth,
@@ -443,7 +430,7 @@ describe("writeBackOneSite", () => {
   it("writes present audits when lighthouse is absent (standalone non-lighthouse sweep), no throw", async () => {
     // A `--only security` sweep legitimately has no lighthouse result. It must still persist the
     // audits it ran (no exitCode-2), so a security-only nightly can write back.
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const summary = await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -459,7 +446,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("throws exit-code-2 when no Websites row matches the slug", async () => {
-    const { mirrorHealth } = recordingMirror();
+    const { mirror: mirrorHealth } = recordingMirror();
     await expect(
       writeBackOneSite({
         mirrorHealth,
@@ -474,7 +461,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("merges the function-health verdicts into the single atomic write", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const fhResult: AuditResult = {
       audit: "function-health",
       site: "acme",
@@ -502,7 +489,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("does NOT write a function-health verdict when the audit self-skipped (no details)", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const skipped: AuditResult = {
       audit: "function-health",
       site: "acme",
@@ -522,7 +509,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("writes the Smoke OK verdict + Last Smoke At from a smoke result", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     const summary = await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -538,7 +525,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("writes the Form E2E OK verdict + checked-at from a form-e2e result", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
@@ -552,7 +539,7 @@ describe("writeBackOneSite", () => {
   });
 
   it("clears Form E2E OK (n/a) but stamps checked-at when there is no contact form", async () => {
-    const { mirrorHealth, calls } = recordingMirror();
+    const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({
       mirrorHealth,
       websites: [row()],
