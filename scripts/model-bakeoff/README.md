@@ -130,6 +130,16 @@ an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
+`figma-inventory` (row 2) reads Figma connector output that is not in this repo. The output is
+a client's design, and the repo is public. Its `--root` is a folder holding one
+`metadata-<node>.json` and one `design-context-<node>.json` per page frame. Each file is the
+connector's own response, `{ tool, input, fetchedAt, text }`, copied byte for byte out of the
+session transcript that called `get_metadata` and `get_design_context`, so no arm ever calls
+Figma. The truth parses both files and refuses a page whose top-level children differ between
+the two tools. Drop any `text` entry that Claude Code added rather than the connector, such as
+the `[OUTPUT TRUNCATED]` note it appends when a response is too long to show in full; the note
+would tell the arms that the data is incomplete when it is not.
+
 ## Scoring
 
 Each field has a kind. The kinds apply these rules before comparing:
