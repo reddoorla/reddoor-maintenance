@@ -24,7 +24,7 @@
 // would revert the repo). Only a human can tell, so the PR is never auto-merged
 // and its body names every changed model with the drift report's own lines.
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,6 +43,7 @@ import {
   type SiteSync,
   type SyncedModel,
 } from "./prismic-models.js";
+import { pathExists } from "../../util/fs.js";
 
 /** The one branch the sync ever pushes. Fixed, so a second night updates the
  *  first night's PR instead of opening another. */
@@ -341,15 +342,6 @@ function isSyncPath(path: string, libraries: string[]): boolean {
   });
 }
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function mustGit(
   deps: PrismicSyncDeps,
   args: readonly string[],
@@ -453,7 +445,7 @@ async function fetchOneSite(
     models.push({ path: m.path, raw: await readFile(join(root, m.path), "utf-8") });
   }
   const libraries = await readLibraries(root);
-  const migrated = await exists(join(root, "prismic.config.json"));
+  const migrated = await pathExists(join(root, "prismic.config.json"));
   const generated = migrated ? generatedPaths(libraries) : [];
   const id = `s${index}`;
   const siteDir = join(opts.outDir, "sites", id);

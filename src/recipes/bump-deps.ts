@@ -1,8 +1,8 @@
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 import { withRecipe } from "./_with-recipe.js";
+import { pathExists } from "../util/fs.js";
 
 export type BumpDepsGroup = "patch" | "minor" | "major";
 
@@ -10,15 +10,6 @@ export type BumpDepsOptions = {
   group?: BumpDepsGroup;
   spawn?: SpawnFn;
 };
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function outdatedFlagsForGroup(group: BumpDepsGroup): string[] {
   if (group === "major") return ["--latest"];
@@ -48,10 +39,10 @@ export async function bumpDeps(site: Site, opts: BumpDepsOptions = {}): Promise<
       // Pre-flight: the recipe is pnpm-only. A package-lock.json or yarn.lock
       // without pnpm-lock.yaml means the site is still on a different package
       // manager; we refuse to run rather than emit confusing pnpm errors.
-      const hasPnpmLock = await exists(join(site.path, "pnpm-lock.yaml"));
+      const hasPnpmLock = await pathExists(join(site.path, "pnpm-lock.yaml"));
       if (!hasPnpmLock) {
-        const hasNpmLock = await exists(join(site.path, "package-lock.json"));
-        const hasYarnLock = await exists(join(site.path, "yarn.lock"));
+        const hasNpmLock = await pathExists(join(site.path, "package-lock.json"));
+        const hasYarnLock = await pathExists(join(site.path, "yarn.lock"));
         if (hasNpmLock || hasYarnLock) {
           const competing = hasNpmLock ? "package-lock.json" : "yarn.lock";
           return {
