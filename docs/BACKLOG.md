@@ -4725,6 +4725,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       rows are still `building`. Left for the operator: (f) run
       `reddoor-maint launch williamson-construction-co` and
       `reddoor-maint launch williamson-homes`, then approve both go-live emails.
+      **2026-10-19 ~13:15Z (cloud close-out session) [M]:**
+      `node scripts/williamson-cutover-verify.mjs` reads GREEN, all 64 checks
+      (Homes 28, Construction 36), the second scheduled run. `launch-check`
+      reads READY, 8/8 `ok`, on both sites again. The operator said yes to
+      `launch` on both (AskUserQuestion). `launch williamson-construction-co`
+      then STOPPED at `self-updating`: "could not read branch protection on
+      main, so it was not written: … Resource not accessible by integration
+      (HTTP 403)". It wrote nothing. Renovate's config was not drifted, and
+      `allow_auto_merge` was already false. Neither repo's `main` is protected
+      (`protected=false`), and adding that protection is the bootstrap's job.
+      The Claude GitHub App cannot read or write branch protection from a
+      cloud session. _Ask:_ (f) runs from the operator's laptop
+      (`reddoor-maint launch <site>` in each checkout, under the operator's `gh`
+      login). _Pick:_ yes; the bootstrap's protection is the point of the
+      step, and no flag skips it. Both rows stay `building` until then.
 
 124.  **reddoorla/medical-solutions-of-texas#81, MSOT `/privacy` and footer
       link: merge to production (P1-51, reddoorla/reddoor-maintenance#1376;
