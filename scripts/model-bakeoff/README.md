@@ -112,21 +112,33 @@ with their options, skipping a value only after the options that take one (`xarg
 
 - `gh`;
 - `git` with a subcommand that writes, after any global options: `push`, `pull`, `commit`, `rm`,
-  `add`, `merge`, `rebase`, `reset`, `init` and the like, but not the read forms `tag -l`,
-  `stash list`, `apply --stat`, `config --get`, `worktree list`, `branch -a` or `--help`;
+  `add`, `merge`, `rebase`, `reset`, `init`, `remote add`, `notes add`, `submodule update`,
+  `config --unset` and the like, but not the read forms `tag -l`, `tag --merged`, `tag -n5`,
+  `tag -v`, `stash list`, `apply --stat`, `config --get`, `config -f <file> <key>`,
+  `config get`, `worktree list`, `branch -a`, `branch --merged`, `remote -v`, `notes list`,
+  `submodule status`, a dry run (`clean -n`, `rm --dry-run`, `add -n`) or `--help`;
 - `curl` with a write method (`-X POST` in any case, inside a cluster such as `-sX PUT`, or
   `--request`), `--form`, `--json`, `--upload-file`, `-F` or `-T`, whatever else is set; or with
   `--data` or `-d` unless `-G`/`--get` (alone or in a cluster such as `-sG`) makes that a GET.
+  A method it cannot read, such as `-X $M`, counts as a write;
+- `wget` with `--post-data`, `--post-file`, `--body-data`, `--body-file`, or a write method in
+  `--method` (again, `$M` counts as one).
 
 It repeats the check on every `$(…)` and backtick body, inside double quotes too; on the body of
 `sh -c`, `bash -c` (options such as `-euo pipefail` allowed before `-c`) or `eval` when that is the
-command; and on a heredoc body fed to a shell (`sh <<EOF`, `cat <<EOF | bash`). So
-`grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a heredoc written to a file that
-mentions `gh api` pass, and so do lookups such as `which gh` and `command -v gh`, which run
-nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run
-inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a resolved path such as
-`$(which gh) api`, text piped into a shell's stdin (`echo 'git push' | sh`), substitutions inside
-an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
+command; on each `find -exec`, `-execdir`, `-ok` or `-okdir` command; on a heredoc body fed to a
+shell (`sh <<EOF`, `cat <<EOF | bash`); on the `$(…)` and backtick bodies inside an unquoted
+heredoc body, which the shell expands whatever the heredoc feeds (`cat <<EOF` with `$(gh api x)`
+in it fails, `cat <<'EOF'` does not); on a here-string fed to a shell (`sh <<< 'git push'`); and
+on what `echo` or `printf` pipes into a shell reading its stdin (`echo 'git push' | sh`). A
+`$(which gh)` or `$(command -v gh)` is read as the name it resolves. So
+`grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a quoted heredoc written to a
+file that mentions `gh api` pass, and so do lookups such as `which gh` and `command -v gh`, which
+run nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run
+inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a shell reading stdin
+from anything but `echo` or `printf` (`cat f | sh`, `sh < f`, `curl u | sh`), a resolved path
+other than `which` or `command -v` (`$(type -P gh)`, a variable holding `gh`), and a subcommand
+named through a variable (`git $op`). It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 

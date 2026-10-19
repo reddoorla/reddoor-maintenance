@@ -285,11 +285,120 @@ describe("verifyRan", () => {
   });
 });
 
+describe("forbiddenCommand on #1419's remaining forms", () => {
+  it.each([
+    "git remote add up https://x",
+    "git remote set-url origin https://x",
+    "git remote remove up",
+    "git config --unset x.y",
+    "git config --unset-all x.y",
+    "git config --add x.y z",
+    "git config --remove-section x",
+    "git config set user.name x",
+    "git config -f .gitmodules submodule.foo.path x",
+    "git notes add -m x",
+    "git notes --ref r add -m x",
+    "git submodule update --init",
+    "git submodule foreach 'git pull'",
+    "git branch --no-color newb",
+    "git branch --track newb origin/x",
+    "git tag -a v1 -m x",
+    "git tag -d v1",
+    "git clean -fd",
+    "git rm -r a",
+    "echo 'git push' | sh",
+    'printf "gh api x\\n" | bash -s',
+    "echo gh api x |& sh",
+    "sh <<< 'git push'",
+    "cat <<EOF\n$(gh api x)\nEOF",
+    "cat > /w/n.txt <<EOF\nnote: `git push`\nEOF",
+    "cat <<EOF\nit's $(gh api x)\nEOF",
+    "find . -exec gh api {} \\;",
+    "find . -name x -execdir git push \\;",
+    "find . -ok gh x ';'",
+    "find . -exec sh -c 'gh api $1' _ {} +",
+    "curl -X $M url",
+    'curl -X "$method" url',
+    "curl -sX$M url",
+    "wget --post-data=x u",
+    "wget --post-data x u",
+    "wget -q --post-file=f u",
+    "wget --method=POST u",
+    "wget --method PUT u",
+    "wget --method=$M u",
+    "$(which gh) api x",
+    '"$(command -v gh)" api x',
+    "`which git` push",
+  ])("flags %s", (cmd) => {
+    expect(forbiddenCommand(cmd)).toBe(true);
+  });
+
+  it.each([
+    "git tag --merged HEAD",
+    "git tag --no-merged main",
+    "git tag --no-contains abc",
+    "git tag -n5 'v1.*'",
+    "git tag -n 'v1.*'",
+    "git tag -v v1.0",
+    "git tag --verify v1.0",
+    "git config -f .gitmodules submodule.foo.path",
+    "git config --file .gitmodules submodule.foo.path",
+    "git config --file=.gitmodules submodule.foo.path",
+    "git config get user.name",
+    "git config list",
+    "git clean -n",
+    "git clean -nd",
+    "git clean -dn",
+    "git clean --dry-run -x",
+    "git rm --dry-run a",
+    "git rm -rn a",
+    "git add -n .",
+    "git add --dry-run .",
+    "git remote",
+    "git remote -v",
+    "git remote show origin",
+    "git remote get-url origin",
+    "git notes",
+    "git notes list",
+    "git notes --ref r show HEAD",
+    "git submodule",
+    "git submodule status",
+    "git submodule summary",
+    "git branch --list 'feat*'",
+    "git branch --merged main",
+    "git branch --contains abc",
+    "git branch -r",
+    "git branch -vv",
+    "git branch --show-current",
+    "echo 'git log' | sh",
+    "echo hello | cat",
+    "echo 'gh api' | grep gh",
+    "echo 'gh api' || sh",
+    "cat <<EOF\n$(date)\nEOF",
+    "cat <<'EOF'\n$(gh api x)\nEOF",
+    'cat <<"EOF"\n$(gh api x)\nEOF',
+    "cat <<\\EOF\n$(gh api x)\nEOF",
+    "find . -exec grep -l gh {} \\;",
+    "find . -name '*.md' -execdir wc -l {} +",
+    "find . -name gh -print",
+    "curl -X GET url",
+    "wget -q -O - https://example.com",
+    "$(which node) -v",
+    "which gh",
+  ])("lets the read %s through", (cmd) => {
+    expect(forbiddenCommand(cmd)).toBe(false);
+  });
+});
+
 describe("forbiddenCommand on pathological input", () => {
   it("stays linear on the shapes CodeQL flagged", () => {
     const started = performance.now();
     expect(forbiddenCommand("sh " + "-o -- ".repeat(20000))).toBe(false);
     expect(forbiddenCommand("sh -" + "-- -".repeat(20000))).toBe(false);
+    expect(forbiddenCommand("$(which " + " ".repeat(40000) + "x")).toBe(false);
+    expect(forbiddenCommand("find . " + "-exec ".repeat(20000))).toBe(false);
+    expect(forbiddenCommand("echo x |".repeat(20000) + " sh")).toBe(false);
+    expect(forbiddenCommand("cat <<EOF\n" + "$(".repeat(20000) + "\nEOF")).toBe(false);
     expect(performance.now() - started).toBeLessThan(2000);
   });
 });
