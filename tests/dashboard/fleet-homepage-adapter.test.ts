@@ -6,16 +6,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 // fleet-render / fleet-cockpit unit tests.
 
 import fleetHomepage from "../../netlify/functions/fleet-homepage.mjs";
+import { authHeader } from "../_helpers/basic-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
 function get(headers: Record<string, string> = {}): Request {
   return new Request("https://dash.reddoor.test/", { method: "GET", headers });
-}
-
-/** A valid Basic header for the given password (username is ignored by the gate). */
-function authHeader(password: string): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`x:${password}`).toString("base64")}` };
 }
 
 describe("fleet-homepage adapter — env + auth gating", () => {

@@ -23,6 +23,7 @@ import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images
 import unapproveReportHandler from "../../../netlify/functions/unapprove-report.mjs";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
+import { captureClient } from "../../_helpers/resend-client.js";
 
 // The real header pipeline needs sharp and a real JPEG; the plate's PROVENANCE is
 // what this file is about, so the processing step is stubbed exactly as the rest
@@ -48,19 +49,6 @@ const PLATE = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 const ORIGINAL_ENV = { ...process.env };
 let dir: string;
 let db: Db;
-
-function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
-  const captured: ResendSendInput[] = [];
-  return {
-    captured,
-    client: {
-      async send(input) {
-        captured.push(input);
-        return { messageId: "msg_turso_1" };
-      },
-    },
-  };
-}
 
 beforeEach(async () => {
   // The send fetches nothing: the plate comes from the database.
@@ -182,7 +170,7 @@ const state = () =>
 describe("unapprove vs the send batch (Operator decisions 100)", () => {
   it("control: an unapprove before the queue read means nothing is sent", async () => {
     expect((await unapprove()).status).toBe(200);
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
     expect(captured).toHaveLength(0);
@@ -216,7 +204,7 @@ describe("unapprove vs the send batch (Operator decisions 100)", () => {
   it("an unapprove after the queue read but before the claim wins: no email, the report is skipped", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     let during: { status: number; body: unknown } | null = null;
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({
       ...io(),
       resend: client,
@@ -245,7 +233,7 @@ describe("unapprove vs the send batch (Operator decisions 100)", () => {
       .set({ approved_at: "2026-10-08T15:11:12.000Z" })
       .where("id", "=", REPORT)
       .execute();
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({
       ...io(),
       resend: client,
@@ -270,7 +258,7 @@ describe("unapprove vs the send batch (Operator decisions 100)", () => {
     expect(r.approved_to_send).toBe(1);
     expect(r.send_started_at).toBeNull();
 
-    const next = captureClient();
+    const next = captureClient("msg_turso_1");
     expect((await sendApprovedReports({ ...io(), resend: next.client })).code).toBe(0);
     expect(next.captured).toHaveLength(1);
     expect(next.captured[0]!.html).toContain("37");
@@ -328,7 +316,7 @@ describe("unapprove vs the send batch (Operator decisions 100)", () => {
       .where("id", "=", REPORT)
       .execute();
     expect((await unapprove()).status).toBe(409);
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);

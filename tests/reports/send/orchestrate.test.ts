@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
 import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../../_helpers/raw-rows.js";
+import { captureClient } from "../../_helpers/resend-client.js";
 
 function siteRow(over: Record<string, unknown> = {}): RawRow {
   return {
@@ -74,17 +75,6 @@ function reportRow(over: Record<string, unknown> = {}): RawRow {
       ...over,
     },
   };
-}
-
-function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
-  const captured: ResendSendInput[] = [];
-  const client: ResendClient = {
-    async send(input) {
-      captured.push(input);
-      return { messageId: `msg_${captured.length}` };
-    },
-  };
-  return { client, captured };
 }
 
 /**
