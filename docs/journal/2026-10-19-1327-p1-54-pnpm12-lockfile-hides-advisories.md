@@ -1,4 +1,4 @@
-## 2026-10-19 — Dependabot could not read a pnpm 12 lockfile, so 20 repos audited clean (P1-54)
+## 2026-10-19 — Dependabot could not read a pnpm 12 lockfile, so 20 repos audited clean (P1-54, #1412)
 
 The brief asked why a held, green `sharp` security PR never reaches the
 cockpit. It guessed the held-PR path in `markWaiting` (`src/alerts/waiting.ts`)
