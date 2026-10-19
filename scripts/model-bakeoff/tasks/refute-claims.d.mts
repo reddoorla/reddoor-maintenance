@@ -32,6 +32,7 @@ export interface Tally {
   wrong: string[];
   unconfirmed: string[];
   behavior: string | null;
+  behaviorRaw: string | null;
   noVerdict: string[];
   downgraded: string[];
 }

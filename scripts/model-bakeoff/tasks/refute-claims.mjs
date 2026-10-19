@@ -194,8 +194,12 @@ export function truth(dir) {
 // - unconfirmed: the 9 true documentary claims the arm did not confirm, refuted or not.
 //
 // A run passes on the PASS control's own lines (the workflow header and the key's
-// passExpectation): every false claim caught, c03 "untested", and fewer than 2 of the 9 true
-// documentary claims left unconfirmed. Counting "unclear" there, not only "refuted", is what
+// passExpectation): every false claim caught, c03 "untested" as the arm wrote it, and fewer
+// than 2 of the 9 true
+// documentary claims left unconfirmed. c03 is judged on the raw verdict because this task's
+// one schema offers every claim all four verdicts, where production's per-kind schema offers a
+// behaviour claim only "refuted" and "untested"; the quote rule would otherwise turn an arm's
+// confirmation of c03, the error the control exists to catch, back into a pass. Counting "unclear" there, not only "refuted", is what
 // fails an arm that never confirms anything, and an unquoted confirmation the quote rule
 // downgrades. An arm qualifies only if every run of it passes; the gold is held to the same
 // lines. The pre-run version (b7c5b538) counted only refutations, over 10 claims with c03
@@ -217,6 +221,7 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
     wrong: [],
     unconfirmed: [],
     behavior: null,
+    behaviorRaw: null,
     noVerdict: [],
     downgraded: [],
   };
@@ -227,7 +232,10 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
     const effective = v ? enforceQuoteRule(v, c, dir) : null;
     if (effective && effective.downgraded) t.downgraded.push(c.id);
     const verdict = effective ? effective.verdict : null;
-    if (c.kind === "behavior") t.behavior = verdict;
+    if (c.kind === "behavior") {
+      t.behavior = verdict;
+      t.behaviorRaw = v ? v.verdict : null;
+    }
     if (label === "refuted") {
       t.falseClaims++;
       if (verdict === "refuted") t.catches++;
@@ -247,7 +255,12 @@ export function tally(output, dir, key = readJson(join(REPO, KEY_FILE))) {
 export const SHIP_LINE = 2;
 
 export function passes(t) {
-  return t.missed.length === 0 && t.behavior === "untested" && t.unconfirmed.length < SHIP_LINE;
+  return (
+    t.missed.length === 0 &&
+    t.behavior === "untested" &&
+    t.behaviorRaw === "untested" &&
+    t.unconfirmed.length < SHIP_LINE
+  );
 }
 
 export const arms = [

@@ -135,6 +135,7 @@ describe("refute-claims task: the scorer, proved before any arm runs", () => {
       wrong: [],
       unconfirmed: [],
       behavior: "untested",
+      behaviorRaw: "untested",
       noVerdict: [],
       downgraded: [],
     });
@@ -196,6 +197,24 @@ describe("refute-claims task: the scorer, proved before any arm runs", () => {
     expect(t.unconfirmed).toEqual(["c02"]);
     expect(t.behavior).toBe("untested");
     expect(t.wrongRefutations).toBe(0);
+  });
+
+  it("fails an arm that confirms or shrugs at c03, though the quote rule rewrites it", () => {
+    for (const raw of ["confirmed", "unclear"]) {
+      const t = task.tally(withVerdicts({ c03: raw }), DIR, key);
+      expect(t.behavior, raw).toBe("untested");
+      expect(t.behaviorRaw, raw).toBe(raw);
+      expect(t.downgraded, raw).toEqual(["c03"]);
+      expect(task.passes(t), raw).toBe(false);
+    }
+  });
+
+  it("scores the first verdict an arm gives a claim, as the harness does", () => {
+    const out = perfect();
+    out.verdicts.push({ id: "c17", verdict: "confirmed", quote: "x", quoteSource: "y" });
+    expect(task.tally(out, DIR, key).catches).toBe(7);
+    out.verdicts.unshift({ id: "c17", verdict: "confirmed", quote: "x", quoteSource: "y" });
+    expect(task.tally(out, DIR, key).missed).toEqual(["c17"]);
   });
 
   it("resolves quote sources against the run's own input folder", () => {
