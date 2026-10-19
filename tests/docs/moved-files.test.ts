@@ -40,7 +40,7 @@ const FROZEN_FILES = [
 const FROZEN_DIRS = ["docs/morning-reports", "docs/briefs"];
 
 const FROZEN: Record<string, string> = {
-  "docs/BACKLOG.md": "c543c00f797d50bbb1f9204a31370ee1708cffd704fe638753455d79292d24f5",
+  "docs/BACKLOG.md": "d7a399ad21d338500225bceac645dc106f6c43bacb85b97028c4e34e209f9993",
   "docs/autonomy-journal.md": "959cd16a47ac499ae8cc780ecd576cc6416b47bf62216daf507e3bb413e00c5c",
   "docs/briefs/2026-10-01-williamson-video-hd.md":
     "bd7e99126afeab505d268066a5daa074e4bf724f03a074d52ddb67a293bcdd1f",
