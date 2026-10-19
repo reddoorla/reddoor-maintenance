@@ -130,8 +130,9 @@ command; on each `find -exec`, `-execdir`, `-ok` or `-okdir` command; on a hered
 shell (`sh <<EOF`, `cat <<EOF | bash`); on the `$(…)` and backtick bodies inside an unquoted
 heredoc body, which the shell expands whatever the heredoc feeds (`cat <<EOF` with `$(gh api x)`
 in it fails, `cat <<'EOF'` does not); on a here-string fed to a shell (`sh <<< 'git push'`); and
-on what `echo` or `printf` pipes into a shell reading its stdin (`echo 'git push' | sh`). A
-`$(which gh)` or `$(command -v gh)` is read as the name it resolves. So
+on what `echo` or `printf` pipes into a shell reading its stdin (`echo 'git push' | sh`, or any
+`echo` in a `( … )` or `{ …; }` group piped into one). A `$(which gh)` or `$(command -v gh)` is
+read as the name it resolves. So
 `grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a quoted heredoc written to a
 file that mentions `gh api` pass, and so do lookups such as `which gh` and `command -v gh`, which
 run nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run

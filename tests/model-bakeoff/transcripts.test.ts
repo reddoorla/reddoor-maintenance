@@ -340,6 +340,17 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     'sh <<<"gh api x"',
     "(echo 'git push') | sh",
     "{ echo 'git push'; } | sh",
+    "git submodule foreach git config --unset user.name",
+    "git submodule foreach --recursive git config --unset-all a.b",
+    "( echo gh api x; ) | sh",
+    "{ { echo gh api x; }; } | sh",
+    "{ echo gh api x; echo hi; } | sh",
+    "(echo gh api x; echo hi) | sh",
+    "echo gh api x 2>&1 | sh",
+    "<<<'gh api x' bash",
+    "if true; then { gh api x; }; fi",
+    "f() { gh api x; }",
+    "true&&{ gh api x;}",
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -403,6 +414,18 @@ describe("forbiddenCommand on #1419's remaining forms", () => {
     "git tag --sort=-creatordate",
     "echo ${HOME}",
     "(echo 'git log') | sh",
+    "git branch --sort committerdate",
+    "git branch --format '%(refname:short)'",
+    "git tag --sort version:refname",
+    "git tag --format '%(refname)'",
+    "git submodule foreach git tag -l v1",
+    "git submodule foreach git branch --list 'feat*'",
+    "echo } gh api",
+    "echo { gh api x }",
+    "echo 'gh api x'; (echo hi) | sh",
+    "echo x 2>&1 | grep gh",
+    ") | sh",
+    "} | bash",
   ])("lets the read %s through", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(false);
   });
@@ -417,6 +440,9 @@ describe("forbiddenCommand on pathological input", () => {
     expect(forbiddenCommand("find . " + "-exec ".repeat(20000))).toBe(false);
     expect(forbiddenCommand("echo x |".repeat(20000) + " sh")).toBe(false);
     expect(forbiddenCommand("cat <<EOF\n" + "$(".repeat(20000) + "\nEOF")).toBe(false);
+    expect(forbiddenCommand(") | sh ".repeat(20000))).toBe(false);
+    expect(forbiddenCommand("(".repeat(20000) + "echo x" + ") | sh".repeat(20000))).toBe(false);
+    expect(forbiddenCommand("echo x; ".repeat(20000) + "echo gh api | sh")).toBe(true);
     expect(performance.now() - started).toBeLessThan(2000);
   });
 });

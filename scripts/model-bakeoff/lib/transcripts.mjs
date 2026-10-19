@@ -17,7 +17,7 @@ export const ALLOWED_TOOLS = Object.freeze([
 
 const HEREDOC = /<<-?[ \t]*\\?(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n[ \t]*\2(?=\n|$)/g;
 const SHELLS = new Set(["sh", "bash", "zsh", "dash"]);
-const KEYWORDS = new Set(["do", "then", "else", "elif", "if", "while", "until", "!", "time"]);
+const KEYWORDS = new Set(["do", "then", "else", "elif", "if", "while", "until", "!", "time", "{"]);
 const WRAPPERS = new Set(["sudo", "nohup", "stdbuf", "nice", "timeout", "xargs", "env"]);
 const WRAPPER_VALUE_OPTIONS = {
   sudo: ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"],
@@ -153,12 +153,12 @@ export function lex(text) {
   const endSegment = (sep = "$(") => {
     endToken();
     if (tokens.length) {
-      Object.defineProperty(tokens, "piped", { value: /^(\)|[;&]?})?\|&?$/.test(between) });
+      Object.defineProperty(tokens, "before", { value: between });
       segs.push(tokens);
       between = "";
     }
     tokens = [];
-    if (segs.length) between += sep;
+    between += sep;
   };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -186,10 +186,9 @@ export function lex(text) {
     } else if (ch === "$" && text[i + 1] === "(") {
       endSegment();
       i++;
-    } else if (
-      (ch === "{" || ch === "}") &&
-      (cur !== null || (ch === "{" && /\S/.test(text[i + 1] ?? " ")))
-    ) {
+    } else if (ch === "{" || (ch === "}" && (cur !== null || tokens.length > 0))) {
+      cur = (cur ?? "") + ch;
+    } else if (ch === "&" && (cur === null ? text[i + 1] === ">" : /[<>]$/.test(cur))) {
       cur = (cur ?? "") + ch;
     } else if (SEPARATORS.has(ch)) {
       endSegment(ch === "\n" ? "" : ch);
@@ -268,7 +267,7 @@ function gitWrites(args, depth) {
   }
   if (sub === "tag")
     return (
-      rest.some((a) => !a.startsWith("-")) &&
+      firstWord(["--sort", "--format"]) !== undefined &&
       !has(
         "-l",
         "--list",
@@ -315,7 +314,7 @@ function gitWrites(args, depth) {
         "--points-at",
         "--show-current",
       ) &&
-        rest.some((a) => !a.startsWith("-")))
+        firstWord(["--sort", "--format"]) !== undefined)
     );
   if (sub === "config") {
     if (
@@ -368,14 +367,11 @@ function gitWrites(args, depth) {
   }
   if (sub === "submodule") {
     const op = firstWord();
-    if (op === "foreach")
-      return forbiddenCommand(
-        rest
-          .slice(rest.indexOf(op) + 1)
-          .filter((a) => !a.startsWith("-"))
-          .join(" "),
-        depth + 1,
-      );
+    if (op === "foreach") {
+      const body = rest.slice(rest.indexOf(op) + 1);
+      while (body.length && body[0].startsWith("-")) body.shift();
+      return forbiddenCommand(body.join(" "), depth + 1);
+    }
     return op !== undefined && !["status", "summary"].includes(op);
   }
   return true;
@@ -477,7 +473,14 @@ function shellBody(args) {
   return null;
 }
 
-function segmentForbidden(tokens, previous, depth) {
+function echoed(tokens, depth) {
+  const c = commandOf(tokens);
+  if (!c || !["echo", "printf"].includes(c.name)) return false;
+  const text = c.args.filter((a) => !/^-[neE]+$/.test(a) && !isRedirect(a)).join(" ");
+  return forbiddenCommand(text.replace(/\\n/g, "\n"), depth + 1);
+}
+
+function segmentForbidden(tokens, fedForbidden, depth) {
   const c = commandOf(tokens);
   if (!c) return false;
   if (c.name === "gh") return true;
@@ -486,21 +489,15 @@ function segmentForbidden(tokens, previous, depth) {
   if (c.name === "wget" && wgetWrites(c.args)) return true;
   if (c.name === "eval" && forbiddenCommand(c.args.join(" "), depth + 1)) return true;
   if (c.name === "find" && depth < 4) {
-    if (findExecs(c.args).some((g) => segmentForbidden(g, null, depth + 1))) return true;
+    if (findExecs(c.args).some((g) => segmentForbidden(g, false, depth + 1))) return true;
   }
   if (SHELLS.has(c.name)) {
     const body = shellBody(c.args);
     if (body && forbiddenCommand(body, depth + 1)) return true;
-    const k = c.args.findIndex((a) => a.startsWith("<<<"));
-    const fed = k === -1 ? null : c.args[k].slice(3) || c.args[k + 1] || "";
+    const k = tokens.findIndex((a) => a.startsWith("<<<"));
+    const fed = k === -1 ? null : tokens[k].slice(3) || tokens[k + 1] || "";
     if (fed && forbiddenCommand(fed, depth + 1)) return true;
-    if (!body && tokens.piped && previous && readsStdin(c.args)) {
-      const feeder = commandOf(previous);
-      if (feeder && ["echo", "printf"].includes(feeder.name)) {
-        const fed = feeder.args.filter((a) => !/^-[neE]+$/.test(a)).join(" ");
-        if (forbiddenCommand(fed.replace(/\\n/g, "\n"), depth + 1)) return true;
-      }
-    }
+    if (!body && fedForbidden && readsStdin(c.args)) return true;
   }
   return false;
 }
@@ -508,10 +505,23 @@ function segmentForbidden(tokens, previous, depth) {
 export function forbiddenCommand(command, depth = 0) {
   if (depth > 4) return false;
   const { text, bodies } = heredocs(command.replace(RESOLVED, (_m, a, b) => a ?? b));
-  let previous = null;
-  for (const tokens of lex(text)) {
-    if (segmentForbidden(tokens, previous, depth)) return true;
-    previous = tokens;
+  const segs = lex(text);
+  const groups = [];
+  let lastEchoed = -1;
+  for (let i = 0; i < segs.length; i++) {
+    const tokens = segs[i];
+    let start = i - 1;
+    for (const ch of tokens.before) {
+      if (ch === "(") groups.push(i);
+      else if ((ch === ")" || ch === "}") && groups.length) start = groups.pop();
+    }
+    for (let k = 0; k < tokens.length && KEYWORDS.has(tokens[k]); k++) {
+      if (tokens[k] === "{") groups.push(i);
+    }
+    const piped = /^[;&)}]*\|&?$/.test(tokens.before);
+    if (segmentForbidden(tokens, piped && lastEchoed !== -1 && lastEchoed >= start, depth))
+      return true;
+    if (echoed(tokens, depth)) lastEchoed = i;
   }
   for (const body of substitutions(text)) {
     if (forbiddenCommand(body, depth + 1)) return true;
