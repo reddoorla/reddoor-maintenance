@@ -43,6 +43,9 @@ export function usageRecords(lines: Iterable<string>): {
   records: UsageRecord[];
   diag: { usageLines: number; repeats: number; parseErrors: number; noId: number };
 };
+export function mergeRecords<T extends { id: string }>(
+  lists: T[][],
+): { records: T[]; crossFileRepeats: number };
 export function priceRequest(model: string, u: Usage): { cost: number | null; longPrompt: boolean };
 export function summarise(records: UsageRecord[]): { rows: Row[]; total: Row };
 export function formatTable(summary: { rows: Row[]; total: Row }): string;

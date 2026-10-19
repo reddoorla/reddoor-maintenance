@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   PRICES,
+  mergeRecords,
   priceRequest,
   splitLines,
   summarise,
@@ -132,5 +133,30 @@ describe("summarise", () => {
     const s = summarise(records);
     expect(s.total.cost).toBeCloseTo(5, 10);
     expect(s.total.ttlUnknown).toBe(1);
+  });
+
+  it("prices an incomplete TTL split's remainder at the 5-minute rate and flags it", () => {
+    const { records } = usageRecords([
+      line("a", "claude-opus-5-5", {
+        cache_creation_input_tokens: 2e6,
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 1e6 },
+      }),
+    ]);
+    const s = summarise(records);
+    expect(s.total.cost).toBeCloseTo(8 + 5, 10);
+    expect(s.total.ttlUnknown).toBe(1);
+  });
+});
+
+describe("mergeRecords", () => {
+  it("counts a message.id once across files, keeping the later file's record", () => {
+    const a = usageRecords([line("m1", "claude-opus-5-5", { output_tokens: 5 })]).records;
+    const b = usageRecords([
+      line("m1", "claude-opus-5-5", { output_tokens: 9 }),
+      line("m2", "claude-opus-5-5", { output_tokens: 1 }),
+    ]).records;
+    const { records, crossFileRepeats } = mergeRecords([a, b]);
+    expect(crossFileRepeats).toBe(1);
+    expect(summarise(records).total).toMatchObject({ requests: 2, output: 10 });
   });
 });

@@ -1,5 +1,5 @@
 export const RULES = Object.freeze({
-  dashes: (s) => s.replace(/[\u2010-\u2015\u2212]/g, "-"),
+  dashes: (s) => s.replace(/[‐-―−]/g, "-"),
   whitespace: (s) => s.replace(/\s+/g, " ").trim(),
   casefold: (s) => s.toLowerCase(),
   punctuation: (s) => s.replace(/[^a-z0-9]/g, ""),
@@ -14,9 +14,11 @@ const PIPELINES = Object.freeze({
 
 export const MISSING = "<missing>";
 
+const NUMBER = /^-?\d+(\.\d+)?$/;
+
 const str = (v) => (v === null || v === undefined ? "" : String(v));
 
-export function normalise(value, kind) {
+export function normalise(value, kind, custom = {}) {
   if (kind.startsWith("set:")) {
     const inner = kind.slice(4);
     const list = Array.isArray(value)
@@ -24,13 +26,16 @@ export function normalise(value, kind) {
       : value === null || value === undefined
         ? []
         : [value];
-    return [...new Set(list.map((v) => normalise(v, inner)).filter((v) => v !== ""))]
-      .sort()
-      .join("|");
+    const members = [
+      ...new Set(list.map((v) => normalise(v, inner, custom)).filter((v) => v !== "")),
+    ];
+    return JSON.stringify(members.sort());
   }
+  if (typeof custom[kind] === "function") return String(custom[kind](value));
   if (kind === "number") {
-    const n = typeof value === "number" ? value : Number(RULES.whitespace(str(value)));
-    return Number.isFinite(n) ? String(n) : `NaN:${str(value)}`;
+    if (typeof value === "number") return Number.isFinite(value) ? String(value) : `NaN:${value}`;
+    const s = RULES.whitespace(str(value));
+    return NUMBER.test(s) ? String(Number(s)) : `NaN:${s}`;
   }
   if (kind === "boolean") {
     if (value === true || value === false) return String(value);
@@ -46,44 +51,56 @@ export function normalise(value, kind) {
   return steps.reduce((s, rule) => RULES[rule](s), str(value));
 }
 
-function indexBy(items, keyKind) {
-  const m = new Map();
-  for (const item of Array.isArray(items) ? items : []) {
-    if (item && typeof item === "object") m.set(normalise(item.key, keyKind), item);
-  }
-  return m;
-}
-
 const raw = (v) => (v === undefined ? MISSING : typeof v === "string" ? v : JSON.stringify(v));
 
 export function scoreRun(spec, reference, output) {
+  const custom = spec.kinds || {};
   const checks = [];
   for (const col of spec.collections) {
-    const keyed = (src) =>
-      (src && Array.isArray(src[col.name]) ? src[col.name] : []).map((x) => ({
-        ...x,
-        key: x ? x[col.key] : undefined,
-      }));
-    const ref = indexBy(keyed(reference), col.keyKind);
-    const out = indexBy(keyed(output), col.keyKind);
+    const items = (src) => (src && Array.isArray(src[col.name]) ? src[col.name] : []);
+    const keyOf = (x) =>
+      normalise(x && typeof x === "object" ? x[col.key] : undefined, col.keyKind, custom);
+    const ref = new Map(items(reference).map((x) => [keyOf(x), x]));
+    const out = new Map();
+    const duplicates = [];
+    const extras = [];
+    for (const x of items(output)) {
+      const k = keyOf(x);
+      if (out.has(k)) duplicates.push(raw(x && x[col.key]));
+      else out.set(k, x);
+      if (!ref.has(k)) extras.push(raw(x && x[col.key]));
+    }
     for (const [k, r] of ref) {
       const o = out.get(k);
       for (const [field, kind] of Object.entries(col.fields)) {
-        const armKey = o ? normalise(o[field], kind) : MISSING;
-        const refKey = normalise(r[field], kind);
+        const has = Boolean(o) && o[field] !== undefined;
+        const armKey = has ? normalise(o[field], kind, custom) : MISSING;
+        const refKey = normalise(r[field], kind, custom);
         checks.push({
           collection: col.name,
           key: k,
           field,
-          check: `${col.name} ${r.key} / ${field}`,
+          check: `${col.name} ${r[col.key]} / ${field}`,
           ok: armKey === refKey,
           armKey,
           refKey,
-          armRaw: o ? raw(o[field]) : MISSING,
+          armRaw: has ? raw(o[field]) : MISSING,
           refRaw: raw(r[field]),
         });
       }
     }
+    const extraKey = JSON.stringify([...new Set([...extras, ...duplicates])].sort());
+    checks.push({
+      collection: col.name,
+      key: "(set)",
+      field: "(no extra or duplicate items)",
+      check: `${col.name} / no extra or duplicate items`,
+      ok: extras.length === 0 && duplicates.length === 0,
+      armKey: extraKey,
+      refKey: "[]",
+      armRaw: extras.length || duplicates.length ? JSON.stringify({ extras, duplicates }) : "[]",
+      refRaw: "[]",
+    });
   }
   return checks;
 }
@@ -96,7 +113,7 @@ export function groupDisagreements(checksByArm) {
   const groups = new Map();
   for (const [arm, checks] of Object.entries(checksByArm)) {
     for (const c of checks) {
-      if (c.ok) continue;
+      if (c.ok || c.armRaw === MISSING) continue;
       const id = disagreementId(c);
       if (!groups.has(id)) {
         groups.set(id, { id, check: c.check, armRaw: c.armRaw, refRaw: c.refRaw, arms: [] });
@@ -111,11 +128,11 @@ export function finalScores(checksByArm, rulings = {}) {
   const per = {};
   const referenceErrors = [];
   const seenRefError = new Set();
-  const refWrong = new Set();
+  const refWrong = new Map();
   for (const checks of Object.values(checksByArm)) {
     for (const c of checks) {
       const r = c.ok || c.armRaw === MISSING ? undefined : rulings[disagreementId(c)];
-      if (r && r.refCorrect === false) refWrong.add(c.check);
+      if (r && r.refCorrect === false) refWrong.set(c.check, r);
     }
   }
   for (const [arm, checks] of Object.entries(checksByArm)) {
@@ -136,7 +153,13 @@ export function finalScores(checksByArm, rulings = {}) {
       const bf = (p.byField[`${c.collection}.${c.field}`] ??= { total: 0, correct: 0 });
       bf.total++;
       if (ok) bf.correct++;
-      if (!ok) p.errors.push({ check: c.check, got: c.armRaw, expected: c.refRaw });
+      if (!ok) {
+        const refuted = refWrong.get(c.check);
+        const expected = refuted
+          ? `not ${c.refRaw} (the referee refuted the reference: ${refuted.note || "no note"})`
+          : c.refRaw;
+        p.errors.push({ check: c.check, got: c.armRaw, expected });
+      }
     }
     per[arm] = p;
   }

@@ -4,7 +4,14 @@ import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { PRICE_SOURCE, formatTable, splitLines, summarise, usageRecords } from "./lib/ledger.mjs";
+import {
+  PRICE_SOURCE,
+  formatTable,
+  mergeRecords,
+  splitLines,
+  summarise,
+  usageRecords,
+} from "./lib/ledger.mjs";
 
 export function category(rel) {
   const parts = rel.split(sep);
@@ -30,7 +37,7 @@ export function ledger(root, { since, until } = {}) {
     const m = statSync(f).mtimeMs;
     return m >= from && m < to;
   });
-  const byCat = { main: [], sub: [], wf: [] };
+  const perFile = [];
   const diag = { files: 0, skipped: 0, usageLines: 0, repeats: 0, parseErrors: 0, noId: 0 };
   for (const f of files) {
     const cat = category(relative(root, f));
@@ -41,8 +48,12 @@ export function ledger(root, { since, until } = {}) {
     diag.files++;
     const { records, diag: d } = usageRecords(splitLines(readFileSync(f, "utf8")));
     for (const k of ["usageLines", "repeats", "parseErrors", "noId"]) diag[k] += d[k];
-    byCat[cat].push(...records);
+    perFile.push(records.map((r) => ({ ...r, cat })));
   }
+  const { records, crossFileRepeats } = mergeRecords(perFile);
+  diag.crossFileRepeats = crossFileRepeats;
+  const byCat = { main: [], sub: [], wf: [] };
+  for (const r of records) byCat[r.cat].push(r);
   return {
     root,
     window: { since: since || null, until: until || null },
@@ -74,7 +85,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   );
   console.log(`Prices: ${r.prices}. Unlisted models are reported as unpriced, never estimated.`);
   console.log(
-    `${r.diag.files} files, ${r.diag.usageLines} usage lines, ${r.diag.repeats} repeats dropped by message.id, ${r.diag.parseErrors} unparseable.\n`,
+    `${r.diag.files} files (${r.diag.skipped} skipped: not a main, subagent or workflow transcript), ${r.diag.usageLines} usage lines, ${r.diag.repeats} repeats dropped by message.id within a file and ${r.diag.crossFileRepeats} across files, ${r.diag.parseErrors} unparseable.\n`,
   );
   console.log("## All sources, by message.model and effort\n");
   console.log(formatTable(r.all));

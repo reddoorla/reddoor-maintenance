@@ -1,6 +1,7 @@
 export const RULES: Readonly<Record<string, (s: string) => string>>;
 export const MISSING: string;
-export function normalise(value: unknown, kind: string): string;
+export type Kinds = Record<string, (value: unknown) => unknown>;
+export function normalise(value: unknown, kind: string, custom?: Kinds): string;
 export interface Collection {
   name: string;
   key: string;
@@ -39,7 +40,7 @@ export interface ArmScore {
   errors: { check: string; got: string; expected: string }[];
 }
 export function scoreRun(
-  spec: { collections: Collection[] },
+  spec: { collections: Collection[]; kinds?: Kinds },
   reference: unknown,
   output: unknown,
 ): Check[];

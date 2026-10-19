@@ -30,16 +30,29 @@ function usageOf(u) {
   const split = u.cache_creation;
   const has = split && typeof split === "object";
   const cw1h = has ? split.ephemeral_1h_input_tokens || 0 : 0;
-  const cw5m = has ? split.ephemeral_5m_input_tokens || 0 : cw;
+  const split5m = has ? split.ephemeral_5m_input_tokens || 0 : 0;
+  const unsplit = Math.max(0, cw - cw1h - split5m);
   return {
     in: u.input_tokens || 0,
     out: u.output_tokens || 0,
     cr: u.cache_read_input_tokens || 0,
     cw,
-    cw5m,
+    cw5m: split5m + unsplit,
     cw1h,
-    ttlUnknown: !has && cw > 0,
+    ttlUnknown: unsplit > 0,
   };
+}
+
+export function mergeRecords(lists) {
+  const byId = new Map();
+  let crossFileRepeats = 0;
+  for (const list of lists) {
+    for (const r of list) {
+      if (byId.has(r.id)) crossFileRepeats++;
+      byId.set(r.id, r);
+    }
+  }
+  return { records: [...byId.values()], crossFileRepeats };
 }
 
 export function usageRecords(lines) {

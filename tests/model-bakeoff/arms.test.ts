@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
-import { validateArm, validateArms } from "../../scripts/model-bakeoff/lib/arms.mjs";
+import {
+  readOnlyRules,
+  validateArm,
+  validateArms,
+  validateRun,
+  workDir,
+} from "../../scripts/model-bakeoff/lib/arms.mjs";
 import { extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 
@@ -41,6 +47,20 @@ describe("validateArms", () => {
     expect(() => extractArgs(census, "/tmp/x", arms)).toThrow(/has no effort/);
     expect(extractArgs(census, "/tmp/x").arms).toEqual(census.arms);
   });
+
+  it("requires the gold's id to be gold", () => {
+    const arm = { id: "opus-low-1", model: "opus", effort: "low" };
+    expect(validateRun([arm], { ...arm })).toEqual(['gold id must be "gold", not "opus-low-1"']);
+    expect(validateRun(census.arms, census.gold)).toEqual([]);
+  });
+
+  it("gives every arm its own work dir beside the frozen input", () => {
+    const args = extractArgs(census, "/run/input");
+    expect(args.work).toBe("/run/work");
+    expect(readOnlyRules("/run/input", workDir("/run/work", "haiku-low-1"))).toContain(
+      "Your own scratch directory is /run/work/haiku-low-1.",
+    );
+  });
 });
 
 describe("the workflow's inline copy", () => {
@@ -61,7 +81,7 @@ describe("the workflow's inline copy", () => {
 
   it("validates every arm and the gold before the first agent call", () => {
     const src = readFileSync(WORKFLOW, "utf8");
-    const refuse = src.indexOf("validateArms(args.arms)");
+    const refuse = src.indexOf("validateRun(args.arms, args.gold)");
     expect(refuse).toBeGreaterThan(src.indexOf(END));
     expect(src.indexOf("return { refused: errors }")).toBeGreaterThan(refuse);
     expect(src.indexOf("agent(", src.indexOf(END))).toBeGreaterThan(refuse);
