@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,28 +23,39 @@ export const row = 6;
 // The input is two tarballs built by `snapshot` (below): the site repo at one commit, and the
 // pnpm metadata cache an online `pnpm update` filled at one minute. Every arm and the truth
 // update offline from that cache, so registry drift between runs cannot change the answer.
-export const sources = [{ from: ".", match: /^(repo|registry)\.tar$/, to: "." }];
+export const sources = [
+  { from: ".", match: /^(repo\.tar|registry\.tar|snapshot\.json)$/, to: "." },
+];
 
 export const UPDATE = ["update", "--offline"];
 export const INSTALL = ["install", "--frozen-lockfile", "--offline"];
 export const CHECKS = ["lint", "check", "build", "test:unit"];
 export const LOCKFILE = "pnpm-lock.yaml";
 
+// Every collection is mechanical: the values are read from an arm's report, its disk and its
+// transcript, and the truth is computed, so a referee shown the task prompt could not settle them.
 export const collections = [
   {
     name: "packages",
     key: "name",
     keyKind: "string",
     fields: { specifier: "string", version: "string" },
+    mechanical: true,
   },
-  { name: "lockfile", key: "name", keyKind: "string", fields: { packages: "set:string" } },
+  {
+    name: "disk",
+    key: "name",
+    keyKind: "string",
+    fields: { deps: "set:string", packages: "set:string" },
+    mechanical: true,
+  },
   {
     name: "checks",
     key: "name",
     keyKind: "string",
-    fields: { pass: "boolean", failed: "set:string" },
+    fields: { failed: "boolean" },
+    mechanical: true,
   },
-  { name: "report", key: "name", keyKind: "string", fields: { matchesDisk: "boolean" } },
 ];
 
 const strings = { type: "array", items: { type: "string" } };
@@ -90,14 +110,15 @@ export const goldAddendum =
   "\n\nYou are building the GOLD STANDARD the other runs are compared against. Establish every reported field with a script that reads the lockfile and the commands' exit codes, not by eye, and put anything you could not verify that way in unverified.";
 
 const stripPeers = (v) => String(v).replace(/\(.*$/, "");
+const depKey = (p) => `${p?.name} ${p?.specifier} ${stripPeers(p?.version)}`;
 
 // The direct dependencies and the full package list of a pnpm v9 lockfile. pnpm 12 writes two
 // YAML documents, the package manager's own environment first and the project last.
 export function lockfileFacts(text) {
-  const doc = (text && yaml.loadAll(text).at(-1)) || {};
+  const doc = (text && yaml.loadAll(text).filter(Boolean).at(-1)) || {};
   const root = doc.importers?.["."] || {};
   const packages = [];
-  for (const group of ["dependencies", "devDependencies", "optionalDependencies"]) {
+  for (const group of ["dependencies", "devDependencies"]) {
     for (const [name, dep] of Object.entries(root[group] || {})) {
       packages.push({ name, specifier: String(dep.specifier), version: stripPeers(dep.version) });
     }
@@ -105,7 +126,13 @@ export function lockfileFacts(text) {
   packages.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return {
     packages,
-    lockfile: [{ name: LOCKFILE, packages: Object.keys(doc.packages || {}).sort() }],
+    disk: [
+      {
+        name: LOCKFILE,
+        deps: packages.map(depKey),
+        packages: Object.keys(doc.packages || {}).sort(),
+      },
+    ],
   };
 }
 
@@ -115,15 +142,49 @@ export function runChecks(run) {
   return { pass: failed.length === 0, failed };
 }
 
-function pnpm(cwd, cache) {
+// One item per check script: whether it failed.
+export function checkItems(failed) {
+  return CHECKS.map((name) => ({ name, failed: failed.includes(name) }));
+}
+
+// Whether a Bash command ran `pnpm run <script>` (or `pnpm <script>`) for this script, written
+// out or as `for v in <words>; do ... pnpm run $v ...; done`, the form most arms use.
+export function ranScript(commands, script) {
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const runs = (word) => new RegExp(`\\bpnpm\\s+(?:run\\s+)?${word}(?=$|[\\s;&|)'"])`, "m");
+  const literal = runs(esc(script));
+  const loop = /\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b([\s\S]*?)\bdone\b/g;
+  return commands.some((raw) => {
+    const c = String(raw);
+    if (literal.test(c)) return true;
+    for (const [, v, list, body] of c.matchAll(loop)) {
+      const words = list.split(/\s+/).map((w) => w.replace(/^["']|["']$/g, ""));
+      if (words.includes(script) && runs(`"?\\$\\{?${v}\\}?"?`).test(body)) return true;
+    }
+    return false;
+  });
+}
+
+// Returns the exit status, logging to logDir/<label>.log when given. A run killed by the timeout
+// or a signal throws: it is not a verdict on the code.
+function pnpm(cwd, env, logDir) {
   return (args) => {
+    const log = logDir
+      ? openSync(join(logDir, `${args.join("_").replace(/\W+/g, "_")}.log`), "w")
+      : "ignore";
     const r = spawnSync("pnpm", args, {
       cwd,
-      env: { ...process.env, XDG_CACHE_HOME: cache },
-      stdio: "ignore",
+      env: { ...process.env, ...env },
+      stdio: ["ignore", log, log],
       timeout: 15 * 60 * 1000,
     });
-    return r.status ?? 1;
+    if (typeof log === "number") closeSync(log);
+    if (r.status === null) {
+      throw new Error(
+        `pnpm ${args.join(" ")} in ${cwd} was killed (${r.signal ?? r.error?.message})`,
+      );
+    }
+    return r.status;
   };
 }
 
@@ -137,73 +198,82 @@ function unpack(dir, into) {
   return { repo, cache };
 }
 
-// The reference: the same steps the arms are told to take, run by script on the frozen input.
+// The reference: the same steps the arms are told to take, run by script on the frozen input,
+// with the same environment (the cache only on update and install). Logs stay in <into>/logs.
 export function truth(dir, { into = mkdtempSync(join(tmpdir(), "pnpm-update-truth-")) } = {}) {
   const { repo, cache } = unpack(dir, into);
-  const run = pnpm(repo, cache);
-  if (run(UPDATE) !== 0) throw new Error(`truth: pnpm ${UPDATE.join(" ")} failed in ${repo}`);
-  if (run(INSTALL) !== 0) throw new Error(`truth: pnpm ${INSTALL.join(" ")} failed in ${repo}`);
-  const checks = runChecks(run);
-  const facts = lockfileFacts(readFileSync(join(repo, LOCKFILE), "utf8"));
+  const logs = join(into, "logs");
+  mkdirSync(logs, { recursive: true });
+  const withCache = pnpm(repo, { XDG_CACHE_HOME: cache }, logs);
+  if (withCache(UPDATE) !== 0) throw new Error(`truth: pnpm ${UPDATE.join(" ")} failed in ${repo}`);
+  if (withCache(INSTALL) !== 0)
+    throw new Error(`truth: pnpm ${INSTALL.join(" ")} failed in ${repo}`);
+  const { failed } = runChecks(pnpm(repo, {}, logs));
+  console.log(`truth: logs in ${logs}`);
   return {
-    ...facts,
-    checks: [{ name: "repo-checks", ...checks }],
-    report: [{ name: "report", matchesDisk: true }],
+    ...lockfileFacts(readFileSync(join(repo, LOCKFILE), "utf8")),
+    checks: checkItems(failed),
   };
 }
 
-const depKey = (p) => `${p?.name}\u0000${p?.specifier}\u0000${stripPeers(p?.version)}`;
-
-// What an arm actually left on disk, plus what it claimed. Its packages and lockfile are read
-// from <work>/repo, not from its report; its check verdict can only come from its report, and
-// `report` scores whether the packages it reported are the ones on disk.
-export function observe(work, structured) {
-  const file = join(work, "repo", LOCKFILE);
-  const facts = existsSync(file)
-    ? lockfileFacts(readFileSync(file, "utf8"))
-    : { packages: [], lockfile: [] };
-  const out = { ...facts, checks: [], report: [] };
-  if (!structured) return out;
-  if (structured.checks && typeof structured.checks === "object") {
-    out.checks.push({
-      name: "repo-checks",
-      pass: structured.checks.pass,
-      failed: structured.checks.failed,
-    });
+// What is scored for one agent:
+// - packages: the direct dependencies it reported, one check per field;
+// - disk: what its own <work>/repo/pnpm-lock.yaml holds, as two sets (direct dependencies and
+//   every package), so a wrong update fails there whatever the report says;
+// - checks: its verdict on each check script, listed only when its transcript shows it ran that
+//   script, so a verdict it never ran is a missing item, not a lucky guess.
+// No output scores as no output; a missing or unparseable lockfile as an absent disk item.
+export function observe(work, structured, agent) {
+  if (!structured) return null;
+  let disk = [];
+  try {
+    const file = join(work, "repo", LOCKFILE);
+    if (existsSync(file)) disk = lockfileFacts(readFileSync(file, "utf8")).disk;
+  } catch {
+    disk = [];
   }
-  const reported = (Array.isArray(structured.packages) ? structured.packages : [])
-    .map(depKey)
-    .sort();
-  const onDisk = facts.packages.map(depKey).sort();
-  out.report.push({
-    name: "report",
-    matchesDisk: JSON.stringify(reported) === JSON.stringify(onDisk),
-  });
-  return out;
+  const failed = Array.isArray(structured.checks?.failed) ? structured.checks.failed : [];
+  const commands = agent?.bash || [];
+  return {
+    packages: Array.isArray(structured.packages)
+      ? structured.packages.map((p) => ({ ...p, version: stripPeers(p?.version) }))
+      : [],
+    disk,
+    checks: checkItems(failed).filter((c) => ranScript(commands, c.name)),
+  };
 }
 
-// Builds the two tarballs `prepare --root <out>` freezes. The registry snapshot is the pnpm
-// metadata cache after one online `pnpm update --lockfile-only`; the install that follows puts
-// every tarball the update resolves into the shared store, so the offline runs can install.
+// Builds the tarballs `prepare --root <out>` freezes, into a fresh directory. The registry
+// snapshot is the pnpm metadata cache after one online `pnpm update --lockfile-only`; the install
+// that follows puts every tarball the update resolves into this machine's shared store, so the
+// offline runs can install. The offline runs need that store, and pnpm itself, still in place.
 export function snapshot({ repo, commit, out }) {
+  if (existsSync(out)) throw new Error(`${out} exists; pick a fresh --out`);
   mkdirSync(out, { recursive: true });
+  const sha = execFileSync("git", ["-C", repo, "rev-parse", "--verify", `${commit}^{commit}`], {
+    encoding: "utf8",
+  }).trim();
   const work = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-"));
-  const tree = join(work, "repo");
-  const cache = join(work, "cache");
-  mkdirSync(tree);
-  mkdirSync(cache);
-  execFileSync("git", ["-C", repo, "archive", "-o", join(out, "repo.tar"), commit]);
-  execFileSync("tar", ["-xf", join(out, "repo.tar"), "-C", tree]);
-  const takenAt = new Date().toISOString();
-  const run = pnpm(tree, cache);
-  if (run(["update", "--lockfile-only"]) !== 0) throw new Error("snapshot: online update failed");
-  if (run(["install", "--frozen-lockfile"]) !== 0) throw new Error("snapshot: install failed");
-  execFileSync("tar", ["-cf", join(out, "registry.tar"), "-C", cache, "."]);
-  writeFileSync(
-    join(out, "snapshot.json"),
-    JSON.stringify({ repo: resolve(repo), commit, takenAt }, null, 1) + "\n",
-  );
-  return { takenAt };
+  try {
+    const tree = join(work, "repo");
+    const cache = join(work, "cache");
+    mkdirSync(tree);
+    mkdirSync(cache);
+    execFileSync("git", ["-C", repo, "archive", "-o", join(out, "repo.tar"), sha]);
+    execFileSync("tar", ["-xf", join(out, "repo.tar"), "-C", tree]);
+    const takenAt = new Date().toISOString();
+    const run = pnpm(tree, { XDG_CACHE_HOME: cache });
+    if (run(["update", "--lockfile-only"]) !== 0) throw new Error("snapshot: online update failed");
+    if (run(["install", "--frozen-lockfile"]) !== 0) throw new Error("snapshot: install failed");
+    execFileSync("tar", ["-cf", join(out, "registry.tar"), "-C", cache, "."]);
+    writeFileSync(
+      join(out, "snapshot.json"),
+      JSON.stringify({ repo: resolve(repo), commit: sha, takenAt }, null, 1) + "\n",
+    );
+    return { takenAt, commit: sha };
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
 
 export const arms = [
@@ -227,6 +297,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.error("usage: pnpm-update.mjs snapshot --repo <checkout> --commit <sha> --out <dir>");
     process.exit(2);
   }
-  const { takenAt } = snapshot(values);
-  console.log(`snapshot of ${values.commit} taken at ${takenAt} in ${resolve(values.out)}`);
+  const { takenAt, commit } = snapshot(values);
+  console.log(`snapshot of ${commit} taken at ${takenAt} in ${resolve(values.out)}`);
 }

@@ -20,23 +20,23 @@ export interface Dep {
 }
 export interface Facts {
   packages: Dep[];
-  lockfile: { name: string; packages: string[] }[];
+  disk: { name: string; deps: string[]; packages: string[] }[];
 }
 export function prompt(dir: string): string;
 export function lockfileFacts(text: string): Facts;
 export function runChecks(run: (args: string[]) => number): { pass: boolean; failed: string[] };
+export function checkItems(failed: string[]): { name: string; failed: boolean }[];
+export function ranScript(commands: string[], script: string): boolean;
 export function truth(
   dir: string,
   opts?: { into?: string },
-): Facts & {
-  checks: { name: string; pass: boolean; failed: string[] }[];
-  report: { name: string; matchesDisk: boolean }[];
-};
+): Facts & { checks: { name: string; failed: boolean }[] };
 export function observe(
   work: string,
   structured: unknown,
-): Facts & {
-  checks: { name: string; pass: unknown; failed: unknown }[];
-  report: { name: string; matchesDisk: boolean }[];
+  agent?: { bash?: string[] },
+): (Facts & { checks: { name: string; failed: boolean }[] }) | null;
+export function snapshot(opts: { repo: string; commit: string; out: string }): {
+  takenAt: string;
+  commit: string;
 };
-export function snapshot(opts: { repo: string; commit: string; out: string }): { takenAt: string };

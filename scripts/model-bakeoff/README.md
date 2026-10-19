@@ -179,10 +179,13 @@ Add `tasks/<id>.mjs` exporting:
   score, the field that identifies an item, and each field's kind.
 - `kinds`: optional, `{ name: (value) => comparable }`. Each one adds a field kind for this task,
   for instance a rounding tolerance, and works inside `set:` too.
-- `observe(work, structured)`: optional. When a task is an action rather than an extraction, `score`
-  scores what this returns for each agent instead of its structured output. It gets the agent's work
-  dir and its structured output (or `null`), so the task can read what the agent left on disk.
-  `pnpm-update` reads each agent's lockfile from `<work>/repo` this way.
+- `observe(work, structured, agent)`: optional. When a task is an action rather than an extraction,
+  `score` scores what this returns for each agent instead of its structured output. It gets the
+  agent's work dir, its structured output (or `null`) and its collected transcript (`bash`, `writes`
+  and the rest), so it can read what the agent left on disk and what it ran. Return `null` for an
+  agent with no output. A task with `observe` must have a `truth`. A collection marked
+  `mechanical: true` never goes to the referee; use it for values a referee shown only the prompt
+  could not settle.
 - `truth(dir)`: optional, the script-computed reference. Leave it out when no script can compute
   the answer, and the gold run becomes the reference.
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
@@ -207,13 +210,23 @@ node scripts/model-bakeoff/bakeoff.mjs prepare --task pnpm-update --root <snap> 
 
 `repo.tar` is `git archive` of the commit. `registry.tar` is the pnpm metadata cache
 (`XDG_CACHE_HOME`) after one online `pnpm update --lockfile-only`; the snapshot also installs the
-result once, so the shared store holds every tarball. Every agent and the truth then run
-`pnpm update --offline` against their own copy of that cache, so the registry is frozen at the
-minute in `snapshot.json`. With an empty cache the offline update fails, which is the negative
-control. `prepare` computes the truth by running the same steps (about 90 seconds): the direct
-dependencies' specifiers and versions, every package key in the lockfile, and whether `lint`,
-`check`, `build` and `test:unit` pass. pnpm 12 writes the lockfile as two YAML documents; the
-project is the last.
+result once, so this machine's shared store holds every tarball. `snapshot.json` records the commit
+sha and the minute, and is frozen with the tarballs. Every agent and the truth then run
+`pnpm update --offline` against their own copy of that cache, so the registry is frozen at that
+minute. With an empty cache the offline update fails, which is the negative control. The offline
+runs still need the shared store and pnpm itself (the `packageManager` version) in place, so take
+the snapshot in the session that runs the arms.
+
+`prepare` computes the truth by running the same steps, about 90 seconds, and keeps their logs in
+the temp dir it prints. A command killed by the timeout stops `prepare` instead of counting as a
+failed check. What is scored, all of it mechanical (no referee):
+
+- `packages`: the direct dependencies the agent reported, each specifier and version;
+- `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
+  every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`) with whether it failed. An
+  agent's item is listed only when its transcript shows it ran `pnpm run <script>`, so a verdict on
+  a script it never ran fails as absent.
 
 ## The ledger
 

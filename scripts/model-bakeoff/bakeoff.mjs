@@ -215,11 +215,39 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   return problems;
 }
 
+// Scores the gold (when a truth exists) and every arm. A task with observe() must have a truth:
+// the gold's raw output is not in the shape observe() returns, so it cannot be the reference.
+export function scoreArms(task, args, agents, reference, truth) {
+  const problems = [];
+  const checksByArm = {};
+  if (task.observe && !truth) {
+    problems.push(
+      `${args.task}: a task with observe() needs a truth; the gold cannot be the reference`,
+    );
+    return { checksByArm, problems };
+  }
+  const all = [args.gold, ...args.arms];
+  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
+  const output = (arm) => armOutput(task, args, arm, agents[arm.id]);
+  const candidates = extraCandidates(task, reference, scored.map(output));
+  for (const arm of all) {
+    const a = agents[arm.id];
+    if (!a) {
+      problems.push(`${arm.id}: no transcript found`);
+      continue;
+    }
+    problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
+    if (arm.id === "gold" && !truth) continue;
+    checksByArm[arm.id] = scoreRun(task, reference, output(arm), candidates);
+  }
+  return { checksByArm, problems };
+}
+
 // What is scored for one agent: its structured output, or, for a task that exports
-// observe(work, structured), what that reads from the agent's work dir.
+// observe(work, structured, agent), what that reads from the agent's work dir and transcript.
 export function armOutput(task, args, arm, agent) {
   const structured = agent?.structured ?? null;
-  return task.observe ? task.observe(workDir(args.work, arm.id), structured) : structured;
+  return task.observe ? task.observe(workDir(args.work, arm.id), structured, agent) : structured;
 }
 
 export function nextRound(agents) {
@@ -251,20 +279,8 @@ async function score(opts) {
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
   problems.push(...referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
-  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const output = (arm) => armOutput(task, args, arm, agents[arm.id]);
-  const candidates = extraCandidates(task, reference, scored.map(output));
-  const checksByArm = {};
-  for (const arm of all) {
-    const a = agents[arm.id];
-    if (!a) {
-      problems.push(`${arm.id}: no transcript found`);
-      continue;
-    }
-    problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
-    if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, output(arm), candidates);
-  }
+  const { checksByArm, problems: armProblems } = scoreArms(task, args, agents, reference, truth);
+  problems.push(...armProblems);
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
   for (const [, a] of referees) {
