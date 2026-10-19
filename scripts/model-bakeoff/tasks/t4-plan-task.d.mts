@@ -30,5 +30,5 @@ export function truth(): {
   tests: { name: string; pass: boolean; result: string }[];
 };
 export function setup(o: { input: string; work: string; ids: string[]; root?: string }): void;
-export function changedFiles(repo: string, base: string): string[];
+export function changedFiles(base: string, tree: string): string[];
 export function evaluate(o: { run: string; work: string; id: string }): Record<string, unknown>;

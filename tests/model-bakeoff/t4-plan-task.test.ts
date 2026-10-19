@@ -1,4 +1,13 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
@@ -180,5 +189,34 @@ describe("referenceFor", () => {
     );
     expect(referenceFor({ id: "t5" }, null, gold)).toBe(gold);
     expect(() => referenceFor({ id: "t5" }, null, null)).toThrow(/no reference/);
+  });
+});
+
+describe("changedFiles", () => {
+  const sh = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, ...a]);
+
+  it("finds every change against the scorer's own repo, whatever the agent's .git says", () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-scope-"));
+    const base = join(dir, "base");
+    mkdirSync(join(base, "src"), { recursive: true });
+    writeFileSync(join(base, "package.json"), '{"scripts":{"check":"svelte-check"}}\n');
+    writeFileSync(join(base, "src", "a.ts"), "a\n");
+    writeFileSync(join(base, "src", "gone.ts"), "g\n");
+    writeFileSync(join(base, ".gitignore"), "node_modules\n");
+    sh(base, "init", "-q");
+    sh(base, "add", "-A");
+    sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+    const tree = join(dir, "tree");
+    cpSync(base, tree, { recursive: true });
+    writeFileSync(join(tree, "package.json"), '{"scripts":{"check":"true"}}\n');
+    sh(tree, "update-index", "--assume-unchanged", "package.json");
+    const ran = join(dir, "fsmonitor-ran");
+    sh(tree, "config", "core.fsmonitor", `touch ${ran}; false`);
+    rmSync(join(tree, "src", "gone.ts"));
+    writeFileSync(join(tree, "src", "new.ts"), "n\n");
+    mkdirSync(join(tree, "node_modules"));
+    writeFileSync(join(tree, "node_modules", "x.js"), "x\n");
+    expect(task.changedFiles(base, tree)).toEqual(["package.json", "src/gone.ts", "src/new.ts"]);
+    expect(existsSync(ran)).toBe(false);
   });
 });

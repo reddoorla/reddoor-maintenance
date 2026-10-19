@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 // Row 1 of reddoor-workspace#1: implement one planned task on a T4 site build. roalson-interests
@@ -191,20 +199,36 @@ export function truth() {
   };
 }
 
-const git = (cwd, ...a) => execFileSync("git", ["-C", cwd, ...a], { encoding: "utf8" });
+// git never reads an agent's own .git: its config could name an fsmonitor or hooks to run here,
+// and its index could hide a change (update-index --assume-unchanged). The scorer builds its own.
+const SAFE = ["-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null"];
+const git = (cwd, ...a) => execFileSync("git", [...SAFE, "-C", cwd, ...a], { encoding: "utf8" });
+// Arm-controlled code runs at score time (its tests, its svelte-check), so it gets no secrets.
+const ENV = Object.fromEntries(
+  ["PATH", "HOME", "LANG", "TMPDIR"].filter((k) => process.env[k]).map((k) => [k, process.env[k]]),
+);
 const run = (cwd, cmd, args) =>
-  spawnSync(cmd, args, {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 1 << 28,
-    env: { ...process.env, CI: "1" },
-  });
+  spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 1 << 28, env: { ...ENV, CI: "1" } });
+// Copies, not hardlinks: pnpm links every install to one store inode, so an agent writing inside
+// its node_modules would change every other agent's tree, the store and the eval trees.
 const install = (cwd) =>
-  run(cwd, "pnpm", ["install", "--frozen-lockfile", "--offline", "--ignore-scripts"]);
+  run(cwd, "pnpm", [
+    "install",
+    "--frozen-lockfile",
+    "--offline",
+    "--ignore-scripts",
+    "--config.package-import-method=copy",
+  ]);
 
 function snapshot(root, sha, to) {
   mkdirSync(to, { recursive: true });
   execFileSync("sh", ["-c", `git -C "$0" archive "$1" | tar -x -C "$2"`, root, sha, to]);
+}
+
+function commitAll(repo) {
+  git(repo, "init", "-q");
+  git(repo, "add", "-A");
+  git(repo, "-c", "user.name=bakeoff", "-c", "user.email=bakeoff@invalid", "commit", "-qm", "pin");
 }
 
 // prepare: the plan goes into the frozen input; every agent gets the pinned tree in <work>/<id>/repo
@@ -215,65 +239,75 @@ export function setup({ input, work, ids, root }) {
   git(root, "cat-file", "-e", `${IMPL}^{commit}`);
   mkdirSync(input, { recursive: true });
   writeFileSync(join(input, "plan.md"), PLAN);
-  const bases = {};
   for (const id of ids) {
     const repo = join(work, id, "repo");
     snapshot(root, PIN, repo);
-    git(repo, "init", "-q");
-    git(repo, "add", "-A");
-    git(
-      repo,
-      "-c",
-      "user.name=bakeoff",
-      "-c",
-      "user.email=bakeoff@invalid",
-      "commit",
-      "-qm",
-      "pin",
-    );
-    bases[id] = git(repo, "rev-parse", "HEAD").trim();
+    commitAll(repo);
     const i = install(repo);
     if (i.status !== 0) throw new Error(`pnpm install failed in ${repo}:\n${i.stderr}`);
   }
-  writeFileSync(join(dirname(input), "t4.json"), JSON.stringify({ root, bases }, null, 1) + "\n");
+  writeFileSync(join(dirname(input), "t4.json"), JSON.stringify({ root }, null, 1) + "\n");
 }
 
-export function changedFiles(repo, base) {
-  const lines = (s) => s.split("\n").filter(Boolean);
+// Every path in `tree` that differs from the scorer's own pristine repository `base`: modified,
+// deleted or untracked (ignored files aside, by the tree's .gitignore, whose own edit shows).
+export function changedFiles(base, tree) {
+  const out = git(
+    base,
+    `--git-dir=${join(base, ".git")}`,
+    `--work-tree=${tree}`,
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    "--no-renames",
+  );
   return [
-    ...new Set([
-      ...lines(git(repo, "diff", "--name-only", base)),
-      ...lines(git(repo, "ls-files", "--others", "--exclude-standard")),
-    ]),
+    ...new Set(
+      out
+        .split("\0")
+        .filter(Boolean)
+        .map((e) => e.slice(3)),
+    ),
   ].sort();
 }
 
-// score: the gates run on a copy of each agent's tree, never on the tree itself; the plan's tests
-// replace the agent's own test file only after typecheck, lint and the agent's suite have run.
+// score: the gates run on the pinned tree with only the plan's files taken from the agent, so a
+// change anywhere else (package.json scripts, a config) can fail scope but never pass a gate. The
+// plan's tests replace the agent's own test file only after typecheck, lint and its suite ran.
 export function evaluate({ run: runDir, work, id: armId }) {
-  const { root, bases } = JSON.parse(readFileSync(join(runDir, "t4.json"), "utf8"));
+  const { root } = JSON.parse(readFileSync(join(runDir, "t4.json"), "utf8"));
   const repo = join(work, armId, "repo");
-  const changed = changedFiles(repo, bases[armId]);
-  const scope = scopeCheck(changed);
   const ev = join(runDir, "eval", armId);
   rmSync(ev, { recursive: true, force: true });
-  for (const f of git(repo, "ls-files", "-co", "--exclude-standard").split("\n").filter(Boolean)) {
-    if (!existsSync(join(repo, f))) continue;
-    mkdirSync(dirname(join(ev, f)), { recursive: true });
-    copyFileSync(join(repo, f), join(ev, f));
+  const base = join(ev, "base");
+  snapshot(root, PIN, base);
+  commitAll(base);
+  const changed = existsSync(repo) ? changedFiles(base, repo) : [];
+  const scope = scopeCheck(changed);
+  const tree = join(ev, "tree");
+  snapshot(root, PIN, tree);
+  for (const f of ALLOWED) {
+    const src = join(repo, f);
+    const st = existsSync(src) ? lstatSync(src) : null;
+    if (st?.isFile()) {
+      mkdirSync(dirname(join(tree, f)), { recursive: true });
+      copyFileSync(src, join(tree, f));
+    } else rmSync(join(tree, f), { force: true });
   }
   const ok = (r) => r.status === 0;
   const detail = { changed, outside: scope.outside };
-  if (!ok(install(ev))) detail.install = "failed";
-  const check = run(ev, "pnpm", ["check"]);
-  const lint = run(ev, "pnpm", ["lint"]);
-  const suite = run(ev, "pnpm", ["exec", "vitest", "run"]);
+  const inst = install(tree);
+  if (!ok(inst)) detail.install = (inst.stdout + inst.stderr).slice(-1500);
+  const check = run(tree, "pnpm", ["check"]);
+  const lint = run(tree, "pnpm", ["lint"]);
+  const suite = run(tree, "pnpm", ["exec", "vitest", "run"]);
   detail.typecheck = check.stdout.slice(-1500);
   detail.lint = (lint.stdout + lint.stderr).slice(-1500);
   detail.suite = suite.stdout.slice(-1500);
-  writeFileSync(join(ev, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
+  writeFileSync(join(tree, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
   const out = join(ev, "held-out.json");
-  run(ev, "pnpm", [
+  run(tree, "pnpm", [
     "exec",
     "vitest",
     "run",
@@ -291,7 +325,7 @@ export function evaluate({ run: runDir, work, id: armId }) {
     ],
     tests: heldOutResults(report).map((t) => ({
       ...t,
-      result: refereeEvidence(t.result, repo, join(ev, HELD_OUT_FILE)),
+      result: refereeEvidence(t.result, tree, join(tree, HELD_OUT_FILE)),
     })),
     detail,
   };
