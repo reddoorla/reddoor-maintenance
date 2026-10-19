@@ -5116,6 +5116,27 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
+133.  **CRCA Brand Friction Audit: deck format, and Tim's assessment
+      (new 2026-10-19, run #1 of the $1,500 Diagnosis; work in
+      `reddoorla/reddoor-workspace` `audits/2026-10-19-crca-brand-friction-audit/`,
+      recipe in `playbooks/brand-friction-audit/README.md`).** [M] The
+      evidence is done and pushed (workspace `c8f712c`): site crawl, ten
+      competitors, search and AI-answer checks, and Reddoor's prospect audit
+      plus Lighthouse with a control run. Nicole's six-dimension assessment
+      is in. Tim's is not: in #crca he wrote "I have completed my assessment"
+      (10-15) and "I will load everything here shortly" (10-16), and nothing
+      had been posted by 2026-10-19 15:58Z. The brief's stop condition holds
+      the deck until both are in. _Ask:_ which format for the deck: (a) a
+      Figma Slides copy of Nicole's template `dxgm8DSKnUz2TkdEhcw8mb`, filled
+      in by the worker through the Figma connector; (b) a claude.ai Slides
+      artifact; (c) a PDF via `reddoor-md-pdf`. _Pick:_ (a). The template is
+      the team's own deck system (Besley and Helvetica Neue, paper texture,
+      a "Reddoor recommends" finding slide, the Friction Audit method slide),
+      Tim and Nicole edit in Figma, and the brief asks for the Rubrik
+      example's look, which lives there. The operator also relays the ask
+      for Tim's assessment, and for the Figma link to the Rubrik competitive
+      visual research if one exists.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
