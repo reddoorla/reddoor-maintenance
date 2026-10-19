@@ -24,14 +24,14 @@ export const HOME_REPO = "reddoorla/reddoor-maintenance";
 const BACKLOG = "docs/BACKLOG.md";
 const DECISIONS_HEADING = "## Operator decisions";
 
-// Limit: HTML comments are stripped from the whole body, code spans and fences
-// included, so `<!-- x -->` inside backticks vanishes from the ask, and a lone
-// `<!--` in code fails the file as an unclosed comment (#1354).
 const USAGE = [
   "usage: node scripts/decisions.mjs check <dir> [--offline] [--json]",
   "       node scripts/decisions.mjs list <dir> (--open | --parked) [--since <iso>] [--offline] [--json]",
   "       node scripts/decisions.mjs new <dir> <slug> [--from owner/repo#N]",
   "       node scripts/decisions.mjs convert <outdir> [--rev origin/main]",
+  "limit: HTML comments are stripped from the whole body, code spans and fences included,",
+  "       so `<!-- x -->` in backticks drops out of the ask, and a lone `<!--` in code",
+  "       fails the file as an unclosed comment (#1354).",
 ].join("\n");
 
 export const FUTURE_SLACK_MS = 10 * 60_000;
@@ -123,8 +123,9 @@ export function stripComments(text) {
   }
 }
 
-export const PLACEHOLDER = "TODO the ask, in one line.";
-
+// The template's first line is "TODO the ask, in one line.". Any line that still
+// leads with the word TODO, once markup is stripped, is that placeholder half-edited;
+// "TODO-list ..." and "Todoist ..." are real asks.
 export function isPlaceholder(line) {
   const n = line
     .replace(/^(?:[-+>\s]|\*\s|\d+\.\s)*/, "")
@@ -132,8 +133,7 @@ export function isPlaceholder(line) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  const stem = PLACEHOLDER.toLowerCase().split(",")[0];
-  return n === "todo" || n === stem || n.startsWith(`${stem},`) || n.startsWith(`${stem} `);
+  return /^todo(?![a-z0-9-])/.test(n);
 }
 
 const NOT_TEXT = (l) =>

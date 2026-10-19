@@ -997,7 +997,7 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
     expect(pd(X, file({ refs: "[reddoorla/.github#28, a.b/c..d#2]" })).errors).toEqual([]);
   });
 
-  it("matches the placeholder new writes after markup is stripped, and nothing wider (#1355)", () => {
+  it("refuses a line that still leads with the word TODO once markup is stripped, and nothing wider (#1355)", () => {
     for (const first of [
       "TODO the ask, in one line.",
       '"TODO the ask"',
@@ -1005,6 +1005,12 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "[TODO] the ask",
       "TODO",
       "**TODO**",
+      "TODO the ask.",
+      "TODO.",
+      "TODO:",
+      "TODO!",
+      "TODO — the ask",
+      "TODO: decide the ask",
     ])
       expect(pd(X, file({ first })).errors, first).toEqual([
         "the ask is still the TODO placeholder",
