@@ -1,0 +1,215 @@
+{
+  "date": "2026-10-19",
+  "task": "refute-claims",
+  "row": 5,
+  "taskCommit": "211c45d4 (tolerance committed in b7c5b538 before the first run)",
+  "corpus": "code.claude.com/docs fetched 2026-10-19; six pages pinned by sha256 in tasks/refute-claims.mjs PAGES; claims re-anchored from the 2026-09-14 copy, of which 39 of 40 pages had drifted",
+  "inputFiles": 7,
+  "checksPerRun": 35,
+  "workflowRuns": {
+    "extract": "wf_d021590a-148",
+    "referee": ["wf_3594a134-904"]
+  },
+  "tolerance": "every false claim (7: c17 seeded, plus c01 c04 c07 c09 c12 c15) refuted after the workflow quote rule, and fewer than 2 wrong refutations of the 10 true claims (c03 untested counts as true); an arm qualifies only if both runs pass",
+  "reference": "script truth",
+  "problems": [],
+  "disagreements": 1,
+  "unruled": 0,
+  "referenceErrors": [],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "35/35",
+      "cost": 1.4189232,
+      "requests": 20,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-medium-1",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "34/35",
+      "cost": 0.899492,
+      "requests": 10,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "verdicts c10 / verdict",
+          "got": "refuted",
+          "expected": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "opus-medium-2",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "34/35",
+      "cost": 0.5461866,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "verdicts c10 / verdict",
+          "got": "refuted",
+          "expected": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "35/35",
+      "cost": 0.4738089999999999,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "35/35",
+      "cost": 0.43634119999999993,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-1",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "35/35",
+      "cost": 0.451608,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-2",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "35/35",
+      "cost": 0.2782395,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "35/35",
+      "cost": 0.2063754,
+      "requests": 3,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "35/35",
+      "cost": 0.289535,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    }
+  ],
+  "decision": [
+    {
+      "id": "gold",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-medium-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": ["c10"],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-medium-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": ["c10"],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-low-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-low-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-high-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-high-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-medium-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-medium-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "notMatchingTrue": [],
+      "downgraded": [],
+      "pass": true
+    }
+  ],
+  "rulings": [
+    {
+      "id": "verdicts c10 / verdict :: refuted",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "corpus/env-vars.md:476 supports every part of the claim. It reads: \"Unset, Claude Code defers all MCP tools by default, and loads them upfront instead when `ANTHROPIC_BASE_URL` points to a non-first-party host. ... `auto` loads upfront when tool definitions fit within 10% of context.\" Unset means all MCP tools are deferred, while auto loads them upfront under the 10% threshold, so on the default first-party path auto defers less than unset does, as the claim says. The only possible attack is the non-first-party host exception. The claim covers it by saying \"by default\", which is the doc's own wording, so it is a condition the claim already states, not a contradiction. No line on disk contradicts the claim, so the refuted verdict is wrong and confirmed is right."
+    }
+  ],
+  "refereeCost": 0.4940548
+}
