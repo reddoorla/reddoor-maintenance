@@ -224,12 +224,21 @@ failed check. What is scored, all of it mechanical (no referee):
 - `packages`: the direct dependencies the agent reported, each specifier and version;
 - `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
   every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
-- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`), with the verdict the agent
-  claimed and the verdict its own exit code gives. The prompt has each script write
-  `<work>/logs/<script>.log` and `<work>/logs/<script>.exit`; an item is listed only when both
-  exist and the log is not empty, so a verdict on a script the agent never ran fails as absent.
-  An earlier draft inferred this from the transcript's command text, which credited scripts that
-  were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`): whether the verdict the
+  agent claimed is the one its own run's exit code gives. The prompt has each script write
+  `<work>/logs/<script>.log` and `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it
+  (its first line is pnpm's `$ <script body>`) after the lockfile it ran against; a log with no
+  exit file counts as a failed run. A script with no such log fails as absent. The run's own
+  verdict (`exitFailed`) is kept on the item but not scored: the agents run 8 at once on 4 cores,
+  so a timeout is the machine's verdict, and the disk item already scores whether the update
+  was right. An earlier draft inferred "ran" from the transcript's command text, which credited
+  scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
+
+The truth runs alone during `prepare`, so its verdicts are uncontended, and its offline install
+is the proof that the shared store held every tarball. `snapshot.json` records the pnpm version
+and store path. The truth's files (`truth.json` beside the input, its temp dir) are readable by
+the agents, as in every task; `collect` lists each agent's Bash commands, so check them for a read
+of either.
 
 ## The ledger
 

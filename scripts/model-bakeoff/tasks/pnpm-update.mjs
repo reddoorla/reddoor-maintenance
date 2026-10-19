@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import yaml from "js-yaml";
@@ -54,7 +54,7 @@ export const collections = [
     name: "checks",
     key: "name",
     keyKind: "string",
-    fields: { failed: "boolean", exitFailed: "boolean" },
+    fields: { reportsOwnRun: "boolean" },
     mechanical: true,
   },
 ];
@@ -150,23 +150,30 @@ const scriptName = (x) =>
     .toLowerCase()
     .replace(/^pnpm\s+(?:run\s+)?/, "");
 
-// One item per check script: whether it failed, as claimed and as its exit code says. For the
-// truth the two are the same thing.
+// The truth's item per check script. reportsOwnRun is what is scored: for an arm, whether its
+// claimed verdict matches its own run's exit code. exitFailed is that run's verdict, kept on the
+// item for the record but not scored, because 8 agents share 4 cores and a timeout under load is
+// the machine's verdict, not the model's; whether the update was right is the disk item's job.
 export function checkItems(failed) {
   const claimed = new Set(failed.map(scriptName));
-  return CHECKS.map((name) => ({ name, failed: claimed.has(name), exitFailed: claimed.has(name) }));
+  return CHECKS.map((name) => ({ name, reportsOwnRun: true, exitFailed: claimed.has(name) }));
 }
 
-// The exit code an arm's own run of each script left in <work>/logs/<script>.exit, for every
-// script whose log is non-empty: what ran is read from disk, never inferred from command text.
+// What each script's own run left in <work>/logs: its exit code, or null when the log is there
+// but the exit file is not (a run killed before `echo $?`). A log counts only when pnpm wrote it
+// (its first line is pnpm's `$ <script body>` echo) after the lockfile it ran against.
 export function exitCodes(work) {
   const out = {};
+  const lockfile = join(work, "repo", LOCKFILE);
+  if (!existsSync(lockfile)) return out;
+  const since = statSync(lockfile).mtimeMs;
   for (const name of CHECKS) {
     const exit = join(work, "logs", `${name}.exit`);
     const log = join(work, "logs", `${name}.log`);
-    if (existsSync(exit) && existsSync(log) && statSync(log).size > 0) {
-      out[name] = readFileSync(exit, "utf8").trim();
-    }
+    if (!existsSync(log) || !statSync(log).isFile() || statSync(log).mtimeMs < since) continue;
+    if (!readFileSync(log, "utf8").startsWith("$ ")) continue;
+    out[name] =
+      existsSync(exit) && statSync(exit).isFile() ? readFileSync(exit, "utf8").trim() : null;
   }
   return out;
 }
@@ -226,8 +233,9 @@ export function truth(dir, { into = mkdtempSync(join(tmpdir(), "pnpm-update-trut
 // - packages: the direct dependencies it reported, one check per field;
 // - disk: what its own <work>/repo/pnpm-lock.yaml holds, as two sets (direct dependencies and
 //   every package), so a wrong update fails there whatever the report says;
-// - checks: for each script it left a log and an exit code for in <work>/logs, its claimed
-//   verdict and the verdict its exit code gives. A script with no such evidence is a missing item.
+// - checks: for each script whose run left a pnpm log in <work>/logs, whether the verdict it
+//   claimed is the one its own exit code gives (no exit file counts as failed). A script with no
+//   such log is a missing item.
 // No output scores as no output; a missing or unparseable lockfile as an absent disk item.
 export function observe(work, structured) {
   if (!structured) return null;
@@ -239,6 +247,7 @@ export function observe(work, structured) {
     disk = [];
   }
   const failed = Array.isArray(structured.checks?.failed) ? structured.checks.failed : [];
+  const claimed = new Set(failed.map(scriptName));
   const exits = exitCodes(work);
   return {
     packages: Array.isArray(structured.packages)
@@ -247,9 +256,10 @@ export function observe(work, structured) {
         )
       : [],
     disk,
-    checks: checkItems(failed)
-      .filter((c) => c.name in exits)
-      .map((c) => ({ ...c, exitFailed: exits[c.name] !== "0" })),
+    checks: CHECKS.filter((name) => name in exits).map((name) => {
+      const exitFailed = exits[name] !== "0";
+      return { name, reportsOwnRun: claimed.has(name) === exitFailed, exitFailed };
+    }),
   };
 }
 
@@ -257,12 +267,16 @@ export function observe(work, structured) {
 // snapshot is the pnpm metadata cache after one online `pnpm update --lockfile-only`; the install
 // that follows puts every tarball the update resolves into this machine's shared store, so the
 // offline runs can install. The offline runs need that store, and pnpm itself, still in place.
-export function snapshot({ repo, commit, out }) {
+export function snapshot({ repo: repoArg, commit, out: outArg }) {
+  // git -C resolves a relative -o against the repo, so both paths are made absolute first.
+  const repo = resolve(repoArg);
+  const out = resolve(outArg);
   if (existsSync(out)) throw new Error(`${out} exists; pick a fresh --out`);
   const sha = execFileSync("git", ["-C", repo, "rev-parse", "--verify", `${commit}^{commit}`], {
     encoding: "utf8",
   }).trim();
-  mkdirSync(out, { recursive: true });
+  mkdirSync(dirname(out), { recursive: true });
+  mkdirSync(out);
   const work = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-"));
   try {
     const tree = join(work, "repo");
@@ -276,9 +290,12 @@ export function snapshot({ repo, commit, out }) {
     if (run(["update", "--lockfile-only"]) !== 0) throw new Error("snapshot: online update failed");
     if (run(["install", "--frozen-lockfile"]) !== 0) throw new Error("snapshot: install failed");
     execFileSync("tar", ["-cf", join(out, "registry.tar"), "-C", cache, "."]);
+    const ask = (args) => execFileSync("pnpm", args, { cwd: tree, encoding: "utf8" }).trim();
+    const pnpmVersion = ask(["--version"]);
+    const store = ask(["store", "path"]);
     writeFileSync(
       join(out, "snapshot.json"),
-      JSON.stringify({ repo: resolve(repo), commit: sha, takenAt }, null, 1) + "\n",
+      JSON.stringify({ repo, commit: sha, takenAt, pnpmVersion, store }, null, 1) + "\n",
     );
     return { takenAt, commit: sha };
   } catch (e) {

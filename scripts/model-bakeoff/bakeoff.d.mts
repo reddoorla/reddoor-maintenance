@@ -47,8 +47,7 @@ export function scoreArms(
   truth: unknown,
 ): { checksByArm: Record<string, import("./lib/score.mjs").Check[]>; problems: string[] };
 export function armOutput(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the agent is whatever collect stored
-  task: { observe?: (work: string, structured: any, agent?: any) => unknown },
+  task: { observe?: (work: string, structured: unknown, agent?: unknown) => unknown },
   args: { work: string },
   arm: Arm,
   agent: (Partial<Collected> & { structured?: unknown }) | undefined,

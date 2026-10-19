@@ -27,11 +27,11 @@ export function lockfileFacts(text: string): Facts;
 export function runChecks(run: (args: string[]) => number): { pass: boolean; failed: string[] };
 export interface CheckItem {
   name: string;
-  failed: boolean;
+  reportsOwnRun: boolean;
   exitFailed: boolean;
 }
 export function checkItems(failed: string[]): CheckItem[];
-export function exitCodes(work: string): Record<string, string>;
+export function exitCodes(work: string): Record<string, string | null>;
 export function truth(dir: string, opts?: { into?: string }): Facts & { checks: CheckItem[] };
 export function observe(
   work: string,
