@@ -134,7 +134,7 @@ export function scoreRun(
         refKey: "present",
         armRaw: presence,
         refRaw: "present",
-        ...(answered ? {} : { mechanical: true }),
+        ...(answered && !col.mechanical ? {} : { mechanical: true }),
       });
       for (const [field, kind] of Object.entries(col.fields)) {
         const has = Boolean(o) && o[field] !== undefined;
@@ -150,6 +150,7 @@ export function scoreRun(
           refKey,
           armRaw: has ? raw(o[field]) : MISSING,
           refRaw: raw(r[field]),
+          ...(col.mechanical ? { mechanical: true } : {}),
         });
       }
     }
@@ -165,6 +166,7 @@ export function scoreRun(
         refKey: "not listed",
         armRaw: out.has(k) ? `listed, as ${JSON.stringify(raw(out.get(k)[col.key]))}` : listed,
         refRaw: `not listed (first spelled ${JSON.stringify(name)})`,
+        ...(col.mechanical ? { mechanical: true } : {}),
       });
     }
     const faults = answered ? { duplicates: duplicates.sort(), keyless } : { noOutput: true };

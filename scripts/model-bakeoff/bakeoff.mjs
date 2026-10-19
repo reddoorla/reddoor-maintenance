@@ -107,6 +107,8 @@ async function prepare(opts) {
   const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
   const args = extractArgs(task, input, arms);
   mkdirSync(args.work, { recursive: true });
+  const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
+  if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
   freeze(input);
   writeJson(join(run, "manifest.json"), manifest(input));
   writeJson(join(run, "truth.json"), task.truth ? task.truth(input) : null);
@@ -224,6 +226,19 @@ export function nextRound(agents) {
   return max + 1;
 }
 
+// A task with evaluate() is scored on what each agent left in its work dir, not on what it
+// reported; the result is cached in <run>/evaluated.json because the gates are slow.
+export function evaluatedOutputs(task, run, args, ids) {
+  const file = join(run, "evaluated.json");
+  const cache = existsSync(file) ? readJson(file) : {};
+  for (const id of ids) {
+    if (cache[id]) continue;
+    cache[id] = task.evaluate({ run, work: args.work, id });
+    writeJson(file, cache);
+  }
+  return cache;
+}
+
 async function score(opts) {
   const run = resolve(opts.run);
   const args = readJson(join(run, "workflow-args.json"));
@@ -245,10 +260,19 @@ async function score(opts) {
   problems.push(...referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
+  const evaluated = task.evaluate
+    ? evaluatedOutputs(
+        task,
+        run,
+        args,
+        scored.map((arm) => arm.id),
+      )
+    : null;
+  const outputOf = (id) => (evaluated ? evaluated[id] : agents[id].structured);
   const candidates = extraCandidates(
     task,
     reference,
-    scored.map((arm) => agents[arm.id].structured),
+    scored.map((arm) => outputOf(arm.id)),
   );
   const checksByArm = {};
   for (const arm of all) {
@@ -259,7 +283,7 @@ async function score(opts) {
     }
     problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
+    checksByArm[arm.id] = scoreRun(task, reference, outputOf(arm.id), candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));

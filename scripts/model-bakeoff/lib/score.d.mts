@@ -7,6 +7,8 @@ export interface Collection {
   name: string;
   key: string;
   keyKind: string;
+  /** Every check in this collection is mechanical: a mismatch fails without a referee round. */
+  mechanical?: boolean;
   fields: Record<string, string>;
 }
 export interface Check {

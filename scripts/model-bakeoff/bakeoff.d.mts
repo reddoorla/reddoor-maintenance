@@ -41,3 +41,9 @@ export function verifyRan(
 ): string[];
 export function nextRound(agents: Record<string, unknown>): number;
 export function formatResult(r: Record<string, unknown>): string;
+export function evaluatedOutputs(
+  task: { evaluate: (o: { run: string; work: string; id: string }) => unknown },
+  run: string,
+  args: { work: string },
+  ids: string[],
+): Record<string, unknown>;
