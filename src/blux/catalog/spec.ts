@@ -151,5 +151,3 @@ export type CatalogSpec =
   | BluxMediaTextSpec
   | BluxCollectionSpec
   | BluxBlockSpec;
-
-export type CatalogKind = CatalogSpec["slice"];
