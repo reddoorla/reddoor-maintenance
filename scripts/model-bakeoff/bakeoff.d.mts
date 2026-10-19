@@ -47,3 +47,8 @@ export function evaluatedOutputs(
   args: { work: string },
   ids: string[],
 ): Record<string, unknown>;
+export function referenceFor(
+  task: { id?: string; evaluate?: unknown },
+  truth: unknown,
+  gold: unknown,
+): unknown;

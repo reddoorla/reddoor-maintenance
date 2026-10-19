@@ -226,6 +226,16 @@ export function nextRound(agents) {
   return max + 1;
 }
 
+// The arms of a task with evaluate() are scored on what they left on disk, so the gold's own
+// report is no reference for them: such a task must compute its truth.
+export function referenceFor(task, truth, gold) {
+  if (task.evaluate && !truth) throw new Error(`${task.id} has evaluate() but no truth()`);
+  const reference = truth ?? gold;
+  if (!reference)
+    throw new Error("no reference: the task has no truth and the gold run returned nothing");
+  return reference;
+}
+
 // A task with evaluate() is scored on what each agent left in its work dir, not on what it
 // reported; the result is cached in <run>/evaluated.json because the gates are slow.
 export function evaluatedOutputs(task, run, args, ids) {
@@ -254,9 +264,7 @@ async function score(opts) {
     problems.push("the frozen input changed during the run");
   const truth = readJson(join(run, "truth.json"));
   const gold = agents.gold?.structured;
-  const reference = truth ?? gold;
-  if (!reference)
-    throw new Error("no reference: the task has no truth and the gold run returned nothing");
+  const reference = referenceFor(task, truth, gold);
   problems.push(...referenceFaults(task, reference));
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));

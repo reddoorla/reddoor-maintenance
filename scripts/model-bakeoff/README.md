@@ -197,17 +197,23 @@ exports make this work, and a collection can be marked `mechanical`:
   offline, so the commit that implemented the task is not in its history. The agents need Write
   and Edit there, which the existing rules already allow: their work dir is theirs, and `score`
   still reports a write anywhere else.
-- `evaluate({ run, work, id })` replaces the agent's structured output as the thing scored. `score`
+- `evaluate({ run, work, id })` replaces the agent's structured output as the thing scored. A task
+  with `evaluate` must also export `truth`, since the gold's report is not a reference for a tree;
+  `score` refuses one without. `score`
   calls it once per agent and caches the result in `<run>/evaluated.json`, because the gates are
   slow (t4: about two minutes per agent). Delete that file to evaluate again.
 - `mechanical: true` on a collection marks every check in it mechanical, like `(well-formed)`: a
-  mismatch fails without a referee round. A gate's exit code or a held-out test's status has
-  nothing for a referee to read.
+  mismatch fails without a referee round. t4 marks only its `gates`: an exit code has nothing for
+  a referee to read.
 
 t4's gates run on a copy of each agent's tracked and untracked files, never on its tree:
 `pnpm check`, `pnpm lint` and the agent's own `vitest run`. Then the plan's own test file, taken
-from the implementing commit, replaces the agent's version and runs alone, and each of its tests
-is one check. The scope gate passes when the files changed since the pinned commit (committed or
+from the implementing commit, replaces the agent's version and runs alone. Each of its tests is a
+`(present)` check and a `result` check, so a run has 30 checks: 10 tests and 4 gates, two checks
+each, and 2 `(well-formed)`. A held-out test can fail on a detail the plan leaves open (run 1: a
+synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
+failure's first line and the paths of the agent's code and of the test as run. Each arm's failure
+is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files changed since the pinned commit (committed or
 not) are a non-empty subset of the files the plan names.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.

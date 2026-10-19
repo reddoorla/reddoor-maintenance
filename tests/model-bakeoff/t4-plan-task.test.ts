@@ -2,7 +2,11 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { evaluatedOutputs, extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import {
+  evaluatedOutputs,
+  extractArgs,
+  referenceFor,
+} from "../../scripts/model-bakeoff/bakeoff.mjs";
 import { groupDisagreements, scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
 import * as task from "../../scripts/model-bakeoff/tasks/t4-plan-task.mjs";
 
@@ -162,5 +166,19 @@ describe("evaluatedOutputs", () => {
       "a",
       "b",
     ]);
+  });
+});
+
+describe("referenceFor", () => {
+  it("refuses a task that scores trees but has no truth to score them against", () => {
+    const gold = { gates: [] };
+    expect(() => referenceFor({ id: "x", evaluate: () => ({}) }, null, gold)).toThrow(
+      /evaluate\(\) but no truth\(\)/,
+    );
+    expect(referenceFor({ id: "x", evaluate: () => ({}) }, task.truth(), gold)).toEqual(
+      task.truth(),
+    );
+    expect(referenceFor({ id: "t5" }, null, gold)).toBe(gold);
+    expect(() => referenceFor({ id: "t5" }, null, null)).toThrow(/no reference/);
   });
 });
