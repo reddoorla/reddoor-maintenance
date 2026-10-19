@@ -391,6 +391,121 @@ describe("makeWorkflowDispatchDispatcher", () => {
     });
     expect(result).toEqual({ ok: false, error: expect.stringContaining("network down") });
   });
+
+  // The error text reaches the operator verbatim, as "Could not start the
+  // audit: <error>" (respondToProspectAuditTrigger), so it is pinned exactly.
+  const INPUTS = {
+    url: "https://x.example/",
+    business: "",
+    requested_by: "cockpit",
+    goal: "enquire",
+  };
+
+  it("words a bad repo shape exactly", async () => {
+    const dispatcher = makeWorkflowDispatchDispatcher({
+      token: "gh_x",
+      fetch: vi.fn() as unknown as typeof fetch,
+    });
+    const result = await dispatcher({
+      repo: "not-owner-slash-repo",
+      workflowFile: "prospect-audit.yml",
+      inputs: INPUTS,
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: 'expected "owner/repo", got "not-owner-slash-repo"',
+    });
+  });
+
+  it("words a non-ok dispatch exactly, with the body capped at 300 characters", async () => {
+    const fakeFetch = fetchSequence(
+      { ok: true, json: async () => ({ default_branch: "main" }) } as unknown as Response,
+      { ok: false, status: 422, text: async () => "x".repeat(400) } as unknown as Response,
+    );
+    const dispatcher = makeWorkflowDispatchDispatcher({
+      token: "gh_x",
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const result = await dispatcher({
+      repo: "reddoorla/private-audits",
+      workflowFile: "prospect-audit.yml",
+      inputs: INPUTS,
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: `GitHub workflow_dispatch reddoorla/private-audits/prospect-audit.yml failed (422): ${"x".repeat(300)}`,
+    });
+  });
+
+  it("falls back to <no body> when the error body cannot be read", async () => {
+    const fakeFetch = fetchSequence(
+      { ok: true, json: async () => ({ default_branch: "main" }) } as unknown as Response,
+      {
+        ok: false,
+        status: 500,
+        text: async () => {
+          throw new Error("stream gone");
+        },
+      } as unknown as Response,
+    );
+    const dispatcher = makeWorkflowDispatchDispatcher({
+      token: "gh_x",
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const result = await dispatcher({
+      repo: "reddoorla/private-audits",
+      workflowFile: "prospect-audit.yml",
+      inputs: INPUTS,
+    });
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "GitHub workflow_dispatch reddoorla/private-audits/prospect-audit.yml failed (500): <no body>",
+    });
+  });
+
+  it("sends the dispatch as a POST with the token and the dashboard's headers", async () => {
+    const fakeFetch = fetchSequence(
+      { ok: true, json: async () => ({ default_branch: "main" }) } as unknown as Response,
+      { ok: true, status: 204 } as unknown as Response,
+    );
+    const dispatcher = makeWorkflowDispatchDispatcher({
+      token: "gh_x",
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    await dispatcher({
+      repo: "reddoorla/private-audits",
+      workflowFile: "prospect-audit.yml",
+      inputs: INPUTS,
+    });
+    const init = (fakeFetch.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      authorization: "Bearer gh_x",
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "reddoor-maintenance-dashboard",
+      "content-type": "application/json",
+    });
+  });
+
+  it("refuses a workflow file that would escape its path segment, without dispatching", async () => {
+    const fakeFetch = fetchSequence({
+      ok: true,
+      json: async () => ({ default_branch: "main" }),
+    } as unknown as Response);
+    const dispatcher = makeWorkflowDispatchDispatcher({
+      token: "gh_x",
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const result = await dispatcher({
+      repo: "reddoorla/private-audits",
+      workflowFile: "../../evil",
+      inputs: INPUTS,
+    });
+    expect(result.ok).toBe(false);
+    expect(fakeFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the default recipients label", () => {
