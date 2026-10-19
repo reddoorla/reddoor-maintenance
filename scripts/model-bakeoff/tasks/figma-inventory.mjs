@@ -128,7 +128,9 @@ const decode = (s) =>
       const n = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
       return String.fromCodePoint(n);
     }
-    return ENTITIES[e.toLowerCase()] ?? m;
+    const named = ENTITIES[e.toLowerCase()];
+    if (named === undefined) throw new Error(`unknown entity ${m}`);
+    return named;
   });
 
 const attrsOf = (s) => {
@@ -137,9 +139,13 @@ const attrsOf = (s) => {
   return out;
 };
 
+const META_TAG = /<(\/?)([a-z][\w-]*)((?:\s+[\w:-]+="[^"]*")*)\s*(\/?)>/gi;
+
 export function parseMetadata(xml) {
+  const unread = xml.replace(META_TAG, "").match(/<[^>]*>?/);
+  if (unread) throw new Error(`metadata: cannot read ${unread[0].slice(0, 60)}`);
   const stack = [{ children: [] }];
-  for (const m of xml.matchAll(/<(\/?)([a-z][\w-]*)((?:\s+[\w:-]+="[^"]*")*)\s*(\/?)>/gi)) {
+  for (const m of xml.matchAll(META_TAG)) {
     const [, close, tag, attrText, selfClose] = m;
     if (close) {
       if (stack.length < 2 || stack.at(-1).type !== tag)
@@ -211,6 +217,11 @@ function jsxText(raw) {
       : decode(t);
     if (n + 1 < parts.length) out += parts[n + 1] ?? parts[n + 2] ?? parts[n + 3] ?? "";
   }
+  // Any other expression ({label}, {cond && <p/>}, a comment) renders something this reader
+  // cannot know, so the truth refuses it rather than scoring its source text.
+  const expr = parts.filter((_, n) => n % 4 === 0).find((t) => /[{}]/.test(t));
+  if (expr !== undefined)
+    throw new Error(`jsx: cannot read the expression in ${expr.trim().slice(0, 60)}`);
   return out;
 }
 
@@ -248,19 +259,34 @@ export function parseJsx(src) {
 
 export function parseDesignContext(code) {
   const assets = {};
-  for (const m of code.matchAll(/^const (\w+) = "([^"]*)";$/gm)) assets[m[1]] = m[2];
+  for (const m of code.matchAll(/^const (\w+) = (?:"([^"]*)"|'([^']*)');$/gm))
+    assets[m[1]] = m[2] ?? m[3];
   const components = {};
   let main = null;
-  for (const m of code.matchAll(/^(export default )?function (\w+)\(/gm)) {
+  const heads = [...code.matchAll(/^(export default )?function (\w+)\(/gm)];
+  for (const [n, m] of heads.entries()) {
+    const stop = heads[n + 1]?.index ?? code.length;
     const start = code.indexOf("return (", m.index);
     const end = code.indexOf("\n  );\n}", start);
-    if (start === -1 || end === -1) throw new Error(`design context: no return block in ${m[2]}`);
+    if (start === -1 || end === -1 || end > stop)
+      throw new Error(`design context: no return ( ... ); block in ${m[2]}`);
     const [el, ...rest] = parseJsx(code.slice(start + "return (".length, end));
     if (!el || rest.length) throw new Error(`design context: ${m[2]} must return one element`);
     components[m[2]] = el;
     if (m[1]) main = m[2];
   }
   if (!main) throw new Error("design context: no export default function");
+  const check = (el) => {
+    if (el.text !== undefined) return;
+    if (/^[A-Z]/.test(el.tag) && !components[el.tag])
+      throw new Error(`design context: <${el.tag}> is not a function this reader found`);
+    if (el.tag === "img" && !(typeof el.attrs.src === "object" && el.attrs.src.expr in assets))
+      throw new Error(`design context: an <img> src is not one of the asset constants`);
+    if (typeof el.attrs.href === "object")
+      throw new Error(`design context: href={${el.attrs.href.expr}} is an expression`);
+    el.children.forEach(check);
+  };
+  Object.values(components).forEach(check);
   return { assets, components, main };
 }
 
@@ -369,6 +395,13 @@ export function inventory(metadataJson, designContextJson) {
       instances: visibleInstances(s),
     };
   });
+  const seen = new Set();
+  for (const f of fields) {
+    // A component rendered twice repeats its node ids; the prompt does not say how to list
+    // that, so the truth refuses it rather than choose for the arms.
+    if (seen.has(f.id)) throw new Error(`field ${f.id} is rendered more than once`);
+    seen.add(f.id);
+  }
   return { slices, fields };
 }
 
@@ -383,8 +416,14 @@ export function truth(dir) {
     );
   }
   const nodes = files.flatMap((f) => /^metadata-(\d+-\d+)\.json$/.exec(f)?.[1] ?? []);
-  if (!nodes.length) throw new Error(`${figma} holds no metadata-<node>.json`);
-  const read = (f) => JSON.parse(readFileSync(join(figma, f), "utf8"));
+  if (!nodes.length)
+    throw new Error(
+      `${figma} holds no metadata-<node>.json: run prepare with --root <folder holding the frozen Figma JSON>`,
+    );
+  const read = (f) => {
+    if (!files.includes(f)) throw new Error(`${figma} has no ${f} to pair with its metadata`);
+    return JSON.parse(readFileSync(join(figma, f), "utf8"));
+  };
   const out = { slices: [], fields: [] };
   for (const node of nodes) {
     const inv = inventory(read(`metadata-${node}.json`), read(`design-context-${node}.json`));

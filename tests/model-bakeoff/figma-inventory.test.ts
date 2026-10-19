@@ -1,24 +1,35 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as task from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import { validateRun } from "../../scripts/model-bakeoff/lib/arms.mjs";
 import { scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
 
 const { inventory, layerName, parseMetadata, parseDesignContext } = task;
 
-// A miniature of the frozen Figma output: one page frame with a visible band that holds a
-// hidden layer, a band whose texts come from a component, and a hidden band.
+// A miniature of the frozen Figma output: one page frame with a visible band that holds
+// hidden layers (one hidden only through its grandparent), a band whose texts and images come
+// from components, an instance band with an instance inside it, and a hidden band. The hidden
+// instances' names appear nowhere else, so a reader that kept them would list them.
 const METADATA = [
   '<frame id="1:1" name="Page" x="0" y="0" width="1440" height="900">',
   '  <frame id="1:2" name="Hero &amp; Intro" x="0" y="0" width="1440" height="500.6">',
   '    <instance id="1:3" name="RI Logo  Garnet " x="0" y="0" width="10" height="10" />',
   '    <frame id="1:4" name="old" x="0" y="0" width="10" height="10" hidden="true">',
-  '      <instance id="1:5" name="button light" x="0" y="0" width="10" height="10" />',
+  '      <instance id="1:5" name="hidden button" x="0" y="0" width="10" height="10" />',
+  '      <frame id="1:16" name="inner" x="0" y="0" width="10" height="10">',
+  '        <instance id="1:17" name="deep hidden button" x="0" y="0" width="10" height="10" />',
+  "      </frame>",
   "    </frame>",
   '    <instance id="1:6" name="button light" x="0" y="0" width="10" height="10" />',
   "  </frame>",
-  '  <frame id="1:7" name="Properties" x="0" y="500" width="1440" height="300">',
+  '  <frame id="1:7" name="Properties #1" x="0" y="500" width="1440" height="300">',
   '    <instance id="1:12" name="slideshow" x="0" y="0" width="1440" height="300" />',
   "  </frame>",
+  '  <instance id="1:13" name="navbar" x="0" y="0" width="1440" height="80">',
+  '    <instance id="1:14" name="menu button" x="0" y="0" width="20" height="20" />',
+  "  </instance>",
   '  <frame id="1:8" name="Hidden band" x="0" y="800" width="1440" height="100" hidden="true" />',
   "</frame>",
 ].join("\n");
@@ -35,6 +46,14 @@ const CODE = [
   '        <li className="ms-[21px]"><span>One &amp; two</span></li>',
   "        <li><span>Three</span></li>",
   "      </ul>",
+  "    </div>",
+  "  );",
+  "}",
+  "",
+  "function Photo() {",
+  "  return (",
+  '    <div data-node-id="3:1">',
+  '      <img alt="" src={imgPhoto} />',
   "    </div>",
   "  );",
   "}",
@@ -61,9 +80,15 @@ const CODE = [
   "          Read the notice",
   "        </a>",
   '        <img alt="" src={imgPhoto} />',
+  '        <p data-node-id="1:15">\u200b</p>',
   "      </div>",
   '      <div data-node-id="1:7">',
   '        <Slideshow className="shrink-0" />',
+  "        <Photo />",
+  "        <Photo />",
+  "      </div>",
+  '      <div data-node-id="1:13">',
+  '        <p data-node-id="I1:13;5:5">Menu</p>',
   "      </div>",
   "    </div>",
   "  );",
@@ -93,12 +118,21 @@ describe("figma-inventory truth", () => {
       },
       {
         id: "1:7",
-        name: "Properties",
+        name: "Properties #1",
         type: "frame",
         height: 300,
         texts: 1,
-        images: 1,
+        images: 3,
         instances: ["slideshow"],
+      },
+      {
+        id: "1:13",
+        name: "navbar",
+        type: "instance",
+        height: 80,
+        texts: 1,
+        images: 0,
+        instances: ["menu button"],
       },
     ]);
   });
@@ -123,7 +157,43 @@ describe("figma-inventory truth", () => {
         href: "https://example.com/a.pdf",
       },
       { id: "2:2", slice: "1:7", tag: "ul", text: "One & two\nThree", href: "" },
+      { id: "I1:13;5:5", slice: "1:13", tag: "p", text: "Menu", href: "" },
     ]);
+  });
+
+  const refuses = (code: string, why: RegExp) =>
+    expect(() => inventory(META, frozen("get_design_context", "1:1", code))).toThrow(why);
+
+  it("refuses JSX it cannot read rather than score its source text", () => {
+    refuses(CODE.replace("Since 1983.", "{label}"), /cannot read the expression/);
+    refuses(CODE.replace("Since 1983.", "{/* note */}"), /cannot read the expression/);
+    refuses(CODE.replace("<Photo />", "<Card />"), /<Card> is not a function/);
+    refuses(CODE.replace("src={imgLogo}", "src={imgMissing}"), /src is not one of the asset/);
+    refuses(CODE.replace('href="https://example.com/a.pdf"', "href={url}"), /href=\{url\}/);
+    refuses(CODE.replace("Read the notice", "Rock &mdash; roll"), /unknown entity &mdash;/);
+  });
+
+  it("reads single-quoted asset constants", () => {
+    const code = CODE.replace(
+      'const imgPhoto = "https://www.figma.com/api/mcp/asset/a.png";',
+      "const imgPhoto = 'https://www.figma.com/api/mcp/asset/a.png';",
+    );
+    expect(inventory(META, frozen("get_design_context", "1:1", code)).slices[1]?.images).toBe(3);
+  });
+
+  it("refuses a field rendered more than once, which the prompt does not cover", () => {
+    refuses(
+      CODE.replace("        <Photo />\n", "        <Slideshow />\n"),
+      /2:2 is rendered more than once/,
+    );
+  });
+
+  it("refuses metadata it cannot read", () => {
+    const xml = METADATA.replace(
+      '<instance id="1:14" name="menu button" x="0" y="0" width="20" height="20" />',
+      "<instance id='1:14' name='menu button' />",
+    );
+    expect(() => inventory(frozen("get_metadata", "1:1", xml), DC)).toThrow(/cannot read/);
   });
 
   it("refuses frozen output whose slices disagree between the two tools", () => {
@@ -141,6 +211,7 @@ describe("figma-inventory truth", () => {
     expect(root.children.map((c) => [c.id, c.hidden])).toEqual([
       ["1:2", false],
       ["1:7", false],
+      ["1:13", false],
       ["1:8", true],
     ]);
     expect(root.children[0]?.name).toBe("Hero & Intro");
@@ -148,7 +219,7 @@ describe("figma-inventory truth", () => {
 
   it("parses each component's JSX and the asset constants", () => {
     const dc = parseDesignContext(CODE);
-    expect(Object.keys(dc.components).sort()).toEqual(["Page", "Slideshow"]);
+    expect(Object.keys(dc.components).sort()).toEqual(["Page", "Photo", "Slideshow"]);
     expect(dc.main).toBe("Page");
     expect(dc.assets).toEqual({
       imgPhoto: "https://www.figma.com/api/mcp/asset/a.png",
@@ -177,8 +248,8 @@ describe("figma-inventory scorer", () => {
   it("scores the truth against itself as perfect", () => {
     const checks = scoreRun(task, truth, truth);
     expect(checks.filter((c) => !c.ok)).toEqual([]);
-    // 2 slices x (6 fields + present) + 5 fields x (4 fields + present) + 2 well-formed
-    expect(total).toBe(2 * 7 + 5 * 5 + 2);
+    // 3 slices x (6 fields + present) + 6 fields x (4 fields + present) + 2 well-formed
+    expect(total).toBe(3 * 7 + 6 * 5 + 2);
   });
 
   it("fails exactly the one check whose field was dropped", () => {
@@ -193,6 +264,81 @@ describe("figma-inventory scorer", () => {
     perturbed.slices[0]!.instances = ["RI Logo Garnet"];
     const bad = scoreRun(task, truth, perturbed).filter((c) => !c.ok);
     expect(bad.map((c) => c.check)).toEqual(["slices 1:2 / instances"]);
+  });
+});
+
+describe("figma-inventory collections", () => {
+  const truth = inventory(META, DC);
+  const failed = (edit: (t: typeof truth) => void) => {
+    const p = structuredClone(truth);
+    edit(p);
+    return scoreRun(task, truth, p)
+      .filter((c) => !c.ok)
+      .map((c) => c.check);
+  };
+
+  it("scores names and instances as layer names: spacing and case fold, '#1' does not", () => {
+    expect(failed((t) => (t.slices[1]!.name = "  properties   #1 "))).toEqual([]);
+    expect(failed((t) => (t.slices[1]!.name = "Properties 1"))).toEqual(["slices 1:7 / name"]);
+    expect(failed((t) => (t.slices[0]!.instances = ["ri logo garnet", "BUTTON  LIGHT"]))).toEqual(
+      [],
+    );
+    expect(failed((t) => (t.slices[1]!.instances = ["slide-show"]))).toEqual([
+      "slices 1:7 / instances",
+    ]);
+  });
+});
+
+describe("figma-inventory truth over a run folder", () => {
+  const second = {
+    meta: '<frame id="5:1" name="Other"><frame id="5:2" name="Band" height="40" /></frame>',
+    code: [
+      "export default function Other() {",
+      "  return (",
+      '    <div data-node-id="5:1">',
+      '      <div data-node-id="5:2"><p data-node-id="5:3">Hi</p></div>',
+      "    </div>",
+      "  );",
+      "}",
+    ].join("\n"),
+  };
+  const folder = (pages: Record<string, [unknown, unknown?]>) => {
+    const dir = mkdtempSync(join(tmpdir(), "figma-inventory-"));
+    mkdirSync(join(dir, "figma"));
+    for (const [node, [m, d]] of Object.entries(pages)) {
+      writeFileSync(join(dir, "figma", `metadata-${node}.json`), JSON.stringify(m));
+      if (d) writeFileSync(join(dir, "figma", `design-context-${node}.json`), JSON.stringify(d));
+    }
+    return dir;
+  };
+
+  it("joins every page frame in the folder, in file order", () => {
+    const dir = folder({
+      "1-1": [META, DC],
+      "5-1": [
+        frozen("get_metadata", "5:1", second.meta),
+        frozen("get_design_context", "5:1", second.code),
+      ],
+    });
+    const t = task.truth(dir);
+    expect(t.slices.map((s) => s.id)).toEqual(["1:2", "1:7", "1:13", "5:2"]);
+    expect(t.fields.at(-1)).toEqual({ id: "5:3", slice: "5:2", tag: "p", text: "Hi", href: "" });
+  });
+
+  it("names the missing half of a page, and --root when the folder is empty", () => {
+    expect(() => task.truth(folder({ "1-1": [META] }))).toThrow(/no design-context-1-1\.json/);
+    expect(() => task.truth(folder({}))).toThrow(/--root/);
+  });
+
+  it("copies both files of each page and nothing else", () => {
+    const [source] = task.sources;
+    const names = [
+      "metadata-6802-1416.json",
+      "design-context-6802-1416.json",
+      "notes.json",
+      "metadata-6802-1416.json.bak",
+    ];
+    expect(names.filter((n) => source!.match.test(n))).toEqual(names.slice(0, 2));
   });
 });
 

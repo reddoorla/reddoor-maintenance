@@ -140,6 +140,11 @@ the two tools. Drop any `text` entry that Claude Code added rather than the conn
 the `[OUTPUT TRUNCATED]` note it appends when a response is too long to show in full; the note
 would tell the arms that the data is incomplete when it is not.
 
+The truth refuses what it cannot read rather than guess: a JSX expression other than a string
+or template literal, a capitalised tag it found no `function` for, an `<img>` whose `src` is not
+an asset constant, an `href={...}` expression, an unknown entity, a metadata tag it cannot
+parse, and a field id rendered more than once, which the prompt does not say how to list.
+
 ## Scoring
 
 Each field has a kind. The kinds apply these rules before comparing:
