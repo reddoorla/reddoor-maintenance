@@ -26,9 +26,9 @@ These are workspace#1's nine steps, with where each one happens.
    to mode 444 and every directory to 555, and records a manifest of each file's mode and sha256
    and the mode of the folder and each directory in it. A cloud container runs as root, so the
    permission bits alone do not stop a write. `score` therefore re-reads the folder and reports
-   any change as a problem. Each agent also gets its own scratch directory, `<run>/work/<id>`, and is told to write nowhere
-   else. On 2026-10-19 the first row-4 run gave no such directory, and all four Haiku runs wrote
-   the same `census/census.py` at once, so one ran another's script. `score` now reports any
+   any change as a problem. Each agent also gets its own scratch directory, `<run>/work/<id>`,
+   and is told to write nowhere else. On 2026-10-19 the first row-4 run gave no such directory,
+   and all four Haiku runs wrote the same `census/census.py` at once, so one ran another's script. `score` now reports any
    Write or Edit outside an agent's own directory. It cannot see a Bash redirect.
 2. **One prompt, one schema.** The task file supplies both. Every arm gets the same text. Only the
    gold run gets the task's `goldAddendum` on top.
@@ -88,7 +88,11 @@ then `collect` (with that run's transcript directory) and `score` again.
 - an arm or the gold has no transcript, or no accepted structured output;
 - an arm, the gold or a referee ran on a model or effort it did not ask for;
 - a disagreement is still unruled, or a referee chunk returned nothing while one is;
-- the referee's rulings disagree about whether the reference is right on one check;
+- the referee's rulings disagree about whether the reference is right on one check, or a
+  `(present)` or `(extra)` ruling calls both sides right or both wrong;
+- the referee ruled an extra item real, so the reference is missing it and that item's field
+  values went unscored: fix the reference (the truth function, or a gold that missed it) and
+  score again;
 - an agent wrote outside its own directory (paths resolved; a relative path counts as outside),
   used a tool outside the allowlist (`Read`, `Bash`, `Glob`, `Grep`, `Write`, `Edit`,
   `NotebookEdit`, `StructuredOutput`, `ToolSearch`), or ran a forbidden Bash command.
@@ -96,18 +100,28 @@ then `collect` (with that run's transcript directory) and `score` again.
 It also exits non-zero when there is no reference at all: no truth, and no gold output.
 
 The Bash check finds the command word of every simple command and judges that word alone. It
-drops heredoc bodies, keeps a quoted single word as the word (`"gh"`, `-X 'POST'`) and blanks
-other quoted text, then splits on newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks, brackets
-and braces. In each piece it skips shell keywords (`do`, `then`, `if`, `!`, `time` and the like),
-variable assignments, `command`/`exec`/`builtin`, and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`,
-`timeout`, `xargs`, `env`) with their options and option values. The command word is then
-forbidden when it is `gh`; `git` with a writing subcommand (`push`, `commit`, `rm` and the like)
-after any global options; `curl` with a write method, `--data`, `--form`, `--json`,
-`--upload-file`, or a short-option cluster holding `d`, `F` or `T`; or `which gh`. It repeats the
-check on the body of any `sh -c`, `bash -c` or `eval`. So `grep -n curl f | cut -d: -f1` and a
-heredoc that mentions `gh api` pass, while `for r in a; do gh api $r; done` fails. Commands run
-inside another interpreter (`node -e`, `python3 -c`) are not seen. It is a tripwire, not a
-sandbox.
+sets heredoc bodies aside, keeps a quoted single word as the word (`"gh"`, `-X 'POST'`) and
+blanks other quoted text, then splits on newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks,
+brackets and braces. In each piece it skips redirections, shell keywords (`do`, `then`, `if`,
+`!`, `time` and the like), variable assignments, `command`/`exec`/`builtin` with their options,
+and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`, `timeout`, `xargs`, `env`) with their options and
+option values. The command word is then forbidden when it is:
+
+- `gh`, or `which`, `type`, `hash`, `whereis` or `command -v` naming `gh`;
+- `git` with a subcommand that writes, after any global options: `push`, `pull`, `commit`, `rm`,
+  `add`, `merge`, `rebase`, `reset`, `init` and the like, but not the read forms `tag -l`,
+  `stash list`, `apply --stat`, `config --get`, `worktree list`, `branch -a` or `--help`;
+- `curl` with a write method (`-X POST` in any case, inside a cluster such as `-sX PUT`, or
+  `--request`), `--data`, `--form`, `--json`, `--upload-file`, or `-d`, `-F` or `-T` in a short
+  cluster, unless `-G`/`--get` makes it a GET.
+
+It repeats the check on every `$(…)` and backtick body, inside double quotes too; on the body of
+`sh -c`, `bash -c` (options such as `-euo pipefail` allowed before `-c`) or `eval` when that is the
+command; and on a heredoc body fed to a shell (`sh <<EOF`, `cat <<EOF | bash`). So
+`grep -n curl f | cut -d: -f1`, `echo "$f $(grep -c x "$f")"` and a heredoc written to a file that
+mentions `gh api` pass, while `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail.
+Commands run inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`) are not
+seen. It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
@@ -135,10 +149,13 @@ field checks are dropped for every arm, and an arm that listed it loses its `(pr
 Every item that some arm listed and the reference lacks gets an `(extra)` check, and every arm
 gets that check, whether it listed the item or not, so all arms share one denominator. The
 referee rules on each extra item once. If it rules that the item really exists, the arms that
-left it out fail that check. Each collection also gets a `(no duplicates)` check per arm. A
-duplicate is a mechanical fault, so it never goes to the referee, and where an item appears twice
-the first entry is the one scored. The 2026-10-19 t5-census run had no extra items, so each run
-had 228 checks: 188 fields, 38 `(present)` and 2 `(no duplicates)`.
+left it out fail that check, and `score` reports the item as a problem, because the reference
+lacks it and its field values are not scored until the reference is fixed. An extra item's name
+is the lexically smallest spelling any arm used, so adding or reordering arms keeps its rulings.
+Each collection also gets a `(well-formed)` check per arm: no item listed twice, no item without
+a key, and an output at all. These are mechanical faults, so they never go to the referee, and
+where an item appears twice the first entry is the one scored. The 2026-10-19 t5-census run had
+no extra items, so each run had 228 checks: 188 fields, 38 `(present)` and 2 `(well-formed)`.
 
 ## Adding a task type
 

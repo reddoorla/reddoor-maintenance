@@ -17,7 +17,7 @@ export const MISSING = "<missing>";
 const NUMBER = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
 export const PRESENT = "(present)";
 export const EXTRA = "(extra)";
-export const DUPLICATES = "(no duplicates)";
+export const WELL_FORMED = "(well-formed)";
 
 const str = (v) => (v === null || v === undefined ? "" : String(v));
 
@@ -64,12 +64,14 @@ function collectionTools(spec, col) {
   const firstByKey = (src) => {
     const m = new Map();
     const duplicates = [];
+    let keyless = 0;
     for (const x of items(src)) {
       const k = keyOf(x);
-      if (m.has(k)) duplicates.push(raw(x && x[col.key]));
+      if (k === "") keyless++;
+      else if (m.has(k)) duplicates.push(raw(x && x[col.key]));
       else m.set(k, x);
     }
-    return { m, duplicates };
+    return { m, duplicates, keyless };
   };
   return { custom, firstByKey };
 }
@@ -90,7 +92,8 @@ export function extraCandidates(spec, reference, outputs) {
     const seen = new Map();
     for (const o of outputs) {
       for (const [k, x] of firstByKey(o).m) {
-        if (!ref.has(k) && !seen.has(k)) seen.set(k, raw(x && x[col.key]));
+        const name = raw(x && x[col.key]);
+        if (!ref.has(k) && (!seen.has(k) || name < seen.get(k))) seen.set(k, name);
       }
     }
     out[col.name] = [...seen].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -108,7 +111,8 @@ export function scoreRun(
   for (const col of spec.collections) {
     const { custom, firstByKey } = collectionTools(spec, col);
     const ref = firstByKey(reference).m;
-    const { m: out, duplicates } = firstByKey(output);
+    const { m: out, duplicates, keyless } = firstByKey(output);
+    const answered = Boolean(output) && typeof output === "object";
     for (const [k, r] of ref) {
       const o = out.get(k);
       const presence = o ? "present" : "absent";
@@ -154,16 +158,18 @@ export function scoreRun(
         refRaw: "not listed",
       });
     }
+    const faults = answered ? { duplicates: duplicates.sort(), keyless } : { noOutput: true };
+    const clean = answered && duplicates.length === 0 && keyless === 0;
     checks.push({
       collection: col.name,
       key: "(set)",
-      field: DUPLICATES,
-      check: `${col.name} / ${DUPLICATES}`,
-      ok: duplicates.length === 0,
-      armKey: JSON.stringify(duplicates.sort()),
-      refKey: "[]",
-      armRaw: JSON.stringify(duplicates),
-      refRaw: "[]",
+      field: WELL_FORMED,
+      check: `${col.name} / ${WELL_FORMED}`,
+      ok: clean,
+      armKey: clean ? "ok" : JSON.stringify(faults),
+      refKey: "ok",
+      armRaw: clean ? "ok" : JSON.stringify(faults),
+      refRaw: "ok",
       mechanical: true,
     });
   }
@@ -202,14 +208,16 @@ export function finalScores(checksByArm, rulings = {}) {
       const r =
         c.ok || c.armRaw === MISSING || c.mechanical ? undefined : rulings[disagreementId(c)];
       if (!r) continue;
-      if (!verdicts.has(c.check)) verdicts.set(c.check, { yes: [], no: [] });
-      verdicts.get(c.check)[r.refCorrect === false ? "no" : "yes"].push(r);
+      if (!verdicts.has(c.check)) verdicts.set(c.check, { yes: [], no: [], odd: false });
+      const v = verdicts.get(c.check);
+      v[r.refCorrect === false ? "no" : "yes"].push(r);
+      if ((c.field === PRESENT || c.field === EXTRA) && r.armCorrect === r.refCorrect) v.odd = true;
     }
   }
   const refWrong = new Map();
   const contested = [];
   for (const [check, v] of verdicts) {
-    if (v.no.length && v.yes.length) contested.push(check);
+    if ((v.no.length && v.yes.length) || v.odd) contested.push(check);
     else if (v.no.length) refWrong.set(check, v.no[0]);
   }
   const refutedItems = new Set();
@@ -241,13 +249,15 @@ export function finalScores(checksByArm, rulings = {}) {
       if (ok) bf.correct++;
       if (!ok) {
         const refuted = refWrong.get(c.check);
+        const opposite = { "not listed": "listed", present: "absent" }[c.refRaw];
         const expected = refuted
-          ? `not ${c.refRaw} (the referee refuted the reference: ${refuted.note || "no note"})`
+          ? `${opposite ?? `not ${c.refRaw}`} (the referee refuted the reference: ${refuted.note || "no note"})`
           : c.refRaw;
         p.errors.push({ check: c.check, got: c.armRaw, expected });
       }
     }
     per[arm] = p;
   }
-  return { per, referenceErrors, contradictions };
+  const realExtras = [...refWrong.keys()].filter((check) => check.endsWith(`/ ${EXTRA}`));
+  return { per, referenceErrors, contradictions, realExtras };
 }

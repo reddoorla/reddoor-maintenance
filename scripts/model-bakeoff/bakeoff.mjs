@@ -250,7 +250,7 @@ async function score(opts) {
   const candidates = extraCandidates(
     task,
     reference,
-    scored.map((arm) => agents[arm.id].structured || {}),
+    scored.map((arm) => agents[arm.id].structured),
   );
   const checksByArm = {};
   for (const arm of all) {
@@ -261,7 +261,7 @@ async function score(opts) {
     }
     problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured || {}, candidates);
+    checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
@@ -292,7 +292,12 @@ async function score(opts) {
       ),
     });
   }
-  const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
+  const { per, referenceErrors, contradictions, realExtras } = finalScores(checksByArm, rulings);
+  for (const c of realExtras) {
+    problems.push(
+      `${c}: the referee ruled this item real, so the reference is missing it and its field values went unscored; fix the reference and score again`,
+    );
+  }
   for (const c of contradictions) {
     problems.push(`${c}: the referee's rulings disagree about whether the reference is right`);
   }

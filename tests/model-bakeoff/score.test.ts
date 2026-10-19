@@ -129,7 +129,7 @@ describe("scoreRun", () => {
     const checks = scoreRun(spec, ref, out);
     expect(checks.filter((c) => !c.ok).map((c) => [c.check, c.armRaw])).toEqual([
       ["workflows invented.yml / (extra)", "listed"],
-      ["workflows / (no duplicates)", '["a.yml"]'],
+      ["workflows / (well-formed)", JSON.stringify({ duplicates: ["a.yml"], keyless: 0 })],
     ]);
   });
 
@@ -160,6 +160,61 @@ describe("scoreRun", () => {
       [9, 8],
       [9, 7],
     ]);
+  });
+
+  it("reports an extra item ruled real, whose field values went unscored", () => {
+    const outputs = { a: { workflows: [...ref.workflows, { file: "real.yml", jobs: 9999 }] } };
+    const candidates = extraCandidates(spec, ref, Object.values(outputs));
+    const checksByArm = { a: scoreRun(spec, ref, outputs.a, candidates) };
+    const [g] = groupDisagreements(checksByArm);
+    const { realExtras, per } = finalScores(checksByArm, {
+      [g!.id]: { id: g!.id, armCorrect: true, refCorrect: false },
+    });
+    expect(realExtras).toEqual(["workflows real.yml / (extra)"]);
+    expect(per.a!.correct).toBe(per.a!.total);
+  });
+
+  it("treats a ruling where both or neither side of a presence or extra check is right as contested", () => {
+    const outputs = { a: { workflows: [...ref.workflows, { file: "x.yml" }] }, b: ref };
+    const candidates = extraCandidates(spec, ref, Object.values(outputs));
+    const checksByArm = Object.fromEntries(
+      Object.entries(outputs).map(([k, o]) => [k, scoreRun(spec, ref, o, candidates)]),
+    );
+    const [g] = groupDisagreements(checksByArm);
+    const both = finalScores(checksByArm, {
+      [g!.id]: { id: g!.id, armCorrect: true, refCorrect: true },
+    });
+    expect(both.contradictions).toEqual(["workflows x.yml / (extra)"]);
+  });
+
+  it("says what a refuted presence or extra check expected, without a double negative", () => {
+    const outputs = { a: { workflows: [...ref.workflows, { file: "real.yml" }] }, b: ref };
+    const candidates = extraCandidates(spec, ref, Object.values(outputs));
+    const checksByArm = Object.fromEntries(
+      Object.entries(outputs).map(([k, o]) => [k, scoreRun(spec, ref, o, candidates)]),
+    );
+    const [g] = groupDisagreements(checksByArm);
+    const { per } = finalScores(checksByArm, {
+      [g!.id]: { id: g!.id, armCorrect: true, refCorrect: false, note: "it exists" },
+    });
+    expect(per.b!.errors[0]!.expected).toBe(
+      "listed (the referee refuted the reference: it exists)",
+    );
+  });
+
+  it("names an extra item the same whatever order the arms come in", () => {
+    const a = { workflows: [{ file: "dir/Real.yml" }] };
+    const b = { workflows: [{ file: "real.yml" }] };
+    expect(extraCandidates(spec, ref, [a, b])).toEqual(extraCandidates(spec, ref, [b, a]));
+  });
+
+  it("fails a keyless item and a missing output mechanically, never as a candidate", () => {
+    const keyless = { workflows: [...ref.workflows, { jobs: 3 }, { file: "dir/" }] };
+    expect(extraCandidates(spec, ref, [keyless]).workflows).toEqual([]);
+    const wf = scoreRun(spec, ref, keyless).find((c) => c.field === "(well-formed)")!;
+    expect(JSON.parse(wf.armRaw)).toEqual({ duplicates: [], keyless: 2 });
+    const none = scoreRun(spec, ref, null).find((c) => c.field === "(well-formed)")!;
+    expect([none.ok, none.armRaw]).toEqual([false, '{"noOutput":true}']);
   });
 
   it("never sends a duplicate to the referee", () => {
