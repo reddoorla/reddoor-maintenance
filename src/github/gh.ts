@@ -92,6 +92,10 @@ export type GitHub = {
    *  merges unattended outside Renovate's `packageRules`. Renovate merges from
    *  inside its own run instead. */
   disableRepoAutoMerge: (repo: string) => Promise<void>;
+  /** Require `requiredChecks` on `branch`'s classic protection. Reads the
+   *  existing protection first and carries every field forward, since the PUT
+   *  replaces the whole object (#998); throws without writing when that read
+   *  fails for any reason but "Branch not protected". */
   protectBranch: (repo: string, branch: string, requiredChecks: string[]) => Promise<void>;
   setRepoSecret: (repo: string, name: string, value: string) => Promise<void>;
   repoExists: (repo: string) => Promise<boolean>;
@@ -336,6 +340,131 @@ export function parseUnknownSections(body: string): string[] {
   return [...new Set(unknown)];
 }
 
+// --- Classic branch protection: GET shape -> PUT shape (#998) ---------------
+// GitHub REST "Get branch protection" and "Update branch protection"
+// (GET/PUT /repos/{owner}/{repo}/branches/{branch}/protection,
+// https://docs.github.com/en/rest/branches/branch-protection). The PUT
+// replaces the whole object, and its shape differs from the GET's:
+//   - GET wraps booleans as `{ enabled }` (enforce_admins, allow_force_pushes,
+//     ...); PUT takes the bare boolean.
+//   - GET lists restrictions, dismissal_restrictions and
+//     bypass_pull_request_allowances as user/team/app OBJECTS; PUT takes
+//     logins and slugs.
+//   - GET's `checks[].app_id: null` means "any app"; PUT spells that -1, and
+//     an omitted app_id lets GitHub pin the check to whichever app last
+//     reported it.
+//   - GET's `url`/`*_url` fields have no PUT counterpart and are dropped.
+// `required_signatures` is not part of the PUT body (it has its own endpoint),
+// so it is not sent.
+
+type Named = { login?: unknown; slug?: unknown };
+
+function namesOf(list: unknown, key: "login" | "slug"): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((x: Named) => (typeof x?.[key] === "string" ? [x[key] as string] : []));
+}
+
+function actorsOf(v: unknown): { users: string[]; teams: string[]; apps: string[] } {
+  const o = (v ?? {}) as { users?: unknown; teams?: unknown; apps?: unknown };
+  return {
+    users: namesOf(o.users, "login"),
+    teams: namesOf(o.teams, "slug"),
+    apps: namesOf(o.apps, "slug"),
+  };
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+const PROTECTION_FLAGS = [
+  "required_linear_history",
+  "allow_force_pushes",
+  "allow_deletions",
+  "block_creations",
+  "required_conversation_resolution",
+  "lock_branch",
+  "allow_fork_syncing",
+] as const;
+
+const REVIEW_SCALARS = [
+  "dismiss_stale_reviews",
+  "require_code_owner_reviews",
+  "required_approving_review_count",
+  "require_last_push_approval",
+] as const;
+
+/**
+ * The PUT body for classic branch protection that requires `requiredChecks`
+ * while keeping everything `existing` (a GET response, or null when the branch
+ * is not protected) already has. Existing checks keep their order and app
+ * binding; a named check not yet required is appended. Nothing is removed.
+ */
+export function protectionPutBody(
+  existing: Record<string, unknown> | null,
+  requiredChecks: string[],
+): Record<string, unknown> {
+  if (existing === null) {
+    return {
+      required_status_checks: {
+        strict: true,
+        checks: [...new Set(requiredChecks)].map((context) => ({ context })),
+      },
+      enforce_admins: true,
+      required_pull_request_reviews: null,
+      restrictions: null,
+    };
+  }
+
+  const rsc = isObject(existing.required_status_checks) ? existing.required_status_checks : null;
+  const checks: Array<{ context: string; app_id?: number }> = [];
+  if (rsc && Array.isArray(rsc.checks)) {
+    for (const c of rsc.checks as Array<{ context?: unknown; app_id?: unknown }>) {
+      if (typeof c?.context !== "string") continue;
+      checks.push({ context: c.context, app_id: typeof c.app_id === "number" ? c.app_id : -1 });
+    }
+  }
+  // An older response, or one whose `checks` is missing, still lists `contexts`.
+  if (rsc && Array.isArray(rsc.contexts)) {
+    for (const c of rsc.contexts) {
+      if (typeof c === "string" && !checks.some((k) => k.context === c))
+        checks.push({ context: c });
+    }
+  }
+  for (const c of requiredChecks) {
+    if (!checks.some((k) => k.context === c)) checks.push({ context: c });
+  }
+
+  const body: Record<string, unknown> = {
+    required_status_checks: {
+      strict: typeof rsc?.strict === "boolean" ? rsc.strict : true,
+      checks,
+    },
+    enforce_admins: isObject(existing.enforce_admins) && existing.enforce_admins.enabled === true,
+    required_pull_request_reviews: null,
+    restrictions: isObject(existing.restrictions) ? actorsOf(existing.restrictions) : null,
+  };
+
+  const reviews = existing.required_pull_request_reviews;
+  if (isObject(reviews)) {
+    const out: Record<string, unknown> = {};
+    if (isObject(reviews.dismissal_restrictions)) {
+      out.dismissal_restrictions = actorsOf(reviews.dismissal_restrictions);
+    }
+    for (const k of REVIEW_SCALARS) if (k in reviews) out[k] = reviews[k];
+    if (isObject(reviews.bypass_pull_request_allowances)) {
+      out.bypass_pull_request_allowances = actorsOf(reviews.bypass_pull_request_allowances);
+    }
+    body.required_pull_request_reviews = out;
+  }
+
+  for (const k of PROTECTION_FLAGS) {
+    const f = existing[k];
+    if (isObject(f) && typeof f.enabled === "boolean") body[k] = f.enabled;
+  }
+  return body;
+}
+
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
   const spawn = deps.spawn ?? defaultSpawn;
   const env = { ...process.env, GH_TOKEN: deps.token };
@@ -403,24 +532,33 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
     },
     async protectBranch(repo, branch, requiredChecks) {
       assertUrlSegment("branch", branch);
-      const args = [
-        "api",
-        "-X",
-        "PUT",
-        `repos/${repo}/branches/${branch}/protection`,
-        "-H",
-        "Accept: application/vnd.github+json",
-        "-F",
-        "required_status_checks[strict]=true",
-        ...requiredChecks.flatMap((c) => ["-f", `required_status_checks[contexts][]=${c}`]),
-        "-F",
-        "enforce_admins=true",
-        "-F",
-        "required_pull_request_reviews=null",
-        "-F",
-        "restrictions=null",
-      ];
-      await gh(args);
+      const path = `repos/${repo}/branches/${branch}/protection`;
+      // The PUT REPLACES the whole protection object, so read it first and
+      // carry every field forward (#998). Only "Branch not protected" means
+      // there is nothing to keep; any other failure stops before the write.
+      const r = await spawn("gh", ["api", path], { env, timeoutMs: 60_000 });
+      let existing: Record<string, unknown> | null = null;
+      if (r.code !== 0) {
+        if (!/Branch not protected \(HTTP 404\)/.test(r.stderr)) {
+          throw new Error(
+            `protectBranch(${repo}:${branch}): could not read the existing protection, so it was not written: ${r.stderr.trim()}`,
+          );
+        }
+      } else {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(r.stdout);
+        } catch {
+          parsed = undefined;
+        }
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error(
+            `protectBranch(${repo}:${branch}): the protection read returned no JSON object, so it was not written`,
+          );
+        }
+        existing = parsed as Record<string, unknown>;
+      }
+      await ghJson("PUT", path, protectionPutBody(existing, requiredChecks));
     },
     async setRepoSecret(repo, name, value) {
       await gh(["secret", "set", name, "--repo", repo, "--body", value]);
