@@ -80,6 +80,10 @@ function readOnlyRules(dir, work) {
     "Do not run gh, git push, git commit, or any command that writes to GitHub or any other remote service, and do not use any GitHub or other MCP tool. The main session does any filing, posting or pushing; you only read and report.",
   ].join("\n");
 }
+
+function itemMarker(id, item) {
+  return `BAKEOFF-ARM: ${id} ITEM: ${item}`;
+}
 // --8<-- shared-with-workflow END
 
 const mode = args?.mode;
@@ -97,9 +101,41 @@ if (
 if (mode === "extract") {
   const errors = validateRun(args.arms, args.gold);
   if (errors.length) return { refused: errors };
+  const runs = [{ ...args.gold, gold: true }, ...args.arms];
+  const only = args.only;
+  if (only !== undefined) {
+    const ids = new Set(runs.map((a) => a.id));
+    if (!Array.isArray(only) || only.length === 0 || only.some((id) => !ids.has(id))) {
+      return { error: "args.only must be a non-empty list of this run's arm ids", only };
+    }
+  }
+  const chosen = only ? runs.filter((a) => only.includes(a.id)) : runs;
   phase("Extract");
-  const runs = await parallel(
-    [{ ...args.gold, gold: true }, ...args.arms].map(
+  if (Array.isArray(args.items)) {
+    // One agent per arm and item, as a production fan-out spawns one skeptic per claim.
+    const jobs = chosen.flatMap((a) => args.items.map((item) => ({ a, item })));
+    const done = await parallel(
+      jobs.map(
+        ({ a, item }) =>
+          () =>
+            agent(
+              `${item.prompt}${a.gold ? args.goldAddendum || "" : ""}\n\n${readOnlyRules(args.dir, workDir(args.work, `${a.id}/${item.id}`))}\n\n(${itemMarker(a.id, item.id)})`,
+              {
+                label: `${a.gold ? "gold" : "arm"}:${a.id}/${item.id}`,
+                phase: "Extract",
+                schema: item.schema,
+                model: a.model,
+                effort: a.effort,
+              },
+            ).then((out) => ({ id: a.id, item: item.id, returned: Boolean(out) })),
+      ),
+    );
+    const got = done.filter(Boolean);
+    log(`${got.filter((r) => r.returned).length}/${jobs.length} item runs returned`);
+    return { task: args.task, returned: got };
+  }
+  const outs = await parallel(
+    chosen.map(
       (a) => () =>
         agent(
           `${args.prompt}${a.gold ? args.goldAddendum || "" : ""}\n\n${readOnlyRules(args.dir, workDir(args.work, a.id))}\n\n(${armMarker(a.id)})`,
@@ -113,8 +149,8 @@ if (mode === "extract") {
         ).then((out) => ({ id: a.id, returned: Boolean(out) })),
     ),
   );
-  const done = runs.filter(Boolean);
-  log(`${done.filter((r) => r.returned).length}/${args.arms.length + 1} runs returned`);
+  const done = outs.filter(Boolean);
+  log(`${done.filter((r) => r.returned).length}/${chosen.length} runs returned`);
   return { task: args.task, returned: done };
 }
 

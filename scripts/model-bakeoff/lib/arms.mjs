@@ -68,6 +68,10 @@ export function readOnlyRules(dir, work) {
     "Do not run gh, git push, git commit, or any command that writes to GitHub or any other remote service, and do not use any GitHub or other MCP tool. The main session does any filing, posting or pushing; you only read and report.",
   ].join("\n");
 }
+
+export function itemMarker(id, item) {
+  return `BAKEOFF-ARM: ${id} ITEM: ${item}`;
+}
 // --8<-- shared-with-workflow END
 
 export { EFFORTS };
