@@ -5136,6 +5136,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       into a composite action. _Pick:_ (a) only. (b) is the biggest cut but
       `reddoor-starter-blux` still renders `blux_*` slices, and (c) rewrites
       every alarm path, which can only be proven on `main`.
+      **Answered 2026-10-19 (AskUserQuestion): (a), the 19 items only.**
+      Blux retirement and the workflow composite action stay out of this
+      session.
 
 ## Active projects (the operator's list, read by the PM pass)
 
