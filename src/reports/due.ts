@@ -25,7 +25,8 @@ export type DueItem = {
   lastSent: string | null;
 };
 
-const MONTHS: Record<Exclude<Frequency, "None">, number> = {
+/** Calendar months per report cycle. */
+export const MONTHS: Record<Exclude<Frequency, "None">, number> = {
   Monthly: 1,
   Quarterly: 3,
   Yearly: 12,

@@ -4,7 +4,8 @@ import { headerImageFindings, recipientFindings } from "../reports/preflight.js"
 import { gtagLoaderIds, type PropertyRead, type TagProbe } from "../audits/analytics.js";
 import { siteHostnames } from "../client/site-host.js";
 import { isCalendarDate } from "../dashboard/site-details.js";
-import { addMonths } from "../reports/due.js";
+import { addMonths, MONTHS } from "../reports/due.js";
+import { isPreLaunch } from "../fleet/site-row.js";
 
 /**
  * Is this site ready to launch?
@@ -157,26 +158,52 @@ function checkContact(row: WebsiteRow): LaunchCheckLine {
   return line("contact", "ok", `the go-live email resolves its To from ${to}`);
 }
 
-/** Months per cycle, as `due.ts` counts them. */
-const CYCLE_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, Yearly: 12 };
-const FREQUENCIES = new Set(["None", ...Object.keys(CYCLE_MONTHS)]);
+const FREQUENCIES = new Set(["None", ...Object.keys(MONTHS)]);
+const cycleMonths = (freq: string): number | undefined => MONTHS[freq as keyof typeof MONTHS];
 
+/** The same staleness line preflight's `anchor-stale` draws (~13 months). */
+const STALE_ANCHOR_DAYS = 396;
 const DAY_MS = 86_400_000;
 
-/** Why a schedule anchor day is unusable, or null. Not a `YYYY-MM-DD` calendar
- *  date (the dashboard stores nothing else); a first report, one cycle on from
- *  the anchor as `nextDueDate` counts it, that has already fallen due, so it
- *  drafts back-dated and overdue; or more than a year ahead (a year typo that
- *  would hold the first report for decades). */
-function dayProblem(field: string, value: string, months: number, now: Date): string | null {
+/** Why a schedule anchor day is unusable, or null.
+ *
+ *  Before launch (#1375) the anchor schedules the site's FIRST report, so it is
+ *  judged by that report: not a `YYYY-MM-DD` calendar date (the dashboard
+ *  stores nothing else), or a first report, one cycle on from the anchor as
+ *  `nextDueDate` counts it, that has already fallen due and so drafts
+ *  back-dated and overdue.
+ *
+ *  On any other status the anchor is history: a live site's next report counts
+ *  from its last send, so a first due date long past is normal (Data Dynamiq,
+ *  Quarterly from 2026-07-05, last sent 2026-10-09). There the check stays the
+ *  loose one: not a date to `Date.parse`, or more than ~13 months old.
+ *
+ *  Either way, more than a year ahead is refused: a year typo that would hold
+ *  the first report for decades. */
+function dayProblem(
+  field: string,
+  value: string,
+  months: number,
+  now: Date,
+  preLaunch: boolean,
+): string | null {
   const day = value.trim();
-  if (!isCalendarDate(day)) return `${field} ${JSON.stringify(day)} is not a date`;
-  const at = Date.parse(`${day}T00:00:00Z`);
-  const firstDue = addMonths(new Date(at), months);
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  if (firstDue.getTime() < today) {
-    const due = firstDue.toISOString().slice(0, 10);
-    return `${field} ${day} puts the first report on ${due}, which has passed, so it drafts back-dated and overdue. Set the day the cycle counts from.`;
+  let at: number;
+  if (preLaunch) {
+    if (!isCalendarDate(day)) return `${field} ${JSON.stringify(day)} is not a date`;
+    at = Date.parse(`${day}T00:00:00Z`);
+    const firstDue = addMonths(new Date(at), months);
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    if (firstDue.getTime() < today) {
+      const due = firstDue.toISOString().slice(0, 10);
+      return `${field} ${day} puts the first report on ${due}, which has passed, so it drafts back-dated and overdue. Set the day the cycle counts from.`;
+    }
+  } else {
+    at = Date.parse(day);
+    if (!Number.isFinite(at)) return `${field} ${JSON.stringify(day)} is not a date`;
+    if (now.getTime() - at > STALE_ANCHOR_DAYS * DAY_MS) {
+      return `${field} ${day} is more than 13 months old, so the first report drafts back-dated and overdue. Set the day the cycle counts from.`;
+    }
   }
   if (at - now.getTime() > MAX_AHEAD_DAYS * DAY_MS) {
     return `${field} ${day} is more than a year ahead, so the first report would not fall due until then.`;
@@ -212,12 +239,22 @@ function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
       `maintenance_freq is ${raw} but maintenance_day is blank, so the first Maintenance report falls due the day the site turns maintained. Set the day the cycle counts from.`,
     );
   }
-  const badDay = dayProblem("maintenance_day", row.maintenanceDay, CYCLE_MONTHS[raw]!, now);
+  const preLaunch = isPreLaunch(row.status);
+  const badDay = dayProblem(
+    "maintenance_day",
+    row.maintenanceDay,
+    cycleMonths(raw)!,
+    now,
+    preLaunch,
+  );
   if (badDay) return line("schedule", "missing", badDay);
   const testing = row.testingFreqRaw?.trim() ?? "";
   if (testing !== "" && testing !== "None") {
-    const testingMonths = CYCLE_MONTHS[testing];
-    if (testingMonths === undefined) {
+    // Before launch an unknown testing_freq has no cycle to judge testing_day
+    // by, and the scheduler would read it as None. A live row keeps main's
+    // behaviour and does not check it here.
+    const testingMonths = cycleMonths(testing);
+    if (preLaunch && testingMonths === undefined) {
       return line(
         "schedule",
         "missing",
@@ -231,7 +268,13 @@ function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
         `testing_freq is ${testing} but testing_day is blank, so the first Testing report falls due the day the site turns maintained. Set the day it counts from, or testing_freq None.`,
       );
     }
-    const badTesting = dayProblem("testing_day", row.testingDay, testingMonths, now);
+    const badTesting = dayProblem(
+      "testing_day",
+      row.testingDay,
+      testingMonths ?? 0,
+      now,
+      preLaunch,
+    );
     if (badTesting) return line("schedule", "missing", badTesting);
   }
   return line("schedule", "ok", `${raw}, counted from ${row.maintenanceDay}`);

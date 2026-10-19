@@ -215,6 +215,38 @@ describe("launchCheck", () => {
       expect(detailOf(lines, "schedule")).toContain("testing_freq");
     });
 
+    // The first-due rule is about the FIRST report of a site being launched. A
+    // live row's anchor is history: its next report counts from its last send,
+    // so it keeps the old age line (Data Dynamiq, Quarterly from 2026-07-05,
+    // sent 2026-10-09, must stay ok).
+    it("keeps the anchor-age rule on a maintained row and applies the first due date before launch", async () => {
+      const fields = { "maintenance day": "2026-07-05" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const hosted = await launchCheck(row({ ...fields, Status: "hosted-only" }), goodDeps());
+      expect(stateOf(hosted, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      const launching = await launchCheck(row({ ...fields, Status: "launching" }), goodDeps());
+      expect(stateOf(launching, "schedule")).toBe("missing");
+      const stale = await launchCheck(
+        row({ "maintenance day": "2025-08-01", Status: "maintained" }),
+        goodDeps(),
+      );
+      expect(stateOf(stale, "schedule")).toBe("missing");
+      expect(detailOf(stale, "schedule")).toContain("more than 13 months old");
+    });
+
+    it("clamps a month-end anchor as nextDueDate does", async () => {
+      const day = { "maintenence freq": "Monthly", "maintenance day": "2026-01-31" };
+      const at = (iso: string) => goodDeps({ now: () => new Date(iso) });
+      const feb28 = await launchCheck(row(day), at("2026-02-28T12:00:00Z"));
+      expect(stateOf(feb28, "schedule")).toBe("ok");
+      const mar1 = await launchCheck(row(day), at("2026-03-01T12:00:00Z"));
+      expect(stateOf(mar1, "schedule")).toBe("missing");
+      expect(detailOf(mar1, "schedule")).toContain("2026-02-28");
+    });
+
     // #1375 item 2: the dashboard stores YYYY-MM-DD, so anything else is refused,
     // including what Date.parse would read as a date.
     it.each(["2026-13-01", "2026-02-30", "Oct 5", "Monthly 2026", "2026-10-14T00:00:00Z"])(
@@ -488,6 +520,23 @@ describe("launchCheck", () => {
       body: "<head><base href=/></head><a href=privacy>P</a>",
     });
     expect(stateOf(root, "privacy")).toBe("ok");
+  });
+
+  it("resolves a relative <base href> against the page the home page landed on", async () => {
+    const en = "https://www.example.com/en/";
+    const nested = await privacyFor({
+      status: 200,
+      url: en,
+      body: '<base href="legal/"><a href="../privacy">P</a>',
+    });
+    // en/ + legal/ = /en/legal/, and ../privacy from there is /en/privacy.
+    expect(stateOf(nested, "privacy")).toBe("missing");
+    const up = await privacyFor({
+      status: 200,
+      url: en,
+      body: '<base href="../"><a href="privacy">P</a>',
+    });
+    expect(stateOf(up, "privacy")).toBe("ok");
   });
 
   it("counts an absolute link to the site's own /privacy", async () => {
