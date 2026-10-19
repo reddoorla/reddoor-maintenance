@@ -36,7 +36,7 @@ const MONTHS: Record<Exclude<Frequency, "None">, number> = {
  * Jan 31 + 1 month = Feb 28 (not Mar 3, which is what naive setMonth produces).
  * All-UTC accessors mean the result is timezone-independent.
  */
-function addMonths(d: Date, n: number): Date {
+export function addMonths(d: Date, n: number): Date {
   const out = new Date(d);
   const day = out.getUTCDate();
   out.setUTCDate(1);

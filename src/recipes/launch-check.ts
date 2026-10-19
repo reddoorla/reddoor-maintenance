@@ -3,6 +3,8 @@ import { analyticsOptedOut, searchConsoleOptedOut } from "../fleet/opt-outs.js";
 import { headerImageFindings, recipientFindings } from "../reports/preflight.js";
 import { gtagLoaderIds, type PropertyRead, type TagProbe } from "../audits/analytics.js";
 import { siteHostnames } from "../client/site-host.js";
+import { isCalendarDate } from "../dashboard/site-details.js";
+import { addMonths } from "../reports/due.js";
 
 /**
  * Is this site ready to launch?
@@ -155,21 +157,26 @@ function checkContact(row: WebsiteRow): LaunchCheckLine {
   return line("contact", "ok", `the go-live email resolves its To from ${to}`);
 }
 
-const FREQUENCIES = new Set(["None", "Monthly", "Quarterly", "Yearly"]);
+/** Months per cycle, as `due.ts` counts them. */
+const CYCLE_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, Yearly: 12 };
+const FREQUENCIES = new Set(["None", ...Object.keys(CYCLE_MONTHS)]);
 
-/** The same staleness line preflight's `anchor-stale` draws (~13 months). */
-const STALE_ANCHOR_DAYS = 396;
 const DAY_MS = 86_400_000;
 
-/** Why a schedule anchor day is unusable, or null. Not a date; more than ~13
- *  months old (the first report drafts back-dated and overdue); or more than a
- *  year ahead (a year typo that would hold the first report for decades). */
-function dayProblem(field: string, value: string, now: Date): string | null {
+/** Why a schedule anchor day is unusable, or null. Not a `YYYY-MM-DD` calendar
+ *  date (the dashboard stores nothing else); a first report, one cycle on from
+ *  the anchor as `nextDueDate` counts it, that has already fallen due, so it
+ *  drafts back-dated and overdue; or more than a year ahead (a year typo that
+ *  would hold the first report for decades). */
+function dayProblem(field: string, value: string, months: number, now: Date): string | null {
   const day = value.trim();
-  const at = Date.parse(day);
-  if (!Number.isFinite(at)) return `${field} ${JSON.stringify(day)} is not a date`;
-  if (now.getTime() - at > STALE_ANCHOR_DAYS * DAY_MS) {
-    return `${field} ${day} is more than 13 months old, so the first report drafts back-dated and overdue. Set the day the cycle counts from.`;
+  if (!isCalendarDate(day)) return `${field} ${JSON.stringify(day)} is not a date`;
+  const at = Date.parse(`${day}T00:00:00Z`);
+  const firstDue = addMonths(new Date(at), months);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (firstDue.getTime() < today) {
+    const due = firstDue.toISOString().slice(0, 10);
+    return `${field} ${day} puts the first report on ${due}, which has passed, so it drafts back-dated and overdue. Set the day the cycle counts from.`;
   }
   if (at - now.getTime() > MAX_AHEAD_DAYS * DAY_MS) {
     return `${field} ${day} is more than a year ahead, so the first report would not fall due until then.`;
@@ -205,10 +212,18 @@ function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
       `maintenance_freq is ${raw} but maintenance_day is blank, so the first Maintenance report falls due the day the site turns maintained. Set the day the cycle counts from.`,
     );
   }
-  const badDay = dayProblem("maintenance_day", row.maintenanceDay ?? "", now);
+  const badDay = dayProblem("maintenance_day", row.maintenanceDay, CYCLE_MONTHS[raw]!, now);
   if (badDay) return line("schedule", "missing", badDay);
   const testing = row.testingFreqRaw?.trim() ?? "";
   if (testing !== "" && testing !== "None") {
+    const testingMonths = CYCLE_MONTHS[testing];
+    if (testingMonths === undefined) {
+      return line(
+        "schedule",
+        "missing",
+        `testing_freq ${JSON.stringify(testing)} is not a frequency, so no Testing report is ever scheduled. Set Monthly, Quarterly, Yearly or None.`,
+      );
+    }
     if (!row.testingDay?.trim()) {
       return line(
         "schedule",
@@ -216,7 +231,7 @@ function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
         `testing_freq is ${testing} but testing_day is blank, so the first Testing report falls due the day the site turns maintained. Set the day it counts from, or testing_freq None.`,
       );
     }
-    const badTesting = dayProblem("testing_day", row.testingDay, now);
+    const badTesting = dayProblem("testing_day", row.testingDay, testingMonths, now);
     if (badTesting) return line("schedule", "missing", badTesting);
   }
   return line("schedule", "ok", `${raw}, counted from ${row.maintenanceDay}`);
@@ -447,17 +462,32 @@ async function checkGaTag(
   );
 }
 
-const HREF = /(?<![\w-])href\s*=\s*["']([^"']*)["']/gi;
+/** An `href` attribute's value, quoted or not: a minifier strips the quotes. */
+const HREF = /(?<![\w-])href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
+const BASE = /<base\b[^>]*?(?<![\w-])href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i;
 
-/** Does the page link to the site's OWN /privacy? An absolute link counts only
- *  on the site's hosts: a reCAPTCHA notice links to Google's /privacy, which is
- *  not this site's policy. */
-function linksToOwnPrivacy(row: WebsiteRow, html: string): boolean {
+const hrefValue = (m: RegExpMatchArray): string => m[1] ?? m[2] ?? m[3] ?? "";
+
+/** Does the page link to the site's OWN /privacy? A relative href resolves as
+ *  the browser resolves it: against the page's `<base href>`, itself against
+ *  the url the page was served from. An absolute link counts only on the
+ *  site's hosts: a reCAPTCHA notice links to Google's /privacy, which is not
+ *  this site's policy. */
+function linksToOwnPrivacy(row: WebsiteRow, html: string, servedFrom: string): boolean {
   const hosts = siteHostnames(hostOf(row.url));
+  let base = servedFrom;
+  const baseTag = html.match(BASE);
+  if (baseTag) {
+    try {
+      base = new URL(hrefValue(baseTag), servedFrom).href;
+    } catch {
+      // An unparseable <base> is ignored, as a browser ignores it.
+    }
+  }
   for (const m of html.matchAll(HREF)) {
     let u: URL;
     try {
-      u = new URL(m[1]!, row.url);
+      u = new URL(hrefValue(m), base);
     } catch {
       continue;
     }
@@ -501,7 +531,7 @@ async function checkPrivacy(
       `${origin}/privacy answers, but the home page was not read for the link`,
     );
   }
-  if (!linksToOwnPrivacy(row, home.body)) {
+  if (!linksToOwnPrivacy(row, home.body, home.url || row.url)) {
     return line(
       "privacy",
       "missing",
