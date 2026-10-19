@@ -198,6 +198,12 @@ sweep had inherited the session model and was on course to take twice as long
 as the extraction warranted; the readers were restarted on Sonnet and the two
 already finished were kept from cache.
 
+**Mechanical sweeps go to the `sweep` agent** (`.claude/agents/sweep.md`: Haiku 5.5 at
+`medium`, Read, Grep and Glob only): a census, inventory or extraction whose every field can be
+checked against the files. Spawn it with `subagent_type: "sweep"` and no `model` or `effort`:
+a per-call `model` outranks the agent file's. Haiku at `medium` matched gold on 456 of 456 census checks at
+about $0.013 a run (reddoorla/reddoor-workspace#1, row 4).
+
 **The verdict on a claim is review, not research.** Gathering the evidence for
 a list of claims runs on Sonnet. The agent that rules each claim true or false
 (a refuter, a sceptic, a judge) stays on the session model. On 2026-09-14 (R8 in
