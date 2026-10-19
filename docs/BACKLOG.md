@@ -5145,7 +5145,10 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       fixes, so landing `0fbf1f77` unreviewed repeats the pattern that this
       rule exists to stop. #1456's two forms are also on `main` today, so
       landing does not make them worse. The tripwire only reports and gates
-      nothing in production. The rounds:
+      nothing in production. **Answered 2026-10-19 (AskUserQuestion): (b),
+      a sixth round on `0fbf1f77`, then land.** The worker runs it and lands
+      #1444 if it is clean or minors-only, filing any minors as issues. The
+      rounds:
       - Round 1: 4 majors.
       - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
       - Round 3: 2 major regressions. Its group-feeder stack was backed out,
