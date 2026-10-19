@@ -174,6 +174,9 @@ export function scopeCheck(changed, allowed = ALLOWED) {
   return { pass: changed.length > 0 && outside.length === 0, outside };
 }
 
+// vitest colours its failure messages; a disagreement's id must not depend on the terminal.
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
 export function heldOutResults(report, names = HELD_OUT) {
   const seen = new Map();
   for (const file of report?.testResults || []) {
@@ -183,7 +186,9 @@ export function heldOutResults(report, names = HELD_OUT) {
   return names.map((name) => {
     const t = seen.get(name);
     const pass = t?.status === "passed";
-    const why = String(t?.failureMessages?.[0] ?? "").split("\n")[0];
+    const why = String(t?.failureMessages?.[0] ?? "")
+      .replace(ANSI, "")
+      .split("\n")[0];
     const result = pass ? "passed" : t ? `${t.status}${why ? `: ${why}` : ""}` : "not run";
     return { name, pass, result, ...(pass || t?.status === "failed" ? {} : { mechanical: true }) };
   });

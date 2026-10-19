@@ -130,7 +130,7 @@ describe("t4-plan-task as a bake-off task", () => {
     const report = passing(HELD_OUT.slice(1).map((n: string) => n.replace(/^hoverActivate /, "")));
     Object.assign(report.testResults[0]!.assertionResults[0]!, {
       status: "failed",
-      failureMessages: ["AssertionError: expected [] to include x\n    at stack"],
+      failureMessages: ["AssertionError: expected [] to include x\u001b[90m\n    at stack"],
     });
     const r = heldOutResults(report);
     expect(r[0]!.result).toBe("not run");
