@@ -86,11 +86,6 @@ async function rdapBootstrap(): Promise<Map<string, string> | null> {
   return bootstrapPromise;
 }
 
-/** Exported only so a test can force a re-fetch; nothing in production calls it. */
-export function resetRdapBootstrap(): void {
-  bootstrapPromise = null;
-}
-
 async function rdapBaseFor(domain: string): Promise<string | null> {
   const map = await rdapBootstrap();
   if (!map) return null;

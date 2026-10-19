@@ -49,24 +49,12 @@ export type NetlifyDeployDeps = {
 const READY_STATES: ReadonlySet<string> = new Set(["ready"]);
 /** States that mean the build actually failed — the "needs attention" case. */
 const FAILED_STATES: ReadonlySet<string> = new Set(["error", "failed", "rejected"]);
-/** States that mean a build is still in flight — neutral, not yet a verdict. */
-const IN_PROGRESS_STATES: ReadonlySet<string> = new Set([
-  "building",
-  "enqueued",
-  "new",
-  "processing",
-  "uploading",
-  "preparing",
-]);
 
 export function isReadyState(state: string | null): boolean {
   return state !== null && READY_STATES.has(state);
 }
 export function isFailedState(state: string | null): boolean {
   return state !== null && FAILED_STATES.has(state);
-}
-export function isInProgressState(state: string | null): boolean {
-  return state !== null && IN_PROGRESS_STATES.has(state);
 }
 
 /**
