@@ -5136,6 +5136,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       example's look, which lives there. The operator also relays the ask
       for Tim's assessment, and for the Figma link to the Rubrik competitive
       visual research if one exists.
+      **Answered 2026-10-19 (AskUserQuestion): (a), a Figma Slides copy
+      of Nicole's template.** The deck is built once Tim's assessment is
+      in #crca.
 
 ## Active projects (the operator's list, read by the PM pass)
 
