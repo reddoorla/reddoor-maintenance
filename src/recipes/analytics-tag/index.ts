@@ -11,6 +11,7 @@ import { HOOKS_CLIENT_RELATIVE, MEASUREMENT_ID_RE, hooksClientTemplate } from ".
 import { HAND_ADD_HOSTS, maskNonCode, planCspEdit, type CspEditPlan } from "./csp-edit.js";
 import { SCAN_FILE_CAP, scanCheckout } from "../../audits/analytics.js";
 import { readKitMajor } from "../sync-configs/kit-major.js";
+import { pathExists } from "../../util/fs.js";
 
 const SVELTE_CONFIG_RELATIVE = "svelte.config.js";
 
@@ -83,15 +84,6 @@ function atLeast(v: [number, number, number], min: string): boolean {
   if (v[0] !== a) return v[0] > a;
   if (v[1] !== b) return v[1] > b;
   return v[2] >= c;
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** The snippet an operator adds to an existing hook by hand. */
@@ -330,7 +322,7 @@ export async function analyticsTag(
       // Writing src/hooks.client.ts beside a .js one is ignored by SvelteKit
       // while this recipe reported "applied" and the audit passed.
       for (const rel of HOOK_CANDIDATES) {
-        if (await exists(join(site.path, rel))) {
+        if (await pathExists(join(site.path, rel))) {
           return {
             kind: "failed",
             notes:

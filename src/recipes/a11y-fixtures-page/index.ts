@@ -1,18 +1,10 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
 import { A11Y_FIXTURES_PAGE_RELATIVE, A11Y_FIXTURES_PAGE_TEMPLATE } from "./template.js";
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { pathExists } from "../../util/fs.js";
 
 /**
  * Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route
@@ -27,7 +19,7 @@ export async function a11yFixturesPage(site: Site): Promise<RecipeResult> {
     name: "a11y-fixtures-page",
     site,
     plan: async () => {
-      if (await fileExists(target)) {
+      if (await pathExists(target)) {
         return { kind: "noop", notes: `${A11Y_FIXTURES_PAGE_RELATIVE} already exists` };
       }
       return { kind: "apply", plan: { target } };

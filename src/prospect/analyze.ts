@@ -11,6 +11,7 @@ import type {
 import type { SiteGoal } from "./goals.js";
 import { questionSetFor, questionSetFromChosen, type QuestionSet } from "./questions.js";
 import type { GoalFit } from "./goals.js";
+import { pathDepth } from "../util/path-depth.js";
 
 /** Bounds on what reaches the model: enough site to judge, small enough to stay
  *  inside one ~$0.50 call. */
@@ -220,16 +221,6 @@ function summarizeFindings(checks: ChecksResult): string {
         : "not measured (fetch failed)"
     }`,
   ].join("\n");
-}
-
-/** Path segment count — "/" is depth 0, "/services" is depth 1, "/blog/2019/05/a-post"
- *  is depth 3. A malformed URL sorts last rather than throwing. */
-function pathDepth(url: string): number {
-  try {
-    return new URL(url).pathname.split("/").filter(Boolean).length;
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
-  }
 }
 
 /** Which pages (of possibly many more than MAX_PAGES) reach the model, and in what

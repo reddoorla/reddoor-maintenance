@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
+import { writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
@@ -22,6 +22,7 @@ import {
   unparseableContrastNodes,
 } from "./util/contrast-unmeasured.js";
 import { readAxeResults } from "./util/axe-results.js";
+import { readJsonIfExists } from "../util/fs.js";
 import {
   describeBlendUnmeasured,
   canExcludeBlendNode,
@@ -290,15 +291,6 @@ function normalizeRoutePath(raw: string): string {
 
 const RESULTS_DIR = ".reddoor-a11y";
 const RESULTS_REL = `${RESULTS_DIR}/results.json`;
-
-async function readJsonMaybe<T>(path: string): Promise<T | null> {
-  try {
-    const raw = await readFile(path, "utf-8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
 
 export { GATE_FIXTURES_ENV };
 
@@ -1303,7 +1295,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
           if (e.code === "ENOENT" || /ENOENT/.test(String(err))) return {};
           throw err;
         }
-        return { raw, artifact: await readJsonMaybe<NormalizedA11y>(resultsPath) };
+        return { raw, artifact: await readJsonIfExists<NormalizedA11y>(resultsPath) };
       },
       ({ raw, artifact }, ports) =>
         raw !== undefined && !artifact && ports.some((port) => portInUse(spawnOutput(raw), port)),

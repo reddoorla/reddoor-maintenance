@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
 import { readPackageJson, writePackageJson, bumpDep, type PackageJsonLike } from "../util/pkg.js";
@@ -6,6 +5,7 @@ import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 import { selfCaretRange } from "../util/self-version.js";
 import { baselineVersions } from "../configs/baseline-versions.js";
 import { withRecipe } from "./_with-recipe.js";
+import { pathExists } from "../util/fs.js";
 
 export type OnboardAudit = "lighthouse" | "a11y";
 
@@ -71,15 +71,6 @@ export const AUDIT_DEPS: Record<
   ]),
 ) as Record<OnboardAudit, Array<{ name: string; version: string }>>;
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function isDeclared(pkg: PackageJsonLike, name: string): boolean {
   return Boolean(pkg.dependencies?.[name] ?? pkg.devDependencies?.[name]);
 }
@@ -101,7 +92,7 @@ export async function onboard(site: Site, opts: OnboardOptions = {}): Promise<Re
       // Pre-flight: site must already be on pnpm. We don't auto-convert here;
       // that's the convert-to-pnpm recipe's job, and combining them would
       // hide the package-manager transition inside a bigger PR.
-      if (!(await exists(join(site.path, "pnpm-lock.yaml")))) {
+      if (!(await pathExists(join(site.path, "pnpm-lock.yaml")))) {
         return {
           kind: "failed",
           notes: "no pnpm-lock.yaml at site root — run convert-to-pnpm first",
