@@ -5182,7 +5182,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       is a test per form and a mutation each, and no round has seen the fix.
       The round-6 minor (`{fd}>/dev/null gh`) is fixed too, and its nit
       (`"3">x`) is on #1456. _New ask:_ land at `f0aafb38`, run a seventh
-      round, or hold. The
+      round, or hold. **Answered 2026-10-19 (AskUserQuestion): a seventh
+      round on `f0aafb38`, then land if it is clean or minors-only;
+      otherwise hold.** The
       rounds:
       - Round 1: 4 majors.
       - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
