@@ -5123,7 +5123,7 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
-135.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
+132.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
       five review rounds, or hold it (new 2026-10-19, branch
       `claude/p1-62-bakeoff-skill` in claude-skills).** [M] The PR adds
       `skills/bakeoff/` to claude-skills, which drives
