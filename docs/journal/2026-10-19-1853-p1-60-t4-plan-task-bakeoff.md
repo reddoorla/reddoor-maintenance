@@ -27,7 +27,14 @@ Review then added more:
 - an item-level `mechanical`, honoured only for evaluated output;
 - `referenceFor`, which refuses `evaluate` without `truth`.
 
-None of this changes t5-census, figma-inventory or seeded-review. Their tests pass unchanged across two merges of `main`.
+**Two siblings built the same hook at once.** P1-58 (#1475, `pnpm update`) landed while this PR waited on CI. It brought its own `observe(work, structured, agent, reference)` and an identical collection-level `mechanical`. Two hooks for one job would be worse than either, so at that merge t4 moved onto P1-58's:
+
+- t4 exports `observe`, which runs and caches its gates inside the task.
+- `evaluate`, `evaluatedOutputs` and `referenceFor` came out of the shared `bakeoff.mjs`. P1-58's `scoreArms` already refuses `observe` without `truth`.
+- What this PR still adds to the shared files is `setup`, `refFixed` and the item-level `mechanical`, now gated on `observe`.
+- Both runs re-scored through `scoreArms` to the same 32/32s.
+
+None of this changes t5-census, figma-inventory, seeded-review, refute-claims or pnpm-update. Their tests pass across four merges of `main`.
 
 **Proving the instrument caught my own scope list.**
 

@@ -150,9 +150,9 @@ export function scoreRun(
           refKey,
           armRaw: has ? raw(o[field]) : MISSING,
           refRaw: raw(r[field]),
-          // An item may mark itself mechanical only where the scorer built it (evaluate()), never in
+          // An item may mark itself mechanical only where the scorer built it (observe()), never in
           // an agent's own report, where it would keep a wrong reference from the referee.
-          ...(col.mechanical || (o?.mechanical === true && typeof spec.evaluate === "function")
+          ...(col.mechanical || (o?.mechanical === true && typeof spec.observe === "function")
             ? { mechanical: true }
             : {}),
           ...(col.refFixed ? { refFixed: true } : {}),

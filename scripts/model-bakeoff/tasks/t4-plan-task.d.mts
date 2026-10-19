@@ -41,3 +41,5 @@ export function run(
   args: string[],
   timeout?: number,
 ): { status: number | null; error?: string; stdout: string; stderr: string };
+export function observe(work: string): Record<string, unknown>;
+export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;

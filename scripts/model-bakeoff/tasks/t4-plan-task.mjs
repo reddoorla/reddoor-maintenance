@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 // Row 1 of reddoor-workspace#1: implement one planned task on a T4 site build. roalson-interests
 // keeps no written plans (no docs/superpowers/plans/ at any commit), so the plan is the spec in
@@ -352,6 +352,24 @@ function planTree(root, repo, to) {
   if (inst.status !== 0)
     throw new Error(`pnpm install failed in ${to}:\n${inst.stdout}${inst.stderr}`);
   return to;
+}
+
+// score calls observe() for every agent. The gates take minutes an agent, so each result is cached
+// in <run>/evaluated.json; delete that file to evaluate again.
+export function observe(work) {
+  const runDir = dirname(dirname(work));
+  const id = basename(work);
+  return cachedEvaluation(runDir, id, () => evaluate({ run: runDir, work: dirname(work), id }));
+}
+
+export function cachedEvaluation(runDir, id, compute) {
+  const file = join(runDir, "evaluated.json");
+  const cache = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+  if (!cache[id]) {
+    cache[id] = compute();
+    writeFileSync(file, JSON.stringify(cache, null, 1) + "\n");
+  }
+  return cache[id];
 }
 
 // score: the gates run on the pinned tree with only the plan's files taken from the agent, so a

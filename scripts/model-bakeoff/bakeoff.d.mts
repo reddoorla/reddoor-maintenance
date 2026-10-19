@@ -44,16 +44,24 @@ export function verifyRan(
   work?: string,
   opts?: { needOutput?: boolean },
 ): string[];
-export function nextRound(agents: Record<string, unknown>): number;
-export function formatResult(r: Record<string, unknown>): string;
-export function evaluatedOutputs(
-  task: { evaluate: (o: { run: string; work: string; id: string }) => unknown },
-  run: string,
-  args: { work: string },
-  ids: string[],
-): Record<string, unknown>;
-export function referenceFor(
-  task: { id?: string; evaluate?: unknown },
+export function scoreArms(
+  task: Record<string, unknown>,
+  args: RunArgs & { task: string },
+  agents: Record<string, Collected>,
+  reference: unknown,
   truth: unknown,
-  gold: unknown,
+): { checksByArm: Record<string, import("./lib/score.mjs").Check[]>; problems: string[] };
+export function armOutput(
+  task: {
+    observe?: (work: string, structured: unknown, agent?: unknown, reference?: unknown) => unknown;
+  },
+  args: { work: string },
+  arm: Arm,
+  agent: (Partial<Collected> & { structured?: unknown }) | undefined,
+  reference?: unknown,
 ): unknown;
+export function nextRound(agents: Record<string, unknown>): number;
+export function byCollection(
+  byField: Record<string, { total: number; correct: number }>,
+): Record<string, string>;
+export function formatResult(r: Record<string, unknown>): string;

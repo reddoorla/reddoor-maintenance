@@ -202,6 +202,13 @@ Add `tasks/<id>.mjs` exporting:
   score, the field that identifies an item, and each field's kind.
 - `kinds`: optional, `{ name: (value) => comparable }`. Each one adds a field kind for this task,
   for instance a rounding tolerance, and works inside `set:` too.
+- `observe(work, structured, agent, reference)`: optional. When a task is an action rather than an extraction,
+  `score` scores what this returns for each agent instead of its structured output. It gets the
+  agent's work dir, its structured output (or `null`), its collected transcript (`bash`, `writes`
+  and the rest) and the reference, so it can read what the agent left on disk and what it ran. Return `null` for an
+  agent with no output. A task with `observe` must have a `truth`. A collection marked
+  `mechanical: true` never goes to the referee; use it for values a referee shown only the prompt
+  could not settle.
 - `truth(dir)`: optional, the script-computed reference. Leave it out when no script can compute
   the answer, and the gold run becomes the reference.
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
@@ -223,8 +230,8 @@ transcript for a git command and for a read outside `<run>/input`, and record th
 ### A task that changes a repository
 
 Some tasks are not extractions: the agent edits code, and what counts is the tree it leaves, not
-what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked example. Two optional
-exports make this work, and a collection can be marked `mechanical`:
+what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked example, with
+`observe` (above) to read the tree, plus these:
 
 - `setup({ input, work, ids, root })` runs in `prepare` after the sources are copied and before
   the input is frozen. `root` is `--root` when it is given. t4 writes the plan into the input and
@@ -234,15 +241,10 @@ exports make this work, and a collection can be marked `mechanical`:
   still reports a Write or Edit anywhere else. It does not see a Bash write, or anything the
   agent's own code does when it runs its tests, so an agent can write outside its work dir
   unreported.
-- `evaluate({ run, work, id })` replaces the agent's structured output as the thing scored. A task
-  with `evaluate` must also export `truth`, since the gold's report is not a reference for a tree;
-  `score` refuses one without. `score`
-  calls it once per agent and caches the result in `<run>/evaluated.json`, because the gates are
-  slow (t4: about two minutes per agent). Delete that file to evaluate again.
-- `mechanical: true` on a collection marks every check in it mechanical, like `(well-formed)`: a
-  mismatch fails without a referee round. t4 marks only its `gates`: an exit code has nothing for
-  a referee to read.
-- An item with `mechanical: true` in `evaluate`'s output makes that item's field checks mechanical
+- t4's `observe` runs the gates (below), about two minutes an agent, and caches each result in
+  `<run>/evaluated.json`. Delete that file to evaluate again.
+- t4 marks only its `gates` collection `mechanical`: an exit code has nothing for a referee to read.
+- An item with `mechanical: true` in `observe`'s output makes that item's field checks mechanical
   too (an agent's own report cannot do this); t4 marks a held-out
   test that never ran (a crash, a missing export), which has no failure for a referee to read.
 - `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
@@ -283,6 +285,56 @@ Then score a perturbed copy, which must fail exactly where it was changed. That 
 not the truth. The 2026-10-19 row-4 run did both before the first arm ran, and the referee still
 found the truth wrong on one check: the script missed a bare `"node:"` literal that eight of nine
 runs had found.
+
+## The `pnpm-update` task (row 6)
+
+The input is two tarballs, not a folder of sources, because `sources` copies flat files only. Build
+them first, then prepare from them:
+
+```sh
+node scripts/model-bakeoff/tasks/pnpm-update.mjs snapshot --repo <checkout> --commit <sha> --out <snap>
+node scripts/model-bakeoff/bakeoff.mjs prepare --task pnpm-update --root <snap> --out <run>
+```
+
+`repo.tar` is `git archive` of the commit. `registry.tar` is the pnpm metadata cache
+(`XDG_CACHE_HOME`) after one online `pnpm update --lockfile-only`; the snapshot also installs the
+result once, so this machine's shared store holds every tarball. `snapshot.json` records the commit
+sha and the minute, and is frozen with the tarballs. Every agent and the truth then run
+`pnpm update --offline` against their own copy of that cache, so the registry is frozen at that
+minute. With an empty cache the offline update fails, which is the negative control. The offline
+runs still need the shared store and pnpm itself (the `packageManager` version) in place, so take
+the snapshot in the session that runs the arms.
+
+`prepare` computes the truth by running the same steps, about 90 seconds, and keeps their logs in
+the temp dir it prints. A command killed by the timeout stops `prepare` instead of counting as a
+failed check. What is scored, all of it mechanical (no referee):
+
+- `packages`: the direct dependencies the agent reported, each specifier and version;
+- `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
+  every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`), with two scored fields.
+  `reportsOwnRun`: whether the verdict the agent claimed is the one its own run's exit code gives.
+  `noFalsePass`: whether it did not claim a pass for a script the truth says fails. The second is
+  one-sided because load on a shared machine can make a passing script fail (a timeout) but never
+  make a failing one pass. The prompt has each script write `<work>/logs/<script>.log` and
+  `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it (it holds pnpm's
+  `$ <script body>` line) after the lockfile it ran against. A log with no exit file counts as a failed
+  run, and so do an exit file older than its log and an exit code of 0 beside a log in which pnpm
+  reports the command failed. A
+  script with no such log fails as absent. The run's own verdict (`exitFailed`) is kept on the
+  item but not scored. A headline `checks.pass: true` is read as claiming every script passed,
+  whatever `failed` lists; `unverified` is not scored. An earlier draft inferred "ran" from the transcript's command text, which
+  credited scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
+
+The truth runs alone during `prepare`, so its verdicts are uncontended (the workflow runs the
+agents concurrently; on 2026-10-19 they started in pairs about three minutes apart on 4 cores), and its offline install
+is the proof that the shared store held every tarball. `snapshot.json` records the pnpm version
+and store path. The truth's files (`truth.json` beside the input, its temp dir) are readable by
+the agents, as in every task; `collect` lists each agent's Bash commands, so check them for a read
+of either.
+
+`result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
+total, because 104 of this task's 117 checks (packages and disk) follow from the one `pnpm update`.
 
 ## The ledger
 

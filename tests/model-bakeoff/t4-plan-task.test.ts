@@ -11,11 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
-import {
-  evaluatedOutputs,
-  extractArgs,
-  referenceFor,
-} from "../../scripts/model-bakeoff/bakeoff.mjs";
+import { extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
   finalScores,
   groupDisagreements,
@@ -158,42 +154,21 @@ describe("t4-plan-task as a bake-off task", () => {
   });
 });
 
-describe("evaluatedOutputs", () => {
-  it("scores what each agent left on disk, once per agent, cached in the run", () => {
+describe("cachedEvaluation", () => {
+  it("evaluates each agent once, cached in the run", () => {
     const run = mkdtempSync(join(tmpdir(), "t4-"));
     const calls: string[] = [];
-    const fake = {
-      evaluate: ({ id, work }: { id: string; work: string }) => {
-        calls.push(id);
-        return { id, work };
-      },
-    };
-    const args = { work: `${run}/work` };
-    expect(evaluatedOutputs(fake, run, args, ["gold", "a"])).toEqual({
-      gold: { id: "gold", work: `${run}/work` },
-      a: { id: "a", work: `${run}/work` },
-    });
-    evaluatedOutputs(fake, run, args, ["gold", "a", "b"]);
+    const ev = (id: string) => task.cachedEvaluation(run, id, () => (calls.push(id), { id }));
+    expect(ev("gold")).toEqual({ id: "gold" });
+    ev("a");
+    ev("gold");
+    ev("b");
     expect(calls).toEqual(["gold", "a", "b"]);
     expect(Object.keys(JSON.parse(readFileSync(join(run, "evaluated.json"), "utf8")))).toEqual([
       "gold",
       "a",
       "b",
     ]);
-  });
-});
-
-describe("referenceFor", () => {
-  it("refuses a task that scores trees but has no truth to score them against", () => {
-    const gold = { gates: [] };
-    expect(() => referenceFor({ id: "x", evaluate: () => ({}) }, null, gold)).toThrow(
-      /evaluate\(\) but no truth\(\)/,
-    );
-    expect(referenceFor({ id: "x", evaluate: () => ({}) }, task.truth(), gold)).toEqual(
-      task.truth(),
-    );
-    expect(referenceFor({ id: "t5" }, null, gold)).toBe(gold);
-    expect(() => referenceFor({ id: "t5" }, null, null)).toThrow(/no reference/);
   });
 });
 
