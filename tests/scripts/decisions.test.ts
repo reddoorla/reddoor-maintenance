@@ -997,7 +997,7 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
     expect(pd(X, file({ refs: "[reddoorla/.github#28, a.b/c..d#2]" })).errors).toEqual([]);
   });
 
-  it("refuses a line that still leads with the word TODO once markup is stripped, and nothing wider (#1355)", () => {
+  it("refuses the placeholder: a bare TODO, TODO then punctuation and a space, or TODO the ask (#1355)", () => {
     for (const first of [
       "TODO the ask, in one line.",
       '"TODO the ask"',
@@ -1011,6 +1011,9 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO!",
       "TODO — the ask",
       "TODO: decide the ask",
+      "TODO- the ask",
+      "TODO-",
+      "1) TODO the ask",
     ])
       expect(pd(X, file({ first })).errors, first).toEqual([
         "the ask is still the TODO placeholder",
@@ -1018,6 +1021,11 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
     for (const first of [
       "TODO-list markers in starter: delete them?",
       "Todoist or Linear for the client board?",
+      "TODO markers in starter: delete them?",
+      "TODO comments in reddoor-starter: strip them before launch?",
+      "TODO list for the starter: keep it?",
+      "Todo app for Sonder: build it?",
+      "todo.txt or Linear?",
     ]) {
       const d = pd(X, file({ first }));
       expect(d.errors, first).toEqual([]);
@@ -1042,6 +1050,19 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
 
   it("counts a rule, a fence or the TODO placeholder under ## Answer as no answer (#1356)", () => {
     for (const answer of ["---", "TODO", "```"])
+      expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([
+        "status is answered but ## Answer is empty",
+      ]);
+  });
+
+  it("reads a real answer that starts with TODO, and only a bare TODO counts as no answer (#1356)", () => {
+    for (const answer of [
+      "TODO markers: delete them all.",
+      "Todo app: no, skip it.",
+      "TODO: none, ship it as is.",
+    ])
+      expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([]);
+    for (const answer of ["todo.", "**TODO**:"])
       expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([
         "status is answered but ## Answer is empty",
       ]);

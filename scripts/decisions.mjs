@@ -123,18 +123,26 @@ export function stripComments(text) {
   }
 }
 
-// The template's first line is "TODO the ask, in one line.". Any line that still
-// leads with the word TODO, once markup is stripped, is that placeholder half-edited;
-// "TODO-list ..." and "Todoist ..." are real asks.
-export function isPlaceholder(line) {
-  const n = line
-    .replace(/^(?:[-+>\s]|\*\s|\d+\.\s)*/, "")
+const normalise = (line) =>
+  line
+    .replace(/^(?:[-+>\s]|\*\s|\d+[.)]\s)*/, "")
     .replace(/[*_`"'[\]]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  return /^todo(?![a-z0-9-])/.test(n);
+
+// The template's first line is "TODO the ask, in one line.". After list markers,
+// emphasis, code, quotes and brackets are stripped, the placeholder is a bare TODO,
+// TODO then punctuation and a space or the end ("TODO: ...", "TODO — ..."), or a
+// line that starts "TODO the ask". "TODO <word> ..." is a real ask ("TODO markers
+// in starter: delete them?"), as are "TODO-list ..." and "todo.txt ...". Other
+// wrappers, such as "(TODO)", "<TODO>" or "~~TODO~~", are not stripped.
+export function isPlaceholder(line) {
+  const n = normalise(line);
+  return n === "todo" || /^todo ?[:.!—–(/-]+(?: |$)/.test(n) || /^todo the ask/.test(n);
 }
+
+const isBareTodo = (line) => /^todo[\s.:!]*$/.test(normalise(line));
 
 const NOT_TEXT = (l) =>
   /^#{1,6}(\s|$)/.test(l) || /^(?:```|~~~)/.test(l) || /^([-*_])(\s*\1){2,}$/.test(l);
@@ -226,7 +234,7 @@ export function parseDecision(name, text, now = Date.now()) {
     const rest = at === -1 ? [] : body.slice(at + 1);
     const stop = rest.findIndex((l) => /^#{1,2}\s/.test(l));
     const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter(
-      (l) => l.trim() !== "" && !NOT_TEXT(l.trim()) && !isPlaceholder(l),
+      (l) => l.trim() !== "" && !NOT_TEXT(l.trim()) && !isBareTodo(l),
     );
     if (at === -1) errors.push("status is answered but has no ## Answer heading");
     else if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
