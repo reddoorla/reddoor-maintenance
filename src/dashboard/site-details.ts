@@ -138,7 +138,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  * comparison below is what rejects it: a day that rolled is not the day that
  * went in.
  */
-function isCalendarDate(v: string): boolean {
+export function isCalendarDate(v: string): boolean {
   if (!ISO_DATE_RE.test(v)) return false;
   const [y, m, d] = v.split("-").map(Number) as [number, number, number];
   const dt = new Date(Date.UTC(y, m - 1, d));
