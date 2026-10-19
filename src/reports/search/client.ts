@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { JWT } from "google-auth-library";
 import { withSubjectFailover } from "../ga/failover.js";
+import { ymd } from "../../util/date.js";
 
 const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly";
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
@@ -72,11 +73,6 @@ export function resolvePropertyCandidates(entries: SiteEntry[], host: string): s
   const domains = matches.filter((s) => s.toLowerCase().startsWith("sc-domain:"));
   const prefixes = matches.filter((s) => !s.toLowerCase().startsWith("sc-domain:"));
   return [...domains, ...prefixes];
-}
-
-/** UTC YYYY-MM-DD — matches the rest of the reports pipeline. */
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 /**

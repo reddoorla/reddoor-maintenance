@@ -1,10 +1,11 @@
-import { rm, stat } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
 import { readPackageJson, writePackageJson, type PackageJsonLike } from "../util/pkg.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 import { rewriteScriptsForPnpm } from "./convert-to-pnpm/script-rewrites.js";
 import { withRecipe } from "./_with-recipe.js";
+import { pathExists } from "../util/fs.js";
 
 export type ConvertToPnpmOptions = {
   spawn?: SpawnFn;
@@ -28,15 +29,6 @@ export type ConvertToPnpmOptions = {
  *  because a stale pin is a plausible number whose install succeeds. */
 export const DEFAULT_PNPM_VERSION = "11.11.0";
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 type Plan = { hasNpmLock: boolean; hasYarnLock: boolean };
 
 export async function convertToPnpm(
@@ -54,11 +46,11 @@ export async function convertToPnpm(
     name: "convert-to-pnpm",
     site,
     plan: async () => {
-      if (await exists(pnpmLockPath)) {
+      if (await pathExists(pnpmLockPath)) {
         return { kind: "noop", notes: "site already has pnpm-lock.yaml" };
       }
-      const hasNpmLock = await exists(npmLockPath);
-      const hasYarnLock = await exists(yarnLockPath);
+      const hasNpmLock = await pathExists(npmLockPath);
+      const hasYarnLock = await pathExists(yarnLockPath);
       if (!hasNpmLock && !hasYarnLock) {
         return {
           kind: "noop",

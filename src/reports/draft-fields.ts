@@ -10,6 +10,7 @@
  */
 import type { ReportType, LighthouseScores } from "./types.js";
 import type { EvidenceRecord } from "./auto-tick.js";
+import { ymd } from "../util/date.js";
 
 export type DraftInput = {
   reportId: string;
@@ -39,10 +40,9 @@ export type DraftInput = {
   autoEvidence?: Record<string, EvidenceRecord>;
 };
 
-/** `YYYY-MM-DD`, the date shape every report date column stores. */
-export function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+/** `YYYY-MM-DD`, the date shape every report date column stores. Re-exported
+ *  because `report-fields.ts` re-exports it as part of this module's surface. */
+export { ymd };
 
 /**
  * The full field set for a new report row.
