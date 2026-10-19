@@ -21,8 +21,9 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     # Backstop for the steps that carry no budget of their own (setup, install,
-    # build). Every budgeted step fits well inside it: ~3 min setup + 75 audit +
-    # 5 mint + 10 sweep. Without it a wedge in any unbudgeted step sits to
+    # build). Every budgeted step fits inside it: ~3 min setup + 75 audit +
+    # 5 mint + 10 signal sweep + 10 url probe + 10 Search Console re-check is
+    # ~113 of the 120. Without it a wedge in any unbudgeted step sits to
     # GitHub's 6-hour limit — the limit 36451921171's unbudgeted sweep hit.
     timeout-minutes: 120
     steps:
@@ -203,9 +204,11 @@ jobs:
         # site, after its property was fixed (LAHI's cockpit watch from
         # 2026-10-05). This re-runs the draft's lookup for each maintained
         # no-property site, a handful of sites at a few seconds each. It runs
-        # here, before daily-reports drafts and digests, so the digest reads
-        # tonight's answer. A no-property control goes first; if it misreads,
-        # nothing is written and the step fails. continue-on-error for the
+        # here so the digest usually reads tonight's answer: the nightly
+        # conductor waits up to 50 min for this workflow before moving on toward
+        # daily-reports, and the audit step alone may take 75, so a slow night
+        # can leave the digest one night stale. A no-property control goes
+        # first; if it misreads, nothing is written and the step fails. continue-on-error for the
         # same reason as the sweeps above: the job keeps the AUDIT's verdict.
         # The key is written the way daily-reports writes it: printf, no set -x.
         timeout-minutes: 10
