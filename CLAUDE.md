@@ -200,9 +200,12 @@ already finished were kept from cache.
 
 **Mechanical sweeps go to the `sweep` agent** (`.claude/agents/sweep.md`: Haiku 5.5 at
 `medium`, Read, Grep and Glob only): a census, inventory or extraction whose every field can be
-checked against the files. Spawn it with `subagent_type: "sweep"` and no `model` or `effort`:
-a per-call `model` outranks the agent file's. Haiku at `medium` matched gold on 456 of 456 census checks at
-about $0.013 a run (reddoorla/reddoor-workspace#1, row 4).
+checked against the files. It is the one exception to naming the tier on the call: spawn it
+with `subagent_type: "sweep"` and no `model` or `effort`, because a per-call `model` outranks
+the agent file's. So do `CLAUDE_CODE_EFFORT_LEVEL` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, if
+either is ever exported. In this configuration it scored 456 of 456 on the row-4 census, at
+$0.06 to $0.14 a run, under Sonnet's $0.26 to $0.29 (reddoorla/reddoor-workspace#1). A path
+outside the project needs read permission in the spawning session, or every read is denied.
 
 **The verdict on a claim is review, not research.** Gathering the evidence for
 a list of claims runs on Sonnet. The agent that rules each claim true or false

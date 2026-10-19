@@ -49,4 +49,9 @@ describe(".claude/agents/sweep.md", () => {
     const body = text.slice(text.indexOf("\n---\n", 4) + 5);
     expect(body).toMatch(/census/i);
   });
+
+  it("tells the agent the same tools its frontmatter grants", () => {
+    const body = text.slice(text.indexOf("\n---\n", 4) + 5);
+    expect(body).toContain("You are read-only. You have Read, Grep and Glob, and no other tools");
+  });
 });
