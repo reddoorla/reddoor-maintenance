@@ -97,7 +97,7 @@ The stories: the workspace's `directives/fleet.md`.
 
 ## Cloud sessions (Claude Code on the web)
 
-The cloud rules for every repo are in the workspace `CLAUDE.md`. Two are this
+The cloud rules for every repo are in the workspace `CLAUDE.md`. Three are this
 repo's own:
 
 - **Setup is `.claude/hooks/cloud-session-setup.sh`**, which runs on startup
@@ -114,6 +114,18 @@ repo's own:
   checkout, so a worktree needs its own `pnpm install --frozen-lockfile`. When
   this repo is attached to a session that started elsewhere, no hook runs it:
   run it yourself.
+- **A binary (PDF, image) goes into Dropbox with
+  `node scripts/dropbox.mjs upload <folder> <file…>`**, not through a file
+  request. The script mints a token from `DROPBOX_APP_KEY`,
+  `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN`, resolves paths in the team
+  space, and checks each file's `content_hash`. Run `check` first: it names the
+  account and proves the token holds both write scopes. Only when the API
+  cannot upload (`check` fails before naming the account, or prints `MISSING`
+  for `files.content.write`) is a file request the fallback:
+  `scripts/dropbox-file-request-upload.mjs`, with its steps in
+  `docs/runbooks/dropbox-file-request-upload.md` (Operator decisions 128). The
+  connector writes only text, and `DROPBOX_ACCESS_TOKEN` is a dead short-lived
+  token.
 - **Land PRs from the cloud with `node scripts/land-prs.mjs`.** It is REST-only,
   with the same gates as on the laptop. The proxy refuses branch deletes, so it
   checks whether GitHub already removed the branch and prints a `note:` only

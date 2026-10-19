@@ -16,6 +16,7 @@ import {
   type FakeReportWriter,
 } from "../reports/_helpers/fake-report-writer.js";
 import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
+import { LAUNCH_CHECK_STEPS, type LaunchCheckLine } from "../../src/recipes/launch-check.js";
 
 const realFetch = global.fetch;
 beforeEach(() => {
@@ -128,8 +129,16 @@ function deps(seed: Seed) {
         return { status: 404, body: "<div><h1>404</h1><p>Not found</p></div>" };
       return { status: 200, body: '{"ok":true,"prismic":"ok"}' };
     },
+    readiness: async () => READY,
   };
 }
+
+/** Every launch-check step `ok`: the readiness a launch that proceeds needs. */
+const READY: LaunchCheckLine[] = LAUNCH_CHECK_STEPS.map((step) => ({
+  step,
+  state: "ok",
+  detail: "fake",
+}));
 
 describe("recipes/launch", () => {
   it("runs bootstrap + audit + draft and reports complete=true", async () => {
@@ -139,6 +148,7 @@ describe("recipes/launch", () => {
     expect(result.complete).toBe(true);
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
+      "readiness",
       "self-updating",
       "dev-guard",
       "audit",
@@ -464,6 +474,7 @@ describe("recipes/launch", () => {
     expect(audited).toBe(false);
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
+      "readiness",
       "self-updating",
       "dev-guard",
     ]);
@@ -610,6 +621,7 @@ describe("recipes/launch", () => {
     // And nothing downstream ran: no draft.
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
+      "readiness",
       "self-updating",
       "dev-guard",
     ]);
@@ -690,6 +702,7 @@ describe("recipes/launch", () => {
     // The chain stopped there: nothing was drafted.
     expect(result.steps.map((s) => s.name)).toEqual([
       "matching-disposition",
+      "readiness",
       "self-updating",
       "dev-guard",
     ]);
@@ -726,6 +739,7 @@ describe("recipes/launch", () => {
       roster: d.roster,
       reportMirror: d.reportMirror,
       siteMirror: d.siteMirror,
+      readiness: d.readiness,
     });
     expect(result.complete).toBe(true);
 
@@ -1264,5 +1278,107 @@ describe("recipes/launch", () => {
     expect(result.complete).toBe(true);
     expect(probed.some((u) => u.endsWith("/dev/match/home"))).toBe(true);
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("recipes/launch readiness gate", () => {
+  const notReady = (state: "missing" | "unverified"): LaunchCheckLine[] =>
+    READY.map((l) => (l.step === "ga-tag" ? { ...l, state, detail: "no tag" } : l));
+
+  for (const state of ["missing", "unverified"] as const) {
+    it(`stops before any GitHub write when a step is ${state}`, async () => {
+      const seed = websitesSeed();
+      const d = deps(seed);
+      let bootstrapped = false;
+      const result = await launch(siteOf(), {
+        ...d,
+        bootstrap: async () => {
+          bootstrapped = true;
+          return d.bootstrap();
+        },
+        readiness: async () => notReady(state),
+      });
+      expect(result.complete).toBe(false);
+      expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition", "readiness"]);
+      expect(bootstrapped).toBe(false);
+      expect(writer.rows).toHaveLength(0);
+      const r = result.steps[1]!.result;
+      expect(r.kind === "readiness" && r.ready).toBe(false);
+    });
+  }
+
+  it("proceeds past a step named in allowMissing, and only that step", async () => {
+    const seed = websitesSeed();
+    const allowed = await launch(siteOf(), {
+      ...deps(seed),
+      readiness: async () => notReady("missing"),
+      allowMissing: new Set(["ga-tag"]),
+    });
+    expect(allowed.complete).toBe(true);
+
+    const other = await launch(siteOf(), {
+      ...deps(websitesSeed()),
+      readiness: async () => notReady("missing"),
+      allowMissing: new Set(["privacy"]),
+    });
+    expect(other.complete).toBe(false);
+    expect(other.steps.map((s) => s.name)).toEqual(["matching-disposition", "readiness"]);
+  });
+
+  it("checks the site's own row", async () => {
+    const seed = websitesSeed();
+    let checked = "";
+    await launch(siteOf(), {
+      ...deps(seed),
+      readiness: async (row) => {
+        checked = row.id;
+        return READY;
+      },
+    });
+    expect(checked).toBe("rec_site_acme");
+  });
+
+  it("stops, with no GitHub write, when the readiness check throws", async () => {
+    let bootstrapped = false;
+    const d = deps(websitesSeed());
+    const result = await launch(siteOf(), {
+      ...d,
+      bootstrap: async () => {
+        bootstrapped = true;
+        return d.bootstrap();
+      },
+      readiness: async () => {
+        throw new Error("Turso unreachable");
+      },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition", "readiness"]);
+    expect(bootstrapped).toBe(false);
+    const r = result.steps[1]!.result;
+    expect(r.kind === "error" && r.message).toBe("Turso unreachable");
+  });
+
+  it("treats a step the readiness check left out as not ok", async () => {
+    const empty = await launch(siteOf(), { ...deps(websitesSeed()), readiness: async () => [] });
+    expect(empty.complete).toBe(false);
+    const partial = await launch(siteOf(), {
+      ...deps(websitesSeed()),
+      readiness: async () => READY.filter((l) => l.step !== "privacy"),
+    });
+    expect(partial.complete).toBe(false);
+    const r = partial.steps[1]!.result;
+    expect(r.kind === "readiness" && r.lines.find((l) => l.step === "privacy")?.state).toBe(
+      "unverified",
+    );
+  });
+
+  it("stops at readiness when no row matches the site", async () => {
+    const result = await launch(siteOf(), {
+      ...deps({ Websites: [], Reports: [] }),
+    });
+    expect(result.complete).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(["matching-disposition", "readiness"]);
+    const r = result.steps[1]!.result;
+    expect(r.kind === "error" && r.message).toContain("no site row matched");
   });
 });
