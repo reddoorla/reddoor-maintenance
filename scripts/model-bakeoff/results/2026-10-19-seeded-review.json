@@ -1,0 +1,2034 @@
+{
+  "date": "2026-10-19",
+  "task": "seeded-review",
+  "row": 3,
+  "inputCommit": "1af26c40 (cases built from key.json by tasks/seeded-review/build.mjs; rebuilt byte for byte at the landing commit)",
+  "inputFiles": 22,
+  "workflowRuns": {
+    "extract": "wf_b8f503d0-760",
+    "referee r1": "wf_4468d422-072"
+  },
+  "matching": "A finding in the right case and file within NEAR_LINES (10) of a seeded range is a candidate; the referee rules each candidate. Changed after the first score, before the referee ran: overlap alone had credited a different defect on r09 line 118 in every run that flagged it.",
+  "keyCorrection": "After the run, review found two keyed defects not visible in their cases: d2 (r03 hard-codes GA to 0, so no double count exists in that change) and d9 (a feature gap the change did not introduce). They are kept in key.json with `excluded` and not scored. `corrected` is the reported reading; `preRegistered` scores all nine, with the same scorer.",
+  "readAudit": "Every arm transcript was searched for a git command in any Bash call, for Bash commands naming the repository (key.json, model-bakeoff, /home/user), and for any Read, Grep or Glob path outside the run's input folder and tool-results: none in any of the 11. The arms read almost entirely through Bash cat, sed and grep on input/cases. Round 2's validity reviewer repeated the search over every Bash command independently and found the same. Arms ran in the repository checkout, so the answer key and the fix commits were reachable; the audit, not a sandbox, is the evidence they were not read.",
+  "tolerance": {
+    "comparator": "opus-xhigh",
+    "foundSlackPerRun": 1,
+    "falsePositiveSlackPerRun": 1,
+    "criticalMisses": 0
+  },
+  "reference": "script truth",
+  "problems": [],
+  "disagreements": 46,
+  "unruled": 0,
+  "referenceErrors": [],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ high",
+      "ran": "claude-opus-5-5 @ high",
+      "score": "4/8",
+      "cost": 1.3351525999999998,
+      "requests": 25,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "(near) r05 src/forms/prismic.ts:118-118 [minor] A multi-paragraph signature is joined with a space, so a rich-text signature such as 'Warmly,' / 'The Flower Court team' becomes one line ('Warmly, The Flower Court team') in the plain-text email, losing its line breaks.",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d6-clone-path-traversal / found",
+          "got": "(near) r07 src/cli/fleet/clone-if-needed.ts:43-43 [minor] site.repoUrl is passed to `git clone` without a preceding `--`. A stored repoUrl that starts with '-' (e.g. '--upload-pack=<cmd>') is parsed as a git option rather than a URL: an argument-injection hole.",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:34-35: site.name is joined onto workdir with no check for separators, .. segments or absolute paths. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 tests the unrounded average while position is rounded. An average of 10.4 reports position 10 but foundOnPage1=false, so the report shows a page-1 position that is flagged as not on page 1.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "4/8",
+      "cost": 0.6376927,
+      "requests": 15,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d3-branch-tip-422 / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r04 src/github/gh.ts:727-729: branchTip treats only HTTP 404 as no branch; GitHub answers 422 \"No commit found for SHA\" for a branch that does not exist, so the call throws and the whole repo's audit becomes a probe failure. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "3/8",
+      "cost": 0.2943487,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d3-branch-tip-422 / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r04 src/github/gh.ts:727-729: branchTip treats only HTTP 404 as no branch; GitHub answers 422 \"No commit found for SHA\" for a branch that does not exist, so the call throws and the whole repo's audit becomes a probe failure. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d7-uid-lookup-collision / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r08 src/blux/emit/run-migration.ts:118-121,208-208: The update lookup is keyed by uid alone, but Prismic uids are unique per type, so two types sharing a uid collide and the PUT can target the wrong document. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 compares the raw average position to 10, but position is rounded. An average of 10.4 gives foundOnPage1=false with position 10, and 9.6 gives position 10. The flag and the number can disagree.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "sonnet-high-1",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "2/8",
+      "cost": 0.5741594999999999,
+      "requests": 15,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d3-branch-tip-422 / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r04 src/github/gh.ts:727-729: branchTip treats only HTTP 404 as no branch; GitHub answers 422 \"No commit found for SHA\" for a branch that does not exist, so the call throws and the whole repo's audit becomes a probe failure. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d5-clone-argv-injection / found",
+          "got": "(near) r07 src/cli/fleet/clone-if-needed.ts:34-35 [minor] deriveNameFromRepoUrl returns an empty string for a repoUrl with a trailing slash (e.g. https://github.com/org/repo/), and `??` does not catch ''. The target then becomes workdir itself. A non-empty workdir is treated as an existing checkout, so the site's path is set to the whole workdir and audits run on the wrong tree. Otherwise git clone targets the workdir directly.",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:43-46: repoUrl is passed to git clone unvalidated and without a -- separator, so a value beginning with - is parsed as a git option. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d6-clone-path-traversal / found",
+          "got": "(overlap) r07 src/cli/fleet/clone-if-needed.ts:34-35 [minor] deriveNameFromRepoUrl returns an empty string for a repoUrl with a trailing slash (e.g. https://github.com/org/repo/), and `??` does not catch ''. The target then becomes workdir itself. A non-empty workdir is treated as an existing checkout, so the site's path is set to the whole workdir and audits run on the wrong tree. Otherwise git clone targets the workdir directly.",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:34-35: site.name is joined onto workdir with no check for separators, .. segments or absolute paths. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "sonnet-high-2",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "5/8",
+      "cost": 0.558224,
+      "requests": 15,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "(near) r05 src/forms/prismic.ts:118-118 [minor] The multi-block rich-text signature is joined with a space (`join(\" \")`), so a sign-off authored on separate lines ('Warmly,' / 'The team') is collapsed into one line in the plain-text email. I did not see how `parseReplyCopy` consumes `signature`, so this may be a deliberate format.",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] `foundOnPage1` is computed from the unrounded average position, but `position` is rounded. An average of 10.4 gives `position: 10` with `foundOnPage1: false`. Consumers such as the dashboard's `searchCell` then treat a rank of 10 as not on page 1.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "2/8",
+      "cost": 0.5006778000000001,
+      "requests": 6,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d3-branch-tip-422 / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r04 src/github/gh.ts:727-729: branchTip treats only HTTP 404 as no branch; GitHub answers 422 \"No commit found for SHA\" for a branch that does not exist, so the call throws and the whole repo's audit becomes a probe failure. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d5-clone-argv-injection / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:43-46: repoUrl is passed to git clone unvalidated and without a -- separator, so a value beginning with - is parsed as a git option. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d7-uid-lookup-collision / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r08 src/blux/emit/run-migration.ts:118-121,208-208: The update lookup is keyed by uid alone, but Prismic uids are unique per type, so two types sharing a uid collide and the PUT can target the wrong document. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "2/8",
+      "cost": 0.5207484,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d5-clone-argv-injection / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:43-46: repoUrl is passed to git clone unvalidated and without a -- separator, so a value beginning with - is parsed as a git option. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d6-clone-path-traversal / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:34-35: site.name is joined onto workdir with no check for separators, .. segments or absolute paths. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d7-uid-lookup-collision / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r08 src/blux/emit/run-migration.ts:118-121,208-208: The update lookup is keyed by uid alone, but Prismic uids are unique per type, so two types sharing a uid collide and the PUT can target the wrong document. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-medium-1",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "5/8",
+      "cost": 0.8481792,
+      "requests": 18,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "(near) r05 src/forms/prismic.ts:118-118 [minor] A rich-text signature with more than one paragraph is joined with a space, so a sign-off like 'Warmly,' / 'The Pointe Team' reaches the visitor's email as one line, 'Warmly, The Pointe Team', instead of keeping its line breaks.",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 is computed from the raw average but position is rounded, so an average of 10.4 reports position 10 with foundOnPage1=false, which contradicts itself in the report.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-medium-2",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "5/8",
+      "cost": 0.9584960000000001,
+      "requests": 22,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "(near) r05 src/forms/prismic.ts:118-118 [minor] A multi-paragraph signature (e.g. 'Warmly,' / 'The Team') is joined with a space, collapsing its line breaks into one line ('Warmly, The Team') in the plain-text email.",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 uses the unrounded position while position is rounded, so an average of 10.3 reports position 10 yet foundOnPage1=false, an inconsistent result in the report.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-xhigh-1",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "5/8",
+      "cost": 1.5084073999999996,
+      "requests": 28,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "(near) r05 src/forms/prismic.ts:118-118 [minor] A multi-paragraph rich-text signature is joined with a space, so a signature authored as separate lines (e.g. 'Warmly,' / 'The Pointe team') reaches the plain-text confirmation email as one run-on line instead of keeping its line breaks.",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 tests the unrounded average (pos <= 10) while position is Math.round(pos). An average of 10.0\u201310.49 comes back as position 10 with foundOnPage1 false, which contradicts itself, and the report hides a result it calls position 10.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    },
+    {
+      "id": "opus-xhigh-2",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "4/8",
+      "cost": 1.5952217999999998,
+      "requests": 23,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "defects d1-lhci-unasserted-pass / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r01 src/audits/lighthouse.ts:125-126,137-137: A missing assertion-results.json is read as an empty list, so lhci exiting non-zero without assertion results scores \"pass\" with nothing checked. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d4-reply-first-match / found",
+          "got": "<missing>",
+          "expected": "Seeded defect at r05 src/forms/prismic.ts:112-113: The reply copy takes the first row whose form_type matches, so a blank row above the real one discards the CMS copy and the default reply is sent. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d6-clone-path-traversal / found",
+          "got": "(near) r07 src/cli/fleet/clone-if-needed.ts:43-43 [minor] repoUrl is passed to git clone with no '--' separator. A repoUrl that starts with '-' (e.g. '--upload-pack=<cmd>') is read as an option and can run an arbitrary command.",
+          "expected": "Seeded defect at r07 src/cli/fleet/clone-if-needed.ts:34-35: site.name is joined onto workdir with no check for separators, .. segments or absolute paths. ARM is correct only if one of its findings identifies this same defect."
+        },
+        {
+          "check": "defects d8-position-zero / found",
+          "got": "(overlap) r09 src/reports/search/client.ts:118-118 [minor] foundOnPage1 is decided on the raw average but position is rounded. For an average between 10 and 10.5 (e.g. 10.3) the result is position 10 with foundOnPage1 false, which contradicts itself in the report.",
+          "expected": "Seeded defect at r09 src/reports/search/client.ts:118-118: Search Console can average a position below 0.5, which rounds to 0, so the client email renders \"#0\". ARM is correct only if one of its findings identifies this same defect."
+        }
+      ]
+    }
+  ],
+  "corrected": {
+    "tolerance": {
+      "comparator": "opus-xhigh",
+      "foundSlackPerRun": 1,
+      "falsePositiveSlackPerRun": 1,
+      "criticalMisses": 0
+    },
+    "excluded": [
+      {
+        "id": "d2-period-overlap",
+        "reason": "Not visible in r03: at d1218ac6 the report hard-codes gaUsersCurrent and gaUsersPrevious to 0 and runs no GA or Search query, so nothing in the change counts the boundary day twice; the double count became real only when a later commit wired GA in."
+      },
+      {
+        "id": "d9-approved-no-refresh",
+        "reason": "Not a defect r11 introduces: before 5f6ca41b an approved row had no action at all, this change adds Unapprove and removes nothing, and its own docstring sends a refresh through the pending list. The fix 47f1460d is a feat."
+      }
+    ],
+    "refutedDefects": [],
+    "splitDefects": [],
+    "perRun": {
+      "gold": {
+        "found": 3,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d4-reply-first-match",
+          "d6-clone-path-traversal",
+          "d8-position-zero"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 3,
+        "criticalMissed": ["d6-clone-path-traversal"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 4,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-medium-1": {
+        "found": 3,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d8-position-zero"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 3,
+        "criticalMissed": [],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 1,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-medium-2": {
+        "found": 2,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 3,
+        "criticalMissed": ["d7-uid-lookup-collision"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 0,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d5-clone-argv-injection", "d6-clone-path-traversal", "d8-position-zero"],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-high-1": {
+        "found": 1,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d8-position-zero"
+        ],
+        "criticalFound": 1,
+        "criticalOf": 3,
+        "criticalMissed": ["d5-clone-argv-injection", "d6-clone-path-traversal"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 1,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-high-2": {
+        "found": 4,
+        "of": 7,
+        "missed": ["d1-lhci-unasserted-pass", "d4-reply-first-match", "d8-position-zero"],
+        "criticalFound": 3,
+        "criticalOf": 3,
+        "criticalMissed": [],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-low-1": {
+        "found": 1,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "criticalFound": 1,
+        "criticalOf": 3,
+        "criticalMissed": ["d5-clone-argv-injection", "d7-uid-lookup-collision"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d6-clone-path-traversal"],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-low-2": {
+        "found": 1,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "criticalFound": 0,
+        "criticalOf": 3,
+        "criticalMissed": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d3-branch-tip-422"],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-medium-1": {
+        "found": 4,
+        "of": 7,
+        "missed": ["d1-lhci-unasserted-pass", "d4-reply-first-match", "d8-position-zero"],
+        "criticalFound": 3,
+        "criticalOf": 3,
+        "criticalMissed": [],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 3,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-medium-2": {
+        "found": 4,
+        "of": 7,
+        "missed": ["d1-lhci-unasserted-pass", "d4-reply-first-match", "d8-position-zero"],
+        "criticalFound": 3,
+        "criticalOf": 3,
+        "criticalMissed": [],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 3,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-xhigh-1": {
+        "found": 4,
+        "of": 7,
+        "missed": ["d1-lhci-unasserted-pass", "d4-reply-first-match", "d8-position-zero"],
+        "criticalFound": 3,
+        "criticalOf": 3,
+        "criticalMissed": [],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-xhigh-2": {
+        "found": 3,
+        "of": 7,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d4-reply-first-match",
+          "d6-clone-path-traversal",
+          "d8-position-zero"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 3,
+        "criticalMissed": ["d6-clone-path-traversal"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      }
+    },
+    "groups": {
+      "sonnet-medium": {
+        "runs": 2,
+        "found": 5,
+        "of": 14,
+        "criticalMissed": 1,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 1 seeded critical(s)"]
+      },
+      "sonnet-high": {
+        "runs": 2,
+        "found": 5,
+        "of": 14,
+        "criticalMissed": 2,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 2 seeded critical(s)"]
+      },
+      "opus-low": {
+        "runs": 2,
+        "found": 2,
+        "of": 14,
+        "criticalMissed": 5,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 5 seeded critical(s)", "found 2, below 5"]
+      },
+      "opus-medium": {
+        "runs": 2,
+        "found": 8,
+        "of": 14,
+        "criticalMissed": 0,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "within"
+      },
+      "opus-xhigh": {
+        "runs": 2,
+        "found": 7,
+        "of": 14,
+        "criticalMissed": 1,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "comparator",
+        "reasons": ["missed 1 seeded critical(s)"]
+      }
+    },
+    "gold": {
+      "found": 3,
+      "of": 7,
+      "missed": [
+        "d1-lhci-unasserted-pass",
+        "d4-reply-first-match",
+        "d6-clone-path-traversal",
+        "d8-position-zero"
+      ],
+      "criticalFound": 2,
+      "criticalOf": 3,
+      "criticalMissed": ["d6-clone-path-traversal"],
+      "controlFindings": 0,
+      "falsePositives": 0,
+      "realOnControls": 0,
+      "otherFindings": 4,
+      "unruled": 0,
+      "disputedDefects": [],
+      "upheldDefects": [
+        "d3-branch-tip-422",
+        "d4-reply-first-match",
+        "d5-clone-argv-injection",
+        "d6-clone-path-traversal",
+        "d7-uid-lookup-collision",
+        "d8-position-zero"
+      ],
+      "noOutput": false,
+      "split": 0
+    }
+  },
+  "preRegistered": {
+    "groups": {
+      "sonnet-medium": {
+        "runs": 2,
+        "found": 5,
+        "of": 18,
+        "criticalMissed": 3,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 3 seeded critical(s)"]
+      },
+      "sonnet-high": {
+        "runs": 2,
+        "found": 5,
+        "of": 18,
+        "criticalMissed": 4,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 4 seeded critical(s)"]
+      },
+      "opus-low": {
+        "runs": 2,
+        "found": 2,
+        "of": 18,
+        "criticalMissed": 7,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 7 seeded critical(s)", "found 2, below 5"]
+      },
+      "opus-medium": {
+        "runs": 2,
+        "found": 8,
+        "of": 18,
+        "criticalMissed": 2,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "outside",
+        "reasons": ["missed 2 seeded critical(s)"]
+      },
+      "opus-xhigh": {
+        "runs": 2,
+        "found": 7,
+        "of": 18,
+        "criticalMissed": 3,
+        "falsePositives": 0,
+        "unruled": 0,
+        "split": 0,
+        "noOutput": 0,
+        "verdict": "comparator",
+        "reasons": ["missed 3 seeded critical(s)"]
+      }
+    },
+    "perRun": {
+      "gold": {
+        "found": 3,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d6-clone-path-traversal",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap", "d6-clone-path-traversal"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 4,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-medium-1": {
+        "found": 3,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 1,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-medium-2": {
+        "found": 2,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d7-uid-lookup-collision",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap", "d7-uid-lookup-collision"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 0,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d5-clone-argv-injection", "d6-clone-path-traversal", "d8-position-zero"],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-high-1": {
+        "found": 1,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 1,
+        "criticalOf": 4,
+        "criticalMissed": [
+          "d2-period-overlap",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal"
+        ],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 1,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "sonnet-high-2": {
+        "found": 4,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-low-1": {
+        "found": 1,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d7-uid-lookup-collision",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 1,
+        "criticalOf": 4,
+        "criticalMissed": [
+          "d2-period-overlap",
+          "d5-clone-argv-injection",
+          "d7-uid-lookup-collision"
+        ],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d6-clone-path-traversal"],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-low-2": {
+        "found": 1,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 0,
+        "criticalOf": 4,
+        "criticalMissed": [
+          "d2-period-overlap",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision"
+        ],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": ["d3-branch-tip-422"],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-medium-1": {
+        "found": 4,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 3,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-medium-2": {
+        "found": 4,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 3,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-xhigh-1": {
+        "found": 4,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 3,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d4-reply-first-match",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      },
+      "opus-xhigh-2": {
+        "found": 3,
+        "of": 9,
+        "missed": [
+          "d1-lhci-unasserted-pass",
+          "d2-period-overlap",
+          "d4-reply-first-match",
+          "d6-clone-path-traversal",
+          "d8-position-zero",
+          "d9-approved-no-refresh"
+        ],
+        "criticalFound": 2,
+        "criticalOf": 4,
+        "criticalMissed": ["d2-period-overlap", "d6-clone-path-traversal"],
+        "controlFindings": 0,
+        "falsePositives": 0,
+        "realOnControls": 0,
+        "otherFindings": 2,
+        "unruled": 0,
+        "disputedDefects": [],
+        "upheldDefects": [
+          "d3-branch-tip-422",
+          "d5-clone-argv-injection",
+          "d6-clone-path-traversal",
+          "d7-uid-lookup-collision",
+          "d8-position-zero"
+        ],
+        "noOutput": false,
+        "split": 0
+      }
+    }
+  },
+  "rulings": [
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates 119ddd11",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d4-reply-first-match / found :: candidates 1470f111",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports the signature join(' '), a different issue; it does not mention the first-match find() at lines 112-113."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates 88ae91d9",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates 4f242ea5",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM covers only the missing -- separator, not the site.name traversal."
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 6ac76930",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates d69019ce",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports the foundOnPage1 vs rounded-position mismatch at about 10.4, not the rounding to #0. Caveat: GSC average positions are normally >=1, so the seeded case is doubtful, but ARM did not report it either way."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates e35e239b",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates b7e84b6e",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 85245ad7",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates 618f98de",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates 822a324b",
+      "armCorrect": true,
+      "refCorrect": true,
+      "note": "The finding says the clone target is built from an unvalidated site.name. That is the same root cause as the reference, though the finding gives no '..' scenario."
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates cb70b2ba",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates bf1f74cc",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports that a trailing-slash URL derives an empty name. It never mentions the git option injection."
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates 8fb0c339",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports only that a trailing-slash URL derives an empty name, not that separators or '..' in site.name escape workdir."
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 844e0533",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates 8dab1624",
+      "armCorrect": true,
+      "refCorrect": true,
+      "note": "ARM's line range 735-740 is off (the catch is at 727-729), but the summary names the same 404-only and 422 defect."
+    },
+    {
+      "id": "defects d4-reply-first-match / found :: candidates 88a9830d",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: the signature join."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates da78ab9e",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates 9ab2dea9",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 63e445bc",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates dce509de",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates d3719efd",
+      "armCorrect": true,
+      "refCorrect": true,
+      "note": "ARM's line range 31-32 is off (the join is at 34-35), but the summary names the same unchecked site.name join, with '..' escaping workdir."
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates d6511dfd",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates c7c76a84",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d4-reply-first-match / found :: candidates 0c655817",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: the signature join."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates c6fb08f0",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates c6fb08f0",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 033252b2",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates 201b8f27",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates 463dbd52",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d4-reply-first-match / found :: candidates 1d7af28d",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: the signature join."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates 3962c176",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates e5b7905e",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates e34984d2",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates 9ab9d914",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates d18b35fc",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d4-reply-first-match / found :: candidates 000e5e31",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: the signature join."
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates 854169dc",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates 412d5d1a",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 9d4f8e70",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates c109bf01",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    },
+    {
+      "id": "defects d3-branch-tip-422 / found :: candidates d81491a1",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d5-clone-argv-injection / found :: candidates 85259beb",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d6-clone-path-traversal / found :: candidates fadb54d4",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM covers only the missing -- separator, not the site.name traversal."
+    },
+    {
+      "id": "defects d7-uid-lookup-collision / found :: candidates 4a89bc1f",
+      "armCorrect": true,
+      "refCorrect": true
+    },
+    {
+      "id": "defects d8-position-zero / found :: candidates 0961cafd",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ARM reports a different issue: foundOnPage1 vs the rounded position."
+    }
+  ],
+  "findings": {
+    "opus-low-1": [
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 1180,
+        "endLine": 1181,
+        "severity": "minor",
+        "summary": "PRISMIC_ACCESS_TOKEN is put into the query string without URL encoding. A token that contains +, & or = breaks the Document API URL, so the uid lookup fails. (These line numbers are from the combined diff output, not the after file; I did not map them.)"
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 499,
+        "endLine": 507,
+        "severity": "minor",
+        "summary": "uploadHtmlAttachment does not check that AIRTABLE_PAT and AIRTABLE_BASE_ID are set. When either is missing, it posts to a URL containing 'undefined' or with 'Bearer undefined', and this happens only after the draft record is already created, which leaves a draft with no HTML. (These line numbers are from the combined diff output, not the after file.)"
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 31,
+        "endLine": 32,
+        "severity": "minor",
+        "summary": "site.name goes into join(workdir, name) unchecked. A name containing '/' or '..' clones outside workdir or into a nested path, and a name with spaces may not match the repo."
+      }
+    ],
+    "opus-medium-1": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 727,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "branchTip treats only 'HTTP 404' as 'branch gone', but GET repos/{repo}/commits/{ref} for a ref that does not exist answers 422 ('No commit found for SHA'), so a dashboard naming a deleted branch makes branchTip throw instead of returning null, failing the whole blocked-branch check."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys the uid-to-id map by uid alone, but Prismic uids are unique only per custom type; when two types share a uid (e.g. page 'about' and post 'about'), the last one wins and the update path PUTs one document's body onto the other type's document id, overwriting or corrupting the wrong document."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 46,
+        "severity": "major",
+        "summary": "site.repoUrl goes to `git clone` with no `--` separator, so a value starting with '-' (e.g. '--upload-pack=...') is read as an option and can run commands. site.name also goes into join(workdir, name) without checks, so a name like '../x' or one containing '/' clones or reuses a directory outside workdir."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 38,
+        "endLine": 40,
+        "severity": "minor",
+        "summary": "Any non-empty directory already at workdir/<name> is returned as the site's checkout without checking that it is a clone of site.repoUrl, so two sites that share a name, or a stray directory, get audited as the wrong repository."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 87,
+        "endLine": 99,
+        "severity": "minor",
+        "summary": "The Airtable draft row is created before the HTML upload, and AIRTABLE_PAT and AIRTABLE_BASE_ID are never checked. When either is unset (the URL holds 'undefined', the header says 'Bearer undefined') or the upload fails, the function throws after createDraft, leaving an orphan draft row with no rendered HTML that a retry will duplicate."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "A rich-text signature with more than one paragraph is joined with a space, so a sign-off like 'Warmly,' / 'The Pointe Team' reaches the visitor's email as one line, 'Warmly, The Pointe Team', instead of keeping its line breaks."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 90,
+        "endLine": 91,
+        "severity": "minor",
+        "summary": "An authored end_time that is before or equal to start_time is used as given, producing a calendar invite that ends before it starts, instead of falling back to the default duration."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 is computed from the raw average but position is rounded, so an average of 10.4 reports position 10 with foundOnPage1=false, which contradicts itself in the report."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 153,
+        "endLine": 173,
+        "severity": "minor",
+        "summary": "The `existing` filename map is not updated after an upload, so two plan assets with the same filename (the same image referenced twice) are both uploaded, creating duplicate library assets."
+      }
+    ],
+    "sonnet-medium-1": [
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys the map by uid alone. Prismic uids are unique per custom type, not globally. If two types share a uid (e.g. 'home'), the later one overwrites the earlier, so the PUT fallback at line 208 can update the wrong document."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 35,
+        "severity": "minor",
+        "summary": "The clone target is join(workdir, site.name) with no sanitisation, so a name like '../x' clones outside workdir. Separately, `git clone <repoUrl>` has no `--` separator, so a repoUrl starting with '-' is parsed as a git option."
+      },
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 699,
+        "endLine": 702,
+        "severity": "minor",
+        "summary": "With `gh api --paginate --jq`, the jq filter runs once per page and the outputs are joined by plain newlines, not the '# ---' separator. Dashboards on different pages are concatenated with no section boundary, so a trailing blocked section on one page can bleed into the next dashboard's preamble."
+      }
+    ],
+    "opus-xhigh-2": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 727,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "branchTip treats only an HTTP 404 as 'branch gone', but GitHub's GET repos/{repo}/commits/{ref} answers a ref that does not exist with 422 ('No commit found for SHA: <ref>'). When a dashboard names a branch that has been deleted, which the contract says is an expected case, branchTip throws instead of returning null, and the repo's blocked-branch audit fails."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys the uid-to-id map by uid alone, but Prismic uids are unique only per custom type (and per language). When two types share a uid (e.g. page/home and landing/home), map.get(doc.uid) can return the other type's document, and the PUT at lines 220-227 overwrites that document with this doc's data, or fails."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 11,
+        "endLine": 13,
+        "severity": "minor",
+        "summary": "deriveNameFromRepoUrl returns an empty string for a repoUrl with a trailing slash (e.g. 'https://github.com/org/repo/'), so target becomes the workdir itself. If the workdir already holds other clones, the site is returned with path = workdir and the whole workdir is audited; if it is empty, the repo is cloned straight into it. The same happens when site.name is an empty string, because ?? does not fall back on ''."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "minor",
+        "summary": "repoUrl is passed to git clone with no '--' separator. A repoUrl that starts with '-' (e.g. '--upload-pack=<cmd>') is read as an option and can run an arbitrary command."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 is decided on the raw average but position is rounded. For an average between 10 and 10.5 (e.g. 10.3) the result is position 10 with foundOnPage1 false, which contradicts itself in the report."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "derivePeriodStart reads Airtable (listReportsForSite) whenever base is non-null, before the previewOnly branch, even though periodStart is never used in a preview. That breaks the documented 'previewOnly: never touch Airtable' contract, and a preview fails on Airtable errors or bad credentials."
+      }
+    ],
+    "gold": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 718,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "branchTip treats only 'HTTP 404' as 'branch gone', but GitHub's GET /repos/{repo}/commits/{ref} answers 422 ('No commit found for SHA: renovate/x') for a ref that does not exist. A dashboard that names a deleted branch therefore throws instead of returning the documented null, and that aborts the blocked-branch check for the whole repo."
+      },
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 699,
+        "endLine": 702,
+        "severity": "minor",
+        "summary": "With --paginate, gh runs the --jq filter on each page separately, so the join('\\n# ---\\n') separator only goes between dashboards on the same page. If a repo has two open dashboards on different pages, they are joined by a bare newline, so the first body's last section (possibly the blocked section) runs on into the second body until its first ## heading."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 11,
+        "endLine": 14,
+        "severity": "major",
+        "summary": "The checkout directory name is taken from site.name as-is, or from the last URL segment. A name with '/' or '..' (or a display name with spaces) lands outside workdir or in an odd directory. A repoUrl with a trailing slash (https://github.com/org/repo/) gives an empty name, so target becomes workdir itself; when workdir already holds other clones it is non-empty and is returned as this site's path."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "minor",
+        "summary": "site.repoUrl is passed to `git clone` without a preceding `--`. A stored repoUrl that starts with '-' (e.g. '--upload-pack=<cmd>') is parsed as a git option rather than a URL: an argument-injection hole."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys its map by uid alone across every custom type, but Prismic uids are unique only within a type. When the target repo holds two documents of different types with the same uid (e.g. page 'about' and another type's 'about'), the 'already exists' fallback can look up the other type's id and PUT this document's body over the wrong document."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 tests the unrounded average while position is rounded. An average of 10.4 reports position 10 but foundOnPage1=false, so the report shows a page-1 position that is flagged as not on page 1."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "With previewOnly=true and a non-null base, derivePeriodStart still calls listReportsForSite against Airtable. That breaks the documented 'render locally only, never touch Airtable' contract, and an Airtable outage fails a pure local preview whose rendered HTML never uses periodStart."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 87,
+        "endLine": 99,
+        "severity": "minor",
+        "summary": "The draft row is created before the HTML upload. If uploadHtmlAttachment throws (bad PAT, missing AIRTABLE_BASE_ID, network error), an orphan draft with no attachment that is never marked ready stays in Airtable, and a retry creates a duplicate row with the same reportId."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "A multi-paragraph signature is joined with a space, so a rich-text signature such as 'Warmly,' / 'The Flower Court team' becomes one line ('Warmly, The Flower Court team') in the plain-text email, losing its line breaks."
+      }
+    ],
+    "sonnet-medium-2": [
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "minor",
+        "summary": "git clone is passed site.repoUrl with no `--` separator, so a repoUrl starting with `-` is parsed as a git option. The target directory is also built from an unvalidated site.name or URL basename."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 compares the raw average position to 10, but position is rounded. An average of 10.4 gives foundOnPage1=false with position 10, and 9.6 gives position 10. The flag and the number can disagree."
+      }
+    ],
+    "sonnet-high-1": [
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys the uid-to-id map by uid alone, and the lookup at line 208 uses doc.uid alone. Prismic uids are unique only per type and language. If two published documents of different types share a uid (e.g. a page and a landing doc both 'home'), the later one overwrites the earlier in the map. The PUT fallback then updates the wrong document, overwriting its data with a body of a different type. The map should be keyed on type plus uid."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 35,
+        "severity": "minor",
+        "summary": "deriveNameFromRepoUrl returns an empty string for a repoUrl with a trailing slash (e.g. https://github.com/org/repo/), and `??` does not catch ''. The target then becomes workdir itself. A non-empty workdir is treated as an existing checkout, so the site's path is set to the whole workdir and audits run on the wrong tree. Otherwise git clone targets the workdir directly."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "previewOnly is documented as 'render locally only, never touch Airtable', but periodStart is derived before the previewOnly check. When a non-null base is passed with previewOnly, derivePeriodStart calls listReportsForSite and reads Airtable. The preview then needs credentials and network, and can fail on an Airtable error."
+      }
+    ],
+    "sonnet-high-2": [
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 35,
+        "severity": "major",
+        "summary": "The clone directory name comes from `site.name`, or from the last URL segment, and is joined onto `workdir` unsanitised. A name like `../../x` puts the target outside `workdir`. A repoUrl with a trailing slash makes the derived name empty, so `target === workdir`. A non-empty workdir is then returned as the site path without any clone. An empty `site.name` is not caught by `??`."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "major",
+        "summary": "`git clone site.repoUrl target` has no `--` separator. A repoUrl beginning with `-`, for example `--upload-pack=<cmd>`, is parsed by git as an option, which allows argument injection and command execution. The URL comes from fleet or site data."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 38,
+        "endLine": 40,
+        "severity": "minor",
+        "summary": "Any non-empty directory at the target path is accepted as the site's checkout, with no check that it is a git repo for this repoUrl. A stale or unrelated directory is audited as if it were the site."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "`lookupDocIds` keys the uid-to-id map on `uid` alone, but Prismic uids are only unique per custom type, and per language. When POST reports 'already exists', the PUT fallback can look up another type's document that shares the uid (for example `home` or `about`). It then overwrites that wrong document with this doc's body."
+      },
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 735,
+        "endLine": 740,
+        "severity": "major",
+        "summary": "`branchTip` returns null only on 'HTTP 404'. As far as I recall, GitHub answers `GET /repos/{r}/commits/{ref}` for a nonexistent ref with 422 'No commit found for SHA', not 404. If so, a deleted branch named in the dashboard throws instead of returning null, which breaks the documented contract and the blocked-branch audit. I could not confirm the status code from the input files."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "`foundOnPage1` is computed from the unrounded average position, but `position` is rounded. An average of 10.4 gives `position: 10` with `foundOnPage1: false`. Consumers such as the dashboard's `searchCell` then treat a rank of 10 as not on page 1."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "`previewOnly` is documented as 'never touch Airtable', but `derivePeriodStart` runs before the preview branch whenever a non-null `base` is passed. It issues `listReportsForSite` reads against Airtable, and a failure there breaks a purely local preview. The result is unused in preview mode."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 70,
+        "endLine": 71,
+        "severity": "minor",
+        "summary": "The draft is rendered, uploaded and marked ready with hard-coded `gaUsersCurrent: 0` and `gaUsersPrevious: 0`. The attached report HTML therefore shows 0 users (delta 0) for every site, as if that were real GA data."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "The multi-block rich-text signature is joined with a space (`join(\" \")`), so a sign-off authored on separate lines ('Warmly,' / 'The team') is collapsed into one line in the plain-text email. I did not see how `parseReplyCopy` consumes `signature`, so this may be a deliberate format."
+      }
+    ],
+    "opus-xhigh-1": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 727,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "branchTip only maps a 404 to null, but GitHub's GET /repos/{repo}/commits/{ref} answers 422 'No commit found for SHA: <ref>' when the branch name does not exist. A dashboard naming a deleted branch, which the docstring calls the normal case, makes branchTip throw instead of returning null, so the whole blocked-branch check errors for that repo."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "major",
+        "summary": "site.repoUrl goes to `git clone` as a positional argument with no `--` separator. A repoUrl that starts with '-' (e.g. `--upload-pack=<cmd>` or `-u <cmd>`) is read as a git option, which allows command execution or a retargeted clone."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 35,
+        "severity": "minor",
+        "summary": "The clone target is join(workdir, site.name) with site.name unsanitised. A name containing '/' or '..' (or a repoUrl with a trailing slash, which derives an empty name and makes target the workdir itself) clones outside or onto the workdir, or reuses an unrelated non-empty directory as the site's checkout."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys document ids by uid alone (line 121) and the update path looks them up by doc.uid without the type (line 208). Prismic uids are unique only per custom type, so when two types share a uid (e.g. page 'about' and post 'about'), the 'already exists' fallback PUTs this document's body over a different document."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "With previewOnly=true and a non-null base, derivePeriodStart still calls listReportsForSite against Airtable. That breaks the documented 'render locally only, never touch Airtable' contract, and the preview fails whenever Airtable is unreachable."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 87,
+        "endLine": 99,
+        "severity": "minor",
+        "summary": "The Airtable draft row is created before the HTML upload. If the upload fails (for example AIRTABLE_PAT or AIRTABLE_BASE_ID is unset, giving 'Bearer undefined' or a v0/undefined URL), the row is left without its attachment and never marked ready, and every retry creates another duplicate draft row with the same reportId."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "A multi-paragraph rich-text signature is joined with a space, so a signature authored as separate lines (e.g. 'Warmly,' / 'The Pointe team') reaches the plain-text confirmation email as one run-on line instead of keeping its line breaks."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 tests the unrounded average (pos <= 10) while position is Math.round(pos). An average of 10.0\u201310.49 comes back as position 10 with foundOnPage1 false, which contradicts itself, and the report hides a result it calls position 10."
+      }
+    ],
+    "opus-low-2": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 727,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "GitHub's GET /repos/{repo}/commits/{ref} answers 422 (\"No commit found for SHA\"), not 404, when the branch no longer exists. So branchTip throws on a deleted branch when it should return null, and the dashboard check fails on exactly the case the code calls normal."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 87,
+        "endLine": 99,
+        "severity": "major",
+        "summary": "The Airtable draft row is created before the HTML upload. If AIRTABLE_PAT or AIRTABLE_BASE_ID is unset (the URL then contains 'undefined') or the upload fails, the draft row is left behind with no attachment and is not marked ready. A retry then creates a duplicate."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 102,
+        "endLine": 102,
+        "severity": "minor",
+        "summary": "PRISMIC_ACCESS_TOKEN is put into the query string without URL encoding. A token containing reserved characters breaks the Document API lookup."
+      }
+    ],
+    "opus-medium-2": [
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 720,
+        "endLine": 729,
+        "severity": "major",
+        "summary": "branchTip treats only HTTP 404 as 'branch gone', but GET repos/{repo}/commits/{ref} for a deleted/nonexistent branch answers 422 'No commit found for SHA', so a dashboard naming a deleted branch makes branchTip throw instead of returning null, failing the whole check."
+      },
+      {
+        "case": "r04",
+        "file": "src/github/gh.ts",
+        "startLine": 696,
+        "endLine": 703,
+        "severity": "minor",
+        "summary": "With --paginate, gh applies --jq to each page separately, so dashboards on different pages are concatenated with a bare newline instead of the '# ---' separator; a blocked section ending one dashboard stays open into the next dashboard's preamble, and per-page empty results add stray lines."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "severity": "major",
+        "summary": "git clone is invoked with site.repoUrl as a positional argument without a '--' separator, so a repoUrl beginning with '-' (e.g. '--upload-pack=cmd') is parsed as an option, allowing command execution."
+      },
+      {
+        "case": "r07",
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "startLine": 34,
+        "endLine": 40,
+        "severity": "major",
+        "summary": "site.name (a display name, unvalidated) is joined into the clone target, so a name containing '/' or '..' escapes workdir; and an existing non-empty target is returned as the site's checkout without checking it is that repo, so two sites with the same name/derived name share one (wrong) checkout; a repoUrl with a trailing slash derives an empty name and returns workdir itself."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 121,
+        "endLine": 121,
+        "severity": "major",
+        "summary": "lookupDocIds keys the map by uid alone across all custom types, but Prismic uids are unique only per type; when two types share a uid (e.g. page 'about' and post 'about'), the PUT update targets whichever document was seen last, overwriting the wrong document."
+      },
+      {
+        "case": "r08",
+        "file": "src/blux/emit/run-migration.ts",
+        "startLine": 102,
+        "endLine": 102,
+        "severity": "minor",
+        "summary": "PRISMIC_ACCESS_TOKEN is interpolated into the query string without encodeURIComponent, so a token containing '+', '&' or '=' is corrupted and the Document API lookup fails."
+      },
+      {
+        "case": "r03",
+        "file": "src/reports/draft.ts",
+        "startLine": 55,
+        "endLine": 56,
+        "severity": "minor",
+        "summary": "With previewOnly=true and a non-null base, derivePeriodStart still reads Airtable (listReportsForSite), contradicting the 'never touch Airtable' contract of previewOnly and failing the preview if Airtable is unreachable."
+      },
+      {
+        "case": "r05",
+        "file": "src/forms/prismic.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "A multi-paragraph signature (e.g. 'Warmly,' / 'The Team') is joined with a space, collapsing its line breaks into one line ('Warmly, The Team') in the plain-text email."
+      },
+      {
+        "case": "r09",
+        "file": "src/reports/search/client.ts",
+        "startLine": 118,
+        "endLine": 118,
+        "severity": "minor",
+        "summary": "foundOnPage1 uses the unrounded position while position is rounded, so an average of 10.3 reports position 10 yet foundOnPage1=false, an inconsistent result in the report."
+      }
+    ]
+  },
+  "agents": {
+    "opus-low-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 6,
+      "cost": 0.5006778000000001
+    },
+    "opus-medium-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["medium"],
+      "requests": 18,
+      "cost": 0.8481792
+    },
+    "sonnet-medium-1": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 15,
+      "cost": 0.6376927
+    },
+    "opus-xhigh-2": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["xhigh"],
+      "requests": 23,
+      "cost": 1.5952217999999998
+    },
+    "gold": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 25,
+      "cost": 1.3351525999999998
+    },
+    "sonnet-medium-2": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 7,
+      "cost": 0.2943487
+    },
+    "sonnet-high-1": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["high"],
+      "requests": 15,
+      "cost": 0.5741594999999999
+    },
+    "sonnet-high-2": {
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["high"],
+      "requests": 15,
+      "cost": 0.558224
+    },
+    "opus-xhigh-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["xhigh"],
+      "requests": 28,
+      "cost": 1.5084073999999996
+    },
+    "opus-low-2": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["low"],
+      "requests": 7,
+      "cost": 0.5207484
+    },
+    "opus-medium-2": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["medium"],
+      "requests": 22,
+      "cost": 0.9584960000000001
+    },
+    "referee:r1-1": {
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 3,
+      "cost": 0.59474
+    }
+  },
+  "totalCost": 9.926
+}
