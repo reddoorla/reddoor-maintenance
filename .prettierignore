@@ -22,3 +22,8 @@ docs/meta-week/_data/
 captures/*/pages/
 captures/*/files/
 captures/*/manifest.json
+
+# The seeded-review bake-off's cases: old commits' files and diffs, rebuilt byte
+# for byte by build.mjs. Line numbers in key.json point into them, so a
+# reformat would move every seeded defect off its range.
+scripts/model-bakeoff/tasks/seeded-review/cases/

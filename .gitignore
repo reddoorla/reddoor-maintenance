@@ -12,7 +12,7 @@ tests/fixtures/**/.lighthouseci/
 /.lighthouseci/
 tests/fixtures/**/playwright-report/
 # Decision A9 (2026-09-14): .claude/ is tracked — settings, saved workflows,
-# rules and hooks ship as reviewed files. Worktrees, local settings and the
+# rules, hooks and agents ship as reviewed files. Worktrees, local settings and the
 # harness's write log stay out. The first line re-includes the directory the
 # machine-wide ~/.config/git/ignore (`**/.claude/`) excludes; the repo file wins.
 !.claude/
@@ -21,6 +21,7 @@ tests/fixtures/**/playwright-report/
 !.claude/workflows/
 !.claude/rules/
 !.claude/hooks/
+!.claude/agents/
 .env
 # Local --preview output (top-level only — must NOT match src/reports/).
 /reports/
@@ -50,3 +51,6 @@ docs/meta-week/_corpus/
 
 # Sessions' running journal notes (CLAUDE.md "The work journal"); the scratchpad dies with the session.
 .session-logs/
+
+# A failed seeded-review build leaves its half-built cases here.
+scripts/model-bakeoff/tasks/seeded-review/cases.next/
