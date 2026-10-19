@@ -5145,7 +5145,69 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       Blux retirement and the workflow composite action stay out of this
       session.
 
-133.  **CRCA Brand Friction Audit: deck format, and Tim's assessment
+133.  **P1-63, bake-off tripwire minors: land #1444 after five review rounds,
+      or hold it (new 2026-10-19, branch `claude/p1-63-tripwire-minors`,
+      reddoorla/reddoor-maintenance#1444, closes #1419).** [M] The PR makes
+      `forbiddenCommand` in `scripts/model-bakeoff/lib/transcripts.mjs` see
+      every form in #1419. It stops flagging read-only `git tag --merged`,
+      `git config -f`, `git clean -n` and the like, and starts flagging
+      `git remote add`, `git config --unset`, `find -exec gh`,
+      `wget --post-data`, `echo 'git push' | sh`, `$(gh api)` inside an
+      unquoted heredoc body, `curl -X $M` and `$(which gh) api`. The final head
+      has 359 tests and about 40 mutations, each of which turns a test red.
+      All five review rounds were dirty (listed below). Round 5's four
+      reproduced defects are fixed and pushed in `0fbf1f77`, with tests and
+      mutations, and no review round has seen them. Two forms stay unfixed and
+      are filed as #1456: an echo with a `$(…)` argument piped into a shell
+      (listed as unseen), and a heredoc body line ending in `\` (a false
+      positive also on `main`). The slow regex from before this PR is #1426.
+      _Ask:_ (a) land #1444 at `0fbf1f77` once CI is green, with #1456 left
+      open; (b) run a sixth review round on `0fbf1f77` first; or (c) hold it.
+      _Pick:_ (b). Each round has found regressions in the previous round's
+      fixes, so landing `0fbf1f77` unreviewed repeats the pattern that this
+      rule exists to stop. #1456's two forms are also on `main` today, so
+      landing does not make them worse. The tripwire only reports and gates
+      nothing in production. **Answered 2026-10-19 (AskUserQuestion): (b),
+      a sixth round on `0fbf1f77`, then land.** The worker runs it and lands
+      #1444 if it is clean or minors-only, filing any minors as issues.
+      **Round 6 (2026-10-19 ~17:15Z) was not clean**: 2 majors, both
+      reproduced. (1) `git -C repo>/dev/null commit -m x` went unflagged; it
+      was a regression from round 5's word split at `>`. (2) Reads with a
+      redirect were flagged, e.g. `git config user.email 2>/dev/null` and
+      `git remote -v 2>&1`. The redirect counted as a positional word. That
+      predates round 5, and some forms were introduced earlier in this PR.
+      Both are fixed in `f0aafb38`: redirects and their targets are dropped
+      from the git, curl and wget args, as bash drops them from argv. There
+      is a test per form and a mutation each, and no round has seen the fix.
+      The round-6 minor (`{fd}>/dev/null gh`) is fixed too, and its nit
+      (`"3">x`) is on #1456. _New ask:_ land at `f0aafb38`, run a seventh
+      round, or hold. **Answered 2026-10-19 (AskUserQuestion): a seventh
+      round on `f0aafb38`, then land if it is clean or minors-only;
+      otherwise hold.**
+      **Round 7 (2026-10-19 ~17:10Z) was not clean, so #1444 is held.** It
+      found no regression from `f0aafb38`, but five reproduced defects,
+      filed as #1486. The major is `&>> out git push` returning false: a
+      regression against `main` from an earlier commit in this PR. The same
+      cause makes `>| out git push` and `<<< x git push` return false, and
+      those were already wrong on `main`. The four minors are
+      redirects in positions not stripped (`{fd}>` after the command,
+      `<>`, inside `find -exec`, among wrapper options). Nothing on the
+      branch is unpushed. #1419 stays open. Resuming takes either a fix of
+      #1486's major, through a round you approve, or OD 131's (c): replace
+      detection with a read-only agent type. The
+      rounds:
+      - Round 1: 4 majors.
+      - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
+      - Round 3: 2 major regressions. Its group-feeder stack was backed out,
+        and the forms it covered are listed as unseen (#1438).
+      - Round 4: 1 major from before this PR. A `\`-newline hid the command,
+        as in `git \⏎ push`.
+      - Round 5: only hand-built shapes, but four of them are reproduced
+        behaviour defects. Two are false positives from round 4,
+        `echo gh pr ''>/dev/null | sh` and `echo gh pr create>|/dev/null | sh`.
+        `"gi\⏎t" push` was missed. `echo gh pr $(true) | sh` was missed.
+
+134.  **CRCA Brand Friction Audit: deck format, and Tim's assessment
       (new 2026-10-19, run #1 of the $1,500 Diagnosis; work in
       `reddoorla/reddoor-workspace` `audits/2026-10-19-crca-brand-friction-audit/`,
       recipe in `playbooks/brand-friction-audit/README.md`).** [M] The
