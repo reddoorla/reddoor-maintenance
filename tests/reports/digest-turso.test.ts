@@ -16,7 +16,7 @@ import { listSites, listAllReports, mirrorSiteInsert } from "../../src/db/fleet-
 import { mintSiteId } from "../../src/fleet/site-id.js";
 import { runDigest } from "../../src/reports/digest.js";
 import { preflight } from "../../src/reports/preflight.js";
-import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
+import { captureClient } from "../_helpers/resend-client.js";
 
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 const NATIVE = mintSiteId(NOW.getTime());
@@ -24,19 +24,6 @@ const BASE_URL = "https://reddoor-maintenance.netlify.app";
 
 let dir: string;
 let db: Db;
-
-function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
-  const captured: ResendSendInput[] = [];
-  return {
-    captured,
-    client: {
-      async send(input) {
-        captured.push(input);
-        return { messageId: `msg_${captured.length}` };
-      },
-    },
-  };
-}
 
 const memoryDigestState = () => {
   let snap: Record<string, { metric: number; firstFlaggedAt: string; exhausted?: boolean }> = {};

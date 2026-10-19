@@ -9,6 +9,7 @@ import {
 } from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import type { AuditResult } from "../../src/types.js";
+import { recordingMirror } from "../_helpers/recording-mirror.js";
 
 function lhResult(siteSlug: string, scores: Record<string, number>): AuditResult {
   return {
@@ -24,15 +25,6 @@ const websites = [
   { id: "recA", fields: { Name: "Acme Co", Status: "maintenance" } },
   { id: "recB", fields: { Name: "Beta Corp", Status: "maintenance" } },
 ];
-
-function recordingMirror() {
-  const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
-  const mirror = async (siteId: string, fields: Record<string, unknown>) => {
-    calls.push({ siteId, fields });
-    return true;
-  };
-  return { mirror, calls };
-}
 
 describe("writeFleetAudits", () => {
   it("writes each site's lighthouse scores to its own row, grouped by result.site slug", async () => {
