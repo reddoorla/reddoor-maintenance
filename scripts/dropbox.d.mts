@@ -120,3 +120,4 @@ export function run(o: Options, deps: Deps): Promise<{ code: number; lines: stri
 export function proxyReexecEnv(
   env: Record<string, string | undefined>,
 ): Record<string, string | undefined> | null;
+export function resendable(endpoint: string, errorSummary: string): boolean;
