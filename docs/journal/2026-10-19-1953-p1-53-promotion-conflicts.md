@@ -1,0 +1,11 @@
+## 2026-10-19 — Three P1-53 promotion PRs unblocked; a squash merge undid the first fix (caltex-landing#89, espada#93)
+
+The operator merged five of the eight P1-53 promotion PRs and reported that the other three had conflicts. Two did and one did not.
+
+**reddoor-website#267 never conflicted.** GitHub said `mergeable: true` and `mergeable_state: blocked`, and a test merge of `main` into `staging` was clean. The block was its required `ci / ci`, which had restarted at 19:37Z. It passed at 19:46Z, and the PR then read `unstable`, which is the non-required CodeQL red on #259's test files that the PR already explains. So "conflicts" was the UI's blocked state read as a conflict. The merge state named the cause; the badge did not.
+
+**caltex-landing#85 and espada#90 conflicted on `pnpm-lock.yaml` alone.** On each, `main` was one Renovate commit ahead of `staging`: caltex-landing's `sharp` 0.35.5 security bump (#78) and espada's lock file maintenance (#86). Each commit touched only the lockfile. On caltex-landing, `staging`'s lockfile already pinned `sharp` 0.35.5. Keeping `staging`'s lockfile and running `pnpm install` changed nothing, so the merged tree was byte-identical to `staging`. Espada loses #86's refresh, and Renovate's next lock maintenance will redo it.
+
+**The first fix did nothing, because it landed as a squash.** caltex-landing#88 carried the merge and went in through `land-prs.mjs`, which picks squash wherever the base allows it. A squash of a merge whose tree equals `staging` is a commit that changes nothing and has one parent. `main` was still not an ancestor of `staging`, and #85 stayed `dirty`. espada#93's land was stopped before it merged. Both merges were then done as real merge commits: caltex-landing#89 (`eae20a1`) and espada#93 (`f122ad1`), each through `PUT pulls/{n}/merge` with `merge_method=merge` and the green head's `sha`. caltex-landing#85 then read `clean` once its checks re-ran. **Belief corrected:** "merge it on green" in the runbook's promotion step was read as "land it", and the landing script's own method choice silently defeated the purpose. The runbook now says merge commit, and why.
+
+The runbook also said to open the PR with head `main`. That works only when the two sides do not conflict. When they do, the merge has to be resolved on a branch cut from `staging`, which the runbook now says too.
