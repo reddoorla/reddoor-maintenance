@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { isMain, proxyReexecEnv } from "./lib/cli.mjs";
+
+export { proxyReexecEnv };
 
 const PROJECTS = (slugs) => slugs.map((s) => `/projects/${s}`);
 
@@ -100,12 +102,6 @@ export function parseArgs(argv) {
     else throw new Error(`unknown argument: ${a}`);
   }
   return o;
-}
-
-export function proxyReexecEnv(env) {
-  const proxy = env.HTTPS_PROXY || env.https_proxy;
-  if (!proxy || env.NODE_USE_ENV_PROXY === "1") return null;
-  return { ...env, NODE_USE_ENV_PROXY: "1" };
 }
 
 export function transportLine(env) {
@@ -417,14 +413,7 @@ async function main() {
   process.exitCode = r.code;
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`williamson-cutover-verify: ${e?.stack ?? e}\n`);
     process.exitCode = 1;

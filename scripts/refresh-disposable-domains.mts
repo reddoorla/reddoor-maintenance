@@ -1,8 +1,9 @@
 #!/usr/bin/env -S pnpm tsx
 import { execFileSync } from "node:child_process";
-import { realpathSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMain } from "./lib/cli.mjs";
 
 export const REPO = "disposable-email-domains/disposable-email-domains";
 export const FILE = "disposable_email_blocklist.conf";
@@ -106,14 +107,7 @@ async function main(): Promise<void> {
     process.stdout.write(`left out, already blocked: ${excluded.join(", ")}\n`);
 }
 
-const self = (p: string): string => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e: unknown) => {
     process.stderr.write(
       `refresh-disposable-domains: ${e instanceof Error ? e.message : String(e)}\n`,

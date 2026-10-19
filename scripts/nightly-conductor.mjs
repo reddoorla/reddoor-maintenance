@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { appendFileSync, realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { appendFileSync } from "node:fs";
+import { flagValue, isMain, sleep as realSleep } from "./lib/cli.mjs";
 
 export const CONDUCTOR = "fleet-nightly.yml";
 export const NIGHTLIES = [
@@ -44,11 +44,7 @@ export function parseArgs(argv) {
   const o = { only: [], ref: "main", force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
-      return v;
-    };
+    const next = () => flagValue(argv[++i], a);
     if (a === "--only") o.only = parseOnly(next());
     else if (a === "--ref") o.ref = next();
     else if (a === "--force") o.force = true;
@@ -97,7 +93,7 @@ export async function conduct({ fetch, token, repo, only, ref, force, event, now
   const api = client({ fetch, token, repo });
   const clock = now ?? (() => Date.now());
   const say = log ?? ((l) => process.stdout.write(`${l}\n`));
-  const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const wait = sleep ?? realSleep;
   const startedAt = clock();
   const plan = only.length ? NIGHTLIES.filter((n) => only.includes(n.file)) : NIGHTLIES;
   const results = [];
@@ -194,14 +190,7 @@ async function main() {
   process.exitCode = r.code;
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`nightly-conductor: ${e?.stack ?? e}\n`);
     process.exitCode = 1;

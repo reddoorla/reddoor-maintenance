@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
 import { realRunner, resolveRepo } from "./land-prs.mjs";
+import { flagValue, isMain } from "./lib/cli.mjs";
 
 export const DECISIONS_HEADING = "## Operator decisions";
 const BRANCH_GLOBS = ["claude", "fix"];
@@ -24,11 +23,7 @@ export function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const next = () => {
-      const v = argv[++i];
-      if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
-      return v;
-    };
+    const next = () => flagValue(argv[++i], a);
     const num = () => {
       const v = Number(next());
       if (!Number.isFinite(v) || v < 0) throw new Error(`${a} needs a non-negative number`);
@@ -354,14 +349,7 @@ async function main() {
   process.stdout.write(o.json ? JSON.stringify(rep, null, 2) + "\n" : formatReport(rep));
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`evening-branches: ${e?.stack ?? e}\n`);
     process.exitCode = 1;
