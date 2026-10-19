@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -807,5 +807,164 @@ describe("selfUpdating: a protection read that failed never becomes a protection
     expect(r.notes).toContain("HTTP 403");
     expect(push).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
+  });
+});
+
+// --- #998: after a SUCCESSFUL read, the protection write keeps what the branch
+//     already has. The real makeGitHub reader and writer over one fake spawn
+//     that plays GitHub's REST protection endpoint (GET, then PUT).
+describe("selfUpdating: the protection write keeps what the branch already has (#998)", () => {
+  function restProtection(get: Partial<SpawnResult>): { github: GitHub; puts: unknown[] } {
+    const puts: unknown[] = [];
+    const spawn: SpawnFn = async (_cmd, args) => {
+      if (args.includes("PUT")) {
+        const i = args.indexOf("--input");
+        puts.push(JSON.parse(readFileSync(args[i + 1]!, "utf-8")));
+        return { code: 0, stdout: "{}", stderr: "" };
+      }
+      if (args.includes("--jq")) {
+        // branchProtectionContexts: gh applies the jq filter itself, so the
+        // fake answers what `.required_status_checks.contexts[]?` prints.
+        if (get.code) return { code: get.code, stdout: "", stderr: get.stderr ?? "" };
+        const body = JSON.parse(get.stdout ?? "null") as {
+          required_status_checks?: { contexts?: string[] } | null;
+        };
+        const out = body.required_status_checks?.contexts ?? [];
+        return { code: 0, stdout: out.map((c) => `${c}\n`).join(""), stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "", ...get };
+    };
+    const real = makeGitHub({ token: "T", spawn });
+    const { gh } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: real.branchProtectionContexts,
+      protectBranch: real.protectBranch,
+      ...WIRED_RULESET,
+    });
+    return { github: gh, puts };
+  }
+
+  const API = "https://api.github.com/repos/o/r/branches/main/protection";
+  const reviews = {
+    url: `${API}/required_pull_request_reviews`,
+    dismissal_restrictions: {
+      url: `${API}/dismissal_restrictions`,
+      users: [{ login: "tucksravin", id: 1 }],
+      teams: [{ slug: "core", id: 3 }],
+      apps: [],
+    },
+    dismiss_stale_reviews: true,
+    require_code_owner_reviews: false,
+    required_approving_review_count: 1,
+    require_last_push_approval: false,
+  };
+  const restrictions = {
+    url: `${API}/restrictions`,
+    users: [{ login: "tucksravin", id: 1 }],
+    teams: [],
+    apps: [{ slug: "renovate", id: 2740 }],
+  };
+  const putReviews = {
+    dismissal_restrictions: { users: ["tucksravin"], teams: ["core"], apps: [] },
+    dismiss_stale_reviews: true,
+    require_code_owner_reviews: false,
+    required_approving_review_count: 1,
+    require_last_push_approval: false,
+  };
+  const putRestrictions = { users: ["tucksravin"], teams: [], apps: ["renovate"] };
+
+  async function run(github: GitHub) {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    return selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github, pushBranch: vi.fn(async () => {}) },
+    );
+  }
+
+  it("reviews and restrictions, but no ci / ci: both survive, the check is added", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: {
+          strict: true,
+          contexts: ["build"],
+          checks: [{ context: "build", app_id: 15368 }],
+        },
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+        required_pull_request_reviews: reviews,
+        restrictions,
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: {
+          strict: true,
+          checks: [{ context: "build", app_id: 15368 }, { context: "ci / ci" }],
+        },
+        enforce_admins: false,
+        required_pull_request_reviews: putReviews,
+        restrictions: putRestrictions,
+      },
+    ]);
+  });
+
+  it("protection with required_status_checks: null: the rest survives, the check is added", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: null,
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: true },
+        required_pull_request_reviews: reviews,
+        restrictions,
+        required_linear_history: { enabled: true },
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: true,
+        required_pull_request_reviews: putReviews,
+        restrictions: putRestrictions,
+        required_linear_history: true,
+      },
+    ]);
+  });
+
+  it("404 Branch not protected: protection is still applied, fresh", async () => {
+    const { github, puts } = restProtection({
+      code: 1,
+      stderr: "gh: Branch not protected (HTTP 404)",
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: true,
+        required_pull_request_reviews: null,
+        restrictions: null,
+      },
+    ]);
+  });
+
+  it("ci / ci already required: no write at all", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: { strict: true, contexts: ["ci / ci"], checks: [] },
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+        required_pull_request_reviews: reviews,
+        restrictions,
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("noop");
+    expect(puts).toEqual([]);
   });
 });
