@@ -208,6 +208,13 @@ Add `tasks/<id>.mjs` exporting:
   score, the field that identifies an item, and each field's kind.
 - `kinds`: optional, `{ name: (value) => comparable }`. Each one adds a field kind for this task,
   for instance a rounding tolerance, and works inside `set:` too.
+- `observe(work, structured, agent, reference)`: optional. When a task is an action rather than an extraction,
+  `score` scores what this returns for each agent instead of its structured output. It gets the
+  agent's work dir, its structured output (or `null`), its collected transcript (`bash`, `writes`
+  and the rest) and the reference, so it can read what the agent left on disk and what it ran. Return `null` for an
+  agent with no output. A task with `observe` must have a `truth`. A collection marked
+  `mechanical: true` never goes to the referee; use it for values a referee shown only the prompt
+  could not settle.
 - `truth(dir)`: optional, the script-computed reference. Leave it out when no script can compute
   the answer, and the gold run becomes the reference.
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
@@ -231,6 +238,56 @@ Then score a perturbed copy, which must fail exactly where it was changed. That 
 not the truth. The 2026-10-19 row-4 run did both before the first arm ran, and the referee still
 found the truth wrong on one check: the script missed a bare `"node:"` literal that eight of nine
 runs had found.
+
+## The `pnpm-update` task (row 6)
+
+The input is two tarballs, not a folder of sources, because `sources` copies flat files only. Build
+them first, then prepare from them:
+
+```sh
+node scripts/model-bakeoff/tasks/pnpm-update.mjs snapshot --repo <checkout> --commit <sha> --out <snap>
+node scripts/model-bakeoff/bakeoff.mjs prepare --task pnpm-update --root <snap> --out <run>
+```
+
+`repo.tar` is `git archive` of the commit. `registry.tar` is the pnpm metadata cache
+(`XDG_CACHE_HOME`) after one online `pnpm update --lockfile-only`; the snapshot also installs the
+result once, so this machine's shared store holds every tarball. `snapshot.json` records the commit
+sha and the minute, and is frozen with the tarballs. Every agent and the truth then run
+`pnpm update --offline` against their own copy of that cache, so the registry is frozen at that
+minute. With an empty cache the offline update fails, which is the negative control. The offline
+runs still need the shared store and pnpm itself (the `packageManager` version) in place, so take
+the snapshot in the session that runs the arms.
+
+`prepare` computes the truth by running the same steps, about 90 seconds, and keeps their logs in
+the temp dir it prints. A command killed by the timeout stops `prepare` instead of counting as a
+failed check. What is scored, all of it mechanical (no referee):
+
+- `packages`: the direct dependencies the agent reported, each specifier and version;
+- `disk`: the agent's own `<work>/repo/pnpm-lock.yaml`, as two sets: its direct dependencies and
+  every package key. pnpm 12 writes the lockfile as two YAML documents; the project is the last;
+- `checks`: one item per script (`lint`, `check`, `build`, `test:unit`), with two scored fields.
+  `reportsOwnRun`: whether the verdict the agent claimed is the one its own run's exit code gives.
+  `noFalsePass`: whether it did not claim a pass for a script the truth says fails. The second is
+  one-sided because load on a shared machine can make a passing script fail (a timeout) but never
+  make a failing one pass. The prompt has each script write `<work>/logs/<script>.log` and
+  `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it (it holds pnpm's
+  `$ <script body>` line) after the lockfile it ran against. A log with no exit file counts as a failed
+  run, and so do an exit file older than its log and an exit code of 0 beside a log in which pnpm
+  reports the command failed. A
+  script with no such log fails as absent. The run's own verdict (`exitFailed`) is kept on the
+  item but not scored. A headline `checks.pass: true` is read as claiming every script passed,
+  whatever `failed` lists; `unverified` is not scored. An earlier draft inferred "ran" from the transcript's command text, which
+  credited scripts that were only mentioned and missed `pnpm -C`, `xargs` and nested loops.
+
+The truth runs alone during `prepare`, so its verdicts are uncontended (the workflow runs the
+agents concurrently; on 2026-10-19 they started in pairs about three minutes apart on 4 cores), and its offline install
+is the proof that the shared store held every tarball. `snapshot.json` records the pnpm version
+and store path. The truth's files (`truth.json` beside the input, its temp dir) are readable by
+the agents, as in every task; `collect` lists each agent's Bash commands, so check them for a read
+of either.
+
+`result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
+total, because 104 of this task's 117 checks (packages and disk) follow from the one `pnpm update`.
 
 ## The ledger
 
