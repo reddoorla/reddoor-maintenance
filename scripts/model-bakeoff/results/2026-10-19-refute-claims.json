@@ -2,7 +2,7 @@
   "date": "2026-10-19",
   "task": "refute-claims",
   "row": 5,
-  "taskCommit": "b7c5b538 fixed the tolerance before the first run; this result is scored with the review-round-1 version of the pass rule",
+  "taskCommit": "b7c5b538 fixed the tolerance before the first run; this result is scored with the pass rule as of review round 2 (336bafd0)",
   "corpus": "code.claude.com/docs fetched 2026-10-19; six docs pages and the in-repo 10-token-meter.md pinned by sha256 in tasks/refute-claims.mjs PAGES; claims re-anchored from the 2026-09-14 copy, of which 39 of 40 pages had drifted",
   "inputFiles": 7,
   "checksPerRun": 35,
