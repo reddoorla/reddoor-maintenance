@@ -125,7 +125,9 @@ export const collections = [
 // The key is the failure's first line and the arm it came from, so each arm is ruled on its own.
 export const kinds = {
   evidence: (v) => {
-    const m = /^(.*?)\. The agent's code is \S*\/eval\/([^/]+)\/tree\//s.exec(String(v ?? ""));
+    const m = /^(.*?)\. The agent's code is .*?\/eval\/([^/]+)\/(?:tree|held)\//s.exec(
+      String(v ?? ""),
+    );
     return m ? `${m[1]} [${m[2]}]` : String(v ?? "");
   },
 };
@@ -209,9 +211,24 @@ export function refereeEvidence(result, repo, testFile) {
   return `${result}. The agent's code is ${repo}/src/lib/actions/hoverActivate.ts and the plan's test as run is ${testFile}. ARM is correct if that code does what plan.md asks on the behaviour this test checks, so that the failure comes from a detail the plan leaves open. REFERENCE (passing this test) is correct unless the test demands the opposite of what plan.md asks: an implementation that passes a test stricter than the plan is still right.`;
 }
 
+export const GATES = ["typecheck", "lint", "suite", "own-tests", "scope"];
+
+// The plan asks for its unit tests: the agent's own test file must exist and run, at least one
+// test passing and none failing, before the plan's version replaces it.
+export function ownTestsPass(report) {
+  const files = report?.testResults || [];
+  const tests = files.flatMap((f) => f.assertionResults || []);
+  return (
+    files.length > 0 &&
+    files.every((f) => f.status === "passed") &&
+    tests.some((t) => t.status === "passed") &&
+    tests.every((t) => t.status === "passed" || t.status === "skipped")
+  );
+}
+
 export function truth() {
   return {
-    gates: ["typecheck", "lint", "suite", "scope"].map((gate) => ({ gate, pass: true })),
+    gates: GATES.map((gate) => ({ gate, pass: true })),
     tests: HELD_OUT.map((name) => ({ name, pass: true, result: "passed" })),
   };
 }
@@ -225,22 +242,34 @@ const SAFE = [
   "core.hooksPath=/dev/null",
   "-c",
   "core.excludesFile=/dev/null",
+  "-c",
+  "commit.gpgsign=false",
 ];
-const git = (cwd, ...a) => execFileSync("git", [...SAFE, "-C", cwd, ...a], { encoding: "utf8" });
 // Arm-controlled code runs at score time (its tests, its svelte-check), so it gets no secrets.
 const ENV = Object.fromEntries(
   ["PATH", "HOME", "LANG", "TMPDIR"].filter((k) => process.env[k]).map((k) => [k, process.env[k]]),
 );
-function run(cwd, cmd, args) {
+// No global or system config either: a filter driver named there would run on the agent's files.
+const GIT_ENV = {
+  ...ENV,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_OPTIONAL_LOCKS: "0",
+};
+const git = (cwd, ...a) =>
+  execFileSync("git", [...SAFE, "-C", cwd, ...a], { encoding: "utf8", env: GIT_ENV });
+// A step that times out or floods its buffer is the agent's code (an infinite loop in a test) and
+// fails that gate; only a missing binary is the harness's, and stops the score.
+export function run(cwd, cmd, args, timeout = 15 * 60 * 1000) {
   const r = spawnSync(cmd, args, {
     cwd,
     encoding: "utf8",
     maxBuffer: 1 << 28,
-    timeout: 15 * 60 * 1000,
+    timeout,
     env: { ...ENV, CI: "1" },
   });
-  if (r.error) throw new Error(`${cmd} ${args.join(" ")} in ${cwd}: ${r.error.message}`);
-  return r;
+  if (r.error?.code === "ENOENT") throw new Error(`${cmd} not found (in ${cwd})`);
+  return { status: r.status, error: r.error?.code, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 // Copies, not hardlinks: pnpm links every install to one store inode, so an agent writing inside
 // its node_modules would change every other agent's tree, the store and the eval trees.
@@ -255,7 +284,9 @@ const install = (cwd) =>
 
 function snapshot(root, sha, to) {
   mkdirSync(to, { recursive: true });
-  execFileSync("sh", ["-c", `git -C "$0" archive "$1" | tar -x -C "$2"`, root, sha, to]);
+  execFileSync("sh", ["-c", `git -C "$0" archive "$1" | tar -x -C "$2"`, root, sha, to], {
+    env: GIT_ENV,
+  });
 }
 
 function commitAll(repo) {
@@ -305,6 +336,24 @@ export function changedFiles(base, tree) {
   ].sort();
 }
 
+// The pinned tree with only the plan's files taken from the agent, installed.
+function planTree(root, repo, to) {
+  snapshot(root, PIN, to);
+  for (const f of ALLOWED) {
+    const src = join(repo, f);
+    const st = existsSync(src) ? lstatSync(src) : null;
+    if (st?.isFile()) {
+      mkdirSync(dirname(join(to, f)), { recursive: true });
+      copyFileSync(src, join(to, f));
+    } else rmSync(join(to, f), { force: true });
+  }
+  // Its package.json and lockfile are the pin's, so a failed install is the harness's fault.
+  const inst = install(to);
+  if (inst.status !== 0)
+    throw new Error(`pnpm install failed in ${to}:\n${inst.stdout}${inst.stderr}`);
+  return to;
+}
+
 // score: the gates run on the pinned tree with only the plan's files taken from the agent, so a
 // change anywhere else (package.json scripts, a config) can fail scope but never pass a gate. The
 // plan's tests replace the agent's own test file only after typecheck, lint and its suite ran.
@@ -318,30 +367,38 @@ export function evaluate({ run: runDir, work, id: armId }) {
   commitAll(base);
   const changed = existsSync(repo) ? changedFiles(base, repo) : [];
   const scope = scopeCheck(changed);
-  const tree = join(ev, "tree");
-  snapshot(root, PIN, tree);
-  for (const f of ALLOWED) {
-    const src = join(repo, f);
-    const st = existsSync(src) ? lstatSync(src) : null;
-    if (st?.isFile()) {
-      mkdirSync(dirname(join(tree, f)), { recursive: true });
-      copyFileSync(src, join(tree, f));
-    } else rmSync(join(tree, f), { force: true });
-  }
+  // Both trees are built before any of the agent's code runs, so what its own tests do in `tree`
+  // (rewrite vitest-setup.ts, say) cannot reach the held-out run in `held`. This is a tripwire
+  // against accidents, not a sandbox: the agent's hoverActivate.ts itself runs in `held`.
+  const tree = planTree(root, repo, join(ev, "tree"));
+  const held = planTree(root, repo, join(ev, "held"));
+  writeFileSync(join(held, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
   const ok = (r) => r.status === 0;
   const detail = { changed, outside: scope.outside };
-  // The tree's package.json and lockfile are the pin's, so a failed install is the harness's fault.
-  const inst = install(tree);
-  if (!ok(inst)) throw new Error(`pnpm install failed in ${tree}:\n${inst.stdout}${inst.stderr}`);
   const check = run(tree, "pnpm", ["check"]);
   const lint = run(tree, "pnpm", ["lint"]);
   const suite = run(tree, "pnpm", ["exec", "vitest", "run"]);
   detail.typecheck = check.stdout.slice(-1500);
   detail.lint = (lint.stdout + lint.stderr).slice(-1500);
   detail.suite = suite.stdout.slice(-1500);
-  writeFileSync(join(tree, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
+  for (const [gate, r] of Object.entries({ check, lint, suite })) {
+    if (r.error) detail[`${gate}Error`] = r.error;
+  }
+  const own = join(ev, "own-tests.json");
+  if (existsSync(join(tree, HELD_OUT_FILE))) {
+    const r = run(tree, "pnpm", [
+      "exec",
+      "vitest",
+      "run",
+      HELD_OUT_FILE,
+      "--reporter=json",
+      `--outputFile=${own}`,
+    ]);
+    if (r.error) detail.ownTestsError = r.error;
+  }
+  const ownReport = existsSync(own) ? JSON.parse(readFileSync(own, "utf8")) : null;
   const out = join(ev, "held-out.json");
-  run(tree, "pnpm", [
+  run(held, "pnpm", [
     "exec",
     "vitest",
     "run",
@@ -355,11 +412,12 @@ export function evaluate({ run: runDir, work, id: armId }) {
       { gate: "typecheck", pass: ok(check) },
       { gate: "lint", pass: ok(lint) },
       { gate: "suite", pass: ok(suite) },
+      { gate: "own-tests", pass: ownTestsPass(ownReport) },
       { gate: "scope", pass: scope.pass },
     ],
     tests: heldOutResults(report).map((t) => ({
       ...t,
-      result: refereeEvidence(t.result, tree, join(tree, HELD_OUT_FILE)),
+      result: refereeEvidence(t.result, held, join(held, HELD_OUT_FILE)),
     })),
     detail,
   };

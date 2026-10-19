@@ -33,3 +33,11 @@ export function truth(): {
 export function setup(o: { input: string; work: string; ids: string[]; root?: string }): void;
 export function changedFiles(base: string, tree: string): string[];
 export function evaluate(o: { run: string; work: string; id: string }): Record<string, unknown>;
+export const GATES: string[];
+export function ownTestsPass(report: unknown): boolean;
+export function run(
+  cwd: string,
+  cmd: string,
+  args: string[],
+  timeout?: number,
+): { status: number | null; error?: string; stdout: string; stderr: string };

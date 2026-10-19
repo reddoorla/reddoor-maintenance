@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   evaluatedOutputs,
   extractArgs,
@@ -101,6 +101,7 @@ describe("t4-plan-task as a bake-off task", () => {
       "typecheck",
       "lint",
       "suite",
+      "own-tests",
       "scope",
     ]);
     expect([...t.gates, ...t.tests].every((x: { pass: boolean }) => x.pass)).toBe(true);
@@ -108,7 +109,7 @@ describe("t4-plan-task as a bake-off task", () => {
 
   it("scores a failed gate mechanically, and sends a failed held-out test to the referee", () => {
     const out = truth();
-    out.gates[3] = { gate: "scope", pass: false };
+    out.gates[4] = { gate: "scope", pass: false };
     const evidence = task.refereeEvidence("failed: AssertionError", "/w/a/repo", "/e/a/t.test.ts");
     out.tests[0] = { name: HELD_OUT[0]!, pass: false, result: evidence };
     const checks = scoreRun(task, truth(), out);
@@ -236,8 +237,8 @@ describe("refereed held-out tests", () => {
     const [d] = groupDisagreements(checksByArm);
     const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false } };
     const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
-    expect(per.passer!.correct).toBe(30);
-    expect(per.failer!.correct).toBe(30);
+    expect(per.passer!.correct).toBe(32);
+    expect(per.failer!.correct).toBe(32);
     expect(referenceErrors).toEqual([]);
     expect(contradictions).toEqual([]);
   });
@@ -289,5 +290,71 @@ describe("item-level mechanical", () => {
     const results = checks.filter((c) => c.field === "result");
     expect(results).toHaveLength(10);
     expect(results.filter((c) => c.mechanical)).toEqual([]);
+  });
+});
+
+describe("the agent's own tests", () => {
+  const file = (status: string, tests: string[]) => ({
+    status,
+    assertionResults: tests.map((t) => ({ status: t })),
+  });
+
+  it("pass when the file ran, one test at least passed, and none failed", () => {
+    expect(task.ownTestsPass({ testResults: [file("passed", ["passed", "skipped"])] })).toBe(true);
+  });
+
+  it("fail when missing, empty, failing, or the file did not load", () => {
+    expect(task.ownTestsPass(null)).toBe(false);
+    expect(task.ownTestsPass({ testResults: [] })).toBe(false);
+    expect(task.ownTestsPass({ testResults: [file("passed", ["skipped"])] })).toBe(false);
+    expect(task.ownTestsPass({ testResults: [file("failed", ["passed", "failed"])] })).toBe(false);
+    expect(task.ownTestsPass({ testResults: [file("failed", [])] })).toBe(false);
+  });
+});
+
+describe("a gate step", () => {
+  it("fails, without stopping the score, when the agent's code never returns", () => {
+    const r = task.run(tmpdir(), process.execPath, ["-e", "while (true) {}"], 500);
+    expect(r.status).toBeNull();
+    expect(r.error).toBe("ETIMEDOUT");
+  });
+
+  it("stops the score when the harness's own binary is missing", () => {
+    expect(() => task.run(tmpdir(), "no-such-binary-t4", [])).toThrow(/not found/);
+  });
+});
+
+describe("the scorer's git", () => {
+  it("runs no filter from the caller's global config on the agent's files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-home-"));
+    const ran = join(dir, "filter-ran");
+    writeFileSync(join(dir, ".gitconfig"), `[filter "evil"]\n\tclean = touch ${ran}; cat\n`);
+    const home = process.env.HOME;
+    process.env.HOME = dir;
+    vi.resetModules();
+    try {
+      const fresh = await import("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs");
+      const base = join(dir, "base");
+      mkdirSync(base);
+      writeFileSync(join(base, "a.ts"), "a\n");
+      execFileSync("git", ["-C", base, "init", "-q"]);
+      execFileSync("git", ["-C", base, "add", "-A"]);
+      execFileSync(
+        "git",
+        ["-C", base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "p"],
+        {
+          env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+        },
+      );
+      const tree = join(dir, "tree");
+      mkdirSync(tree);
+      writeFileSync(join(tree, "a.ts"), "b\n");
+      writeFileSync(join(tree, ".gitattributes"), "* filter=evil\n");
+      expect(fresh.changedFiles(base, tree)).toEqual([".gitattributes", "a.ts"]);
+      expect(existsSync(ran)).toBe(false);
+    } finally {
+      process.env.HOME = home;
+      vi.resetModules();
+    }
   });
 });

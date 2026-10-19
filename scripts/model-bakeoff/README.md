@@ -218,7 +218,9 @@ exports make this work, and a collection can be marked `mechanical`:
   gives every agent the pinned tree in `<work>/<id>/repo`, as a one-commit repository installed
   offline, so the commit that implemented the task is not in its history. The agents need Write
   and Edit there, which the existing rules already allow: their work dir is theirs, and `score`
-  still reports a write anywhere else.
+  still reports a Write or Edit anywhere else. It does not see a Bash write, or anything the
+  agent's own code does when it runs its tests, so an agent can write outside its work dir
+  unreported.
 - `evaluate({ run, work, id })` replaces the agent's structured output as the thing scored. A task
   with `evaluate` must also export `truth`, since the gold's report is not a reference for a tree;
   `score` refuses one without. `score`
@@ -236,12 +238,20 @@ exports make this work, and a collection can be marked `mechanical`:
   since passing the plan's own test is never wrong.
 
 t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` from the pinned
-commit and copies in only the files the plan names, so a change anywhere else (a `package.json`
-script, a config) can fail scope but never pass a gate. It runs `pnpm check`, `pnpm lint` and the
+commit and copies in only the files the plan names, so a change the agent leaves anywhere else (a
+`package.json` script, a config) can fail scope but does not reach a gate. That is a tripwire, not
+a sandbox: the gates execute the agent's code, which can write anywhere the scorer can (another
+agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. Running each agent
+and each gate in its own namespace would close that; until then, read the plan's files of every
+agent for `node:fs`, `child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
 agent's own `vitest run` there, with no secrets in the environment. Then the plan's own test file, taken
-from the implementing commit, replaces the agent's version and runs alone. Each of its tests is a
-`(present)` check and a `result` check, so a run has 30 checks: 10 tests and 4 gates, two checks
-each, and 2 `(well-formed)`. A held-out test can fail on a detail the plan leaves open (run 1: a
+from the implementing commit, replaces the agent's version and runs alone, in a second tree
+(`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
+`(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
+each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file before
+the swap: the plan asks for its tests, so the file must exist and run with a test passing and none
+failing. A step that times out (15 minutes) fails its gate; only a missing binary or a failed
+install, which are the harness's, stops `score`. A held-out test can fail on a detail the plan leaves open (run 1: a
 synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
 failure's first line and the paths of the agent's code and of the test as run. Each arm's failure
 is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files that differ from the pinned commit are a
