@@ -5169,6 +5169,11 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       **Answered 2026-10-19 (AskUserQuestion): (a), a Figma Slides copy
       of Nicole's template.** The deck is built once Tim's assessment is
       in #crca.
+      **Answered 2026-10-19 (AskUserQuestion): Inter is the deck sans from
+      now on (Besley stays).** The Figma connector cannot load Helvetica
+      Neue or Pragmatica (local and Adobe fonts), so text in them cannot be
+      edited from a session. Inter is already the brand's documented
+      stand-in. The CRCA copy is converted; Nicole converts the template.
 
 ## Active projects (the operator's list, read by the PM pass)
 
