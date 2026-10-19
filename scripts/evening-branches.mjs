@@ -51,6 +51,10 @@ export function parseArgs(argv) {
   }
   if (!o.backlog)
     throw new Error("--backlog <path> is required: the backlog file, relative to the repo root");
+  if (/^\.\.?\//.test(o.backlog))
+    throw new Error(
+      `--backlog ${o.backlog}: give the path relative to the repo root, with no leading ./ or ../`,
+    );
   return o;
 }
 
