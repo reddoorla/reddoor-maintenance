@@ -117,8 +117,18 @@ export const collections = [
   // pointerleave with no pointerType), so its result goes to the referee with the evidence.
   // Passing the plan's own test is right by construction (refFixed), and a test that never ran has
   // nothing for a referee to read, so its item is mechanical.
-  { name: "tests", key: "name", keyKind: "string", refFixed: true, fields: { result: "string" } },
+  { name: "tests", key: "name", keyKind: "string", refFixed: true, fields: { result: "evidence" } },
 ];
+
+// A result's evidence (paths, instructions) is for the referee to read, not part of its key: a
+// 718-character id came back from the 2026-10-19 run-2 referee cut to 80, and matched nothing.
+// The key is the failure's first line and the arm it came from, so each arm is ruled on its own.
+export const kinds = {
+  evidence: (v) => {
+    const m = /^(.*?)\. The agent's code is \S*\/eval\/([^/]+)\/tree\//s.exec(String(v ?? ""));
+    return m ? `${m[1]} [${m[2]}]` : String(v ?? "");
+  },
+};
 
 export const schema = {
   type: "object",

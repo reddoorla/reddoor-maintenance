@@ -254,3 +254,29 @@ describe("refereed held-out tests", () => {
     expect(heldOutResults(failed)[0]).not.toHaveProperty("mechanical");
   });
 });
+
+describe("a held-out failure's disagreement id", () => {
+  it("is short, names its arm, and keeps the evidence for the referee to read", () => {
+    const one = (arm: string) => {
+      const out = truth();
+      out.tests[1] = {
+        name: HELD_OUT[1]!,
+        pass: false,
+        result: task.refereeEvidence(
+          "failed: AssertionError: expected [] to include x",
+          `/r/eval/${arm}/tree`,
+          `/r/eval/${arm}/tree/t.test.ts`,
+        ),
+      };
+      return scoreRun(task, truth(), out);
+    };
+    const d = groupDisagreements({ a: one("haiku-1"), b: one("opus-low-1") });
+    expect(d).toHaveLength(2);
+    for (const x of d) expect(x.id.length).toBeLessThan(200);
+    expect(d.map((x) => x.id)).toEqual([
+      `tests ${HELD_OUT[1]} / result :: failed: AssertionError: expected [] to include x [haiku-1]`,
+      `tests ${HELD_OUT[1]} / result :: failed: AssertionError: expected [] to include x [opus-low-1]`,
+    ]);
+    expect(d[0]!.armRaw).toContain("/r/eval/haiku-1/tree/src/lib/actions/hoverActivate.ts");
+  });
+});

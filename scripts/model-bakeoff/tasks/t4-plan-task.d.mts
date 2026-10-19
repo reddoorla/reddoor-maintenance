@@ -11,6 +11,7 @@ export const HELD_OUT: string[];
 export const PLAN: string;
 export const sources: { from: string; match: RegExp; to: string }[];
 export const collections: Collection[];
+export const kinds: Record<string, (value: unknown) => string>;
 export const schema: Record<string, unknown>;
 export const goldAddendum: string;
 export const arms: Arm[];
