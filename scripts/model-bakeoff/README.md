@@ -227,10 +227,11 @@ exports make this work, and a collection can be marked `mechanical`:
 - `mechanical: true` on a collection marks every check in it mechanical, like `(well-formed)`: a
   mismatch fails without a referee round. t4 marks only its `gates`: an exit code has nothing for
   a referee to read.
-- An output item with `mechanical: true` makes that item's checks mechanical too; t4 marks a held-out
+- An item with `mechanical: true` in `evaluate`'s output makes that item's field checks mechanical
+  too (an agent's own report cannot do this); t4 marks a held-out
   test that never ran (a crash, a missing export), which has no failure for a referee to read.
 - `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
-  an arm that differs, but its `refCorrect: false` refutes nothing, so the arms that matched the
+  an arm that differs, but its `refCorrect: false` on a field check refutes nothing, so the arms that matched the
   reference keep that check and no contradiction is reported. t4's held-out tests are `refFixed`,
   since passing the plan's own test is never wrong.
 

@@ -280,3 +280,14 @@ describe("a held-out failure's disagreement id", () => {
     expect(d[0]!.armRaw).toContain("/r/eval/haiku-1/tree/src/lib/actions/hoverActivate.ts");
   });
 });
+
+describe("item-level mechanical", () => {
+  it("is ignored in an agent's own report, where it would hide a wrong reference", () => {
+    const spec = { collections: task.collections, kinds: task.kinds };
+    const out = { ...truth(), tests: heldOutResults(null) };
+    const checks = scoreRun(spec, truth(), out);
+    const results = checks.filter((c) => c.field === "result");
+    expect(results).toHaveLength(10);
+    expect(results.filter((c) => c.mechanical)).toEqual([]);
+  });
+});

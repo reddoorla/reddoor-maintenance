@@ -10,8 +10,9 @@ export interface Collection {
   /** Every check in this collection is mechanical: a mismatch fails without a referee round. */
   mechanical?: boolean;
   /**
-   * The reference is right by construction (a held-out test that passed): a ruling can credit an
-   * arm that differs, but never refutes the reference and so never costs the arms that matched it.
+   * The reference's field values are right by construction (a held-out test that passed): a ruling
+   * can credit an arm that differs, but never refutes a field check, so it never costs the arms that
+   * matched it. Presence checks are unaffected.
    */
   refFixed?: boolean;
   fields: Record<string, string>;
