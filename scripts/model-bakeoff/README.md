@@ -56,6 +56,12 @@ These are workspace#1's nine steps, with where each one happens.
 
 ## Running a task
 
+The `/bakeoff <task id>` skill in
+[reddoorla/claude-skills](https://github.com/reddoorla/claude-skills/tree/main/skills/bakeoff) runs
+the steps below for you. It refuses arms without an explicit effort, proves the scorer first, loops
+the referee rounds, prices the run with `ledger.mjs`, and drafts the workspace#1 comment without
+posting it. By hand:
+
 ```sh
 node scripts/model-bakeoff/bakeoff.mjs prepare --task t5-census --out <run>
 ```
