@@ -11,6 +11,7 @@ export function extractArgs(
     prompt: (d: string) => string;
     goldAddendum?: string;
     schema: unknown;
+    items?: (d: string) => { id: string; prompt: string; schema: unknown }[];
   },
   inputDir: string,
   arms?: Arm[],
@@ -22,17 +23,16 @@ export function scorerFor(task: Record<string, unknown>): {
   scoreRun: (...a: unknown[]) => unknown[];
 };
 export type Collected = AgentTranscript & { transcript: string };
-export function agentKey(marker: { kind: "arm" | "referee"; id: string }): string;
+export type Marker = { kind: "arm" | "referee"; id: string; item?: string };
+export function agentKey(marker: Marker): string;
 export interface RunArgs {
   dir: string;
   work: string;
   gold: Arm;
   arms: Arm[];
+  items?: { id: string }[];
 }
-export function expectedWork(
-  args: RunArgs,
-  marker: { kind: "arm" | "referee"; id: string },
-): string;
+export function expectedWork(args: RunArgs, marker: Marker): string;
 export function mergeAgents(
   prior: Record<string, Collected>,
   found: Collected[],
@@ -44,13 +44,30 @@ export function verifyRan(
   work?: string,
   opts?: { needOutput?: boolean },
 ): string[];
+export function combineItems(
+  task: { assemble: (outputs: Record<string, unknown>, dir: string) => unknown },
+  args: RunArgs & { items: { id: string }[] },
+  agents: Record<string, AgentTranscript>,
+  arm: Arm,
+): {
+  record: (Omit<AgentTranscript, "marker" | "markerError"> & Record<string, unknown>) | null;
+  problems: string[];
+};
+export function secretReads(
+  secrets: string[],
+  agents: Record<string, { bash?: string[]; reads?: string[] }>,
+): string[];
 export function scoreArms(
   task: Record<string, unknown>,
   args: RunArgs & { task: string },
   agents: Record<string, Collected>,
   reference: unknown,
   truth: unknown,
-): { checksByArm: Record<string, import("./lib/score.mjs").Check[]>; problems: string[] };
+): {
+  checksByArm: Record<string, import("./lib/score.mjs").Check[]>;
+  problems: string[];
+  invalid: string[];
+};
 export function armOutput(
   task: {
     observe?: (work: string, structured: unknown, agent?: unknown, reference?: unknown) => unknown;
@@ -65,3 +82,7 @@ export function byCollection(
   byField: Record<string, { total: number; correct: number }>,
 ): Record<string, string>;
 export function formatResult(r: Record<string, unknown>): string;
+export function launchers(
+  args: { task: string; gold: Arm; arms: Arm[] } & Record<string, unknown>,
+  source: string,
+): { id: string; script: string }[];

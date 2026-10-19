@@ -10,7 +10,7 @@ export const ALLOWED_TOOLS: readonly string[];
 export function lex(text: string): string[][];
 export function forbiddenCommand(command: string, depth?: number): boolean;
 export interface AgentTranscript {
-  marker: { kind: "arm" | "referee"; id: string } | null;
+  marker: { kind: "arm" | "referee"; id: string; item?: string } | null;
   markerError: string | null;
   structured: unknown;
   models: string[];
@@ -21,6 +21,7 @@ export interface AgentTranscript {
   longPrompt: number;
   bash: string[];
   writes: string[];
+  reads?: string[];
   otherTools: string[];
   prompt: string;
   forbidden: string[];
