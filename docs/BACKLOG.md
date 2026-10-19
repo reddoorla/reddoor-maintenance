@@ -4957,6 +4957,9 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       transitive-vulnerability cleanup stays stopped in all 15 repos. ERP's
       `devalue` advisories need item 126's tick this week either way, since
       10-26 is after its 10-25 report.
+      **Answered 2026-10-19 (AskUserQuestion): (a), apply the patch.** The
+      operator applies it to `reddoorla/.github`; no session can reach that
+      repo.
 
 ## Active projects (the operator's list, read by the PM pass)
 
