@@ -68,9 +68,10 @@ const summary = (findings: Finding[], rule?: boolean) => {
 describe("seeded-review key", () => {
   it("fits the frozen cases: every file exists and every anchor sits in its range", () => {
     const t = review.truth(CASES);
-    expect(t.defects).toHaveLength(9);
+    expect(t.defects).toHaveLength(7);
+    expect(t.excluded!.map((e) => e.id)).toEqual(["d2-period-overlap", "d9-approved-no-refresh"]);
+    expect(t.cases).toHaveLength(11);
     expect(t.defects.filter((d) => d.critical).map((d) => d.id)).toEqual([
-      "d2-period-overlap",
       "d5-clone-argv-injection",
       "d6-clone-path-traversal",
       "d7-uid-lookup-collision",
@@ -187,6 +188,60 @@ describe("scoring one run", () => {
     expect(review.runSummary(REF, checks, rulings, out).disputedDefects).toEqual(["d-plain"]);
   });
 
+  it("counts other findings on a seeded case whose defect the key excludes", () => {
+    const ref = { ...REF, cases: ["r01", "r02", "r03", "r11"] };
+    const out = { findings: [f("r11", "src/c.ts", 5)], unverified: [] };
+    expect(review.runSummary(ref, review.scoreRun(null, ref, out), {}, out).otherFindings).toBe(1);
+  });
+
+  it("counts a finding listed twice on a control as one false positive", () => {
+    const twice = f("r02", "src/a.ts", 5);
+    expect(summary([twice, { ...twice }], false).falsePositives).toBe(1);
+  });
+
+  it("fails the well-formed check for a finding whose case names no case, so it cannot vanish", () => {
+    const checks = review.scoreRun(
+      null,
+      { ...REF, cases: ["r01", "r02", "r03"] },
+      {
+        findings: [f("r2", "src/a.ts", 5)],
+      },
+    );
+    expect(checks.find((c: Check) => c.field === "(well-formed)")!.ok).toBe(false);
+  });
+
+  it("reads a finding that names the case's after file as its source file", () => {
+    expect(review.relation(f("r01", "cases/r01.after.a.ts", 11), REF.defects[0]!)).toBe("overlap");
+    expect(review.relation(f("r01", "r01.after.other.ts", 11), REF.defects[0]!)).toBeNull();
+  });
+
+  it("takes line numbers only as numbers or digit strings", () => {
+    expect(review.span({ startLine: "118", endLine: 118 })).toEqual([118, 118]);
+    expect(review.span({ startLine: true, endLine: true })).toBeNull();
+  });
+
+  it("counts a defect the referee refuted on any run for no arm", () => {
+    const outA = { findings: [f("r01", "src/a.ts", 11)], unverified: [] };
+    const outB = { findings: [], unverified: [] };
+    const checksByArm = {
+      "opus-xhigh-1": review.scoreRun(null, REF, outA),
+      "opus-xhigh-2": review.scoreRun(null, REF, outA),
+      "x-1": review.scoreRun(null, REF, outB),
+      "x-2": review.scoreRun(null, REF, outB),
+    };
+    const [g] = groupDisagreements({ a: checksByArm["opus-xhigh-1"] });
+    const rulings = { [g!.id]: { id: g!.id, armCorrect: false, refCorrect: false } };
+    const s = review.summarize({
+      reference: REF,
+      checksByArm,
+      rulings,
+      outputs: { "opus-xhigh-1": outA, "opus-xhigh-2": outA, "x-1": outB, "x-2": outB },
+    });
+    expect(s.refutedDefects).toEqual(["d-crit"]);
+    expect(s.perRun["x-1"]).toMatchObject({ of: 1, criticalMissed: [] });
+    expect(s.groups["x"]!.reasons ?? []).not.toContain("missed 2 seeded critical(s)");
+  });
+
   it("sends nothing to the referee for a defect no finding came near", () => {
     const checks = review.scoreRun(null, REF, { findings: [], unverified: [] });
     expect(groupDisagreements({ arm: checks })).toEqual([]);
@@ -222,6 +277,16 @@ describe("the decision rule", () => {
     otherFindings: 0,
     unruled: 0,
     disputedDefects: [],
+  });
+
+  it("gives no verdict while anything is unruled", () => {
+    const g = review.decide({
+      "opus-xhigh-1": run(8),
+      "opus-xhigh-2": run(8),
+      "opus-low-1": run(8),
+      "opus-low-2": { ...run(8), unruled: 1 },
+    });
+    expect(g["opus-low"]!.verdict).toMatch(/^pending/);
   });
 
   it("puts an arm within tolerance when it is close on recall and false positives", () => {

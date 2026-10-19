@@ -25,6 +25,8 @@ export interface Defect {
   description: string;
 }
 export interface Reference {
+  cases?: string[];
+  excluded?: { id: string; reason: string }[];
   defects: Defect[];
   controls: { case: string; file: string }[];
 }
@@ -74,6 +76,7 @@ export interface Group {
   of: number;
   criticalMissed: number;
   falsePositives: number;
+  unruled: number;
   verdict: string;
   reasons?: string[];
 }
@@ -90,6 +93,7 @@ export function runSummary(
   checks: Check[],
   rulings: Record<string, Ruling>,
   output: unknown,
+  refuted?: Set<string>,
 ): RunSummary;
 export function groupOf(armId: string): string;
 export function decide(
@@ -103,6 +107,8 @@ export function summarize(input: {
   outputs: Record<string, unknown>;
 }): {
   tolerance: Tolerance;
+  excluded: { id: string; reason: string }[];
+  refutedDefects: string[];
   perRun: Record<string, RunSummary>;
   groups: Record<string, Group>;
   gold?: RunSummary;

@@ -192,6 +192,12 @@ Add `tasks/<id>.mjs` exporting:
 - `summarize({ reference, checksByArm, rulings, outputs })` and `formatSummary(summary)`: optional.
   `score` stores the summary in `result.json` as `summary` and prints it under the table.
 
+Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
+this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
+from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
+transcript for a git command and for a read outside `<run>/input`, and record the result. The
+2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
+
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,
 not the truth. The 2026-10-19 row-4 run did both before the first arm ran, and the referee still

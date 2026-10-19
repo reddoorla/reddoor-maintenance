@@ -136,8 +136,11 @@ export function truth(dir) {
   }
   if (problems.length)
     throw new Error(`the seeded-review key does not fit its cases:\n  ${problems.join("\n  ")}`);
+  const scored = KEY.defects.filter((d) => !d.excluded);
   return {
-    defects: KEY.defects.map(({ id, case: c, file, ranges, critical, description }) => ({
+    cases: KEY.cases.map((c) => c.case),
+    excluded: KEY.defects.filter((d) => d.excluded).map((d) => ({ id: d.id, reason: d.excluded })),
+    defects: scored.map(({ id, case: c, file, ranges, critical, description }) => ({
       id,
       case: c,
       file,
@@ -155,7 +158,9 @@ const normPath = (p) =>
   String(p ?? "")
     .trim()
     .replace(/\\/g, "/")
-    .replace(/^(?:[ab]\/|\.\/)+/, "");
+    .replace(/^(?:[ab]\/|\.\/)+/, "")
+    // A finding that names the case's after file (`r03.after.draft.ts`) means its source file.
+    .replace(/^(?:.*\/)?r\d+\.after\./, "");
 
 /** The same file: equal paths, or one a suffix of the other at a `/` boundary. */
 export function sameFile(a, b) {
@@ -172,8 +177,10 @@ const normCase = (c) =>
 
 /** A finding's line range, or null when it has none a scorer can read. */
 export function span(f) {
-  const a = Number(f?.startLine);
-  const b = Number(f?.endLine);
+  const num = (v) =>
+    typeof v === "number" || (typeof v === "string" && /^\s*\d+\s*$/.test(v)) ? Number(v) : NaN;
+  const a = num(f?.startLine);
+  const b = num(f?.endLine);
   if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1) return null;
   return [Math.min(a, b), Math.max(a, b)];
 }
@@ -198,7 +205,14 @@ const hash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 8);
 export function scoreRun(_task, reference, output) {
   const checks = [];
   const findings = Array.isArray(output?.findings) ? output.findings : [];
-  const usable = findings.filter((f) => f && typeof f === "object" && span(f));
+  const known = new Set(
+    (reference.cases ?? [...reference.defects, ...reference.controls].map((x) => x.case)).map(
+      normCase,
+    ),
+  );
+  const usable = findings.filter(
+    (f) => f && typeof f === "object" && span(f) && known.has(normCase(f.case)),
+  );
   for (const d of reference.defects) {
     const check = {
       collection: "defects",
@@ -230,14 +244,19 @@ export function scoreRun(_task, reference, output) {
       });
     }
   }
+  const seen = new Set();
   for (const c of reference.controls) {
     for (const f of usable.filter((x) => normCase(x.case) === normCase(c.case))) {
       const armRaw = describe(f);
+      const name = `controls ${c.case} / finding ${normPath(f.file)}:${span(f).join("-")} #${hash(armRaw)}`;
+      // A finding listed twice is one false positive, not two.
+      if (seen.has(name)) continue;
+      seen.add(name);
       checks.push({
         collection: "controls",
         key: c.case,
         field: "finding",
-        check: `controls ${c.case} / finding ${normPath(f.file)}:${span(f).join("-")} #${hash(armRaw)}`,
+        check: name,
         ok: false,
         armKey: "defect",
         refKey: "clean",
@@ -254,10 +273,10 @@ export function scoreRun(_task, reference, output) {
     field: WELL_FORMED,
     check: `findings / ${WELL_FORMED}`,
     ok: answered && malformed === 0,
-    armKey: answered ? `${malformed} without a line range` : "no output",
-    refKey: "0 without a line range",
-    armRaw: answered ? `${malformed} without a line range` : "no output",
-    refRaw: "0 without a line range",
+    armKey: answered ? `${malformed} without a line range or a known case` : "no output",
+    refKey: "0 without a line range or a known case",
+    armRaw: answered ? `${malformed} without a line range or a known case` : "no output",
+    refRaw: "0 without a line range or a known case",
     mechanical: true,
   });
   return checks;
@@ -271,8 +290,11 @@ export function extraCandidates() {
   return {};
 }
 
-/** One arm's run: defects found, criticals missed, and false positives on the controls. */
-export function runSummary(reference, checks, rulings, output) {
+/**
+ * One arm's run: defects found, criticals missed, and false positives on the controls.
+ * A defect in `refuted` (the referee ruled it not a defect, on any run) counts for no arm.
+ */
+export function runSummary(reference, checks, rulings, output, refuted = new Set()) {
   const ruled = (c) => (c.ok ? undefined : rulings[disagreementId(c)]);
   const found = [];
   const missed = [];
@@ -280,8 +302,9 @@ export function runSummary(reference, checks, rulings, output) {
   let unruled = 0;
   for (const c of checks.filter((x) => x.collection === "defects")) {
     const r = ruled(c);
-    if (!c.ok && c.armRaw !== MISSING && !r) unruled++;
     if (r?.refCorrect === false) disputed.push(c.key);
+    if (refuted.has(c.key)) continue;
+    if (!c.ok && c.armRaw !== MISSING && !r) unruled++;
     (c.ok || r?.armCorrect === true ? found : missed).push(c.key);
   }
   const controlChecks = checks.filter((x) => x.collection === "controls");
@@ -293,8 +316,16 @@ export function runSummary(reference, checks, rulings, output) {
     if (r?.armCorrect === true) realOnControls++;
     else falsePositives++;
   }
-  const criticals = reference.defects.filter((d) => d.critical).map((d) => d.id);
-  const seededCases = new Set(reference.defects.map((d) => normCase(d.case)));
+  const criticals = reference.defects
+    .filter((d) => d.critical && !refuted.has(d.id))
+    .map((d) => d.id);
+  // Every case but a control, including one whose defect the key excludes.
+  const controlCases = new Set(reference.controls.map((c) => normCase(c.case)));
+  const seededCases = new Set(
+    (reference.cases ?? reference.defects.map((d) => d.case))
+      .map(normCase)
+      .filter((c) => !controlCases.has(c)),
+  );
   const findings = (Array.isArray(output?.findings) ? output.findings : []).filter(
     (f) => f && span(f),
   );
@@ -303,7 +334,7 @@ export function runSummary(reference, checks, rulings, output) {
   ).length;
   return {
     found: found.length,
-    of: reference.defects.length,
+    of: found.length + missed.length,
     missed,
     criticalFound: criticals.filter((id) => found.includes(id)).length,
     criticalOf: criticals.length,
@@ -329,17 +360,23 @@ export function decide(perRun, tolerance = TOLERANCE) {
       of: 0,
       criticalMissed: 0,
       falsePositives: 0,
+      unruled: 0,
     });
     g.runs++;
     g.found += s.found;
     g.of += s.of;
     g.criticalMissed += s.criticalMissed.length;
     g.falsePositives += s.falsePositives;
+    g.unruled += s.unruled;
   }
   const base = groups[tolerance.comparator];
   for (const [name, g] of Object.entries(groups)) {
     if (!base) {
       g.verdict = "no comparator";
+      continue;
+    }
+    if (g.unruled || base.unruled) {
+      g.verdict = "pending: the referee has not ruled on everything";
       continue;
     }
     const reasons = [];
@@ -359,23 +396,39 @@ export function decide(perRun, tolerance = TOLERANCE) {
 
 /** Called by bakeoff.mjs `score`: the task's own metric, beside the generic per-check score. */
 export function summarize({ reference, checksByArm, rulings, outputs }) {
+  const refuted = new Set();
+  for (const [armId, checks] of Object.entries(checksByArm)) {
+    for (const id of runSummary(reference, checks, rulings, outputs[armId]).disputedDefects) {
+      refuted.add(id);
+    }
+  }
   const perRun = {};
   for (const [armId, checks] of Object.entries(checksByArm)) {
-    perRun[armId] = runSummary(reference, checks, rulings, outputs[armId]);
+    perRun[armId] = runSummary(reference, checks, rulings, outputs[armId], refuted);
   }
   const { gold: goldRun, ...armRuns } = perRun;
-  return { tolerance: TOLERANCE, perRun, groups: decide(armRuns), gold: goldRun };
+  return {
+    tolerance: TOLERANCE,
+    excluded: reference.excluded ?? [],
+    refutedDefects: [...refuted],
+    perRun,
+    groups: decide(armRuns),
+    gold: goldRun,
+  };
 }
 
 export function formatSummary(s) {
   const lines = [
     "",
-    "| Run | Found | Criticals found | Criticals missed | Control false positives | Real defects on controls | Other findings |",
-    "|---|---|---|---|---|---|---|",
+    ...(s.excluded ?? []).map((e) => `Excluded from the key: ${e.id}: ${e.reason}`),
+    ...(s.refutedDefects ?? []).map((id) => `Refuted by the referee, counted for no arm: ${id}`),
+    "",
+    "| Run | Found | Criticals found | Criticals missed | Control false positives | Real defects on controls | Other findings | Unruled |",
+    "|---|---|---|---|---|---|---|---|",
   ];
   for (const [armId, r] of Object.entries(s.perRun)) {
     lines.push(
-      `| ${armId} | ${r.found}/${r.of} | ${r.criticalFound}/${r.criticalOf} | ${r.criticalMissed.join(", ") || "none"} | ${r.falsePositives} | ${r.realOnControls} | ${r.otherFindings} |`,
+      `| ${armId} | ${r.found}/${r.of} | ${r.criticalFound}/${r.criticalOf} | ${r.criticalMissed.join(", ") || "none"} | ${r.falsePositives} | ${r.realOnControls} | ${r.otherFindings} | ${r.unruled} |`,
     );
   }
   lines.push(
