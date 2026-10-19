@@ -5146,6 +5146,32 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       Blux retirement and the workflow composite action stay out of this
       session.
 
+133.  **P1-58, bake-off row 6 (dependency bumps): land #1475 after five
+      review rounds, or hold it (new 2026-10-19, branch
+      `claude/p1-58-bakeoff-pnpm-update`,
+      reddoorla/reddoor-maintenance#1475).** [M] The PR adds
+      `scripts/model-bakeoff/tasks/pnpm-update.mjs` (the registry frozen as
+      a pnpm metadata-cache snapshot, every arm and the truth running
+      `pnpm update --offline`) and an additive harness hook so an action
+      task is scored from each arm's disk. On reddoor-starter `2a9f493`
+      every arm scored 117/117: Haiku 5.5 `low` and `medium` at about $0.013
+      a run, Sonnet `medium` $0.24, Opus `low` $0.50, the Opus `high` gold
+      $0.80. The bump breaks the starter's `svelte-check` (48 errors,
+      `@types/node` stops arriving transitively), and every arm reported it.
+      All five rounds were dirty, every finding in the scorer, none in the
+      models. Round 5 found two reproduced defects, neither of which any
+      run3 arm triggered. A headline `checks.pass: true` beside
+      `failed: ["check"]` scored perfect, and the failure regex matched
+      execa's "Command failed with exit code 1" inside a passing test log.
+      Both are fixed with tests that a mutation turns red, and run3 still
+      scores 117/117. No round has reviewed those fixes. Minors are filed
+      as #1476 to #1480. _Ask:_ (a) land #1475 as it is, with round 5's
+      fixes unreviewed, once CI is green; (b) run a sixth review round
+      first; or (c) hold it. _Pick:_ (a). The scorer only reports; it gates
+      nothing and touches no production path. t5-census was shown to score
+      byte-identically to `main` in three rounds. The result is the
+      ceiling either way.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
