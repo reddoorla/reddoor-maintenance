@@ -5037,6 +5037,34 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       git proxy works (the repo is public), so a cloud session can read it;
       it still cannot push to it or reach it through the API or `add_repo`.
 
+131.  **P1-55, model bake-off harness: land #1417 after five review rounds,
+      or hold it (new 2026-10-19, branch `claude/dazzling-galileo-tq6bcd`,
+      reddoorla/reddoor-maintenance#1417).** [M] The PR adds
+      `scripts/model-bakeoff/` (harness, workflow, ledger, 203 tests, 24
+      mutations all red) and the row-4 result, posted to
+      reddoorla/reddoor-workspace#1: Haiku 5.5 at `medium` matched gold on
+      456/456 checks over two runs at about $0.013 a run, against $0.35 for
+      Opus at `low` and $0.71 for the Opus `high` gold. Haiku at `low` missed
+      one check. The `CLAUDE.md` review rule stops at five dirty rounds, and
+      round 5 found one reproduced defect: in the Bash tripwire that reports
+      arms which write, a standalone `curl -G` turned off every curl check,
+      so `curl -G -X POST url` went unflagged. Round 5's fixes, including
+      that one and CodeQL's high-severity regex finding (the `sh -c` scan
+      could backtrack exponentially, now replaced by a lexer), are pushed in
+      `8a3f7cc5`. No review round has seen them. Every round's majors were
+      in that tripwire or in the scorer's handling of items the reference
+      lacks; the measured result did not move once, and the remaining
+      minors are filed as #1419. _Ask:_ (a) land #1417 as it is, with
+      round 5's fixes unreviewed, once CI is green; (b) run a sixth review
+      round on `8a3f7cc5` first; or (c) hold #1417 and redesign the
+      tripwire, for example by denying `gh`, `git push` and `curl` writes
+      through a custom read-only agent type instead of detecting them.
+      _Pick:_ (a). Every round-5 fix has a test that a mutation turns red,
+      and the real run's 93 Bash commands still classify clean. The
+      tripwire only reports; it does not gate the merge, and nothing in the
+      PR touches production. (c) is the better long-term design, but it
+      changes agent definitions, which this slice's brief rules out.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
