@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contentHash } from "../../scripts/dropbox.mjs";
@@ -20,6 +20,10 @@ import {
   squash,
   exitCode,
   MAX_BATCH_BYTES,
+  USAGE,
+  payloadFor,
+  missingAfterDrop,
+  waitForCommits,
 } from "../../scripts/dropbox-file-request-upload.mjs";
 
 const SCRIPT = join(__dirname, "../../scripts/dropbox-file-request-upload.mjs");
@@ -114,6 +118,12 @@ describe("batches", () => {
       [1],
     ]);
   });
+
+  it("keeps a batch that sums to exactly the byte limit together", () => {
+    const mb = 1024 * 1024;
+    const got = batches([{ size: 127 * mb }, { size: 1 * mb }]);
+    expect(got.map((b) => b.length)).toEqual([2]);
+  });
 });
 
 describe("timeoutMs", () => {
@@ -194,6 +204,15 @@ describe("parseArgs", () => {
     writeFileSync(f, pattern(10));
     expect(() => parseArgs([URL_OK, f, join(d, "Lot 12.pdf")], env)).toThrow(/looks like a file/);
     expect(() => parseArgs([URL_OK, "out/x", "a.pdf"], env)).toThrow(/looks like a file/);
+    expect(() => parseArgs([URL_OK, "out\\x", "a.pdf"], env)).toThrow(/looks like a file/);
+  });
+
+  it("gives its own message, not a raw stat error, for a name too long to stat", () => {
+    const long = "R".repeat(300);
+    expect(() => parseArgs([URL_OK, long, "a.pdf"], env)).toThrow(/looks like a file/);
+    expect(() => parseArgs([URL_OK, long, "a.pdf"], env)).not.toThrow(
+      /ENAMETOOLONG: name too long/,
+    );
   });
 });
 
@@ -223,12 +242,92 @@ describe("plan and table", () => {
     expect(() => plan([d], "R")).toThrow(/not a file/);
   });
 
-  it("refuses a file over the byte limit and points at dropbox.mjs", () => {
+  it("refuses a file over the byte limit and says it needs the API route once check passes", () => {
     const d = scratch();
     const f = join(d, "big.bin");
     writeFileSync(f, pattern(11));
-    expect(() => plan([f], "R", 10)).toThrow(/dropbox\.mjs/);
+    expect(() => plan([f], "R", 10)).toThrow(/dropbox\.mjs upload/);
+    expect(() => plan([f], "R", 10)).toThrow(/once "node scripts\/dropbox\.mjs check" passes/);
     expect(plan([f], "R", 11)).toHaveLength(1);
+  });
+});
+
+describe("USAGE", () => {
+  it("names the runbook's condition for this fallback, not a passing check", () => {
+    expect(USAGE).toContain("MISSING for files.content.write");
+    expect(USAGE).toContain("fails before naming the account");
+    expect(USAGE).toMatch(/UNKNOWN.*re-run/s);
+    expect(USAGE).not.toContain('check" passes');
+  });
+});
+
+describe("payloadFor", () => {
+  it("re-reads each file and refuses one that changed after it was hashed", () => {
+    const d = scratch();
+    const a = join(d, "Lot 12.PDF");
+    const b = join(d, "probe.bin");
+    writeFileSync(a, pattern(10));
+    writeFileSync(b, pattern(20));
+    const rows = plan([a, b], "R");
+    expect(payloadFor(rows)).toEqual([
+      { name: "Lot 12.PDF", type: "application/pdf", b64: pattern(10).toString("base64") },
+      { name: "probe.bin", type: "application/octet-stream", b64: pattern(20).toString("base64") },
+    ]);
+    writeFileSync(b, pattern(20, 3));
+    expect(() => payloadFor(rows)).toThrow(/probe\.bin changed after it was hashed/);
+  });
+});
+
+describe("missingAfterDrop", () => {
+  it("names each dropped file the page does not list, comparing squashed text", () => {
+    const body = "Lot 12.pdf\n  Hwy 46\n West.pdf  Upload";
+    expect(missingAfterDrop(body, ["Lot 12.pdf", "Hwy 46  West.pdf"])).toEqual([]);
+    expect(missingAfterDrop(body, ["Lot 12.pdf", "Lot 13.pdf", "c.pdf"])).toEqual([
+      "Lot 13.pdf",
+      "c.pdf",
+    ]);
+  });
+});
+
+describe("waitForCommits", () => {
+  const done = { status: 200, text: '{"status": "complete"}' };
+
+  function clock(steps: Array<(m: Map<string, { status: number; text: string }>) => void>) {
+    const committed = new Map<string, { status: number; text: string }>();
+    let t = 0;
+    let sleeps = 0;
+    const sleep = async (ms: number) => {
+      expect(ms).toBe(500);
+      steps[sleeps]?.(committed);
+      sleeps += 1;
+      t += ms;
+    };
+    return { committed, sleep, now: () => t, sleeps: () => sleeps };
+  }
+
+  it("returns at once when every file already has a complete commit", async () => {
+    const c = clock([]);
+    c.committed.set("a.pdf", done);
+    await waitForCommits(c.committed, ["a.pdf"], 10_000, c.sleep, c.now);
+    expect(c.sleeps()).toBe(0);
+  });
+
+  it("waits until every file's commit is complete, not merely answered", async () => {
+    const c = clock([
+      (m) => m.set("a.pdf", done),
+      (m) => m.set("b.pdf", { status: 503, text: "" }),
+      () => {},
+      (m) => m.set("b.pdf", done),
+    ]);
+    await waitForCommits(c.committed, ["a.pdf", "b.pdf"], 10_000, c.sleep, c.now);
+    expect(c.sleeps()).toBe(4);
+    expect(c.committed.get("b.pdf")).toEqual(done);
+  });
+
+  it("stops at the deadline when a commit never completes", async () => {
+    const c = clock([(m) => m.set("a.pdf", { status: 200, text: '{"status": "error"}' })]);
+    await waitForCommits(c.committed, ["a.pdf"], 2_000, c.sleep, c.now);
+    expect(c.sleeps()).toBe(4);
   });
 });
 
@@ -286,6 +385,7 @@ describe("verdicts and exitCode", () => {
 describe("squash", () => {
   it("collapses runs of whitespace the way innerText does", () => {
     expect(squash("  Hwy 46  West.pdf\n")).toBe("Hwy 46 West.pdf");
+    expect(squash("Hwy 46\nWest.pdf")).toBe("Hwy 46 West.pdf");
   });
 });
 
@@ -300,7 +400,7 @@ describe("commitComplete", () => {
 });
 
 describe("the command", () => {
-  function run(args: string[], env: Record<string, string> = {}) {
+  function run(args: string[], env: Record<string, string> = {}, cwd?: string) {
     const clean: Record<string, string | undefined> = {
       ...process.env,
       HTTPS_PROXY: "http://127.0.0.1:9",
@@ -312,6 +412,7 @@ describe("the command", () => {
       encoding: "utf-8",
       env: clean,
       timeout: 30_000,
+      cwd,
     });
   }
 
@@ -336,6 +437,18 @@ describe("the command", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("UPLOADER_EMAIL");
     expect(r.stderr).toContain("usage:");
+  });
+
+  it("exits 2 when the uploader name is a bare entry in the working directory", () => {
+    const d = scratch();
+    writeFileSync(join(d, "Hwy 46 West.pdf"), pattern(10));
+    mkdirSync(join(d, "Reddoor"));
+    for (const name of ["Hwy 46 West.pdf", "Reddoor"]) {
+      const r = run(["--dry-run", URL_OK, name, "Lot 12.pdf"], {}, d);
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain(`the uploader name "${name}" looks like a file`);
+      expect(r.stderr).toContain("the working directory has an entry by that name");
+    }
   });
 
   it("exits 2 when a file does not exist", () => {
