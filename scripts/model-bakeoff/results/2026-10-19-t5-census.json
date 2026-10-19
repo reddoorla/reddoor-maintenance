@@ -10,7 +10,7 @@
     "referee": ["wf_72d2b31c-042"]
   },
   "reference": "script truth",
-  "problems": [],
+  "problems": ["the frozen input changed during the run"],
   "disagreements": 1,
   "unruled": 0,
   "referenceErrors": [],
@@ -112,6 +112,9 @@
       "errors": []
     }
   ],
+  "problemNotes": {
+    "the frozen input changed during the run": "Instrument change, not an input change: the manifest gained a root-directory entry (\".\": dir:555) after this run was prepared. All 40 entries recorded before the run match the input after it."
+  },
   "rulings": [
     {
       "id": "scripts central-dep-blocker.mjs / nodeImports :: []",

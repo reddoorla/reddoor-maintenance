@@ -15,26 +15,109 @@ export const ALLOWED_TOOLS = Object.freeze([
   "ToolSearch",
 ]);
 
-export const FORBIDDEN = Object.freeze([
-  /(^|[;&|(`\n]|\$\()\s*((sudo|xargs|time|command|exec|nice|env|timeout\s+\S+)(\s+-\S+)*\s+)*(\w+=\S*\s+)*(\S*\/)?gh(\s|$)/m,
-  /\bwhich\s+gh\b/,
-  /\bgit\b(\s+(--(git-dir|work-tree|namespace|exec-path)\s+\S+|-[cC]\s+\S+|--?[\w-]+(=\S+)?))*\s+(push|commit|tag|reset|checkout|switch|stash|rm|add|mv|merge|rebase|clean|restore|apply|am|cherry-pick|revert)\b/,
-  /\bcurl\b.*(\s-X\s*(POST|PUT|PATCH|DELETE)\b|\s--request(\s+|=)(POST|PUT|PATCH|DELETE)\b|\s--(data[\w-]*|form|upload-file|json)(\s|=)|\s-[A-Za-z]*[dFT])/i,
-]);
-
 const NESTED = /\b(?:(?:ba|z|da)?sh\s+-[a-z]*c|eval)\s+(['"])((?:\\.|(?!\1)[\s\S])*)\1/g;
+const HEREDOC = /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\n|$)/g;
+const SEPARATORS = /\n|;|&&|\|\||\||&|\$\(|`|\(|\)|\{|\}/;
+const KEYWORDS = new Set(["do", "then", "else", "elif", "if", "while", "until", "!", "time"]);
+const WRAPPERS = new Set(["sudo", "nohup", "stdbuf", "nice", "timeout", "xargs", "env"]);
+const PREFIXES = new Set(["command", "exec", "builtin"]);
+const GIT_VALUE_OPTIONS = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--exec-path",
+  "--config-env",
+]);
+const GIT_WRITES = new Set([
+  "push",
+  "commit",
+  "tag",
+  "reset",
+  "checkout",
+  "switch",
+  "stash",
+  "rm",
+  "add",
+  "mv",
+  "merge",
+  "rebase",
+  "clean",
+  "restore",
+  "apply",
+  "am",
+  "cherry-pick",
+  "revert",
+]);
+const WRITE_METHODS = /^(POST|PUT|PATCH|DELETE)$/;
 
 export function unquoted(command) {
   return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, (q) =>
-    /^["']gh["']$/.test(q) ? "gh" : "''",
+    /^(["'])[\w./@:=+-]+\1$/.test(q) ? q.slice(1, -1) : "''",
   );
 }
 
+export function withoutHeredocs(command) {
+  return command.replace(HEREDOC, (m) => m.slice(0, m.indexOf("\n")));
+}
+
+export function segments(command) {
+  return unquoted(withoutHeredocs(command))
+    .split(SEPARATORS)
+    .map((s) => s.trim().split(/\s+/).filter(Boolean))
+    .filter((t) => t.length > 0);
+}
+
+export function commandOf(tokens) {
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    const base = t.split("/").pop();
+    if (KEYWORDS.has(t) || /^\w+=/.test(t) || PREFIXES.has(base)) {
+      i++;
+      continue;
+    }
+    if (WRAPPERS.has(base)) {
+      i++;
+      while (i < tokens.length && (tokens[i].startsWith("-") || /^\d+[smhd]?$/.test(tokens[i]))) {
+        const option = tokens[i++];
+        if (/^-[A-Za-z]$/.test(option) && i < tokens.length && !tokens[i].startsWith("-")) i++;
+      }
+      continue;
+    }
+    return { name: base, args: tokens.slice(i + 1) };
+  }
+  return null;
+}
+
+function gitWrites(args) {
+  let j = 0;
+  while (j < args.length && args[j].startsWith("-")) j += GIT_VALUE_OPTIONS.has(args[j]) ? 2 : 1;
+  return GIT_WRITES.has(args[j]);
+}
+
+function curlWrites(args) {
+  return args.some((a, k) => {
+    if (a === "-X" || a === "--request") return WRITE_METHODS.test(args[k + 1] || "");
+    if (a.startsWith("--request=")) return WRITE_METHODS.test(a.slice(10));
+    if (/^--(data[\w-]*|form|upload-file|json)(=|$)/.test(a)) return true;
+    if (/^-X/.test(a)) return WRITE_METHODS.test(a.slice(2));
+    return /^-[A-Za-z]/.test(a) && !a.startsWith("--") && /[dFT]/.test(a.match(/^-[A-Za-z]+/)[0]);
+  });
+}
+
 export function forbiddenCommand(command, depth = 0) {
-  const plain = unquoted(command);
-  if (FORBIDDEN.some((re) => re.test(plain))) return true;
+  for (const tokens of segments(command)) {
+    const c = commandOf(tokens);
+    if (!c) continue;
+    if (c.name === "gh") return true;
+    if (c.name === "which" && c.args.includes("gh")) return true;
+    if (c.name === "git" && gitWrites(c.args)) return true;
+    if (c.name === "curl" && curlWrites(c.args)) return true;
+  }
   if (depth > 3) return false;
-  for (const m of command.matchAll(NESTED)) {
+  for (const m of withoutHeredocs(command).matchAll(NESTED)) {
     if (forbiddenCommand(m[2], depth + 1)) return true;
   }
   return false;

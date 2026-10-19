@@ -19,6 +19,7 @@ export interface Check {
   refKey: string;
   armRaw: string;
   refRaw: string;
+  mechanical?: boolean;
 }
 export interface Disagreement {
   id: string;
@@ -40,10 +41,20 @@ export interface ArmScore {
   byField: Record<string, { total: number; correct: number }>;
   errors: { check: string; got: string; expected: string }[];
 }
+export type Spec = { collections: Collection[]; kinds?: Kinds };
+export const EXTRA: string;
+export const DUPLICATES: string;
+export function referenceDuplicates(spec: Spec, reference: unknown): string[];
+export function extraCandidates(
+  spec: Spec,
+  reference: unknown,
+  outputs: unknown[],
+): Record<string, [string, string][]>;
 export function scoreRun(
-  spec: { collections: Collection[]; kinds?: Kinds },
+  spec: Spec,
   reference: unknown,
   output: unknown,
+  candidates?: Record<string, [string, string][]>,
 ): Check[];
 export function disagreementId(c: Check): string;
 export function groupDisagreements(checksByArm: Record<string, Check[]>): Disagreement[];

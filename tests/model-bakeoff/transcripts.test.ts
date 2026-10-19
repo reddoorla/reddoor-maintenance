@@ -124,6 +124,23 @@ describe("forbiddenCommand", () => {
     "git --git-dir /x commit -m y",
     "curl --json {} https://x",
     "curl -d@f https://x",
+    "for r in a b; do gh api repos/reddoorla/$r -X DELETE; done",
+    "if true; then gh api x; fi",
+    "while read r; do gh pr view $r; done < f",
+    "{ gh api x; }",
+    "! gh api x",
+    'sh -c "for r in a; do gh api $r; done"',
+    "timeout -k 1 5 gh api x",
+    "timeout -s KILL 5 gh x",
+    "nice -n 5 gh api x",
+    "sudo -u root gh x",
+    "nohup gh api x",
+    "stdbuf -oL gh api x",
+    "xargs -n 1 gh x",
+    "xargs -I{} gh issue close {}",
+    "curl -X 'POST' https://x",
+    'curl -X"POST" https://x',
+    "curl -sd x=1 https://x",
   ])("flags %s", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(true);
   });
@@ -137,6 +154,18 @@ describe("forbiddenCommand", () => {
     "git log --oneline -3",
     "git branch -a",
     "curl -s https://example.com",
+    "grep -n curl scripts/* | cut -d: -f1 | sort -u",
+    "grep -rn curl . | awk -F: '{print $1}'",
+    "grep -c curl f | sort -t: -k2 -n",
+    "curl -s u | grep -F x",
+    "curl -s u; cut -d, -f1 f",
+    "cat > /w/c.py <<'EOF'\nfor f in files:\n    gh = 'gh api' in open(f).read()\n# curl -d is a write\n    git add -p\nEOF\npython3 /w/c.py",
+    "git log -S add",
+    "git log --grep commit",
+    "command -v node",
+    "ls -la /x",
+    "find . -name '*.yml' -exec grep -l secrets {} +",
+    'node -e "console.log(1)"',
   ])("lets the read %s through", (cmd) => {
     expect(forbiddenCommand(cmd)).toBe(false);
   });

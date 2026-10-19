@@ -6,17 +6,17 @@ standard, and what each run costs. The method, the routing table and every resul
 30-day spend ledger that motivated it is
 [reddoorla/reddoor-workspace#2](https://github.com/reddoorla/reddoor-workspace/issues/2).
 
-| File                                          | What it does                                                                                                             |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                     |
-| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`)             |
-| `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                      |
-| `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                 |
-| `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                  |
-| `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                      |
-| `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, MCP calls and forbidden commands |
-| `tasks/*.mjs`                                 | One file per task type                                                                                                   |
-| `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                          |
+| File                                          | What it does                                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                       |
+| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`)                               |
+| `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                        |
+| `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                   |
+| `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
+| `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
+| `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
+| `tasks/*.mjs`                                 | One file per task type                                                                                                                     |
+| `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
 
 ## The recipe
 
@@ -24,8 +24,8 @@ These are workspace#1's nine steps, with where each one happens.
 
 1. **Freeze the input.** `prepare` copies the task's sources into `<run>/input`, sets every file
    to mode 444 and every directory to 555, and records a manifest of each file's mode and sha256
-   and each directory's mode. A cloud container runs as root, so the permission bits alone do not
-   stop a write. `score` therefore re-reads the folder and reports any change as a problem. Each
+   and the mode of the folder and each directory in it. A cloud container runs as root, so the
+   permission bits alone do not stop a write. `score` therefore re-reads the folder and reports any change as a problem. Each
    agent also gets its own scratch directory, `<run>/work/<id>`, and is told to write nowhere
    else. On 2026-10-19 the first row-4 run gave no such directory, and all four Haiku runs wrote
    the same `census/census.py` at once, so one ran another's script. `score` now reports any
@@ -78,11 +78,13 @@ then `collect` (with that run's transcript directory) and `score` again.
 - a transcript's marker names no arm of this run;
 - a prompt does not name this run's input folder and that agent's work dir, which catches a
   transcript directory from another run passed by mistake;
-- a prompt holds more than one marker, or does not end with one.
+- a prompt holds a marker but not exactly one, at its end (a prompt with no marker is skipped);
+- a referee marker is not `r<round>-<chunk>`.
 
 `score` exits non-zero on any of these problems, and `<run>/result.json` holds the full result:
 
 - `args.dir` is not `<run>/input`, or the input changed;
+- the reference lists one item twice (the first entry is used);
 - an arm or the gold has no transcript, or no accepted structured output;
 - an arm, the gold or a referee ran on a model or effort it did not ask for;
 - a disagreement is still unruled, or a referee chunk returned nothing while one is;
@@ -93,13 +95,19 @@ then `collect` (with that run's transcript directory) and `score` again.
 
 It also exits non-zero when there is no reference at all: no truth, and no gold output.
 
-The Bash check is a pattern match over each command with quoted text removed, and over the body
-of any `sh -c`, `bash -c` or `eval`. It looks for `gh` at the start of a command or line, after a
-pipe or separator, or after `sudo`, `xargs`, `time`, `command`, `exec`, `nice`, `env`, `timeout`
-or a variable assignment. It looks for git subcommands that write (`push`, `commit`, `rm` and the
-like) after `-c`/`-C`, `--git-dir`/`--work-tree` or `--opt=value` options. And it looks for
-`curl` with a write method, `--data`, `--form`, `--json`, `--upload-file`, or a `-d`, `-F` or `-T`
-flag. It is a tripwire, not a sandbox.
+The Bash check finds the command word of every simple command and judges that word alone. It
+drops heredoc bodies, keeps a quoted single word as the word (`"gh"`, `-X 'POST'`) and blanks
+other quoted text, then splits on newlines, `;`, `&&`, `||`, `|`, `&`, `$(`, backticks, brackets
+and braces. In each piece it skips shell keywords (`do`, `then`, `if`, `!`, `time` and the like),
+variable assignments, `command`/`exec`, and wrappers (`sudo`, `nohup`, `stdbuf`, `nice`,
+`timeout`, `xargs`, `env`) with their options and option values. The command word is then
+forbidden when it is `gh`; `git` with a writing subcommand (`push`, `commit`, `rm` and the like)
+after any global options; `curl` with a write method, `--data`, `--form`, `--json`,
+`--upload-file`, or a short-option cluster holding `d`, `F` or `T`; or `which gh`. It repeats the
+check on the body of any `sh -c`, `bash -c` or `eval`. So `grep -n curl f | cut -d: -f1` and a
+heredoc that mentions `gh api` pass, while `for r in a; do gh api $r; done` fails. Commands run
+inside another interpreter (`node -e`, `python3 -c`) are not seen. It is a tripwire, not a
+sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
@@ -124,10 +132,13 @@ same item.
 Each reference item gets a `(present)` check, so an item the arm left out goes to the referee like
 any other disagreement. If the referee rules that the reference item does not exist, that item's
 field checks are dropped for every arm, and an arm that listed it loses its `(present)` check.
-Each collection also gets one check that the arm listed no item the reference lacks and no item
-twice, with the extras and the duplicates recorded separately. Where an item appears twice, the
-first entry is the one scored. So a t5-census run has 228 checks: 188 fields, 38 `(present)` and
-2 collection checks.
+Every item that some arm listed and the reference lacks gets an `(extra)` check, and every arm
+gets that check, whether it listed the item or not, so all arms share one denominator. The
+referee rules on each extra item once. If it rules that the item really exists, the arms that
+left it out fail that check. Each collection also gets a `(no duplicates)` check per arm. A
+duplicate is a mechanical fault, so it never goes to the referee, and where an item appears twice
+the first entry is the one scored. The 2026-10-19 t5-census run had no extra items, so each run
+had 228 checks: 188 fields, 38 `(present)` and 2 `(no duplicates)`.
 
 ## Adding a task type
 

@@ -14,7 +14,14 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { validateRun, workDir } from "./lib/arms.mjs";
-import { MISSING, finalScores, groupDisagreements, scoreRun } from "./lib/score.mjs";
+import {
+  MISSING,
+  extraCandidates,
+  finalScores,
+  groupDisagreements,
+  referenceDuplicates,
+  scoreRun,
+} from "./lib/score.mjs";
 import { readAgentTranscript } from "./lib/transcripts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -45,11 +52,11 @@ function walk(dir, out = [], withDirs = false) {
 
 export function manifest(dir) {
   return Object.fromEntries(
-    walk(dir, [], true).map((f) => {
+    [dir, ...walk(dir, [], true)].map((f) => {
       const st = statSync(f);
       const mode = (st.mode & 0o777).toString(8);
       return [
-        relative(dir, f),
+        relative(dir, f) || ".",
         st.isDirectory() ? `dir:${mode}` : `${mode}:${sha256(readFileSync(f))}`,
       ];
     }),
@@ -127,6 +134,10 @@ export function mergeAgents(prior, found, args) {
     }
     if (!t.marker) continue;
     const key = agentKey(t.marker);
+    if (t.marker.kind === "referee" && !/^r\d+-\d+$/.test(t.marker.id)) {
+      errors.push(`${t.transcript}: referee marker ${t.marker.id} is not r<round>-<chunk>`);
+      continue;
+    }
     if (t.marker.kind === "arm" && !armIds.has(t.marker.id)) {
       errors.push(`${t.transcript}: marker ${key} names no arm of this run`);
       continue;
@@ -231,7 +242,16 @@ async function score(opts) {
   const reference = truth ?? gold;
   if (!reference)
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
+  for (const d of referenceDuplicates(task, reference)) {
+    problems.push(`the reference lists ${d} more than once; the first entry is used`);
+  }
   const all = [args.gold, ...args.arms];
+  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
+  const candidates = extraCandidates(
+    task,
+    reference,
+    scored.map((arm) => agents[arm.id].structured || {}),
+  );
   const checksByArm = {};
   for (const arm of all) {
     const a = agents[arm.id];
@@ -241,7 +261,7 @@ async function score(opts) {
     }
     problems.push(...verifyRan(arm, a, workDir(args.work, arm.id)));
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured || {});
+    checksByArm[arm.id] = scoreRun(task, reference, a.structured || {}, candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));

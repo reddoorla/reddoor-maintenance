@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   MISSING,
+  extraCandidates,
   finalScores,
   groupDisagreements,
   normalise,
+  referenceDuplicates,
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
 
@@ -120,24 +122,56 @@ describe("scoreRun", () => {
     ]);
   });
 
-  it("fails an invented item and a duplicate, in one check per collection", () => {
+  it("fails an invented item and a duplicate, each in its own check", () => {
     const out = {
       workflows: [...ref.workflows, { file: "invented.yml", crons: [], jobs: 1 }, ref.workflows[0]],
     };
     const checks = scoreRun(spec, ref, out);
-    const extra = checks.find((c) => c.field === "(no extra or duplicate items)")!;
-    expect(extra.ok).toBe(false);
-    expect(JSON.parse(extra.armRaw)).toEqual({ extras: ["invented.yml"], duplicates: ["a.yml"] });
-    expect(checks.filter((c) => !c.ok)).toHaveLength(1);
+    expect(checks.filter((c) => !c.ok).map((c) => [c.check, c.armRaw])).toEqual([
+      ["workflows invented.yml / (extra)", "listed"],
+      ["workflows / (no duplicates)", '["a.yml"]'],
+    ]);
   });
 
-  it("keeps an extra item and a duplicate apart, so one ruling cannot cover both", () => {
-    const once = scoreRun(spec, ref, { workflows: [...ref.workflows, { file: "x.yml" }] });
-    const twice = scoreRun(spec, ref, {
-      workflows: [...ref.workflows, { file: "x.yml" }, { file: "workflows/X.yml" }],
-    });
-    const d = groupDisagreements({ once, twice }).filter((g) => g.check.includes("extra"));
-    expect(d.map((g) => g.arms)).toEqual([["once"], ["twice"]]);
+  it("gives every arm the same check for each item any arm listed, keyed per item", () => {
+    const outputs = {
+      a: { workflows: [...ref.workflows, { file: "real.yml" }] },
+      b: { workflows: ref.workflows },
+      e: { workflows: [...ref.workflows, { file: "bogus.yml" }] },
+    };
+    const candidates = extraCandidates(spec, ref, Object.values(outputs));
+    const checksByArm = Object.fromEntries(
+      Object.entries(outputs).map(([k, o]) => [k, scoreRun(spec, ref, o, candidates)]),
+    );
+    const d = groupDisagreements(checksByArm);
+    expect(d.map((g) => [g.check, g.arms])).toEqual([
+      ["workflows real.yml / (extra)", ["a"]],
+      ["workflows bogus.yml / (extra)", ["e"]],
+    ]);
+    const rulings = {
+      [d[0]!.id]: { id: d[0]!.id, armCorrect: true, refCorrect: false, note: "real.yml exists" },
+      [d[1]!.id]: { id: d[1]!.id, armCorrect: false, refCorrect: true },
+    };
+    const { per, contradictions, referenceErrors } = finalScores(checksByArm, rulings);
+    expect(contradictions).toEqual([]);
+    expect(referenceErrors.map((e) => e.check)).toEqual(["workflows real.yml / (extra)"]);
+    expect([per.a, per.b, per.e].map((p) => [p!.total, p!.correct])).toEqual([
+      [9, 9],
+      [9, 8],
+      [9, 7],
+    ]);
+  });
+
+  it("never sends a duplicate to the referee", () => {
+    const twice = scoreRun(spec, ref, { workflows: [...ref.workflows, ref.workflows[0]] });
+    expect(groupDisagreements({ twice })).toEqual([]);
+    expect(finalScores({ twice }).per.twice).toMatchObject({ total: 7, correct: 6, unruled: 0 });
+  });
+
+  it("reports a reference that lists one item twice", () => {
+    expect(referenceDuplicates(spec, { workflows: [...ref.workflows, ref.workflows[1]] })).toEqual([
+      "workflows b.yml",
+    ]);
   });
 
   it("keeps the first of two entries for one key rather than the last", () => {
