@@ -218,7 +218,27 @@ afterEach(async () => {
 
 const DECLARED = { ok: true, forms: { testMode: true, turnstile: false } };
 
-async function submit(f: Fixture, opts?: Parameters<typeof defaultFormRunner>[0]) {
+type RunnerOpts = NonNullable<Parameters<typeof defaultFormRunner>[0]>;
+
+/**
+ * The waits these fixtures can afford to shorten. The production defaults
+ * (5 s hydration cap, 1200 ms settle, 30 s submit waits) are pinned without a
+ * browser in form-e2e-runner-timing.test.ts; the tests below that exercise a
+ * default's own behaviour pass their values explicitly.
+ * - hydrationTimeoutMs 500: contactPage never writes html[data-hydrated] and
+ *   needs no hydration (its script runs inline before domcontentloaded), so the
+ *   wait always runs to the cap. 500 still runs the wait rather than skipping it.
+ * - settleMs 200: the fixtures have no bot-timing screen. The one thing the
+ *   settle must outlast is resetSelect's setTimeout(0) revert, which the re-check
+ *   after the settle has to see; 200 ms is far past a zero-delay task.
+ */
+const FAST_SETTLE_MS = 200;
+const FAST: RunnerOpts = { hydrationTimeoutMs: 500, settleMs: FAST_SETTLE_MS };
+/** For the two fixtures that must fail at the submit: the banner never shows,
+ *  or the click never lands. 3 s instead of 30 s to reach that failure. */
+const FAST_FAIL: RunnerOpts = { ...FAST, submitTimeoutMs: 3000 };
+
+async function submit(f: Fixture, opts: RunnerOpts = FAST) {
   fixture = f;
   posts = [];
   runner = await defaultFormRunner(opts);
@@ -242,7 +262,7 @@ describe("form-e2e live runner — positive control", () => {
     posts = [];
     const r = await formE2eAudit({
       site: { path: "", name: "fixture", deployedUrl: base },
-      formRunner: await defaultFormRunner(),
+      formRunner: await defaultFormRunner(FAST),
     });
     expect(r.status).toBe("pass");
     expect((r.details as { ok?: string }).ok).toBe("pass");
@@ -285,7 +305,7 @@ describe("form-e2e live runner — required fields outside the standard fill set
 
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {
   it("reports a failure when the success banner never appears", async () => {
-    const out = await submit({ health: DECLARED, banner: false, resetSelect: true });
+    const out = await submit({ health: DECLARED, banner: false, resetSelect: true }, FAST_FAIL);
     expect(out).toMatchObject({
       formPresent: true,
       success: false,
@@ -345,6 +365,8 @@ describe("form-e2e live runner — the probe does not cause the wipe it reports 
   const PRE_HYDRATION = { delayMs: 700, marker: false };
 
   it("control: injecting before hydration makes the page re-mount, and the probe reports refilled", async () => {
+    // Default settle on purpose: the re-mount lands ~700 ms in (or 400 ms after
+    // the fills), so the settle must outlast it for the re-check to see the wipe.
     const out = await submit(
       { health: DECLARED, banner: true, hydration: PRE_HYDRATION },
       { hydrationTimeoutMs: 0 },
@@ -360,7 +382,12 @@ describe("form-e2e live runner — the probe does not cause the wipe it reports 
   }, 90_000);
 
   it("waits out hydration on a site without the marker, so a page with no real mismatch is not refilled", async () => {
-    const out = await submit({ health: DECLARED, banner: true, hydration: PRE_HYDRATION });
+    // The cap must outlast PRE_HYDRATION's 700 ms delay, since this fixture
+    // writes no marker: 2500 leaves 1800 ms of margin on a slow runner.
+    const out = await submit(
+      { health: DECLARED, banner: true, hydration: PRE_HYDRATION },
+      { hydrationTimeoutMs: 2500, settleMs: FAST_SETTLE_MS },
+    );
     expect(out).toMatchObject({ formPresent: true, success: true });
     expect(out).not.toHaveProperty("refilled");
     expect(posts).toHaveLength(1);
@@ -372,7 +399,7 @@ describe("form-e2e live runner — the probe does not cause the wipe it reports 
     const t0 = Date.now();
     const out = await submit(
       { health: DECLARED, banner: true, hydration: { delayMs: 2500, marker: true } },
-      { hydrationTimeoutMs: 30_000 },
+      { hydrationTimeoutMs: 30_000, settleMs: FAST_SETTLE_MS },
     );
     expect(Date.now() - t0).toBeLessThan(20_000);
     expect(out).toMatchObject({ formPresent: true, success: true });
@@ -380,11 +407,16 @@ describe("form-e2e live runner — the probe does not cause the wipe it reports 
   }, 90_000);
 
   it("still reports refilled for a real client re-render after hydration", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      hydration: { delayMs: 300, marker: true, rerenderAfterMs: 400 },
-    });
+    // All defaults on purpose: the re-render lands 400 ms after the marker, so it
+    // must fall inside the settle (the default 1200 ms) for the re-check to see it.
+    const out = await submit(
+      {
+        health: DECLARED,
+        banner: true,
+        hydration: { delayMs: 300, marker: true, rerenderAfterMs: 400 },
+      },
+      {},
+    );
     expect(out).toMatchObject({ formPresent: true, success: true, refilled: true });
     expect(out).not.toHaveProperty("hydrationUnconfirmed");
     expect(posts).toHaveLength(1);
@@ -467,12 +499,15 @@ describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => 
 
 describe("form-e2e live runner — a probe that throws still says what it synthesized", () => {
   it("carries the synthesized names when the submit click itself fails", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      disabledSubmit: true,
-      resetSelect: true,
-    });
+    const out = await submit(
+      {
+        health: DECLARED,
+        banner: true,
+        disabledSubmit: true,
+        resetSelect: true,
+      },
+      FAST_FAIL,
+    );
     expect(out).toMatchObject({
       formPresent: true,
       success: false,
