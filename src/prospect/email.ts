@@ -2,6 +2,8 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
 import { defaultResendClient, type ResendClient } from "../reports/send/resend.js";
 import type { ProspectAuditResult } from "./types.js";
+import { filenameSlug } from "../util/slug.js";
+import { formatIsoDate } from "../util/date.js";
 
 /**
  * Mirrors `reports/send/orchestrate.ts`'s `FROM_ADDRESS` (its line 18) — copied,
@@ -40,19 +42,6 @@ function resolveName(result: ProspectAuditResult): string {
  */
 function subjectSafe(s: string): string {
   return s.replace(/\s+/g, " ").trim();
-}
-
-/** Local copy of render.ts's date formatter — small enough that importing it
- *  (render.ts doesn't export it) isn't worth the coupling. */
-function formatIsoDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 type NotMeasuredLine = { label: string; reason: string };
@@ -210,17 +199,6 @@ export function parseProspectAuditRecipients(raw: string | undefined | null): st
   return list;
 }
 
-/** Filesystem-safe attachment-filename fragment. Tiny local copy of the CLI's
- *  private `slugify` (prospect-audit.ts) — not worth exporting/sharing one
- *  three-line predicate across a module boundary. */
-function slugify(s: string): string {
-  const slug = s
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "prospect";
-}
-
 export type SendAuditEmailOptions = {
   link: string | null;
   recipients: string[];
@@ -286,7 +264,7 @@ export async function sendAuditEmail(
     attachments: opts.pdf
       ? [
           {
-            filename: `prospect-audit-${slugify(hostnameOf(result.url))}.pdf`,
+            filename: `prospect-audit-${filenameSlug(hostnameOf(result.url))}.pdf`,
             content: opts.pdf.toString("base64"),
             contentType: "application/pdf",
           },
