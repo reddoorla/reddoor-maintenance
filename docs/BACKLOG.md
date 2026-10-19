@@ -5123,6 +5123,40 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
+132.  **P1-63, bake-off tripwire minors: land #1444 after five review rounds,
+      or hold it (new 2026-10-19, branch `claude/p1-63-tripwire-minors`,
+      reddoorla/reddoor-maintenance#1444, closes #1419).** [M] The PR makes
+      `forbiddenCommand` in `scripts/model-bakeoff/lib/transcripts.mjs` see
+      every form in #1419. It stops flagging read-only `git tag --merged`,
+      `git config -f`, `git clean -n` and the like, and starts flagging
+      `git remote add`, `git config --unset`, `find -exec gh`,
+      `wget --post-data`, `echo 'git push' | sh`, `$(gh api)` inside an
+      unquoted heredoc body, `curl -X $M` and `$(which gh) api`. The final head
+      has 359 tests and about 40 mutations, each of which turns a test red.
+      All five review rounds were dirty (listed below). Round 5's four
+      reproduced defects are fixed and pushed in `0fbf1f77`, with tests and
+      mutations, and no review round has seen them. Two forms stay unfixed and
+      are filed as #1456: an echo with a `$(…)` argument piped into a shell
+      (listed as unseen), and a heredoc body line ending in `\` (a false
+      positive also on `main`). The slow regex from before this PR is #1426.
+      _Ask:_ (a) land #1444 at `0fbf1f77` once CI is green, with #1456 left
+      open; (b) run a sixth review round on `0fbf1f77` first; or (c) hold it.
+      _Pick:_ (b). Each round has found regressions in the previous round's
+      fixes, so landing `0fbf1f77` unreviewed repeats the pattern that this
+      rule exists to stop. #1456's two forms are also on `main` today, so
+      landing does not make them worse. The tripwire only reports and gates
+      nothing in production. The rounds:
+      - Round 1: 4 majors.
+      - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
+      - Round 3: 2 major regressions. Its group-feeder stack was backed out,
+        and the forms it covered are listed as unseen (#1438).
+      - Round 4: 1 major from before this PR. A `\`-newline hid the command,
+        as in `git \⏎ push`.
+      - Round 5: only hand-built shapes, but four of them are reproduced
+        behaviour defects. Two are false positives from round 4,
+        `echo gh pr ''>/dev/null | sh` and `echo gh pr create>|/dev/null | sh`.
+        `"gi\⏎t" push` was missed. `echo gh pr $(true) | sh` was missed.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
