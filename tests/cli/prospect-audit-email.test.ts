@@ -30,6 +30,21 @@ vi.mock("../../src/prospect/email.js", async (importOriginal) => {
   };
 });
 
+// With --email and a persisted token, the command prints the PDF leave-behind
+// from the live website's print route: renderReportPdf launches Chromium and
+// navigates to REPORT_BASE_URL's /audit/{token}/print. Against an in-memory
+// token that page cannot exist, so every --email test here launched a browser,
+// waited on a real 404 from the website, and recorded "Could not attach the
+// PDF": 2 to 28 s a test, and a browser launch in a suite meant to be offline.
+// Stubbed to that same outcome (a throw the command turns into a warning), so
+// what these tests assert is unchanged. The renderer itself is covered by
+// tests/prospect/pdf.test.ts.
+vi.mock("../../src/prospect/pdf.js", () => ({
+  renderReportPdf: vi.fn(async () => {
+    throw new Error("PDF rendering disabled in tests");
+  }),
+}));
+
 const ORIGINAL_ENV = { ...process.env };
 
 /** Same offline crawl/analyze/lighthouse stubs the sibling prospect-audit test
