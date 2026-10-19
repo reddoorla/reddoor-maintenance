@@ -4944,6 +4944,36 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
       patch automerge on a green preview is a separate, fleet-wide call (🔴),
       not asked here.
 
+130.  **P1-52: apply the preset change that lets lock-file maintenance open
+      its PR, fleet-wide (new 2026-10-19, branch `claude/clever-fermi-swf68c`,
+      `docs/patches/2026-10-19-github-renovate-lockfile-immediate.patch`).**
+      [M] The cause is named by Renovate's own log. A lock-file branch has no
+      status and no check run, so under the preset's `prCreation: not-pending`
+      it reads pending; the Monday run that rebuilds it returns before PR
+      creation, and every later in-window run finds it under 25 hours old.
+      Renovate's debug dry run on erp-industrial inside today's window
+      (erp-industrial#72, closed) logged `Branch is 10 hours old - skipping PR
+creation as prNotPendingHours is set to 25` on the unchanged preset, and
+      `DRY-RUN: Would create PR: chore(deps): lock file maintenance` with
+      `lockFileMaintenance.prCreation: "immediate"` added. Nothing else in the
+      two runs differed. The patch sets that one key and adds a `validate.yml`
+      check that goes red on today's preset. It is a patch because a cloud
+      session cannot reach `reddoorla/.github` at all: `add_repo` refuses
+      names that start with a dot, and the git proxy and the GitHub connector
+      both refuse it. _Ask:_ (a) apply the patch to `reddoorla/.github` (`git
+am`), open the PR, and merge it once `validate` is green. Lock-file PRs
+      then open in the next Monday window (10-26) and automerge on green CI,
+      or (b) leave the preset as it is, and tick each repo's Dashboard box by
+      hand every Monday. _Pick:_ (a). It is one key inside
+      `lockFileMaintenance`. It does not loosen the merge, because each PR
+      still waits for CI and the base branch's required check. Without it,
+      transitive-vulnerability cleanup stays stopped in all 15 repos. ERP's
+      `devalue` advisories need item 126's tick this week either way, since
+      10-26 is after its 10-25 report.
+      **Answered 2026-10-19 (AskUserQuestion): (a), apply the patch.** The
+      operator applies it to `reddoorla/.github`; no session can reach that
+      repo.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
