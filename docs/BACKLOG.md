@@ -5123,6 +5123,36 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
+135.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
+      five review rounds, or hold it (new 2026-10-19, branch
+      `claude/p1-62-bakeoff-skill` in claude-skills).** [M] The PR adds
+      `skills/bakeoff/` to claude-skills, which drives
+      `scripts/model-bakeoff/` end to end:
+      - It refuses arms without an explicit effort, single-run cheap arms
+        and a set `CLAUDE_CODE_EFFORT_LEVEL`.
+      - It proves the scorer before any score is read.
+      - It loops referee rounds, stopping after three, or at once when the
+        referee shows the reference is wrong.
+      - It prices only the run's transcripts and drafts the workspace#1
+        comment without posting it.
+
+      It has 56 tests and 32 mutations: 30 red, and 2 survivors whose code
+      was removed as unreachable. A live t5-census run through it went
+      228/228 on every arm, and the ledger and the transcripts agree at
+      $2.0220. Round 5 found one reproduced major: the proof was bound to
+      the reference but not to the scorer, so an edit to the shared
+      checkout's `lib/score.mjs` while the arms ran let a scorer that
+      passes everything score the run. The fix (`b504164`, M32 red) records
+      the sha256 of `lib/score.mjs` and the task module in the proof, and
+      `score` and `report` refuse if either changed. No review round has
+      seen it. Round 5's minors are filed as claude-skills#16–#20.
+      _Ask:_ (a) land #21 with the round-5 fix unreviewed; (b) run a sixth
+      round on `b504164` first; or (c) hold it.
+      _Pick:_ (a). The fix adds about 40 lines whose only effect is a refusal, and it was
+      reproduced red and green against a copy of the harness whose scorer
+      was edited after `start`. Every round's majors were in what the skill
+      certifies, not in what it runs, and the measured result never moved.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
