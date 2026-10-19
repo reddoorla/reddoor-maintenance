@@ -117,6 +117,8 @@ async function prepare(opts) {
   const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
   const args = extractArgs(task, input, arms);
   mkdirSync(args.work, { recursive: true });
+  const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
+  if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
   freeze(input);
   writeJson(join(run, "manifest.json"), manifest(input));
   writeJson(join(run, "truth.json"), task.truth ? task.truth(input) : null);
