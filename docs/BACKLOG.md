@@ -5116,6 +5116,8 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       worker lands it with `land-prs.mjs`, ticks workspace#1's first two
       acceptance boxes and writes the journal entry.
 
+<!-- 132 is held by branch claude/cleanup-worklist-od132 (Maintenance cleanup), not yet on main. -->
+
 133.  **CRCA Brand Friction Audit: deck format, and Tim's assessment
       (new 2026-10-19, run #1 of the $1,500 Diagnosis; work in
       `reddoorla/reddoor-workspace` `audits/2026-10-19-crca-brand-friction-audit/`,
