@@ -794,10 +794,21 @@ export function noBannerDetail(e: NoBannerEvidence): string {
  * false green.
  */
 export async function defaultFormRunner(
-  opts: { hydrationTimeoutMs?: number } = {},
+  opts: {
+    hydrationTimeoutMs?: number;
+    /** Test-only: the pause after the fills (default FILL_SETTLE_MS). A local
+     *  fixture has no bot-timing screen to beat. */
+    settleMs?: number;
+    /** Test-only: the cap on the action POST, the submit click and the success
+     *  banner (default PAGE_TIMEOUT_MS), so a fixture that must fail does not
+     *  wait out 30 s to do it. */
+    submitTimeoutMs?: number;
+  } = {},
 ): Promise<FormRunner> {
   const { chromium } = await import("@playwright/test");
   const hydrationTimeoutMs = opts.hydrationTimeoutMs ?? HYDRATION_TIMEOUT_MS;
+  const settleMs = opts.settleMs ?? FILL_SETTLE_MS;
+  const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
   return {
     async submit({ baseUrl, testSitekey }) {
       // Per-site safety preflight — refuse before a browser even launches.
@@ -973,7 +984,7 @@ export async function defaultFormRunner(
 
         // Beat the bot-timing screen, then submit and wait for the success banner
         // (role="status") the starter renders on a successful action.
-        await page.waitForTimeout(FILL_SETTLE_MS);
+        await page.waitForTimeout(settleMs);
 
         // Verify the fills survived the settle, and refill once if not. A client
         // re-render during the settle discards everything fillAll did — seen live
@@ -1060,7 +1071,7 @@ export async function defaultFormRunner(
           .waitForResponse(
             (r) => r.request().method() === "POST" && isSameSitePost(r.url(), baseUrl),
             {
-              timeout: PAGE_TIMEOUT_MS,
+              timeout: submitTimeoutMs,
             },
           )
           .then((r) => {
@@ -1077,11 +1088,11 @@ export async function defaultFormRunner(
         await page
           .locator('button[type="submit"], input[type="submit"]')
           .first()
-          .click({ timeout: PAGE_TIMEOUT_MS });
+          .click({ timeout: submitTimeoutMs });
         const ok = await page
           .locator('[role="status"]')
           .first()
-          .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
+          .waitFor({ state: "visible", timeout: submitTimeoutMs })
           .then(() => true)
           .catch(() => false);
         const elapsedMs = Date.now() - startedAt;
