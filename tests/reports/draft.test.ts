@@ -1169,6 +1169,7 @@ describe("draftReportForSite → the Turso report writer", () => {
 
     it("a failing mirror write does not fail the draft", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.mocked(fetchSearchPresence).mockResolvedValue({
         foundOnPage1: true,
         position: 1,
@@ -1188,7 +1189,15 @@ describe("draftReportForSite → the Turso report writer", () => {
           },
         },
       );
+      const warned = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
       expect(result.reportRow).not.toBeNull();
+      // Not failing the draft means the operator still gets a queued draft, and
+      // the lost stamp is said out loud rather than swallowed.
+      expect(result.queued).toBe(true);
+      expect(warned).toContainEqual(
+        expect.stringContaining("analytics-health Turso mirror failed for Acme Co"),
+      );
     });
   });
 
