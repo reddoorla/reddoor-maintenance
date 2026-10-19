@@ -741,4 +741,26 @@ describe("score on an item run", () => {
     expect(changed.problems).toContain("the frozen input changed during the run");
     expect(changed.decision.reasons).toContain("the frozen input changed during the run");
   });
+
+  it("stops the ranking when the referee ran on the wrong model or broke a rule", () => {
+    const run = build();
+    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    runs["referee:r1-1"] = {
+      ...runs["gold/r01"],
+      transcript: "/t/referee.jsonl",
+      marker: { kind: "referee", id: "r1-1" },
+      models: ["claude-haiku-5-5"],
+      efforts: ["low"],
+      structured: { rulings: [] },
+      writes: ["/etc/passwd"],
+    };
+    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    const r = score(run);
+    const why = r.decision.reasons.join("\n");
+    expect(why).toMatch(
+      /referee:r1-1: asked for claude-opus-5-5, transcripts show claude-haiku-5-5/,
+    );
+    expect(why).toMatch(/referee:r1-1: wrote outside/);
+    expect(r.decision.canRank).toBe(false);
+  });
 });

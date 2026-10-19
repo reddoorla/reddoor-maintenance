@@ -341,7 +341,9 @@ async function score(opts) {
   const reference = truth ?? gold;
   if (!reference)
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
-  problems.push(...referenceFaults(task, reference));
+  const faults = referenceFaults(task, reference);
+  problems.push(...faults);
+  blockers.push(...faults);
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
   const candidates = extraCandidates(
@@ -373,7 +375,9 @@ async function score(opts) {
   const unruled = disagreements.filter((d) => !rulings[d.id]);
   for (const [k, a] of referees) {
     const work = workDir(args.work, k.replace(":", "-"));
-    problems.push(...verifyRan(REFEREE, a, work, { needOutput: unruled.length > 0 }));
+    const p = verifyRan(REFEREE, a, work, { needOutput: unruled.length > 0 });
+    problems.push(...p);
+    blockers.push(...p);
   }
   if (unruled.length) {
     problems.push(`${unruled.length} disagreements are unruled; run the referee before reporting`);
@@ -395,9 +399,9 @@ async function score(opts) {
   }
   const { per, referenceErrors, contradictions, realExtras } = finalScores(checksByArm, rulings);
   for (const c of realExtras) {
-    problems.push(
-      `${c}: the referee ruled this item real, so the reference is missing it and its field values went unscored; fix the reference and score again`,
-    );
+    const p = `${c}: the referee ruled this item real, so the reference is missing it and its field values went unscored; fix the reference and score again`;
+    problems.push(p);
+    blockers.push(p);
   }
   for (const c of contradictions) {
     problems.push(`${c}: the referee's rulings disagree about whether the reference is right`);
