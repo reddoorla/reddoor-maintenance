@@ -153,6 +153,59 @@ The truth refuses what it cannot read rather than guess. It refuses:
 - a node id rendered more than once, on one page or across pages, which the prompt does not
   say how to list.
 
+## Item tasks: one agent per item
+
+A task that exports `items(dir)` (an array of `{ id, prompt, schema }`) and
+`assemble(outputs, dir)` runs as production fans out: one agent per arm and item, not one
+agent per arm. `prepare` puts the items in `workflow-args.json`; the workflow marks each prompt
+`(BAKEOFF-ARM: <arm> ITEM: <item>)` and gives it the work dir `<work>/<arm>/<item>`. `collect`
+keys each transcript `<arm>/<item>` and refuses an item that is not in the run, or an arm
+marker without one. `score` checks each item agent on its own (model, effort, output, writes),
+reports a missing item, and then scores the arm on `assemble` of the outputs it has, with cost
+and requests summed over its items. `task.prompt(dir)` is then what the referee is shown as
+the task.
+
+`args.only` (a list of arm ids, `gold` included) runs a subset of the arms. A workflow runs at
+most `min(16, CPUs - 2)` agents at once, two in a 4-CPU cloud container, so a large item run is
+launched as one workflow per arm with `only`, and `collect` is run once per transcript
+directory: it merges into the run's `runs.json`.
+
+A task may also export `secrets` (strings, such as its answer key's file name): `score` reports
+any agent whose Bash commands or Read, Grep or Glob inputs name one. And `decision(records,
+dir, ctx)`, whose `lines` `score` prints under the table. `ctx` holds the run's `arms` (gold
+first), the arm ids `score` found a problem in (`invalid`), the referee's `referenceErrors`, the
+`unruled` count, and `blockers`: problems that are no one arm's, such as a changed input.
+
+### `refute-repo` (row 5, second control)
+
+The `refute-claims` skeptics on 36 claims about six repo files pinned at one commit of main
+(`tasks/refute-repo.data.json`): 18 false, 16 true documentary claims and 2 behaviour claims
+labelled `untested`. The false ones include dropped conditions, wrong defaults and a field given
+to the wrong event, hook or list. Every label names the line that decides it, and the test
+checks that line's text at the pin with `git show`, so the evidence can always be re-fetched.
+Each arm gets the production `refutePrompt` and per-kind `verdictSchema`, and its verdicts go
+through `enforceQuoteRule` as the workflow records them.
+
+```sh
+git worktree add --detach <scratch>/pin "$(node -p "require('./scripts/model-bakeoff/tasks/refute-repo.data.json').pin")"
+node scripts/model-bakeoff/bakeoff.mjs prepare --task refute-repo --root <scratch>/pin --out <run>
+```
+
+The decision rule is `TOLERANCE` in the task file, committed before the first run. A run passes
+with at most 1 false claim missed, 1 true claim refuted, 2 true documentary claims unconfirmed,
+and both `untested` labels returned. A config pools its two runs; it qualifies to replace
+production (Opus at `xhigh`) only if both runs pass and its pooled errors and misses are within
+2 and 1 of production's. The control may rank only when production passes both runs, the
+referee upholds every label it rules on, no disagreement is unruled, `score` found no problem
+outside one arm, and pooled errors spread by at least 3 across the configs with two runs and no
+faulted run.
+
+The 2026-10-19 run (`results/2026-10-19-refute-repo.json`) saturated. Production passed both
+runs at 36/36, and so did every other run but two: Sonnet `medium` run 2 confirmed r33, though
+its own reason said the order was the opposite, and a Haiku skeptic made one MCP call it was told
+not to make. Pooled errors spread by 1, so the rule does not rank the arms. About 80% of an Opus
+run's cost is each fresh skeptic's cache write, so effort barely moves the cost and the model does.
+
 ## Scoring
 
 Each field has a kind. The kinds apply these rules before comparing:
