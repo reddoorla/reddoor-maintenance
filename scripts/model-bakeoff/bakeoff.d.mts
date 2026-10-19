@@ -16,6 +16,11 @@ export function extractArgs(
   arms?: Arm[],
   work?: string,
 ): Record<string, unknown>;
+export function scorerFor(task: Record<string, unknown>): {
+  referenceFaults: (...a: unknown[]) => string[];
+  extraCandidates: (...a: unknown[]) => Record<string, unknown>;
+  scoreRun: (...a: unknown[]) => unknown[];
+};
 export type Collected = AgentTranscript & { transcript: string };
 export function agentKey(marker: { kind: "arm" | "referee"; id: string }): string;
 export interface RunArgs {

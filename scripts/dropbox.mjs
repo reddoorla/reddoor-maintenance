@@ -179,6 +179,18 @@ async function parseBody(res) {
   }
 }
 
+// A 409 too_many_write_operations that Dropbox raised before taking the request can be
+// sent again unchanged: the top-level shape anywhere, and files/upload's WriteError
+// (path/too_many_write_operations), since one-call upload keeps nothing on failure. On
+// upload_session/finish, path/too_many_write_operations comes after the bytes were already
+// appended to the session (files.stone UploadSessionFinishError.path: "retry with empty data
+// body and updated offset"), so resending the same cursor and bytes would only meet
+// incorrect_offset. That one is left to fail with its own error.
+export function resendable(endpoint, errorSummary) {
+  if (/^too_many_write_operations\//.test(errorSummary)) return true;
+  return endpoint === "files/upload" && /^path\/too_many_write_operations\//.test(errorSummary);
+}
+
 async function send(deps, endpoint, url, init) {
   const sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   for (let attempt = 1; ; attempt++) {
@@ -191,10 +203,13 @@ async function send(deps, endpoint, url, init) {
         cause: e,
       });
     }
+    const backOff = () => {
+      const after = Number(res.headers?.get?.("retry-after"));
+      return sleep(Math.min(Number.isFinite(after) && after > 0 ? after : 1, MAX_WAIT_S) * 1000);
+    };
     if (res.status === 429 && attempt < MAX_ATTEMPTS) {
       await res.body?.cancel().catch(() => undefined);
-      const after = Number(res.headers?.get?.("retry-after"));
-      await sleep(Math.min(Number.isFinite(after) && after > 0 ? after : 1, MAX_WAIT_S) * 1000);
+      await backOff();
       continue;
     }
     let body;
@@ -202,6 +217,10 @@ async function send(deps, endpoint, url, init) {
       body = await parseBody(res);
     } catch (e) {
       throw new Error(`${endpoint}: reading the response failed: ${e?.message ?? e}`, { cause: e });
+    }
+    if (res.status === 409 && attempt < MAX_ATTEMPTS && resendable(endpoint, summary(body))) {
+      await backOff();
+      continue;
     }
     if (res.status !== 200) throw new DropboxError(endpoint, res.status, body);
     return body;
@@ -296,14 +315,15 @@ export async function probeScopes(ctx) {
     } catch (e) {
       if (e instanceof DropboxError && e.scope)
         out.push({ scope, state: "MISSING", detail: e.message });
-      else if (e instanceof DropboxError && e.status === 409) {
-        const s = summary(e.body);
-        out.push({
-          scope,
-          state: "granted",
-          detail: /^not_found\//.test(s) ? "" : `HTTP 409 ${s}`,
-        });
-      } else out.push({ scope, state: "UNKNOWN", detail: e.message });
+      // The probe id never exists, so not_found proves the call was allowed. Any other
+      // 409 (disabled_for_team, email_unverified, no_permission) means close-request would fail.
+      else if (
+        e instanceof DropboxError &&
+        e.status === 409 &&
+        /^not_found\//.test(summary(e.body))
+      )
+        out.push({ scope, state: "granted", detail: "" });
+      else out.push({ scope, state: "UNKNOWN", detail: e.message });
     }
   }
   return out;
@@ -376,6 +396,8 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
           last,
         ),
       );
+      if ((await fh.stat()).size !== size)
+        throw new Error(`${local} changed size while being read`);
     } finally {
       await fh.close();
     }
