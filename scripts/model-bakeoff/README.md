@@ -138,8 +138,8 @@ file that mentions `gh api` pass, and so do lookups such as `which gh` and `comm
 run nothing. `for r in a; do gh api $r; done` and `a="$(gh api x)"` fail. Not seen: commands run
 inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a shell reading stdin
 from anything but a lone `echo` or `printf` (`cat f | sh`, `sh < f`, `curl u | sh`, a group or
-loop such as `(echo 'git push') | sh`, or a filter between, as in `echo … | cat | sh`; #1438), a
-resolved path other than `which` or `command -v` (`$(type -P gh)`, a variable holding `gh`), and
+loop such as `(echo 'git push') | sh`, or a filter between, as in `echo … | cat | sh`; #1438), an
+`echo` whose arguments hold a `$(…)` or backtick (`echo gh pr $(true) | sh`; #1456), a resolved path other than `which` or `command -v` (`$(type -P gh)`, a variable holding `gh`), and
 a subcommand named through a variable (`git $op`). It is a tripwire, not a sandbox.
 
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
