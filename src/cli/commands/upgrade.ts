@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { upgradeSvelte4to5 } from "../../recipes/svelte-5/index.js";
-import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { formatRecipeResult } from "../fleet/format-recipe-result.js";
 
 const KNOWN_UPGRADES = new Set(["svelte-4-to-5"]);
 
@@ -13,11 +13,6 @@ export type UpgradeCommandOptions = {
   workdir?: string;
   cwd?: string;
 };
-
-function formatResult(r: RecipeResult): string {
-  if (r.status === "noop") return `[${r.site}] noop: ${r.notes ?? ""}`;
-  return `[${r.site}] applied: ${r.commits.length} commit(s)\n${r.notes ?? ""}`;
-}
 
 export async function runUpgradeCommand(
   upgradeName: string | undefined,
@@ -54,7 +49,7 @@ export async function runUpgradeCommand(
   // so the only reachable upgrade here is the svelte-4-to-5 recipe.
   const results = await runRecipeOverSites("svelte-4-to-5", sites, (s) => upgradeSvelte4to5(s));
 
-  const output = results.map(formatResult).join("\n");
+  const output = results.map((r) => formatRecipeResult(r)).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;
   return { output: appendSkipNotice(output, skipped), code };
 }
