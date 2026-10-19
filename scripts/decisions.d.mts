@@ -118,6 +118,7 @@ export interface ConvertResult {
 export function parseArgs(argv: string[]): Options;
 export function calendarValid(v: string): boolean;
 export function stripComments(text: string): { text: string; unclosed: boolean };
+export function isPlaceholder(line: string): boolean;
 export function parseDecision(name: string, text: string, now?: number): Decision;
 export function readDecisionDir(dir: string, now?: number): Decision[];
 export function refState(ref: string, asked: string, run: Runner): Promise<RefState>;

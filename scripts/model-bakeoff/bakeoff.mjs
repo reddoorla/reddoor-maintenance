@@ -129,6 +129,13 @@ async function prepare(opts) {
 const armRunId = (marker) =>
   marker.item === undefined ? marker.id : `${marker.id}/${marker.item}`;
 
+/** The scorer a task uses: lib/score.mjs's, with any of these three the task exports in its place. */
+export function scorerFor(task) {
+  const s = { referenceFaults, extraCandidates, scoreRun };
+  for (const k of Object.keys(s)) if (typeof task[k] === "function") s[k] = task[k];
+  return s;
+}
+
 export function agentKey(marker) {
   return marker.kind === "arm" ? armRunId(marker) : `referee:${marker.id}`;
 }
@@ -341,12 +348,13 @@ async function score(opts) {
   const reference = truth ?? gold;
   if (!reference)
     throw new Error("no reference: the task has no truth and the gold run returned nothing");
-  const faults = referenceFaults(task, reference);
+  const scorer = scorerFor(task);
+  const faults = scorer.referenceFaults(task, reference);
   problems.push(...faults);
   blockers.push(...faults);
   const all = [args.gold, ...args.arms];
   const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const candidates = extraCandidates(
+  const candidates = scorer.extraCandidates(
     task,
     reference,
     scored.map((arm) => agents[arm.id].structured),
@@ -364,7 +372,7 @@ async function score(opts) {
       if (p.length) invalid.add(arm.id);
     }
     if (arm.id === "gold" && !truth) continue;
-    checksByArm[arm.id] = scoreRun(task, reference, a.structured, candidates);
+    checksByArm[arm.id] = scorer.scoreRun(task, reference, a.structured, candidates);
   }
   const rulings = {};
   const referees = Object.entries(agents).filter(([k]) => k.startsWith("referee:"));
@@ -427,6 +435,12 @@ async function score(opts) {
         errors: per[a.id]?.errors.slice(0, 20) || [],
       })),
   };
+  if (typeof task.summarize === "function") {
+    const outputs = Object.fromEntries(
+      Object.keys(checksByArm).map((k) => [k, agents[k].structured]),
+    );
+    result.summary = task.summarize({ reference, checksByArm, rulings, outputs });
+  }
   if (task.decision) {
     result.decision = task.decision(
       Object.fromEntries(all.filter((a) => agents[a.id]).map((a) => [a.id, agents[a.id]])),
@@ -436,6 +450,9 @@ async function score(opts) {
   }
   writeJson(join(run, "result.json"), result);
   console.log(formatResult(result));
+  if (result.summary && typeof task.formatSummary === "function") {
+    console.log(task.formatSummary(result.summary));
+  }
   if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
   if (problems.length) process.exitCode = 1;
 }
