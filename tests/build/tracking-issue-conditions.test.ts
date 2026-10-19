@@ -594,7 +594,7 @@ const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
   ],
   [
     "fleet-lighthouse.yml › Re-check Search Console no-property sites to Turso",
-    "P1-48: a site still without a property is a stored finding, not the run's failure; a misread control writes nothing, and its ::error:: plus the unchanged search_console_checked_at are the trace, so the run keeps the AUDIT's verdict",
+    "P1-48: a site still without a property is a stored finding, not the run's failure; a misread control writes nothing and logs an ::error::, so the run keeps the AUDIT's verdict. Nothing yet alarms on the unchanged search_console_checked_at, so a re-check that stops writing is silent (#1339)",
   ],
   [
     "fleet-security.yml › Protection coverage audit (org-wide)",
