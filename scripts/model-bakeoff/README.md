@@ -15,7 +15,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
-| `tasks/*.mjs`                                 | One file per task type                                                                                                                     |
+| `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                              |
 | `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
 
 ## The recipe
@@ -184,6 +184,31 @@ Add `tasks/<id>.mjs` exporting:
 - `arms`: an array of `{ id, model, effort }`, the cheap arms. No arm id may be `gold` or start
   with `referee`. `--arms` on `prepare` replaces this list only.
 - `gold`: one `{ id: "gold", model, effort }`, exported on its own.
+
+### A task that changes a repository
+
+Some tasks are not extractions: the agent edits code, and what counts is the tree it leaves, not
+what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked example. Two optional
+exports make this work, and a collection can be marked `mechanical`:
+
+- `setup({ input, work, ids, root })` runs in `prepare` after the sources are copied and before
+  the input is frozen. `root` is `--root` when it is given. t4 writes the plan into the input and
+  gives every agent the pinned tree in `<work>/<id>/repo`, as a one-commit repository installed
+  offline, so the commit that implemented the task is not in its history. The agents need Write
+  and Edit there, which the existing rules already allow: their work dir is theirs, and `score`
+  still reports a write anywhere else.
+- `evaluate({ run, work, id })` replaces the agent's structured output as the thing scored. `score`
+  calls it once per agent and caches the result in `<run>/evaluated.json`, because the gates are
+  slow (t4: about two minutes per agent). Delete that file to evaluate again.
+- `mechanical: true` on a collection marks every check in it mechanical, like `(well-formed)`: a
+  mismatch fails without a referee round. A gate's exit code or a held-out test's status has
+  nothing for a referee to read.
+
+t4's gates run on a copy of each agent's tracked and untracked files, never on its tree:
+`pnpm check`, `pnpm lint` and the agent's own `vitest run`. Then the plan's own test file, taken
+from the implementing commit, replaces the agent's version and runs alone, and each of its tests
+is one check. The scope gate passes when the files changed since the pinned commit (committed or
+not) are a non-empty subset of the files the plan names.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,

@@ -105,7 +105,9 @@ stale). Change no other file.
 
 export const collections = [
   { name: "gates", key: "gate", keyKind: "string", mechanical: true, fields: { pass: "boolean" } },
-  { name: "tests", key: "name", keyKind: "string", mechanical: true, fields: { pass: "boolean" } },
+  // A held-out test can fail on a detail the plan leaves open (2026-10-19, run 1: a synthetic
+  // pointerleave with no pointerType), so its result goes to the referee with the evidence.
+  { name: "tests", key: "name", keyKind: "string", fields: { result: "string" } },
 ];
 
 export const schema = {
@@ -163,19 +165,29 @@ export function scopeCheck(changed, allowed = ALLOWED) {
 }
 
 export function heldOutResults(report, names = HELD_OUT) {
-  const status = new Map();
+  const seen = new Map();
   for (const file of report?.testResults || []) {
-    for (const t of file.assertionResults || []) {
-      status.set([...(t.ancestorTitles || []), t.title].join(" "), t.status);
-    }
+    for (const t of file.assertionResults || [])
+      seen.set([...(t.ancestorTitles || []), t.title].join(" "), t);
   }
-  return names.map((name) => ({ name, pass: status.get(name) === "passed" }));
+  return names.map((name) => {
+    const t = seen.get(name);
+    const pass = t?.status === "passed";
+    const why = String(t?.failureMessages?.[0] ?? "").split("\n")[0];
+    const result = pass ? "passed" : t ? `${t.status}${why ? `: ${why}` : ""}` : "not run";
+    return { name, pass, result };
+  });
+}
+
+export function refereeEvidence(result, repo, testFile) {
+  if (result === "passed") return result;
+  return `${result}. The agent's code is ${repo}/src/lib/actions/hoverActivate.ts and the plan's test as run is ${testFile}. ARM is correct if that code does what plan.md asks on the behaviour this test checks, so that the failure comes from a detail the plan leaves open. REFERENCE (passing this test) is correct unless the test demands the opposite of what plan.md asks: an implementation that passes a test stricter than the plan is still right.`;
 }
 
 export function truth() {
   return {
     gates: ["typecheck", "lint", "suite", "scope"].map((gate) => ({ gate, pass: true })),
-    tests: HELD_OUT.map((name) => ({ name, pass: true })),
+    tests: HELD_OUT.map((name) => ({ name, pass: true, result: "passed" })),
   };
 }
 
@@ -277,7 +289,10 @@ export function evaluate({ run: runDir, work, id: armId }) {
       { gate: "suite", pass: ok(suite) },
       { gate: "scope", pass: scope.pass },
     ],
-    tests: heldOutResults(report),
+    tests: heldOutResults(report).map((t) => ({
+      ...t,
+      result: refereeEvidence(t.result, repo, join(ev, HELD_OUT_FILE)),
+    })),
     detail,
   };
 }

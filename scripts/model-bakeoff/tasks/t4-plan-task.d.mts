@@ -23,10 +23,11 @@ export function scopeCheck(
 export function heldOutResults(
   report: unknown,
   names?: string[],
-): { name: string; pass: boolean }[];
+): { name: string; pass: boolean; result: string }[];
+export function refereeEvidence(result: string, repo: string, testFile: string): string;
 export function truth(): {
   gates: { gate: string; pass: boolean }[];
-  tests: { name: string; pass: boolean }[];
+  tests: { name: string; pass: boolean; result: string }[];
 };
 export function setup(o: { input: string; work: string; ids: string[]; root?: string }): void;
 export function changedFiles(repo: string, base: string): string[];
