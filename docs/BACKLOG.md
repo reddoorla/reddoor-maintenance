@@ -4887,6 +4887,15 @@ williamson-construction-co` and `… williamson-homes` from the laptop
       Renovate automerges it on its first run after CI is green (the next
       scheduled one is ~02:00Z 10-20), or the operator merges it. Done when
       it merges and the `devalue` advisories close.
+      **Answered 2026-10-19 (AskUserQuestion): (a), tick it.**
+      **Done 2026-10-19 14:32Z (the item 129 session) [M].** The tick and
+      the 14:13Z dispatches were this session's, not the operator's by hand:
+      the box went to `[x]` at 13:17:15Z, and the operator said "trigger a
+      rebase, let's get everything cleared today" before the dispatch.
+      erp-industrial#76 changes only `pnpm-lock.yaml` (`devalue` 5.9.2 →
+      5.9.4). It landed with `land-prs.mjs` at head `e5095848` once every
+      check was green, as `6a40e922`. The production deploy was published at
+      14:32:24Z, and `main`'s lockfile now resolves only `devalue@5.9.4`.
 
 127.  **Dropbox API uploader: re-authorize the app so its refresh token
       carries the write scopes (new 2026-10-16, #1388 held as a draft,
@@ -5013,6 +5022,30 @@ williamson-construction-co` and `… williamson-homes` from the laptop
       the advisory is High. A preset change that lets a `[security]` `sharp`
       patch automerge on a green preview is a separate, fleet-wide call (🔴),
       not asked here.
+      **Answered 2026-10-19 (AskUserQuestion): (a), yes to all 14 repos.**
+      **Done 2026-10-19 14:29Z [M].** Before each merge, the head's check
+      runs were all green and its Netlify preview deploy was `ready` on that
+      exact commit (27 previews, read from the Netlify API by `review_id`
+      and `commit_ref`). The first PR of each pair landed with
+      `land-prs.mjs`, pinned to its head, between 13:16 and 13:20Z: 29-navy
+      #76 `df4e91c6`, beachfront-dentistry #85 `73fc873f`, caltex-landing
+      #77 `5af47971`, espada #81 `ff82f319`, medical-solutions-of-texas #74
+      `cb88b545`, revogen #93 `d97bf5b7`, vineyard-custom-homes #74
+      `9805c983`, williamson-construction-co #25 `de5790b4`,
+      williamson-homes #37 `6396b5cb`, roalson-interests #267 `46480eb1`,
+      gallerysonder #121 `10177ccd`, vida-legacy-foundation #105
+      `89b806e6`, mantis-landscaping #48 `1b1418bb`, alamo-anatomy #75
+      `6eab0c9a`. All 17 production deploys (14 merges; MSOT, Revogen and
+      Sonder each build two sites) published between 13:17:41 and
+      13:23:24Z. roalson-interests#290 (dependabot) was closed as
+      superseded by #267. Every second PR went DIRTY. After the 14:13Z
+      Renovate dispatch, Renovate rebased caltex-landing#78, which landed at
+      `7c0b928b` (production published 14:28:46Z), and autoclosed the other
+      12 as no longer needed, 14:15–14:17Z. Skipped: none. Afterwards every
+      one of the 14 `main` lockfiles resolves only `sharp@0.35.5`. Without
+      #78, CalTex's still held 0.35.4 beside it, so an autoclose is not the
+      same as a fix until the lockfile is read. The `staging` copies are
+      untouched.
 
 130.  **P1-52: apply the preset change that lets lock-file maintenance open
       its PR, fleet-wide (new 2026-10-19, branch `claude/clever-fermi-swf68c`,
