@@ -115,7 +115,9 @@ export const collections = [
   { name: "gates", key: "gate", keyKind: "string", mechanical: true, fields: { pass: "boolean" } },
   // A held-out test can fail on a detail the plan leaves open (2026-10-19, run 1: a synthetic
   // pointerleave with no pointerType), so its result goes to the referee with the evidence.
-  { name: "tests", key: "name", keyKind: "string", fields: { result: "string" } },
+  // Passing the plan's own test is right by construction (refFixed), and a test that never ran has
+  // nothing for a referee to read, so its item is mechanical.
+  { name: "tests", key: "name", keyKind: "string", refFixed: true, fields: { result: "string" } },
 ];
 
 export const schema = {
@@ -183,7 +185,7 @@ export function heldOutResults(report, names = HELD_OUT) {
     const pass = t?.status === "passed";
     const why = String(t?.failureMessages?.[0] ?? "").split("\n")[0];
     const result = pass ? "passed" : t ? `${t.status}${why ? `: ${why}` : ""}` : "not run";
-    return { name, pass, result };
+    return { name, pass, result, ...(pass || t?.status === "failed" ? {} : { mechanical: true }) };
   });
 }
 
@@ -201,14 +203,30 @@ export function truth() {
 
 // git never reads an agent's own .git: its config could name an fsmonitor or hooks to run here,
 // and its index could hide a change (update-index --assume-unchanged). The scorer builds its own.
-const SAFE = ["-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null"];
+const SAFE = [
+  "-c",
+  "core.fsmonitor=",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.excludesFile=/dev/null",
+];
 const git = (cwd, ...a) => execFileSync("git", [...SAFE, "-C", cwd, ...a], { encoding: "utf8" });
 // Arm-controlled code runs at score time (its tests, its svelte-check), so it gets no secrets.
 const ENV = Object.fromEntries(
   ["PATH", "HOME", "LANG", "TMPDIR"].filter((k) => process.env[k]).map((k) => [k, process.env[k]]),
 );
-const run = (cwd, cmd, args) =>
-  spawnSync(cmd, args, { cwd, encoding: "utf8", maxBuffer: 1 << 28, env: { ...ENV, CI: "1" } });
+function run(cwd, cmd, args) {
+  const r = spawnSync(cmd, args, {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+    timeout: 15 * 60 * 1000,
+    env: { ...ENV, CI: "1" },
+  });
+  if (r.error) throw new Error(`${cmd} ${args.join(" ")} in ${cwd}: ${r.error.message}`);
+  return r;
+}
 // Copies, not hardlinks: pnpm links every install to one store inode, so an agent writing inside
 // its node_modules would change every other agent's tree, the store and the eval trees.
 const install = (cwd) =>
@@ -297,8 +315,9 @@ export function evaluate({ run: runDir, work, id: armId }) {
   }
   const ok = (r) => r.status === 0;
   const detail = { changed, outside: scope.outside };
+  // The tree's package.json and lockfile are the pin's, so a failed install is the harness's fault.
   const inst = install(tree);
-  if (!ok(inst)) detail.install = (inst.stdout + inst.stderr).slice(-1500);
+  if (!ok(inst)) throw new Error(`pnpm install failed in ${tree}:\n${inst.stdout}${inst.stderr}`);
   const check = run(tree, "pnpm", ["check"]);
   const lint = run(tree, "pnpm", ["lint"]);
   const suite = run(tree, "pnpm", ["exec", "vitest", "run"]);

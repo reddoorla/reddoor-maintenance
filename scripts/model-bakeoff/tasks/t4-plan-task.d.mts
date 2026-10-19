@@ -23,7 +23,7 @@ export function scopeCheck(
 export function heldOutResults(
   report: unknown,
   names?: string[],
-): { name: string; pass: boolean; result: string }[];
+): { name: string; pass: boolean; result: string; mechanical?: boolean }[];
 export function refereeEvidence(result: string, repo: string, testFile: string): string;
 export function truth(): {
   gates: { gate: string; pass: boolean }[];

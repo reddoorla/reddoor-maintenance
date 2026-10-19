@@ -16,7 +16,11 @@ import {
   extractArgs,
   referenceFor,
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
-import { groupDisagreements, scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
+import {
+  finalScores,
+  groupDisagreements,
+  scoreRun,
+} from "../../scripts/model-bakeoff/lib/score.mjs";
 import * as task from "../../scripts/model-bakeoff/tasks/t4-plan-task.mjs";
 
 const { ALLOWED, HELD_OUT, heldOutResults, scopeCheck, truth } = task;
@@ -218,5 +222,35 @@ describe("changedFiles", () => {
     writeFileSync(join(tree, "node_modules", "x.js"), "x\n");
     expect(task.changedFiles(base, tree)).toEqual(["package.json", "src/gone.ts", "src/new.ts"]);
     expect(existsSync(ran)).toBe(false);
+  });
+});
+
+describe("refereed held-out tests", () => {
+  it("never costs a passing arm when the referee says the plan does not require the test", () => {
+    const failing = truth();
+    failing.tests[0] = { name: HELD_OUT[0]!, pass: false, result: "failed: AssertionError" };
+    const checksByArm = {
+      passer: scoreRun(task, truth(), truth()),
+      failer: scoreRun(task, truth(), failing),
+    };
+    const [d] = groupDisagreements(checksByArm);
+    const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false } };
+    const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
+    expect(per.passer!.correct).toBe(30);
+    expect(per.failer!.correct).toBe(30);
+    expect(referenceErrors).toEqual([]);
+    expect(contradictions).toEqual([]);
+  });
+
+  it("fails a test that never ran mechanically, without a referee", () => {
+    const r = heldOutResults(null);
+    expect(r.every((t: { mechanical?: boolean }) => t.mechanical)).toBe(true);
+    const out = { ...truth(), tests: r };
+    const checks = scoreRun(task, truth(), out);
+    expect(checks.filter((c) => !c.ok)).toHaveLength(10);
+    expect(groupDisagreements({ arm: checks })).toEqual([]);
+    const failed = passing(HELD_OUT.map((n: string) => n.replace(/^hoverActivate /, "")));
+    failed.testResults[0]!.assertionResults[0]!.status = "failed";
+    expect(heldOutResults(failed)[0]).not.toHaveProperty("mechanical");
   });
 });

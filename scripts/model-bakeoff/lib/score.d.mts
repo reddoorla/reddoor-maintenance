@@ -9,6 +9,11 @@ export interface Collection {
   keyKind: string;
   /** Every check in this collection is mechanical: a mismatch fails without a referee round. */
   mechanical?: boolean;
+  /**
+   * The reference is right by construction (a held-out test that passed): a ruling can credit an
+   * arm that differs, but never refutes the reference and so never costs the arms that matched it.
+   */
+  refFixed?: boolean;
   fields: Record<string, string>;
 }
 export interface Check {
@@ -22,6 +27,7 @@ export interface Check {
   armRaw: string;
   refRaw: string;
   mechanical?: boolean;
+  refFixed?: boolean;
 }
 export interface Disagreement {
   id: string;

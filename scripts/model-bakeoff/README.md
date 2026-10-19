@@ -205,16 +205,32 @@ exports make this work, and a collection can be marked `mechanical`:
 - `mechanical: true` on a collection marks every check in it mechanical, like `(well-formed)`: a
   mismatch fails without a referee round. t4 marks only its `gates`: an exit code has nothing for
   a referee to read.
+- An output item with `mechanical: true` makes that item's checks mechanical too; t4 marks a held-out
+  test that never ran (a crash, a missing export), which has no failure for a referee to read.
+- `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
+  an arm that differs, but its `refCorrect: false` refutes nothing, so the arms that matched the
+  reference keep that check and no contradiction is reported. t4's held-out tests are `refFixed`,
+  since passing the plan's own test is never wrong.
 
-t4's gates run on a copy of each agent's tracked and untracked files, never on its tree:
-`pnpm check`, `pnpm lint` and the agent's own `vitest run`. Then the plan's own test file, taken
+t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` from the pinned
+commit and copies in only the files the plan names, so a change anywhere else (a `package.json`
+script, a config) can fail scope but never pass a gate. It runs `pnpm check`, `pnpm lint` and the
+agent's own `vitest run` there, with no secrets in the environment. Then the plan's own test file, taken
 from the implementing commit, replaces the agent's version and runs alone. Each of its tests is a
 `(present)` check and a `result` check, so a run has 30 checks: 10 tests and 4 gates, two checks
 each, and 2 `(well-formed)`. A held-out test can fail on a detail the plan leaves open (run 1: a
 synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
 failure's first line and the paths of the agent's code and of the test as run. Each arm's failure
-is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files changed since the pinned commit (committed or
-not) are a non-empty subset of the files the plan names.
+is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files that differ from the pinned commit are a
+non-empty subset of the files the plan names. They are found by `git status` with the scorer's own
+repository of the pin as `--git-dir` and the agent's tree as `--work-tree`, never with the agent's
+`.git`: its config could name an `fsmonitor` to run, and its index could hide a change.
+
+Every install, the agents' and the scorer's, copies packages out of the pnpm store
+(`package-import-method=copy`). pnpm's default hardlinks every `node_modules` file to one store
+inode, so an agent writing inside its `node_modules` would change every other agent's tree too.
+Reads are not tracked: an agent could read the `--root` clone or an earlier run's `eval` directory,
+where the plan's test sits. Audit the transcripts for those paths before reporting a run.
 
 Prove the instrument before trusting it. Score the truth against itself, which must be perfect.
 Then score a perturbed copy, which must fail exactly where it was changed. That proves the scorer,
