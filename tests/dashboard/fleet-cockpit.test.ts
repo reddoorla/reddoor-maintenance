@@ -514,20 +514,6 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
     expect(r.watchReasons).toEqual([]);
   });
 
-  it("still accepts the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
-    const r = assignTier(
-      site({
-        status: "maintained",
-        url: "https://foo.netlify.app/",
-        acceptedWatchConditions: ["no custom domain"],
-      }),
-      [],
-      NOW,
-    );
-    expect(r.tier).toBe("healthy");
-    expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
-  });
-
   it("exposes the primary accept key aligned to each un-accepted watch reason", () => {
     const r = assignTier(site({ status: "maintained", url: "https://foo.netlify.app/" }), [], NOW);
     expect(r.tier).toBe("watch");

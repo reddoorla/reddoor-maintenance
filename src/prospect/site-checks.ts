@@ -3264,8 +3264,6 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
   return out;
 }
 
-export const TIER4_CHECK_KEYS = ["form-rejects-empty", "form-rejects-bad-email"] as const;
-
 export const TIER2_HTTP_CHECK_KEYS = [
   "favicon-served",
   "https-upgrade",
