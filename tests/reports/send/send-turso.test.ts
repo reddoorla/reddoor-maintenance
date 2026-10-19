@@ -23,7 +23,7 @@ import {
 } from "../../../src/db/fleet-state.js";
 import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images.js";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
-import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
+import { captureClient } from "../../_helpers/resend-client.js";
 
 // The real header pipeline needs sharp and a real JPEG; the plate's PROVENANCE is
 // what this file is about, so the processing step is stubbed exactly as the rest
@@ -48,19 +48,6 @@ const PLATE = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
 
 let dir: string;
 let db: Db;
-
-function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
-  const captured: ResendSendInput[] = [];
-  return {
-    captured,
-    client: {
-      async send(input) {
-        captured.push(input);
-        return { messageId: "msg_turso_1" };
-      },
-    },
-  };
-}
 
 beforeEach(async () => {
   // The send fetches nothing: the plate comes from the database.
@@ -158,7 +145,7 @@ const io = () => ({
 describe("the send path, read from Turso", () => {
   it("sends a queued report from Turso alone — queue, roster and header plate — and stamps it there", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({ ...io(), resend: client });
 
     expect(res.code).toBe(0);
@@ -182,7 +169,7 @@ describe("the send path, read from Turso", () => {
 
   it("a report that is not approved is not in the queue at all", async () => {
     await db.updateTable("reports").set({ approved_to_send: 0 }).where("id", "=", REPORT).execute();
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
     expect(captured).toHaveLength(0);
@@ -194,7 +181,7 @@ describe("the send path, read from Turso", () => {
       .set({ header_image: null, header_image_filename: null, header_image_type: null })
       .where("id", "=", SITE)
       .execute();
-    const { client, captured } = captureClient();
+    const { client, captured } = captureClient("msg_turso_1");
     const res = await sendApprovedReports({ ...io(), resend: client });
     expect(res.code).toBe(1);
     expect(res.output).toContain(
