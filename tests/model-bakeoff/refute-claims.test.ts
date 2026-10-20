@@ -74,6 +74,21 @@ describe("refute-claims task: inputs", () => {
     expect(task.goldAddendum).toBe("");
   });
 
+  it("refuses a seeded file that has lost one of the task's claims", () => {
+    const without = seeded.filter((c) => c.id !== "c05");
+    expect(() => task.claims(without)).toThrow(/^c05 is not in /);
+  });
+
+  it("refuses a claim the workflow's own validator rejects", () => {
+    const bad = seeded.map((c) => (c.id === "c05" ? { ...c, kind: "behaviour" } : c));
+    expect(() => task.claims(bad)).toThrow(/\(c05\): kind must be/);
+  });
+
+  it("refuses a key with no label for one of the claims", () => {
+    const { c05: _drop, ...rest } = key.expected;
+    expect(() => task.labels({ expected: rest })).toThrow(/^c05 has no label in /);
+  });
+
   it("refuses a frozen corpus that is not the pinned copy", () => {
     const dir = mkdtempSync(join(tmpdir(), "refute-pages-"));
     mkdirSync(join(dir, "corpus"));

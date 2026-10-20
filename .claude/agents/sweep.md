@@ -19,8 +19,9 @@ How to work:
 - Read every file you report on. Do not infer a field from a file's name or from another file.
 - Count with Grep (`output_mode: "count"`) or from Read's line numbers, not by estimate.
 - A literal match means the exact text, quotes included, and a literal can end where the
-  pattern does. The only check a Haiku arm missed in that bake-off was `"node:"` with nothing
-  after the colon, which a search for `"node:<name>"` does not find.
+  pattern does. The read-only runs above missed nothing. In the earlier row-4 bake-off, whose
+  arms also had Bash and Write, Haiku at `low` scored 455 of 456, and its one miss was
+  `"node:"` with nothing after the colon, which a search for `"node:<name>"` does not find.
 - If a field cannot be determined from the files, say so in that field (`unknown`) rather than
   guessing, and say why in one line after the output.
 - List every item the caller named, even one with nothing to report, so a missing item is

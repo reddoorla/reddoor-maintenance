@@ -346,6 +346,41 @@ describe("figma-inventory truth over a run folder", () => {
     expect(() => task.truth(dir)).toThrow(/2:2 is rendered more than once/);
   });
 
+  // Real output cannot repeat a slice id, because slices are a page frame's direct children,
+  // but the truth refuses one rather than list it twice. Neither slice here holds a text, so
+  // only the slice check can refuse it.
+  it("refuses a slice id repeated on a second page", () => {
+    const meta = second.meta.replace('id="5:2"', 'id="1:2"');
+    const code = second.code.replace(
+      '<div data-node-id="5:2"><p data-node-id="5:3">Hi</p></div>',
+      '<div data-node-id="1:2"><img alt="" src={imgA} /></div>',
+    );
+    const dir = folder({
+      "1-1": [META, DC],
+      "5-1": [
+        frozen("get_metadata", "5:1", meta),
+        frozen("get_design_context", "5:1", `const imgA = "https://x/a.png";\n${code}`),
+      ],
+    });
+    expect(() => task.truth(dir)).toThrow(/^1:2 is rendered more than once$/);
+  });
+
+  it("refuses a slice id repeated on one page, in the page's own inventory", () => {
+    const meta = second.meta.replace(
+      '<frame id="5:2" name="Band" height="40" />',
+      '<frame id="5:2" name="Band" height="40" /><frame id="5:2" name="Band" height="40" />',
+    );
+    const code = second.code.replace(
+      '<div data-node-id="5:2"><p data-node-id="5:3">Hi</p></div>',
+      '<div data-node-id="5:2"><img alt="" src={imgA} /></div><div data-node-id="5:2"><img alt="" src={imgA} /></div>',
+    );
+    // inventory() alone, since truth()'s cross-page check would also catch it.
+    const dc = frozen("get_design_context", "5:1", `const imgA = "https://x/a.png";\n${code}`);
+    expect(() => inventory(frozen("get_metadata", "5:1", meta), dc)).toThrow(
+      /^5:2 is rendered more than once$/,
+    );
+  });
+
   it("names the missing half of a page, and --root when the folder is empty", () => {
     expect(() => task.truth(folder({ "1-1": [META] }))).toThrow(/no design-context-1-1\.json/);
     expect(() => task.truth(folder({}))).toThrow(/--root/);

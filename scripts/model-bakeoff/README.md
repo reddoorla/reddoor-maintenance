@@ -156,8 +156,8 @@ The truth refuses what it cannot read rather than guess. It refuses:
 - an `href={…}` expression;
 - an unknown entity;
 - a metadata tag it cannot parse;
-- a node id rendered more than once, on one page or across pages, which the prompt does not
-  say how to list.
+- a field or slice id rendered more than once, on one page or across pages, which the prompt
+  does not say how to list.
 
 ## Item tasks: one agent per item
 
@@ -277,8 +277,11 @@ Add `tasks/<id>.mjs` exporting:
   name in `lib/score.mjs` for this task. A task whose metric is not field equality, such as
   `seeded-review`'s recall of seeded defects, returns checks in the same shape, so the referee,
   `groupDisagreements` and `finalScores` work unchanged.
-- `summarize({ reference, checksByArm, rulings, outputs })` and `formatSummary(summary)`: optional.
-  `score` stores the summary in `result.json` as `summary` and prints it under the table.
+- `summarize({ reference, checksByArm, rulings, outputs, arms })` and `formatSummary(summary)`:
+  optional. `arms` is every arm `score` should have scored (the gold too when a truth exists),
+  so a task can count an arm with no transcript (which `checksByArm` leaves out) instead of
+  judging its group without it. `score` stores the summary in `result.json` as `summary` and
+  prints it under the table.
 
 Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
 this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
