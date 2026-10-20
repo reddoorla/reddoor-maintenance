@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { makeGitHub } from "../../src/github/gh.js";
+import { makeGitHub, protectionPutBody } from "../../src/github/gh.js";
 import { resolveBlockedBranches } from "../../src/audits/protection-coverage.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
 
@@ -1159,6 +1159,76 @@ describe("protectBranch carries forward existing protection (#998)", () => {
         restrictions: null,
       },
     ]);
+  });
+
+  // #1447: "restrict who can dismiss reviews" turned on with nobody listed
+  // comes back from the GET as a dismissal_restrictions object whose users,
+  // teams and apps are all empty. The PUT docs say "Pass an empty
+  // dismissal_restrictions object to disable", so sending those empty lists
+  // back may turn the restriction off. Unverified either way, so refuse.
+  it("dismissal restriction on with nobody listed: throws, names the case, never PUTs (#1447)", async () => {
+    const get = {
+      ...FULL_GET,
+      required_pull_request_reviews: {
+        ...FULL_GET.required_pull_request_reviews,
+        dismissal_restrictions: {
+          url: `${API}/dismissal_restrictions`,
+          users_url: `${API}/dismissal_restrictions/users`,
+          teams_url: `${API}/dismissal_restrictions/teams`,
+          users: [],
+          teams: [],
+          apps: [],
+        },
+      },
+    };
+    const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(get) });
+    await expect(
+      makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]),
+    ).rejects.toThrow(/dismiss.*nobody listed.*by hand/is);
+    expect(puts).toEqual([]);
+  });
+
+  it("dismissal restriction with only an app listed is sent as today (#1447)", async () => {
+    const get = {
+      ...FULL_GET,
+      required_pull_request_reviews: {
+        ...FULL_GET.required_pull_request_reviews,
+        dismissal_restrictions: { users: [], teams: [], apps: [{ slug: "octoapp", id: 1 }] },
+      },
+    };
+    expect(
+      (protectionPutBody(get, ["ci / ci"]).required_pull_request_reviews as Record<string, unknown>)
+        .dismissal_restrictions,
+    ).toEqual({ users: [], teams: [], apps: ["octoapp"] });
+  });
+
+  // #1448: a check carried from a contexts-only GET, or newly appended, goes
+  // out with no app_id, so GitHub pins it to the app that last reported it.
+  // Kept on purpose (stricter than "any app"); only an existing check whose
+  // GET app_id is null keeps "any app" as -1.
+  it("contexts-only and appended checks go out without app_id; app_id: null goes out as -1 (#1448)", () => {
+    const body = protectionPutBody(
+      {
+        required_status_checks: {
+          strict: true,
+          checks: [{ context: "lint", app_id: null }],
+          contexts: ["lint", "build"],
+        },
+      },
+      ["ci / ci"],
+    );
+    expect(body.required_status_checks).toEqual({
+      strict: true,
+      checks: [{ context: "lint", app_id: -1 }, { context: "build" }, { context: "ci / ci" }],
+    });
+    const contextsOnly = protectionPutBody(
+      { required_status_checks: { strict: true, contexts: ["build"] } },
+      ["ci / ci"],
+    );
+    expect(contextsOnly.required_status_checks).toEqual({
+      strict: true,
+      checks: [{ context: "build" }, { context: "ci / ci" }],
+    });
   });
 
   it.each([
