@@ -59,7 +59,8 @@ export function scorerFor(task: Record<string, unknown>): {
   extraCandidates: (...a: unknown[]) => Record<string, unknown>;
   scoreRun: (...a: unknown[]) => unknown[];
 };
-export type Collected = AgentTranscript & { transcript: string };
+export type Collected = AgentTranscript & { transcript: string; agentType: string | null };
+export function collectFile(file: string): Collected;
 export type Marker = { kind: "arm" | "referee"; id: string; item?: string };
 export function agentKey(marker: Marker): string;
 export interface RunArgs {
@@ -77,7 +78,7 @@ export function mergeAgents(
 ): { agents: Record<string, Collected>; errors: string[] };
 export function verifyRan(
   arm: Arm,
-  agent: AgentTranscript,
+  agent: AgentTranscript & { agentType?: string | null },
   work?: string,
   opts?: { needOutput?: boolean },
 ): string[];

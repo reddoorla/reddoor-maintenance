@@ -400,6 +400,7 @@ describe("pnpm-update scoring", () => {
 describe("pnpm-update through scoreArms", () => {
   const agent = (structured: unknown) => ({
     transcript: "t",
+    agentType: "bakeoff-readonly",
     marker: null,
     markerError: null,
     structured,

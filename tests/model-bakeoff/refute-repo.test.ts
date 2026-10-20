@@ -546,6 +546,7 @@ describe("collecting and combining an item run", () => {
         ].join("\n"),
       ),
       transcript: extra.file ?? `/t/${arm}-${item}.jsonl`,
+      agentType: "bakeoff-readonly",
     }) as Collected;
 
   it("keys each transcript by arm and item, and refuses a stray or missing item", () => {
@@ -646,7 +647,11 @@ describe("split", () => {
       () => {},
     );
     expect(calls).toHaveLength(DATA.claims.length);
-    expect(calls.every((c) => c.model === "opus" && c.effort === "xhigh")).toBe(true);
+    expect(
+      calls.every(
+        (c) => c.model === "opus" && c.effort === "xhigh" && c.agentType === "bakeoff-readonly",
+      ),
+    ).toBe(true);
     expect(() => launchers(args, "no meta here")).toThrow(/meta/);
   });
 });
@@ -690,6 +695,7 @@ describe("score on an item run", () => {
           otherTools: [],
           forbidden: [],
           prompt: "",
+          agentType: "bakeoff-readonly",
         };
       }
     }

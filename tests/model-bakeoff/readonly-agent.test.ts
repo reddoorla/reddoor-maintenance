@@ -1,10 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { afterAll, describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { body, frontmatter, toolList } from "../_helpers/agent-frontmatter.js";
 import { runWorkflow, type AgentCall } from "../_helpers/bakeoff-workflow.js";
 import { AGENT_TYPE } from "../../scripts/model-bakeoff/lib/arms.mjs";
-import { REFEREE, extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import {
+  REFEREE,
+  collectFile,
+  extractArgs,
+  verifyRan,
+} from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 import * as refute from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
 
@@ -14,8 +21,10 @@ import * as refute from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
 // has them all; the one read-only rule a real run broke was an MCP call (refute-repo,
 // 2026-10-19). The type cannot deny gh, git push or curl inside Bash: the 2026-10-20 probe
 // showed that a `disallowedTools` entry with a specifier, such as `Bash(gh *)`, removes the
-// whole Bash tool (a real arm answered "No such tool available: Bash"), and every task needs
-// Bash. Bash commands are still read after the run by `forbiddenCommand`, report-only.
+// whole Bash tool (an arm of the type reported no Bash tool, and a probe agent of it was
+// answered "No such tool available: Bash"), and every task needs Bash. So nothing blocks a Bash
+// command during the run; `forbiddenCommand` reads them afterwards, and a flagged one faults
+// the arm in `score`. `score` also faults an agent whose .meta.json names another type.
 const TYPE = "bakeoff-readonly";
 const AGENT = fileURLToPath(new URL(`../../.claude/agents/${TYPE}.md`, import.meta.url));
 
@@ -40,12 +49,12 @@ describe(".claude/agents/bakeoff-readonly.md", () => {
     expect(Object.keys(fm).sort()).toEqual(["description", "name", "tools"]);
   });
 
-  it("tells the agent the tools its frontmatter grants, and that its Bash is read afterwards", () => {
+  it("tells the agent the tools its frontmatter grants, and the commands it must not run", () => {
     const said = body(text).replace(/\s+/g, " ");
     expect(said).toContain(
       "You have Read, Grep, Glob, Bash, Write and Edit, and no MCP, web or agent tools.",
     );
-    expect(said).toContain("every Bash command you run is read after the run");
+    expect(said).toContain("Do not run `gh`, `git push`, `curl`, `wget`");
   });
 });
 
@@ -79,5 +88,49 @@ describe("the bake-off workflow launches every agent as the read-only type", () 
     });
     expect(calls).toHaveLength(2);
     expect(types(calls)).toEqual([TYPE, TYPE]);
+  });
+});
+
+describe("score holds every agent to the read-only type", () => {
+  const dir = mkdtempSync(join(tmpdir(), "bakeoff-agent-type-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const line = (o: unknown) => JSON.stringify(o);
+  const text = [
+    line({ message: { role: "user", content: "task\n\n(BAKEOFF-ARM: a)" } }),
+    line({
+      effort: "low",
+      message: {
+        id: "m",
+        model: "claude-haiku-5-5",
+        role: "assistant",
+        content: [{ type: "tool_use", id: "so", name: "StructuredOutput", input: {} }],
+        usage: { input_tokens: 1, output_tokens: 2 },
+      },
+    }),
+  ].join("\n");
+  // The harness writes agent-<id>.meta.json beside each subagent's agent-<id>.jsonl.
+  const transcript = (id: string, meta?: unknown) => {
+    writeFileSync(join(dir, `agent-${id}.jsonl`), text);
+    if (meta !== undefined) writeFileSync(join(dir, `agent-${id}.meta.json`), line(meta));
+    return collectFile(join(dir, `agent-${id}.jsonl`));
+  };
+  const arm = { id: "a", model: "haiku", effort: "low" };
+
+  it("reads the agent type from the transcript's .meta.json", () => {
+    expect(transcript("ro", { agentType: TYPE, description: "arm:a" }).agentType).toBe(TYPE);
+    expect(transcript("wf", { agentType: "workflow-subagent" }).agentType).toBe(
+      "workflow-subagent",
+    );
+    expect(transcript("none").agentType).toBeNull();
+  });
+
+  it("passes an agent of the type, and reports one of another type or none", () => {
+    expect(verifyRan(arm, transcript("ro2", { agentType: TYPE }))).toEqual([]);
+    expect(verifyRan(arm, transcript("wf2", { agentType: "workflow-subagent" }))).toEqual([
+      "a: ran as agent type workflow-subagent, not bakeoff-readonly",
+    ]);
+    expect(verifyRan(arm, transcript("none2"))).toEqual([
+      "a: ran as agent type unrecorded (no .meta.json), not bakeoff-readonly",
+    ]);
   });
 });

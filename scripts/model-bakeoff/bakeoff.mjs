@@ -15,7 +15,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { validateRun, workDir } from "./lib/arms.mjs";
+import { AGENT_TYPE, validateRun, workDir } from "./lib/arms.mjs";
 import {
   MISSING,
   extraCandidates,
@@ -224,21 +224,33 @@ export function mergeAgents(prior, found, args) {
   return { agents, errors };
 }
 
+/**
+ * One subagent transcript as `collect` keeps it: what `readAgentTranscript` reads, the file, and
+ * the agent type it ran as, from the sibling `agent-<id>.meta.json` the harness writes (null when
+ * there is none). A launcher split before the agent type existed runs as the default agent, and
+ * only this file says so.
+ */
+export function collectFile(file) {
+  const meta = file.replace(/\.jsonl$/, ".meta.json");
+  return {
+    transcript: file,
+    agentType: existsSync(meta) ? (readJson(meta).agentType ?? null) : null,
+    ...readAgentTranscript(readFileSync(file, "utf8")),
+  };
+}
+
 function collect(opts) {
   const run = resolve(opts.run);
   const files = walk(resolve(opts.transcripts)).filter((f) => /agent-[^/]*\.jsonl$/.test(f));
   const prior = existsSync(join(run, "runs.json")) ? readJson(join(run, "runs.json")) : {};
-  const found = files.map((f) => ({
-    transcript: f,
-    ...readAgentTranscript(readFileSync(f, "utf8")),
-  }));
+  const found = files.map(collectFile);
   const args = readJson(join(run, "workflow-args.json"));
   const { agents, errors } = mergeAgents(prior, found, args);
   if (errors.length) throw new Error(`collect refused:\n  ${errors.join("\n  ")}`);
   writeJson(join(run, "runs.json"), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
-      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
+      `${k}: agentType=${a.agentType} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
     );
   }
 }
@@ -261,6 +273,11 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   if (agent.efforts.length !== 1 || agent.efforts[0] !== arm.effort) {
     problems.push(
       `${label}: asked for effort ${arm.effort}, transcripts show ${agent.efforts.join(", ") || "none"}`,
+    );
+  }
+  if (agent.agentType !== AGENT_TYPE) {
+    problems.push(
+      `${label}: ran as agent type ${agent.agentType ?? "unrecorded (no .meta.json)"}, not ${AGENT_TYPE}`,
     );
   }
   if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);

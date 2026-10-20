@@ -101,9 +101,12 @@ then `collect` (with that run's transcript directory) and `score` again.
 - the referee ruled an extra item real, so the reference is missing it and that item's field
   values went unscored: fix the reference (the truth function, or a gold that missed it) and
   score again;
+- an agent ran as an agent type other than `bakeoff-readonly`, or has no `.meta.json` to say
+  (below, "The agent type");
 - an agent wrote outside its own directory (paths resolved; a relative path counts as outside),
   used a tool outside the allowlist (`Read`, `Bash`, `Glob`, `Grep`, `Write`, `Edit`,
-  `NotebookEdit`, `StructuredOutput`, `ToolSearch`), or ran a forbidden Bash command.
+  `NotebookEdit`, `StructuredOutput`, `ToolSearch`, a superset of the agent type's tools kept
+  from before it), or ran a forbidden Bash command.
 
 It also exits non-zero when there is no reference at all: no truth, and no gold output.
 
@@ -135,9 +138,9 @@ inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a resol
 `$(which gh) api`, text piped into a shell's stdin (`echo 'git push' | sh`), substitutions inside
 an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
 
-The check is frozen as it is (Operator decisions 133): it reports, it gates nothing outside
-`score`, and seven review rounds of hardening (#1444, closed unmerged) kept finding forms it
-missed. These forms are known and stay as they are:
+The check is frozen as it is (Operator decisions 133). Nothing blocks a command during the run;
+a flagged one faults the arm in `score`. Seven review rounds of hardening (#1444, closed
+unmerged) kept finding forms it missed, and these are known and stay as they are:
 
 - flagged though read-only: `git tag --merged HEAD`, `git tag -n5 'v1.*'`, `git tag -v v1.0`,
   `git config -f .gitmodules submodule.foo.path`, `git clean -n`, `git rm --dry-run`, a read
@@ -192,12 +195,21 @@ workflow `agent()`'s own `disallowedTools` alike. On 2026-10-20 an arm of this t
 rule does bind a subagent, but it applies to the whole session. So Bash commands are still only
 read after the run, by the Bash check in "Running a task".
 
-The type resolves from the agent registry of the session that runs the workflow: a session
-started in this repo, or one that attached it with `register_repo_root` and has since restarted
-(the registry is read at start). Elsewhere every `agent()` throws `agent type 'bakeoff-readonly'
-not found`, before any agent runs; the workflow logs `0/N runs returned`, and `collect` and
-`score` then report the missing transcripts. Results from before 2026-10-20 were measured with
-the default workflow agent, which had every tool and a different system prompt.
+`score` holds every agent to the type. `collect` reads the agent type from the
+`agent-<id>.meta.json` the harness writes beside each transcript, and `score` reports an agent
+that ran as anything else, or has no such file. A launcher that `split` wrote before
+2026-10-20 embeds the old workflow and runs the default agent, so split again.
+
+The type resolves from the agent registry the session read when it started, so run the
+workflow from a session started in this repo. A session started elsewhere (the workspace, by
+default) does not have it after `add_repo` and `register_repo_root`: there every `agent()`
+throws `agent type 'bakeoff-readonly' not found` before any agent runs, the workflow logs
+`0/N runs returned`, and `collect` and `score` then report the missing transcripts.
+
+Results from before 2026-10-20 were measured with the default workflow agent, which had every
+tool and a different system prompt. Production fan-outs, such as
+`.claude/workflows/refute-claims.workflow.js`, still launch the default agent, so a result
+measured under the type is a result for the type.
 
 ## Item tasks: one agent per item
 
