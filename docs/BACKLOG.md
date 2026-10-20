@@ -5381,6 +5381,14 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       (s) #1430 (citation): sweep.md still cites workspace#1, not the P1-56
       result comment; the comment URL is not in the repo. _Pick:_ the
       operator pastes the URL, or close as is.
+      **Answered 2026-10-20 (in session): every pick, (a)–(s), as written.**
+      So (a), (f), (g), (p) and the (q) leftovers close as won't-fix, with
+      the reason. (b), (h)–(l), (n) and (r) are agent-ready. (o) and (e)
+      each start with their live probe. (c) starts with one live run. (m)
+      gets its own session. (d) rides #1342. (s) closes as is unless the
+      operator pastes the URL. The session also asked whether a
+      cleanup session may fold a clean round's minors in rather than file
+      them. It gave no pick for that, so the question stays open.
 
 ## Active projects (the operator's list, read by the PM pass)
 
