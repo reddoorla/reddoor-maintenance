@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { exitCodeFor, parseDesignRulesArgs } from "../../../src/audits/design-rules/cli.js";
+import {
+  exitCodeFor,
+  formatOutcome,
+  parseDesignRulesArgs,
+} from "../../../src/audits/design-rules/cli.js";
 import type { RuleOutcome } from "../../../src/audits/design-rules/types.js";
 
 const outcome = (status: RuleOutcome["status"]): RuleOutcome => ({
@@ -41,5 +45,34 @@ describe("design-rules CLI", () => {
     expect(exitCodeFor([outcome("pass"), outcome("unmeasured")])).toBe(2);
     expect(exitCodeFor([])).toBe(2);
     expect(exitCodeFor([outcome("pass"), outcome("pass")])).toBe(0);
+  });
+});
+
+describe("formatOutcome", () => {
+  it("prints each problem once, worst first, with a count and three paths", () => {
+    const d = "transition-duration 300ms under reduce (at 1440px)";
+    const lines = formatOutcome({
+      rule: "R2",
+      url: "u",
+      status: "fail",
+      note: "n",
+      findings: [
+        ...["a", "b", "c", "d"].map((target) => ({ target, problem: d })),
+        { target: "e", problem: "transition-delay 1000ms under reduce (at 1440px)" },
+        { target: "f", problem: "animation w still running under reduce (no end) (at 1440px)" },
+      ],
+    });
+    expect(lines).toEqual([
+      "FAIL R2 u: n",
+      "  - animation w still running under reduce (no end) (at 1440px)",
+      "      f",
+      "  - transition-delay 1000ms under reduce (at 1440px)",
+      "      e",
+      `  - 4× ${d}`,
+      "      a",
+      "      b",
+      "      c",
+      "      (+1 more)",
+    ]);
   });
 });

@@ -6,6 +6,7 @@ import {
   checkReducedMotion,
   reducedMotionRule,
   summarizeReducedMotion,
+  FONT_HOSTS,
   MOTION_WAIT_MS,
   type MotionRun,
 } from "../../../src/audits/design-rules/reduced-motion.js";
@@ -134,15 +135,16 @@ const PAGES: Record<string, string> = {
   ),
   "/iframe": page("", `<iframe src="/inner" title="inner"></iframe>`),
   "/inner": page(
-    `@keyframes spin { to { transform: rotate(1turn) } } .spin { animation: spin 2s linear infinite; }`,
-    `<i class="spin">*</i><div id="mover">m</div>`,
+    `@keyframes spin { to { transform: rotate(1turn) } } .spin { animation: spin 2s linear infinite; }
+     @keyframes fill { from { transform: scaleX(0) } } .bar { animation: fill linear both; animation-timeline: scroll(); }`,
+    `<i class="spin">*</i><div id="mover">m</div><div class="bar"></div>`,
     `const el = document.getElementById("mover"); const t0 = performance.now();
      (function step(t) { el.style.transform = "translateX(" + ((t - t0) / 20) + "px)"; if (t - t0 < 8000) requestAnimationFrame(step); })(t0);`,
   ),
   // Two elements on one short path: both must be reported, apart.
   "/two-cards": page(
     `.t { transition: opacity 0.01ms 600ms } .card:nth-of-type(2) .t { transition-delay: 100ms }`,
-    `<div class="card"><p class="t">A</p></div><div class="card"><p class="t">B</p></div>`,
+    `<div class="card md:flex"><p class="t">A</p></div><div class="card md:flex"><p class="t">B</p></div>`,
   ),
   // Two Web Animations held near their end: 30ms left is under the floor,
   // 200ms left is not.
@@ -190,13 +192,14 @@ const PAGES: Record<string, string> = {
     `<x-pop></x-pop>`,
     `customElements.define("x-pop", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes pop { from { opacity: 0 } to { opacity: 1 } } :host { display: none; animation: pop 400ms 300ms both }</style>"; } });`,
   ),
-  // a scroll-triggered 800ms rAF reveal halfway down a long page;
+  // a scroll-triggered 300ms rAF reveal halfway down a long page (it ends
+  // inside its own step's window, so only a window at that step sees it);
   "/scroll-reveal": page(
     `.spacer { height: 1200px } .tall { height: 6000px }`,
     `<div class="spacer"></div><div id="card">Card</div><div class="tall"></div>`,
     `new IntersectionObserver(([e], o) => { if (!e.isIntersecting) return; o.disconnect();
        const el = e.target; const t0 = performance.now();
-       (function step(t) { const k = Math.min(1, (t - t0) / 800); el.style.opacity = String(k); el.style.transform = "translateY(" + (40 - 40 * k) + "px)"; if (k < 1) requestAnimationFrame(step); })(t0);
+       (function step(t) { const k = Math.min(1, (t - t0) / 300); el.style.opacity = String(k); el.style.transform = "translateY(" + (40 - 40 * k) + "px)"; if (k < 1) requestAnimationFrame(step); })(t0);
      }).observe(document.getElementById("card"));`,
   ),
   // motion inside an iframe the page writes itself;
@@ -266,6 +269,91 @@ const PAGES: Record<string, string> = {
      a { transition: color 300ms, background-color 300ms; }`,
     `<div class="m">News · News · News</div><a href="#x">Hover me</a>`,
   ),
+  // Round 3's false passes, each a page that breaks R2:
+  // an entrance a reduce rule pauses at its first frame, out of its mask;
+  "/paused-mask": page(
+    `@keyframes rise { from { transform: translateY(110%) } } .mask { overflow: hidden } .line { animation: rise .8s both; }
+     @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }`,
+    `<div class="mask"><h2 class="line">Our team</h2></div>`,
+  ),
+  // a keyframe name the computed style returns escaped;
+  "/escaped-kf": page(
+    `@keyframes \\31 slide { from { transform: translateX(100%) } } .menu { display: none; animation: \\31 slide .5s .8s both; }`,
+    `<nav class="menu">Menu</nav>`,
+  ),
+  // a script parallax: a new transform at every scroll position;
+  "/parallax": page(
+    `.tall { height: 4600px }`,
+    `<div id="p">Backdrop</div><div class="tall"></div>`,
+    `const p = document.getElementById("p"); addEventListener("scroll", () => { p.style.transform = "translateY(" + scrollY * 0.5 + "px)"; });`,
+  ),
+  // a scroll() hero that drifts and fades;
+  "/scroll-hero": page(
+    `${RESET_AFTER_135}
+     @keyframes drift { to { transform: translateY(300px) scale(1.3); opacity: 0 } }
+     .hero { animation: drift linear both; animation-timeline: scroll(); } .tall { height: 3000px }`,
+    `<div class="hero">Hero</div><div class="tall"></div>`,
+  ),
+  // a ticker stepping four times a second;
+  "/ticker": page(
+    RESET_AFTER_135,
+    `<div id="t">News</div>`,
+    `let x = 0; const t = document.getElementById("t"); setInterval(() => { t.style.transform = "translateX(" + (x -= 6) + "px)"; }, 250);`,
+  ),
+  // Round 3's unheld behaviours: every scripted-motion channel, one element
+  // each, tweened frame by frame;
+  "/channels": page(
+    `.c { position: relative } #c-scroll { width: 100px; overflow: hidden; white-space: nowrap }`,
+    `<div class="c" id="c-translate">a</div><div class="c" id="c-rotate">b</div>
+     <div class="c" id="c-top">c</div><div class="c" id="c-right">d</div><div class="c" id="c-bottom">e</div>
+     <div class="c" id="c-margin-top">f</div><div class="c" id="c-opacity">g</div>
+     <div class="c" id="c-bg">h</div><div id="c-scroll">${"wide ".repeat(80)}</div>
+     <svg width="200" height="60"><circle id="c-cx" r="4" cx="0" cy="10"/><circle id="c-cy" r="4" cx="10" cy="0"/>
+       <rect id="c-x" width="4" height="4" x="0" y="20"/><rect id="c-y" width="4" height="4" x="20" y="0"/>
+       <g id="c-svg-transform"><rect width="4" height="4"/></g>
+       <path id="c-dash" d="M0 50 H200" stroke="black" stroke-dasharray="4 4"/></svg>`,
+    `const t0 = performance.now(); const $ = (id) => document.getElementById(id);
+     (function step(t) { const k = ((t - t0) / 20) % 100;
+       $("c-translate").style.translate = k + "px"; $("c-rotate").style.rotate = k + "deg";
+       $("c-top").style.top = k + "px"; $("c-right").style.right = k + "px"; $("c-bottom").style.bottom = k + "px";
+       $("c-margin-top").style.marginTop = k + "px"; $("c-opacity").style.opacity = String(k / 100);
+       $("c-bg").style.backgroundPosition = k + "px 0"; $("c-scroll").scrollLeft = k;
+       $("c-cx").setAttribute("cx", k); $("c-cy").setAttribute("cy", k); $("c-x").setAttribute("x", k); $("c-y").setAttribute("y", k);
+       $("c-svg-transform").setAttribute("transform", "translate(" + k + ")"); $("c-dash").style.strokeDashoffset = String(k);
+       requestAnimationFrame(step); })(t0);`,
+  ),
+  // a frame that never answers, appended once the page has loaded;
+  "/hang-frame": page(
+    "",
+    `<p>Text</p>`,
+    `addEventListener("load", () => { const f = document.createElement("iframe"); f.src = "/hang"; document.body.append(f); });`,
+  ),
+  // a sticky header whose background fades as the page scrolls (no reset);
+  "/header-fade": page(
+    `header { position: sticky; top: 0; background-color: transparent; transition: background-color 600ms } header.solid { background-color: #fff } .tall { height: 3000px }`,
+    `<header>Bar</header><div class="tall"></div>`,
+    `addEventListener("scroll", () => document.querySelector("header").classList.toggle("solid", scrollY > 0));`,
+  ),
+  // Round 3's false fails, each a page that honours R2:
+  // Tailwind v4 transition-colors, a background fade and a shadow fade;
+  "/colour-fades": page(
+    `a { transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to; transition-duration: 150ms; }
+     b { transition: background .3s } i { transition: border-color .3s, box-shadow .3s }`,
+    `<a href="#x">Book</a><b>Bold</b><i>It</i>`,
+  ),
+  // an endless marquee paused under reduce, drawn at 60% opacity;
+  "/paused-faint": page(
+    `@keyframes mq { to { transform: translateX(-50%) } } .m { opacity: .6; animation: mq 20s linear infinite; }
+     @media (prefers-reduced-motion: reduce) { .m { animation-play-state: paused; } }`,
+    `<div class="m">News · News</div>`,
+  ),
+  // a progress bar a script fills by scaleX, frame by frame;
+  "/scale-progress": page(
+    RESET_AFTER_135,
+    `<div id="bar" style="transform-origin: left">.</div>`,
+    `const b = document.getElementById("bar"); const t0 = performance.now();
+     (function step(t) { b.style.transform = "scaleX(" + Math.min(1, (t - t0) / 8000) + ")"; requestAnimationFrame(step); })(t0);`,
+  ),
   // Not defects, each a false FAIL round 1 reproduced:
   "/not-defects": page(
     `${RESET_BEFORE_135}
@@ -287,10 +375,34 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     // A frame on another origin: "localhost" from a page on "127.0.0.1".
     const port = (server.address() as AddressInfo).port;
+    if (req.url === "/hang") return; // never answers
+    if (req.url === "/xsheet.css") {
+      // A stylesheet the page loads from another origin, without CORS.
+      res.writeHead(200, { "content-type": "text/css" });
+      res.end("p { color: inherit }");
+      return;
+    }
+    if (req.url === "/slow") {
+      // A third party's frame that takes 400ms to answer.
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(PAGES["/inner"]);
+      }, 400);
+      return;
+    }
     const html =
       req.url === "/cross"
         ? page("", `<iframe title="x" src="http://localhost:${port}/inner"></iframe>`)
-        : PAGES[req.url ?? ""];
+        : req.url === "/xsheet"
+          ? `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R2</title>
+<link rel="stylesheet" href="http://localhost:${port}/xsheet.css">
+<style>.x { animation: gone 10ms 900ms both }</style></head><body><main><h1>R2</h1><p class="x">x</p></main></body></html>`
+          : req.url === "/cross-lazy"
+            ? page(
+                `.tall { height: 1800px }`,
+                `<div class="tall"></div><iframe title="v" loading="lazy" src="http://localhost:${port}/slow"></iframe><div class="tall"></div>`,
+              )
+            : PAGES[req.url ?? ""];
     const type = (req.url ?? "").endsWith(".css") ? "text/css" : "text/html; charset=utf-8";
     res.writeHead(html ? 200 : 404, { "content-type": type });
     res.end(html ?? "not found");
@@ -302,6 +414,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close();
+  server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
 });
 
@@ -311,7 +424,9 @@ async function run(path: string, waitMs = 300) {
   return checkReducedMotion(browser, `${base}${path}`, { reducedMotion: "reduce" }, waitMs);
 }
 
-describe("design-rules R2 (reduced motion), in a real browser", () => {
+// Concurrent: the file is mostly waiting (11s of CPU in 100s), and each test
+// opens its own contexts on the shared browser.
+describe.concurrent("design-rules R2 (reduced motion), in a real browser", () => {
   it("is registered as R2", () => {
     expect(DESIGN_RULES.R2).toBe(reducedMotionRule);
   });
@@ -385,7 +500,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/paused");
     expect(o.findings).toContainEqual({
       target: "body > main > p.rev",
-      problem: `animation r paused with its element hidden under reduce ${BOTH}`,
+      problem: `animation r paused short of its end under reduce (1000ms left) ${BOTH}`,
     });
   });
 
@@ -452,6 +567,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
       `iframe[src="/inner"] :: body > main > i.spin: animation spin still running under reduce`,
       `iframe[src="/inner"] :: div#mover: moved by script, frame by frame, under reduce`,
     ]);
+    expect(o.note).toMatch(/1 scroll\(\) animation\(s\) not judged/);
   });
 
   it("does not sample a cross-origin frame, and says so", async () => {
@@ -527,8 +643,8 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
   it("FAILS motion in an iframe the page writes itself (srcdoc)", async () => {
     const o = await run("/srcdoc");
     expect(o.findings.map((f) => f.target)).toEqual([
-      'iframe[src="about:srcdoc"] :: body > i',
-      'iframe[src="about:srcdoc"] :: body > i',
+      "iframe[srcdoc] :: body > i",
+      "iframe[srcdoc] :: body > i",
     ]);
     expect(o.note).not.toMatch(/not sampled/);
   });
@@ -537,7 +653,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/view-reveal");
     expect(o.findings).toContainEqual({
       target: "body > main > p.r",
-      problem: `animation up (view-driven) still running under reduce (no end) ${BOTH}`,
+      problem: `animation up (scroll-driven) still running under reduce (no end) ${BOTH}`,
     });
   });
 
@@ -559,6 +675,121 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     expect(o.findings).toEqual([]);
   });
 
+  it("FAILS a finite entrance paused at its first frame, out of its mask", async () => {
+    const o = await run("/paused-mask");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > div.mask > h2.line",
+        problem: `animation rise paused short of its end under reduce (800ms left) ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("FAILS an animation whose keyframe name the computed style escapes", async () => {
+    const o = await run("/escaped-kf");
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      `animation-duration 500ms under reduce ${BOTH}`,
+      `animation-delay 800ms under reduce ${BOTH}`,
+    ]);
+  });
+
+  it("FAILS a script parallax", async () => {
+    const o = await run("/parallax");
+    expect(o.findings).toEqual([
+      {
+        target: "div#p",
+        problem: `moved by script with the scroll (parallax) under reduce ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("FAILS a scroll() hero that moves, and still counts a size-only bar", async () => {
+    const o = await run("/scroll-hero");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > div.hero:nth-of-type(1)",
+        problem: `animation drift (scroll-driven) still running under reduce (no end) ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("FAILS a ticker that steps slower than one read gap", async () => {
+    const o = await run("/ticker", MOTION_WAIT_MS);
+    expect(o.findings.map((f) => f.target)).toEqual(["div#t"]);
+  });
+
+  it("does not judge a third party's frame that was still loading when sampled", async () => {
+    const o = await run("/cross-lazy");
+    expect(o.findings).toEqual([]);
+  });
+
+  it("PASSES colour, background and shadow fades, Tailwind v4's transition-colors included", async () => {
+    const o = await run("/colour-fades");
+    expect(o.findings).toEqual([]);
+  });
+
+  it("PASSES an endless marquee paused under reduce at 60% opacity", async () => {
+    const o = await run("/paused-faint");
+    expect(o.findings).toEqual([]);
+  });
+
+  it("PASSES a progress bar a script fills by scaleX", async () => {
+    const o = await run("/scale-progress");
+    expect(o.findings).toEqual([]);
+  });
+
+  it("FAILS motion on every scripted channel", async () => {
+    const o = await run("/channels");
+    expect(o.findings.map((f) => f.target.replace(/^.* > /, "")).sort()).toEqual(
+      [
+        "circle#c-cx",
+        "circle#c-cy",
+        "div#c-bg",
+        "div#c-bottom",
+        "div#c-margin-top",
+        "div#c-opacity",
+        "div#c-right",
+        "div#c-rotate",
+        "div#c-scroll",
+        "div#c-top",
+        "div#c-translate",
+        "g#c-svg-transform",
+        "path#c-dash",
+        "rect#c-x",
+        "rect#c-y",
+      ].sort(),
+    );
+  });
+
+  it("stops at its step cap and says so", async () => {
+    const o = await checkReducedMotion(
+      browser,
+      `${base}/below-fold`,
+      { reducedMotion: "reduce" },
+      300,
+      2,
+    );
+    expect(o.note).toMatch(/; the scroll stopped at its 2-step cap$/);
+  });
+
+  it("gives up on a frame that never answers, and counts it", async () => {
+    const o = await run("/hang-frame");
+    expect(o.status).toBe("pass");
+    expect(o.note).toMatch(/1 frame\(s\) not sampled/);
+  });
+
+  it("reads an unreadable cross-origin sheet that is not a font host as defining any name", async () => {
+    const o = await run("/xsheet");
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      `animation-delay 900ms under reduce ${BOTH}`,
+    ]);
+  });
+
+  it("PASSES a sticky header whose background fades on scroll", async () => {
+    const o = await run("/header-fade");
+    expect(o.findings).toEqual([]);
+  });
+
   it("ignores an animation within PERCEPTIBLE_MS of its end, and reports one beyond it", async () => {
     const o = await run("/floor");
     expect(o.findings.map((f) => f.target)).toEqual(["p#left"]);
@@ -573,11 +804,11 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/two-cards");
     expect(o.findings).toEqual([
       {
-        target: "body > main > div.card:nth-of-type(1) > p.t",
+        target: "body > main > div.card.md\\:flex:nth-of-type(1) > p.t",
         problem: `transition-delay 600ms under reduce ${BOTH}`,
       },
       {
-        target: "body > main > div.card:nth-of-type(2) > p.t",
+        target: "body > main > div.card.md\\:flex:nth-of-type(2) > p.t",
         problem: `transition-delay 100ms under reduce ${BOTH}`,
       },
     ]);
@@ -591,9 +822,12 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
   });
 
   it("is UNMEASURED, never a pass, when the context does not emulate reduce (negative control)", async () => {
-    const o = await checkReducedMotion(browser, `${base}/before-135`, {
-      reducedMotion: "no-preference",
-    });
+    const o = await checkReducedMotion(
+      browser,
+      `${base}/before-135`,
+      { reducedMotion: "no-preference" },
+      300,
+    );
     expect(o.status).toBe("unmeasured");
     expect(o.note).toMatch(/did not take/);
   });
@@ -604,6 +838,16 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     expect(missing!.note).toBe("the check threw: the page answered 404");
     const [down] = await runDesignRules(["http://127.0.0.1:9/"], [reducedMotionRule], browser);
     expect(down!.status).toBe("unmeasured");
+  });
+});
+
+describe("FONT_HOSTS", () => {
+  it("names the font hosts and nothing else", () => {
+    expect(FONT_HOSTS.test("use.typekit.net")).toBe(true);
+    expect(FONT_HOSTS.test("p.typekit.net")).toBe(true);
+    expect(FONT_HOSTS.test("fonts.googleapis.com")).toBe(true);
+    expect(FONT_HOSTS.test("eviltypekit.net")).toBe(false);
+    expect(FONT_HOSTS.test("evil.com")).toBe(false);
   });
 });
 

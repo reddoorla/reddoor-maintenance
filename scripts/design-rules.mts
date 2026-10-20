@@ -9,7 +9,11 @@
 // 64 on a usage error. The logic is src/audits/design-rules/cli.ts.
 import { chromium, type Browser } from "@playwright/test";
 import { DESIGN_RULES, runDesignRules } from "../src/audits/design-rules/index.js";
-import { exitCodeFor, parseDesignRulesArgs } from "../src/audits/design-rules/cli.js";
+import {
+  exitCodeFor,
+  formatOutcome,
+  parseDesignRulesArgs,
+} from "../src/audits/design-rules/cli.js";
 
 const args = parseDesignRulesArgs(process.argv.slice(2));
 if ("error" in args) {
@@ -32,10 +36,7 @@ try {
   );
   if (args.json) console.log(JSON.stringify(outcomes, null, 2));
   else {
-    for (const o of outcomes) {
-      console.log(`${o.status.toUpperCase()} ${o.rule} ${o.url}: ${o.note}`);
-      for (const f of o.findings) console.log(`  - ${f.target}: ${f.problem}`);
-    }
+    for (const o of outcomes) for (const line of formatOutcome(o)) console.log(line);
   }
   process.exitCode = exitCodeFor(outcomes);
 } finally {

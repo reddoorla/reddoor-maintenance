@@ -26,18 +26,24 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //     beachfront df53dee);
 //   - a running animation (CSS, transition or Web Animations API, which
 //     Svelte's transitions run on and no CSS reset reaches) with more than
-//     PERCEPTIBLE_MS left or no end, including one on a view() timeline (a
-//     scroll-driven reveal); and a paused one that holds its element hidden;
+//     PERCEPTIBLE_MS left or no end, scroll-driven ones (view(), scroll())
+//     included unless they only animate size; and a finite animation paused
+//     short of its end (an endless one paused is a marquee honouring reduce);
 //   - motion a script drives frame by frame (a tween, a spring, GSAP): an
 //     element whose inline transform, position, margin, opacity, background
 //     position or dash offset, SVG position attribute, or horizontal scroll
 //     changes at two consecutive reads (SCRIPTED_GAP_MS apart; SCRIPTED_READS
-//     at every step, and reads through the last wait). A snap or a swap
-//     changes at one read and holds, which reduce allows; width and height are
-//     size, not motion, and are not read.
+//     at every step, and reads through the last wait), or four times in the
+//     last wait (a slow stepper), or takes a new value at three scroll steps
+//     running (a script parallax). A snap or a swap changes at one read and
+//     holds, which reduce allows; width, height and scale() are size, not
+//     motion, and are not read.
 //
 // Not covered: the single frame a zeroed Svelte transition can paint at t=0
-// (#135's `fly({ y: 22 })`); motion that only hover, focus or an opened state
+// (#135's `fly({ y: 22 })`); a script's delay before it shows an element (a
+// GSAP `delay`), which a read cannot tell from a slide swap; an element a
+// script re-creates every frame, which has no identity to follow; two snaps
+// SCRIPTED_GAP_MS apart, which read as motion; motion that only hover, focus or an opened state
 // starts (`:hover { animation }`, `.is-open { transition }`), because nothing
 // here hovers, focuses or opens; scroll() animations (a reading-progress bar is
 // size, not motion; counted in the note); closed shadow roots and cross-origin
@@ -56,8 +62,16 @@ export const MOTION_WAIT_MS = 1500;
 export const SCRIPTED_READS = 3;
 export const SCRIPTED_GAP_MS = 100;
 
+/** This many elements with a duration under reduce means the page has no
+ *  working reset, and the note says so: the fix is one rule, not N. */
+export const RESET_HINT_AT = 20;
 /** Half-viewport scroll steps before the run stops and says so. */
-const STEP_CAP = 200;
+export const STEP_CAP = 200;
+
+/** Hosts whose cross-origin stylesheets are font faces, never keyframes: one
+ *  that cannot be read does not make every animation name count as defined
+ *  (every fleet page loads a Typekit sheet). */
+export const FONT_HOSTS = /(^|\.)(typekit\.net|fonts\.googleapis\.com|fonts\.bunny\.net)$/;
 
 export const REDUCED_MOTION_VIEWPORTS = [
   { width: 1440, height: 900 },
@@ -78,8 +92,10 @@ export type MotionSample = {
    *  means the emulation did not take, so nothing else in the sample counts. */
   reduceMatched: boolean;
   items: MotionItem[];
-  /** scroll() animations seen; not judged. */
+  /** Size-only scroll-driven animations seen; not judged. */
   scrollDriven: number;
+  /** The document actually sampled; a frame's can change under the caller. */
+  href?: string;
 };
 
 /**
@@ -93,9 +109,10 @@ export type MotionSample = {
  * whose values changed at two consecutive reads is reported as scripted.
  * The state lives on `window.__designRulesR2`, keyed by element identity.
  */
-export function sampleReducedMotion([floorMs, windowRead]: readonly [
+export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
   number,
   string | null,
+  string,
 ]): MotionSample {
   const items: MotionItem[] = [];
   let scrollDriven = 0;
@@ -126,15 +143,19 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
       rules = Array.from(sheet.cssRules);
     } catch {
       const host = sheet.href ? new URL(sheet.href, location.href).hostname : "";
-      if (!/(^|\.)(typekit\.net|fonts\.googleapis\.com|fonts\.bunny\.net)$/.test(host)) {
+      if (!new RegExp(fontHosts).test(host)) {
         keyframes = null;
       }
       continue;
     }
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i]!;
-      if (rule instanceof CSSKeyframesRule) keyframes?.add(rule.name);
-      else if (rule instanceof CSSImportRule) {
+      if (rule instanceof CSSKeyframesRule) {
+        // The computed animation-name comes back CSS-escaped (`\31 slide`),
+        // the rule's name unescaped (`1slide`): keep both.
+        keyframes?.add(rule.name);
+        keyframes?.add(CSS.escape(rule.name));
+      } else if (rule instanceof CSSImportRule) {
         if (rule.styleSheet) sheets.push(rule.styleSheet);
       } else if ("cssRules" in rule) {
         rules.push(...Array.from((rule as CSSGroupingRule).cssRules));
@@ -174,7 +195,7 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
           const name = names[i]!;
           if (name === "none") continue;
           if (family === "animation") {
-            if (keyframes !== null && !keyframes.has(name.replace(/^["']|["']$/g, ""))) continue;
+            if (keyframes !== null && !keyframes.has(name)) continue;
             if (states[i % states.length] === "paused") continue;
           }
           // A shorter list repeats to the length of the name list.
@@ -182,10 +203,16 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
           const l = delays[i % delays.length]!;
           const dMs = parseFloat(d) * (d.endsWith("ms") ? 1 : 1000);
           const lMs = parseFloat(l) * (l.endsWith("ms") ? 1 : 1000);
-          // A colour-only transition is a hover fade, not motion; its delay
-          // still counts.
-          const colour = family === "transition" && /(^|-)(color|fill|stroke)$/.test(name);
-          if (!colour && Number.isFinite(dMs) && dMs > duration) duration = dMs;
+          // A transition's duration counts only for a property that moves
+          // or fades the element; a colour, background, border, shadow or
+          // custom-property fade (Tailwind's transition-colors) is not
+          // motion. Its delay still counts.
+          const moves =
+            family === "animation" ||
+            /^(all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*)$/.test(
+              name,
+            );
+          if (moves && Number.isFinite(dMs) && dMs > duration) duration = dMs;
           if (Number.isFinite(lMs) && lMs > delay) delay = lMs;
         }
         if (duration > floorMs)
@@ -201,18 +228,42 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
       const effect = animation.effect as KeyframeEffect | null;
       if (effect === null) continue;
       const timeline = animation.timeline;
-      const onView = typeof ViewTimeline !== "undefined" && timeline instanceof ViewTimeline;
-      if (timeline !== null && !(timeline instanceof DocumentTimeline) && !onView) {
-        scrollDriven += 1;
-        continue;
+      // A scroll-driven animation (view() or scroll()) is judged as motion,
+      // unless it only animates size: a reading-progress bar (width, or a
+      // transform of scale() alone) is size, not motion, and is only counted.
+      const scrollLinked = timeline !== null && !(timeline instanceof DocumentTimeline);
+      if (scrollLinked) {
+        let sizeOnly = true;
+        for (const frame of effect.getKeyframes()) {
+          for (const [prop, value] of Object.entries(frame)) {
+            if (["offset", "computedOffset", "easing", "composite"].includes(prop)) continue;
+            const size = ["width", "height", "inlineSize", "blockSize", "scale"].includes(prop);
+            const scaleOnly =
+              prop === "transform" &&
+              /^(none|(\s*scale[XYZ3d]*\([^)]*\))+)$/.test(String(value).trim());
+            if (!size && !scaleOnly) sizeOnly = false;
+          }
+        }
+        if (sizeOnly) {
+          scrollDriven += 1;
+          continue;
+        }
       }
+      const onView = scrollLinked;
       const name =
         "animationName" in animation
           ? `animation ${String(animation.animationName)}`
           : "transitionProperty" in animation
             ? `transition ${String(animation.transitionProperty)}`
             : "Web Animation";
-      if (/^transition .*(color|fill|stroke)$/.test(name)) continue;
+      if (
+        name.startsWith("transition ") &&
+        !/^transition (all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*)$/.test(
+          name,
+        )
+      ) {
+        continue;
+      }
       const timing = effect.getComputedTiming();
       const end = Number(timing.endTime);
       const local = Number(timing.localTime ?? 0);
@@ -223,15 +274,15 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
           pending.push({
             el: effect.target,
             pseudo: effect.pseudoElement,
-            kind: onView ? `running ${name} (view-driven)` : `running ${name}`,
+            kind: onView ? `running ${name} (scroll-driven)` : `running ${name}`,
             ms: onView ? null : left,
           });
         } else items.push({ target: "(no target)", kind: `running ${name}`, ms: left });
       } else if (animation.playState === "paused" && effect.target) {
-        // Paused is how a page honours reduce for a marquee; it is a defect
-        // only where it holds the element hidden, short of its final frame.
-        const style = getComputedStyle(effect.target, effect.pseudoElement);
-        if (Number(style.opacity) < 1 || style.visibility === "hidden") {
+        // Pausing an endless animation (a marquee) is how a page honours
+        // reduce. A finite one paused short of its end has not landed on its
+        // final frame: a headline frozen out of its mask, a fade at its start.
+        if (left !== null && left > floorMs) {
           pending.push({
             el: effect.target,
             pseudo: effect.pseudoElement,
@@ -252,20 +303,33 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
         window: string;
         last: WeakMap<Element, string>;
         changedAt: WeakMap<Element, number>;
+        changes: WeakMap<Element, number>;
+        seen: WeakMap<Element, Set<string>>;
       };
+      __designRulesR2Steps?: { last: WeakMap<Element, string>; run: WeakMap<Element, number> };
     };
     if (!w.__designRulesR2 || w.__designRulesR2.window !== windowId) {
-      w.__designRulesR2 = { window: windowId!, last: new WeakMap(), changedAt: new WeakMap() };
+      w.__designRulesR2 = {
+        window: windowId!,
+        last: new WeakMap(),
+        changedAt: new WeakMap(),
+        changes: new WeakMap(),
+        seen: new WeakMap(),
+      };
     }
     const state = w.__designRulesR2;
+    // Across scroll steps: the value each step window opened on.
+    w.__designRulesR2Steps ??= { last: new WeakMap(), run: new WeakMap() };
+    const steps = w.__designRulesR2Steps;
+    const stepOpen = read === 0 && windowId!.startsWith("step");
     for (const el of elements) {
       const css = (el as HTMLElement).style;
       if (!css) continue;
       const svg = el instanceof SVGElement;
+      // A scale() alone is size, not motion (a script-driven progress bar).
       const values = [
-        css.transform,
+        css.transform.replace(/scale[XYZ3d]*\([^)]*\)/g, ""),
         css.translate,
-        css.scale,
         css.rotate,
         css.left,
         css.top,
@@ -283,12 +347,32 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
         svg ? el.getAttribute("y") : null,
         el.scrollWidth > el.clientWidth ? String(el.scrollLeft) : null,
       ].join("|");
+      if (stepOpen) {
+        // A value that is new at three scroll steps running moves with the
+        // scroll (a script parallax); a header nudge or a late image
+        // changes once.
+        const was = steps.last.get(el);
+        steps.last.set(el, values);
+        const run = was !== undefined && was !== values ? (steps.run.get(el) ?? 0) + 1 : 0;
+        steps.run.set(el, run);
+        if (run === 3) pending.push({ el, pseudo: null, kind: "scroll-linked", ms: null });
+      }
       const before = state.last.get(el);
       state.last.set(el, values);
+      const seenValues = state.seen.get(el) ?? new Set<string>();
+      seenValues.add(values);
+      state.seen.set(el, seenValues);
       if (read === 0 || before === undefined || before === values) continue;
       // Changed at this read AND the one before: a value in motion. A swap
-      // (a slide, a toggle) changes at one read and holds.
-      if (state.changedAt.get(el) === read - 1) {
+      // (a slide, a toggle) changes at one read and holds. A slow stepper
+      // (a 4fps ticker) never changes twice running, but takes four new
+      // values in the long last window; a swap only ever alternates.
+      const changes = (state.changes.get(el) ?? 0) + 1;
+      state.changes.set(el, changes);
+      if (
+        state.changedAt.get(el) === read - 1 ||
+        (windowId === "last" && changes >= 4 && seenValues.size >= 4)
+      ) {
         pending.push({ el, pseudo: null, kind: "scripted", ms: null });
       }
       state.changedAt.set(el, read);
@@ -331,6 +415,7 @@ export function sampleReducedMotion([floorMs, windowRead]: readonly [
     reduceMatched: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     items,
     scrollDriven,
+    href: location.href,
   };
 }
 
@@ -342,7 +427,9 @@ export type MotionRun = {
   scrolled: string;
   /** Child frames not sampled: cross-origin, or not answering. */
   skippedFrames: number;
-  /** True when the scroll stopped at STEP_CAP before the bottom. */
+  /** The step cap this run used, when not STEP_CAP. */
+  stepCap?: number;
+  /** True when the scroll stopped at its step cap before the bottom. */
   capped?: boolean;
 };
 
@@ -393,11 +480,19 @@ export function summarizeReducedMotion(url: string, runs: MotionRun[]): RuleOutc
       worst.delete(key);
     }
   }
+  // A tween a scroll step starts can still be running at the next steps; its
+  // frame-by-frame finding names it, so the scroll-linked one is folded in.
+  for (const [key, w] of worst) {
+    if (w.kind === "scroll-linked" && worst.has(`${w.target}\u0000scripted`)) worst.delete(key);
+  }
   const findings: RuleFinding[] = [...worst.values()].map(({ target, kind, ms, widths }) => {
     const at = ` (at ${widths.join(" and ")}px)`;
     const time = Number.isFinite(ms) ? `${Math.round(ms)}ms` : "no end";
     if (kind === "scripted") {
       return { target, problem: `moved by script, frame by frame, under reduce${at}` };
+    }
+    if (kind === "scroll-linked") {
+      return { target, problem: `moved by script with the scroll (parallax) under reduce${at}` };
     }
     if (kind.startsWith("running ")) {
       return {
@@ -408,19 +503,27 @@ export function summarizeReducedMotion(url: string, runs: MotionRun[]): RuleOutc
     if (kind.startsWith("paused ")) {
       return {
         target,
-        problem: `${kind.slice(7)} paused with its element hidden under reduce${at}`,
+        problem: `${kind.slice(7)} paused short of its end under reduce (${time} left)${at}`,
       };
     }
     return { target, problem: `${kind} ${time} under reduce${at}` };
   });
   const scrollDriven = Math.max(0, ...samples.map((s) => s.scrollDriven));
+  const durations = findings.filter((f) =>
+    / ?(transition|animation)-duration /.test(f.problem),
+  ).length;
   const skipped = Math.max(0, ...runs.map((r) => r.skippedFrames));
   const note =
     `${samples.length} samples under reduce at ${runs.map((r) => `${r.width}px`).join(" and ")}` +
     ` (scrolled ${[...new Set(runs.map((r) => r.scrolled))].join(", ")}); ${findings.length} finding(s)` +
     (scrollDriven > 0 ? `; ${scrollDriven} scroll() animation(s) not judged` : "") +
     (skipped > 0 ? `; ${skipped} frame(s) not sampled (cross-origin or not answering)` : "") +
-    (runs.some((r) => r.capped) ? `; the scroll stopped at its ${STEP_CAP}-step cap` : "");
+    (runs.some((r) => r.capped)
+      ? `; the scroll stopped at its ${Math.max(...runs.map((r) => r.stepCap ?? STEP_CAP))}-step cap`
+      : "") +
+    (durations >= RESET_HINT_AT
+      ? `; ${durations} elements keep a duration under reduce: no prefers-reduced-motion reset reaches them`
+      : "");
   return { ...base, status: findings.length === 0 ? "pass" : "fail", findings, note };
 }
 
@@ -437,7 +540,7 @@ const silent = new WeakMap<Page, Set<Frame>>();
 
 /** One sample of the page and of every same-document child frame. */
 async function sampleAll(page: Page, windowRead: string | null): Promise<MotionSample> {
-  const args = [PERCEPTIBLE_MS, windowRead] as const;
+  const args = [PERCEPTIBLE_MS, windowRead, FONT_HOSTS.source] as const;
   const top = await page.evaluate(sampleReducedMotion, args);
   const silentFrames = silent.get(page) ?? new Set<Frame>();
   silent.set(page, silentFrames);
@@ -451,12 +554,17 @@ async function sampleAll(page: Page, windowRead: string | null): Promise<MotionS
       new Promise<null>((resolve) => setTimeout(() => resolve(null), FRAME_TIMEOUT_MS)),
     ]);
     if (inner === null) silentFrames.add(frame);
+    // A frame still navigating has an empty url, so it looked like the page's
+    // own; the document the evaluate actually ran in decides (a lazy Vimeo
+    // player is not the site's code).
+    if (inner && isForeignUrl(inner.href ?? "", new URL(page.url()).origin)) continue;
     if (!inner) continue;
     const src = await frame
       .frameElement()
       .then((el) => el.getAttribute("src"))
       .catch(() => null);
-    const at = `iframe[src="${src ?? frame.url()}"] :: `;
+    const at =
+      src === null ? `iframe[srcdoc] :: ` : `iframe[src="${src.replace(/"/g, '\\"')}"] :: `;
     top.items.push(...inner.items.map((i) => ({ ...i, target: at + i.target })));
     top.scrollDriven += inner.scrollDriven;
     top.reduceMatched &&= inner.reduceMatched;
@@ -480,7 +588,12 @@ async function sampleWindow(
 
 /** One viewport: a window at the top, at every half-viewport step, and back at
  *  the top, then reads through a last `waitMs`. */
-async function runAt(page: Page, width: number, waitMs: number): Promise<MotionRun> {
+async function runAt(
+  page: Page,
+  width: number,
+  waitMs: number,
+  stepCap: number,
+): Promise<MotionRun> {
   await settle(page);
   const samples: MotionSample[] = await sampleWindow(page, "top");
   let scrolled = "nothing";
@@ -513,7 +626,7 @@ async function runAt(page: Page, width: number, waitMs: number): Promise<MotionR
       return box ? box.tagName.toLowerCase() + (box.id ? `#${box.id}` : "") : "window";
     }, step);
     if (moved === null) break;
-    if (step > STEP_CAP) {
+    if (step > stepCap) {
       capped = true;
       break;
     }
@@ -535,7 +648,7 @@ async function runAt(page: Page, width: number, waitMs: number): Promise<MotionR
   const skippedFrames =
     page.frames().filter((f) => f !== page.mainFrame() && !sameDocumentFrame(page, f)).length +
     (silent.get(page)?.size ?? 0);
-  return { width, samples, scrolled, skippedFrames, capped };
+  return { width, samples, scrolled, skippedFrames, capped, stepCap };
 }
 
 /** Run R2 on `url` at each of REDUCED_MOTION_VIEWPORTS, in contexts that
@@ -546,12 +659,13 @@ export async function checkReducedMotion(
   url: string,
   options: BrowserContextOptions = { reducedMotion: "reduce" },
   waitMs: number = MOTION_WAIT_MS,
+  stepCap: number = STEP_CAP,
 ): Promise<RuleOutcome> {
   const runs: MotionRun[] = [];
   for (const viewport of REDUCED_MOTION_VIEWPORTS) {
     runs.push(
       await withPage(browser, { ...options, viewport }, url, (page) =>
-        runAt(page, viewport.width, waitMs),
+        runAt(page, viewport.width, waitMs, stepCap),
       ),
     );
   }
