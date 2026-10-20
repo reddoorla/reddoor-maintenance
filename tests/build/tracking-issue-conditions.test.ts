@@ -537,6 +537,59 @@ describe("time-travel — a red run files exactly one issue, and only the suite 
   });
 });
 
+describe("fleet-db-backup — the Dropbox-copy issue speaks only about copy nights", () => {
+  // OD 97(g). The copy step is skipped on 29 or 30 nights a month. A skipped
+  // copy must neither file nor close; a failed copy must file on a green run;
+  // and a copy night whose run went red or was cancelled before the copy must
+  // file too, or that month's copy is lost with nothing open.
+  const step = (label: string) =>
+    all.find((s) => s.file === "fleet-db-backup.yml" && s.label === label)!;
+  const open = () => step("Open/update the Dropbox-copy tracking issue");
+  const close = () => step("Close the Dropbox-copy issue on a successful copy");
+  const at = (base: Scenario, copy: string, due: "true" | "false"): Scenario => ({
+    ...base,
+    output: due,
+    outcomes: { dropbox: copy },
+  });
+
+  it("finds both steps", () => {
+    expect(open()?.if).toBeDefined();
+    expect(close()?.if).toBeDefined();
+  });
+
+  it("files on a failed copy, and on a red or cancelled copy night; never on a skipped copy otherwise, nor on a branch", () => {
+    const cases: Array<[Scenario, string, "true" | "false", boolean]> = [
+      [MAIN_GREEN, "failure", "true", true],
+      [MAIN_GREEN, "skipped", "false", false],
+      [MAIN_GREEN, "success", "true", false],
+      [MAIN_FAILED, "skipped", "true", true],
+      [MAIN_CANCELLED, "skipped", "true", true],
+      [MAIN_FAILED, "skipped", "false", false],
+      [MAIN_CANCELLED, "skipped", "false", false],
+      [BRANCH_GREEN, "failure", "true", false],
+      [BRANCH_FAILED, "skipped", "true", false],
+    ];
+    const wrong = cases
+      .filter(([b, c, d, want]) => evaluate(open().if!, at(b, c, d)) !== want)
+      .map(([b, c, d, want]) => `${b.name}, copy ${c}, due ${d}: want ${want}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("closes only after a copy that succeeded, on a green run on main", () => {
+    const cases: Array<[Scenario, string, boolean]> = [
+      [MAIN_GREEN, "success", true],
+      [MAIN_GREEN, "skipped", false],
+      [MAIN_GREEN, "failure", false],
+      [MAIN_CANCELLED, "skipped", false],
+      [BRANCH_GREEN, "success", false],
+    ];
+    const wrong = cases
+      .filter(([b, c, want]) => evaluate(close().if!, at(b, c, "true")) !== want)
+      .map(([b, c, want]) => `${b.name}, copy ${c}: want ${want}`);
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe("a step that runs past a failure is bounded", () => {
   // 36451921171: an `if: always()` sweep with no timeout ran from 17:51 to
   // 22:38 — past the 6-hour job limit and through the whole 5-minute post-cancel

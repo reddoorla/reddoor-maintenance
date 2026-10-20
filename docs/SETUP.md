@@ -242,6 +242,7 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 
 - [ ] Confirm the `reddoor-renovate` App's `RENOVATE_APP_ID` (org variable) and `RENOVATE_APP_PRIVATE_KEY` (org secret) are visible to all repos, so both the nightly sweep and every repo's Renovate can mint a token (`docs/runbooks/renovate-app-identity.md`).
 - [ ] Set the `OPERATOR_EMAIL` + `DASHBOARD_BASE_URL` Actions **variables** so the digest reaches you with working links.
+- [ ] Add `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN` as Actions **secrets** (the values `scripts/dropbox.mjs` uses), then dispatch `fleet-db-backup` on `main` with `dropbox_copy: true` and check `/Reddoor/Backups/turso` in Dropbox. Until then the monthly off-GitHub copy of the backup only warns and skips (Operator decisions 97(g)).
 - [ ] (Optional) Manually trigger `fleet-lighthouse.yml` once (`gh workflow run fleet-lighthouse.yml`) to populate the cockpit's GitHub signals immediately instead of waiting for the first nightly run.
 
 ---

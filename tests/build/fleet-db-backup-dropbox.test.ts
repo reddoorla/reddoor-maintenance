@@ -86,7 +86,7 @@ async function runStep(
 { printf '%s\\037' "$@"; printf '\\036'; } >> "${join(dir, "node.log")}"
 for a in "$@"; do [ -f "$a" ] && cp "$a" "${sent}/$(basename "$a")"; done
 cat "${join(dir, "dropbox.txt")}"
-exit 0
+exit "\${STUB_NODE_EXIT:-0}"
 `,
     "utf-8",
   );
@@ -96,7 +96,7 @@ exit 0
 case "$*" in
   "-u +%d") echo "${opts.day ?? "01"}" ;;
   "-u +%Y-%m") echo "${opts.month ?? "2026-11"}" ;;
-  *) exec /bin/date "$@" ;;
+  *) echo "stub date: unmodelled argv: $*" >&2; exit 97 ;;
 esac
 `,
     "utf-8",
@@ -236,6 +236,33 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
     expect(r.out).toMatch(/^::warning::monthly Dropbox copy/m);
   });
 
+  it("FAILS with its warning when dropbox.mjs exits non-zero (a real failure exits 1)", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11", STUB_NODE_EXIT: "1" },
+      dropboxOut: `${TEAM_ACCOUNT}\nFAILED x: oauth2/token: HTTP 400 invalid_grant\n`,
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^::warning::monthly Dropbox copy FAILED: no hash-matched upload/m);
+  });
+
+  it("FAILS when the ok line carries anything after 'matches local'", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `${TEAM_ACCOUNT}\n${okLine(PATH_NOV, CIPHERTEXT)} (not really)\n`,
+    });
+    expect(r.code).not.toBe(0);
+  });
+
+  it("redacts every address, even when the display name carries angle brackets", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `account: Ada <Reddoor> <ada@example.com>, team Example Team, root namespace 1 (team space)\n${okLine(PATH_NOV, CIPHERTEXT)}\n`,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("ada@example.com");
+    expect(r.out).toContain("Ada <Reddoor>, team Example Team");
+  });
+
   it("FAILS when the ok line names another month's file", async () => {
     const r = await runStep(copy, {
       env: { ...SECRETS, MONTH: "2026-11" },
@@ -314,19 +341,21 @@ describe("fleet-db-backup — where the Dropbox copy sits, and what it may break
     expect(step(COPY)).toBeDefined();
   });
 
-  it("runs after the encrypt step's re-verify AND after the artifact upload", () => {
+  it("decides first, and copies after the encrypt step's re-verify AND after the artifact upload", () => {
     const l = labels();
+    // First, so a run that goes red before the copy still knows it was a copy night.
+    expect(l.indexOf(DECIDE)).toBe(0);
     expect(l.indexOf("Encrypt")).toBeGreaterThan(-1);
     expect(l.indexOf("Upload encrypted dump")).toBeGreaterThan(l.indexOf("Encrypt"));
-    expect(l.indexOf(DECIDE)).toBeGreaterThan(l.indexOf("Upload encrypted dump"));
-    expect(l.indexOf(COPY)).toBe(l.indexOf(DECIDE) + 1);
+    expect(l.indexOf(COPY)).toBe(l.indexOf("Upload encrypted dump") + 1);
   });
 
   it("a Dropbox failure can never turn the backup red: the copy is continue-on-error and bounded", () => {
     const s = step(COPY)!;
     expect(s.continueOnError).toBe("true");
     expect(s.timeoutMinutes).toBeGreaterThan(0);
-    expect(s.if).toBe("steps.dropbox-due.outputs.due == 'true'");
+    // main only: a branch dispatch must never overwrite the month's copy.
+    expect(s.if).toBe("steps.dropbox-due.outputs.due == 'true' && github.ref == 'refs/heads/main'");
   });
 
   it("the decide step cannot fail on the network: it calls nothing but date", () => {

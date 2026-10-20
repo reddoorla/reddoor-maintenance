@@ -249,7 +249,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:295`).
+`.github/workflows/fleet-db-backup.yml:300`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -364,8 +364,8 @@ Promoted here from the 2026-08-17 store-migration plan in `docs/superpowers/plan
 ("Rollback is rehearsed") and Phase 1.5. **Turso is the only store there is** — this is the
 procedure that gets the fleet back.
 
-**The backup.** `fleet-db-backup` runs nightly at 04:30 UTC
-(`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
+**The backup.** `fleet-db-backup` runs nightly, dispatched by the `fleet-nightly` conductor
+(the 06:07Z clock, with a 02:17Z fallback cron) (`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
 database-level url + token the other nightlies hold, asserts the dump actually contains site
 rows, loads it into a scratch engine and compares restored row counts against the **origin
 manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES256` under
@@ -374,8 +374,10 @@ verification on the round-tripped copy** before publishing it as an Actions arti
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
 On the first night of each UTC month the same **encrypted** file is also copied to Dropbox as
 `/Reddoor/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
-decisions 97(g)). That copy never fails the backup: a failed copy files "Monthly Dropbox backup
-copy failing", and dispatching `fleet-db-backup` with `dropbox_copy: true` takes it again.
+decisions 97(g)), from `main` only. That copy never fails the backup. A failed copy, or a red or
+cancelled run on the first of the month, files "Monthly Dropbox backup copy failing";
+dispatching `fleet-db-backup` on `main` with `dropbox_copy: true` takes the copy again. A retake
+overwrites that month's file, so each month keeps the last copy taken in it.
 
 **The restore, as rehearsed** — every command below was checked against the tree on 2026-09-14,
 and a fresh session with only this section was asked to dry-run it; what it could not find is now
@@ -394,8 +396,11 @@ written in.
 
    Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
    download `turso-YYYY-MM.sql.gpg` from Dropbox `/Reddoor/Backups/turso` (the newest month),
-   save it in `restore/` as `dump.sql.gpg`, and carry on. It is the same encrypted dump under the
-   same `BACKUP_PASSPHRASE`, so it may be up to a month older than the newest artifact.
+   then `mkdir -p restore && cd restore`, save it there as `dump.sql.gpg`, and carry on. It is the
+   same kind of encrypted dump, so it may be up to a month older than the newest artifact. It
+   decrypts with the `BACKUP_PASSPHRASE` that was current in that month: **if the passphrase is
+   ever rotated, keep the old value beside the new one in 1Password, labelled with the last month
+   it encrypted**, or every Dropbox copy from before the rotation is unreadable.
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine
