@@ -16,6 +16,7 @@ describe("the suite never sees production credentials", () => {
       TURSO_DATABASE_URL: "libsql://CANARY.turso.io",
       RESEND_API_KEY: "re_CANARY",
       GH_TOKEN: "ghp_CANARY",
+      ANTHROPIC_API_KEY: "sk-ant-CANARY",
       PATH: "/usr/bin",
       XDG_CONFIG_HOME: "/home/operator/.config",
     };
@@ -39,6 +40,9 @@ describe("the suite never sees production credentials", () => {
       "PRISMIC_WRITE_TOKEN",
       "NETLIFY_PAT",
       "GH_TOKEN",
+      // A model stage's default makes a real, billed call when this is set (#1511).
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
     ]) {
       expect(CREDENTIAL_ENV.test(name), name).toBe(true);
     }

@@ -125,34 +125,6 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
     summary: "lighthouse: all categories passing",
     status: "pass" as const,
   }),
-  // The assets stage is the one check that fans out to real URLs. Stubbed here
-  // with a probe that throws, so any test whose fixture grows an <a href> or an
-  // <img src> cannot start quietly making network calls from the suite — it
-  // records a transport failure instead, which the stage already handles.
-  assets: {
-    probe: async () => {
-      throw new Error("network disabled in tests");
-    },
-    delayMs: 0,
-    sleep: async () => {},
-  },
-  // Same reason, for the other stage that makes its own requests. Without this
-  // the suite fires three real fetches per run at whatever hostname the fixture
-  // happens to use, which is both slow and rude.
-  basics: {
-    probe: async () => {
-      throw new Error("network disabled in tests");
-    },
-    // `probeAs` too, and not as belt-and-braces: pipeline.ts defaults it to the
-    // live crawler-reachability probe, so stubbing only `probe` left this
-    // offline suite firing real requests at whatever hostname the fixture
-    // happened to use — one per named agent, per run. The tests passed whether
-    // those succeeded, failed or hung, which means they asserted nothing about
-    // this stage and the suite's result depended on the runner's DNS.
-    probeAs: async () => {
-      throw new Error("network disabled in tests");
-    },
-  },
   // Real ProbeRunOptions pacing (probes.ts's pacedEach) genuinely sleeps
   // between queries — 0 keeps this offline suite from spending seconds on it.
   probeDelayMs: 0,
