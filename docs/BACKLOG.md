@@ -5219,6 +5219,14 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
         behaviour defects. Two are false positives from round 4,
         `echo gh pr ''>/dev/null | sh` and `echo gh pr create>|/dev/null | sh`.
         `"gi\⏎t" push` was missed. `echo gh pr $(true) | sh` was missed.
+        **Answered 2026-10-20 (cockpit): close #1444 unmerged, keep its
+        branch `claude/p1-63-tripwire-minors` at `f0aafb38`, and take OD 131's
+        (c) instead: deny `gh`, `git push` and `curl`/`wget` writes through a
+        read-only agent type rather than detecting them.** A worker gets (c)
+        after the P1-33 cutover window closes (no worker runs during it).
+        Closing it now also takes #1444's `docs/BACKLOG.md` edit out of the
+        window's way (runbook step 1). #1419, #1438, #1456 and #1486 stay open
+        until (c)'s worker settles them.
 
 134.  **P1-58, bake-off row 6 (dependency bumps): land #1475 after five
       review rounds, or hold it (new 2026-10-19, branch
