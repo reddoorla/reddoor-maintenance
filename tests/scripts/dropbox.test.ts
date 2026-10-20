@@ -533,9 +533,23 @@ describe("uploadFile", () => {
     await expect(
       uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
     ).rejects.toThrow(
-      "grew-at-finish.bin changed size during upload_session/finish; /X/grew-at-finish.bin now holds the 100 bytes read before the change",
+      "grew-at-finish.bin changed size during upload_session/finish; Dropbox committed /X/grew-at-finish.bin anyway, 100 bytes, matching the bytes read before the change",
     );
     expect(endpoints(calls).at(-1)).toBe("files/upload_session/finish");
+  });
+
+  it("names a mismatch in Dropbox's reply, not the local size, when a file grew during finish", async () => {
+    const local = file("grew-mismatch.bin", pattern(100));
+    const { fetch } = fake((ep) => {
+      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
+      if (ep === "files/upload_session/finish") appendFileSync(local, Buffer.from("more"));
+      return { body: { size: 99, content_hash: "bad" } };
+    });
+    await expect(
+      uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
+    ).rejects.toThrow(
+      "grew-mismatch.bin changed size during upload_session/finish; Dropbox committed /X/grew-mismatch.bin anyway, 99 bytes, NOT matching the bytes read (size or content_hash differs)",
+    );
   });
 
   it("uses a session above the limit even when one chunk holds the whole file", async () => {

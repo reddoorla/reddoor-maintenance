@@ -365,9 +365,11 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
   const { size } = await stat(local);
   const hash = contentHasher();
   let meta;
+  let changedAtFinish = false;
   if (size <= simpleLimit) {
     const data = await readFile(local);
-    if (data.length !== size) throw new Error(`${local} changed size while being read`);
+    if (data.length !== size)
+      throw new Error(`${local} changed size while being read; nothing was committed`);
     hash.update(data);
     meta = fileMeta("files/upload", await contentCall(ctx, "files/upload", commit, data));
   } else {
@@ -407,16 +409,20 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
           last,
         ),
       );
-      // A file can still change while finish is in flight; by now the copy is committed.
-      if ((await fh.stat()).size !== size)
-        throw new Error(
-          `${local} changed size during upload_session/finish; ${meta.path_display ?? path} now holds the ${size} bytes read before the change`,
-        );
+      // A file can still change while finish is in flight; by then the copy is committed.
+      changedAtFinish = (await fh.stat()).size !== size;
     } finally {
       await fh.close();
     }
   }
   const localHash = hash.digest();
+  const ok = meta.content_hash === localHash && meta.size === size;
+  if (changedAtFinish) {
+    // What Dropbox holds is its reply's to say, so a mismatch is not hidden behind the size change.
+    throw new Error(
+      `${local} changed size during upload_session/finish; Dropbox committed ${meta.path_display ?? path} anyway, ${meta.size} bytes, ${ok ? "matching the bytes read before the change" : "NOT matching the bytes read (size or content_hash differs)"}`,
+    );
+  }
   return {
     local,
     path: meta.path_display ?? path,
@@ -424,7 +430,7 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
     remoteSize: meta.size,
     localHash,
     remoteHash: meta.content_hash,
-    ok: meta.content_hash === localHash && meta.size === size,
+    ok,
   };
 }
 
