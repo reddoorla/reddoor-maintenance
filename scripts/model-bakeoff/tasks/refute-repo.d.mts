@@ -1,5 +1,5 @@
 import type { Arm } from "../lib/arms.mjs";
-import type { Collection } from "../lib/score.mjs";
+import type { Check, Collection } from "../lib/score.mjs";
 export interface RepoClaim {
   id: string;
   claim: string;
@@ -40,6 +40,8 @@ export interface Config {
   errors: number;
   misses: number;
   cost: number | null;
+  requests: number;
+  unfinished: number;
   allPass: boolean;
   complete: boolean;
   valid: boolean;
@@ -50,6 +52,8 @@ export interface Decision {
     id: string;
     config: string;
     cost: number | null;
+    requests?: number;
+    unfinished?: number;
     invalid: boolean;
     pass: boolean;
   })[];
@@ -57,8 +61,19 @@ export interface Decision {
   spread: number;
   canRank: boolean;
   reasons: string[];
+  rulingChanges?: RulingChange[];
   lines?: string[];
 }
+export interface RulingChange {
+  run: string;
+  check: string;
+  got: string;
+  key: string;
+}
+export function rulingChanges(
+  checksByArm?: Record<string, Check[]>,
+  rulings?: Record<string, { armCorrect?: boolean; refCorrect?: boolean }>,
+): RulingChange[];
 export const id: string;
 export const title: string;
 export const row: number;
@@ -102,6 +117,8 @@ export function decide(
     effort: string;
     output: Verdicts | null;
     cost: number | null;
+    requests?: number;
+    unfinished?: number;
     invalid?: boolean;
   }[],
   ctx?: DecisionContext,
@@ -109,7 +126,15 @@ export function decide(
   data?: RepoData,
 ): Decision;
 export function decision(
-  records: Record<string, { structured: unknown; cost: number | null }>,
+  records: Record<
+    string,
+    { structured: unknown; cost: number | null; requests?: number; unfinished?: number }
+  >,
   dir: string,
-  ctx?: DecisionContext & { arms?: Arm[]; invalid?: string[] },
+  ctx?: DecisionContext & {
+    arms?: Arm[];
+    invalid?: string[];
+    checksByArm?: Record<string, Check[]>;
+    rulings?: Record<string, { armCorrect?: boolean; refCorrect?: boolean }>;
+  },
 ): Decision;

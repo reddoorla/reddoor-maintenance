@@ -258,7 +258,7 @@ export function finalScores(checksByArm, rulings = {}) {
     return info.presence || !refutedItems.has(info.item);
   });
   for (const [arm, checks] of Object.entries(checksByArm)) {
-    const p = { total: 0, correct: 0, unruled: 0, byField: {}, errors: [] };
+    const p = { total: 0, correct: 0, unruled: 0, byField: {}, errors: [], credited: [] };
     for (const c of checks) {
       if (c.field !== PRESENT && refutedItems.has(itemOf(c))) continue;
       let ok = c.ok && !refWrong.has(c.check);
@@ -266,6 +266,9 @@ export function finalScores(checksByArm, rulings = {}) {
         const r = c.armRaw === MISSING || c.mechanical ? undefined : rulings[disagreementId(c)];
         if (r === undefined && c.armRaw !== MISSING && !c.mechanical) p.unruled++;
         ok = r ? r.armCorrect === true : false;
+        // Counted correct against the reference, on a ruling: what a decision that counts
+        // against the reference needs to name (#1493).
+        if (ok) p.credited.push({ check: c.check, got: c.armRaw, key: c.refRaw });
         if (r && refWrong.has(c.check) && !seenRefError.has(c.check)) {
           seenRefError.add(c.check);
           referenceErrors.push({ check: c.check, reference: c.refRaw, note: r.note || "" });

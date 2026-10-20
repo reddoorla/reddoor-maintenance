@@ -442,6 +442,7 @@ export function readAgentTranscript(text) {
     models: [...new Set(records.map((r) => r.model))].sort(),
     efforts: [...new Set(records.map((r) => r.effort))].sort(),
     requests: records.length,
+    unfinished: records.filter((r) => r.unfinished).length,
     repeats: diag.repeats,
     cost: priced ? cost : null,
     longPrompt,

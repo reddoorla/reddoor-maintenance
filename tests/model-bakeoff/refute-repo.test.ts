@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,17 +11,19 @@ import {
   refutePrompt,
   verdictSchema,
 } from "../../scripts/meta-week/lib/refute-claims.mjs";
-import { scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
+import { disagreementId, scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
 import { readAgentTranscript } from "../../scripts/model-bakeoff/lib/transcripts.mjs";
 import { runWorkflow } from "../_helpers/bakeoff-workflow.js";
 import {
   combineItems,
   expectedWork,
   extractArgs,
+  formatResult,
   launchers,
   manifest,
   mergeAgents,
   secretReads,
+  truthPath,
   type Collected,
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
 
@@ -441,6 +443,66 @@ describe("the decision rule", () => {
     );
   });
 
+  // #1493: the rule counts against the key, as pre-registered; the score column applies the
+  // referee's rulings. The decision names every check where the two part.
+  it("names each check a ruling credited against the key, which the rule still counts", () => {
+    const runs = [
+      ...prod,
+      run("s-1", "sonnet", "high", { r02: "unclear" }),
+      run("s-2", "sonnet", "high"),
+    ];
+    const records = Object.fromEntries(runs.map((r) => [r.id, { structured: r.output, cost: 1 }]));
+    const arms = runs.map(({ id, model, effort }) => ({ id, model, effort }));
+    const checksByArm = Object.fromEntries(
+      runs.map((r) => [r.id, scoreRun(task, truth, r.output)]),
+    );
+    const c = checksByArm["s-1"]!.find((x) => x.check === "verdicts r02 / verdict")!;
+    const ruled = { [disagreementId(c)]: { armCorrect: true, refCorrect: true, note: "n" } };
+    const d = task.decision(records, "/d", { arms, checksByArm, rulings: ruled });
+    expect(d.rulingChanges).toEqual([
+      { run: "s-1", check: "verdicts r02 / verdict", got: "unclear", key: "confirmed" },
+    ]);
+    expect(d.perRun.find((r) => r.id === "s-1")!.errors).toEqual(["r02"]);
+    expect(d.lines).toContain(
+      "Referee rulings this rule does not apply (it counts against the key; the score column credits these): s-1 verdicts r02 / verdict (gave unclear, key confirmed).",
+    );
+    // A ruling that upholds the key changes nothing; no rulings at all reads the same.
+    const upheld = { [disagreementId(c)]: { armCorrect: false, refCorrect: true, note: "n" } };
+    for (const rulings of [upheld, {}]) {
+      expect(task.decision(records, "/d", { arms, checksByArm, rulings }).lines).toContain(
+        "Referee rulings this rule does not apply (it counts against the key; the score column credits these): none.",
+      );
+    }
+  });
+
+  it("lists only checks the score column credits, not one it drops with a refuted item", () => {
+    // a-1 leaves r02 out, and a ruling refutes the key's r02 item (it is not a claim), so the
+    // score column drops b-1's r02 verdict check rather than crediting it.
+    const a = { verdicts: truth.verdicts.filter((v) => v.id !== "r02") };
+    const b = run("b-1", "x", "y", { r02: "unclear" }).output;
+    const checksByArm = { "a-1": scoreRun(task, truth, a), "b-1": scoreRun(task, truth, b) };
+    const pres = checksByArm["a-1"].find((c) => c.check === "verdicts r02 / (present)")!;
+    const verd = checksByArm["b-1"].find((c) => c.check === "verdicts r02 / verdict")!;
+    const rulings = {
+      [disagreementId(pres)]: { armCorrect: true, refCorrect: false, note: "not a claim" },
+      [disagreementId(verd)]: { armCorrect: true, refCorrect: true, note: "unclear is fine" },
+    };
+    expect(task.rulingChanges(checksByArm, rulings)).toEqual([
+      { run: "a-1", check: "verdicts r02 / (present)", got: "absent", key: "present" },
+    ]);
+  });
+
+  it("prints a pooled cost with an unfinished request as a lower bound (#1435)", () => {
+    const records = Object.fromEntries(
+      prod.map((r, i) => [r.id, { structured: r.output, cost: 1, requests: 3, unfinished: i }]),
+    );
+    const arms = prod.map(({ id, model, effort }) => ({ id, model, effort }));
+    const row = task
+      .decision(records, "/d", { arms })
+      .lines!.find((l) => l.startsWith("| opus @ xhigh"));
+    expect(row).toMatch(/\| ≥\$2\.00 \(1 of 6 unfinished\) \|$/);
+  });
+
   it("reads the run's own arms, so an --arms file is reported under the config it asked for", () => {
     const records = Object.fromEntries(
       [...prod, run("opus-medium-1", "sonnet", "low")].map((r) => [
@@ -582,9 +644,33 @@ describe("collecting and combining an item run", () => {
     expect(two.record!.requests).toBe(2);
     expect(two.record!.efforts).toEqual(["high", "medium"]);
     expect(two.record!.cost).toBeCloseTo(2 * one.record!.cost!, 10);
+    // Neither item transcript has a final usage line, so both requests are lower bounds (#1435).
+    expect(two.record!.unfinished).toBe(2);
     expect(combineItems(fake, ARGS, {}, H).record).toBeNull();
     const silent = mergeAgents({}, [transcript("h", "r01", null)], ARGS).agents;
     expect(combineItems(fake, ARGS, silent, H).record!.structured).toBeNull();
+  });
+
+  it("explains a lower bound under the table only when a priced cost is one (#1435)", () => {
+    const arm = {
+      id: "h",
+      asked: "haiku @ low",
+      ran: "x",
+      score: "1/1",
+      requests: 3,
+      longPrompt: 0,
+    };
+    const result = (a: Record<string, unknown>) => ({
+      reference: "script truth",
+      disagreements: 0,
+      unruled: 0,
+      problems: [],
+      arms: [{ ...arm, ...a }],
+    });
+    const priced = formatResult(result({ cost: 1, unfinished: 2 }));
+    expect(priced).toContain("| ≥$1.00 (2 of 3 unfinished) |");
+    expect(priced).toMatch(/^≥: a lower bound/m);
+    expect(formatResult(result({ cost: null, unfinished: 2 }))).not.toMatch(/≥/);
   });
 
   it("names any agent that read or grepped for the answer key", () => {
@@ -700,7 +786,7 @@ describe("score on an item run", () => {
       }
     }
     writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest(input)));
-    writeFileSync(join(run, "truth.json"), JSON.stringify(task.truth(input)));
+    writeFileSync(truthPath(run), JSON.stringify(task.truth(input)));
     writeFileSync(join(run, "workflow-args.json"), JSON.stringify(args));
     writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
     return run;
@@ -743,14 +829,61 @@ describe("score on an item run", () => {
     };
     writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
     const r = score(run);
-    expect(r.problems).toEqual(
-      expect.arrayContaining([
-        "opus-xhigh-2/r01: ran as agent type workflow-subagent, not bakeoff-readonly",
-        "gold/r02: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be bakeoff-readonly",
-        "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
-      ]),
+    expect(r.problems).toEqual([
+      "gold/r02: no agent type in runs.json, which predates the agent-type check; run collect again",
+      "opus-xhigh-2/r01: ran as agent type workflow-subagent, not bakeoff-readonly",
+      "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
+    ]);
+    // A referee's fault blocks the ranking; an arm's marks that run invalid.
+    expect(r.decision.reasons).toContain(
+      "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
     );
-    expect(r.decision.canRank).toBe(false);
+    const invalid = (id: string) =>
+      r.decision.perRun.find((p: { id: string }) => p.id === id).invalid;
+    expect([invalid("gold"), invalid("opus-xhigh-2")]).toEqual([true, true]);
+  });
+
+  it("hands the referee's rulings to the decision, which names the check a ruling credited", () => {
+    const run = build();
+    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    const c = DATA.claims.find((x) => x.label === "confirmed")!;
+    runs[`opus-xhigh-2/${c.id}`].structured.verdict = "unclear";
+    const id = `verdicts ${c.id} / verdict :: unclear`;
+    runs["referee:r1-1"] = {
+      ...runs["gold/r01"],
+      transcript: "/t/referee.jsonl",
+      marker: { kind: "referee", id: "r1-1" },
+      efforts: ["high"],
+      structured: { rulings: [{ id, armCorrect: true, refCorrect: true, note: "n" }] },
+    };
+    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    const r = score(run);
+    expect(r.arms.find((a: { id: string }) => a.id === "opus-xhigh-2").score).toBe("73/73");
+    expect(r.decision.rulingChanges).toEqual([
+      {
+        run: "opus-xhigh-2",
+        check: `verdicts ${c.id} / verdict`,
+        got: "unclear",
+        key: "confirmed",
+      },
+    ]);
+  });
+
+  it("refuses a run whose truth is still inside it, as runs prepared before #1492 kept it", () => {
+    const run = build();
+    renameSync(truthPath(run), join(run, "truth.json"));
+    let err = "";
+    try {
+      execFileSync(process.execPath, [CLI, "score", "--run", run], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      err = String((e as { stderr: string }).stderr);
+    }
+    expect(err).toContain(
+      `no truth at ${truthPath(run)}; this run keeps it at ${join(run, "truth.json")}, where its arms could read it (#1492). Move it to ${truthPath(run)} to score.`,
+    );
   });
 
   it("stops the ranking when the referee ran on the wrong model or broke a rule", () => {

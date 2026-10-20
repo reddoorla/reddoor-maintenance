@@ -51,7 +51,11 @@ These are workspace#1's nine steps, with where each one happens.
    from each subagent transcript. `score` lists every arm and every referee whose transcripts
    disagree with what it asked for.
 8. **Cost from usage, counted once per `message.id`.** Transcript lines repeat a message's
-   usage, so summing every line roughly doubles the count.
+   usage, so summing every line roughly doubles the count. A request whose last line has no
+   `stop_reason` kept only its stream-start usage, so its output tokens (thinking included)
+   are undercounted; every cost that counts one prints as a lower bound,
+   `≥$x (n of m unfinished)` (#1435). The figure is still the transcripts'; a true one needs
+   a source that carries final usage, such as OpenTelemetry `claude_code.api_request` events.
 9. **Report the ceiling.** If every arm scores perfectly, the run bounds the error rate. It does
    not rank the models.
 
@@ -66,6 +70,15 @@ posting it. By hand:
 ```sh
 node scripts/model-bakeoff/bakeoff.mjs prepare --task t5-census --out <run>
 ```
+
+`prepare` writes the task's truth (or `null`) to `<run>.truth.json`, beside the run directory
+and never inside it: the arms are told `<run>/input` and `<run>/work/<id>`, so a `cat <run>/*.json`
+or a Grep over the run does not reach the truth file (#1492). `score` reads it there, and refuses
+a run prepared before the move, whose `truth.json` is still inside it. Copy or move the two
+together. A file outside the run is still readable by an arm that goes looking; for a task that
+lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. The run
+directory holds one other route to the answer: once `collect` has run, `runs.json` holds the
+gold's output, which an arm launched after it (the per-arm `only` flow) can read (#1540).
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
 `scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
@@ -199,14 +212,16 @@ read after the run, by the Bash check in "Running a task".
 
 `score` holds every agent to the type. `collect` reads the agent type from the
 `agent-<id>.meta.json` the harness writes beside each transcript, and `score` reports an agent
-that ran as anything else, or whose file is missing, unreadable or names no type. A launcher that `split` wrote before
-2026-10-20 embeds the old workflow and runs the default agent, so split again.
+that ran as anything else, or whose file is missing, unreadable or names no type. A `runs.json`
+collected before 2026-10-20 has no type at all, so collect it again. A launcher that `split`
+wrote before then embeds the old workflow and runs the default agent, so split again.
 
 The type resolves from the agent registry the session read when it started, so run the
 workflow from a session started in this repo. A session started elsewhere (the workspace, by
-default) does not have it after `add_repo` and `register_repo_root`: there every `agent()`
-throws `agent type 'bakeoff-readonly' not found` before any agent runs, the workflow logs
-`0/N runs returned`, and `score` then reports the missing transcripts.
+default) does not have it after `add_repo` and `register_repo_root`. There every `agent()`
+throws `agent type 'bakeoff-readonly' not found` before any agent runs (measured), so the run
+returns no transcripts, and `score` reports each one missing, or refuses for want of a
+reference when the gold is the reference.
 
 Results from before 2026-10-20 were measured with the default workflow agent, which had every
 tool and a different system prompt. Production fan-outs, such as
@@ -231,10 +246,13 @@ launched as one workflow per arm with `only`, and `collect` is run once per tran
 directory: it merges into the run's `runs.json`.
 
 A task may also export `secrets` (strings, such as its answer key's file name): `score` reports
-any agent whose Bash commands or Read, Grep or Glob inputs name one. And `decision(records,
+any agent whose Bash commands or Read, Grep or Glob inputs name one. It sees names only: a glob
+or a directory-wide Grep that reaches the file gets past it. And `decision(records,
 dir, ctx)`, whose `lines` `score` prints under the table. `ctx` holds the run's `arms` (gold
 first), the arm ids `score` found a problem in (`invalid`), the referee's `referenceErrors`, the
-`unruled` count, and `blockers`: problems that are no one arm's, such as a changed input.
+`unruled` count, `blockers` (problems that are no one arm's, such as a changed input), and the
+raw `checksByArm` and the referee's `rulings`, so a decision can say where it parts from the
+score column.
 
 ### `refute-repo` (row 5, second control)
 
@@ -259,6 +277,13 @@ production (Opus at `xhigh`) only if both runs pass and its pooled errors and mi
 referee upholds every label it rules on, no disagreement is unruled, `score` found no problem
 outside one arm, and pooled errors spread by at least 3 across the configs with two runs and no
 faulted run.
+
+The rule counts against the key, as registered, but the score column applies the referee's
+rulings. So a ruling that credits a run (an "unclear" ruled fine against a "confirmed" label)
+shows there as correct and in the decision as an error, and can fail the run next to a perfect
+score. The decision prints a line naming every check where that happened ("Referee rulings this
+rule does not apply …", or "none"), and `result.json` keeps them as `decision.rulingChanges`
+(#1493). A ruling that refutes the key is already a reason the control may not rank.
 
 The 2026-10-19 run (`results/2026-10-19-refute-repo.json`) saturated. Production passed both
 runs at 36/36, and so did every other run but two: Sonnet `medium` run 2 confirmed r33, though
@@ -342,6 +367,25 @@ this repository's own history, as `seeded-review` is, can be answered by `git lo
 from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
 transcript for a git command and for a read outside `<run>/input`, and record the result. The
 2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
+
+### `seeded-review` (row 3)
+
+A finding in a seeded case is a candidate for a seeded defect when it names the defect's file
+and its range overlaps the defect's or comes within `NEAR_LINES` (10) of it, and the referee
+rules on every candidate. On a clean control, findings are grouped by file (the control's own
+file under any path form, `src/x.ts`, `r02.after.x.ts` or `./x.ts`), and findings that all share
+a line are one false positive: one finding restated three ways is one, not three (#1462). A
+chain of ranges (1-3, 3-5, 5-7) or one wide range does not merge findings that never meet. The
+referee sees every wording of a merged finding, sorted, so the same findings in another order
+make the same check.
+
+`build.mjs` rebuilds `cases/` from git byte for byte, and a test holds it to the committed
+files. No user, system or environment git config reaches it, and from git 2.40 the checkout's
+own `.gitattributes` does not either (`GIT_ATTR_SOURCE` is the empty tree). One input still
+does: `$GIT_DIR/info/attributes`, which nothing turns off (checked with git 2.43). A local
+entry there such as `*.ts -diff` changes all 11 rebuilt diffs (measured 2026-10-20 in a fresh
+clone, which rebuilt 0 of 22 files differently without it) and turns the byte-for-byte test
+red. That is accepted (#1464): no clone of this repo has one unless someone adds it by hand.
 
 ### A task that changes a repository
 
@@ -446,9 +490,9 @@ failed check. What is scored, all of it mechanical (no referee):
 The truth runs alone during `prepare`, so its verdicts are uncontended (the workflow runs the
 agents concurrently; on 2026-10-19 they started in pairs about three minutes apart on 4 cores), and its offline install
 is the proof that the shared store held every tarball. `snapshot.json` records the pnpm version
-and store path. The truth's files (`truth.json` beside the input, its temp dir) are readable by
-the agents, as in every task; `collect` lists each agent's Bash commands, so check them for a read
-of either.
+and store path. The truth's files (`<run>.truth.json` beside the run, its temp dir) are still
+readable by an agent that goes looking, as in every task; `collect` lists each agent's Bash
+commands, so check them for a read of either.
 
 `result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
 total, because 104 of this task's 117 checks (packages and disk) follow from the one `pnpm update`.
@@ -464,6 +508,10 @@ select files by modification time, as #2 did, not by message timestamp. It sorts
 main session, plain subagent or workflow subagent by its path, as #2 did, and prints how many
 files fit none of the three. It keeps the last line for each `message.id` within a file, then
 keeps one record per `message.id` across files, and reports both repeat counts.
+
+A cost that counts a request with no `stop_reason` on its last line prints as
+`≥$x (n of m unfinished)`, with a note under the table: that request's transcript kept only its
+stream-start usage (#1435, recipe step 8).
 
 Prices come from `PRICES` in `lib/ledger.mjs`, confirmed on 2026-10-19 against the claude-api
 skill's price list (cached 2026-10-06). Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 are listed.
