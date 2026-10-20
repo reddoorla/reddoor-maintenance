@@ -200,6 +200,8 @@ export function relation(f, d) {
   return g <= NEAR_LINES ? "near" : null;
 }
 
+const whereOf = (d) => `${d.case} ${d.file}:${d.ranges.map((r) => r.join("-")).join(",")}`;
+
 const describe = (f) =>
   `${normCase(f.case)} ${normPath(f.file)}:${span(f)?.join("-") ?? "?"} [${f.severity}] ${String(f.summary ?? "").trim()}`;
 const hash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 8);
@@ -223,9 +225,17 @@ export function scoreRun(_task, reference, output) {
       field: "found",
       check: `defects ${d.id} / found`,
     };
-    const where = `${d.case} ${d.file}:${d.ranges.map((r) => r.join("-")).join(",")}`;
-    const refRaw = `Seeded defect at ${where}: ${d.description} ARM is correct only if one of its findings identifies this same defect.`;
     const candidates = usable.filter((f) => relation(f, d));
+    // A finding can sit within NEAR_LINES of two seeded defects (r07's d5 and d6 are 8 lines
+    // apart). It may count for both, so each referee item names the other defect and says to
+    // credit only the one the finding identifies (Operator decisions 137 (k), answer (b); #1465).
+    const others = reference.defects.filter(
+      (o) => o !== d && candidates.some((f) => relation(f, o)),
+    );
+    const warning = others.length
+      ? ` One of these findings is also near ${others.map((o) => `${o.id} at ${whereOf(o)} (${o.description})`).join("; ")}: credit it here only if it identifies THIS defect, not only ${others.length > 1 ? "one of those" : "that one"}. A finding counts for each defect it identifies.`
+      : "";
+    const refRaw = `Seeded defect at ${whereOf(d)}: ${d.description} ARM is correct only if one of its findings identifies this same defect.${warning}`;
     if (candidates.length) {
       const armRaw = candidates.map((f) => `(${relation(f, d)}) ${describe(f)}`).join(" || ");
       checks.push({
