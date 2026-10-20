@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
-import { renderFleetBrowsePanel } from "../../src/dashboard/fleet-browse-render.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { CockpitModel, SiteCard, SubmissionEntry } from "../../src/dashboard/fleet-cockpit.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderCockpitHtml } from "./render.js";
+import { renderFleetBrowsePanel } from "./render.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+import type { CockpitModel, SiteCard, SubmissionEntry } from "../../../src/dashboard/fleet-cockpit.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 function model(over: Partial<CockpitModel> = {}): CockpitModel {
   return {
@@ -80,7 +80,7 @@ describe("renderCockpitHtml — submissions", () => {
     );
     expect(html).toContain('<details class="inbox">');
     expect(html).toContain("📥 Submissions (1 new)");
-    expect(html).toContain("Acme &lt;b&gt;");
+    expect(html).toContain("Acme &lt;b>");
     expect(html).toContain('href="/s/acme"');
   });
 

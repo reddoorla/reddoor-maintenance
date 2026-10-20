@@ -65,6 +65,7 @@ export default [
       "cockpit/.svelte-kit/",
       "cockpit/build/",
       "cockpit/.netlify/",
+      ".netlify/",
     ],
   },
 ];

@@ -350,11 +350,9 @@ const requiredExports = [
   // version helpers — present so consumers can pin to our actual version
   "selfPackageVersion",
   "selfCaretRange",
-  // dashboard — Netlify functions import these for the per-site /s/:slug page
-  // and the fleet homepage at /. Both are now gated by verifyBasicAuth (the
-  // operator password); the per-site token model was retired 2026-06-10.
-  "renderSiteDashboardHtml",
-  "renderCockpitHtml",
+  // dashboard — the operator gate the Netlify functions call. The page
+  // renderers that used to sit here are gone: the pages are the SvelteKit
+  // cockpit (cockpit/, #582).
   "verifyBasicAuth",
 ];
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   renderLoginPageHtml,
-  renderAuthChrome,
   loginErrorMessage,
   LOGIN_ERROR_MESSAGE,
 } from "../../../src/dashboard/auth/render.js";
@@ -66,25 +65,5 @@ describe("renderLoginPageHtml", () => {
 
   it("is marked noindex", () => {
     expect(renderLoginPageHtml(base)).toContain("noindex");
-  });
-});
-
-describe("renderAuthChrome", () => {
-  it("names the signed-in operator and offers sign out", () => {
-    const html = renderAuthChrome("tim@reddoorla.com");
-    expect(html).toContain("tim@reddoorla.com");
-    expect(html).toContain('href="/auth/logout"');
-  });
-
-  it("renders nothing for a session with no identity", () => {
-    // The shared-password fallback. Showing "signed in as cockpit" would dress
-    // an anonymous shared credential up as a person.
-    expect(renderAuthChrome(null)).toBe("");
-    expect(renderAuthChrome(undefined)).toBe("");
-    expect(renderAuthChrome("")).toBe("");
-  });
-
-  it("escapes the address", () => {
-    expect(renderAuthChrome("<img src=x onerror=alert(1)>@evil.com")).not.toContain("<img");
   });
 });

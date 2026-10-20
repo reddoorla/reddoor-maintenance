@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   renderProspectAuditsPageHtml,
   type ProspectAuditsPageModel,
-} from "../../src/dashboard/prospect-audits-render.js";
-import type { ProspectAuditListItem } from "../../src/db/prospect-audits.js";
+} from "./render.js";
+import type { ProspectAuditListItem } from "../../../src/db/prospect-audits.js";
 
 function item(over: Partial<ProspectAuditListItem> = {}): ProspectAuditListItem {
   return {
@@ -109,8 +109,8 @@ describe("renderProspectAuditsPageHtml", () => {
     const hostile = '<img src=x onerror=alert(1)>Acme "Evil" & Co';
     const html = renderProspectAuditsPageHtml(model({ audits: [item({ business: hostile })] }));
     expect(html).not.toContain("<img src=x onerror=alert(1)>");
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
-    expect(html).toContain("&quot;Evil&quot;");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)>");
+    expect(html).toContain('"Evil"');
     expect(html).toContain("&amp; Co");
   });
 
@@ -266,9 +266,5 @@ describe("renderProspectAuditsPageHtml — chosen terms and questions", () => {
     expect(html).not.toMatch(/chosen by hand/i);
   });
 
-  it("sends both fields with the run request", () => {
-    const html = renderProspectAuditsPageHtml(model());
-    expect(html).toContain("terms:");
-    expect(html).toContain("questions:");
-  });
+  // "sends both fields with the run request": its behaviour is the DOM tests' now (audits.dom: the run form's body).
 });

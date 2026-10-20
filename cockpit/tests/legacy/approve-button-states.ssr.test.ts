@@ -1,33 +1,24 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderSiteDashboardHtml } from "./render.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
- * The approve button's visual states. These are string assertions over the rendered
- * stylesheet/script rather than a headless browser — the page ships as one self-contained
- * document, so "the rule is present and ordered correctly" is the honest thing to check
- * here. Parseability of the script itself is covered by inline-script-syntax.test.ts.
+ * The approve button's visual states, as string assertions over the site page's
+ * stylesheet: "the rule is present and ordered correctly" is the honest thing to
+ * check without a browser. Which class the click handler applies, and when, is
+ * executed in the DOM tests (cockpit/tests/site/site.dom.test.ts) since the
+ * cockpit's port (#582).
  */
 const html = (): string =>
   renderSiteDashboardHtml(makeWebsiteRow(), [], [], null, new Date("2026-07-30T12:00:00Z"), null);
 
-/** The stylesheet, as one string, for order-sensitive assertions. */
+/** The page's stylesheet as one string, for order-sensitive assertions: the
+ *  shared rules, then the site page's own, as the page loads them. */
 function styles(): string {
-  return /<style>([\s\S]*?)<\/style>/.exec(html())![1]!;
-}
-
-function script(): string {
-  return /<script>([\s\S]*?)<\/script>/.exec(html())![1]!;
-}
-
-/** Just the approve handler. The page's other handlers (override status, site-details)
- *  legitimately use innerHTML, so an assertion about THIS handler has to be scoped. */
-function approveHandler(): string {
-  const s = script();
-  return s.slice(
-    s.indexOf('querySelectorAll("button.approve")'),
-    s.indexOf('querySelectorAll("button.override-toggle")'),
-  );
+  return ["../../src/lib/base.css", "../../src/routes/s/[slug]/site.css"]
+    .map((f) => readFileSync(new URL(f, import.meta.url), "utf8"))
+    .join("\n");
 }
 
 describe("approve button — approved state", () => {
@@ -51,12 +42,7 @@ describe("approve button — approved state", () => {
     );
   });
 
-  it("is applied by the click handler on a successful approve — to every twin", () => {
-    // One report id owns two Approve buttons (pending list + reports history), so
-    // the class goes on all of them, not just the clicked one.
-    expect(script()).toContain('t.classList.add("is-approved")');
-    expect(script()).not.toContain('b.classList.add("is-approved")');
-  });
+  // "is applied by the click handler on a successful approve — to every twin": its behaviour is the DOM tests' now (site.dom: approve twins).
 });
 
 describe("approve button — spinner", () => {
@@ -73,9 +59,10 @@ describe("approve button — spinner", () => {
   });
 
   it("slows the spin under prefers-reduced-motion instead of freezing it", () => {
-    const rule = styles()
-      .split("\n")
-      .find((l) => l.includes("prefers-reduced-motion"));
+    // The whole @media block: the stylesheet is formatted one declaration a line.
+    const css = styles();
+    const at = css.indexOf("@media (prefers-reduced-motion");
+    const rule = at < 0 ? undefined : css.slice(at, css.indexOf("\n}", at) + 2);
     expect(rule, "no prefers-reduced-motion rule at all").toBeDefined();
     expect(rule).toContain("button.approve.is-loading::after");
     // A frozen ring reads as a hung request — the animation must still RUN, just slower.
@@ -84,25 +71,8 @@ describe("approve button — spinner", () => {
     expect(rule).not.toContain("animation: none");
   });
 
-  it("is raised on click and cleared on every exit path", () => {
-    const s = script();
-    expect(s).toContain('b.classList.add("is-loading")');
-    expect(s).toContain('b.setAttribute("aria-busy", "true")');
-    // The clears live in a finally, so neither the ok, the blocked, nor the thrown path
-    // can strand the button spinning.
-    expect(s).toMatch(
-      /finally \{\s*b\.classList\.remove\("is-loading"\);\s*b\.removeAttribute\("aria-busy"\);/,
-    );
-  });
-
-  it("does not inject markup for the spinner", () => {
-    // The approve handler is deliberately textContent/title-only so server strings can
-    // never become HTML; a CSS pseudo-element keeps that property. Match an assignment,
-    // not the bare word — the handler's own comment mentions innerHTML to explain why it
-    // avoids it, and a substring check would flag that comment as a violation.
-    expect(approveHandler()).not.toMatch(/\.innerHTML\s*=/);
-    expect(approveHandler()).toContain("textContent");
-  });
+  // "is raised on click and cleared on every exit path": its behaviour is the DOM tests' now (site.dom: the approve spinner).
+  // "does not inject markup for the spinner": its behaviour is the DOM tests' now (the Svelte port sets no innerHTML).
 });
 
 describe("dashboard buttons — hover and focus states", () => {

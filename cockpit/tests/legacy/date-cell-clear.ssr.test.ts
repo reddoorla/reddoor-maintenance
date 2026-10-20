@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderSiteDashboardHtml } from "./render.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
  * A latent, destructive path: `<input type="date">` accepts only `YYYY-MM-DD`.
@@ -13,8 +13,9 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
  * Dormant while those columns are date-only; it goes live the instant one holds
  * a datetime. Two independent defences are asserted
  * here, because either alone would leave the class open:
- *   1. the renderer never emits a value the control cannot hold;
- *   2. the script requires a real edit gesture before any blur can save.
+ *   1. the renderer never emits a value the control cannot hold (this file);
+ *   2. the editor requires a real edit gesture before any blur can save (the
+ *      DOM tests, cockpit/tests/site/site.dom.test.ts, since the port, #582).
  */
 
 function render(over: Parameters<typeof makeWebsiteRow>[0] = {}): string {
@@ -56,19 +57,6 @@ describe("date cells never render a value the control cannot hold", () => {
   });
 });
 
-describe("a blur cannot save without a real edit gesture", () => {
-  const script = /<script>([\s\S]*?)<\/script>/.exec(render())![1]!;
-
-  it("arms the save on an input event and requires it on blur", () => {
-    // `value !== defaultValue` alone is not evidence of an edit — the browser
-    // rewrites `.value` by itself whenever a control is handed something it cannot
-    // represent. Only a keystroke or picker choice fires `input`.
-    expect(script).toContain('i.addEventListener("input", () => { i.dataset.edited = "1"; })');
-    expect(script).toContain('if (i.dataset.edited === "1" && i.value !== i.defaultValue)');
-  });
-
-  it("still requires the value to have actually changed", () => {
-    // Belt and braces: typing and then undoing the edit must not save.
-    expect(script).toMatch(/i\.dataset\.edited === "1" && i\.value !== i\.defaultValue/);
-  });
-});
+// "a blur cannot save without a real edit gesture": the site-details editor's
+// save rule (an input event, then a changed value on blur) is the DOM tests' now
+// (cockpit/tests/site/site.dom.test.ts, the site-details editor).

@@ -68,8 +68,8 @@
   "scripts": {
     "verify": "pnpm typecheck && pnpm lint && pnpm check:match-harness-snapshots && pnpm build && pnpm test:coverage && pnpm test:dist",
     "build": "tsup",
-    "cockpit:build": "cd cockpit && vite build",
-    "cockpit:check": "cd cockpit && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "cockpit:build": "vite build --config vite.cockpit.config.ts",
+    "cockpit:check": "svelte-kit sync && svelte-check --workspace cockpit --tsconfig ./tsconfig.json --fail-on-warnings",
     "check:match-harness-snapshots": "node scripts/check-match-harness-snapshots.mjs",
     "dev": "tsup --watch",
     "pretest": "pnpm run build",

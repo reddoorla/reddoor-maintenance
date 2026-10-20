@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { renderFleetTableHtml } from "../../src/dashboard/fleet-table-render.js";
-import { buildFleetTableModel, NO_STATUS_FILTER } from "../../src/dashboard/fleet-table.js";
-import type { FleetTableQuery, FleetTableRow } from "../../src/dashboard/fleet-table.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderFleetTableHtml } from "./render.js";
+import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
+import type { FleetTableQuery, FleetTableRow } from "../../../src/dashboard/fleet-table.js";
+import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };
 
@@ -155,7 +155,7 @@ describe("renderFleetTableHtml — filter form", () => {
     const html = render({ status: '"><script>alert(5)</script>' });
     expect(html).not.toContain("<script>alert(5)");
     expect(formOf(html)).toContain(
-      '<option value="&quot;&gt;&lt;script&gt;alert(5)&lt;/script&gt;" selected',
+      '<option value="&quot;>&lt;script>alert(5)&lt;/script>" selected',
     );
   });
   it("offers a 'no status set' option and marks it selected when it is in force", () => {
@@ -221,8 +221,8 @@ describe("renderFleetTableHtml — escaping", () => {
     expect(html).not.toContain("<img src=x");
     expect(html).not.toContain('href="javascript:'); // safeUrl collapses to "#"
     // Absence alone would pass over a blank cell: pin the ESCAPED form, in place.
-    expect(html).toMatch(/<td>&lt;img src=x onerror=alert\(3\)&gt;<\/td>/);
-    expect(html).toContain("Evil &lt;script&gt;alert(1)&lt;/script&gt; &quot;Site&quot;");
+    expect(html).toMatch(/<td>&lt;img src=x onerror=alert\(3\)><\/td>/);
+    expect(html).toContain('Evil &lt;script>alert(1)&lt;/script> "Site"');
   });
   it("escapes a hostile but VALID https URL in BOTH the href and the link text", () => {
     // safeUrl gates the scheme AND returns the parsed URL's percent-encoded
@@ -242,7 +242,7 @@ describe("renderFleetTableHtml — escaping", () => {
     ];
     const html = renderFleetTableHtml(buildFleetTableModel(hostile, DEFAULT_QUERY));
     const encodedHref = "https://evil.example.com/%22%3E%3Cscript%3Ealert(9)%3C/script%3E";
-    const escapedText = "https://evil.example.com/&quot;&gt;&lt;script&gt;alert(9)&lt;/script&gt;";
+    const escapedText = 'https://evil.example.com/">&lt;script>alert(9)&lt;/script>';
     expect(html).toContain(`href="${encodedHref}"`); // attribute context — percent-encoded
     expect(html).toContain(`>${escapedText}</a>`); // text context — HTML-escaped raw value
     expect(html).not.toContain('"><script');

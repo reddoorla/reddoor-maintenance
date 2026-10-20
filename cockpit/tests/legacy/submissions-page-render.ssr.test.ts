@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { renderSubmissionsPageHtml } from "../../src/dashboard/submissions-page-render.js";
-import type { SubmissionsPageModel, SubmissionView } from "../../src/dashboard/submissions-page.js";
+import { renderSubmissionsPageHtml } from "./render.js";
+import type { SubmissionsPageModel, SubmissionView } from "../../../src/dashboard/submissions-page.js";
 
 function model(over: Partial<SubmissionsPageModel> = {}): SubmissionsPageModel {
   return {
@@ -66,14 +66,14 @@ describe("renderSubmissionsPageHtml", () => {
     expect(html.toLowerCase()).toContain("page 5"); // tells the operator they overshot
     expect(html).toMatch(/page=3/); // offers a link back to the last real page
   });
-  it("includes the status script + escapes hostile site names", () => {
+  it("escapes hostile site names", () => {
     const html = renderSubmissionsPageHtml(
       model({
         rows: [{ ...model().rows[0], siteName: "<script>x</script>", slug: "x" } as SubmissionView],
       }),
     );
-    expect(html).toContain("button.subm-status");
     expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script>x&lt;/script>");
   });
 });
 
@@ -147,7 +147,7 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
   it("escapes hostile reason tokens in the facet line", () => {
     const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", "<script>x</script>")]));
     expect(html).not.toContain("<script>x</script>");
-    expect(facetLine(html)).toContain("&lt;script&gt;");
+    expect(facetLine(html)).toContain("&lt;script>");
   });
 
   // ── clickable facet chips (?reason= filter, 2026-07-16) ─────────────────────
@@ -194,11 +194,11 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
 describe("renderSubmissionsPageHtml — list validity (ul > li only)", () => {
   it("rows are <li> children of the list; the site-link wrapper lives INSIDE the li", () => {
     const html = renderSubmissionsPageHtml(model());
-    expect(html).toMatch(/<ul class="subm-list"><li/);
+    expect(html).toMatch(/<ul class="subm-list">\s*<li/);
     expect(html).not.toContain('<ul class="subm-list"><div');
     // Row content sits inside .subm-row-main, next to the site link.
     expect(html).toMatch(
-      /<li class="subm-item"><div class="subm-row-wrap"><a class="subm-site"[^>]*>[^<]*<\/a><div class="subm-row-main">/,
+      /<li class="subm-item"><div class="subm-row-wrap"><a class="subm-site"[^>]*>[^<]*<\/a>\s*<div class="subm-row-main">/,
     );
   });
 });
