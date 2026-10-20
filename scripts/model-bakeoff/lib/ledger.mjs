@@ -49,6 +49,8 @@ export function mergeRecords(lists) {
   for (const list of lists) {
     for (const r of list) {
       if (byId.has(r.id)) crossFileRepeats++;
+      // The later file's copy wins, unless it is unfinished and an earlier one is not (#1435).
+      if (r.unfinished && byId.get(r.id)?.unfinished === false) continue;
       byId.set(r.id, r);
     }
   }
@@ -75,12 +77,19 @@ export function usageRecords(lines) {
       continue;
     }
     if (byId.has(m.id)) diag.repeats++;
+    const unfinished = m.stop_reason == null;
+    // A stream-start line after the final one would only lose the final usage.
+    if (unfinished && byId.get(m.id)?.unfinished === false) continue;
     byId.set(m.id, {
       id: m.id,
       model: m.model || "(none)",
       effort: o.effort || "(unset)",
       timestamp: o.timestamp,
       usage: usageOf(m.usage),
+      // Claude Code writes a request's usage from the start of its stream and updates it only
+      // when the stream ends with a stop_reason. A request with no line that has one keeps its
+      // stream-start output count (4 to 16 tokens), so its cost is a floor (#1435).
+      unfinished,
     });
   }
   return { records: [...byId.values()], diag };
@@ -110,6 +119,7 @@ const newRow = (model, effort) => ({
   priced: true,
   longPrompt: 0,
   ttlUnknown: 0,
+  unfinished: 0,
 });
 
 export function summarise(records) {
@@ -127,6 +137,7 @@ export function summarise(records) {
       row.cacheWrite1h += r.usage.cw1h;
       row.output += r.usage.out;
       if (r.usage.ttlUnknown) row.ttlUnknown++;
+      if (r.unfinished) row.unfinished++;
       if (longPrompt) row.longPrompt++;
       if (cost === null) row.priced = false;
       else row.cost += cost;
@@ -137,7 +148,21 @@ export function summarise(records) {
 }
 
 const M = (n) => `${(n / 1e6).toFixed(2)}M`;
-const usd = (n) => `$${n.toFixed(2)}`;
+
+/**
+ * A cost as printed: `unpriced`, an exact `$x`, or `≥$x (n of m unfinished)` when some of its
+ * requests never got a final usage line, which makes the figure a lower bound (#1435). A record
+ * collected before the count existed (`unfinished` undefined) prints as it always did.
+ */
+export function formatCost(cost, unfinished, requests, digits = 2) {
+  if (cost === null) return "unpriced";
+  const usd = `$${cost.toFixed(digits)}`;
+  return unfinished ? `≥${usd} (${unfinished} of ${requests} unfinished)` : usd;
+}
+
+/** The note a table with a lower-bound cost prints under it. */
+export const LOWER_BOUND_NOTE =
+  "≥: a lower bound. An unfinished request's transcript keeps only its stream-start usage (stop_reason null), so its output tokens, thinking included, are undercounted (#1435).";
 
 export function formatTable(summary) {
   const out = [
@@ -146,12 +171,16 @@ export function formatTable(summary) {
   ];
   for (const r of summary.rows) {
     out.push(
-      `| ${r.model} | ${r.effort} | ${r.requests} | ${M(r.input)} | ${M(r.cacheRead)} | ${M(r.cacheWrite5m)} / ${M(r.cacheWrite1h)} | ${M(r.output)} | ${r.longPrompt} | ${r.priced ? usd(r.cost) : "unpriced"} |`,
+      `| ${r.model} | ${r.effort} | ${r.requests} | ${M(r.input)} | ${M(r.cacheRead)} | ${M(r.cacheWrite5m)} / ${M(r.cacheWrite1h)} | ${M(r.output)} | ${r.longPrompt} | ${formatCost(r.priced ? r.cost : null, r.unfinished, r.requests)} |`,
     );
   }
   const t = summary.total;
+  // A total over priced rows only counts only their unfinished requests.
+  const priced = t.priced ? [t] : summary.rows.filter((r) => r.priced);
+  const unfinished = priced.reduce((n, r) => n + r.unfinished, 0);
+  const requests = priced.reduce((n, r) => n + r.requests, 0);
   out.push(
-    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${usd(t.cost)}${t.priced ? "" : " (priced rows only)"} |`,
+    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${formatCost(t.cost, unfinished, requests)}${t.priced ? "" : " (priced rows only)"} |`,
   );
   return out.join("\n");
 }

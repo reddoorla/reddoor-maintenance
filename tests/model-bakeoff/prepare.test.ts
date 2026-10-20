@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { prepare, type Task } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import { prepare, truthPath, type Task } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as figmaInventory from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import * as pnpmUpdate from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
 import * as refuteClaims from "../../scripts/model-bakeoff/tasks/refute-claims.mjs";
@@ -109,12 +109,49 @@ describe("prepare", () => {
     const listed = JSON.parse(readFileSync(join(out, "manifest.json"), "utf8"));
     expect(Object.keys(listed)).toEqual([".", "docs", "docs/a.txt", "plan.md"]);
     expect((statSync(join(out, "input", "plan.md")).mode & 0o777).toString(8)).toBe("444");
-    expect(JSON.parse(readFileSync(join(out, "truth.json"), "utf8"))).toEqual({ ok: true });
+    expect(JSON.parse(readFileSync(truthPath(out), "utf8"))).toEqual({ ok: true });
 
     // Without --root the sources come from this repository, and setup gets no root.
     const noRoot = fake({ setup, sources: [] });
     await prepare({ out: fresh() }, noRoot);
     expect(calls[1]!.root).toBeUndefined();
+  });
+
+  // #1492: arms are told the run's input and work dirs, so `cat <run>/*.json` or a Grep over
+  // the run must not reach the answer key.
+  it("writes the truth beside the run directory, never inside it", async () => {
+    quiet();
+    const out = fresh();
+    await prepare({ out, root: src }, fake());
+    expect(truthPath(out)).toBe(`${out}.truth.json`);
+    expect(JSON.parse(readFileSync(truthPath(out), "utf8"))).toEqual({ ok: true });
+    const inside = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? inside(join(dir, e.name)) : [e.name],
+      );
+    expect(inside(out).filter((f) => /truth/.test(f))).toEqual([]);
+  });
+
+  it("refuses an --out whose truth file is already there, and leaves it alone", async () => {
+    const out = fresh();
+    writeFileSync(truthPath(out), "{}\n");
+    await expect(prepare({ out, root: src }, fake())).rejects.toThrow(
+      `${truthPath(out)} exists; pick a fresh --out`,
+    );
+    expect(existsSync(out)).toBe(false);
+    expect(readFileSync(truthPath(out), "utf8")).toBe("{}\n");
+  });
+
+  it("removes the truth it wrote when a later step fails", async () => {
+    quiet();
+    const out = fresh();
+    // workflow-args.json is written after the truth; a directory in its place makes that throw.
+    const setup = (o: { input: string }) => {
+      mkdirSync(join(o.input, "..", "workflow-args.json"));
+    };
+    await expect(prepare({ out, root: src }, fake({ setup }))).rejects.toThrow(/EISDIR/);
+    expect(existsSync(out)).toBe(false);
+    expect(existsSync(truthPath(out))).toBe(false);
   });
 
   it("refuses a task with observe and no truth before building anything", async () => {
