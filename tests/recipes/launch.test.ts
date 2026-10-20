@@ -881,6 +881,47 @@ describe("recipes/launch", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("accepts a SvelteKit 3 guard, whose `dev` comes from $app/env", async () => {
+    // Kit 3 re-exports $app/environment from $app/env, and svelte-check on kit 3
+    // cannot resolve the old name, so the kit 3 migration (P1-53, and the held
+    // four of 2026-10-20) moved every `dev` import to $app/env. A predicate that
+    // looks only for "$app/environment" reports such a site's working guard as
+    // "the matching twin would ship" (williamson-homes, williamson-construction-co).
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-kit3-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      'import { dev } from "$app/env";\nimport { error } from "@sveltejs/kit";\nexport const prerender = false;\nexport async function load({ params }) {\n  if (!dev) error(404, "Not found");\n  return { uid: params.uid };\n}\n',
+    );
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
+    expect(result.complete).toBe(true);
+    expect(result.steps[0]!.result).toMatchObject({
+      kind: "probe",
+      message: expect.stringContaining("dev guard"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("does not take $app/env/private for $app/env: a `dev` from elsewhere is no guard", async () => {
+    // The kit 3 name is a prefix of the env-variable modules. A file that reads
+    // an env variable and tests a `dev` of its own must still be refused.
+    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-kit3-private-"));
+    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
+    await writeFile(
+      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
+      'import * as env from "$app/env/private";\nimport { error } from "@sveltejs/kit";\nconst dev = env.MATCH_TWIN === "on";\nexport const prerender = false;\nexport async function load({ params }) {\n  if (!dev) error(404, "Not found");\n  return { uid: params.uid };\n}\n',
+    );
+    const seed = websitesSeed();
+    const result = await launch({ path: dir, name: "Acme Co" }, deps(seed));
+    expect(result.complete).toBe(false);
+    expect(result.steps[0]!.result).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("not fully guarded"),
+    });
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("accepts the guard one level UP, on src/routes/dev/+layout.server.ts (#717)", async () => {
     // The fleet-wide class-fix for "dev routes ship in production" is ONE file:
     // src/routes/dev/+layout.server.ts doing `if (!dev) error(404)`. Its load
