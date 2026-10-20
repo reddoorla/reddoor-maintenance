@@ -249,7 +249,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:303`).
+`.github/workflows/fleet-db-backup.yml:308`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -397,10 +397,17 @@ written in.
    Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
    download `turso-YYYY-MM.sql.gpg` from Dropbox `/Reddoor/Backups/turso` (the newest month),
    then `mkdir -p restore && cd restore`, save it there as `dump.sql.gpg`, and carry on. It is the
-   same kind of encrypted dump, so it may be up to a month older than the newest artifact. It
-   decrypts with the `BACKUP_PASSPHRASE` that was current in that month: **if the passphrase is
-   ever rotated, keep the old value beside the new one in 1Password, labelled with the last month
-   it encrypted**, or every Dropbox copy from before the rotation is unreadable.
+   same kind of encrypted dump, taken on the first night of its month, so it can be up to a month
+   older than the last green nightly; everything written after it is lost. Two differences from an
+   artifact:
+   - It decrypts with the `BACKUP_PASSPHRASE` that was current in that month. **If the passphrase
+     is ever rotated, keep the old value beside the new one in 1Password, labelled with the last
+     month it encrypted**, and in step 2 put that value in `BACKUP_PASSPHRASE` for an older copy;
+     a wrong passphrase fails with gpg's "bad session key".
+   - Its schema may be older than this checkout's code. After step 4, bring the new database up
+     to date: `TURSO_DATABASE_URL=<libsql url from step 3> TURSO_AUTH_TOKEN=<token from step 3>
+node dist/cli/bin.js db migrate` (it applies only what `_migrations` lacks, and prints
+     `Already up to date.` when nothing is owed).
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine

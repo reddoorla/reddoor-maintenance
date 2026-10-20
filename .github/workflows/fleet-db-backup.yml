@@ -43,8 +43,9 @@ jobs:
     steps:
       # The monthly off-GitHub copy (OD 97(g)) is decided FIRST, so a run that
       # goes red before the copy on a copy night still knows it was one and
-      # files "Monthly Dropbox backup copy failing" (a missed month is never
-      # silent). The copy itself runs after the artifact upload.
+      # files "Monthly Dropbox backup copy failing". (A 1st on which the
+      # conductor dispatched nothing files only the conductor's own issue.)
+      # The copy itself runs after the artifact upload.
       - name: Decide the monthly Dropbox copy
         id: dropbox-due
         env:
@@ -192,6 +193,10 @@ jobs:
           # Gate on dropbox.mjs's own lines, not its exit code: the account it
           # wrote with is the team space, and the month's file came back with
           # a matching size and content_hash. Absent line = never ran.
+          if ! grep -qE '^account: ' "$out/dropbox.out"; then
+            echo "::warning::monthly Dropbox copy FAILED: dropbox.mjs stopped before naming an account (see its error above; a 400 invalid_grant or 401 means DROPBOX_REFRESH_TOKEN must be re-authorized)."
+            exit 1
+          fi
           if ! grep -qE '^account: .*\(team space\)$' "$out/dropbox.out"; then
             echo "::warning::monthly Dropbox copy FAILED: dropbox.mjs did not write as the team space (see the account line above); /Reddoor/Backups would land elsewhere."
             exit 1

@@ -194,6 +194,11 @@ describe("fleet-db-backup › Decide the monthly Dropbox copy", () => {
     );
     const main = await runStep(decide, { day: "20", env: { ...SECRETS, FORCE: "true" } });
     expect(main.out).not.toContain("::notice::");
+    const notDue = await runStep(decide, {
+      day: "20",
+      env: { ...SECRETS, FORCE: "false", GITHUB_REF: "refs/heads/claude/x" },
+    });
+    expect(notDue.out).not.toContain("::notice::");
   });
 
   it("names only the secret that is missing", async () => {
@@ -313,6 +318,26 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
     expect(r.out).not.toMatch(/ada2?@example\.com/);
   });
 
+  it("FAILS naming the re-authorization when dropbox.mjs stops before naming an account", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11", STUB_NODE_EXIT: "1" },
+      dropboxOut: "",
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(
+      /^::warning::monthly Dropbox copy FAILED: dropbox\.mjs stopped before naming an account/m,
+    );
+    expect(r.out).toContain("DROPBOX_REFRESH_TOKEN");
+  });
+
+  it("FAILS when the ok line's content_hash is not a sha256 hex digest", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `${TEAM_ACCOUNT}\nok ${PATH_NOV} 35 bytes content_hash undefined matches local\n`,
+    });
+    expect(r.code).not.toBe(0);
+  });
+
   it("FAILS when the ok line names another month's file", async () => {
     const r = await runStep(copy, {
       env: { ...SECRETS, MONTH: "2026-11" },
@@ -403,7 +428,9 @@ describe("fleet-db-backup — where the Dropbox copy sits, and what it may break
   it("a Dropbox failure can never turn the backup red: the copy is continue-on-error and bounded", () => {
     const s = step(COPY)!;
     expect(s.continueOnError).toBe("true");
+    // Bounded well inside the job: a hung upload must not hold the nightly for hours.
     expect(s.timeoutMinutes).toBeGreaterThan(0);
+    expect(s.timeoutMinutes).toBeLessThanOrEqual(15);
     // main only: a branch dispatch must never overwrite the month's copy.
     expect(s.if).toBe("steps.dropbox-due.outputs.due == 'true' && github.ref == 'refs/heads/main'");
   });
@@ -420,6 +447,21 @@ describe("fleet-db-backup — where the Dropbox copy sits, and what it may break
     );
     expect(step("Close the Dropbox-copy issue on a successful copy")!.if).toBe(
       "success() && github.ref == 'refs/heads/main' && steps.dropbox.outcome == 'success'",
+    );
+  });
+
+  it("the issue's recovery instructions name the real dispatch input and folder", () => {
+    const body = stepRunScript(wf, "Open/update the Dropbox-copy tracking issue");
+    const doc = yaml.load(wf) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+    };
+    const quoted = [...body.matchAll(/`(\w+): true`/g)].map((m) => m[1]);
+    expect(quoted).toEqual(["dropbox_copy"]);
+    for (const name of quoted) expect(Object.keys(doc.on.workflow_dispatch.inputs)).toContain(name);
+    expect(body).toContain(`\`${FOLDER}\``);
+    expect(body).toContain("DROPBOX_REFRESH_TOKEN");
+    expect(stepRunScript(wf, "Close the Dropbox-copy issue on a successful copy")).toContain(
+      FOLDER,
     );
   });
 
