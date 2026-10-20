@@ -1,63 +1,83 @@
 ## 2026-10-20 — OD 18 / #674: R2, the reduced-motion check (this PR)
 
-The operator chose on 2026-10-20 to encode first the rules nobody reviews by eye, and R2 (reduced motion) leads them. This PR adds `src/audits/design-rules/` with R2 as its first rule. A page is loaded under an emulated `prefers-reduced-motion: reduce` and sampled at the top, at every half-viewport step and back at the top. It fails on a computed `animation-delay` or `transition-delay` above zero, or on any animation (CSS, transition or Web Animations API) with more than 20 ms left or no end. `scripts/design-rules.mts <url…>` runs it. Nothing runs it on its own: wiring it into the nightly audit or a site's CI is a later, per-repo step.
+The operator chose on 2026-10-20 to encode first the rules nobody reviews by eye, and R2 (reduced motion) leads them. This PR adds `src/audits/design-rules/` with R2 as its first rule, and `scripts/design-rules.mts <url…>` to run it. Nothing runs it on its own: wiring it into the nightly audit or a site's CI is a later, per-repo step.
 
-**Proved on known-good pages first.** On 2026-10-20 at 19:30Z, live www.beachfrontdentistry.com and vidalegacy.org both pass, with 21 and 13 samples. Beachfront carries df53dee's delay reset. Only then were the two failures read as findings:
+What it reads, after two dirty review rounds:
 
-- **reddoorla.com:** the hero arrow's infinite `pos-y-wiggle`, and a 1000 ms `transition-delay` on the opening image. There is no reset at all in `app.css`.
-- **gallerysonder.com:** a delayed caption transition, and a 400 ms Web Animations API animation on the page wrapper, which no CSS reset can reach. Which component starts it was not traced; the site imports `svelte/transition` directly in about 19 places.
+- **Where.** Under an emulated `reduce`, at 1440×900 and 390×844, at the top, at every half-viewport step (the window's, or the page's own scroller's), back at the top, and through a last 1.5 s. Open shadow roots and the page's own frames (same origin, srcdoc, about:blank) are read with it.
+- **What fails.**
+  - Delays and durations above 50 ms, per animation name or transition property. Colour-only transitions, unknown keyframe names and names the page pauses are ignored.
+  - Running animations, CSS or WAAPI, `view()` reveals included.
+  - A paused animation that holds its element hidden.
+  - Motion a script drives frame by frame: an inline motion value that changes at two consecutive reads 100 ms apart.
 
-A research pass predicted both from source before the run.
+**Proved on known-good pages first, and again after each round.** The round-3 code at 21:20Z:
 
-**Corrected on contact: R2 has no real past page.** The brief asks for a check that fails on a real past page. The obvious one, beachfront at df53dee^ (the reset without delays), was built and served here. It passed, with 0 findings over 21 samples. The `delay-1000` components that the reset failed to zero were rendered by no route. A research pass over seven fleet repos found the same everywhere: the reduced-motion "fixes" in the record closed latent holes, and no past commit rendered the motion on a page. The two failing pages above are current, not past. So the brief's "fails on a real past page" is not met for R2 as written. The nearest are the test fixtures, which copy the starter's reset verbatim from before and after #135, and the two current pages.
+| Page                         | Result                 |
+| ---------------------------- | ---------------------- |
+| www.beachfrontdentistry.com  | **PASS**, 152 samples  |
+| vidalegacy.org               | **PASS**, 122 samples  |
+| beachfront built at df53dee^ | **PASS**, 152 samples  |
+| gallerysonder.com            | **FAIL**, 20 findings  |
+| reddoorla.com                | **FAIL**, 195 findings |
 
-**Review round 1 was dirty, and the false passes were the instrument's.**
+gallerysonder's 20 findings:
 
-- **False passes.** The false-pass lens reproduced pages that plainly break R2 and passed:
-  - a 600 ms menu slide, because no duration was read;
-  - an entrance that finished before `load`;
-  - motion inside open shadow roots, which `document.getAnimations()` does not return in Chromium;
-  - a same-origin iframe;
-  - a paused reveal stuck at its first frame;
-  - a delay on `::after`;
-  - a delay only the phone breakpoint has;
-  - a page that scrolls a container rather than the window;
-  - a `requestAnimationFrame` tween;
-  - a WAAPI fade a timer starts at 400 ms.
-- **False fails.** The noise lens reproduced:
-  - a scroll-driven progress bar reported as "no end";
-  - an `animation-name` no `@keyframes` defines;
-  - a list entry past the property count;
-  - a 31 ms delay on gallerysonder's captions;
-  - selector paths that `querySelector` rejects.
+- eight Web Animations API fades, which no CSS reset reaches;
+- seven transition delays its durations-only reset leaves;
+- two infinite spinners.
 
-The check now:
+reddoorla.com's 195 findings: 168 transform and opacity durations, 13 delays and the arrow's infinite `pos-y-wiggle`. It has no reset at all.
 
-- reads durations as well as delays, per name;
-- walks open shadow roots and same-origin frames;
-- runs at 390×844 as well as 1440×900;
-- steps the page's own scroller when the window cannot scroll;
-- waits 1.5 s and diffs the motion styles of every unanimated element;
-- does not judge scroll-driven animations, and counts them in the note;
-- floors everything at 50 ms;
-- escapes its paths.
+Review lenses read both sites live and judged their failures real.
 
-Each of those is held by a fixture and a mutation.
+**Corrected on contact: R2 has no real past page.** The brief asks for a check that fails on a real past page. The obvious one is beachfront at df53dee^, whose reset zeroed durations but not delays. I built and served it here, and it passes, because no route renders the `delay-1000` components that reset missed. A research pass over seven fleet repos, from source, found the same everywhere: the reduced-motion fixes on record closed latent holes, and no past commit rendered the motion on a page. So the brief's bar is not met for R2 as written. The nearest are fixtures that copy the starter's reset verbatim from before and after #135, and the two current pages.
 
-**Re-proved after the round**, live at 19:53Z. beachfront passes (42 samples, both widths) and vidalegacy.org passes (32). beachfront at df53dee^ still passes. gallerysonder fails with 12 findings and reddoorla.com with 241: the latter has no reset at all, so every hover and reveal duration counts.
+**The review rounds.**
+
+- **Round 1** found the first version blind. It read no durations and no shadow roots, frames, pseudo-elements or phone breakpoint, and it had no way to see a script tween. It was also noisy: scroll-driven progress bars, dead keyframe names, a 31 ms delay, and paths `querySelector` rejected.
+- **Round 2** found that round 1's additions were too broad.
+  - The scripted-motion diff missed real tweens: it skipped any element with a finished fill animation, and under the standard reset every inline write starts a 0.01 ms transition.
+  - The same diff flagged one-off changes: a lazy-image class landing, late layout, a debounced header, a snapping carousel.
+  - The duration check failed every hover colour fade.
+  - One cross-origin Typekit sheet switched off the keyframes filter on every fleet page.
+  - `@import`ed and `:host` keyframes were missed.
+  - srcdoc frames counted as cross-origin.
+  - A paused marquee, which is the honouring behaviour, failed.
+- **The redesign that came out of round 2:**
+  - scripted motion means consecutive changes, tracked by element identity;
+  - keyframes are collected from every root first;
+  - font hosts are exempt from the unreadable-sheet rule;
+  - colour-only transitions don't count;
+  - paused animations count only when they hide content.
+- **A hang.** While re-proving that version live, one beachfront run did not finish in 11 minutes. A frame with an empty URL never answers `evaluate`. Frames now get 1 s and are counted as not sampled.
+- **Abandoned:** a planned split of the sampler into full and light reads. Once the frame timeout was in, the full sampler took about 30 s a page, and the split script had silently not applied anyway; the tests and mutations below ran against the unsplit code.
 
 **Mutations.** Each turns at least one test red:
 
 | Mutation                                 | Red tests |
 | ---------------------------------------- | --------- |
-| ignoring `animation-delay` (the brief's) | 2         |
+| ignoring `animation-delay` (the brief's) | 5         |
 | ignoring durations                       | 5         |
 | no shadow walk                           | 1         |
 | no frames                                | 1         |
 | no pseudo-elements                       | 1         |
-| paused skipped                           | 1         |
+| paused animations skipped                | 1         |
 | no script diff                           | 1         |
 | no container scroll                      | 1         |
 | lists not aligned to names               | 1         |
 | scroll-driven judged                     | 1         |
 | the delay fold dropped                   | 2         |
+| any second change counted as scripted    | 1         |
+| colour transitions judged                | 1         |
+| paused names read statically             | 1         |
+| every paused animation reported          | 1         |
+| `@import` not followed                   | 1         |
+| `@media` not walked                      | 1         |
+| `view()` not judged                      | 1         |
+| cross-origin frames sampled              | 1         |
+| no per-step window                       | 1         |
+| endless running folded                   | 1         |
+| the cap always reported                  | 1         |
+
+The suite is 46 tests, 97 s of test time in one file.

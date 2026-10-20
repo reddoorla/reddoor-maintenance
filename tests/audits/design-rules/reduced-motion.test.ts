@@ -135,7 +135,9 @@ const PAGES: Record<string, string> = {
   "/iframe": page("", `<iframe src="/inner" title="inner"></iframe>`),
   "/inner": page(
     `@keyframes spin { to { transform: rotate(1turn) } } .spin { animation: spin 2s linear infinite; }`,
-    `<i class="spin">*</i>`,
+    `<i class="spin">*</i><div id="mover">m</div>`,
+    `const el = document.getElementById("mover"); const t0 = performance.now();
+     (function step(t) { el.style.transform = "translateX(" + ((t - t0) / 20) + "px)"; if (t - t0 < 8000) requestAnimationFrame(step); })(t0);`,
   ),
   // Two elements on one short path: both must be reported, apart.
   "/two-cards": page(
@@ -161,6 +163,109 @@ const PAGES: Record<string, string> = {
        else if (scrollY === 0 && low > 0) document.getElementById("top").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 5000 });
      });`,
   ),
+  // Round 2's false passes, each a page that breaks R2:
+  // a tween on an element whose finished fill-forwards entrance stays listed;
+  "/fill-gate": page(
+    `@keyframes fade { from { opacity: 0 } to { opacity: 1 } } .box { animation: fade 0.01ms both; }`,
+    `<div class="box" id="box">Box</div>`,
+    `const el = document.getElementById("box"); const t0 = performance.now();
+     (function step(t) { el.style.transform = "translateX(" + ((t - t0) / 20) + "px)"; if (t - t0 < 8000) requestAnimationFrame(step); })(t0);`,
+  ),
+  // a rAF tween on a page with the reset, which gives every style write a
+  // 0.01ms transition;
+  "/raf-with-reset": page(
+    RESET_AFTER_135,
+    `<div id="mover">Sliding</div>`,
+    `const el = document.getElementById("mover"); const t0 = performance.now();
+     (function step(t) { el.style.marginLeft = ((t - t0) / 20) + "px"; if (t - t0 < 8000) requestAnimationFrame(step); })(t0);`,
+  ),
+  // keyframes that arrive by @import, and a shadow host's own :host keyframes;
+  "/import-kf": page(
+    `@import url(/kf.css); .menu { display: none; animation: rise 400ms 300ms both; }`,
+    `<nav class="menu">Menu</nav>`,
+  ),
+  "/kf.css": "@keyframes rise { from { opacity: 0 } to { opacity: 1 } }",
+  "/host-kf": page(
+    "",
+    `<x-pop></x-pop>`,
+    `customElements.define("x-pop", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes pop { from { opacity: 0 } to { opacity: 1 } } :host { display: none; animation: pop 400ms 300ms both }</style>"; } });`,
+  ),
+  // a scroll-triggered 800ms rAF reveal halfway down a long page;
+  "/scroll-reveal": page(
+    `.spacer { height: 1200px } .tall { height: 6000px }`,
+    `<div class="spacer"></div><div id="card">Card</div><div class="tall"></div>`,
+    `new IntersectionObserver(([e], o) => { if (!e.isIntersecting) return; o.disconnect();
+       const el = e.target; const t0 = performance.now();
+       (function step(t) { const k = Math.min(1, (t - t0) / 800); el.style.opacity = String(k); el.style.transform = "translateY(" + (40 - 40 * k) + "px)"; if (k < 1) requestAnimationFrame(step); })(t0);
+     }).observe(document.getElementById("card"));`,
+  ),
+  // motion inside an iframe the page writes itself;
+  "/srcdoc": page(
+    "",
+    `<iframe title="s" srcdoc="<style>@keyframes s { to { transform: rotate(1turn) } } i { display: inline-block; animation: s 2s linear infinite }</style><i>*</i>"></iframe>`,
+  ),
+  // a view() reveal, which the rule's check names ("scroll-driven heroes");
+  "/view-reveal": page(
+    `@keyframes up { from { opacity: 0; transform: translateY(80px) } to { opacity: 1; transform: none } }
+     .r { animation: up linear both; animation-timeline: view(); } .spacer { height: 1200px }`,
+    `<div class="spacer"></div><p class="r">Reveal</p><div class="spacer"></div>`,
+  ),
+  // an endless flicker behind a delay: both are said.
+  "/infinite-delay": page(
+    `@keyframes s { to { opacity: .5 } } .f { animation: s 0.01ms 400ms infinite; }`,
+    `<p class="f">Flicker</p>`,
+  ),
+  // Round 2's unheld behaviours:
+  // a spin that runs only while its element, mid-page, is on screen, so only
+  // a sample at that scroll step sees it;
+  "/mid-page": page(
+    `@keyframes spin { to { transform: rotate(1turn) } } .spacer { height: 2400px } .on { animation: spin 2s linear infinite; }`,
+    `<div class="spacer"></div><p id="mid">Mid</p><div class="spacer"></div>`,
+    `new IntersectionObserver(([e]) => e.target.classList.toggle("on", e.isIntersecting)).observe(document.getElementById("mid"));`,
+  ),
+  // a transition the page triggers that is still inside its delay;
+  "/triggered-delay": page(
+    `.t { opacity: 0; transition: opacity 0.01ms 3000ms } .t.in { opacity: 1 }`,
+    `<p class="t">Late</p>`,
+    `requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector(".t").classList.add("in")));`,
+  ),
+  // keyframes nested in @media, for a menu that has not opened;
+  "/nested-kf": page(
+    `@media all { @keyframes slide { from { transform: translateX(100%) } to { transform: none } } }
+     .menu { display: none; animation: slide 400ms both; }`,
+    `<nav class="menu">Menu</nav>`,
+  ),
+  // a slide a script swaps every 400ms, instantly: reduce allows a swap.
+  "/swap": page(
+    RESET_AFTER_135,
+    `<p id="slide" style="opacity: 1">One</p>`,
+    `let on = true; setInterval(() => { on = !on; document.getElementById("slide").style.opacity = on ? "1" : "0"; }, 400);`,
+  ),
+  // Round 2's false fails: honouring pages each.
+  "/honouring": page(
+    `${RESET_AFTER_135}
+     @keyframes marquee { to { transform: translateX(-50%) } }
+     .m { animation: marquee 20s linear infinite; }
+     @media (prefers-reduced-motion: reduce) { .m { animation-play-state: paused; } }
+     a { transition: color 300ms; }
+     .lazy { opacity: 0; transition: opacity 600ms } .lazy.loaded { opacity: 1 }
+     header { position: fixed; top: 0 }`,
+    `<header id="bar">Bar</header><div class="m">News · News · News</div><a href="#x">Hover me</a>
+     <img class="lazy" alt="" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+     <div id="slides" style="transform: translateX(0)">Slides</div>`,
+    `setTimeout(() => document.querySelector(".lazy").classList.add("loaded"), 700);
+     setTimeout(() => { document.getElementById("bar").style.top = "-1px"; }, 900);
+     setTimeout(() => { document.getElementById("slides").style.transform = "translateX(-100%)"; }, 1100);`,
+  ),
+  // The same honouring with no reset at all, where the colour fade and the
+  // marquee keep their real durations.
+  "/honouring-no-reset": page(
+    `@keyframes marquee { to { transform: translateX(-50%) } }
+     .m { animation: marquee 20s linear infinite; }
+     @media (prefers-reduced-motion: reduce) { .m { animation-play-state: paused; } }
+     a { transition: color 300ms, background-color 300ms; }`,
+    `<div class="m">News · News · News</div><a href="#x">Hover me</a>`,
+  ),
   // Not defects, each a false FAIL round 1 reproduced:
   "/not-defects": page(
     `${RESET_BEFORE_135}
@@ -180,8 +285,14 @@ let browser: Browser;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
-    const html = PAGES[req.url ?? ""];
-    res.writeHead(html ? 200 : 404, { "content-type": "text/html; charset=utf-8" });
+    // A frame on another origin: "localhost" from a page on "127.0.0.1".
+    const port = (server.address() as AddressInfo).port;
+    const html =
+      req.url === "/cross"
+        ? page("", `<iframe title="x" src="http://localhost:${port}/inner"></iframe>`)
+        : PAGES[req.url ?? ""];
+    const type = (req.url ?? "").endsWith(".css") ? "text/css" : "text/html; charset=utf-8";
+    res.writeHead(html ? 200 : 404, { "content-type": type });
     res.end(html ?? "not found");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -209,6 +320,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/good");
     expect(o.status, o.note).toBe("pass");
     expect(o.findings).toEqual([]);
+    expect(o.note).not.toMatch(/cap/);
   });
 
   it("FAILS the reset before #135: the delays survive under reduce", async () => {
@@ -273,7 +385,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/paused");
     expect(o.findings).toContainEqual({
       target: "body > main > p.rev",
-      problem: `animation r paused short of its end under reduce ${BOTH}`,
+      problem: `animation r paused with its element hidden under reduce ${BOTH}`,
     });
   });
 
@@ -315,7 +427,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
   it("FAILS motion a script drives frame by frame", async () => {
     const o = await run("/raf");
     expect(o.findings).toEqual([
-      { target: "div#mover", problem: `moved by script under reduce, with no animation ${BOTH}` },
+      { target: "div#mover", problem: `moved by script, frame by frame, under reduce ${BOTH}` },
     ]);
   });
 
@@ -333,12 +445,118 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     ]);
   });
 
-  it("FAILS motion inside a same-origin iframe", async () => {
+  it("FAILS motion inside a same-origin iframe, scripted motion included", async () => {
     const o = await run("/iframe");
-    expect(o.findings.map((f) => f.target)).toEqual([
-      `iframe[src="${base}/inner"] :: body > main > i.spin`,
-      `iframe[src="${base}/inner"] :: body > main > i.spin`,
+    expect(o.findings.map((f) => `${f.target}: ${f.problem.split(" (")[0]}`)).toEqual([
+      `iframe[src="/inner"] :: body > main > i.spin: animation-duration 2000ms under reduce`,
+      `iframe[src="/inner"] :: body > main > i.spin: animation spin still running under reduce`,
+      `iframe[src="/inner"] :: div#mover: moved by script, frame by frame, under reduce`,
     ]);
+  });
+
+  it("does not sample a cross-origin frame, and says so", async () => {
+    const o = await run("/cross");
+    expect(o.status).toBe("pass");
+    expect(o.note).toMatch(/; 1 frame\(s\) not sampled \(cross-origin or not answering\)$/);
+  });
+
+  it("FAILS motion only a sample at its own scroll step can see", async () => {
+    const o = await run("/mid-page");
+    expect(o.findings.map((f) => f.target)).toEqual(["p#mid", "p#mid"]);
+  });
+
+  it("FAILS a triggered transition still inside its delay, said once", async () => {
+    const o = await run("/triggered-delay");
+    expect(o.findings).toEqual([
+      { target: "body > main > p.t.in", problem: `transition-delay 3000ms under reduce ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS an unopened menu whose keyframes sit inside @media", async () => {
+    const o = await run("/nested-kf");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > nav.menu",
+        problem: `animation-duration 400ms under reduce ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("PASSES a slide a script swaps instantly", async () => {
+    const o = await run("/swap", MOTION_WAIT_MS);
+    expect(o.findings).toEqual([]);
+  });
+
+  it("FAILS a script tween on an element a finished fill-forwards entrance still lists", async () => {
+    const o = await run("/fill-gate");
+    expect(o.findings).toEqual([
+      { target: "div#box", problem: `moved by script, frame by frame, under reduce ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS a script tween on a page with the reset", async () => {
+    const o = await run("/raf-with-reset");
+    expect(o.findings).toEqual([
+      { target: "div#mover", problem: `moved by script, frame by frame, under reduce ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS an animation whose keyframes arrive by @import", async () => {
+    const o = await run("/import-kf");
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      `animation-duration 400ms under reduce ${BOTH}`,
+      `animation-delay 300ms under reduce ${BOTH}`,
+    ]);
+  });
+
+  it("FAILS a shadow host's own :host animation, keyframes in its shadow root", async () => {
+    const o = await run("/host-kf");
+    expect(o.findings.map((f) => `${f.target}: ${f.problem}`)).toEqual([
+      `body > main > x-pop: animation-duration 400ms under reduce ${BOTH}`,
+      `body > main > x-pop: animation-delay 300ms under reduce ${BOTH}`,
+    ]);
+  });
+
+  it("FAILS a script reveal that a scroll step starts and that ends before the next", async () => {
+    const o = await run("/scroll-reveal");
+    expect(o.findings).toEqual([
+      { target: "div#card", problem: `moved by script, frame by frame, under reduce ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS motion in an iframe the page writes itself (srcdoc)", async () => {
+    const o = await run("/srcdoc");
+    expect(o.findings.map((f) => f.target)).toEqual([
+      'iframe[src="about:srcdoc"] :: body > i',
+      'iframe[src="about:srcdoc"] :: body > i',
+    ]);
+    expect(o.note).not.toMatch(/not sampled/);
+  });
+
+  it("FAILS a view() reveal", async () => {
+    const o = await run("/view-reveal");
+    expect(o.findings).toContainEqual({
+      target: "body > main > p.r",
+      problem: `animation up (view-driven) still running under reduce (no end) ${BOTH}`,
+    });
+  });
+
+  it("says both the delay and the endless run of a delayed infinite animation", async () => {
+    const o = await run("/infinite-delay");
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      `animation-delay 400ms under reduce ${BOTH}`,
+      `animation s still running under reduce (no end) ${BOTH}`,
+    ]);
+  });
+
+  it("PASSES what honours reduce: a paused marquee, a colour fade, a late class, a snap, a header nudge", async () => {
+    const o = await run("/honouring", MOTION_WAIT_MS);
+    expect(o.findings).toEqual([]);
+  });
+
+  it("PASSES a paused marquee and a colour fade on a page with no reset", async () => {
+    const o = await run("/honouring-no-reset");
+    expect(o.findings).toEqual([]);
   });
 
   it("ignores an animation within PERCEPTIBLE_MS of its end, and reports one beyond it", async () => {
@@ -369,7 +587,7 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     const o = await run("/not-defects");
     expect(o.findings).toEqual([]);
     expect(o.status).toBe("pass");
-    expect(o.note).toMatch(/1 scroll-driven animation\(s\) not judged/);
+    expect(o.note).toMatch(/1 scroll\(\) animation\(s\) not judged/);
   });
 
   it("is UNMEASURED, never a pass, when the context does not emulate reduce (negative control)", async () => {
@@ -390,14 +608,9 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
 });
 
 describe("summarizeReducedMotion", () => {
-  const run = (
-    width: number,
-    samples: MotionRun["samples"],
-    scripted: string[] = [],
-  ): MotionRun => ({
+  const run = (width: number, samples: MotionRun["samples"]): MotionRun => ({
     width,
     samples,
-    scripted,
     scrolled: "window",
     skippedFrames: 0,
   });
@@ -443,6 +656,6 @@ describe("summarizeReducedMotion", () => {
 
   it("notes cross-origin frames it could not sample", () => {
     const o = summarizeReducedMotion("u", [{ ...run(1440, [clean]), skippedFrames: 2 }]);
-    expect(o.note).toMatch(/2 cross-origin frame\(s\) not sampled$/);
+    expect(o.note).toMatch(/2 frame\(s\) not sampled \(cross-origin or not answering\)$/);
   });
 });
