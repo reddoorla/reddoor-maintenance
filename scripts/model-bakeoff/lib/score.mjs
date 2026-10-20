@@ -87,7 +87,7 @@ export function referenceFaults(spec, reference) {
         .map((r) => raw(r[col.key]));
       return keys.length
         ? [
-            `the reference gives no ${field} for ${col.name} ${keys.join(", ")}; every arm would be charged on it`,
+            `the reference gives no ${field} for ${col.name} ${keys.join(", ")}; an arm that gives a value is charged on it`,
           ]
         : [];
     });

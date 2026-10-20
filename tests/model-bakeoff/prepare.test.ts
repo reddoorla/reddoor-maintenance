@@ -1,15 +1,19 @@
 import {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prepare, type Task } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as figmaInventory from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import * as pnpmUpdate from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
@@ -31,7 +35,16 @@ const TASKS: Task[] = [
 ];
 
 const base = mkdtempSync(join(tmpdir(), "bakeoff-prepare-test-"));
-afterAll(() => rmSync(base, { recursive: true, force: true }));
+// prepare freezes each run's input read-only, which stops a non-root rm (CI) inside it.
+function writable(dir: string) {
+  chmodSync(dir, 0o755);
+  for (const e of readdirSync(dir, { withFileTypes: true }))
+    if (e.isDirectory()) writable(join(dir, e.name));
+}
+afterAll(() => {
+  writable(base);
+  rmSync(base, { recursive: true, force: true });
+});
 const src = join(base, "src");
 mkdirSync(join(src, "docs"), { recursive: true });
 writeFileSync(join(src, "docs", "a.txt"), "a\n");
@@ -59,6 +72,10 @@ function fake(over: Partial<Task> = {}): Task {
 }
 
 describe("prepare", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("covers every task module", () => {
     expect(TASKS.map((t) => t.id).sort()).toEqual([
       "figma-inventory",
@@ -119,6 +136,39 @@ describe("prepare", () => {
     expect(existsSync(out)).toBe(false);
     await prepare({ out, root: src }, fake());
     expect(existsSync(join(out, "workflow-args.json"))).toBe(true);
+  });
+
+  it("refuses a dangling symlink at --out and leaves it alone", async () => {
+    const out = fresh();
+    symlinkSync(join(base, "nowhere"), out);
+    await expect(prepare({ out, root: src }, fake())).rejects.toThrow(
+      `${out} exists; pick a fresh --out`,
+    );
+    expect(lstatSync(out).isSymbolicLink()).toBe(true);
+  });
+
+  it("removes the parents of --out it created when a step fails", async () => {
+    quiet();
+    const top = fresh();
+    const truth = () => {
+      throw new Error("truth failed");
+    };
+    await expect(
+      prepare({ out: join(top, "a", "run"), root: src }, fake({ truth })),
+    ).rejects.toThrow("truth failed");
+    expect(existsSync(top)).toBe(false);
+  });
+
+  it("reports the step's own error when its cleanup also fails", async () => {
+    quiet();
+    const out = fresh();
+    // A dangling link in the input makes the cleanup's statSync throw.
+    const setup = (o: { input: string }) => {
+      symlinkSync(join(base, "nowhere"), join(o.input, "dangling"));
+      throw new Error("setup failed");
+    };
+    await expect(prepare({ out, root: src }, fake({ setup }))).rejects.toThrow("setup failed");
+    expect(existsSync(out)).toBe(false);
   });
 
   it("leaves no run dir when truth throws after the input is frozen", async () => {

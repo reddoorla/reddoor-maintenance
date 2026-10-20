@@ -4,6 +4,7 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -112,9 +113,14 @@ export async function prepare(opts, task) {
     );
   }
   const run = resolve(opts.out);
-  if (existsSync(run)) throw new Error(`${run} exists; pick a fresh --out`);
+  // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
+  if (lstatSync(run, { throwIfNoEntry: false })) {
+    throw new Error(`${run} exists; pick a fresh --out`);
+  }
   const input = join(run, "input");
   const root = resolve(opts.root || REPO);
+  // The first directory this call creates (run, or a parent it lacked): all a failure removes.
+  const made = mkdirSync(run, { recursive: true });
   try {
     for (const s of task.sources) {
       const to = join(input, s.to);
@@ -136,12 +142,21 @@ export async function prepare(opts, task) {
     console.log(`froze ${walk(input).length} files under ${input}`);
     console.log(`workflow args: ${join(run, "workflow-args.json")}`);
   } catch (e) {
-    // The frozen input's directories are read-only, which stops a non-root rm inside them.
-    if (existsSync(input)) {
-      for (const d of [input, ...walk(input, [], true)].filter((p) => statSync(p).isDirectory()))
-        chmodSync(d, 0o755);
+    // Best effort: a cleanup that fails must not replace the error that stopped the build.
+    try {
+      // The frozen input's directories are read-only, which stops a non-root rm inside them.
+      if (existsSync(input)) {
+        for (const d of [input, ...walk(input, [], true)].filter((p) => statSync(p).isDirectory()))
+          chmodSync(d, 0o755);
+      }
+    } catch {
+      // rmSync below still tries.
     }
-    rmSync(run, { recursive: true, force: true });
+    try {
+      if (made) rmSync(made, { recursive: true, force: true });
+    } catch {
+      // The original error is the one to report.
+    }
     throw e;
   }
 }

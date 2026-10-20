@@ -254,8 +254,8 @@ describe("scoreRun", () => {
     const old = { workflows: [{ file: "a.yml", jobs: 2 }, { file: "b.yml" }, ref.workflows[1]] };
     expect(referenceFaults(spec, old)).toEqual([
       "the reference lists workflows b.yml more than once; the first entry is used",
-      "the reference gives no crons for workflows a.yml, b.yml; every arm would be charged on it",
-      "the reference gives no jobs for workflows b.yml; every arm would be charged on it",
+      "the reference gives no crons for workflows a.yml, b.yml; an arm that gives a value is charged on it",
+      "the reference gives no jobs for workflows b.yml; an arm that gives a value is charged on it",
     ]);
     expect(referenceFaults(spec, ref)).toEqual([]);
   });
