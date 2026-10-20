@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import {
-  buildSubmissionsPageData,
-  type SubmissionsPageData,
-} from "../../src/routes/submissions/data.js";
+import { buildSubmissionsPageData } from "../../src/routes/submissions/data.js";
 import Page from "../../src/routes/submissions/+page.svelte";
 import { renderSubmissionsPageHtml } from "../../../src/dashboard/submissions-page-render.js";
 import type { SubmissionsPageModel } from "../../../src/dashboard/submissions-page.js";
