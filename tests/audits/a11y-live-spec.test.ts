@@ -270,6 +270,13 @@ function thirdPartyPage(title: string, body: string): string {
  */
 const UNPARSEABLE_BG = "color(--brand 0.205 0 0)";
 const UNPARSEABLE_FG = "color(--brand 0.4 0 0)";
+/** UNPARSEABLE_BG with a `none` component, which axe 4.14 still rejects. The
+ *  audit picks its remedy from the colour string axe reports, so this reaches
+ *  the same `none` branch a site on axe <= 4.13 reaches for
+ *  `oklch(0.205 0 none)` (#1515). The remedy names the function it was given,
+ *  so this run sees "the color() token"; the "oklch() token" wording a fleet
+ *  site gets is pinned by the unit cases in `tests/audits/a11y.test.ts`. */
+const UNPARSEABLE_NONE_BG = "color(--brand 0.205 0 none)";
 const FAKE_COLOUR = `<script>{ const gcs = window.getComputedStyle; const attr = { "background-color": "data-fake-bg", backgroundColor: "data-fake-bg", color: "data-fake-fg", "-webkit-text-fill-color": "data-fake-fg", webkitTextFillColor: "data-fake-fg" }; window.getComputedStyle = function (el, pseudo) { const s = gcs.call(window, el, pseudo); if (pseudo || !(el instanceof Element) || !(el.hasAttribute("data-fake-bg") || el.hasAttribute("data-fake-fg"))) return s; const fake = (p) => (typeof p === "string" && attr[p] && el.hasAttribute(attr[p]) ? el.getAttribute(attr[p]) : null); return new Proxy(s, { get(t, k) { if (k === "getPropertyValue") return (p) => fake(p) ?? t.getPropertyValue(p); const f = fake(k); if (f !== null) return f; const v = Reflect.get(t, k, t); return typeof v === "function" ? v.bind(t) : v; } }); }; }</script>`;
 
 /** Documents the second origin serves, by path. */
@@ -1446,6 +1453,59 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
     expect(errored?.summary).toContain(
       'rule-errored on /two-crashes (axe could not run "document-title"',
     );
+  });
+});
+
+/**
+ * #1515: the `none`-specific remedy, end to end. Since FAKE_COLOUR (#1514) the
+ * suites above meet only `none`-free colours and so assert only the generic
+ * remedy, while fleet sites on axe <= 4.13 still get the `none` one for every
+ * none-hued token. SITE_N plants UNPARSEABLE_NONE_BG in both of #888's shapes:
+ * per node on the second fixture route (`contrast-unmeasured`), and beneath a
+ * white CTA on `/hero-none` (`rule-errored`).
+ */
+const SITE_N: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": sitePage(
+      "Animate-in",
+      `${FAKE_COLOUR}<p id="none-band" data-fake-bg="${UNPARSEABLE_NONE_BG}" style="background-color: oklch(0.205 0 none); color: #fff">${T}</p>`,
+    ),
+    "/": plainPage("Home"),
+    "/hero-none": sitePage(
+      "Hero none",
+      HERO_SECTION.replace(
+        `data-fake-bg="${UNPARSEABLE_BG}"`,
+        `data-fake-bg="${UNPARSEABLE_NONE_BG}"`,
+      ),
+    ),
+  },
+  a11yRoutes: ["/hero-none"],
+};
+
+describe("audits/a11y — a colour with a none component gets the none remedy, run for real (#1515)", () => {
+  let site = "";
+  let result: AuditResult | undefined;
+
+  beforeAll(async () => {
+    site = await makeFixtureSite(SITE_N);
+    result = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 180_000);
+
+  afterAll(async () => {
+    if (site) await rm(site, { recursive: true, force: true });
+  });
+
+  const NONE_REMEDY =
+    'write 0 for "none" in the color() token (browsers already render none as 0, so nothing on screen changes)';
+
+  it("names the none remedy for an unmeasured node and for a thrown rule", () => {
+    const found = (result?.details as { violations?: Violation[] } | undefined)?.violations ?? [];
+    expect(found.map((v) => `${v.id} on ${v.route}: ${v.help ?? ""}`).sort()).toEqual([
+      `contrast-unmeasured on animate-in demo: 1 element(s) on a colour axe cannot parse (${UNPARSEABLE_NONE_BG}), so contrast was never measured there — ${NONE_REMEDY}`,
+      `rule-errored on /hero-none: axe could not run "color-contrast": Unable to parse color "${UNPARSEABLE_NONE_BG}" Skipping color-contrast rule. — ${NONE_REMEDY}`,
+    ]);
+    expect(result?.status).toBe("fail");
   });
 });
 
