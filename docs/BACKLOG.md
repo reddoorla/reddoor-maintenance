@@ -5298,6 +5298,74 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       edited from a session. Inter is already the brand's documented
       stand-in. The CRCA copy is converted; Nicole converts the template.
 
+137.  **Review-minor issues filed 2026-10-19: the behaviour choices left
+      after the overnight cleanup (new 2026-10-20, session
+      https://claude.ai/code/session_01HGxX8rysvqbwZvvMyVA7kv; journal
+      `docs/journal/2026-10-20-*-review-minors-cleanup.md`).** [M] 58 issues were filed since 10-19 12:00Z.
+      The mechanical parts are fixed in #1522–#1528 (themed PRs). The parts
+      below need a choice, and each issue stays open until it is made. One line
+      each: the ask, then _Pick:_ and why. Answer by letter.
+      (a) #1468 (1): refuse a typed-over `TODO Ship X?` (capitalised word
+      after TODO) as the decisions ask? _Pick:_ no; `TODO markers …` asks
+      collide, and nobody has hit it.
+      (b) #1454 (2): `dropbox.mjs` checks the file size after `finish`, so a
+      shortened copy is already committed; check `fh.stat()` before finish
+      too? _Pick:_ yes, keep the post-check for a file that grows.
+      (c) #1471 (1, 2): a definite commit failure (403 closed, 200 error)
+      still waits out up to ~22 min; stop early, and inject a fake page to
+      test `uploadBatch`? _Pick:_ stop early only after a live run shows
+      the page does not retry those; the runbook now states the wait.
+      (d) #1429, #1430 (scoping nit): CLAUDE.md's sweep line compares
+      read-only Haiku cost with a Bash-armed Sonnet cost. _Pick:_ fix the
+      wording in P1-33 W4's CLAUDE.md rewrite (#1342), not before.
+      (e) #1431: deny `Read(./.env*)` and `/proc/**` for the sweep agent,
+      and pin `claude-haiku-5-5` instead of the `haiku` alias? _Pick:_ yes
+      to both, after a canary probe shows deny rules bind a subagent.
+      (f) #1512 (rest): raise spawn.test's 4 s margin, count `CI=false` as
+      not-CI, cap `test:watch` workers? _Pick:_ none until a failure is
+      captured.
+      (g) #1515: exercise the `write 0 for "none"` remedy end to end again
+      (needs an aliased axe 4.13)? _Pick:_ no; unit tests cover it.
+      (h) #1435: bake-off costs are lower bounds (stream-start output
+      tokens). _Pick:_ print them as `≥` with a count of unfinished
+      requests; leave the data source as is.
+      (i) #1492: the secrets check sees only a typed file name. _Pick:_
+      move `truth.json` out of the arms' run directory.
+      (j) #1493: refute-repo's decision tally ignores referee rulings.
+      _Pick:_ keep the pre-registered rule; add a line naming each check a
+      ruling changed.
+      (k) #1462, #1465 (a): seeded-review dedup and two-defect findings.
+      _Pick:_ merge overlapping ranges per control file; one finding counts
+      for at most one defect, closest first.
+      (l) #1477, #1479 (timestamps, well-formed), #1480 (prompt,
+      misnamed scripts, secrets): pnpm-update scoring. _Pick:_ refuse
+      pnpm < 11 at prepare; close the two #1479 items as accepted; the rest
+      waits for the next run's re-baseline.
+      (m) #1498, #1499 (1), #1500 (1, 6), #1501, #1502 (1): t4-plan-task
+      isolation and plan wording. _Pick:_ a scorer-owned HOME and store,
+      refuse a `--root` with `filter.*` config, fingerprint the evaluate
+      cache, report-only `referenceDisputes`, and `unshare --mount --net`
+      for write tasks; the plan sentences ride the next gold re-run.
+      (n) #1440 (anchor): move c13's anchor to `corpus/hooks.md:1507-1539`.
+      _Pick:_ yes, with the next refute-claims re-run (it changes the task).
+      (o) #1447, #1448: `protectBranch` sends an empty
+      `dismissal_restrictions` and omits `app_id` on carried checks.
+      _Pick:_ one live GET/PUT/GET on a scratch repo first (🔴-adjacent:
+      branch protection); then send the key only when non-empty and -1 for
+      contexts-only entries.
+      (p) #1450: a null status gets the live-row schedule rule. _Pick:_
+      leave it; no row has a null status.
+      (q) #1451 (2), #1452 (3–5), #1441 (3) in BACKLOG, #1457 (2), #1470 (2),
+      #1474 (2, 3): nits that change a verdict, a BACKLOG Done line (this
+      session kept BACKLOG to this item), or CI time. _Pick:_ fix #1452's
+      and #1441's BACKLOG wording in the next Done-row edit; leave the rest;
+      #1474 (2) needs reddoor-website's call pattern read first.
+      (r) #1464 (rest): nothing turns off `$GIT_DIR/info/attributes` for
+      seeded-review's rebuild (probed). _Pick:_ accept and document it.
+      (s) #1430 (citation): sweep.md still cites workspace#1, not the P1-56
+      result comment; the comment URL is not in the repo. _Pick:_ the
+      operator pastes the URL, or close as is.
+
 ## Active projects (the operator's list, read by the PM pass)
 
 The morning report's `## Projects` section gives one status line for each,
