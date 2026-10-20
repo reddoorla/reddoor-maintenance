@@ -42,27 +42,32 @@ follows three rules. Why each exists: the workspace's `directives/sessions.md`.
 - **At a stop condition, write the question down, then ask it with the
   AskUserQuestion tool** (the operator, 2026-10-05). The question stands alone
   (the workspace `CLAUDE.md` says what it holds). Any of `AUTONOMY.md`'s stop
-  conditions, or a fork the brief did not settle, becomes one line under
-  "Operator decisions" in `docs/BACKLOG.md`: the exact ask, your pick and why,
-  and the branch or PR holding the work. AskUserQuestion has no timeout in a
-  cloud session, so do it in this order:
-  1. Write the line on its own `claude/*` branch cut from `origin/main`, never
-     on the work's branch (#1143's ask sat on a held branch for 13 hours).
-     Commit it, push it, and open its docs-only PR.
+  conditions, or a fork the brief did not settle, becomes a decision file in
+  the workspace: the exact ask on its first line, your pick and why, and the
+  branch or PR holding the work. `docs/BACKLOG.md` is frozen since the
+  2026-10-20 cutover. AskUserQuestion has no timeout in a cloud session, so do
+  it in this order:
+  1. Attach `reddoorla/reddoor-workspace` (push) if this session did not start
+     there. Write the ask with
+     `node scripts/decisions.mjs new <workspace>/decisions <slug>`, which
+     fills in `asked` and `from` (the format is its `decisions/README.md`).
+     Commit it, `git pull --rebase`, and push it to the workspace's `main`
+     (#1143's ask sat on a held branch for 13 hours).
   2. Push the work branch.
   3. Ask with AskUserQuestion.
-  4. Land the docs-only PR with `node scripts/land-prs.mjs`. If an answer
-     came, record it on the line first, in the form the backlog's answered
-     items use: `**Answered <date> (AskUserQuestion): …**`. If
-     AskUserQuestion is not available, land it and end the session.
+  4. If an answer came, write it under the file's `## Answer`, set
+     `status: answered`, and push again. If AskUserQuestion is not available,
+     end the session: the morning pass reads the file.
 - **Five dirty review rounds, then stop; a minors-only round is clean**
   (the operator, 2026-10-12, Operator decisions 107(a)). Label every finding
   `blocker`, `critical`, `major`, `minor` or `nit`; a minor is `minor` or
   `nit`, and anything else, unlabelled included, is a real defect. A
   minors-only round is clean: file each minor as an issue in the PR's repo,
-  link them from the PR body, and stop reviewing. A reproduced behaviour
+  link them from the PR body, and stop reviewing. A minor in a file the PR
+  already touches, whose fix needs no new test, is folded in instead (the
+  operator, 2026-10-20). A reproduced behaviour
   defect is never a minor. If the fifth round still finds a real defect, the
-  PR goes to "Operator decisions" with each round's findings, not into a sixth
+  PR goes to a decision file with each round's findings, not into a sixth
   round; a PR held under the old two-round stop stays with the operator
   unless he says to resume. At the hold your pick may not be "land as is"
   while a reproduced behaviour defect is unfixed (a concrete input and the
