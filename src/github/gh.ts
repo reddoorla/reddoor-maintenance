@@ -350,9 +350,19 @@ export function parseUnknownSections(body: string): string[] {
 //   - GET lists restrictions, dismissal_restrictions and
 //     bypass_pull_request_allowances as user/team/app OBJECTS; PUT takes
 //     logins and slugs.
-//   - GET's `checks[].app_id: null` means "any app"; PUT spells that -1, and
-//     an omitted app_id lets GitHub pin the check to whichever app last
-//     reported it.
+//   - GET's `checks[].app_id: null` means "any app"; PUT spells that -1
+//     ("Pass -1 to explicitly allow any app to set the status"), so an
+//     existing check with app_id null stays "any app". A check appended here,
+//     or carried from a `contexts`-only GET, is sent with NO app_id, on
+//     purpose: GitHub then pins it to the app that most recently reported it
+//     ("Omit this field to automatically select the GitHub App that has
+//     recently provided this check"). That is stricter than "any app", and
+//     it is kept (#1448).
+//   - "Pass an empty dismissal_restrictions object to disable." A GET whose
+//     dismissal restriction is on with nobody listed (users, teams and apps
+//     all empty) would go back as all-empty lists, which GitHub may read as
+//     that empty object and turn the restriction off. Unverified, so
+//     protectionPutBody refuses to write it (#1447).
 //   - GET's `url`/`*_url` fields have no PUT counterpart and are dropped.
 // `required_signatures` is not part of the PUT body (it has its own endpoint),
 // so it is not sent.
@@ -394,11 +404,20 @@ const REVIEW_SCALARS = [
   "require_last_push_approval",
 ] as const;
 
+/** protectionPutBody declined to write, because the write could weaken the
+ *  branch's protection (#1447). A caller can record it and go on. */
+export class ProtectionRefusedError extends Error {
+  override name = "ProtectionRefusedError";
+}
+
 /**
  * The PUT body for classic branch protection that requires `requiredChecks`
  * while keeping everything `existing` (a GET response, or null when the branch
  * is not protected) already has. Existing checks keep their order and app
  * binding; a named check not yet required is appended. Nothing is removed.
+ *
+ * Throws, rather than risk weakening the protection, when the branch restricts
+ * who may dismiss reviews but lists nobody (#1447): set that one by hand.
  */
 export function protectionPutBody(
   existing: Record<string, unknown> | null,
@@ -449,7 +468,15 @@ export function protectionPutBody(
   if (isObject(reviews)) {
     const out: Record<string, unknown> = {};
     if (isObject(reviews.dismissal_restrictions)) {
-      out.dismissal_restrictions = actorsOf(reviews.dismissal_restrictions);
+      const d = actorsOf(reviews.dismissal_restrictions);
+      if (d.users.length + d.teams.length + d.apps.length === 0) {
+        throw new ProtectionRefusedError(
+          "the branch restricts who can dismiss pull request reviews but lists no user, team or app to send back; " +
+            "sending that back may turn the restriction off (GitHub disables it on an empty " +
+            "dismissal_restrictions object), so the protection was not written. Set it by hand (#1447)",
+        );
+      }
+      out.dismissal_restrictions = d;
     }
     for (const k of REVIEW_SCALARS) if (k in reviews) out[k] = reviews[k];
     if (isObject(reviews.bypass_pull_request_allowances)) {
@@ -558,7 +585,16 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         }
         existing = parsed as Record<string, unknown>;
       }
-      await ghJson("PUT", path, protectionPutBody(existing, requiredChecks));
+      let body: Record<string, unknown>;
+      try {
+        body = protectionPutBody(existing, requiredChecks);
+      } catch (err) {
+        if (!(err instanceof ProtectionRefusedError)) throw err;
+        throw new ProtectionRefusedError(`protectBranch(${repo}:${branch}): ${err.message}`, {
+          cause: err,
+        });
+      }
+      await ghJson("PUT", path, body);
     },
     async setRepoSecret(repo, name, value) {
       await gh(["secret", "set", name, "--repo", repo, "--body", value]);

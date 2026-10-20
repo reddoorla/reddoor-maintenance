@@ -1,22 +1,12 @@
 import type { Context, Config } from "@netlify/functions";
-import { siteSlug } from "../../src/fleet/site-row.js";
-import { listSites } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import {
-  listSubmissionsFiltered,
-  countSubmissionsFiltered,
-  listSpamReasonsFiltered,
-  markFilteredAsRead,
-} from "../../src/db/submissions.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import {
   requireOperator,
   denialResponse,
   renderSubmissionsPageHtml,
-  parseSubmissionsQuery,
-  buildSubmissionsPageModel,
-  PAGE_SIZE,
 } from "../../src/dashboard/index.js";
+import { loadSubmissionsPage, markSubmissionsRead } from "../../src/dashboard/page-data.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 export const config: Config = {
@@ -59,64 +49,26 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // must fall through to handlerError (502) rather than degrade to an empty page.
     const db = await openDb(readDbConfig());
     // POST carries the ACTIVE filter as form fields (same names as the GET query),
-    // so parseSubmissionsQuery re-derives the identical SubmissionFilter server-side
-    // — the bulk action flips exactly the bucket the operator was looking at.
-    const params =
-      req.method === "POST" ? new URLSearchParams(await req.text()) : new URL(req.url).searchParams;
-    const { filter, rawFilter, siteSlug: slugParam, page } = parseSubmissionsQuery(params);
-
-    const websites = await listSites(db);
-    if (slugParam) {
-      const match = websites.find((w) => siteSlug(w.name) === slugParam);
-      // A non-matching ?site= slug previously fell through and returned the WHOLE
-      // fleet (filter.siteId stayed unset) — misleading. 404 like site-dashboard.
-      if (!match) return plainText(`No site found for slug '${slugParam}'.`, 404);
-      filter.siteId = match.id;
-    }
-
+    // so the loader re-derives the identical SubmissionFilter server-side — the
+    // bulk action flips exactly the bucket the operator was looking at.
     if (req.method === "POST") {
-      // Bulk mark-read (2026-07-16). markFilteredAsRead's status='new' guard is the
-      // real safety: spam/archived/operator-touched rows are never flipped, whatever
-      // the posted filter says.
-      if (params.get("action") !== "mark-read") return plainText("Unknown action.", 400);
-      const marked = await markFilteredAsRead(db, filter);
-      console.log(`[submissions-page] bulk mark-read flipped ${marked} row(s)`);
+      const result = await markSubmissionsRead(db, new URLSearchParams(await req.text()));
+      // A non-matching ?site= slug previously fell through to the WHOLE fleet —
+      // misleading. 404 like site-dashboard.
+      if (result.kind === "no-site") {
+        return plainText(`No site found for slug '${result.slug}'.`, 404);
+      }
+      if (result.kind === "unknown-action") return plainText("Unknown action.", 400);
+      console.log(`[submissions-page] bulk mark-read flipped ${result.count} row(s)`);
       // 303: the browser re-GETs the same filtered view, so a refresh can't repost.
-      const qs = new URLSearchParams();
-      for (const [k, v] of Object.entries(rawFilter)) if (v) qs.set(k, v);
-      const query = qs.toString();
-      return new Response(null, {
-        status: 303,
-        headers: { location: query ? `/submissions?${query}` : "/submissions" },
-      });
+      return new Response(null, { status: 303, headers: { location: result.location } });
     }
 
-    // Facet reasons cover the WHOLE filtered bucket (the renderer's facet line sits
-    // under the full-bucket total, so a page-scoped tally misreads a multi-page
-    // bucket). Only fetched on the spam views where the facet line renders.
-    const wantFacets = filter.status === "spam_auto" || filter.status === "spam";
-    const [rows, total, facetReasons, newOnlyCount] = await Promise.all([
-      listSubmissionsFiltered(db, filter, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
-      countSubmissionsFiltered(db, filter),
-      wantFacets ? listSpamReasonsFiltered(db, filter) : Promise.resolve([]),
-      // Bulk mark-read button count — the still-'new' subset of the CURRENT bucket.
-      // A status='new' view reuses `total`; any other explicit status can't contain
-      // 'new' rows (0, button hidden); only the mixed view needs its own count.
-      filter.status === undefined
-        ? countSubmissionsFiltered(db, { ...filter, status: "new" })
-        : Promise.resolve(0),
-    ]);
-
-    const model = buildSubmissionsPageModel({
-      rows,
-      total,
-      sites: websites.map((w) => ({ id: w.id, name: w.name })),
-      filter,
-      rawFilter,
-      page,
-      facetReasons,
-      markableNewCount: filter.status === "new" ? total : newOnlyCount,
-    });
+    const loaded = await loadSubmissionsPage(db, new URL(req.url).searchParams);
+    if (loaded.kind === "no-site") {
+      return plainText(`No site found for slug '${loaded.slug}'.`, 404);
+    }
+    const model = loaded.model;
     return html(renderSubmissionsPageHtml(model, auth.email), 200);
   } catch (err) {
     return handlerError("submissions-page", err);

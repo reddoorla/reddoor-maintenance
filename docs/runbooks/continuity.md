@@ -144,7 +144,7 @@ Everything below degrades harmlessly. Leave it:
 | Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck.   |
-| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:675–679`, consulted at `:743`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
+| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:684–688`, consulted at `:752`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
 | A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
 | Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
 | Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:41–43`).                                                                                                                                                                                                                               |
@@ -170,12 +170,19 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:518–543`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:524–558`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
-- The slug **resolves** to a fleet site. The item reads _N leads dead-lettered and not yet
-  replayed — run `db replay-deadletters`_, and links to that site's page.
+- The slug **resolves** to a fleet site (any status: replay places an archived site's lead
+  too). Since Operator decision 87 (2026-10-20) it waits two replay cycles first: until 12
+  hours after the oldest unreplayed row's `received_at`, it shows only on that site's page, as
+  a dotted _waiting:_ chip, and stays off the cockpit, the Needs-you feed and the digest. After
+  that it reads _N leads dead-lettered, the oldest not replayed for H h — the 6-hourly replay
+  has not placed them; run `db replay-deadletters` to see why_, badged WORSE that day (NEW if
+  the digest never saw it), and links to that site's page. A site with no cockpit card
+  (archived, pre-launch, or an unrecognized Status) still has its page; on the cockpit its item sits in the _Not on any site card_
+  lane, linked.
 - The slug resolves to **no** fleet site. The item reads _N leads dead-lettered for '&lt;slug&gt;',
   which resolves to NO fleet site — leads are being dropped; run `ensure-site <slug>` then
   `db replay-deadletters`_, and is rendered card-less with **no** link (a `/s/<slug>` link would
@@ -249,7 +256,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:176`).
+`.github/workflows/fleet-db-backup.yml:308`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -364,14 +371,23 @@ Promoted here from the 2026-08-17 store-migration plan in `docs/superpowers/plan
 ("Rollback is rehearsed") and Phase 1.5. **Turso is the only store there is** — this is the
 procedure that gets the fleet back.
 
-**The backup.** `fleet-db-backup` runs nightly at 04:30 UTC
-(`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
+**The backup.** `fleet-db-backup` runs nightly, dispatched by the `fleet-nightly` conductor
+(the 06:07Z clock, with a 02:17Z fallback cron) (`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
 database-level url + token the other nightlies hold, asserts the dump actually contains site
 rows, loads it into a scratch engine and compares restored row counts against the **origin
 manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES256` under
 `BACKUP_PASSPHRASE`, then **decrypts the `.gpg` it is about to upload and re-runs the same
 verification on the round-tripped copy** before publishing it as an Actions artifact
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
+On the first night of each UTC month the same **encrypted** file is also copied to Dropbox as
+`/Processes & Procedures/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
+decisions 97(g)), from `main` only, once the three `DROPBOX_*` Actions secrets are set (until
+then the run only warns). That copy never fails the backup. A failed copy, or a red or cancelled
+run on the first of the month, files "Monthly Dropbox backup copy failing"; dispatching
+`fleet-db-backup` on `main` with `dropbox_copy: true` takes the copy again. Dispatch it when no
+`fleet-db-backup` run is in progress: the workflow keeps one run queued, so a nightly dispatched
+behind a waiting retake cancels the retake before it starts. A retake overwrites that month's
+file, so each month keeps the last copy taken in it.
 
 **The restore, as rehearsed** — every command below was checked against the tree on 2026-09-14,
 and a fresh session with only this section was asked to dry-run it; what it could not find is now
@@ -387,6 +403,28 @@ written in.
    gh run download "$run" --repo reddoorla/reddoor-maintenance -n "turso-backup-$run" -D restore
    cd restore
    ```
+
+   Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
+   download `turso-YYYY-MM.sql.gpg` from Dropbox `/Processes & Procedures/Backups/turso` (the newest month),
+   then `cd ~/Documents/GitHub/reddoor-maintenance && mkdir -p restore && cd restore`, save it
+   there as `dump.sql.gpg`, and carry on. It is the same kind of encrypted dump, taken on the first
+   night of its month, so it can be up to a month older than the last green nightly; everything
+   written after it is lost. Two differences from an artifact:
+   - It decrypts with the `BACKUP_PASSPHRASE` that was current in that month. **If the passphrase
+     is ever rotated, keep the old value beside the new one in 1Password, labelled with the last
+     month it encrypted.** For an older copy, in step 2 run `export BACKUP_PASSPHRASE='<that
+value>'` after loading `credentials.env` and before `gpg` (loading the file afterwards puts
+     the current value back); a wrong passphrase fails with gpg's "bad session key".
+   - Its schema may be older than this checkout's code. After step 4, from the repo root, bring
+     the new database up to date:
+
+     ```sh
+     TURSO_DATABASE_URL=<libsql url from step 3> TURSO_AUTH_TOKEN=<token from step 3> \
+       node dist/cli/bin.js db migrate
+     ```
+
+     It applies only what `_migrations` lacks, and prints `Already up to date.` when nothing is
+     owed.
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine
@@ -412,13 +450,14 @@ written in.
    turso db tokens create fleet-restore-YYYYMMDD   # the token; it becomes TURSO_AUTH_TOKEN in step 5
    ```
 
-4. **Restore into it.** Install and build first (`pnpm install --frozen-lockfile && pnpm build` —
+4. **Restore into it.** From the repo root (`cd ..` out of `restore/`, and pass
+   `--file restore/dump.sql`), install and build first (`pnpm install --frozen-lockfile && pnpm build` —
    `dist/` on the operator's machine may be stale), then:
 
    ```sh
    TURSO_RESTORE_AUTH_TOKEN=<token from step 3> \
      node dist/cli/bin.js db restore \
-       --file dump.sql \
+       --file restore/dump.sql \
        --url <libsql url from step 3>
    ```
 

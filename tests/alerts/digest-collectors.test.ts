@@ -996,8 +996,16 @@ describe("collectDeadLetterAlerts (#645)", () => {
     expect(collectDeadLetterAlerts([acme], new Map(), base)).toEqual([]);
   });
 
-  it("is CRITICAL at ONE row — a dead letter is never a blip", () => {
-    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 1]]), base);
+  it("is CRITICAL at ONE row, held until two replay cycles after the oldest row (OD 87)", () => {
+    // OD 87 (2026-10-20): a known site's dead letter is still a CRITICAL item, but
+    // it carries the oldest unreplayed row's received_at, and markWaiting holds it
+    // until 12 h after that (tests/alerts/waiting.test.ts).
+    const items = collectDeadLetterAlerts(
+      [acme],
+      new Map([["acme-co", 1]]),
+      base,
+      new Map([["acme-co", "2026-10-20T06:00:00.000Z"]]),
+    );
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       key: "deadletter:acme-co",
@@ -1006,8 +1014,26 @@ describe("collectDeadLetterAlerts (#645)", () => {
       severity: "critical",
       metric: 1,
       url: "https://dash.example.com/s/acme-co",
+      oldestReceivedAt: "2026-10-20T06:00:00.000Z",
     });
     expect(items[0]!.title).toMatch(/1 lead/);
+  });
+
+  it("an UNRESOLVABLE slug is never held, even with a received_at (OD 87)", () => {
+    // Replay cannot place a slug with no site, so waiting on it is waiting on nothing.
+    const items = collectDeadLetterAlerts(
+      [acme],
+      new Map([["ghost-co", 1]]),
+      base,
+      new Map([["ghost-co", "2026-10-20T06:00:00.000Z"]]),
+    );
+    expect(items[0]!.siteName).toBe("(unknown site: ghost-co)");
+    expect(items[0]!.oldestReceivedAt).toBeUndefined();
+  });
+
+  it("a known site with no oldest received_at is not held: missing data never mutes", () => {
+    const items = collectDeadLetterAlerts([acme], new Map([["acme-co", 1]]), base);
+    expect(items[0]!.oldestReceivedAt).toBeUndefined();
   });
 
   it("counts rows in `metric`, so a growing queue diffs WORSE", () => {

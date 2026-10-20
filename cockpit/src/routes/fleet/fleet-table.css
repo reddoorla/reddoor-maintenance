@@ -1,0 +1,59 @@
+body {
+  max-width: 1100px;
+}
+.home {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+.meta {
+  color: #666;
+  margin-bottom: 1.25rem;
+}
+.muted {
+  color: #999;
+}
+.empty {
+  color: #999;
+  padding: 1rem;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+  text-align: center;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+.filters select,
+.filters input,
+.filters button {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+}
+.fleet-table-wrap {
+  overflow-x: auto;
+}
+table.fleet {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+table.fleet th,
+table.fleet td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #8883;
+  white-space: nowrap;
+}
+table.fleet th a {
+  text-decoration: none;
+}
+table.fleet td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+table.fleet th.num {
+  text-align: right;
+}

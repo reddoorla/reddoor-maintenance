@@ -5,6 +5,8 @@ import {
   listUnreplayedDeadLetters,
   markDeadLetterReplayed,
   countUnreplayedDeadLettersBySlug,
+  oldestUnreplayedDeadLetterBySlug,
+  oldestUnreplayedDeadLetterForSlug,
 } from "../../src/db/deadletter.js";
 import { createSubmission, stampNotified } from "../../src/db/submissions.js";
 import { replayDeadLetters } from "../../src/forms/replay.js";
@@ -241,5 +243,45 @@ describe("countUnreplayedDeadLettersBySlug (#645)", () => {
     await markDeadLetterReplayed(db, id, "accepted", "sub_1", NOW);
 
     expect((await countUnreplayedDeadLettersBySlug(db)).has("acme")).toBe(false);
+  });
+});
+
+/** OD 87: the hold's clock. The oldest unreplayed row decides when a known site's
+ *  dead letter alarms, so a NEWER row must never reset it, and a replayed or
+ *  abandoned row (already out of the alarm count) must never start it. */
+describe("oldest unreplayed dead letter per slug (OD 87)", () => {
+  const at = (iso: string) => ({ ...LEAD, receivedAt: new Date(iso) });
+
+  it("is the OLDEST live row's received_at, per slug", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await createDeadLetter(db, at("2026-10-20T09:00:00.000Z"));
+    await createDeadLetter(db, at("2026-10-20T03:00:00.000Z"));
+    await createDeadLetter(db, at("2026-10-20T15:00:00.000Z"));
+    await createDeadLetter(db, { ...at("2026-10-19T23:00:00.000Z"), siteSlug: "zed" });
+    expect(await oldestUnreplayedDeadLetterBySlug(db)).toEqual(
+      new Map([
+        ["acme", "2026-10-20T03:00:00.000Z"],
+        ["zed", "2026-10-19T23:00:00.000Z"],
+      ]),
+    );
+    expect(await oldestUnreplayedDeadLetterForSlug(db, "acme")).toBe("2026-10-20T03:00:00.000Z");
+    expect(await oldestUnreplayedDeadLetterForSlug(db, "nobody")).toBeNull();
+  });
+
+  it("ignores replayed and abandoned rows, as the alarm count does", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const replayed = await createDeadLetter(db, at("2026-10-20T01:00:00.000Z"));
+    await markDeadLetterReplayed(db, replayed.id, "accepted", "sub_1", NOW);
+    const abandoned = await createDeadLetter(db, at("2026-10-20T02:00:00.000Z"));
+    await db
+      .updateTable("submission_deadletter")
+      .set({ abandoned_at: NOW.toISOString() })
+      .where("id", "=", abandoned.id)
+      .execute();
+    await createDeadLetter(db, at("2026-10-20T10:00:00.000Z"));
+    expect((await oldestUnreplayedDeadLetterBySlug(db)).get("acme")).toBe(
+      "2026-10-20T10:00:00.000Z",
+    );
+    expect(await oldestUnreplayedDeadLetterForSlug(db, "acme")).toBe("2026-10-20T10:00:00.000Z");
   });
 });

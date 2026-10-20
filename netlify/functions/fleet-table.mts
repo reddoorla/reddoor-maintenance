@@ -1,13 +1,11 @@
 import type { Context, Config } from "@netlify/functions";
-import { listSites } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   requireOperator,
   denialResponse,
   renderFleetTableHtml,
-  parseFleetTableQuery,
-  buildFleetTableModel,
 } from "../../src/dashboard/index.js";
+import { loadFleetTableModel } from "../../src/dashboard/page-data.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // The fleet table (#539 Phase 4): every site — archived/legacy/null-status
@@ -50,9 +48,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // non-defensively — a failure 502s via handlerError rather than rendering an
     // empty table that pretends the fleet vanished.
     const db = await openDb(readDbConfig());
-    const query = parseFleetTableQuery(new URL(req.url).searchParams);
-    const sites = await listSites(db);
-    return html(renderFleetTableHtml(buildFleetTableModel(sites, query), auth.email), 200);
+    const model = await loadFleetTableModel(db, new URL(req.url).searchParams);
+    return html(renderFleetTableHtml(model, auth.email), 200);
   } catch (err) {
     return handlerError("fleet-table", err);
   }
