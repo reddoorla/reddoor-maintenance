@@ -272,8 +272,10 @@ const UNPARSEABLE_BG = "color(--brand 0.205 0 0)";
 const UNPARSEABLE_FG = "color(--brand 0.4 0 0)";
 /** UNPARSEABLE_BG with a `none` component, which axe 4.14 still rejects. The
  *  audit picks its remedy from the colour string axe reports, so this reaches
- *  the `none`-specific remedy that a site on axe <= 4.13 gets for
- *  `oklch(0.205 0 none)` (#1515). */
+ *  the same `none` branch a site on axe <= 4.13 reaches for
+ *  `oklch(0.205 0 none)` (#1515). The remedy names the function it was given,
+ *  so this run sees "the color() token"; the "oklch() token" wording a fleet
+ *  site gets is pinned by the unit cases in `tests/audits/a11y.test.ts`. */
 const UNPARSEABLE_NONE_BG = "color(--brand 0.205 0 none)";
 const FAKE_COLOUR = `<script>{ const gcs = window.getComputedStyle; const attr = { "background-color": "data-fake-bg", backgroundColor: "data-fake-bg", color: "data-fake-fg", "-webkit-text-fill-color": "data-fake-fg", webkitTextFillColor: "data-fake-fg" }; window.getComputedStyle = function (el, pseudo) { const s = gcs.call(window, el, pseudo); if (pseudo || !(el instanceof Element) || !(el.hasAttribute("data-fake-bg") || el.hasAttribute("data-fake-fg"))) return s; const fake = (p) => (typeof p === "string" && attr[p] && el.hasAttribute(attr[p]) ? el.getAttribute(attr[p]) : null); return new Proxy(s, { get(t, k) { if (k === "getPropertyValue") return (p) => fake(p) ?? t.getPropertyValue(p); const f = fake(k); if (f !== null) return f; const v = Reflect.get(t, k, t); return typeof v === "function" ? v.bind(t) : v; } }); }; }</script>`;
 
