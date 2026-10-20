@@ -66,23 +66,8 @@ describe("types", () => {
   });
 
   it("AuditName covers v1 audits", () => {
-    const _ok: AuditName = "deps";
-    const _ok2: AuditName = "lighthouse";
-    const _ok3: AuditName = "a11y";
-    const _ok4: AuditName = "security";
-    const _ok5: AuditName = "lint";
-  });
-
-  it("RecipeName covers v1 recipes", () => {
-    const _ok: RecipeName = "sync-configs";
-    const _ok2: RecipeName = "bump-deps";
-    const _ok3: RecipeName = "svelte-4-to-5";
-    const _ok4: RecipeName = "convert-to-pnpm";
-    const _ok5: RecipeName = "onboard";
-    const _ok6: RecipeName = "svelte-codemods";
-    const _ok7: RecipeName = "a11y-fixtures-page";
-    const _ok8: RecipeName = "init";
-    const _ok9: RecipeName = "self-updating";
+    // A type assertion: tsc (`pnpm typecheck`) is what fails it, not vitest.
+    expectTypeOf<"deps" | "lighthouse" | "a11y" | "security" | "lint">().toExtend<AuditName>();
   });
 
   it("ALL_RECIPE_NAMES matches the RecipeName union exactly (no registration drift)", () => {
@@ -102,19 +87,6 @@ describe("types", () => {
       expect(isRecipeName(name)).toBe(true);
     }
     expect(isRecipeName("not-a-recipe")).toBe(false);
-  });
-
-  it("ConfigName covers v1 configs", () => {
-    const _ok: ConfigName = "lighthouse";
-    const _ok2: ConfigName = "eslint";
-    const _ok3: ConfigName = "prettier";
-    const _ok4: ConfigName = "playwright-a11y";
-    const _ok5: ConfigName = "svelte";
-    const _ok6: ConfigName = "gitignore";
-    const _ok7: ConfigName = "renovate-action";
-    const _ok8: ConfigName = "renovate-config";
-    const _ok9: ConfigName = "prettier-ignore";
-    const _ok10: ConfigName = "netlify";
   });
 
   it("ALL_CONFIG_NAMES matches the ConfigName union exactly (no registration drift)", () => {

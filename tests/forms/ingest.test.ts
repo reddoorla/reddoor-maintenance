@@ -838,11 +838,31 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
   });
 
   it("is a no-op when the findRecentDuplicates dep is absent (fail-open clean)", async () => {
-    const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
-    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
-    expect(r.status).toBe("accepted");
-    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
-    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    // Only findRecentDuplicates is missing: the sibling repeat-sender dep is present,
+    // so this test differs from its listRecentSubmissionsForEmail twin. "Clean" is the
+    // assertion that bites: an unguarded call would throw a TypeError that the
+    // try/catch swallows into console.error, leaving the outcome below unchanged.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const d = deps({
+        classifySpam: () => ({ score: 0, reasons: [] }),
+        listRecentSubmissionsForEmail: vi.fn().mockResolvedValue([]),
+      });
+      expect(d.findRecentDuplicates).toBeUndefined();
+      const r = await ingestSubmission(
+        d,
+        "acme",
+        { email: "a@b.co", message: body },
+        "unverifiable",
+      );
+      expect(r.status).toBe("accepted");
+      if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+      expect(d.listRecentSubmissionsForEmail).toHaveBeenCalledTimes(1);
+      expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 
@@ -1003,11 +1023,29 @@ describe("ingestSubmission — cross-site repeat-sender signal", () => {
   });
 
   it("is a no-op when the listRecentSubmissionsForEmail dep is absent (fail-open clean)", async () => {
-    const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
-    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
-    expect(r.status).toBe("accepted");
-    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
-    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    // Only listRecentSubmissionsForEmail is missing: the duplicate-body dep is present.
+    // See the findRecentDuplicates twin for why console.error is the real assertion.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const d = deps({
+        classifySpam: () => ({ score: 0, reasons: [] }),
+        findRecentDuplicates: vi.fn().mockResolvedValue({ exact: [], similar: [] }),
+      });
+      expect(d.listRecentSubmissionsForEmail).toBeUndefined();
+      const r = await ingestSubmission(
+        d,
+        "acme",
+        { email: "a@b.co", message: body },
+        "unverifiable",
+      );
+      expect(r.status).toBe("accepted");
+      if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+      expect(d.findRecentDuplicates).toHaveBeenCalledTimes(1);
+      expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 

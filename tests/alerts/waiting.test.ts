@@ -219,3 +219,65 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
     expect(m.cards[0]!.items.map((i) => i.kind)).toEqual(["vuln"]);
   });
 });
+
+describe("a held direct security PR (P1-54: 29 Navy's sharp, 2026-10-13)", () => {
+  const sharp: SecurityAdvisory[] = [
+    {
+      module: "sharp",
+      severity: "high",
+      title: "sharp : Vulnerability in librsvg dependency CVE-2026-96889",
+      cves: [],
+      url: "https://github.com/reddoorla/29-navy/security/dependabot/9",
+      relationship: "direct",
+    },
+  ];
+  function navy(over: Partial<WebsiteRow> = {}): WebsiteRow {
+    return makeWebsiteRow({
+      id: "navy",
+      name: "29 Navy",
+      pointOfContact: "Tucker",
+      ga4PropertyId: "123456789",
+      gitRepo: "reddoorla/29-navy",
+      netlifyId: "11111111-2222-3333-4444-555555555555",
+      url: "https://29navy.example.com",
+      pScore: 95,
+      rScore: 95,
+      bpScore: 95,
+      seoScore: 95,
+      lastCommitAt: "2026-10-12T00:00:00Z",
+      securityVulnsCritical: 0,
+      securityVulnsHigh: 1,
+      securityAdvisories: sharp,
+      securityAutoFixAttempts: null,
+      ...over,
+    });
+  }
+  const prior = flagged("2026-10-13", "vuln:navy");
+  const escalates = directVulnEscalatesAt("2026-10-13")!;
+  const feedAt = (now: Date, row: WebsiteRow = navy()) =>
+    buildNeedsYouFeed(buildCockpitModel([row], [], prior, BASE, now));
+
+  it("stays out of the Needs-you feed inside its wait", () => {
+    expect(feedAt(justBefore(escalates))).toEqual([]);
+  });
+
+  it("reaches Needs-you once the wait has passed, though the auto-fix counter never moved", () => {
+    const feed = feedAt(escalates);
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.reasons).toEqual([
+      "1 critical/high vuln — Renovate has not fixed it since 2026-10-13",
+    ]);
+  });
+
+  it("is still named when the site is broken for another reason", () => {
+    const now = new Date("2026-10-19T12:00:00Z");
+    const row = navy({ renovateFailingCis: 2, githubSignalsAt: "2026-10-19T06:00:00Z" });
+    const feed = feedAt(now, row);
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.reasons).toEqual([
+      "2 Renovate PRs failing CI",
+      "1 critical/high vuln — Renovate has not fixed it since 2026-10-13",
+    ]);
+  });
+});

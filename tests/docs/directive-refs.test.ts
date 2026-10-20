@@ -368,7 +368,7 @@ describe("the real tree", () => {
     const r = run();
     expect(deadLines(r.stdout)).toEqual([]);
     expect(r.status).toBe(0);
-    // 12 before the 2026-10-23 cutover; docs/pm-pass.md and docs/worker-brief.md carried the
+    // 12 before the 2026-10-20 cutover; docs/pm-pass.md and docs/worker-brief.md carried the
     // other 4 and are now stubs naming reddoorla/reddoor-workspace.
     expect(r.stdout).toMatch(/\b8 citations, all resolve\b/);
   });

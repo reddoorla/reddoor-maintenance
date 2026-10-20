@@ -4,7 +4,7 @@ import {
   type PreflightFinding,
 } from "../../reports/preflight.js";
 import type { ReportType } from "../../reports/types.js";
-import type { Db } from "../../db/client.js";
+import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
 
 export type PreflightCommandOptions = {
   type?: string;
@@ -30,25 +30,6 @@ function formatSite(r: PreflightSiteResult): string {
  * that would make a report send fail, reach the wrong inbox, or surprise the operator.
  * Exit 0 = safe (warnings allowed, printed), 1 = at least one hard failure, 2 = bad args.
  */
-/** One lazily-opened, once-closed libSQL connection for this command's reads
- *  (#646 step 4). Lazy for the same reason as `report --digest`'s: a run that
- *  returns before any read must not need `TURSO_DATABASE_URL`. */
-function lazyFleetDb(): { get: () => Promise<Db>; close: () => Promise<void> } {
-  let db: Db | null = null;
-  return {
-    get: async () => {
-      if (!db) {
-        const { openDb, readDbConfig } = await import("../../db/client.js");
-        db = await openDb(readDbConfig());
-      }
-      return db;
-    },
-    close: async () => {
-      if (db) await db.destroy();
-    },
-  };
-}
-
 export async function runPreflightCommand(
   site: string | undefined,
   opts: PreflightCommandOptions,

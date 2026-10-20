@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * The PM loop moved to `reddoorla/reddoor-workspace` at the 2026-10-23 cutover (P1-33, the
+ * The PM loop moved to `reddoorla/reddoor-workspace` at the 2026-10-20 cutover (P1-33, the
  * two-touch review's amendment 3). These files stay here, frozen as they stood that day:
  * `docs/pm-pass.md` and `docs/worker-brief.md` as stubs naming the new home, and the backlog,
  * the morning reports, the briefs and the operating-model documents whole, because runbooks,
@@ -40,7 +40,7 @@ const FROZEN_FILES = [
 const FROZEN_DIRS = ["docs/morning-reports", "docs/briefs"];
 
 const FROZEN: Record<string, string> = {
-  "docs/BACKLOG.md": "d7a399ad21d338500225bceac645dc106f6c43bacb85b97028c4e34e209f9993",
+  "docs/BACKLOG.md": "b2728ed8bf0d1f000c3d9297be50ff6762ac2edca02dfb004f2deec6835a073b",
   "docs/autonomy-journal.md": "959cd16a47ac499ae8cc780ecd576cc6416b47bf62216daf507e3bb413e00c5c",
   "docs/briefs/2026-10-01-williamson-video-hd.md":
     "bd7e99126afeab505d268066a5daa074e4bf724f03a074d52ddb67a293bcdd1f",
@@ -106,12 +106,14 @@ const FROZEN: Record<string, string> = {
     "9e3b9076c286791f12bfc3836012baa2c62a36319a309db28805f634bf1982bd",
   "docs/morning-reports/MORNING_REPORT_2026-10-19.md":
     "ba511eef0611f069d120aec618c4b166cc5030b92693f3bc0520bb47d9f75d8d",
+  "docs/morning-reports/MORNING_REPORT_2026-10-20.md":
+    "eb703c12264b506f02d0fe7586657c48df01e5994a5decf1769d2746a2f1d3dc",
   "docs/operating-model-review-2026-09-29.md":
     "d76720875a0ccdd83bc3829d5269e723cf103a2cf2888d8c663c919775ba7761",
   "docs/operating-model-rollout.md":
     "a830f70ab6eef35d37f19813278413369acf0b43c6f4f2e7c7db7f6a8667e955",
-  "docs/pm-pass.md": "33b210e185e395c97ca5fc03c0d0a056ae2db34f532801b8f4163fa032f44d0b",
-  "docs/worker-brief.md": "2537a0e5c4463e957e9f3037bd8cd15cc4e062f47d6075831ea56931299a6f6c",
+  "docs/pm-pass.md": "7ef31b76645efdabad210316c8f0c3322795595a4efb468134c1227bb3717815",
+  "docs/worker-brief.md": "43a7f09f62d3b5b5a42651a76e00fac9c458e6157dcf6f250cf5e51a1428e036",
 };
 
 function frozenDigest(text: string): string {
@@ -191,7 +193,7 @@ describe("files moved to reddoorla/reddoor-workspace", () => {
     const changed = changedFiles(ROOT, FROZEN);
     expect(
       changed,
-      "These files moved to reddoorla/reddoor-workspace on 2026-10-23 and are frozen here. Change the home-base copy instead; the only edit allowed here is a '> Superseded' pointer.",
+      "These files moved to reddoorla/reddoor-workspace on 2026-10-20 and are frozen here. Change the home-base copy instead; the only edit allowed here is a '> Superseded' pointer.",
     ).toEqual([]);
   });
 });

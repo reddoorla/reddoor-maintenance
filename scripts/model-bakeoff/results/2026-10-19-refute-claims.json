@@ -1,0 +1,241 @@
+{
+  "date": "2026-10-19",
+  "task": "refute-claims",
+  "row": 5,
+  "taskCommit": "b7c5b538 fixed the tolerance before the first run; this result is scored with the pass rule as of review round 2 (336bafd0)",
+  "corpus": "code.claude.com/docs fetched 2026-10-19; six docs pages and the in-repo 10-token-meter.md pinned by sha256 in tasks/refute-claims.mjs PAGES; claims re-anchored from the copy fetched 2026-09-15 UTC (the manifest's fetchedAt; the evening of 2026-09-14 in Los Angeles), of which 39 of 40 pages had drifted",
+  "inputFiles": 7,
+  "checksPerRun": 35,
+  "workflowRuns": {
+    "extract": "wf_d021590a-148",
+    "referee": ["wf_3594a134-904"]
+  },
+  "tolerance": "Per run: all 7 false claims refuted after the workflow quote rule (c17 seeded; c01 c04 c07 c09 c12 c15 the earlier survey wrong forms), c03 untested, and fewer than 2 of the 9 true documentary claims left unconfirmed (anything but confirmed: refuted, unclear, untested or no verdict). These are the PASS control lines from the workflow header and the key. An arm qualifies only if both runs pass. c03 is judged on the verdict the arm wrote, before the quote rule rewrites it. Before the first run (b7c5b538) the rule counted only refutations, over 10 true claims with c03 among them, so it passed a run that refuted c03 alone or confirmed nothing. Review rounds 1 and 2 caught that. No arm of this run passes under one version and fails under the other.",
+  "reference": "script truth",
+  "problems": [],
+  "disagreements": 1,
+  "unruled": 0,
+  "referenceErrors": [],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "35/35",
+      "cost": 1.4189232,
+      "requests": 20,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-medium-1",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "34/35",
+      "cost": 0.899492,
+      "requests": 10,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "verdicts c10 / verdict",
+          "got": "refuted",
+          "expected": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "opus-medium-2",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "34/35",
+      "cost": 0.5461866,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "verdicts c10 / verdict",
+          "got": "refuted",
+          "expected": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "35/35",
+      "cost": 0.4738089999999999,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "35/35",
+      "cost": 0.43634119999999993,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-1",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "35/35",
+      "cost": 0.451608,
+      "requests": 7,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-2",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "35/35",
+      "cost": 0.2782395,
+      "requests": 5,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "35/35",
+      "cost": 0.2063754,
+      "requests": 3,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "35/35",
+      "cost": 0.289535,
+      "requests": 4,
+      "longPrompt": 0,
+      "errors": []
+    }
+  ],
+  "decision": [
+    {
+      "id": "gold",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-medium-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": ["c10"],
+      "unconfirmed": ["c10"],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-medium-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": ["c10"],
+      "unconfirmed": ["c10"],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-low-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "opus-low-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-high-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-high-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-medium-1",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    },
+    {
+      "id": "sonnet-medium-2",
+      "catches": "7/7",
+      "missed": [],
+      "wrongRefutations": [],
+      "unconfirmed": [],
+      "c03": "untested",
+      "c03Raw": "untested",
+      "downgraded": [],
+      "pass": true
+    }
+  ],
+  "rulings": [
+    {
+      "id": "verdicts c10 / verdict :: refuted",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "corpus/env-vars.md:476 supports every part of the claim. It reads: \"Unset, Claude Code defers all MCP tools by default, and loads them upfront instead when `ANTHROPIC_BASE_URL` points to a non-first-party host. ... `auto` loads upfront when tool definitions fit within 10% of context.\" Unset means all MCP tools are deferred, while auto loads them upfront under the 10% threshold, so on the default first-party path auto defers less than unset does, as the claim says. The only possible attack is the non-first-party host exception. The claim covers it by saying \"by default\", which is the doc's own wording, so it is a condition the claim already states, not a contradiction. No line on disk contradicts the claim, so the refuted verdict is wrong and confirmed is right."
+    }
+  ],
+  "refereeCost": 0.4940548,
+  "caveats": [
+    "Saturated. The gold and all 8 arms caught 7/7 false claims, and c03 came back untested everywhere. The only error in 9 runs is c10. With c10 set aside every run is perfect, so this run cannot tell Sonnet at medium from the gold. It bounds the cheap arms at this difficulty and does not rank them.",
+    "c10 label is contestable today. env-vars.md:476 now carries a host condition: unset loads tools upfront on a non-first-party ANTHROPIC_BASE_URL, so there auto can defer more, not less. Both Opus medium runs refuted c10 on exactly that condition, which the production prompt tells skeptics to look for. The Opus high referee upheld confirmed, reading \"by default\" as covering it, and a review-round reviewer disagreed. Whether the condition was in the 2026-09-15 copy cannot be checked. The decision rests on that ruling. With c10 confirmed (the key, upheld by the referee) every run passes. With c10 set aside every run passes. With c10 refuted only the two Opus medium runs pass: the gold, both Opus low, both Sonnet high and both Sonnet medium runs each miss a false claim and fail. So this run cannot by itself justify moving the skeptics off the gold configuration.",
+    "One agent, 17 claims. The workflow spawns one skeptic per claim, while here one agent judged all 17. That lets claims that share evidence inform each other (c04/c11 cite the same lines with opposite claims; c01/c13, c07/c15 and c09/c12 overlap) and lets an agent read each page once. So the task is easier and cheaper than production. The costs are per 17-claim run, not per production round.",
+    "Re-anchored corpus. The 2026-09-15 docs copy the control was written against is not committed, and web.archive.org is blocked here. 39 of its 40 pages had drifted, so every anchor was moved by hand to today's page. PAGES pins the bytes, but they cannot be re-fetched once upstream changes, so this exact run cannot be repeated from the repo. c09 still holds on the count (six modes, not five); the Manual display name now makes its name half arguably true. c13's anchors stop before the JSON example that shows the nesting (hooks.md:1530-1539). 8 of the 9 runs widened the range themselves; opus-low-1 did not, reading only hooks.md:1118-1128 and 1505-1519, and confirmed c13 from hooks.md:1123 without reading the example.",
+    "One schema for all 17 claims. Production gives a behaviour claim a schema with only refuted and untested; here every claim was offered all four verdicts. The pass rule judges c03 on the raw verdict for that reason. Every arm wrote untested.",
+    "Two runs per arm, one control, one model family, list prices."
+  ]
+}

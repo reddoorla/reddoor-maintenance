@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -18,6 +18,7 @@ import {
   CLAUDE_MD_BLOCK,
 } from "./template.js";
 import { MATCH_HARNESS_BLOCK_PREVIOUS } from "./previous.js";
+import { readTextIfExists } from "../../util/fs.js";
 
 /** How long the target's own prettier gets. Also what makes the fleet's default
  *  spawn detach the child, so the kill reaches prettier and not just a wrapper.
@@ -48,14 +49,6 @@ export type MatchHarnessDeps = {
 };
 
 type Plan = { ref: string; cand: string; matrix: number[] };
-
-async function readIfExists(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf-8");
-  } catch {
-    return null;
-  }
-}
 
 /** CRLF and trailing whitespace are the only differences a site's formatter is
  *  allowed to introduce before a file stops counting as "ours". */
@@ -309,7 +302,7 @@ export async function matchHarness(
           seed.matrix = planned.matrix;
           template = JSON.stringify(seed, null, 2) + "\n";
         }
-        const existing = await readIfExists(target);
+        const existing = await readTextIfExists(target);
         plans.push({
           f,
           template,
@@ -375,7 +368,7 @@ export async function matchHarness(
       // overwritten — when it is anything else.
       for (const [rel, marker, endMarker, block] of APPENDED_BLOCKS) {
         const path = join(cwd, rel);
-        const existing = await readIfExists(path);
+        const existing = await readTextIfExists(path);
         const plan = planBlockWrite(
           existing,
           marker,

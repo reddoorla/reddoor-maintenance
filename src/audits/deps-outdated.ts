@@ -1,20 +1,11 @@
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { SpawnFn } from "./util/spawn.js";
+import { pathExists } from "../util/fs.js";
 
 /** Real installed-version drift, distinct from the declared-range "drift" the
  *  deps audit computes against the baseline: how many dependencies are behind
  *  the registry's latest, per the committed lockfile. */
 export type OutdatedCounts = { outdated: number; major: number };
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function majorOf(version: string): number {
   const head = version.replace(/^[\^~]/, "").split(".")[0] ?? "0";
@@ -38,7 +29,7 @@ export async function scanOutdated(
   sitePath: string,
   spawn: SpawnFn,
 ): Promise<OutdatedCounts | null> {
-  if (!(await exists(join(sitePath, "pnpm-lock.yaml")))) return null;
+  if (!(await pathExists(join(sitePath, "pnpm-lock.yaml")))) return null;
 
   // Everything below is best-effort: a thrown spawn (timeout, `pnpm` not on
   // PATH, spawn error) must degrade to a skip (null), NOT bubble up and flip the
@@ -49,7 +40,7 @@ export async function scanOutdated(
     // an already-installed checkout skips the cold install. `--frozen-lockfile`
     // never rewrites the lockfile (read-only wrt the repo) and fails fast on a
     // lockfile out of sync with package.json → skip.
-    if (!(await exists(join(sitePath, "node_modules")))) {
+    if (!(await pathExists(join(sitePath, "node_modules")))) {
       const install = await spawn("pnpm", ["install", "--frozen-lockfile"], {
         cwd: sitePath,
         timeoutMs: 180_000,

@@ -4,7 +4,7 @@ import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/
 import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { selfUpdating } from "../../recipes/self-updating/index.js";
-import type { RecipeResult } from "../../types.js";
+import { formatRecipeResult } from "../fleet/format-recipe-result.js";
 
 export type SelfUpdatingCommandOptions = {
   fleet?: string;
@@ -12,12 +12,6 @@ export type SelfUpdatingCommandOptions = {
   dry?: boolean;
   cwd?: string;
 };
-
-function formatResult(r: RecipeResult): string {
-  if (r.status === "noop") return `[${r.site}] noop: ${r.notes ?? "already self-updating"}`;
-  if (r.status === "failed") return `[${r.site}] failed: ${r.notes ?? ""}`;
-  return `[${r.site}] applied\n${r.notes ?? ""}`;
-}
 
 export async function runSelfUpdatingCommand(
   site: string | undefined,
@@ -52,7 +46,14 @@ export async function runSelfUpdatingCommand(
   const results = await runRecipeOverSites("self-updating", sites, (s) => selfUpdating(s));
 
   return {
-    output: appendSkipNotice(results.map(formatResult).join("\n"), skipped),
+    output: appendSkipNotice(
+      results
+        .map((r) =>
+          formatRecipeResult(r, { noopNote: "already self-updating", commitCount: false }),
+        )
+        .join("\n"),
+      skipped,
+    ),
     code: results.some((r) => r.status === "failed") ? 1 : 0,
   };
 }

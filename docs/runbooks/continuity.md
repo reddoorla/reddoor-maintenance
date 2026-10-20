@@ -88,7 +88,7 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
 `report-rerender` (dispatch only).
 
 `pm-pass-watch`, the missed-PM-pass alarm, moved to `reddoorla/reddoor-workspace` at the
-2026-10-23 cutover, with the PM loop it watches.
+2026-10-20 cutover, with the PM loop it watches.
 
 **Where a failure shows up.** Three places, in rough order of reliability:
 
