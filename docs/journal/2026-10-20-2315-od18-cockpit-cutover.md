@@ -21,13 +21,14 @@
   - **Assertions on inline script text,** about 20. The scripts are gone, and their behaviour is executed by the DOM tests that step 1a proved with hand mutations.
   - **The two links the shell replaced.**
   - **Layout-insignificant whitespace** in three regexes.
-- **The rate limit moved to the edge.** The five page functions each carried `rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] }`, and the adapter's page functions take no such option. `netlify/edge-functions/cockpit-rate-limit.ts` carries the same limit on the page paths. Its test reads the cockpit's route directories, so a new page cannot ship unlimited.
+- **The rate limit moved to the edge, and widened.** The five page functions each carried `rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] }`, and the adapter's page functions take no such option. `netlify/edge-functions/cockpit-rate-limit.ts` carries the same limit. The first version listed only the five page paths. Review round 1 found that SvelteKit's functions also answer each page's `__data.json` and every unknown path, and that all of them run the auth gate, Basic auth included, so a password-guessing loop there went unlimited. The limit now covers `/*` minus the paths other functions own (`/api/*`, `/auth/*`, `/r/*`, `/.netlify/*`) and the hashed build assets (`/_app/*`). Its test checks every page and its data path, and an unknown path, against the globs. It also parses every endpoint function's declared paths and checks none is limited, so a new page or endpoint cannot slip either way.
 - **A runbook citation followed the feed.** `continuity.md` cited `renderNeedsYouFeed` in `fleet-render.ts`. The runbook-anchor test failed, as it should, and the citation now points at the page's `needs-you` section.
 
 **Beliefs corrected on contact.**
 
 - **The repo root was the published site.** With no `publish` set, the dashboard site published its whole repo root as static files. Setting `publish` ends that. No code links a static file on that domain: every use is the bare base URL, and every path built from it is a function.
 - **An unknown path changes answer.** It used to get Netlify's 404 page. It now reaches the SvelteKit catch-all: a redirect to sign-in when signed out, and SvelteKit's 404 when signed in.
+- **The old functions' own URLs are gone.** Each page function also answered at `/.netlify/functions/<name>`: `site-dashboard` returned an env health check there with no slug, and took `?slug=` as a fallback. Nothing in the repo, its workflows or docs calls them, so they were retired with the functions.
 - **A rebase was the only clean way onto `main`.** Merging `main` into this branch conflicted, because 1a landed as a squash. The branch was rebased onto `main` instead. The deny list refuses a force-push, so the rebased history went to a new branch, `claude/od18-cutover`. The first branch, `claude/od18-cockpit-cutover`, is stale on the remote, and the proxy refuses branch deletes.
 
 **What the deploy preview showed** (deploy `6ad7f7e3`, built from this branch's head).

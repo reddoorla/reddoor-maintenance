@@ -11,9 +11,15 @@ type EdgeContext = { next: () => Promise<Response> };
 
 export default (_request: Request, context: EdgeContext): Promise<Response> => context.next();
 
-// The cockpit's five pages, with the limit each page function carried. A
-// literal: Netlify reads this config statically, not by running the module.
+// Everything the SvelteKit functions answer, with the limit each page function
+// carried. That is more than the five page paths: each page's `__data.json`,
+// and every unknown path through the catch-all, also run the auth gate (Basic
+// auth included) and the page loads. So the limit covers every path except the
+// ones other functions own (they keep their own limits) and the hashed build
+// assets, which a single page load fetches several of. A literal: Netlify
+// reads this config statically, not by running the module.
 export const config = {
-  path: ["/", "/fleet", "/s/*", "/submissions", "/audits"],
+  path: "/*",
+  excludedPath: ["/api/*", "/auth/*", "/r/*", "/.netlify/*", "/_app/*"],
   rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] },
 };
