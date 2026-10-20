@@ -43,3 +43,30 @@ export function run(
 ): { status: number | null; error?: string; stdout: string; stderr: string };
 export function observe(work: string): Record<string, unknown>;
 export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;
+export function ownTestsGate(
+  ownRun: { status: number | null; error?: string } | null,
+  report: unknown,
+): boolean;
+export function readReport(file: string): unknown;
+export function changedOrFlood(
+  base: string,
+  tree: string,
+  list?: (base: string, tree: string) => string[],
+): string[];
+export function copyPlanFiles(repo: string, to: string, files?: string[]): void;
+export function scoreRuns(o: {
+  changed: string[];
+  scope: { pass: boolean; outside: string[] };
+  check: { status: number | null; error?: string; stdout: string; stderr: string };
+  lint: { status: number | null; error?: string; stdout: string; stderr: string };
+  suite: { status: number | null; error?: string; stdout: string; stderr: string };
+  ownRun: { status: number | null; error?: string } | null;
+  ownReport: unknown;
+  heldRun: { status: number | null; error?: string };
+  report: unknown;
+  held: string;
+}): {
+  gates: { gate: string; pass: boolean }[];
+  tests: { name: string; pass: boolean; result: string; mechanical?: boolean }[];
+  detail: Record<string, unknown>;
+};
