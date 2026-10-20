@@ -38,6 +38,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SRC_DB_DIR = path.join(ROOT, "src/db");
 /** The request path: every Netlify function, plus everything they import. */
 const NETLIFY_FUNCTIONS_DIR = path.join(ROOT, "netlify/functions");
+/** The SvelteKit cockpit's server code (#582): its load functions, form
+ *  actions and hook serve requests as the Netlify page functions do. */
+const COCKPIT_SRC_DIR = path.join(ROOT, "cockpit/src");
 
 /** Modules whose exported query functions the gate exercises below. */
 const GATED_MODULES: Record<string, Record<string, unknown>> = {
@@ -213,7 +216,8 @@ function resolveLocalImport(fromFile: string, spec: string): string | null {
 const IMPORT_CLAUSE = /(?:^|[\s;])(?:import|export)\s+([\s\S]*?)\s*from\s*["']([^"']+)["']/g;
 
 export type RequestPathGraph = {
-  /** Every module a Netlify function can reach through local imports. */
+  /** Every module a Netlify function or the cockpit's server code can reach
+   *  through local imports. */
   files: Set<string>;
   /** Gated-db-module export name → the request-path files that import it. */
   importers: Map<string, string[]>;
@@ -223,7 +227,8 @@ export type RequestPathGraph = {
 };
 
 /**
- * Walk the local import graph out from `netlify/functions/**` and record which
+ * Walk the local import graph out from `netlify/functions/**` and the cockpit's
+ * `cockpit/src/**` TypeScript, and record which
  * request-path modules import which gated-db-module exports.
  *
  * Reads IMPORT BINDINGS, not call sites. A `grep` for `name(` matches the
@@ -238,10 +243,19 @@ function requestPathGraph(): RequestPathGraph {
   const files = new Set<string>();
   const importers = new Map<string, string[]>();
   const namespaceImports: string[] = [];
-  const queue = fs
-    .readdirSync(NETLIFY_FUNCTIONS_DIR)
-    .filter((f) => /\.(ts|mts)$/.test(f))
-    .map((f) => path.join(NETLIFY_FUNCTIONS_DIR, f));
+  const queue = [
+    ...fs
+      .readdirSync(NETLIFY_FUNCTIONS_DIR)
+      .filter((f) => /\.(ts|mts)$/.test(f))
+      .map((f) => path.join(NETLIFY_FUNCTIONS_DIR, f)),
+    // `.svelte` components are not walked: they hold markup and browser code,
+    // and every cockpit read runs in a `.ts` load, action or view builder.
+    ...fs
+      .readdirSync(COCKPIT_SRC_DIR, { recursive: true })
+      .map(String)
+      .filter((f) => /\.ts$/.test(f) && !f.endsWith(".d.ts"))
+      .map((f) => path.join(COCKPIT_SRC_DIR, f)),
+  ];
 
   while (queue.length > 0) {
     const file = queue.pop()!;
@@ -1180,11 +1194,15 @@ describe("EXPLAIN-query-plan gate", () => {
     const { files, importers, namespaceImports } = requestPathGraph();
     // Without this, every claim below passes by finding nothing.
     expect(files.size).toBeGreaterThan(50);
+    // The /s/:slug handler reads through the shared page loaders (#582), so the
+    // per-slug lookup's importer is page-data.ts, which the handler reaches.
     expect(
       importers.get("getSiteBySlug") ?? [],
-      "the per-slug site lookup is imported by the /s/:slug handler — if this is " +
+      "the per-slug site lookup is imported by the shared page loaders — if this is " +
         "empty the import reader has stopped working, not the request path",
-    ).toContain("netlify/functions/site-dashboard.mts");
+    ).toContain("src/dashboard/page-data.ts");
+    expect(files).toContain(path.join(ROOT, "src/dashboard/page-data.ts"));
+    expect(files).toContain(path.join(ROOT, "cockpit/src/hooks.server.ts"));
     // The known-bad direction: a batch-only function must NOT appear.
     expect(importers.get("countSubmissionsSinceBySite") ?? []).toEqual([]);
     // `import * as db from "…/submissions.js"` would hide every call behind one

@@ -337,7 +337,7 @@ function consequentAt(code: string, from: number): string {
 /** An actual refusal: SvelteKit's `error(404, …)`, or any `throw`. */
 const REFUSAL = /\berror\s*\(\s*404|\bthrow\b/;
 
-/** A guard is `$app/environment` + an `if (!dev)` **whose own branch refuses**.
+/** A guard is `dev` from `$app/environment` or `$app/env` + an `if (!dev)` **whose own branch refuses**.
  *
  *  The three conditions used to be ANDed across the WHOLE file, with nothing
  *  tying the refusal to the `if`. Two shapes passed that should not have: a
@@ -354,7 +354,13 @@ const REFUSAL = /\berror\s*\(\s*404|\bthrow\b/;
  *  restating the pattern. */
 function carriesGuard(source: string): boolean {
   const code = stripComments(source);
-  if (!code.includes("$app/environment")) return false;
+  // `dev` comes from $app/environment (kit 2) or $app/env (kit 3, where
+  // svelte-check cannot resolve the old name). Quoted, so $app/env/private and
+  // $app/env/public, which hold env variables and no `dev`, do not count. As
+  // before, the module test runs before literals are masked, so the name
+  // inside an ordinary string also satisfies it; binding `dev` to the import
+  // would close that, and is not done here.
+  if (!/["']\$app\/env(?:ironment)?["']/.test(code)) return false;
   const masked = maskLiterals(code);
   const guards = /if\s*\(\s*!\s*dev\s*\)/g;
   for (let m = guards.exec(masked); m; m = guards.exec(masked)) {
@@ -514,7 +520,7 @@ export async function matchingDisposition(
   if (unguarded.length > 0) {
     return {
       ok: false,
-      message: `${MATCH_ROUTE_DIR} is not fully guarded — ${unguarded.join("; ")} — an \`if (!dev)\` guard on \`$app/environment\` whose own branch refuses (\`error(404\` or \`throw\`) is required, once comments are stripped and string and regex contents masked; the matching twin would ship`,
+      message: `${MATCH_ROUTE_DIR} is not fully guarded — ${unguarded.join("; ")} — an \`if (!dev)\` guard on \`dev\` from \`$app/environment\` or \`$app/env\` whose own branch refuses (\`error(404\` or \`throw\`) is required, once comments are stripped and string and regex contents masked; the matching twin would ship`,
     };
   }
   // Deliberately NOT "the twin is guarded in production". This function reads

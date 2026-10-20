@@ -30,4 +30,6 @@ The operator answered (a) on 2026-10-20. Background: `forms-deadletter-replay.ym
 
 **Mutations.** The brief's five turn tests red: newest-row clock (2), `>` for `>=` (6), 6 h for 12 h (7), hold on an unknown slug (3), new export off the plan gate (1), held item through the digest filter (1). Over a hundred more were run across the review rounds. Survivors were folded in until round 4, whose survivors are the filed issues.
 
+**Merge with `main`.** While review ran, `main` moved the cockpit handler's store reads into `loadCockpitModel` (`src/dashboard/page-data.ts`), which the new SvelteKit cockpit's `/` route also calls. The age read is ported there, so both cockpits hold alike. The handler test, `tests/dashboard/fleet-homepage-deadletter.test.ts`, still goes red when that loader passes no ages or lets a failed read throw.
+
 **Process.** `git stash` is on the deny list. Red-first was shown in a second worktree at `origin/main` instead: the 16 new tests failed against `main`'s source. `tests/scripts/dropbox.test.ts`'s HTTPS_PROXY case fails in this container on `main` too.

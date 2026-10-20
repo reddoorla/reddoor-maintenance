@@ -54,3 +54,7 @@ docs/meta-week/_corpus/
 
 # A failed seeded-review build leaves its half-built cases here.
 scripts/model-bakeoff/tasks/seeded-review/cases.next/
+# The SvelteKit cockpit's generated and build output (#582).
+/cockpit/.svelte-kit/
+/cockpit/build/
+/cockpit/.netlify/

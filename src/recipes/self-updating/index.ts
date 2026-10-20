@@ -20,7 +20,7 @@ import {
 } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import { readGitHubConfig } from "../../github/config.js";
-import { makeGitHub, type GitHub } from "../../github/gh.js";
+import { makeGitHub, ProtectionRefusedError, type GitHub } from "../../github/gh.js";
 import {
   FLEET_RULESET_NAME,
   desiredRuleset,
@@ -109,6 +109,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   // restore is a no-op on every path that never left the operator's branch.
   let original: string | null = null;
   let maintBranch: string | null = null;
+  let refused: ProtectionRefusedError | null = null;
 
   try {
     // A. Renovate config on the default branch — compare CONTENT, not just
@@ -260,8 +261,16 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       // protectBranch would keep the existing contexts anyway. (When the branch
       // has no protection yet, this is just [REQUIRED_CHECK] on a fresh object.)
       const contexts = [...new Set([...existingContexts, REQUIRED_CHECK])];
-      await github.protectBranch(repo, base, contexts);
-      actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
+      try {
+        await github.protectBranch(repo, base, contexts);
+        actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
+      } catch (err) {
+        // A refusal leaves the classic protection as it was, so the ruleset
+        // below, which binds admins, still runs; the repo then fails with the
+        // refusal once that is done (#1447).
+        if (!(err instanceof ProtectionRefusedError)) throw err;
+        refused = err;
+      }
     }
     // Ruleset ensure — the layer that binds ADMINS. Classic protection above
     // carries forward whatever `enforce_admins` the branch already has (only a
@@ -318,6 +327,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
       }
     }
+    if (refused) throw refused;
     // (No per-repo Renovate PAT secret planting anymore: Renovate authenticates as
     // the reddoor-renovate GitHub App, whose RENOVATE_APP_ID / _PRIVATE_KEY are
     // org-level with all-repos visibility — a new repo needs NOTHING set. The
@@ -326,7 +336,9 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     // docs/runbooks/renovate-app-identity.md covers the migration + rollback.)
   } catch (err) {
     const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
-    const message = err instanceof Error ? err.message : String(err);
+    let message = err instanceof Error ? err.message : String(err);
+    // A later step's failure must not hide a refused protection write (#1447).
+    if (refused && err !== refused) message = `${refused.message}; then ${message}`;
     return resultOf(site, "failed", `${message}${done}`, commits);
   } finally {
     // Restore the operator's branch whenever we created + checked out a maint

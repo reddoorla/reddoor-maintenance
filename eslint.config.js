@@ -61,6 +61,10 @@ export default [
       "captures/*/pages/",
       // The seeded-review bake-off's cases: old commits' files, kept byte for byte.
       "scripts/model-bakeoff/tasks/seeded-review/cases/",
+      // The SvelteKit cockpit's generated and build output (#582).
+      "cockpit/.svelte-kit/",
+      "cockpit/build/",
+      "cockpit/.netlify/",
     ],
   },
 ];

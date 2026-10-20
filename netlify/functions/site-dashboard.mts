@@ -1,8 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listSubmissionsForSite } from "../../src/db/submissions.js";
-import { screenOutTotalsForSite, screenOutsSince } from "../../src/db/screenouts.js";
 import {
   requireOperator,
   denialResponse,
@@ -13,7 +10,7 @@ import {
   handlerError,
   resolveDashboardBaseUrl,
 } from "../../src/dashboard/handler-helpers.js";
-import { loadSiteAlarmContext } from "../../src/dashboard/site-alarm.js";
+import { loadSiteDashboard } from "../../src/dashboard/page-data.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -88,63 +85,27 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // than rendering a page that pretends the site vanished.
     const db = await openDb(readDbConfig());
 
-    const site = await getSiteBySlug(db, slug);
-    if (!site) {
+    const now = new Date();
+    const data = await loadSiteDashboard(
+      db,
+      slug,
+      now,
+      resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
+    );
+    if (!data) {
       // A genuine miss returns inside the try — only a THROWN Turso failure
       // reaches handlerError below, so "not found" stays a 404, not a 502.
       return plainText(`No site found for slug '${slug}'.`, 404);
     }
 
-    // Pass the FULL report set to the renderer. The "recent 6" history-table
-    // slice is canonical inside renderSiteDashboardHtml — the adapter stays thin.
-    // Pre-slicing here would hide an OLD pending report from the approve list +
-    // its button while the fleet banner (which counts ALL reports) still shows it,
-    // leaving an unapprovable report and a banner/page disagreement.
-    const reports = await listReportsForSite(db, site.id);
-
-    let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
-    try {
-      submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
-    } catch {
-      // submissions section simply absent — the rest of the page still renders
-    }
-
-    // MED-11 (2026-09-02). Every read below is scoped to THIS site. All three
-    // used to call the fleet-wide variant and then throw away every row but one:
-    // a single `/s/:slug` load ran a GROUP BY over the whole `submissions` table
-    // (unbounded, one row per fleet lead), a second full traversal for the spam
-    // panel, and a third over the dead-letter queue. The per-site forms are
-    // served as index SEARCHes — see tests/db/query-plans.test.ts.
-    //
-    // The fleet-wide functions are not gone: the nightly digest and the fleet
-    // cockpit genuinely render every site and still use them. What changed is
-    // that the ONE-site page no longer pays the fleet's price.
-    let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
-    try {
-      const since = screenOutsSince(new Date(), 30);
-      spamTotals = await screenOutTotalsForSite(db, site.id, since);
-    } catch {
-      // panel simply absent — never blank the page
-    }
-
-    // Cockpit alarm verdict for the header chip strip (see loadSiteAlarmContext).
-    const alarm = await loadSiteAlarmContext(
-      db,
-      site,
-      slug,
-      reports,
-      resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
-      new Date(),
-    );
-
     return html(
       renderSiteDashboardHtml(
-        site,
-        reports,
-        submissions,
-        spamTotals,
-        new Date(),
-        alarm,
+        data.site,
+        data.reports,
+        data.submissions,
+        data.spamTotals,
+        now,
+        data.alarm,
         auth.email,
       ),
       200,

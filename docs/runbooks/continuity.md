@@ -256,7 +256,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:176`).
+`.github/workflows/fleet-db-backup.yml:308`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -371,14 +371,23 @@ Promoted here from the 2026-08-17 store-migration plan in `docs/superpowers/plan
 ("Rollback is rehearsed") and Phase 1.5. **Turso is the only store there is** — this is the
 procedure that gets the fleet back.
 
-**The backup.** `fleet-db-backup` runs nightly at 04:30 UTC
-(`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
+**The backup.** `fleet-db-backup` runs nightly, dispatched by the `fleet-nightly` conductor
+(the 06:07Z clock, with a 02:17Z fallback cron) (`.github/workflows/fleet-db-backup.yml`). It dumps Turso over plain SQL through the same
 database-level url + token the other nightlies hold, asserts the dump actually contains site
 rows, loads it into a scratch engine and compares restored row counts against the **origin
 manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES256` under
 `BACKUP_PASSPHRASE`, then **decrypts the `.gpg` it is about to upload and re-runs the same
 verification on the round-tripped copy** before publishing it as an Actions artifact
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
+On the first night of each UTC month the same **encrypted** file is also copied to Dropbox as
+`/Processes & Procedures/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
+decisions 97(g)), from `main` only, once the three `DROPBOX_*` Actions secrets are set (until
+then the run only warns). That copy never fails the backup. A failed copy, or a red or cancelled
+run on the first of the month, files "Monthly Dropbox backup copy failing"; dispatching
+`fleet-db-backup` on `main` with `dropbox_copy: true` takes the copy again. Dispatch it when no
+`fleet-db-backup` run is in progress: the workflow keeps one run queued, so a nightly dispatched
+behind a waiting retake cancels the retake before it starts. A retake overwrites that month's
+file, so each month keeps the last copy taken in it.
 
 **The restore, as rehearsed** — every command below was checked against the tree on 2026-09-14,
 and a fresh session with only this section was asked to dry-run it; what it could not find is now
@@ -394,6 +403,28 @@ written in.
    gh run download "$run" --repo reddoorla/reddoor-maintenance -n "turso-backup-$run" -D restore
    cd restore
    ```
+
+   Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
+   download `turso-YYYY-MM.sql.gpg` from Dropbox `/Processes & Procedures/Backups/turso` (the newest month),
+   then `cd ~/Documents/GitHub/reddoor-maintenance && mkdir -p restore && cd restore`, save it
+   there as `dump.sql.gpg`, and carry on. It is the same kind of encrypted dump, taken on the first
+   night of its month, so it can be up to a month older than the last green nightly; everything
+   written after it is lost. Two differences from an artifact:
+   - It decrypts with the `BACKUP_PASSPHRASE` that was current in that month. **If the passphrase
+     is ever rotated, keep the old value beside the new one in 1Password, labelled with the last
+     month it encrypted.** For an older copy, in step 2 run `export BACKUP_PASSPHRASE='<that
+value>'` after loading `credentials.env` and before `gpg` (loading the file afterwards puts
+     the current value back); a wrong passphrase fails with gpg's "bad session key".
+   - Its schema may be older than this checkout's code. After step 4, from the repo root, bring
+     the new database up to date:
+
+     ```sh
+     TURSO_DATABASE_URL=<libsql url from step 3> TURSO_AUTH_TOKEN=<token from step 3> \
+       node dist/cli/bin.js db migrate
+     ```
+
+     It applies only what `_migrations` lacks, and prints `Already up to date.` when nothing is
+     owed.
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine
@@ -419,13 +450,14 @@ written in.
    turso db tokens create fleet-restore-YYYYMMDD   # the token; it becomes TURSO_AUTH_TOKEN in step 5
    ```
 
-4. **Restore into it.** Install and build first (`pnpm install --frozen-lockfile && pnpm build` —
+4. **Restore into it.** From the repo root (`cd ..` out of `restore/`, and pass
+   `--file restore/dump.sql`), install and build first (`pnpm install --frozen-lockfile && pnpm build` —
    `dist/` on the operator's machine may be stale), then:
 
    ```sh
    TURSO_RESTORE_AUTH_TOKEN=<token from step 3> \
      node dist/cli/bin.js db restore \
-       --file dump.sql \
+       --file restore/dump.sql \
        --url <libsql url from step 3>
    ```
 
