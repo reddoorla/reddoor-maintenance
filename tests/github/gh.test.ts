@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { makeGitHub, protectionPutBody } from "../../src/github/gh.js";
+import { makeGitHub, ProtectionRefusedError, protectionPutBody } from "../../src/github/gh.js";
 import { resolveBlockedBranches } from "../../src/audits/protection-coverage.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
 
@@ -1184,7 +1184,10 @@ describe("protectBranch carries forward existing protection (#998)", () => {
     const { spawn, puts } = protectionSpawn({ stdout: JSON.stringify(get) });
     await expect(
       makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]),
-    ).rejects.toThrow(/dismiss.*nobody listed.*by hand/is);
+    ).rejects.toThrow(/dismiss.*no user, team or app.*by hand/is);
+    await expect(
+      makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci / ci"]),
+    ).rejects.toBeInstanceOf(ProtectionRefusedError);
     expect(puts).toEqual([]);
   });
 

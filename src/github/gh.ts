@@ -413,6 +413,12 @@ const REVIEW_SCALARS = [
  * Throws, rather than risk weakening the protection, when the branch restricts
  * who may dismiss reviews but lists nobody (#1447): set that one by hand.
  */
+/** protectionPutBody declined to write, because the write could weaken the
+ *  branch's protection (#1447). A caller can record it and go on. */
+export class ProtectionRefusedError extends Error {
+  override name = "ProtectionRefusedError";
+}
+
 export function protectionPutBody(
   existing: Record<string, unknown> | null,
   requiredChecks: string[],
@@ -464,8 +470,8 @@ export function protectionPutBody(
     if (isObject(reviews.dismissal_restrictions)) {
       const d = actorsOf(reviews.dismissal_restrictions);
       if (d.users.length + d.teams.length + d.apps.length === 0) {
-        throw new Error(
-          "the branch restricts who can dismiss pull request reviews but has nobody listed; " +
+        throw new ProtectionRefusedError(
+          "the branch restricts who can dismiss pull request reviews but lists no user, team or app to send back; " +
             "sending that back may turn the restriction off (GitHub disables it on an empty " +
             "dismissal_restrictions object), so the protection was not written. Set it by hand (#1447)",
         );
@@ -583,10 +589,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       try {
         body = protectionPutBody(existing, requiredChecks);
       } catch (err) {
-        throw new Error(
-          `protectBranch(${repo}:${branch}): ${err instanceof Error ? err.message : String(err)}`,
-          { cause: err },
-        );
+        const message = `protectBranch(${repo}:${branch}): ${err instanceof Error ? err.message : String(err)}`;
+        throw err instanceof ProtectionRefusedError
+          ? new ProtectionRefusedError(message, { cause: err })
+          : new Error(message, { cause: err });
       }
       await ghJson("PUT", path, body);
     },

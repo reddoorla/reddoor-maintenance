@@ -814,7 +814,10 @@ describe("selfUpdating: a protection read that failed never becomes a protection
 //     already has. The real makeGitHub reader and writer over one fake spawn
 //     that plays GitHub's REST protection endpoint (GET, then PUT).
 describe("selfUpdating: the protection write keeps what the branch already has (#998)", () => {
-  function restProtection(get: Partial<SpawnResult>): { github: GitHub; puts: unknown[] } {
+  function restProtection(
+    get: Partial<SpawnResult>,
+    over: GitHubOverrides = {},
+  ): { github: GitHub; puts: unknown[]; calls: string[] } {
     const puts: unknown[] = [];
     const spawn: SpawnFn = async (_cmd, args) => {
       if (args.includes("PUT")) {
@@ -835,14 +838,15 @@ describe("selfUpdating: the protection write keeps what the branch already has (
       return { code: 0, stdout: "", stderr: "", ...get };
     };
     const real = makeGitHub({ token: "T", spawn });
-    const { gh } = fakeGitHub({
+    const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => false,
       branchProtectionContexts: real.branchProtectionContexts,
       protectBranch: real.protectBranch,
       ...WIRED_RULESET,
+      ...over,
     });
-    return { github: gh, puts };
+    return { github: gh, puts, calls };
   }
 
   const API = "https://api.github.com/repos/o/r/branches/main/protection";
@@ -953,28 +957,34 @@ describe("selfUpdating: the protection write keeps what the branch already has (
     ]);
   });
 
-  it("dismissal restriction on with nobody listed: this repo fails with the reason, nothing is written (#1447)", async () => {
-    const { github, puts } = restProtection({
-      stdout: JSON.stringify({
-        url: API,
-        required_status_checks: { strict: true, contexts: ["build"], checks: [] },
-        enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
-        required_pull_request_reviews: {
-          ...reviews,
-          dismissal_restrictions: {
-            url: `${API}/dismissal_restrictions`,
-            users: [],
-            teams: [],
-            apps: [],
+  it("dismissal restriction on with nobody listed: no protection write, the ruleset still runs, the repo fails with the reason (#1447)", async () => {
+    const { github, puts, calls } = restProtection(
+      {
+        stdout: JSON.stringify({
+          url: API,
+          required_status_checks: { strict: true, contexts: ["build"], checks: [] },
+          enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+          required_pull_request_reviews: {
+            ...reviews,
+            dismissal_restrictions: {
+              url: `${API}/dismissal_restrictions`,
+              users: [],
+              teams: [],
+              apps: [],
+            },
           },
-        },
-        restrictions,
-      }),
-    });
+          restrictions,
+        }),
+      },
+      // No fleet ruleset yet, so the admin-binding layer has work to do.
+      { listRepoRulesets: async () => [] },
+    );
     const r = await run(github);
     expect(r.status).toBe("failed");
-    expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*nobody listed.*by hand/s);
+    expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*no user, team or app.*by hand/s);
+    expect(r.notes).toContain(`completed: created ruleset "${FLEET_RULESET_NAME}"`);
     expect(puts).toEqual([]);
+    expect(calls.filter((c) => c.startsWith("ruleset-create:o/r:"))).toHaveLength(1);
   });
 
   it("ci / ci already required: no write at all", async () => {
