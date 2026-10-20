@@ -85,6 +85,10 @@ export type AttentionItem = {
    *  this and its own threshold has not passed. Shown on the site page only; kept off
    *  the cockpit's tiers, the Needs-you feed and the digest's asks. */
   waiting?: boolean;
+  /** OD 87. Set by collectDeadLetterAlerts only on a dead letter whose slug resolves
+   *  to a site: the oldest unreplayed row's `received_at`. markWaiting holds the item
+   *  until `deadLetterEscalatesAt` of it; absent, the item alarms at once. */
+  oldestReceivedAt?: string;
   ask?: string;
   askParts?: string[];
   ageDays?: number;

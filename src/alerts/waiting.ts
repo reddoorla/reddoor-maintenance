@@ -37,6 +37,27 @@ export const LOCKFILE_SETTLE_DAYS = 2;
  *  schedule is when waiting has demonstrably failed either way. */
 export const DIRECT_VULN_WAIT_DAYS = AUTO_FIX_EXHAUSTED_CYCLES + 1;
 
+// How often `forms-deadletter-replay.yml` drains the dead-letter queue: its cron is
+// `47 */6 * * *` (a line comment, because that cron closes a block comment). Change
+// it when the workflow does; tests/alerts/waiting.test.ts reads the workflow.
+export const DEADLETTER_REPLAY_EVERY_HOURS = 6;
+
+/** OD 87 (the operator, 2026-10-20): a dead letter on a slug that resolves to a site
+ *  waits two replay cycles before it alarms, counted from the OLDEST unreplayed row's
+ *  `received_at`. One cycle is not enough: a row that lands just after a run waits
+ *  almost the whole cycle for the next one, and the second run is the first proof
+ *  that replay could not place it. */
+export const DEADLETTER_HOLD_HOURS = 2 * DEADLETTER_REPLAY_EVERY_HOURS;
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+
+/** When a known site's dead letters stop waiting, from the oldest unreplayed row's
+ *  `received_at`. Null when it does not parse. PURE. */
+export function deadLetterEscalatesAt(oldestReceivedAt: string): Date | null {
+  const t = Date.parse(oldestReceivedAt);
+  return Number.isFinite(t) ? new Date(t + DEADLETTER_HOLD_HOURS * MS_PER_HOUR) : null;
+}
+
 function dayStartMs(day: string): number {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : Number.NaN;
 }
@@ -74,7 +95,13 @@ function vulnNoun(metric: number): string {
  * Mark every item whose fix is still on its way by itself. PURE.
  *
  * `firstFlagged` is the snapshot that holds each key's `firstFlaggedAt`: the `next`
- * that `diffAttention` returns for these same items. Only vulns wait today:
+ * that `diffAttention` returns for these same items. Vulns and dead letters wait:
+ *
+ *   - dead letter with an `oldestReceivedAt` (set by the collector only for a slug
+ *     that resolves to a site: OD 87) → waiting until {@link deadLetterEscalatesAt};
+ *     after it, the title says how long the oldest lead has waited. This clock is
+ *     `received_at`, not the snapshot, so `snapshotRead` does not touch it. Without
+ *     one (a slug no site owns, or no readable `received_at`) it alarms at once;
  *
  *   - exhausted (Renovate tried and failed) → never waiting;
  *   - transitive-only → waiting until {@link transitiveVulnEscalatesAt}; after it, the
@@ -99,11 +126,14 @@ export function markWaiting(
   const escalated = (it: AttentionItem, at: Date, title: string): AttentionItem => ({
     ...it,
     title,
-    ...(it.status !== undefined && now.getTime() - at.getTime() < MS_PER_DAY
+    // A key the snapshot has never held stays NEW: a dead letter can escalate on
+    // its first sighting (it is clocked by received_at, not by the snapshot).
+    ...(it.status !== undefined && it.status !== "new" && now.getTime() - at.getTime() < MS_PER_DAY
       ? { status: "worse" as const }
       : {}),
   });
   return items.map((it) => {
+    if (it.kind === "deadletter") return markDeadLetter(it, now, escalated);
     if (it.kind !== "vuln" || it.autoFixExhausted === true) return it;
     if (!snapshotRead) return it;
     const since = firstFlagged[it.key]?.firstFlaggedAt;
@@ -126,4 +156,33 @@ export function markWaiting(
     if (now.getTime() < at.getTime()) return { ...it, waiting: true };
     return escalated(it, at, `${vulnNoun(it.metric)} — Renovate has not fixed it since ${since}`);
   });
+}
+
+function hhmm(d: Date): string {
+  return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)}Z`;
+}
+
+/** The dead-letter branch of {@link markWaiting} (OD 87). */
+function markDeadLetter(
+  it: AttentionItem,
+  now: Date,
+  escalated: (it: AttentionItem, at: Date, title: string) => AttentionItem,
+): AttentionItem {
+  const at = it.oldestReceivedAt === undefined ? null : deadLetterEscalatesAt(it.oldestReceivedAt);
+  if (at === null) return it;
+  const ageHours = Math.max(
+    0,
+    Math.floor((now.getTime() - Date.parse(it.oldestReceivedAt!)) / MS_PER_HOUR),
+  );
+  if (now.getTime() < at.getTime())
+    return {
+      ...it,
+      waiting: true,
+      title: `${it.metric === 1 ? "1 lead dead-lettered" : `${it.metric} leads dead-lettered, oldest`} ${ageHours} h ago — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay should place ${it.metric === 1 ? "it" : "them"}; alarms at ${hhmm(at)} if not`,
+    };
+  return escalated(
+    it,
+    at,
+    `${it.metric === 1 ? "1 lead dead-lettered and" : `${it.metric} leads dead-lettered, the oldest`} not replayed for ${ageHours} h — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay has not placed ${it.metric === 1 ? "it" : "them"}; run \`db replay-deadletters\` to see why`,
+  );
 }

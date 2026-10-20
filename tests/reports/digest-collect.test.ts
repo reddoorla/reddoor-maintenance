@@ -1,3 +1,4 @@
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { describe, it, expect, vi } from "vitest";
 import { collectAttention } from "../../src/reports/digest.js";
 import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
@@ -192,6 +193,58 @@ describe("collectAttention", () => {
     const ghost = items.find((i) => i.key === "deadletter:ghost-co")!;
     expect(ghost).toMatchObject({ siteName: "(unknown site: ghost-co)", severity: "critical" });
     expect(ghost.url).toBeUndefined();
+  });
+
+  it("carries the oldest received_at onto a known slug only (OD 87)", async () => {
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const items = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+      deadLetterOldest: new Map([
+        ["acme-co", "2026-10-20T06:00:00.000Z"],
+        ["ghost-co", "2026-10-20T06:00:00.000Z"],
+      ]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBe(
+      "2026-10-20T06:00:00.000Z",
+    );
+    expect(items.find((i) => i.key === "deadletter:ghost-co")!.oldestReceivedAt).toBeUndefined();
+  });
+
+  it("a visible site keeps a slug its archived namesake's name also gives", async () => {
+    // listSites orders by name, byte order: "Acme Co" sorts after "ACME CO", so
+    // without visible-last ordering the archived row would win the slug.
+    const items = await collectAttention({
+      websites: [
+        makeWebsiteRow({ id: "recVIS", name: "ACME CO", status: "maintained" }),
+        makeWebsiteRow({ id: "recOLD", name: "Acme Co", status: "archived" }),
+      ],
+      reports: [],
+      baseUrl: BASE_URL,
+      deadLetters: new Map([["acme-co", 1]]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
+  });
+
+  it("given counts but no ages, holds nothing and reads no store (OD 87)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const tables = { Reports: [], Websites: [vulnSite()] };
+      const items = await collectAttention({
+        ...rowsOf(tables),
+        baseUrl: BASE_URL,
+        deadLetters: new Map([["acme-co", 1]]),
+      });
+      expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBeUndefined();
+      // A store read here would fail (no TURSO env under test) and say so.
+      expect(warn.mock.calls.flat().join(" ")).not.toMatch(/dead-letter/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("emits no deadletter item when the queue is empty", async () => {

@@ -2,7 +2,10 @@
 import type { Db } from "../db/client.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "../reports/report-fields.js";
-import { countUnreplayedDeadLettersForSlug } from "../db/deadletter.js";
+import {
+  countUnreplayedDeadLettersForSlug,
+  oldestUnreplayedDeadLetterForSlug,
+} from "../db/deadletter.js";
 import { countNotifyBouncedForSite, type NotifyBounceCounts } from "../db/submissions.js";
 import { screenOutsSince } from "../db/screenouts.js";
 import { readDigestState } from "../db/digest-state.js";
@@ -56,6 +59,16 @@ export async function loadSiteAlarmContext(
   } catch {
     // dead-letter chip simply absent
   }
+  // OD 87: the hold's clock. A blip leaves it empty, and the dead letter alarms.
+  let deadLetterOldest: ReadonlyMap<string, string> = new Map();
+  if (deadLetters.size > 0) {
+    try {
+      const oldest = await oldestUnreplayedDeadLetterForSlug(db, slug);
+      if (oldest !== null) deadLetterOldest = new Map([[slug, oldest]]);
+    } catch {
+      // nothing held
+    }
+  }
   let prior: DigestSnapshot = {};
   try {
     prior = await readDigestState(db);
@@ -63,7 +76,16 @@ export async function loadSiteAlarmContext(
     // nothing waits on an empty snapshot
   }
   try {
-    return buildSiteAlarmContext(site, reports, baseUrl, now, notifyBounces, deadLetters, prior);
+    return buildSiteAlarmContext(
+      site,
+      reports,
+      baseUrl,
+      now,
+      notifyBounces,
+      deadLetters,
+      prior,
+      deadLetterOldest,
+    );
   } catch (e) {
     console.error(`[site-dashboard] alarm context failed: ${String(e)}`);
     return null;
