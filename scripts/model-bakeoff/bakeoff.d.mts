@@ -1,7 +1,44 @@
 import type { Arm } from "./lib/arms.mjs";
+import type { Check, Collection, Kinds } from "./lib/score.mjs";
 import type { AgentTranscript } from "./lib/transcripts.mjs";
 export const REFEREE: Readonly<Arm>;
+/**
+ * A bake-off task module, as `prepare`, `collect` and `score` read it. Every hook is optional;
+ * `observe` needs `truth`, and an item task (`items`) needs `assemble`.
+ */
+export interface Task {
+  id: string;
+  title: string;
+  row: number;
+  sources: { from: string; match: RegExp; to: string }[];
+  collections: Collection[];
+  kinds?: Kinds;
+  schema: unknown;
+  prompt: (dir: string) => string;
+  goldAddendum: string;
+  arms: Arm[];
+  gold: Arm;
+  /** prepare: called before the input is frozen; `root` is set only when --root was given. */
+  setup?: (o: { input: string; work: string; ids: string[]; root?: string }) => void;
+  /** prepare: the reference, computed from the frozen input. */
+  truth?: (dir: string) => unknown;
+  items?: (dir: string) => { id: string; prompt: string; schema: unknown }[];
+  assemble?: (outputs: never, dir: string) => unknown;
+  /** score: what is scored for one agent, read from its work dir, in place of its output. */
+  observe?: (work: string, structured: unknown, agent?: unknown, reference?: unknown) => unknown;
+  secrets?: string[];
+  referenceFaults?: (task: never, reference: never) => string[];
+  extraCandidates?: (task: never, reference: never, outputs: never) => unknown;
+  scoreRun?: (task: never, reference: never, output: never, candidates?: never) => Check[];
+  summarize?: (o: never) => unknown;
+  formatSummary?: (summary: never) => string;
+  decision?: (records: never, dir: string, ctx: never) => unknown;
+}
 export function loadTask(name: string): Promise<Record<string, unknown>>;
+export function prepare(
+  opts: { task?: string; out: string; root?: string; arms?: string },
+  task?: Task,
+): Promise<void>;
 export function manifest(dir: string): Record<string, string>;
 export function extractArgs(
   task: {

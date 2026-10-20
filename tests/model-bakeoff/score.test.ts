@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterAll, describe, it, expect } from "vitest";
 import {
   MISSING,
   extraCandidates,
@@ -8,6 +11,20 @@ import {
   referenceFaults,
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
+import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
+
+// t5-census's input as `prepare` builds it from this repository: its sources, copied.
+const CENSUS_INPUT = mkdtempSync(join(tmpdir(), "score-census-"));
+afterAll(() => rmSync(CENSUS_INPUT, { recursive: true, force: true }));
+for (const s of census.sources) {
+  const from = resolve(import.meta.dirname, "../..", s.from);
+  mkdirSync(join(CENSUS_INPUT, s.to), { recursive: true });
+  for (const name of readdirSync(from)) {
+    const src = join(from, name);
+    if (s.match.test(name) && statSync(src).isFile())
+      copyFileSync(src, join(CENSUS_INPUT, s.to, name));
+  }
+}
 
 describe("normalise", () => {
   it("unifies dash variants, so an en dash in a cron range equals a hyphen", () => {
@@ -230,6 +247,24 @@ describe("scoreRun", () => {
       "the reference lists workflows b.yml more than once; the first entry is used",
       "the reference has 1 workflows item(s) with no file; they are not scored",
     ]);
+  });
+
+  it("reports a reference item that lacks a field its collection scores", () => {
+    // An older truth.json shape: every arm would be charged on the absent field, silently.
+    const old = { workflows: [{ file: "a.yml", jobs: 2 }, { file: "b.yml" }, ref.workflows[1]] };
+    expect(referenceFaults(spec, old)).toEqual([
+      "the reference lists workflows b.yml more than once; the first entry is used",
+      "the reference gives no crons for workflows a.yml, b.yml; every arm would be charged on it",
+      "the reference gives no jobs for workflows b.yml; every arm would be charged on it",
+    ]);
+    expect(referenceFaults(spec, ref)).toEqual([]);
+  });
+
+  it("finds no fault in t5-census's real reference", () => {
+    const real = census.truth(CENSUS_INPUT);
+    expect(real.workflows.length).toBeGreaterThan(10);
+    expect(real.scripts.length).toBeGreaterThan(10);
+    expect(referenceFaults(census, real)).toEqual([]);
   });
 
   it("keys an extra item by its normalised key, so a new spelling keeps the ruling", () => {

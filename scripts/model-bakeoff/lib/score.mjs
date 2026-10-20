@@ -78,7 +78,19 @@ function collectionTools(spec, col) {
 
 export function referenceFaults(spec, reference) {
   return spec.collections.flatMap((col) => {
-    const { duplicates, keyless } = collectionTools(spec, col).firstByKey(reference);
+    const { m, duplicates, keyless } = collectionTools(spec, col).firstByKey(reference);
+    // A reference item with no value for a scored field (a truth.json in an older shape) would
+    // charge every arm on that field, so it is a fault, not a silent cost.
+    const lacking = Object.keys(col.fields).flatMap((field) => {
+      const keys = [...m.values()]
+        .filter((r) => r[field] === undefined)
+        .map((r) => raw(r[col.key]));
+      return keys.length
+        ? [
+            `the reference gives no ${field} for ${col.name} ${keys.join(", ")}; every arm would be charged on it`,
+          ]
+        : [];
+    });
     return [
       ...duplicates.map(
         (d) => `the reference lists ${col.name} ${d} more than once; the first entry is used`,
@@ -88,6 +100,7 @@ export function referenceFaults(spec, reference) {
             `the reference has ${keyless} ${col.name} item(s) with no ${col.key}; they are not scored`,
           ]
         : []),
+      ...lacking,
     ];
   });
 }

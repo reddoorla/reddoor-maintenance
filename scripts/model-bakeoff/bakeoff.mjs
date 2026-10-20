@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -100,31 +101,49 @@ export function extractArgs(
   };
 }
 
-async function prepare(opts) {
-  const task = await loadTask(opts.task);
+// Builds a run dir, or none: a step that throws (a setup, a truth) removes what it had built, so
+// the same --out can be used again. `task` defaults to the module `opts.task` names.
+export async function prepare(opts, task) {
+  task ??= await loadTask(opts.task);
+  // score would refuse it, after every arm had been paid for.
+  if (task.observe && !task.truth) {
+    throw new Error(
+      `${task.id}: a task with observe() needs a truth; the gold cannot be the reference`,
+    );
+  }
   const run = resolve(opts.out);
   if (existsSync(run)) throw new Error(`${run} exists; pick a fresh --out`);
   const input = join(run, "input");
   const root = resolve(opts.root || REPO);
-  for (const s of task.sources) {
-    const to = join(input, s.to);
-    mkdirSync(to, { recursive: true });
-    for (const name of readdirSync(join(root, s.from)).sort()) {
-      const src = join(root, s.from, name);
-      if (s.match.test(name) && statSync(src).isFile()) copyFileSync(src, join(to, name));
+  try {
+    for (const s of task.sources) {
+      const to = join(input, s.to);
+      mkdirSync(to, { recursive: true });
+      for (const name of readdirSync(join(root, s.from)).sort()) {
+        const src = join(root, s.from, name);
+        if (s.match.test(name) && statSync(src).isFile()) copyFileSync(src, join(to, name));
+      }
     }
+    const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
+    const args = extractArgs(task, input, arms);
+    mkdirSync(args.work, { recursive: true });
+    const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
+    if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
+    freeze(input);
+    writeJson(join(run, "manifest.json"), manifest(input));
+    writeJson(join(run, "truth.json"), task.truth ? task.truth(input) : null);
+    writeJson(join(run, "workflow-args.json"), args);
+    console.log(`froze ${walk(input).length} files under ${input}`);
+    console.log(`workflow args: ${join(run, "workflow-args.json")}`);
+  } catch (e) {
+    // The frozen input's directories are read-only, which stops a non-root rm inside them.
+    if (existsSync(input)) {
+      for (const d of [input, ...walk(input, [], true)].filter((p) => statSync(p).isDirectory()))
+        chmodSync(d, 0o755);
+    }
+    rmSync(run, { recursive: true, force: true });
+    throw e;
   }
-  const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
-  const args = extractArgs(task, input, arms);
-  mkdirSync(args.work, { recursive: true });
-  const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
-  if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
-  freeze(input);
-  writeJson(join(run, "manifest.json"), manifest(input));
-  writeJson(join(run, "truth.json"), task.truth ? task.truth(input) : null);
-  writeJson(join(run, "workflow-args.json"), args);
-  console.log(`froze ${walk(input).length} files under ${input}`);
-  console.log(`workflow args: ${join(run, "workflow-args.json")}`);
 }
 
 // An item task (one agent per arm and item) keys each transcript by `<arm>/<item>`.
@@ -305,17 +324,14 @@ export function scoreArms(task, args, agents, reference, truth) {
   const checksByArm = {};
   // Arms with a problem of their own, for a task's decision hook.
   const invalid = [];
-  if (task.observe && !truth) {
+  // A refused run still reports what ran wrong in each arm; it only scores nothing.
+  const refused = Boolean(task.observe && !truth);
+  if (refused) {
     problems.push(
       `${args.task}: a task with observe() needs a truth; the gold cannot be the reference`,
     );
-    return { checksByArm, problems, invalid };
   }
   const all = [args.gold, ...args.arms];
-  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
-  const output = (arm) => armOutput(task, args, arm, agents[arm.id], reference);
-  const scorer = scorerFor(task);
-  const candidates = scorer.extraCandidates(task, reference, scored.map(output));
   for (const arm of all) {
     const a = agents[arm.id];
     if (!a) {
@@ -328,7 +344,13 @@ export function scoreArms(task, args, agents, reference, truth) {
       problems.push(...p);
       if (p.length) invalid.push(arm.id);
     }
-    if (arm.id === "gold" && !truth) continue;
+  }
+  if (refused) return { checksByArm, problems, invalid };
+  const scored = all.filter((arm) => agents[arm.id] && !(arm.id === "gold" && !truth));
+  const output = (arm) => armOutput(task, args, arm, agents[arm.id], reference);
+  const scorer = scorerFor(task);
+  const candidates = scorer.extraCandidates(task, reference, scored.map(output));
+  for (const arm of scored) {
     checksByArm[arm.id] = scorer.scoreRun(task, reference, output(arm), candidates);
   }
   return { checksByArm, problems, invalid };
