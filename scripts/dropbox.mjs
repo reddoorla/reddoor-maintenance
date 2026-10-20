@@ -392,6 +392,12 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
       }
       const last = await readChunk(fh, offset, size - offset);
       hash.update(last);
+      // finish commits the file (in overwrite mode, over the path's old copy), so a file whose
+      // size moved while its session was uploading is refused here, before anything is
+      // committed (#1454). readChunk already throws on a shrink it reads past; this also
+      // catches growth, and a shrink after the last read.
+      if ((await fh.stat()).size !== size)
+        throw new Error(`${local} changed size while being read; nothing was committed`);
       meta = fileMeta(
         "files/upload_session/finish",
         await contentCall(
@@ -401,8 +407,11 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
           last,
         ),
       );
+      // A file can still change while finish is in flight; by now the copy is committed.
       if ((await fh.stat()).size !== size)
-        throw new Error(`${local} changed size while being read`);
+        throw new Error(
+          `${local} changed size during upload_session/finish; ${meta.path_display ?? path} now holds the ${size} bytes read before the change`,
+        );
     } finally {
       await fh.close();
     }
