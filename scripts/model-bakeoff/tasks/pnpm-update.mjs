@@ -241,6 +241,38 @@ function unpack(dir, into) {
   return { repo, cache };
 }
 
+// The log gate (`exitCodes`) counts a log only when it holds pnpm's `$ <script body>` echo,
+// which pnpm 11 and 12 print and pnpm 9 and 10 do not (#1477). The snapshot records the pnpm
+// it ran, so prepare refuses an older one here rather than score every honest arm's checks as
+// absent. The arms and the truth run that same pnpm only when the snapshot is taken in the
+// session that runs them, as the README says; this checks the record, not the binary.
+export const MIN_PNPM_MAJOR = 11;
+
+export function setup({ input }) {
+  const file = join(input, "snapshot.json");
+  if (!existsSync(file)) {
+    throw new Error(`pnpm-update: no snapshot.json in ${input}; build the input with \`snapshot\``);
+  }
+  let pnpmVersion;
+  try {
+    ({ pnpmVersion } = JSON.parse(readFileSync(file, "utf8")));
+  } catch (e) {
+    throw new Error(`pnpm-update: ${file} is not JSON (${e.message})`, { cause: e });
+  }
+  const written = typeof pnpmVersion === "string" || typeof pnpmVersion === "number";
+  const major = written ? /^v?(\d+)(?:\.|$)/.exec(String(pnpmVersion).trim())?.[1] : undefined;
+  if (major === undefined) {
+    throw new Error(
+      `pnpm-update: snapshot.json records no pnpm version (${JSON.stringify(pnpmVersion)}); take the snapshot again`,
+    );
+  }
+  if (Number(major) < MIN_PNPM_MAJOR) {
+    throw new Error(
+      `pnpm-update: the snapshot ran pnpm ${pnpmVersion}, and the log gate needs pnpm ${MIN_PNPM_MAJOR} or later: older versions do not print the \`$ <script body>\` line it reads (#1477). Snapshot a repo whose packageManager is pnpm ${MIN_PNPM_MAJOR} or later.`,
+    );
+  }
+}
+
 // The reference: the same steps the arms are told to take, run by script on the frozen input,
 // with the same environment (the cache only on update and install). Logs stay in <into>/logs.
 export function truth(dir, { into = mkdtempSync(join(tmpdir(), "pnpm-update-truth-")) } = {}) {

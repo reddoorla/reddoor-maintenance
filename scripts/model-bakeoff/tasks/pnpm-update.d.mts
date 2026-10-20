@@ -13,6 +13,9 @@ export const UPDATE: string[];
 export const INSTALL: string[];
 export const CHECKS: string[];
 export const LOCKFILE: string;
+export const MIN_PNPM_MAJOR: number;
+/** prepare: refuses a snapshot taken with pnpm older than MIN_PNPM_MAJOR (#1477). */
+export function setup(o: { input: string; work: string; ids: string[]; root?: string }): void;
 export interface Dep {
   name: string;
   specifier: string;

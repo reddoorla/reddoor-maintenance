@@ -17,6 +17,7 @@ import {
   armOutput,
   byCollection,
   extractArgs,
+  prepare,
   scoreArms,
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
@@ -496,6 +497,61 @@ describe("pnpm-update arms and prompt", () => {
 
 // snapshot() against a throwaway git repository, with a fake `pnpm` first on PATH: it answers
 // --version and `store path`, and exits 1 for the subcommand named in FAKE_PNPM_FAIL.
+// #1477: the log gate needs pnpm's `$ <script body>` echo, which pnpm 11.11.0 and 12.5.1 print
+// and 9.15.0 and 10.18.0 do not (they print `> pkg@1.0.0 lint /path`), so every honest arm's
+// check items would be absent on an older pnpm, with no warning.
+describe("pnpm-update refuses a snapshot taken with pnpm older than 11", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+  const snap = (pnpmVersion?: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "pnpm-update-version-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "snapshot.json"),
+      JSON.stringify({ commit: "abc", ...(pnpmVersion === undefined ? {} : { pnpmVersion }) }),
+    );
+    return dir;
+  };
+  const setup = (dir: string) => () => task.setup({ input: dir, work: join(dir, "w"), ids: [] });
+
+  it("lets pnpm 11 and 12 through, however the version is written", () => {
+    for (const v of ["11.0.0", "11.11.0", "12.5.1", "v11.2.0", " 11.0.0", "11.0.0-rc.1"])
+      expect(setup(snap(v))).not.toThrow();
+    const dir = snap();
+    writeFileSync(join(dir, "snapshot.json"), JSON.stringify({ pnpmVersion: 11 }));
+    expect(setup(dir)).not.toThrow();
+  });
+
+  it("names a missing snapshot.json rather than failing to open it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pnpm-update-version-"));
+    dirs.push(dir);
+    expect(setup(dir)).toThrow(`pnpm-update: no snapshot.json in ${dir}`);
+  });
+
+  it("refuses pnpm 9 and 10, and a snapshot that records no version", () => {
+    expect(setup(snap("10.18.0"))).toThrow(
+      "pnpm-update: the snapshot ran pnpm 10.18.0, and the log gate needs pnpm 11 or later",
+    );
+    expect(setup(snap("9.15.0"))).toThrow(/ran pnpm 9\.15\.0/);
+    expect(setup(snap())).toThrow(/records no pnpm version/);
+    expect(setup(snap("next"))).toThrow(/records no pnpm version/);
+    const odd = snap();
+    writeFileSync(join(odd, "snapshot.json"), JSON.stringify({ pnpmVersion: ["11.0.0"] }));
+    expect(setup(odd)).toThrow(/records no pnpm version/);
+    writeFileSync(join(odd, "snapshot.json"), "{ not json");
+    expect(setup(odd)).toThrow(`pnpm-update: ${join(odd, "snapshot.json")} is not JSON`);
+  });
+
+  it("stops prepare before the truth runs, leaving no run dir", async () => {
+    const root = snap("10.18.0");
+    const out = join(root, "run");
+    await expect(prepare({ out, root }, task)).rejects.toThrow(/ran pnpm 10\.18\.0/);
+    expect(existsSync(out)).toBe(false);
+  });
+});
+
 describe("pnpm-update snapshot", () => {
   const env = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR };
   let base = "";
