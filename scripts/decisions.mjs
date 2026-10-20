@@ -133,11 +133,11 @@ const normalise = (line) =>
 // ask. "TODO <word> ..." is a real ask ("TODO markers in starter: delete them?"),
 // as are "TODO-list ..." and "todo.txt ...". Other wrappers, such as "(TODO)",
 // "<TODO>" or "~~TODO~~", are not stripped.
-const TODO_PUNCT = /^todo ?(?:[:.!?…—–‑(/-]+(?: |$)|[,;]+(?: *$| +the ask)|[:?…—–]+(?=\S))/;
+const TODO_PUNCT = /^todo ?(?:[:.!?…—–‑(/-]+(?: |$)|[,;]+(?: *$| *(?=the ask\b))|[:?…—–]+(?=\S))/;
 
 export function isPlaceholder(line) {
   const n = normalise(line);
-  return n === "todo" || TODO_PUNCT.test(n) || /^todo the ask/.test(n);
+  return n === "todo" || TODO_PUNCT.test(n) || /^todo the ask\b/.test(n);
 }
 
 // The error for a refused first line. A line that is the template's own ask, or
@@ -146,7 +146,7 @@ export function isPlaceholder(line) {
 function placeholderError(line) {
   const n = normalise(line);
   const rest = n.replace(TODO_PUNCT, "").trim();
-  return n === "todo" || rest === "" || /^todo the ask/.test(n) || /^the ask\b/.test(rest)
+  return n === "todo" || rest === "" || /^todo the ask\b/.test(n) || /^the ask\b/.test(rest)
     ? "the ask is still the TODO placeholder"
     : "the ask starts with TODO and punctuation; drop the TODO or reword it";
 }
@@ -175,6 +175,7 @@ function fenced(lines) {
         open = null;
     }
   }
+  inside.unclosed = open !== null;
   return inside;
 }
 
@@ -272,7 +273,9 @@ export function parseDecision(name, text, now = Date.now()) {
     const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter(
       (l) => l.trim() !== "" && !NOT_TEXT(l.trim()) && !isBareTodo(l),
     );
-    if (at === -1) errors.push("status is answered but has no ## Answer heading");
+    if (at === -1 && quoted.unclosed)
+      errors.push("status is answered but a code fence opens and never closes, hiding ## Answer");
+    else if (at === -1) errors.push("status is answered but has no ## Answer heading");
     else if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
   }
   return d;

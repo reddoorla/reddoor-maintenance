@@ -1025,6 +1025,10 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO…",
       "TODO\u2011 the ask",
       "TODO, the ask",
+      "TODO,the ask",
+      "TODO;the ask",
+      "TODO, the ask, in one line.",
+      "TODO; the ask, in one line.",
       "TODO—the ask, in one line.",
       "TODO–the ask, in one line.",
       "TODO- the ask",
@@ -1045,6 +1049,8 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO, FIXME and HACK markers in starter: delete them?",
       "TODO,FIXME markers in starter: delete them?",
       "TODO; FIXME: which to keep?",
+      "TODO, the asking price: hold it?",
+      "TODO the asking price: hold it?",
     ]) {
       const d = pd(X, file({ first }));
       expect(d.errors, first).toEqual([]);
@@ -1077,6 +1083,13 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
     expect(pd(X, after).errors).toEqual([]);
     const headingInFence = answered.replace("Yes.", "```\n## Not a heading\n```\nYes.");
     expect(pd(X, headingInFence).errors).toEqual([]);
+  });
+
+  it("names an unclosed fence that hides ## Answer (#1522 review)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    expect(pd(X, answered.replace("## Answer\n", "```\n\n## Answer\n")).errors).toEqual([
+      "status is answered but a code fence opens and never closes, hiding ## Answer",
+    ]);
   });
 
   it("closes a fence only on a bare closer of its own kind and length (#1446)", () => {
