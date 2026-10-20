@@ -563,8 +563,7 @@ async function sampleAll(page: Page, windowRead: string | null): Promise<MotionS
       .frameElement()
       .then((el) => el.getAttribute("src"))
       .catch(() => null);
-    const at =
-      src === null ? `iframe[srcdoc] :: ` : `iframe[src="${src.replace(/"/g, '\\"')}"] :: `;
+    const at = src === null ? `iframe[srcdoc] :: ` : `iframe[src=${JSON.stringify(src)}] :: `;
     top.items.push(...inner.items.map((i) => ({ ...i, target: at + i.target })));
     top.scrollDriven += inner.scrollDriven;
     top.reduceMatched &&= inner.reduceMatched;
