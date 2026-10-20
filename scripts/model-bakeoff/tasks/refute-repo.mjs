@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatCost } from "../lib/ledger.mjs";
+import { MISSING, disagreementId } from "../lib/score.mjs";
 import {
   enforceQuoteRule,
   refutePrompt,
@@ -181,7 +183,12 @@ export function truth(dir) {
 // and none qualifies while the control may not rank. Neither kind counts toward the spread: a
 // run that crashed or returned nothing must not turn a saturated control into a ranking one.
 // Any problem `score` finds that is not one arm's (the input changed, the referee contradicts
-// itself, a referee read the key) is a `blocker`, and stops the ranking too.
+// itself, a referee's command or read named the key's file) is a `blocker`, and stops the
+// ranking too.
+//
+// The rule counts against the key, but the score column applies the referee's rulings, so a
+// ruling that credits a run (`armCorrect: true`) shows there as correct and here as an error.
+// The rule stays as registered; `rulingChanges` names each such check in the report (#1493).
 
 export const TOLERANCE = Object.freeze({
   misses: 1,
@@ -216,6 +223,24 @@ export function tally(output, data = DATA) {
   return t;
 }
 
+/**
+ * The checks a referee ruling credited although the key disagrees, per run: the score column
+ * counts them correct, and this rule counts them against the key. `checksByArm` is `score`'s,
+ * before rulings; a ruling that upholds the key changes nothing and is not listed.
+ */
+export function rulingChanges(checksByArm = {}, rulings = {}) {
+  const out = [];
+  for (const [run, checks] of Object.entries(checksByArm)) {
+    for (const c of checks) {
+      if (c.ok || c.mechanical || c.armRaw === MISSING) continue;
+      if (rulings[disagreementId(c)]?.armCorrect === true) {
+        out.push({ run, check: c.check, got: c.armRaw, key: c.refRaw });
+      }
+    }
+  }
+  return out;
+}
+
 export function passes(t, tol = TOLERANCE) {
   return (
     t.misses.length <= tol.misses &&
@@ -245,6 +270,8 @@ export function decide(
       id: r.id,
       config: configOf(r),
       cost: r.cost,
+      requests: r.requests,
+      unfinished: r.unfinished,
       ...t,
       invalid,
       pass: !invalid && passes(t, tol),
@@ -258,11 +285,15 @@ export function decide(
       errors: 0,
       misses: 0,
       cost: 0,
+      requests: 0,
+      unfinished: 0,
     };
     c.runs.push(r.id);
     c.errors += r.errors.length;
     c.misses += r.misses.length;
     c.cost = c.cost === null || r.cost === null ? null : c.cost + r.cost;
+    c.requests += r.requests ?? 0;
+    c.unfinished += r.unfinished ?? 0;
     c.allPass = (c.allPass ?? true) && r.pass;
     configs.set(r.config, c);
   }
@@ -315,6 +346,8 @@ export function decision(records, dir, ctx = {}) {
     referenceErrors = [],
     unruled = 0,
     blockers = [],
+    checksByArm = {},
+    rulings = {},
   } = ctx;
   const runs = runArms
     .filter((a) => records[a.id])
@@ -322,17 +355,20 @@ export function decision(records, dir, ctx = {}) {
       ...a,
       output: records[a.id].structured,
       cost: records[a.id].cost,
+      requests: records[a.id].requests,
+      unfinished: records[a.id].unfinished,
       invalid: invalid.includes(a.id),
     }));
   const d = decide(runs, { referenceErrors, unruled, blockers });
-  const money = (n) => (n === null ? "unpriced" : `$${n.toFixed(2)}`);
+  d.rulingChanges = rulingChanges(checksByArm, rulings);
   const ids = (xs) => (xs.length ? xs.join(" ") : "none");
+  const changed = d.rulingChanges.map((x) => `${x.run} ${x.check} (gave ${x.got}, key ${x.key})`);
   d.lines = [
     "| Config | Runs | Pooled errors | Pooled misses | Every run passes | Qualifies | Cost (all runs) |",
     "|---|---|---|---|---|---|---|",
     ...d.ranked.map(
       (c) =>
-        `| ${c.config} | ${c.runs.join(", ")} | ${c.errors} | ${c.misses} | ${c.allPass ? "yes" : "no"} | ${c.qualifies ? "yes" : "no"} | ${money(c.cost)} |`,
+        `| ${c.config} | ${c.runs.join(", ")} | ${c.errors} | ${c.misses} | ${c.allPass ? "yes" : "no"} | ${c.qualifies ? "yes" : "no"} | ${formatCost(c.cost, c.unfinished, c.requests)} |`,
     ),
     "",
     "| Run | Misses (false not refuted) | Wrong kills (true refuted) | Unconfirmed true docs | Behaviour off | Problem | Pass |",
@@ -342,6 +378,7 @@ export function decision(records, dir, ctx = {}) {
         `| ${r.id} | ${ids(r.misses)} | ${ids(r.wrongKills)} | ${ids(r.unconfirmed)} | ${ids(r.behaviour)} | ${r.invalid ? "yes" : "no"} | ${r.pass ? "yes" : "no"} |`,
     ),
     "",
+    `Referee rulings this rule does not apply (it counts against the key; the score column credits these): ${changed.length ? changed.join("; ") : "none"}.`,
     d.canRank
       ? `The control ranks this run: production passed, the key held, and pooled errors spread by ${d.spread}.`
       : `The control may NOT rank this run: ${d.reasons.join("; ")}.`,

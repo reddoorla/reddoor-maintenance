@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   PRICES,
+  formatCost,
+  formatTable,
   mergeRecords,
   priceRequest,
   splitLines,
@@ -145,6 +147,59 @@ describe("summarise", () => {
     const s = summarise(records);
     expect(s.total.cost).toBeCloseTo(8 + 5, 10);
     expect(s.total.ttlUnknown).toBe(1);
+  });
+});
+
+// #1435: Claude Code writes a non-final request's usage from the start of its stream
+// (`stop_reason: null`, output_tokens of 4 to 16), and never a final update for it.
+describe("unfinished requests", () => {
+  const ended = (id: string, out: number, stop_reason: string | null, effort = "low") =>
+    JSON.stringify({
+      effort,
+      message: {
+        id,
+        model: "claude-opus-5-5",
+        role: "assistant",
+        content: [],
+        usage: { output_tokens: out },
+        stop_reason,
+      },
+    });
+
+  it("marks a request unfinished when its last line has no stop_reason, and counts it", () => {
+    const { records } = usageRecords([
+      ended("m1", 8, null),
+      ended("m2", 4, null),
+      ended("m2", 900, "tool_use"),
+      line("m3", "claude-opus-5-5", { output_tokens: 1 }),
+    ]);
+    expect(records.map((r) => [r.id, r.unfinished])).toEqual([
+      ["m1", true],
+      ["m2", false],
+      ["m3", true],
+    ]);
+    expect(summarise(records).total.unfinished).toBe(2);
+  });
+
+  it("prints a cost that counts an unfinished request as a lower bound, with the count", () => {
+    const { records } = usageRecords([
+      ended("a", 1e6, "end_turn", "low"),
+      ended("b", 1e6, "end_turn", "high"),
+      ended("c", 1e6, null, "high"),
+    ]);
+    const table = formatTable(summarise(records));
+    const row = (effort: string) => table.split("\n").find((l) => l.includes(`| ${effort} |`))!;
+    expect(row("low")).toMatch(/\| \$20\.00 \|$/);
+    expect(row("high")).toMatch(/\| ≥\$40\.00 \(1 of 2 unfinished\) \|$/);
+    expect(table.split("\n").at(-1)).toMatch(/\| ≥\$60\.00 \(1 of 3 unfinished\) \|$/);
+  });
+
+  it("formats a cost as unpriced, exact, or a lower bound", () => {
+    expect(formatCost(null, 3, 5)).toBe("unpriced");
+    expect(formatCost(1.234, 0, 5)).toBe("$1.23");
+    expect(formatCost(1.23456, 2, 5, 4)).toBe("≥$1.2346 (2 of 5 unfinished)");
+    // A record collected before #1435 carries no count: printed as it was.
+    expect(formatCost(1.5, undefined, 5)).toBe("$1.50");
   });
 });
 

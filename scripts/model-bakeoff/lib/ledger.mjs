@@ -81,6 +81,10 @@ export function usageRecords(lines) {
       effort: o.effort || "(unset)",
       timestamp: o.timestamp,
       usage: usageOf(m.usage),
+      // Claude Code writes a request's usage from the start of its stream and updates it only
+      // when the stream ends with a stop_reason. A request whose last line has none keeps its
+      // stream-start output count (4 to 16 tokens), so its cost is a floor (#1435).
+      unfinished: m.stop_reason == null,
     });
   }
   return { records: [...byId.values()], diag };
@@ -110,6 +114,7 @@ const newRow = (model, effort) => ({
   priced: true,
   longPrompt: 0,
   ttlUnknown: 0,
+  unfinished: 0,
 });
 
 export function summarise(records) {
@@ -127,6 +132,7 @@ export function summarise(records) {
       row.cacheWrite1h += r.usage.cw1h;
       row.output += r.usage.out;
       if (r.usage.ttlUnknown) row.ttlUnknown++;
+      if (r.unfinished) row.unfinished++;
       if (longPrompt) row.longPrompt++;
       if (cost === null) row.priced = false;
       else row.cost += cost;
@@ -137,7 +143,21 @@ export function summarise(records) {
 }
 
 const M = (n) => `${(n / 1e6).toFixed(2)}M`;
-const usd = (n) => `$${n.toFixed(2)}`;
+
+/**
+ * A cost as printed: `unpriced`, an exact `$x`, or `≥$x (n of m unfinished)` when some of its
+ * requests never got a final usage line, which makes the figure a lower bound (#1435). A record
+ * collected before the count existed (`unfinished` undefined) prints as it always did.
+ */
+export function formatCost(cost, unfinished, requests, digits = 2) {
+  if (cost === null) return "unpriced";
+  const usd = `$${cost.toFixed(digits)}`;
+  return unfinished ? `≥${usd} (${unfinished} of ${requests} unfinished)` : usd;
+}
+
+/** The note a table with a lower-bound cost prints under it. */
+export const LOWER_BOUND_NOTE =
+  "≥: a lower bound. An unfinished request's transcript keeps only its stream-start usage (stop_reason null), so its output tokens, thinking included, are undercounted (#1435).";
 
 export function formatTable(summary) {
   const out = [
@@ -146,12 +166,12 @@ export function formatTable(summary) {
   ];
   for (const r of summary.rows) {
     out.push(
-      `| ${r.model} | ${r.effort} | ${r.requests} | ${M(r.input)} | ${M(r.cacheRead)} | ${M(r.cacheWrite5m)} / ${M(r.cacheWrite1h)} | ${M(r.output)} | ${r.longPrompt} | ${r.priced ? usd(r.cost) : "unpriced"} |`,
+      `| ${r.model} | ${r.effort} | ${r.requests} | ${M(r.input)} | ${M(r.cacheRead)} | ${M(r.cacheWrite5m)} / ${M(r.cacheWrite1h)} | ${M(r.output)} | ${r.longPrompt} | ${formatCost(r.priced ? r.cost : null, r.unfinished, r.requests)} |`,
     );
   }
   const t = summary.total;
   out.push(
-    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${usd(t.cost)}${t.priced ? "" : " (priced rows only)"} |`,
+    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${formatCost(t.cost, t.unfinished, t.requests)}${t.priced ? "" : " (priced rows only)"} |`,
   );
   return out.join("\n");
 }

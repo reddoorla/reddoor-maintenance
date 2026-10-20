@@ -21,6 +21,8 @@ export interface UsageRecord {
   effort: string;
   timestamp?: string;
   usage: Usage;
+  /** No stop_reason on the request's last line: its usage is the stream-start figure. */
+  unfinished: boolean;
 }
 export interface Row {
   model: string;
@@ -35,6 +37,7 @@ export interface Row {
   priced: boolean;
   longPrompt: number;
   ttlUnknown: number;
+  unfinished: number;
 }
 export const PRICE_SOURCE: string;
 export const PRICES: Readonly<Record<string, RateCard>>;
@@ -49,3 +52,10 @@ export function mergeRecords<T extends { id: string }>(
 export function priceRequest(model: string, u: Usage): { cost: number | null; longPrompt: boolean };
 export function summarise(records: UsageRecord[]): { rows: Row[]; total: Row };
 export function formatTable(summary: { rows: Row[]; total: Row }): string;
+export function formatCost(
+  cost: number | null,
+  unfinished: number | undefined,
+  requests: number,
+  digits?: number,
+): string;
+export const LOWER_BOUND_NOTE: string;

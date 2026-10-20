@@ -16,6 +16,11 @@ export interface AgentTranscript {
   models: string[];
   efforts: string[];
   requests: number;
+  /**
+   * Requests whose usage is only the stream-start figure, so `cost` is a lower bound. Absent
+   * from a runs.json collected before #1435.
+   */
+  unfinished?: number;
   repeats: number;
   cost: number | null;
   longPrompt: number;
