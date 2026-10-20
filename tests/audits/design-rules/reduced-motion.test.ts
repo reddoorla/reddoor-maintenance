@@ -90,10 +90,10 @@ const PAGES: Record<string, string> = {
   "/waapi": page(
     RESET_AFTER_135,
     `<p id="intro">Hello</p>`,
-    `document.getElementById("intro").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 4000, fill: "both" });`,
+    `document.getElementById("intro").animate([{ transform: "translateY(20px)" }, { transform: "none" }], { duration: 4000, fill: "both" });`,
   ),
   "/paused": page(
-    `@keyframes r { from { opacity: 0 } to { opacity: 1 } } .rev { animation: r 1s both paused; }`,
+    `@keyframes r { from { transform: translateY(20px) } } .rev { animation: r 1s both paused; }`,
     `<p class="rev">Stuck at the first frame</p>`,
   ),
   "/pseudo-delay": page(
@@ -116,7 +116,7 @@ const PAGES: Record<string, string> = {
   "/container-scroll": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R2</title>
 <style>html, body { height: 100%; margin: 0; overflow: hidden } main { height: 100%; overflow-y: auto } .spacer { height: 3000px }</style></head>
 <body><main><h1>R2</h1><div class="spacer"></div><p id="late">Late</p></main>
-<script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 3000 }); o.disconnect(); } }).observe(document.getElementById("late"));</script></body></html>`,
+<script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.animate([{ transform: "translateY(20px)" }, { transform: "none" }], { duration: 3000 }); o.disconnect(); } }).observe(document.getElementById("late"));</script></body></html>`,
   "/raf": page(
     `#mover { position: relative; left: 0 }`,
     `<div id="mover">Sliding</div>`,
@@ -126,7 +126,7 @@ const PAGES: Record<string, string> = {
   "/timer": page(
     RESET_AFTER_135,
     `<p id="late">Hello</p>`,
-    `setTimeout(() => document.getElementById("late").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 2000 }), 400);`,
+    `setTimeout(() => document.getElementById("late").animate([{ transform: "translateY(20px)" }, { transform: "none" }], { duration: 2000 }), 400);`,
   ),
   "/shadow": page(
     "",
@@ -153,7 +153,7 @@ const PAGES: Record<string, string> = {
     "",
     `<p id="tail">a</p><p id="left">b</p>`,
     `for (const [id, at] of [["tail", 970], ["left", 800]]) {
-       const a = document.getElementById(id).animate([{ opacity: 0 }, { opacity: 1 }], 1000);
+       const a = document.getElementById(id).animate([{ transform: "translateY(20px)" }, { transform: "none" }], 1000);
        a.currentTime = at; a.playbackRate = 1e-4;
      }`,
   ),
@@ -163,7 +163,7 @@ const PAGES: Record<string, string> = {
     `<p id="top">Top</p><div class="spacer"></div>`,
     `let low = 0; addEventListener("scroll", () => {
        if (scrollY > low) low = scrollY;
-       else if (scrollY === 0 && low > 0) document.getElementById("top").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 5000 });
+       else if (scrollY === 0 && low > 0) document.getElementById("top").animate([{ transform: "translateY(20px)" }, { transform: "none" }], { duration: 5000 });
      });`,
   ),
   // Round 2's false passes, each a page that breaks R2:
@@ -187,11 +187,11 @@ const PAGES: Record<string, string> = {
     `@import url(/kf.css); .menu { display: none; animation: rise 400ms 300ms both; }`,
     `<nav class="menu">Menu</nav>`,
   ),
-  "/kf.css": "@keyframes rise { from { opacity: 0 } to { opacity: 1 } }",
+  "/kf.css": "@keyframes rise { from { transform: translateY(20px) } }",
   "/host-kf": page(
     "",
     `<x-pop></x-pop>`,
-    `customElements.define("x-pop", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes pop { from { opacity: 0 } to { opacity: 1 } } :host { display: none; animation: pop 400ms 300ms both }</style>"; } });`,
+    `customElements.define("x-pop", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes pop { from { transform: scale(.9) } } :host { display: none; animation: pop 400ms 300ms both }</style>"; } });`,
   ),
   // a scroll-triggered 300ms rAF reveal halfway down a long page (it ends
   // inside its own step's window, so only a window at that step sees it);
@@ -216,7 +216,7 @@ const PAGES: Record<string, string> = {
   ),
   // an endless flicker behind a delay: both are said.
   "/infinite-delay": page(
-    `@keyframes s { to { opacity: .5 } } .f { animation: s 0.01ms 400ms infinite; }`,
+    `@keyframes s { to { transform: scale(.5) } } .f { animation: s 0.01ms 400ms infinite; }`,
     `<p class="f">Flicker</p>`,
   ),
   // Round 2's unheld behaviours:
@@ -283,19 +283,16 @@ const PAGES: Record<string, string> = {
     `<nav class="menu">Menu</nav>`,
   ),
   // a script parallax: a new transform at every scroll position;
-  "/parallax": page(
-    `.tall { height: 4600px }`,
-    `<div id="p">Backdrop</div><div class="tall"></div>`,
-    `const p = document.getElementById("p"); addEventListener("scroll", () => { p.style.transform = "translateY(" + scrollY * 0.5 + "px)"; });`,
-  ),
   // a scroll() hero that drifts and fades;
   "/scroll-hero": page(
     `${RESET_AFTER_135}
      @keyframes drift { to { transform: translateY(300px) } }
      @keyframes fill { from { transform: scaleX(0) } }
      .hero { animation: drift linear both; animation-timeline: scroll(); } .tall { height: 3000px }
-     .bar { height: 4px; animation: fill linear both; animation-timeline: scroll(); }`,
-    `<div class="bar"></div><div class="hero">Hero</div><div class="tall"></div>`,
+     @keyframes fill2 { from { transform: scale(0, 1) } }
+     .bar { height: 4px; animation: fill linear both; animation-timeline: scroll(); }
+     .bar2 { height: 4px; animation: fill2 linear both; animation-timeline: scroll(); }`,
+    `<div class="bar"></div><div class="bar2"></div><div class="hero">Hero</div><div class="tall"></div>`,
   ),
   // a ticker stepping four times a second;
   "/ticker": page(
@@ -307,7 +304,7 @@ const PAGES: Record<string, string> = {
   // each, tweened frame by frame;
   "/channels": page(
     `.c { position: relative } #c-scroll { width: 100px; overflow: hidden; white-space: nowrap }`,
-    `<div class="c" id="c-translate">a</div><div class="c" id="c-rotate">b</div>
+    `<div class="c" id="c-translate">a</div><div class="c" id="c-rotate">b</div><div class="c" id="c-scale">s</div>
      <div class="c" id="c-top">c</div><div class="c" id="c-right">d</div><div class="c" id="c-bottom">e</div>
      <div class="c" id="c-margin-top">f</div><div class="c" id="c-margin-right">f</div><div class="c" id="c-margin-bottom">f</div><div class="c" id="c-opacity">g</div>
      <div class="c" id="c-bg">h</div><div id="c-scroll">${"wide ".repeat(80)}</div>
@@ -317,7 +314,7 @@ const PAGES: Record<string, string> = {
        <path id="c-dash" d="M0 50 H200" stroke="black" stroke-dasharray="4 4"/></svg>`,
     `const t0 = performance.now(); const $ = (id) => document.getElementById(id);
      (function step(t) { const k = ((t - t0) / 20) % 100;
-       $("c-translate").style.translate = k + "px"; $("c-rotate").style.rotate = k + "deg";
+       $("c-translate").style.translate = k + "px"; $("c-rotate").style.rotate = k + "deg"; $("c-scale").style.scale = String(1 + k / 100);
        $("c-top").style.top = k + "px"; $("c-right").style.right = k + "px"; $("c-bottom").style.bottom = k + "px";
        $("c-margin-top").style.marginTop = k + "px"; $("c-margin-right").style.marginRight = k + "px"; $("c-margin-bottom").style.marginBottom = k + "px"; $("c-opacity").style.opacity = String(k / 100);
        $("c-bg").style.backgroundPosition = k + "px 0"; $("c-scroll").scrollLeft = k;
@@ -325,11 +322,32 @@ const PAGES: Record<string, string> = {
        $("c-svg-transform").setAttribute("transform", "translate(" + k + ")"); $("c-dash").style.strokeDashoffset = String(k);
        requestAnimationFrame(step); })(t0);`,
   ),
-  // durations on what moves: `all`, which covers transform; an opacity fade;
-  // a margin shift; and a colour fade, which is not motion (no reset);
+  // durations on what moves: `all`, which covers transform; a margin shift; a
+  // background pan; and an opacity and a colour fade, which are not (no reset);
   "/durations": page(
-    `.all { transition: all 400ms } .fade { transition: opacity 400ms } .shift { transition: margin-left 400ms } .tint { transition: color 400ms }`,
-    `<p class="all">a</p><p class="fade">b</p><p class="shift">c</p><p class="tint">d</p>`,
+    `.all { transition: all 400ms } .fade { transition: opacity 400ms } .shift { transition: margin-left 400ms } .tint { transition: color 400ms } .pan { transition: background-position 400ms }`,
+    `<p class="all">a</p><p class="fade">b</p><p class="shift">c</p><p class="tint">d</p><p class="pan">e</p>`,
+  ),
+  // fades, which the operator ruled are not motion (2026-10-20): a WAAPI fade,
+  // an endless pulse, a finite fade paused at its start; and a fade's delay,
+  // which still counts (no reset);
+  "/fades": page(
+    `@keyframes pulse { 50% { opacity: .4 } } .pulse { animation: pulse 2s infinite }
+     @keyframes in { from { opacity: 0 } } .held { animation: in 1s both paused } .late { transition: opacity 0.01ms 600ms }`,
+    `<p id="f">a</p><p class="pulse">b</p><p class="held">c</p><p class="late">d</p>`,
+    `document.getElementById("f").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 4000, fill: "both" });`,
+  ),
+  // a reveal a script prepares below the fold and shows on entry, each block
+  // once: two snaps, not motion (round 5's false fail, from beachfront);
+  "/lazy": page(
+    `${RESET_AFTER_135} .tall { height: 700px }`,
+    Array.from(
+      { length: 8 },
+      (_, i) => `<div class="tall"></div><div class="img" id="b${i}">Block</div>`,
+    ).join(""),
+    `const prep = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.style.opacity = "0"; e.target.style.transform = "translateY(12px)"; prep.unobserve(e.target); } }), { rootMargin: "0px 0px 50% 0px" });
+     const show = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.style.opacity = "1"; e.target.style.transform = "none"; show.unobserve(e.target); } }));
+     document.querySelectorAll(".img").forEach((el) => { prep.observe(el); show.observe(el); });`,
   ),
   // a header a script hides on the way down: it changes once and holds;
   "/hiding-header": page(
@@ -356,12 +374,6 @@ const PAGES: Record<string, string> = {
     `@keyframes zoom { from { transform: scale(1.4) } to { transform: scale(1) } }
      .hero { height: 100vh; overflow: hidden } .hero img { display: block; width: 100%; height: 100%; animation: zoom linear both; animation-timeline: view(); animation-range: exit; } .tall { height: 2000px }`,
     `<div class="hero"><img id="zoom" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div><div class="tall"></div>`,
-  ),
-  // a hero whose backdrop a script moves for the hero's height, then holds;
-  "/hero-parallax": page(
-    `.hero { height: 100vh; overflow: hidden } .tall { height: 3200px }`,
-    `<div class="hero"><div id="bg">Backdrop</div></div><div class="tall"></div>`,
-    `const bg = document.getElementById("bg"); addEventListener("scroll", () => { bg.style.transform = "translate3d(0," + Math.min(scrollY, innerHeight) * 0.4 + "px,0)"; });`,
   ),
   // smooth scrolling left on under reduce (Tailwind's scroll-smooth);
   "/smooth": `<!doctype html><html lang="en" style="scroll-behavior: smooth"><head><meta charset="utf-8"><title>R2</title></head><body><main><h1>R2</h1><a href="#end">Down</a><div style="height:2000px"></div><p id="end">End</p></main></body></html>`,
@@ -740,25 +752,15 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
     ]);
   });
 
-  it("FAILS a script parallax", async () => {
-    const o = await run("/parallax");
-    expect(o.findings).toEqual([
-      {
-        target: "div#p",
-        problem: `moved by script with the scroll (parallax) under reduce ${BOTH}`,
-      },
-    ]);
-  });
-
   it("FAILS a scroll() hero that moves, and still counts a size-only bar", async () => {
     const o = await run("/scroll-hero");
     expect(o.findings).toEqual([
       {
-        target: "body > main > div.hero:nth-of-type(2)",
+        target: "body > main > div.hero:nth-of-type(3)",
         problem: `animation drift (scroll-driven) still running under reduce (no end) ${BOTH}`,
       },
     ]);
-    expect(o.note).toContain("; 1 size-only scroll-driven animation(s) not judged");
+    expect(o.note).toContain("; 2 size-only scroll-driven animation(s) not judged");
   });
 
   it("FAILS a ticker that steps slower than one read gap", async () => {
@@ -797,9 +799,9 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
         "div#c-margin-bottom",
         "div#c-margin-right",
         "div#c-margin-top",
-        "div#c-opacity",
         "div#c-right",
         "div#c-rotate",
+        "div#c-scale",
         "div#c-scroll",
         "div#c-top",
         "div#c-translate",
@@ -811,15 +813,30 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
     );
   });
 
-  it("FAILS a duration on all, opacity and margin, and leaves a colour fade alone", async () => {
+  it("FAILS a duration on all, margin and a background pan, and leaves opacity and colour fades alone", async () => {
     const o = await run("/durations");
     const at = (f: { target: string; problem: string }) =>
       `${f.target.replace(/^.* > |:nth-of-type\(\d\)$/g, "")}: ${f.problem.split(" (")[0]}`;
     expect(o.findings.map(at)).toEqual([
       "p.all: transition-duration 400ms under reduce",
-      "p.fade: transition-duration 400ms under reduce",
       "p.shift: transition-duration 400ms under reduce",
+      "p.pan: transition-duration 400ms under reduce",
     ]);
+  });
+
+  it("PASSES fades, running, endless or paused, and still FAILS a fade's delay", async () => {
+    const o = await run("/fades");
+    expect(
+      o.findings.map(
+        (f) =>
+          `${f.target.replace(/^.* > |:nth-of-type\(\d\)$/g, "")}: ${f.problem.split(" (")[0]}`,
+      ),
+    ).toEqual(["p.late: transition-delay 600ms under reduce"]);
+  });
+
+  it("PASSES a reveal a script prepares below the fold and shows on entry", async () => {
+    const o = await run("/lazy");
+    expect(o.findings).toEqual([]);
   });
 
   it("PASSES a header a script hides once on the way down", async () => {
@@ -862,16 +879,6 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
       `animation zoom (scroll-driven) still running under reduce (no end) ${BOTH}`,
     );
     expect(o.note).not.toMatch(/size-only/);
-  });
-
-  it("FAILS a hero parallax that moves only for the hero's height", async () => {
-    const o = await run("/hero-parallax");
-    expect(o.findings).toEqual([
-      {
-        target: "div#bg",
-        problem: `moved by script with the scroll (parallax) under reduce ${BOTH}`,
-      },
-    ]);
   });
 
   it("FAILS smooth scrolling left on under reduce", async () => {
