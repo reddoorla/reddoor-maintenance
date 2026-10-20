@@ -284,11 +284,14 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
   for (const it of model.cardless ?? []) {
     if (it.waiting === true) continue;
     const reasons = [askedFrom(it, inputs.prior, today)];
+    // An item with a url has a page (a site with no card, e.g. archived); one
+    // without resolves to no site at all.
+    const slug = it.url ? siteSlug(it.siteName) : "";
     entries.push({
       group: "broken",
       siteName: it.siteName,
-      slug: "",
-      url: "(no site page)",
+      slug,
+      url: slug ? `/s/${slug}` : "(no site page)",
       reasons,
       isNew: isNew(reasons),
       hasCritical: it.severity === "critical",

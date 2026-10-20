@@ -364,7 +364,7 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
   it("names the age of the OLDEST row as it grows", () => {
     const now = new Date(at.getTime() + 15 * 60 * 60 * 1000 + 59 * 60 * 1000);
     const [out] = markWaiting([held({ metric: 3 })], snap, now, true);
-    expect(out!.title).toMatch(/^3 leads dead-lettered and not replayed for 27 h/);
+    expect(out!.title).toMatch(/^3 leads dead-lettered, the oldest not replayed for 27 h/);
   });
 
   it("is badged WORSE on the day it escalates, and not after", () => {

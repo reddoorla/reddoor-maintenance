@@ -178,9 +178,11 @@ and the digest. Two shapes:
   too). Since Operator decision 87 (2026-10-20) it waits two replay cycles first: until 12
   hours after the oldest unreplayed row's `received_at`, it shows only on that site's page, as
   a dotted _waiting:_ chip, and stays off the cockpit, the Needs-you feed and the digest. After
-  that it reads _N leads dead-lettered and not replayed for H h — the 6-hourly replay has not
-  placed them; run `db replay-deadletters` to see why_, badged WORSE that day (NEW if the
-  digest never saw it), and links to that site's page.
+  that it reads _N leads dead-lettered, the oldest not replayed for H h — the 6-hourly replay
+  has not placed them; run `db replay-deadletters` to see why_, badged WORSE that day (NEW if
+  the digest never saw it), and links to that site's page. A site with no cockpit card
+  (archived) still has its page; on the cockpit its item sits in the _Not on any site card_
+  lane, linked.
 - The slug resolves to **no** fleet site. The item reads _N leads dead-lettered for '&lt;slug&gt;',
   which resolves to NO fleet site — leads are being dropped; run `ensure-site <slug>` then
   `db replay-deadletters`_, and is rendered card-less with **no** link (a `/s/<slug>` link would

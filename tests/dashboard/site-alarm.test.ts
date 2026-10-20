@@ -93,6 +93,8 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     const alarm = (await loadClean())!;
     expect(alarm.tier).toBe("attention");
     expect(alarm.items[0]!.waiting).toBeUndefined();
-    expect(alarm.items[0]!.title).toMatch(/^2 leads dead-lettered and not replayed for 12 h/);
+    expect(alarm.items[0]!.title).toMatch(
+      /^2 leads dead-lettered, the oldest not replayed for 12 h/,
+    );
   });
 });

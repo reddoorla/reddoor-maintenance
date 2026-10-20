@@ -831,7 +831,9 @@ export function buildCockpitModel(
     notifyBounces,
     deadLetters,
     deadLetterOldest,
-    websites,
+    // Visible rows LAST, so where two rows' names give one slug the visible site
+    // (the card the operator watches) wins it, not an archived namesake.
+    [...websites.filter((w) => !isDashboardVisible(w)), ...visible],
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves

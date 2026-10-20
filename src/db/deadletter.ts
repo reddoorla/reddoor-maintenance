@@ -204,9 +204,10 @@ export async function countUnreplayedDeadLettersForSlug(db: Db, slug: string): P
 /** The oldest unreplayed row's `received_at` per slug: the clock of OD 87's hold
  *  (a known site's dead letter alarms two replay cycles after it). A separate query
  *  rather than a second column on the count, whose `Map<string, number>` reaches
- *  five callers. Same predicate and the same query plan as the count, and like it
- *  returns no payload: deadletter-per-slug-plan.test.ts plans the SQL both
- *  functions issue and asserts the plans match. */
+ *  five callers. Same predicate and the same query plan as the count
+ *  (deadletter-per-slug-plan.test.ts plans the SQL both functions issue), and it
+ *  selects only `site_slug` and `min(received_at)`, never the payload; the plan
+ *  test cannot see a selected column, so that rests on this select list. */
 export async function oldestUnreplayedDeadLetterBySlug(
   db: Db,
 ): Promise<ReadonlyMap<string, string>> {

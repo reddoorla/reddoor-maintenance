@@ -295,15 +295,17 @@ function renderArchivedLane(model: CockpitModel): string {
  *  a site with no card (archived), which OD 87 holds like any known site's until
  *  its two replay cycles have passed. A held one is left out here.
  *
- *  No `/s/<slug>` link: the whole point is that the site does not exist, and the
- *  collectors' own rule is never to render a broken link. Returns "" when empty. */
+ *  Linked only when the item carries a `url`: a site with no card still has its
+ *  `/s/<slug>` page (getSiteBySlug ignores status), while a slug that resolves to
+ *  no site has none, and the collectors' own rule is never to render a broken
+ *  link. Returns "" when empty. */
 function renderCardlessLane(model: CockpitModel): string {
   const items = (model.cardless ?? []).filter((i) => i.waiting !== true);
   if (items.length === 0) return "";
   const rows = items
     .map(
       (i) =>
-        `<div class="approve-row"><strong>${escapeHtml(i.siteName)}</strong> <span class="muted">${escapeHtml(i.title)}</span></div>`,
+        `<div class="approve-row"><strong>${i.url ? `<a href="${escapeHtml(i.url)}">${escapeHtml(i.siteName)}</a>` : escapeHtml(i.siteName)}</strong> <span class="muted">${escapeHtml(i.title)}</span></div>`,
     )
     .join("");
   return `<details class="cardless"><summary>⚠ Not on any site card (${items.length})</summary>${rows}</details>`;

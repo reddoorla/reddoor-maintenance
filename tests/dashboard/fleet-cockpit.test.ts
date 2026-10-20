@@ -775,10 +775,55 @@ describe("buildCockpitModel", () => {
       const held = archived("2026-06-11T00:01:00.000Z");
       expect(held.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", true]]);
       expect(renderCockpitHtml(held, "op@example.com")).not.toContain("Not on any site card");
+      // Beside an unknown slug that is due, the lane counts only the due one.
+      const mixed = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "z", name: "Gone Co", status: "archived" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([
+          ["gone-co", 1],
+          ["ghost-co", 1],
+        ]),
+        new Map([["gone-co", "2026-06-11T00:01:00.000Z"]]),
+      );
+      const lane = renderCockpitHtml(mixed, "op@example.com");
+      expect(lane).toContain("Not on any site card (1)");
+      expect(lane).toContain("ghost-co");
       const due = archived("2026-06-11T00:00:00.000Z");
       expect(due.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", undefined]]);
       expect(due.cardless![0]!.title).not.toMatch(/NO fleet site/);
-      expect(renderCockpitHtml(due, "op@example.com")).toContain("Not on any site card (1)");
+      const html = renderCockpitHtml(due, "op@example.com");
+      expect(html).toContain("Not on any site card (1)");
+      // An archived site still has its page (getSiteBySlug ignores status).
+      expect(html).toContain(`<a href="${BASE}/s/gone-co">Gone Co</a>`);
+    });
+
+    it("where an archived row's name gives a visible site's slug, the visible site keeps it", () => {
+      const m = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "z", name: "ESPADA", status: "archived" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["espada", 2]]),
+        new Map([["espada", "2026-06-10T08:00:00.000Z"]]),
+      );
+      const card = m.cards.find((c) => c.site.name === "Espada")!;
+      expect(card.tier).toBe("attention");
+      expect(card.items.map((i) => i.key)).toContain("deadletter:espada");
+      expect(m.cardless ?? []).toEqual([]);
     });
 
     it("aged 12 h: CRITICAL on the card and in the feed, with the age in the title", () => {
@@ -786,7 +831,7 @@ describe("buildCockpitModel", () => {
       expect(m.cards[0]!.tier).toBe("attention");
       const item = m.cards[0]!.items.find((i) => i.kind === "deadletter")!;
       expect(item.severity).toBe("critical");
-      expect(item.title).toMatch(/^2 leads dead-lettered and not replayed for 12 h/);
+      expect(item.title).toMatch(/^2 leads dead-lettered, the oldest not replayed for 12 h/);
       expect(buildNeedsYouFeed(m).map((f) => f.siteName)).toEqual(["Espada"]);
     });
   });

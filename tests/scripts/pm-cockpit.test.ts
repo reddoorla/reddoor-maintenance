@@ -139,6 +139,8 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
       .filter((l) => l.startsWith("- "))
       .map((l) => l.split(" · ")[0]);
     expect(order).toEqual(["- (unknown site: ghost-site)", "- Alpha Deploy", "- Broken Co"]);
+    // A slug no site owns is never held, so it is never "just wait" either.
+    expect(out).toMatch(/just_wait_left_out=0\b/);
   });
 
   it("lists a dead letter for a slug no site owns", () => {
@@ -186,6 +188,35 @@ describe("pm-cockpit — a dead letter on a known site waits two replay cycles (
     expect(formatPmCockpit(pm)).not.toMatch(/Gone Co|gone-co/);
   });
 
+  it("an archived site's held dead letter is counted once, even when a visible site shares its slug", () => {
+    const twin = site({ id: "recTWIN", name: "HEALTHY CO", status: "archived" });
+    const pm = buildPmCockpit(
+      inputs({
+        websites: [BROKEN, HEALTHY, WAITING, twin],
+        deadLetters: new Map([["healthy-co", 1]]),
+        deadLetterOldest: new Map([["healthy-co", "2026-10-07T06:00:00.000Z"]]),
+      }),
+      NOW,
+    );
+    expect(pm.waitingKeys).toEqual(["deadletter:healthy-co", "vuln:recWAIT"]);
+  });
+
+  it("an archived site's escalated dead letter is listed with its page", () => {
+    const gone = site({ id: "recGONE", name: "Gone Co", status: "archived" });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, gone],
+          deadLetters: new Map([["gone-co", 1]]),
+          deadLetterOldest: new Map([["gone-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("- Gone Co · broken · /s/gone-co");
+    expect(out).not.toContain("(no site page)");
+  });
+
   it("aged 28 h: listed as broken, dated the DAY its hold ran out, not today", () => {
     // Received 2026-10-06T08:00Z, so the hold ran out 2026-10-06T20:00Z; NOW is
     // 2026-10-07, so a reason dated "today" would be wrong.
@@ -195,6 +226,23 @@ describe("pm-cockpit — a dead letter on a known site waits two replay cycles (
     expect(out).toContain("Healthy Co · broken · /s/healthy-co");
     expect(out).toContain("1 lead dead-lettered and not replayed for 28 h");
     expect(out).toContain("(escalated 2026-10-06)");
+  });
+
+  it("is dated by its escalation too when the digest saw it while it was held", () => {
+    // The common production case: the daily digest wrote the key during the hold,
+    // so the cockpit diffs it as standing, not new.
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          prior: { ...PRIOR, "deadletter:healthy-co": { metric: 1, firstFlaggedAt: "2026-10-05" } },
+          deadLetters: new Map([["healthy-co", 1]]),
+          deadLetterOldest: new Map([["healthy-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("(escalated 2026-10-06)");
+    expect(out).not.toContain("first flagged 2026-10-05");
   });
 });
 

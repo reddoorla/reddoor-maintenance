@@ -184,6 +184,6 @@ function markDeadLetter(
   return escalated(
     it,
     at,
-    `${it.metric} ${noun} dead-lettered and not replayed for ${ageHours} h — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay has not placed ${it.metric === 1 ? "it" : "them"}; run \`db replay-deadletters\` to see why`,
+    `${it.metric === 1 ? "1 lead dead-lettered and" : `${it.metric} leads dead-lettered, the oldest`} not replayed for ${ageHours} h — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay has not placed ${it.metric === 1 ? "it" : "them"}; run \`db replay-deadletters\` to see why`,
   );
 }
