@@ -167,7 +167,8 @@ const DAY_MS = 86_400_000;
 
 /** Why a schedule anchor day is unusable, or null.
  *
- *  Before launch (#1375; a row with no status counts, #1450) the anchor
+ *  Before launch (#1375; a row with no status counts, #1450, even one that has
+ *  sent reports, whose `--allow-missing schedule` is the way past) the anchor
  *  schedules the site's FIRST report, so it is
  *  judged by that report: not a `YYYY-MM-DD` calendar date (the dashboard
  *  stores nothing else), or a first report, one cycle on from the anchor as
