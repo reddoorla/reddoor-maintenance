@@ -13,6 +13,6 @@ Backlog: P1-64 follow-up · reddoorla/29-navy#90 and reddoorla/beachfront-dentis
 **What the next promotion in each repo will do**, by the runbook's vida measurement:
 
 - Renovate renames its branches with the base (`renovate/main-…`, `renovate/staging-…`).
-- It closes the open Renovate PRs and reopens them under the new names: 29-navy#88, and beachfront's #91 and its major #66.
-- Lock-file maintenance and majors then target `staging`. That is what retires the `main-gate` red on #88 and #91.
+- It closes the open Renovate PRs and reopens them under the new names: reddoorla/29-navy#88, and reddoorla/beachfront-dentistry#91 and its major reddoorla/beachfront-dentistry#66.
+- Lock-file maintenance and majors then target `staging`. That is what retires the `main-gate` red on both lock-file PRs.
 - Each promotion also carries P1-64's `@types/node`, which those lock-file PRs need for `ci / ci`.
