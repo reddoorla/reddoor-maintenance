@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import {
-  resolveDashboardBaseUrl,
-  handlerError,
-} from "../../src/dashboard/handler-helpers.js";
+import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
 
 describe("resolveDashboardBaseUrl", () => {
   it("falls back to the canonical Netlify URL when unset", () => {
