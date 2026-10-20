@@ -356,7 +356,10 @@ function carriesGuard(source: string): boolean {
   const code = stripComments(source);
   // `dev` comes from $app/environment (kit 2) or $app/env (kit 3, where
   // svelte-check cannot resolve the old name). Quoted, so $app/env/private and
-  // $app/env/public, which hold env variables and no `dev`, do not count.
+  // $app/env/public, which hold env variables and no `dev`, do not count. As
+  // before, the module test runs before literals are masked, so the name
+  // inside an ordinary string also satisfies it; binding `dev` to the import
+  // would close that, and is not done here.
   if (!/["']\$app\/env(?:ironment)?["']/.test(code)) return false;
   const masked = maskLiterals(code);
   const guards = /if\s*\(\s*!\s*dev\s*\)/g;
