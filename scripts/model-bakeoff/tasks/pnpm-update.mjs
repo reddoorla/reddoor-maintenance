@@ -167,16 +167,24 @@ export function checkItems(failed) {
 }
 
 // What each script's own run left in <work>/logs: its exit code, or null when the log is there
-// but the exit file is not (a run killed before `echo $?`). A log counts only when pnpm wrote it
-// (it holds pnpm's `$ <script body>` echo line) after the lockfile it ran against. An exit
-// code of 0 beside a log in which pnpm reports the command failed (`| tee` records tee's code)
-// is read as "log:failed".
+// but the exit file is not (a run killed before `echo $?`) or holds no single integer. A log
+// counts only when pnpm wrote it (it holds pnpm's `$ <script body>` echo line) after the lockfile
+// it ran against. An exit code of 0 beside a log in which pnpm reports the command failed
+// (`| tee` records tee's code) is read as "log:failed".
 // pnpm's own failure line ("[ELIFECYCLE] Command failed with exit code 1." in pnpm 12, " ELIFECYCLE
 // Command failed…" before), not the same words printed by a passing test (execa errors read
 // "Command failed with exit code 1: <cmd>").
 const FAILED_LINE = /^\s*\[?ELIFECYCLE\]?\s+Command failed with exit code [1-9]/m;
 // pnpm may print warnings or its dependency check before the `$ <script body>` line.
 const PNPM_ECHO = /^\$ /m;
+
+// One integer, as `echo $? >` writes it, read as its decimal string ("00" and "-0" are "0").
+// Anything else is no exit code: an empty file, or two lines from an arm that appended with `>>`,
+// says nothing about which run's code it is.
+const exitCode = (text) => {
+  const t = text.trim();
+  return /^-?\d+$/.test(t) ? String(Number(t)) : null;
+};
 
 export function exitCodes(work) {
   const out = {};
@@ -194,7 +202,7 @@ export function exitCodes(work) {
       existsSync(exit) &&
       statSync(exit).isFile() &&
       statSync(exit).mtimeMs >= statSync(log).mtimeMs;
-    const code = fresh ? readFileSync(exit, "utf8").trim() : null;
+    const code = fresh ? exitCode(readFileSync(exit, "utf8")) : null;
     out[name] = code === "0" && FAILED_LINE.test(text) ? "log:failed" : code;
   }
   return out;
@@ -314,10 +322,12 @@ export function snapshot({ repo: repoArg, commit, out: outArg }) {
   const sha = execFileSync("git", ["-C", repo, "rev-parse", "--verify", `${commit}^{commit}`], {
     encoding: "utf8",
   }).trim();
-  mkdirSync(dirname(out), { recursive: true });
+  // On failure everything this call made goes: --out, and the first of its parents it created.
+  const made = mkdirSync(dirname(out), { recursive: true }) ?? out;
   mkdirSync(out);
-  const work = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-"));
+  let work;
   try {
+    work = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-"));
     const tree = join(work, "repo");
     const cache = join(work, "cache");
     mkdirSync(tree);
@@ -338,10 +348,10 @@ export function snapshot({ repo: repoArg, commit, out: outArg }) {
     );
     return { takenAt, commit: sha };
   } catch (e) {
-    rmSync(out, { recursive: true, force: true });
+    rmSync(made, { recursive: true, force: true });
     throw e;
   } finally {
-    rmSync(work, { recursive: true, force: true });
+    if (work) rmSync(work, { recursive: true, force: true });
   }
 }
 

@@ -381,8 +381,9 @@ failed check. What is scored, all of it mechanical (no referee):
   make a failing one pass. The prompt has each script write `<work>/logs/<script>.log` and
   `<work>/logs/<script>.exit`. A log counts only when pnpm wrote it (it holds pnpm's
   `$ <script body>` line) after the lockfile it ran against. A log with no exit file counts as a failed
-  run, and so do an exit file older than its log and an exit code of 0 beside a log in which pnpm
-  reports the command failed. A
+  run, and so do an exit file that holds no single integer (empty, or two lines from an append),
+  an exit file older than its log and an exit code of 0 beside a log in which pnpm
+  reports the command failed. `00` and `-0` read as 0. A
   script with no such log fails as absent. The run's own verdict (`exitFailed`) is kept on the
   item but not scored. A headline `checks.pass: true` is read as claiming every script passed,
   whatever `failed` lists; `unverified` is not scored. An earlier draft inferred "ran" from the transcript's command text, which

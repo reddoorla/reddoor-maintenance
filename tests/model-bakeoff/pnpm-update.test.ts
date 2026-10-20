@@ -1,7 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, it, expect } from "vitest";
+import { delimiter, join, relative, resolve, sep } from "node:path";
+import { afterAll, afterEach, beforeAll, describe, it, expect } from "vitest";
 import * as task from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
 import {
   armOutput,
@@ -15,7 +25,7 @@ import {
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
 
-const { checkItems, exitCodes, lockfileFacts, observe, runChecks, CHECKS } = task;
+const { checkItems, exitCodes, lockfileFacts, observe, runChecks, snapshot, CHECKS } = task;
 
 const ENV_DOC = [
   "---",
@@ -176,6 +186,22 @@ describe("pnpm-update exitCodes", () => {
     mkdirSync(join(w, "logs", "build.exit"));
     writeFileSync(join(w, "logs", "build.log"), "$ vite build\n");
     expect(exitCodes(w)).toEqual({ check: null, build: null });
+  });
+
+  it("reads an empty or malformed exit file as no exit code, and a padded 0 as 0", () => {
+    const w = workWith(LOCK, { lint: "0", check: "1", build: "0", "test:unit": "0" });
+    const exit = (name: string, text: string) =>
+      writeFileSync(join(w, "logs", `${name}.exit`), text);
+    exit("lint", "");
+    exit("check", "0\n0\n");
+    exit("build", "00\n");
+    exit("test:unit", "-0\n");
+    expect(exitCodes(w)).toEqual({ lint: null, check: null, build: "0", "test:unit": "0" });
+    exit("lint", "1\n1\n");
+    exit("check", "abc\n");
+    exit("build", " 2 \n");
+    exit("test:unit", "\n");
+    expect(exitCodes(w)).toEqual({ lint: null, check: null, build: "2", "test:unit": null });
   });
 
   it("reads an exit file older than its log as a run killed before its exit code", () => {
@@ -430,11 +456,19 @@ describe("pnpm-update through scoreArms", () => {
     ]);
   });
 
-  it("refuses a task with observe and no truth", () => {
-    const args = { task: "pnpm-update", dir: "/in", work: "/w", gold: task.gold, arms: task.arms };
-    expect(scoreArms(task, args, {}, {}, null).problems).toEqual([
-      "pnpm-update: a task with observe() needs a truth; the gold cannot be the reference",
-    ]);
+  it("refuses a task with observe and no truth, and still reports each arm's own problems", () => {
+    const arm = { id: "haiku-low-1", model: "haiku", effort: "low" };
+    const args = { task: "pnpm-update", dir: "/in", work: "/w", gold: task.gold, arms: [arm] };
+    const agents = { "haiku-low-1": { ...agent(REPORT), models: ["claude-sonnet-5-5"] } };
+    expect(scoreArms(task, args, agents, {}, null)).toEqual({
+      checksByArm: {},
+      problems: [
+        "pnpm-update: a task with observe() needs a truth; the gold cannot be the reference",
+        "gold: no transcript found",
+        "haiku-low-1: asked for claude-haiku-5-5, transcripts show claude-sonnet-5-5",
+      ],
+      invalid: ["haiku-low-1"],
+    });
   });
 
   it("leaves a task without observe on its structured output", () => {
@@ -457,5 +491,109 @@ describe("pnpm-update arms and prompt", () => {
     expect(p).toContain("`pnpm run S > <work>/logs/S.log 2>&1; echo $? > <work>/logs/S.exit`");
     for (const c of CHECKS) expect(p).toContain(c);
     for (const a of task.arms) expect(a.effort).toBeTruthy();
+  });
+});
+
+// snapshot() against a throwaway git repository, with a fake `pnpm` first on PATH: it answers
+// --version and `store path`, and exits 1 for the subcommand named in FAKE_PNPM_FAIL.
+describe("pnpm-update snapshot", () => {
+  const env = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR };
+  let base = "";
+  let repo = "";
+  let sha = "";
+  beforeAll(() => {
+    base = mkdtempSync(join(tmpdir(), "pnpm-update-snapshot-test-"));
+    made.push(base);
+    repo = join(base, "repo");
+    mkdirSync(repo);
+    writeFileSync(join(repo, "package.json"), "{}\n");
+    const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" });
+    git("init", "-q");
+    git("add", "-A");
+    git("-c", "user.name=t", "-c", "user.email=t@invalid", "commit", "-qm", "one");
+    sha = git("rev-parse", "HEAD").trim();
+    const bin = join(base, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "pnpm"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "$FAKE_PNPM_FAIL" ]; then exit 1; fi',
+        'case "$1" in',
+        "  --version) echo 99.1.2 ;;",
+        "  store) echo /fake/store ;;",
+        '  update) echo meta > "$XDG_CACHE_HOME/meta.json" ;;',
+        "esac",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(bin, "pnpm"), 0o755);
+    process.env.PATH = `${bin}${delimiter}${env.PATH}`;
+  });
+  afterEach(() => {
+    delete process.env.FAKE_PNPM_FAIL;
+    if (env.TMPDIR === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = env.TMPDIR;
+  });
+  afterAll(() => {
+    process.env.PATH = env.PATH;
+  });
+
+  it("writes the repo, the registry cache and its record, pnpm's version among them", () => {
+    const out = join(base, "snap");
+    expect(snapshot({ repo, commit: "HEAD", out }).commit).toBe(sha);
+    expect(JSON.parse(readFileSync(join(out, "snapshot.json"), "utf8"))).toMatchObject({
+      repo,
+      commit: sha,
+      pnpmVersion: "99.1.2",
+      store: "/fake/store",
+    });
+    const tar = (f: string) => execFileSync("tar", ["-tf", join(out, f)], { encoding: "utf8" });
+    expect(tar("repo.tar")).toContain("package.json");
+    expect(tar("registry.tar")).toContain("meta.json");
+  });
+
+  it("takes an --out relative to the working directory, not to the repo", () => {
+    // A clone deeper than the working directory, so the relative --out names a different
+    // place when read from the repo (from a shallow one, `..` stops at / and both agree).
+    const deep = join(
+      base,
+      ...process
+        .cwd()
+        .split(sep)
+        .map(() => "d"),
+      "repo",
+    );
+    execFileSync("git", ["clone", "-q", repo, deep]);
+    const out = join(base, "relative");
+    const rel = relative(process.cwd(), out);
+    expect(resolve(deep, rel)).not.toBe(out);
+    snapshot({ repo: relative(process.cwd(), deep), commit: sha, out: rel });
+    expect(existsSync(join(out, "repo.tar"))).toBe(true);
+  });
+
+  it("makes the missing parents of --out", () => {
+    const out = join(base, "deep", "er", "snap");
+    snapshot({ repo, commit: sha, out });
+    expect(existsSync(join(out, "snapshot.json"))).toBe(true);
+  });
+
+  it("removes --out, and the parents it made, when a step fails", () => {
+    process.env.FAKE_PNPM_FAIL = "install";
+    expect(() => snapshot({ repo, commit: sha, out: join(base, "p", "q", "snap") })).toThrow(
+      "snapshot: install failed",
+    );
+    expect(existsSync(join(base, "p"))).toBe(false);
+    process.env.FAKE_PNPM_FAIL = "update";
+    expect(() => snapshot({ repo, commit: sha, out: join(base, "flat") })).toThrow(
+      "snapshot: online update failed",
+    );
+    expect(existsSync(join(base, "flat"))).toBe(false);
+  });
+
+  it("leaves nothing behind when its scratch directory cannot be made", () => {
+    process.env.TMPDIR = join(base, "no-such-tmp");
+    expect(() => snapshot({ repo, commit: sha, out: join(base, "t", "snap") })).toThrow(/ENOENT/);
+    expect(existsSync(join(base, "t"))).toBe(false);
   });
 });
