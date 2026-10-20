@@ -13,6 +13,7 @@ import {
 } from "../../scripts/meta-week/lib/refute-claims.mjs";
 import { scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
 import { readAgentTranscript } from "../../scripts/model-bakeoff/lib/transcripts.mjs";
+import { runWorkflow } from "../_helpers/bakeoff-workflow.js";
 import {
   combineItems,
   expectedWork,
@@ -477,27 +478,6 @@ const structured = (input: unknown) => ({
   name: "StructuredOutput",
   input,
 });
-
-/** Runs the workflow script with a stub runtime and returns the prompts it would spawn. */
-async function runWorkflow(args: Record<string, unknown>) {
-  const src = readFileSync(WORKFLOW, "utf8").replace(/^export const meta/m, "const meta");
-  const calls: { prompt: string; opts: Record<string, unknown> }[] = [];
-  const agent = async (prompt: string, opts: Record<string, unknown>) => {
-    calls.push({ prompt, opts });
-    return {};
-  };
-  const parallel = (thunks: (() => Promise<unknown>)[]) => Promise.all(thunks.map((t) => t()));
-  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-  const body = new AsyncFunction("args", "agent", "parallel", "phase", "log", src);
-  const result = await body(
-    args,
-    agent,
-    parallel,
-    () => {},
-    () => {},
-  );
-  return { result, calls };
-}
 
 describe("the workflow's item mode", () => {
   const run = "/r";

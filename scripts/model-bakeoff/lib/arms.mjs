@@ -60,6 +60,10 @@ export function workDir(root, id) {
   return `${root}/${id}`;
 }
 
+// Every arm, gold and referee runs as this agent type, `.claude/agents/bakeoff-readonly.md`,
+// whose permission rules refuse gh, git push, curl and wget (Operator decisions 133).
+export const AGENT_TYPE = "bakeoff-readonly";
+
 export function readOnlyRules(dir, work) {
   return [
     `The input folder ${dir} is frozen. Never create, modify, move or delete anything in it; its checksums are verified after the run.`,

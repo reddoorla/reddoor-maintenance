@@ -72,6 +72,10 @@ function workDir(root, id) {
   return `${root}/${id}`;
 }
 
+// Every arm, gold and referee runs as this agent type, `.claude/agents/bakeoff-readonly.md`,
+// whose permission rules refuse gh, git push, curl and wget (Operator decisions 133).
+const AGENT_TYPE = "bakeoff-readonly";
+
 function readOnlyRules(dir, work) {
   return [
     `The input folder ${dir} is frozen. Never create, modify, move or delete anything in it; its checksums are verified after the run.`,
@@ -126,6 +130,7 @@ if (mode === "extract") {
                 schema: item.schema,
                 model: a.model,
                 effort: a.effort,
+                agentType: AGENT_TYPE,
               },
             ).then((out) => ({ id: a.id, item: item.id, returned: Boolean(out) })),
       ),
@@ -145,6 +150,7 @@ if (mode === "extract") {
             schema: args.schema,
             model: a.model,
             effort: a.effort,
+            agentType: AGENT_TYPE,
           },
         ).then((out) => ({ id: a.id, returned: Boolean(out) })),
     ),
@@ -193,6 +199,7 @@ const rulings = await parallel(
           schema: RULINGS,
           model: args.referee.model,
           effort: args.referee.effort,
+          agentType: AGENT_TYPE,
         },
       ),
   ),

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import yaml from "js-yaml";
+import { body, frontmatter, toolList } from "../_helpers/agent-frontmatter.js";
 
 // P1-56: the `sweep` agent routes mechanical census and inventory sweeps to Haiku 5.5 at
 // `medium` with only Read, Grep and Glob, the configuration that scored 228/228 in each of two
@@ -11,22 +11,6 @@ import yaml from "js-yaml";
 // `.claude/agents/*.md`; a missing `effort` inherits the session's (`xhigh` on the laptop), and
 // a missing `tools` inherits every tool, MCP writes included.
 const AGENT = fileURLToPath(new URL("../../.claude/agents/sweep.md", import.meta.url));
-
-function frontmatter(text: string): Record<string, unknown> {
-  const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
-  if (!match) throw new Error("sweep.md has no frontmatter block");
-  return yaml.load(match[1] ?? "") as Record<string, unknown>;
-}
-
-function toolList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String);
-  if (typeof value === "string")
-    return value
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-  return [];
-}
 
 describe(".claude/agents/sweep.md", () => {
   const text = readFileSync(AGENT, "utf8");
@@ -48,12 +32,12 @@ describe(".claude/agents/sweep.md", () => {
 
   it("has a description and a body that say what it is for", () => {
     expect(String(fm.description)).toMatch(/census|inventory|sweep/i);
-    const body = text.slice(text.indexOf("\n---\n", 4) + 5);
-    expect(body).toMatch(/census/i);
+    expect(body(text)).toMatch(/census/i);
   });
 
   it("tells the agent the same tools its frontmatter grants", () => {
-    const body = text.slice(text.indexOf("\n---\n", 4) + 5);
-    expect(body).toContain("You are read-only. You have Read, Grep and Glob, and no other tools");
+    expect(body(text)).toContain(
+      "You are read-only. You have Read, Grep and Glob, and no other tools",
+    );
   });
 });
