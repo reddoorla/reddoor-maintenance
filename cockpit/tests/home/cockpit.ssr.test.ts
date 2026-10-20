@@ -14,16 +14,10 @@ import { cases, NOW } from "./fixtures.js";
  * the clock is pinned to the view's `now`.
  */
 
-const OLD_ONLY = ["nav.top-nav", 'div[style^="float:right"]', "script"];
+const OLD_ONLY = ["nav.top-nav", 'div[style^="float:right"]'];
 
-/** Svelte's hydration comments split one whitespace run into two text nodes,
- *  which the canonical form would then keep beside a block element. Strip them
- *  before comparing; they carry nothing a visitor sees. */
 const page = (model: Parameters<typeof buildCockpitView>[0]) =>
-  renderPage(Page, { data: { view: buildCockpitView(model, NOW) } }).replace(
-    /<!--[\s\S]*?-->/g,
-    "",
-  );
+  renderPage(Page, { data: { view: buildCockpitView(model, NOW) } });
 
 beforeAll(() => {
   vi.useFakeTimers();
