@@ -511,7 +511,10 @@ async function score(opts) {
     const outputs = Object.fromEntries(
       Object.keys(checksByArm).map((k) => [k, agents[k].structured]),
     );
-    result.summary = task.summarize({ reference, checksByArm, rulings, outputs });
+    // Every arm that should have run, so one with no transcript reads as pending
+    // (#1463). A gold run that is the reference is not scored.
+    const expected = truth ? all : args.arms;
+    result.summary = task.summarize({ reference, checksByArm, rulings, outputs, arms: expected });
   }
   if (task.decision) {
     result.decision = task.decision(

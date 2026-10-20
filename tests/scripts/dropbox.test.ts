@@ -669,6 +669,31 @@ describe("retries", () => {
     );
     expect(resendable("files/upload", "path/conflict/file/..")).toBe(false);
     expect(resendable("files/upload", "path/too_many_write_operations_x/")).toBe(false);
+    expect(resendable("files/upload_session/finish", "too_many_write_operations_x/")).toBe(false);
+  });
+
+  it("waits the Retry-After a 409 too_many_write_operations asks for before resending", async () => {
+    const data = pattern(10);
+    const waits: number[] = [];
+    const { fetch, calls } = fake((_ep, _c, all) =>
+      all.length === 1
+        ? {
+            status: 409,
+            headers: { "Retry-After": "7" },
+            body: { error_summary: "too_many_write_operations/" },
+          }
+        : { body: { size: 10, content_hash: contentHash(data) } },
+    );
+    const r = await uploadFile(
+      ctxWith(fetch, async (ms) => {
+        waits.push(ms);
+      }),
+      file("busy-retry-after.bin", data),
+      "/X",
+    );
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(waits).toEqual([7000]);
   });
 
   it("resends a one-call upload that met too_many_write_operations", async () => {

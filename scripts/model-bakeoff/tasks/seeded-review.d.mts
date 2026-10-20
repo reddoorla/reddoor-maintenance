@@ -110,6 +110,7 @@ export function summarize(input: {
   checksByArm: Record<string, Check[]>;
   rulings: Record<string, Ruling>;
   outputs: Record<string, unknown>;
+  arms?: (string | { id: string })[];
 }): {
   tolerance: Tolerance;
   excluded: { id: string; reason: string }[];

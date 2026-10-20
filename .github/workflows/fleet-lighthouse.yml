@@ -208,8 +208,9 @@ jobs:
         # conductor waits up to 50 min for this workflow before moving on toward
         # daily-reports, and the audit step alone may take 75, so a slow night
         # can leave the digest one night stale. A no-property control goes
-        # first; if it misreads, nothing is written and the step fails. continue-on-error for the
-        # same reason as the sweeps above: the job keeps the AUDIT's verdict.
+        # first; if it misreads, nothing is written and the step fails.
+        # continue-on-error for the same reason as the sweeps above: the job
+        # keeps the AUDIT's verdict.
         # The key is written the way daily-reports writes it: printf, no set -x.
         timeout-minutes: 10
         continue-on-error: true

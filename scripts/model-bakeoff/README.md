@@ -156,8 +156,8 @@ The truth refuses what it cannot read rather than guess. It refuses:
 - an `href={…}` expression;
 - an unknown entity;
 - a metadata tag it cannot parse;
-- a node id rendered more than once, on one page or across pages, which the prompt does not
-  say how to list.
+- a field or slice id rendered more than once, on one page or across pages, which the prompt
+  does not say how to list.
 
 ## Item tasks: one agent per item
 
@@ -277,8 +277,11 @@ Add `tasks/<id>.mjs` exporting:
   name in `lib/score.mjs` for this task. A task whose metric is not field equality, such as
   `seeded-review`'s recall of seeded defects, returns checks in the same shape, so the referee,
   `groupDisagreements` and `finalScores` work unchanged.
-- `summarize({ reference, checksByArm, rulings, outputs })` and `formatSummary(summary)`: optional.
-  `score` stores the summary in `result.json` as `summary` and prints it under the table.
+- `summarize({ reference, checksByArm, rulings, outputs, arms })` and `formatSummary(summary)`:
+  optional. `arms` is every arm `score` should have scored (the gold too when a truth exists),
+  so a task can count an arm with no transcript (which `checksByArm` leaves out) instead of
+  judging its group without it. `score` stores the summary in `result.json` as `summary` and
+  prints it under the table.
 
 Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
 this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
@@ -322,9 +325,9 @@ agent's own `vitest run` there, with no secrets in the environment. Then the pla
 from the implementing commit, replaces the agent's version and runs alone, in a second tree
 (`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
 `(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
-each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file before
-the swap: the plan asks for its tests, so the file must exist and run with a test passing and none
-failing. A step that times out (15 minutes) fails its gate; only a missing binary or a failed
+each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file in
+`tree`; the plan's version runs only in `held`. The plan asks for its tests, so the file must exist
+and run, vitest must exit 0, and the report must show a test passing and none failing (a `todo` test is neither). A step that times out (15 minutes) fails its gate; only a missing binary or a failed
 install, which are the harness's, stops `score`. A held-out test can fail on a detail the plan leaves open (run 1: a
 synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
 failure's first line and the paths of the agent's code and of the test as run. Each arm's failure

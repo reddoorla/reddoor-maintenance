@@ -256,8 +256,9 @@ function thirdPartyPage(title: string, body: string): string {
  * was any colour with a `none` component (Tailwind 4.3's none-hued palette,
  * `oklch(0.205 0 none)`), and fleet sites on axe-core <= 4.13 still meet it
  * in that form. axe-core 4.14.0 parses `none` (dequelabs/axe-core#5422), and
- * Chromium renders nothing axe 4.14 rejects, so no real CSS here can make
- * axe's colour parser fail any more. The fixtures therefore keep the CSS a
+ * axe 4.14 parsed all 23 colour forms a probe rendered in Chromium 156, so no
+ * real CSS we have found makes axe's colour parser fail any more (a probe, not
+ * a proof that none exists; #1517). The fixtures therefore keep the CSS a
  * site writes and, like FAKE_BLEND, have getComputedStyle hand axe a colour
  * it cannot parse for each element marked `data-fake-bg` (background-color)
  * or `data-fake-fg` (color and -webkit-text-fill-color, which axe reads
@@ -734,7 +735,11 @@ const SITE_H: SiteConfig = {
  *     white. axe cannot parse the foreground either: unmeasured.
  *   - `#hued-text`: the same two colours with an explicit hue, which renders
  *     identically. It must come back as the `color-contrast` violation the
- *     band hides — the remedy turns the measurement on.
+ *     band hides. Under axe 4.14 the band is unmeasured because FAKE_COLOUR
+ *     marks it, not because of `none`, so here this shows only that the same
+ *     pixels, unmarked, are measured. That the remedy (writing the hue) turns
+ *     measurement on is shown only on axe 4.13, which #1514 checked by hand;
+ *     no CI job runs this suite on 4.13 (#1516).
  *   - `#revealed-text`: the band's colour on a reveal at 150vh, at opacity 0
  *     until first seen. Only the reveal pass (#100) brings it into the rule, so
  *     its presence proves the detection reads what the pass revealed.

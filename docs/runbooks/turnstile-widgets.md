@@ -105,7 +105,7 @@ exactly one expression — `` const tokenValue = `testmode-${testSitekey}` ``
 (`:911`) — which is injected at `:928` as the **value** of a hidden
 `cf-turnstile-response` input. Nothing writes `data-sitekey`, nothing calls
 `page.route` or `addInitScript`. **The site's real widget renders with its real
-key on every nightly run**, which the code's own comment at `:986–988` already
+key on every nightly run**, which the code's own comment at `:997–999` already
 knew: "the Turnstile widget inserts its OWN input with that name while it
 renders (an erroring widget included)".
 
