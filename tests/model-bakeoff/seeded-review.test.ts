@@ -327,6 +327,59 @@ describe("scoring one run", () => {
     expect(summary(wide, false).falsePositives).toBe(3);
   });
 
+  // Operator decisions 137 (k), answered (b): r07's d5 (43-46) and d6 (34-35) sit 8 lines apart, so
+  // one finding can be a candidate for both. It still counts for both, but each referee item
+  // names the other defect, so a lenient referee is told what it is ruling on (#1465 a).
+  describe("a finding near two seeded defects", () => {
+    const two: Reference = {
+      defects: [
+        {
+          id: "d6",
+          case: "r07",
+          file: "src/c.ts",
+          ranges: [[34, 35]],
+          critical: true,
+          description: "path traversal",
+        },
+        {
+          id: "d5",
+          case: "r07",
+          file: "src/c.ts",
+          ranges: [[43, 46]],
+          critical: true,
+          description: "argv injection",
+        },
+      ],
+      controls: [],
+    };
+    const check = (findings: Finding[], id: string) =>
+      review.scoreRun(null, two, { findings, unverified: [] }).find((c) => c.key === id)!;
+
+    it("names the other defect in each referee item, and credits only what it identifies", () => {
+      const both = [f("r07", "src/c.ts", 42, 44, "no -- before repoUrl, and name is unchecked")];
+      expect(check(both, "d5").refRaw).toContain(
+        "One of these findings is also near d6 at r07 src/c.ts:34-35 (path traversal): credit it here only if it identifies THIS defect, not only that one. A finding that identifies both counts for both.",
+      );
+      expect(check(both, "d6").refRaw).toContain(
+        "also near d5 at r07 src/c.ts:43-46 (argv injection)",
+      );
+    });
+
+    it("says nothing extra when no candidate is near another defect", () => {
+      // 50-52 is 4 lines from d5 and 15 from d6, past NEAR_LINES.
+      expect(check([f("r07", "src/c.ts", 50, 52)], "d5").refRaw).not.toContain("also near");
+    });
+
+    it("still counts one finding for both defects when the referee rules it identifies each", () => {
+      const out = { findings: [f("r07", "src/c.ts", 34, 46, "both bugs")], unverified: [] };
+      const checks = review.scoreRun(null, two, out);
+      expect(review.runSummary(two, checks, ruleAll(checks, true), out)).toMatchObject({
+        found: 2,
+        criticalMissed: [],
+      });
+    });
+  });
+
   it("refutes nothing when the rulings on a defect split, and gives no verdict", () => {
     const out = { findings: [f("r01", "src/a.ts", 11)], unverified: [] };
     const other = { findings: [f("r01", "src/a.ts", 12)], unverified: [] };

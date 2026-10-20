@@ -316,7 +316,11 @@ transcript for a git command and for a read outside `<run>/input`, and record th
 
 A finding in a seeded case is a candidate for a seeded defect when it names the defect's file
 and its range overlaps the defect's or comes within `NEAR_LINES` (10) of it, and the referee
-rules on every candidate. On a clean control, findings are grouped by file (the control's own
+rules on every candidate. A finding near two seeded defects (r07's d5 and d6 are 8 lines apart)
+is a candidate for both and can count for both, but each defect's referee item names the other
+one and says to credit the finding only if it identifies this defect: a finding that names both
+bugs, as three did on 2026-10-19, is credited for both (Operator decisions 137 (k), answered (b);
+#1465). On a clean control, findings are grouped by file (the control's own
 file under any path form, `src/x.ts`, `r02.after.x.ts` or `./x.ts`), and findings that all share
 a line are one false positive: one finding restated three ways is one, not three (#1462). A
 chain of ranges (1-3, 3-5, 5-7) or one wide range does not merge findings that never meet. The
