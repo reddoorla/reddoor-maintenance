@@ -2,12 +2,14 @@
 
 **Where it landed:** this PR (reddoorla/reddoor-maintenance, branch `claude/od18-cockpit-sveltekit`), reopening #582 for the #672 rework. The operator's answers: the workspace's `reviews/2026-10-20-cockpit-brief-markup/markup.md`, `decisions/2026-10-20-1916-od18-cockpit-port-build-step.md` and `decisions/2026-10-20-1941-od18-cockpit-netlify-site.md`.
 
-The operator chose a component port over module files plus DOM tests (Q5). The brief's first stop condition fired before any code was written. A spike with Netlify's own bundler (`@netlify/zip-it-and-ship-it`, Svelte 5.57.2) showed that a function importing a `.svelte` file fails with `No loader is configured for ".svelte" files`. A plain `.ts` control bundled, and the same component precompiled with `svelte/compiler` bundled and ran. A port therefore needs a compile step in the deploy, and PRs here get no Netlify deploy preview. He was offered a build step in the existing site's `netlify.toml` (my pick), TSX components with no build, or SvelteKit as its own site, and chose **SvelteKit as its own site**. Asked who creates the site, he answered that the session should, with its token.
+The operator chose a component port over module files plus DOM tests (Q5). The brief's first stop condition fired before any code was written. A spike with Netlify's own bundler (`@netlify/zip-it-and-ship-it`, Svelte 5.57.2) showed that a function importing a `.svelte` file fails with `No loader is configured for ".svelte" files`. A plain `.ts` control bundled, and the same component precompiled with `svelte/compiler` bundled and ran. A port therefore needs a compile step in the deploy. I told him PRs here get no Netlify deploy preview, so a build change would first run in production. He was offered a build step in the existing site's `netlify.toml` (my pick), TSX components with no build, or SvelteKit as its own site, and chose **SvelteKit as its own site**.
+
+**The belief corrected on contact.** "No deploy preview" was wrong. I had read commit statuses and PR comments, and Netlify reports through check runs: this PR got `deploy-preview-1568`, and #1550, #1559 and #1567 have them too. The wrong claim was the main cost I set against building into the existing site, so I re-asked. He chose **one site**: the existing site will build the SvelteKit app at the cutover, proven on that PR's own deploy preview. No second site was created and no secrets were copied (workspace `decisions/2026-10-20-2240-od18-cockpit-one-site-or-two.md`). The lesson is the workspace's own rule: before citing an endpoint, ask which question it answers. "Does this commit have a status?" is not "does this PR get a deploy?"
 
 So step 1 split in two:
 
 - **1a, this PR.** The app at `cockpit/`, which nothing serves yet.
-- **1b, the cutover.** The old site proxies its pages to the new one, and the string renderers go.
+- **1b, the cutover.** The existing site builds the app, and the string renderers and HTML page functions go.
 
 Merging 1a changes nothing a visitor sees.
 
@@ -58,8 +60,8 @@ Folded in from the same round:
   - `/submissions` no longer ships every full row plus the bucket-wide facet reasons to the browser. The facets are tallied on the server, and rows are cut to what the list shows.
   - The minor cuts: a pass-through row wrapper, three file-local exports, and two default tsconfig options.
 - **Deferred to the cutover,** since nothing serves the app yet:
-  - SvelteKit's form-origin check needs the dashboard origin in `csrf.trustedOrigins`.
-  - The five old page functions each carry a per-IP rate limit (60 a minute) that nothing in the cockpit site has yet.
+  - The five old page functions each carry a per-IP rate limit (60 a minute) that the app does not have yet.
+  - SvelteKit's form-origin check, which needed a trusted origin only under the second-site proxy; it needs nothing on one site.
 
 **Review round 3** checked the round-2 fixes and found only minors, so the round is clean under the five-round rule. The test name and the line above were folded in.
 
@@ -73,5 +75,4 @@ Folded in from the same round:
   - The mark-read and Run audit buttons stay disabled until those handlers exist. With JS blocked, they cannot submit at all, where the old Run form fell back to a GET and the old bulk form still asked.
   - The site-details editor and the commentary textarea also wait for their handlers. The one-click action buttons (Approve, Don't send, Unapprove, refresh preview, Send anyway, Trigger Renovate, the submission status buttons) do not: a click before hydration does nothing and can simply be repeated, whereas the old inline script was live from first paint. Review round 3 rated this minor, and it was accepted rather than guarded.
 - **Two things the cutover must carry:**
-  - SvelteKit's form-origin check will refuse the proxied `/submissions` POST until 1b adds the dashboard origin to `csrf.trustedOrigins`.
-  - The old page functions' per-IP rate limit must be matched for the proxied pages before the old functions go.
+  - The old page functions' per-IP rate limit (60 a minute) must be matched before they go. SvelteKit's single render function takes no `rateLimit` config, so it becomes an edge function on the same site.
