@@ -249,7 +249,7 @@ not the leads — unless the site has `Require Turnstile` on.
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
 pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:291`,
-`.github/workflows/fleet-db-backup.yml:176`).
+`.github/workflows/fleet-db-backup.yml:295`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
 needs attention"** if it does not return `verdict=ok`. Treat that issue as urgent — it is the
@@ -372,6 +372,10 @@ manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES
 `BACKUP_PASSPHRASE`, then **decrypts the `.gpg` it is about to upload and re-runs the same
 verification on the round-tripped copy** before publishing it as an Actions artifact
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
+On the first night of each UTC month the same **encrypted** file is also copied to Dropbox as
+`/Reddoor/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
+decisions 97(g)). That copy never fails the backup: a failed copy files "Monthly Dropbox backup
+copy failing", and dispatching `fleet-db-backup` with `dropbox_copy: true` takes it again.
 
 **The restore, as rehearsed** — every command below was checked against the tree on 2026-09-14,
 and a fresh session with only this section was asked to dry-run it; what it could not find is now
@@ -387,6 +391,11 @@ written in.
    gh run download "$run" --repo reddoorla/reddoor-maintenance -n "turso-backup-$run" -D restore
    cd restore
    ```
+
+   Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
+   download `turso-YYYY-MM.sql.gpg` from Dropbox `/Reddoor/Backups/turso` (the newest month),
+   save it in `restore/` as `dump.sql.gpg`, and carry on. It is the same encrypted dump under the
+   same `BACKUP_PASSPHRASE`, so it may be up to a month older than the newest artifact.
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine

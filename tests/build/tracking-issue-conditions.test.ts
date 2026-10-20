@@ -264,6 +264,7 @@ const closes = (all: Found[]) => all.filter((s) => /\bgh issue close\b/.test(s.s
  * accident.
  */
 const FINDING_KEYED = new Set([
+  "fleet-db-backup.yml › Open/update the Dropbox-copy tracking issue",
   "fleet-config-drift.yml › Open/update the config-drift tracking issue",
   "fleet-security.yml › Open/update the protection-gap tracking issue",
   "release-health.yml › Open/update the npm-drift tracking issue",
@@ -292,6 +293,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-config-drift.yml › Open/update the config-drift tracking issue",
       "fleet-config-drift.yml › Open/update the config-drift-sweep-failing tracking issue",
       "fleet-db-backup.yml › Open/update the backup-failure tracking issue",
+      "fleet-db-backup.yml › Open/update the Dropbox-copy tracking issue",
       "fleet-db-backup.yml › Open/update the quota tracking issue",
       "fleet-form-e2e.yml › Open/update the nightly-form-e2e-failure tracking issue",
       "fleet-lighthouse.yml › Open/update the nightly-failure tracking issue",
@@ -313,6 +315,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-config-drift.yml › Close the config-drift issue on a clean sweep",
       "fleet-config-drift.yml › Close the config-drift-sweep-failing issue on recovery",
       "fleet-db-backup.yml › Close the backup-failure issue on recovery",
+      "fleet-db-backup.yml › Close the Dropbox-copy issue on a successful copy",
       "fleet-db-backup.yml › Close the quota issue on recovery",
       "fleet-form-e2e.yml › Close the nightly-form-e2e-failure issue on recovery",
       "fleet-lighthouse.yml › Close the nightly-failure issue on recovery",
@@ -583,6 +586,10 @@ const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
     "hygiene only (resets the 60-day auto-disable timer); its failure is not the run's",
   ],
   [
+    "fleet-db-backup.yml › Copy the encrypted dump to Dropbox",
+    'OD 97(g): a failed monthly copy files its own finding-keyed issue ("Monthly Dropbox backup copy failing"); the backup it copies was already taken, verified and uploaded as the artifact, so the run is not the one that failed',
+  ],
+  [
     "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
     "a sweep-only hang deliberately ends green so the run keeps the AUDIT's verdict (see the step's comment)",
   ],
@@ -754,8 +761,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 19 open steps", () => {
-    expect(opens(all)).toHaveLength(19);
+  it("finds all 20 open steps", () => {
+    expect(opens(all)).toHaveLength(20);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a

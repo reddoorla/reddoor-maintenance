@@ -265,6 +265,9 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 | `OPERATOR_EMAIL`           |                        ✓                        |                         |                               |        ✓         |
 | `GA_SUBJECT`               |                        ✓                        |                         |               ✓               |                  |
 | `GA_SA_KEY_JSON`           |         ✓ (as a file, `GA_SA_KEY_PATH`)         |                         |               ✓               |                  |
+| `DROPBOX_APP_KEY`          |          ✓ (for `scripts/dropbox.mjs`)          |                         |    ✓ (monthly backup copy)    |                  |
+| `DROPBOX_APP_SECRET`       |          ✓ (for `scripts/dropbox.mjs`)          |                         |    ✓ (monthly backup copy)    |                  |
+| `DROPBOX_REFRESH_TOKEN`    |          ✓ (for `scripts/dropbox.mjs`)          |                         |    ✓ (monthly backup copy)    |                  |
 
 ### GA / Search Console in the daily cron
 
