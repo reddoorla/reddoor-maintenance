@@ -589,10 +589,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       try {
         body = protectionPutBody(existing, requiredChecks);
       } catch (err) {
-        const message = `protectBranch(${repo}:${branch}): ${err instanceof Error ? err.message : String(err)}`;
-        throw err instanceof ProtectionRefusedError
-          ? new ProtectionRefusedError(message, { cause: err })
-          : new Error(message, { cause: err });
+        if (!(err instanceof ProtectionRefusedError)) throw err;
+        throw new ProtectionRefusedError(`protectBranch(${repo}:${branch}): ${err.message}`, {
+          cause: err,
+        });
       }
       await ghJson("PUT", path, body);
     },

@@ -987,6 +987,38 @@ describe("selfUpdating: the protection write keeps what the branch already has (
     expect(calls.filter((c) => c.startsWith("ruleset-create:o/r:"))).toHaveLength(1);
   });
 
+  it("a refused protection write stays in the notes when the ruleset step then fails (#1447)", async () => {
+    const { github, puts } = restProtection(
+      {
+        stdout: JSON.stringify({
+          url: API,
+          required_status_checks: { strict: true, contexts: ["build"], checks: [] },
+          enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+          required_pull_request_reviews: {
+            ...reviews,
+            dismissal_restrictions: {
+              url: `${API}/dismissal_restrictions`,
+              users: [],
+              teams: [],
+              apps: [],
+            },
+          },
+          restrictions,
+        }),
+      },
+      {
+        listRepoRulesets: async () => [],
+        createRuleset: async () => {
+          throw new Error("ruleset 422 boom");
+        },
+      },
+    );
+    const r = await run(github);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*by hand.*; then ruleset 422 boom/s);
+    expect(puts).toEqual([]);
+  });
+
   it("ci / ci already required: no write at all", async () => {
     const { github, puts } = restProtection({
       stdout: JSON.stringify({

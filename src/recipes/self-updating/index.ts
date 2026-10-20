@@ -109,6 +109,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   // restore is a no-op on every path that never left the operator's branch.
   let original: string | null = null;
   let maintBranch: string | null = null;
+  let refused: ProtectionRefusedError | null = null;
 
   try {
     // A. Renovate config on the default branch — compare CONTENT, not just
@@ -242,7 +243,6 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       await github.disableRepoAutoMerge(repo);
       actions.push("disabled auto-merge (platform auto-merge is not permitted fleet-wide)");
     }
-    let refused: ProtectionRefusedError | null = null;
     const existingContexts = await github
       .branchProtectionContexts(repo, base)
       .catch((err: unknown) => {
@@ -336,7 +336,9 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     // docs/runbooks/renovate-app-identity.md covers the migration + rollback.)
   } catch (err) {
     const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
-    const message = err instanceof Error ? err.message : String(err);
+    let message = err instanceof Error ? err.message : String(err);
+    // A later step's failure must not hide a refused protection write (#1447).
+    if (refused && err !== refused) message = `${refused.message}; then ${message}`;
     return resultOf(site, "failed", `${message}${done}`, commits);
   } finally {
     // Restore the operator's branch whenever we created + checked out a maint
