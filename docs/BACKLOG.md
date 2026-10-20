@@ -4686,6 +4686,19 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         Actions secrets and variables API), and he read the staged `CLAUDE.md`
         on workspace `cutover/claude-md` at `09564d5` and accepts it as is.
         What is left of 121 is the Fri 10-23 window itself.
+        **Answered 2026-10-20 ~02:45Z (the operator, cockpit session): the
+        window moves up to Tue 10-20.** This replaces answer (3) above (Fri
+        10-23, proven by the Mon 10-26 fire). Reason: Williamson is done and
+        nothing big is moving. The window opens once Tuesday's 04:48 PT pass
+        has landed and #1519 has merged, with no worker sessions live. It must
+        finish before Wednesday's 11:48Z fire, which is the first proof. That
+        is under a day, against the three days a Friday window had, so it
+        runs in one sitting with the operator present. The window session
+        re-dates the runbook first (workspace
+        `plans/2026-10-06-agent-workspace/cutover-runbook.md`: the 10-22
+        report check, the watcher's `dry_run date=2026-10-22` → `not-covered`
+        check, and the 10-26 proof), and proves the watcher on the new dates
+        before trusting it.
 
 122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
       `no-property` or write `soft-fail`?** The brief said the nightly re-check
