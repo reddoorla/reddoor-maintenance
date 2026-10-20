@@ -310,6 +310,8 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     );
     for (const it of ctx.items) if (it.waiting === true) waitingKeys.push(it.key);
   }
+  // A held dead letter on a site with no card (archived) has no site page loop above.
+  for (const it of model.cardless ?? []) if (it.waiting === true) waitingKeys.push(it.key);
 
   return {
     now: now.toISOString(),

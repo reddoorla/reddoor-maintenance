@@ -646,6 +646,11 @@ function collectFleetAttentionItems(
   // (oldestUnreplayedDeadLetterBySlug): a known site's dead letter waits two replay
   // cycles from it. Empty on a blip, and then nothing waits.
   deadLetterOldest: ReadonlyMap<string, string> = new Map(),
+  // The rows a dead-letter slug resolves against. The cockpit passes the WHOLE
+  // roster, as the digest does: ingest and replay place a lead by `getSiteBySlug`,
+  // which ignores status, so an archived site's slug is known, not "NO fleet site",
+  // and OD 87 holds it on both surfaces alike.
+  deadLetterSites: WebsiteRow[] = sites,
 ): AttentionItem[] {
   return [
     ...collectVulnAlerts(sites, baseUrl),
@@ -657,7 +662,7 @@ function collectFleetAttentionItems(
     ...collectAnalyticsFailures(sites, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
     ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
-    ...collectDeadLetterAlerts(sites, deadLetters, baseUrl, deadLetterOldest),
+    ...collectDeadLetterAlerts(deadLetterSites, deadLetters, baseUrl, deadLetterOldest),
     // Reads the nightly-persisted `Prismic Models` verdict columns — no live
     // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
     // request-path; a collector that shelled out would 502 in Lambda).
@@ -826,6 +831,7 @@ export function buildCockpitModel(
     notifyBounces,
     deadLetters,
     deadLetterOldest,
+    websites,
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves

@@ -20,6 +20,12 @@
 import { describe, it, expect } from "vitest";
 import { createClient, type Client } from "@libsql/client";
 import { runMigrations } from "../../src/db/migrate.js";
+import {
+  countUnreplayedDeadLettersBySlug,
+  oldestUnreplayedDeadLetterBySlug,
+  oldestUnreplayedDeadLetterForSlug,
+} from "../../src/db/deadletter.js";
+import { openCapturingDb, explainQueryPlan, type CapturingDb } from "./query-plan-harness.js";
 
 const PER_SLUG_SQL = `SELECT count(*) AS n FROM submission_deadletter
    WHERE site_slug = ? AND replayed_at IS NULL AND abandoned_at IS NULL`;
@@ -28,15 +34,6 @@ async function plan(client: Client, sql: string, args: unknown[]): Promise<strin
   const res = await client.execute({ sql: `EXPLAIN QUERY PLAN ${sql}`, args: args as never[] });
   return res.rows.map((r) => String(r.detail)).join(" | ");
 }
-
-// OD 87. The SQL `oldestUnreplayedDeadLetterBySlug` / `…ForSlug` issue, and the
-// fleet-wide count's, which the first is measured against.
-const COUNT_BY_SLUG_SQL = `SELECT site_slug, count(*) AS n FROM submission_deadletter
-   WHERE replayed_at IS NULL AND abandoned_at IS NULL GROUP BY site_slug`;
-const OLDEST_BY_SLUG_SQL = `SELECT site_slug, min(received_at) AS oldest FROM submission_deadletter
-   WHERE replayed_at IS NULL AND abandoned_at IS NULL GROUP BY site_slug`;
-const OLDEST_FOR_SLUG_SQL = `SELECT min(received_at) AS oldest FROM submission_deadletter
-   WHERE site_slug = ? AND replayed_at IS NULL AND abandoned_at IS NULL`;
 
 describe("the per-slug dead-letter count is served by its own index (0044, after 0028)", () => {
   it("seeks on site_slug, covering, touching no payload row", async () => {
@@ -65,10 +62,25 @@ describe("the per-slug dead-letter count is served by its own index (0044, after
 });
 
 describe("the hold's clock costs no more than the count it sits beside (OD 87, 0044)", () => {
+  // Planned from the SQL the real functions issue (captured at the driver), so a
+  // change to either function's builder is measured, not a hand-written copy.
+  async function planOf(run: (db: CapturingDb["db"]) => Promise<unknown>, dropIndex = false) {
+    const h = await openCapturingDb();
+    if (dropIndex) {
+      await h.client.execute("DROP INDEX idx_deadletter_slug_received");
+      await h.client.execute(
+        "CREATE INDEX idx_deadletter_slug_unreplayed ON submission_deadletter (site_slug, replayed_at, abandoned_at)",
+      );
+    }
+    const before = h.captured.length;
+    await run(h.db);
+    const stmts = h.captured.slice(before);
+    expect(stmts).toHaveLength(1);
+    return (await explainQueryPlan(h.client, stmts[0]!)).join(" | ");
+  }
+
   it("per slug: min(received_at) is a COVERING seek, touching no payload row", async () => {
-    const client = createClient({ url: ":memory:" });
-    await runMigrations(client);
-    const detail = await plan(client, OLDEST_FOR_SLUG_SQL, ["acme"]);
+    const detail = await planOf((db) => oldestUnreplayedDeadLetterForSlug(db, "acme"));
     expect(detail).toContain("COVERING INDEX idx_deadletter_slug_received");
     expect(detail).toContain("site_slug=?");
   });
@@ -78,22 +90,14 @@ describe("the hold's clock costs no more than the count it sits beside (OD 87, 0
     // from 0005's `idx_deadletter_unreplayed (replayed_at)` and a rowid lookup per
     // unreplayed row, and the grouped min the same way. The gate asks for no MORE
     // than the count already costs on the cockpit request.
-    const client = createClient({ url: ":memory:" });
-    await runMigrations(client);
-    const count = await plan(client, COUNT_BY_SLUG_SQL, []);
-    expect(await plan(client, OLDEST_BY_SLUG_SQL, [])).toBe(count);
+    const count = await planOf((db) => countUnreplayedDeadLettersBySlug(db));
+    expect(await planOf((db) => oldestUnreplayedDeadLetterBySlug(db))).toBe(count);
   });
 
   it("0028's three-column index cannot cover the per-slug min (the control: why 0044 exists)", async () => {
     // received_at is not in 0028's index, so with only that index SQLite has to
     // visit the payload-bearing row for every unreplayed dead letter of the slug.
-    const client = createClient({ url: ":memory:" });
-    await runMigrations(client);
-    await client.execute("DROP INDEX idx_deadletter_slug_received");
-    await client.execute(
-      "CREATE INDEX idx_deadletter_slug_unreplayed ON submission_deadletter (site_slug, replayed_at, abandoned_at)",
-    );
-    const detail = await plan(client, OLDEST_FOR_SLUG_SQL, ["acme"]);
+    const detail = await planOf((db) => oldestUnreplayedDeadLetterForSlug(db, "acme"), true);
     expect(detail).toContain("idx_deadletter_slug_unreplayed");
     expect(detail).not.toContain("COVERING INDEX");
   });

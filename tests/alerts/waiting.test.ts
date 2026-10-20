@@ -338,6 +338,16 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
     expect(out!.title).toMatch(/2026-10-20 18:00Z/);
   });
 
+  it("says it/them by the count, in full", () => {
+    const now = new Date(at.getTime() - 60 * 1000);
+    expect(markWaiting([held()], snap, now, true)[0]!.title).toBe(
+      "1 lead dead-lettered, oldest 11 h ago — the 6-hourly replay should place it; alarms at 2026-10-20 18:00Z if not",
+    );
+    expect(markWaiting([held({ metric: 3 })], snap, now, true)[0]!.title).toBe(
+      "3 leads dead-lettered, oldest 11 h ago — the 6-hourly replay should place them; alarms at 2026-10-20 18:00Z if not",
+    );
+  });
+
   it("one millisecond before the threshold it is still waiting", () => {
     expect(markWaiting([held()], snap, justBefore(at), true)[0]!.waiting).toBe(true);
   });
@@ -346,8 +356,9 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
     const [out] = markWaiting([held()], snap, at, true);
     expect(out!.waiting).toBeUndefined();
     expect(out!.severity).toBe("critical");
-    expect(out!.title).toMatch(/^1 lead dead-lettered and not replayed for 12 h/);
-    expect(out!.title).toMatch(/db replay-deadletters/);
+    expect(out!.title).toBe(
+      "1 lead dead-lettered and not replayed for 12 h — the 6-hourly replay has not placed it; run `db replay-deadletters` to see why",
+    );
   });
 
   it("names the age of the OLDEST row as it grows", () => {
@@ -361,6 +372,20 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
     expect(markWaiting([same], snap, at, true)[0]!.status).toBe("worse");
     const dayLater = new Date(at.getTime() + MS_PER_DAY);
     expect(markWaiting([same], snap, dayLater, true)[0]!.status).toBe("standing");
+  });
+
+  it("stays NEW when it escalates on its first sighting (the digest never saw the key)", () => {
+    // A row 13 h old when the once-a-day digest first runs escalates on sight;
+    // a key the snapshot never held is new, not worse.
+    const fresh = held({ status: "new" });
+    expect(markWaiting([fresh], {}, at, true)[0]!.status).toBe("new");
+  });
+
+  it("never names a negative age (a received_at ahead of the clock)", () => {
+    const ahead = held({ oldestReceivedAt: "2026-10-20T07:30:00.000Z" });
+    const [out] = markWaiting([ahead], snap, new Date(received), true);
+    expect(out!.waiting).toBe(true);
+    expect(out!.title).toMatch(/oldest 0 h ago/);
   });
 
   it("is clocked by received_at, not by the digest snapshot", () => {

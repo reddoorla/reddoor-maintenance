@@ -4,6 +4,7 @@
  * list; the negative one is a site with one known attention item it must list.
  * A "just wait" vuln (src/alerts/waiting.ts) must stay out, new or not.
  */
+import { createDeadLetter } from "../../src/db/deadletter.js";
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,13 +172,29 @@ describe("pm-cockpit — a dead letter on a known site waits two replay cycles (
     expect(out).not.toMatch(/Healthy Co|healthy-co/);
   });
 
-  it("aged 16 h: listed as broken, dated the hour its hold ran out", () => {
-    const pm = held("2026-10-06T20:00:00.000Z");
+  it("a held dead letter on an archived site counts in just_wait_left_out too", () => {
+    const gone = site({ id: "recGONE", name: "Gone Co", status: "archived" });
+    const pm = buildPmCockpit(
+      inputs({
+        websites: [BROKEN, HEALTHY, WAITING, gone],
+        deadLetters: new Map([["gone-co", 1]]),
+        deadLetterOldest: new Map([["gone-co", "2026-10-07T06:00:00.000Z"]]),
+      }),
+      NOW,
+    );
+    expect(pm.waitingKeys).toEqual(["deadletter:gone-co", "vuln:recWAIT"]);
+    expect(formatPmCockpit(pm)).not.toMatch(/Gone Co|gone-co/);
+  });
+
+  it("aged 28 h: listed as broken, dated the DAY its hold ran out, not today", () => {
+    // Received 2026-10-06T08:00Z, so the hold ran out 2026-10-06T20:00Z; NOW is
+    // 2026-10-07, so a reason dated "today" would be wrong.
+    const pm = held("2026-10-06T08:00:00.000Z");
     expect(pm.waitingKeys).toEqual(["vuln:recWAIT"]);
     const out = formatPmCockpit(pm);
     expect(out).toContain("Healthy Co · broken · /s/healthy-co");
-    expect(out).toContain("1 lead dead-lettered and not replayed for 16 h");
-    expect(out).toContain("(escalated 2026-10-07)");
+    expect(out).toContain("1 lead dead-lettered and not replayed for 28 h");
+    expect(out).toContain("(escalated 2026-10-06)");
   });
 });
 
@@ -316,6 +333,13 @@ describe("pm-cockpit — the connection is SELECT-only, proven before the first 
         status: "Maintained",
       } as never)
       .execute();
+    await createDeadLetter(rw, {
+      siteSlug: "site-a",
+      payload: { email: "ada@example.com" },
+      turnstile: { outcome: "pass", hostname: "a.example.com" },
+      error: "Error: upstream 429 quota",
+      receivedAt: new Date("2026-10-07T09:00:00.000Z"),
+    });
     await rw.destroy();
     return url;
   }
@@ -326,6 +350,9 @@ describe("pm-cockpit — the connection is SELECT-only, proven before the first 
     await expect(assertReadOnly(ro)).resolves.toBeUndefined();
     const got = await loadCockpitInputs(ro, NOW);
     expect(got.websites.map((w) => w.name)).toEqual(["Site A"]);
+    // OD 87: the loader reads the hold's clock beside the count.
+    expect(got.deadLetters.get("site-a")).toBe(1);
+    expect(got.deadLetterOldest.get("site-a")).toBe("2026-10-07T09:00:00.000Z");
     await expect(
       ro
         .updateTable("sites")

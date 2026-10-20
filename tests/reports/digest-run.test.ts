@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { createDeadLetter } from "../../src/db/deadletter.js";
+import { sql } from "kysely";
 
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
@@ -965,7 +966,7 @@ describe("runDigest", () => {
   // Through runDigest's own libSQL read (fetchDeadLetterCounts), the path
   // production takes: a file database, because each ":memory:" open is a new one.
 
-  async function digestWithDeadLetterAged(hours: number) {
+  async function digestWithDeadLetterAged(hours: number, breakOldestRead = false) {
     const dir = mkdtempSync(join(tmpdir(), "od87-"));
     vi.stubEnv("TURSO_DATABASE_URL", `file:${join(dir, "fleet.db")}`);
     vi.stubEnv("TURSO_AUTH_TOKEN", "");
@@ -978,6 +979,11 @@ describe("runDigest", () => {
         error: "Error: upstream 429 quota",
         receivedAt: new Date(DIGEST_NOW.getTime() - hours * 60 * 60 * 1000),
       });
+      if (breakOldestRead) {
+        // Only the hold's clock fails: the count still reads, received_at does not.
+        await sql`DROP INDEX idx_deadletter_slug_received`.execute(db);
+        await sql`ALTER TABLE submission_deadletter DROP COLUMN received_at`.execute(db);
+      }
       const { client, captured } = captureClient();
       const result = await runDigest({
         digestState: memoryDigestState({}),
@@ -1000,6 +1006,12 @@ describe("runDigest", () => {
     const { result, captured } = await digestWithDeadLetterAged(11 + 59 / 60);
     expect(captured).toHaveLength(0);
     expect(result.output).toMatch(/skipped/i);
+  });
+
+  it("a failed oldest-row read holds nothing: a 3 h-old dead letter still reaches the email", async () => {
+    const { captured } = await digestWithDeadLetterAged(3, true);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toContain("1 lead dead-lettered and not yet replayed");
   });
 
   it("asks about it at 12 h, CRITICAL, with the age in the title", async () => {

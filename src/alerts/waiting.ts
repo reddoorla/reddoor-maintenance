@@ -126,7 +126,9 @@ export function markWaiting(
   const escalated = (it: AttentionItem, at: Date, title: string): AttentionItem => ({
     ...it,
     title,
-    ...(it.status !== undefined && now.getTime() - at.getTime() < MS_PER_DAY
+    // A key the snapshot has never held stays NEW: a dead letter can escalate on
+    // its first sighting (it is clocked by received_at, not by the snapshot).
+    ...(it.status !== undefined && it.status !== "new" && now.getTime() - at.getTime() < MS_PER_DAY
       ? { status: "worse" as const }
       : {}),
   });
@@ -169,7 +171,10 @@ function markDeadLetter(
   const at = it.oldestReceivedAt === undefined ? null : deadLetterEscalatesAt(it.oldestReceivedAt);
   if (at === null) return it;
   const noun = it.metric === 1 ? "lead" : "leads";
-  const ageHours = Math.floor((now.getTime() - Date.parse(it.oldestReceivedAt!)) / MS_PER_HOUR);
+  const ageHours = Math.max(
+    0,
+    Math.floor((now.getTime() - Date.parse(it.oldestReceivedAt!)) / MS_PER_HOUR),
+  );
   if (now.getTime() < at.getTime())
     return {
       ...it,
@@ -179,6 +184,6 @@ function markDeadLetter(
   return escalated(
     it,
     at,
-    `${it.metric} ${noun} dead-lettered and not replayed for ${ageHours} h (two replay runs) — run \`db replay-deadletters\``,
+    `${it.metric} ${noun} dead-lettered and not replayed for ${ageHours} h — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay has not placed ${it.metric === 1 ? "it" : "them"}; run \`db replay-deadletters\` to see why`,
   );
 }

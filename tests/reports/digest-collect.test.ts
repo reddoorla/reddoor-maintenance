@@ -214,6 +214,23 @@ describe("collectAttention", () => {
     expect(items.find((i) => i.key === "deadletter:ghost-co")!.oldestReceivedAt).toBeUndefined();
   });
 
+  it("given counts but no ages, holds nothing and reads no store (OD 87)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const tables = { Reports: [], Websites: [vulnSite()] };
+      const items = await collectAttention({
+        ...rowsOf(tables),
+        baseUrl: BASE_URL,
+        deadLetters: new Map([["acme-co", 1]]),
+      });
+      expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBeUndefined();
+      // A store read here would fail (no TURSO env under test) and say so.
+      expect(warn.mock.calls.flat().join(" ")).not.toMatch(/dead-letter/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("emits no deadletter item when the queue is empty", async () => {
     const tables = { Reports: [], Websites: [vulnSite()] };
     const none = await collectAttention({

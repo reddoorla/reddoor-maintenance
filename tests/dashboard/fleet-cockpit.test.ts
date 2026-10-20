@@ -17,6 +17,7 @@ import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
 import { siteSlug } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 
@@ -748,6 +749,36 @@ describe("buildCockpitModel", () => {
       expect(m.cards[0]!.tier).toBe("healthy");
       expect(m.cards[0]!.items.some((i) => i.kind === "deadletter")).toBe(false);
       expect(buildNeedsYouFeed(m)).toEqual([]);
+    });
+
+    it("an archived site's dead letter is held too, and alarms by its own name, not as NO fleet site", () => {
+      // Replay places a lead by getSiteBySlug, which ignores status, so the cockpit
+      // resolves dead-letter slugs against the whole roster, as the digest does.
+      const archived = (oldest: string) =>
+        buildCockpitModel(
+          [
+            site({ id: "a", name: "Espada" }),
+            site({ id: "z", name: "Gone Co", status: "archived" }),
+          ],
+          [],
+          {},
+          BASE,
+          NOW,
+          [],
+          null,
+          [],
+          0,
+          new Map(),
+          new Map([["gone-co", 1]]),
+          new Map([["gone-co", oldest]]),
+        );
+      const held = archived("2026-06-11T00:01:00.000Z");
+      expect(held.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", true]]);
+      expect(renderCockpitHtml(held, "op@example.com")).not.toContain("Not on any site card");
+      const due = archived("2026-06-11T00:00:00.000Z");
+      expect(due.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", undefined]]);
+      expect(due.cardless![0]!.title).not.toMatch(/NO fleet site/);
+      expect(renderCockpitHtml(due, "op@example.com")).toContain("Not on any site card (1)");
     });
 
     it("aged 12 h: CRITICAL on the card and in the feed, with the age in the title", () => {

@@ -3,6 +3,7 @@ import { openDb, type Db } from "../../src/db/client.js";
 import { writeDigestState } from "../../src/db/digest-state.js";
 import { loadSiteAlarmContext } from "../../src/dashboard/site-alarm.js";
 import { createDeadLetter } from "../../src/db/deadletter.js";
+import { sql } from "kysely";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -73,6 +74,17 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     const html = renderSiteDashboardHtml(clean, [], [], null, NOW, alarm);
     expect(html).toMatch(/chip waiting[^>]*>waiting: 1 lead dead-lettered, oldest 3 h ago/);
     expect(html).not.toContain("Needs attention");
+  });
+
+  it("a failed oldest-row read holds nothing: the page keeps its alarm", async () => {
+    // Break only the hold's clock: the count still reads, received_at does not.
+    await deadLetterAt(new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+    await sql`DROP INDEX idx_deadletter_slug_received`.execute(db);
+    await sql`ALTER TABLE submission_deadletter DROP COLUMN received_at`.execute(db);
+    const alarm = await loadClean();
+    expect(alarm).not.toBeNull();
+    expect(alarm!.tier).toBe("attention");
+    expect(alarm!.items.map((i) => [i.key, i.waiting])).toEqual([["deadletter:acme", undefined]]);
   });
 
   it("aged 12 h by its OLDEST row: an alarm, though a newer row just landed", async () => {
