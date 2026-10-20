@@ -559,8 +559,11 @@ function combineAdvisories(kept: AdvisoryEntry, other: AdvisoryEntry): AdvisoryE
  *  Per severity the count is the larger of the merged advisories and pnpm's own metadata count,
  *  never their sum (#1411): pnpm's metadata may count per path, so adding Dependabot's per-alert
  *  tallies mixed units, while taking the larger keeps a severity pnpm counts without (full)
- *  advisory detail from reading low or clean. Dependabot's ghost alerts ride along, with only their own clause in the summary
- *  (#1410): Dependabot's live count is already inside the merged one. */
+ *  advisory detail from reading clean. The cost: when pnpm's detail-less count and the merged
+ *  advisories are different vulnerabilities, a severity can read low by that many, though never
+ *  zero where either side has one, so the status never changes. Dependabot's ghost alerts ride
+ *  along, with only their own clause in the summary (#1410): Dependabot's live count is already
+ *  inside the merged one. */
 function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResult {
   const lock = lockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
   const dep = dependabot.details as {
@@ -572,7 +575,8 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
   // the max below does not count that advisory again at its old severity.
   const lockCounts: Counts = { ...lock.counts };
   for (const a of dep.advisories) {
-    // Against the growing list, so two Dependabot alerts on one advisory (one per manifest) count once.
+    // Against the growing list, so two Dependabot alerts on one advisory (one per manifest)
+    // count once.
     const i = advisories.findIndex((m) => sameAdvisory(m, a));
     if (i === -1) {
       advisories.push(a);
