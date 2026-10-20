@@ -1073,7 +1073,7 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
     });
 
-    describe("review round 2", () => {
+    describe("a duplicate stays within one module and keeps the worse severity", () => {
       const GHSA = "GHSA-67hx-6x53-jw92";
       const pnpmOne = (module: string, severity: string, extra: Record<string, unknown>) =>
         JSON.stringify({
@@ -1178,7 +1178,7 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       });
     });
 
-    describe("review round 3", () => {
+    describe("one merged entry absorbs one advisory and keeps what either source knows", () => {
       const npmTwoVias = JSON.stringify({
         metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 1 } },
         vulnerabilities: {
@@ -1288,6 +1288,77 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
         expect(advisoriesFromResult(result).map((a) => [a.module, a.scope])).toEqual([
           ["vite", "development"],
         ]);
+      });
+
+      // A workspace leaves pnpm's relationship unknown on purpose, so nothing is muted;
+      // Dependabot's "transitive" alone must not fill it in.
+      it("leaves the relationship unknown unless both sources say transitive", async () => {
+        const sharp = JSON.stringify({
+          metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+          advisories: {
+            "1": {
+              module_name: "sharp",
+              severity: "high",
+              title: "sharp : Vulnerability in librsvg dependency",
+              url: "https://github.com/advisories/GHSA-wq5f-xc86-pv6w",
+            },
+          },
+        });
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "sharp",
+          ghsaId: "GHSA-wq5f-xc86-pv6w",
+          relationship: "transitive",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: {
+            path: clone({
+              "pnpm-lock.yaml": pnpm12Lockfile,
+              "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+              "package.json": JSON.stringify({ dependencies: {} }),
+            }),
+            gitRepo: "reddoorla/acme",
+          },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: sharp } }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories).toHaveLength(1);
+        expect(advisories[0]!.relationship).toBeUndefined();
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+      });
+
+      const sharpAlert = (scope: "runtime" | "development"): DependabotAlert => ({
+        ...actionAlert,
+        package: "sharp",
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        scope,
+        manifestPath: scope === "runtime" ? "pnpm-lock.yaml" : "app/pnpm-lock.yaml",
+      });
+
+      for (const order of [
+        ["development", "runtime"],
+        ["runtime", "development"],
+      ] as const) {
+        it(`keeps runtime scope when one alert says runtime (${order.join(" then ")})`, async () => {
+          const result = await securityAudit({
+            site: { path: repo(), gitRepo: "reddoorla/acme" },
+            dependabotDeps: fakeDependabot(order.map(sharpAlert)),
+            spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+          });
+          expect(advisoriesFromResult(result).map((a) => a.scope)).toEqual(["runtime"]);
+        });
+      }
+
+      it("keeps runtime scope after a pnpm entry adopted development", async () => {
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([sharpAlert("development"), sharpAlert("runtime")]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+        });
+        const sharp = advisoriesFromResult(result).filter((a) => a.module === "sharp");
+        expect(sharp.map((a) => a.scope)).toEqual(["runtime"]);
       });
     });
   });

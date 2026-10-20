@@ -528,18 +528,30 @@ function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
 
 const SEVERITY_ORDER: Record<Severity, number> = { low: 0, moderate: 1, high: 2, critical: 3 };
 
-/** One advisory both sources report: the higher severity, and "direct" if either says so, since
- *  a direct dependency has a fix vehicle and must not be muted as transitive-only. A field only
- *  one source carries (Dependabot's `scope`, a GHSA or CVE) is kept, so the dashboard still marks
- *  a dev-scope advisory and a later alert must agree on the adopted ids to match the entry. */
+/** One advisory both sources report. Each field that decides urgency takes the louder answer,
+ *  whichever source came first: the higher severity; relationship "direct" if either says so,
+ *  "transitive" only if both do (a missing relationship never mutes the auto-fix escalation, and
+ *  pnpm leaves it missing on purpose for a workspace), else absent; scope "runtime" if either says
+ *  so, else whichever scope is known. Display fields (title, url) and ids come from the kept
+ *  entry, with the other's filling a gap, so a later alert must agree on the adopted ids. */
 function combineAdvisories(kept: AdvisoryEntry, other: AdvisoryEntry): AdvisoryEntry {
   const severity =
     SEVERITY_ORDER[other.severity] > SEVERITY_ORDER[kept.severity] ? other.severity : kept.severity;
   const relationship =
     kept.relationship === "direct" || other.relationship === "direct"
       ? "direct"
-      : (kept.relationship ?? other.relationship);
-  return { ...other, ...kept, severity, ...(relationship ? { relationship } : {}) };
+      : kept.relationship === other.relationship
+        ? kept.relationship
+        : undefined;
+  const scope =
+    kept.scope === "runtime" || other.scope === "runtime" ? "runtime" : (kept.scope ?? other.scope);
+  const { relationship: _r, scope: _s, ...rest } = { ...other, ...kept };
+  return {
+    ...rest,
+    severity,
+    ...(relationship ? { relationship } : {}),
+    ...(scope ? { scope } : {}),
+  };
 }
 
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency
