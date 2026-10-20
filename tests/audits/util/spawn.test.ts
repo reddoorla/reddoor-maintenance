@@ -640,6 +640,9 @@ setInterval(() => {}, 1 << 30);
     } finally {
       hold.mockRestore();
     }
+    // A timeout armed some other way (e.g. from node:timers) would fall back
+    // to the real 4 s race this fixture exists to remove, so say so here.
+    expect(fireTimeout, "spawn armed its timeout outside the held window").toBeDefined();
     void outcome.finally(() => (settled = true));
     const fire = (): void => {
       if (!settled) fireTimeout?.();
