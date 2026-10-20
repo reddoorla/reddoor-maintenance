@@ -1,0 +1,9 @@
+## 2026-10-20 — OD 97(g): the monthly Dropbox copy moves to `/Processes & Procedures/Backups/turso` (this PR)
+
+> Corrects in part `2026-10-20-2002-od97g-backup-to-dropbox.md`, which expected the first copy to create `/Reddoor/Backups/turso`.
+
+The first proof dispatch after the operator added the three `DROPBOX_*` secrets was run 39497860010 (2026-10-20 21:08Z, `main`, `dropbox_copy: true`). It named the team space (`team Reddoor Creative … (team space)`), then Dropbox refused the upload: `files/upload_session/finish: HTTP 409 path/no_write_permission/`. Everything around the failure behaved as reddoorla/reddoor-maintenance#1549 designed. The backup stayed green, the 30-day artifact was uploaded (21,126,525 bytes), the email was absent from the public log, the step printed its own warning, and it filed reddoorla/reddoor-maintenance#1562.
+
+**Corrected belief.** The earlier entry said the first upload "will create `/Reddoor/Backups/turso` as a new top-level team folder", because `dropbox.mjs` creates parent folders silently. It does inside a folder, but not at a team space's root. A new top-level entry there is a team folder, and the API cannot create one. The Dropbox connector's own contract says the same: "Team root is not writable for team accounts". The measurement that should have caught this was a write, and the session made only reads before the merge, so "it resolves inside the team space" was taken as "it is writable".
+
+The operator chose an existing team folder (workspace decision `2026-10-20-2110-od-97g-dropbox-team-root-folder.md`). The folder string changes in the workflow, the tests, the runbook and SETUP, and the upload argument is now quoted, because the name holds a space and an `&`. Two mutations prove the tests see it: dropping the quotes fails 8 tests, and leaving the old folder in the issue body fails 1.

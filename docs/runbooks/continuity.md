@@ -373,7 +373,7 @@ manifest** the dump carries, encrypts it with `gpg --symmetric --cipher-algo AES
 verification on the round-tripped copy** before publishing it as an Actions artifact
 (`turso-backup-<run_id>`, 30-day retention). A run that cannot verify refuses to upload.
 On the first night of each UTC month the same **encrypted** file is also copied to Dropbox as
-`/Reddoor/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
+`/Processes & Procedures/Backups/turso/turso-YYYY-MM.sql.gpg` (team space, kept indefinitely; Operator
 decisions 97(g)), from `main` only, once the three `DROPBOX_*` Actions secrets are set (until
 then the run only warns). That copy never fails the backup. A failed copy, or a red or cancelled
 run on the first of the month, files "Monthly Dropbox backup copy failing"; dispatching
@@ -398,7 +398,7 @@ written in.
    ```
 
    Or, when no artifact is left (GitHub has lost or locked it, or the newest is past 30 days),
-   download `turso-YYYY-MM.sql.gpg` from Dropbox `/Reddoor/Backups/turso` (the newest month),
+   download `turso-YYYY-MM.sql.gpg` from Dropbox `/Processes & Procedures/Backups/turso` (the newest month),
    then `cd ~/Documents/GitHub/reddoor-maintenance && mkdir -p restore && cd restore`, save it
    there as `dump.sql.gpg`, and carry on. It is the same kind of encrypted dump, taken on the first
    night of its month, so it can be up to a month older than the last green nightly; everything
