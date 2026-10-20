@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 
 // P1-56: the `sweep` agent routes mechanical census and inventory sweeps to Haiku 5.5 at
-// `medium`, the cheapest arm that matched gold on 456/456 checks in the 2026-10-19 row-4
-// bake-off (reddoorla/reddoor-workspace#1). Claude Code reads these frontmatter keys from
+// `medium` with only Read, Grep and Glob, the configuration that scored 228/228 in each of two
+// read-only runs of the 2026-10-19 row-4 census (P1-56's result comment on
+// reddoorla/reddoor-workspace#1). The row-4 bake-off's own Haiku arms, at 456/456 for `medium`,
+// also had Bash and Write, so they are not this configuration. Claude Code reads these frontmatter keys from
 // `.claude/agents/*.md`; a missing `effort` inherits the session's (`xhigh` on the laptop), and
 // a missing `tools` inherits every tool, MCP writes included.
 const AGENT = fileURLToPath(new URL("../../.claude/agents/sweep.md", import.meta.url));

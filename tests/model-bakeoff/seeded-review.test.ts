@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { fileURLToPath } from "node:url";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { groupDisagreements, disagreementId } from "../../scripts/model-bakeoff/lib/score.mjs";
 import { scorerFor } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
@@ -9,7 +10,7 @@ import {
   cleanDiff,
   haveHistory,
 } from "../../scripts/model-bakeoff/tasks/seeded-review/build.mjs";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -19,6 +20,7 @@ import type {
   RunSummary,
 } from "../../scripts/model-bakeoff/tasks/seeded-review.mjs";
 
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const CASES = fileURLToPath(
   new URL("../../scripts/model-bakeoff/tasks/seeded-review", import.meta.url),
 );
@@ -86,20 +88,72 @@ describe("seeded-review key", () => {
     expect(t.controls.map((c) => c.case)).toEqual(["r02", "r06", "r10"]);
   });
 
+  const expectCommitted = (dir: string) => {
+    const committed = join(CASES, "cases");
+    expect(readdirSync(dir).sort()).toEqual(readdirSync(committed).sort());
+    for (const name of readdirSync(dir)) {
+      expect(readFileSync(join(dir, name)).equals(readFileSync(join(committed, name))), name).toBe(
+        true,
+      );
+    }
+  };
+
   it.skipIf(!haveHistory())("matches what build.mjs rebuilds from git, byte for byte", () => {
     const dir = mkdtempSync(join(tmpdir(), "seeded-review-"));
     try {
       buildCases(dir);
-      const committed = join(CASES, "cases");
-      expect(readdirSync(dir).sort()).toEqual(readdirSync(committed).sort());
-      for (const name of readdirSync(dir)) {
-        expect(
-          readFileSync(join(dir, name)).equals(readFileSync(join(committed, name))),
-          name,
-        ).toBe(true);
-      }
+      expectCommitted(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!haveHistory())(
+    "rebuilds the same bytes in a checkout whose attributes would change the diff",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "seeded-review-attrs-"));
+      try {
+        const clone = join(root, "r");
+        execFileSync("git", ["clone", "-q", "--shared", "--no-checkout", REPO_ROOT, clone]);
+        // Each of these alone turns every case's diff into "Binary files differ".
+        writeFileSync(join(clone, ".gitattributes"), "*.ts -diff\n");
+        writeFileSync(join(root, "attrs"), "*.ts -diff\n");
+        execFileSync("git", ["-C", clone, "config", "core.attributesFile", join(root, "attrs")]);
+        const out = join(root, "out");
+        mkdirSync(out);
+        buildCases(out, undefined, clone);
+        expectCommitted(out);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!haveHistory())("ignores a GIT_DIR inherited from a git hook", () => {
+    const empty = mkdtempSync(join(tmpdir(), "seeded-review-gitdir-"));
+    try {
+      execFileSync("git", ["init", "-q", empty]);
+      const r = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import { haveHistory } from ${JSON.stringify(pathToFileURL(join(CASES, "build.mjs")).href)};
+           process.exit(haveHistory() ? 0 : 3);`,
+        ],
+        {
+          env: {
+            ...process.env,
+            GIT_DIR: join(empty, ".git"),
+            GIT_WORK_TREE: empty,
+            GIT_INDEX_FILE: join(empty, ".git", "index"),
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(r.status, r.stderr).toBe(0);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
     }
   });
 
@@ -204,6 +258,13 @@ describe("scoring one run", () => {
     });
   });
 
+  it("counts a finding the referee ruled a different defect among the other findings", () => {
+    const rounding = [f("r01", "src/a.ts", 11, 11, "an unrelated rounding slip")];
+    expect(summary(rounding, false).otherFindings).toBe(1);
+    expect(summary(rounding, true).otherFindings).toBe(0);
+    expect(summary(rounding).otherFindings).toBe(0);
+  });
+
   it("names a seeded defect the referee refuted", () => {
     const out = { findings: [f("r03", "src/b.ts", 40)], unverified: [] };
     const checks = review.scoreRun(null, REF, out);
@@ -266,6 +327,25 @@ describe("scoring one run", () => {
       outputs: { "opus-xhigh-1": out, "opus-xhigh-2": out, "x-1": out, "x-2": null },
     });
     expect(s.groups["x"]!.verdict).toBe("pending: a run returned no output");
+  });
+
+  it("gives no verdict when one of the run's arms has no transcript at all", () => {
+    // `bakeoff.mjs score` leaves an arm with no transcript out of checksByArm, so the
+    // group would otherwise be judged on the runs that came back.
+    const out = { findings: [], unverified: [] };
+    const s = review.summarize({
+      reference: REF,
+      checksByArm: {
+        "opus-xhigh-1": review.scoreRun(null, REF, out),
+        "opus-xhigh-2": review.scoreRun(null, REF, out),
+        "x-1": review.scoreRun(null, REF, out),
+      },
+      rulings: {},
+      outputs: { "opus-xhigh-1": out, "opus-xhigh-2": out, "x-1": out },
+      arms: ["opus-xhigh-1", "opus-xhigh-2", "x-1", "x-2"],
+    });
+    expect(s.perRun["x-2"]).toMatchObject({ noOutput: true, found: 0, of: 2 });
+    expect(s.groups["x"]).toMatchObject({ runs: 2, verdict: "pending: a run returned no output" });
   });
 
   it("fails the well-formed check for a finding whose case names no case, so it cannot vanish", () => {

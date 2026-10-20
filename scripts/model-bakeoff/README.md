@@ -156,8 +156,8 @@ The truth refuses what it cannot read rather than guess. It refuses:
 - an `href={…}` expression;
 - an unknown entity;
 - a metadata tag it cannot parse;
-- a node id rendered more than once, on one page or across pages, which the prompt does not
-  say how to list.
+- a field or slice id rendered more than once, on one page or across pages, which the prompt
+  does not say how to list.
 
 ## Item tasks: one agent per item
 

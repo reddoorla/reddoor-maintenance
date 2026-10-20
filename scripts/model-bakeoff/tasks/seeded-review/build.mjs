@@ -12,17 +12,47 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../../..");
 // No user, system or environment config reaches git: only the repository's own, and
-// the -c pins below override every diff knob that changes output bytes.
+// the -c pins below override every diff knob that changes output bytes. GIT_DIR,
+// GIT_WORK_TREE and GIT_INDEX_FILE are dropped too, because a git hook sets them and they
+// would point every command at another repository, where haveHistory() is false and the
+// byte test skips.
+const DROPPED = new Set(["GIT_DIFF_OPTS", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
 const GIT_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => k !== "GIT_DIFF_OPTS" && !k.startsWith("GIT_CONFIG")),
+  Object.entries(process.env).filter(([k]) => !DROPPED.has(k) && !k.startsWith("GIT_CONFIG")),
 );
 Object.assign(GIT_ENV, { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
-const git = (...args) =>
-  execFileSync("git", args, { cwd: REPO, env: GIT_ENV, encoding: "utf8", maxBuffer: 64 << 20 });
+const run = (cwd, env, args) =>
+  execFileSync("git", args, { cwd, env, encoding: "utf8", maxBuffer: 64 << 20 });
+
+// A checkout's own .gitattributes (`*.ts -diff`, a `diff=` driver) changes the diff bytes.
+// From git 2.40, GIT_ATTR_SOURCE reads attributes from a tree instead of the working tree;
+// pointing it at the empty tree drops them. Older git ignores the variable, so it is set only
+// where it works. $GIT_DIR/info/attributes is still read: neither this nor
+// core.attributesFile turns it off (checked with git 2.43).
+const envs = new Map();
+function envFor(cwd) {
+  if (!envs.has(cwd)) {
+    const env = { ...GIT_ENV };
+    delete env.GIT_ATTR_SOURCE;
+    const [major, minor] = (run(cwd, env, ["--version"]).match(/(\d+)\.(\d+)/) ?? [])
+      .slice(1)
+      .map(Number);
+    if (major > 2 || (major === 2 && minor >= 40)) {
+      env.GIT_ATTR_SOURCE = run(cwd, env, ["hash-object", "-t", "tree", "/dev/null"]).trim();
+    }
+    envs.set(cwd, env);
+  }
+  return envs.get(cwd);
+}
+const gitIn =
+  (cwd) =>
+  (...args) =>
+    run(cwd, envFor(cwd), args);
 
 export const DIFF_ARGS = Object.freeze([
   ...[
     "core.quotePath=true",
+    "core.attributesFile=/dev/null",
     "diff.suppressBlankEmpty=false",
     "diff.interHunkContext=0",
     "diff.indentHeuristic=true",
@@ -51,7 +81,12 @@ export function cleanDiff(text) {
 }
 
 /** Writes every case's two files into `dir`, which must exist and be empty. */
-export function buildCases(dir, key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8"))) {
+export function buildCases(
+  dir,
+  key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8")),
+  repo = REPO,
+) {
+  const git = gitIn(repo);
   for (const c of key.cases) {
     const files = caseFiles(c);
     const diff = cleanDiff(git(...DIFF_ARGS, `${c.commit}^`, c.commit, "--", c.path));
@@ -64,6 +99,7 @@ export function buildCases(dir, key = JSON.parse(readFileSync(join(HERE, "key.js
 
 /** True when every case's commit and its parent are in this clone's history. */
 export function haveHistory(key = JSON.parse(readFileSync(join(HERE, "key.json"), "utf8"))) {
+  const git = gitIn(REPO);
   try {
     for (const c of key.cases)
       for (const rev of [c.commit, `${c.commit}^`]) git("cat-file", "-e", `${rev}^{commit}`);

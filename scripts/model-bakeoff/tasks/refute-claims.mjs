@@ -21,8 +21,9 @@ export const SEEDED_FILE = "docs/meta-week/_data/refute-claims-levers-seeded.jso
 
 // The claims of the seeded control, in its order, with their text unchanged. Only the
 // evidence lines differ. The docs corpus they cite is fetched, not committed, and 39 of its
-// 40 pages had changed since the 2026-09-14 copy the control's anchors were written against
-// (`fetch-corpus.mjs`, 2026-10-19), so each anchor was moved by hand to the passage it cited
+// 40 pages had changed since the 2026-09-15 copy the control's anchors were written against
+// (`fetch-corpus.mjs`, 2026-10-19; 2026-09-15 is the manifest's UTC fetchedAt, the evening of
+// 2026-09-14 in Los Angeles), so each anchor was moved by hand to the passage it cited
 // in today's page. Each fact behind a label was re-read there and still holds: for example
 // the exit-code-2 table still has exactly 16 "Yes" rows. The test checks ids, order, text
 // and kind against SEEDED_FILE.
@@ -62,7 +63,7 @@ export const PAGES = {
 };
 
 // The docs pages are gitignored, so fetch them before `prepare`, or it stops on ENOENT:
-//   node scripts/meta-week/fetch-corpus.mjs   (reports drift against the 2026-09-14 manifest,
+//   node scripts/meta-week/fetch-corpus.mjs   (reports drift against the 2026-09-15 manifest,
 //   which is expected; `truth` checks the bytes against PAGES instead)
 export const sources = [
   {

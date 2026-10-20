@@ -305,9 +305,12 @@ export function runSummary(reference, checks, rulings, output, refuted = new Set
   const disputed = [];
   const upheld = [];
   let unruled = 0;
+  // Defects whose candidates the referee ruled are about something else.
+  const ruledOff = new Set();
   for (const c of checks.filter((x) => x.collection === "defects")) {
     const r = ruled(c);
     if (r) (r.refCorrect === false ? disputed : upheld).push(c.key);
+    if (r?.armCorrect === false) ruledOff.add(c.key);
     if (refuted.has(c.key)) continue;
     if (!c.ok && c.armRaw !== MISSING && !r) unruled++;
     (c.ok || r?.armCorrect === true ? found : missed).push(c.key);
@@ -334,8 +337,12 @@ export function runSummary(reference, checks, rulings, output, refuted = new Set
   const findings = (Array.isArray(output?.findings) ? output.findings : []).filter(
     (f) => f && span(f),
   );
+  // A finding next to a seeded defect counts here too once the referee has ruled it a
+  // different defect, such as the r09 rounding finding beside the seeded "#0".
   const other = findings.filter(
-    (f) => seededCases.has(normCase(f.case)) && !reference.defects.some((d) => relation(f, d)),
+    (f) =>
+      seededCases.has(normCase(f.case)) &&
+      !reference.defects.some((d) => relation(f, d) && !ruledOff.has(d.id)),
   ).length;
   return {
     found: found.length,
@@ -413,8 +420,19 @@ export function decide(perRun, tolerance = TOLERANCE) {
   return groups;
 }
 
-/** Called by bakeoff.mjs `score`: the task's own metric, beside the generic per-check score. */
-export function summarize({ reference, checksByArm, rulings, outputs }) {
+/**
+ * Called by bakeoff.mjs `score`: the task's own metric, beside the generic per-check score.
+ * `arms` lists every run the bake-off asked for, as ids or arm objects. `score` leaves a run
+ * with no transcript out of checksByArm, so each one listed here but missing from it is scored
+ * as a run that returned no output, and its group stays pending instead of being judged on
+ * the runs that came back.
+ */
+export function summarize({ reference, checksByArm: scored, rulings, outputs, arms = [] }) {
+  const checksByArm = { ...scored };
+  for (const arm of arms) {
+    const armId = typeof arm === "string" ? arm : arm.id;
+    checksByArm[armId] ??= scoreRun(null, reference, undefined);
+  }
   // A defect is refuted only when every ruling on it says it is not a defect; a split
   // between rulings refutes nothing and leaves every verdict pending.
   const disputed = new Set();
