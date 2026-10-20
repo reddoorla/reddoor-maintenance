@@ -24,6 +24,7 @@ import {
   referenceFaults,
   scoreRun,
 } from "./lib/score.mjs";
+import { LOWER_BOUND_NOTE, formatCost } from "./lib/ledger.mjs";
 import { readAgentTranscript } from "./lib/transcripts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,15 @@ export const REFEREE = Object.freeze({ id: "referee", model: "opus", effort: "hi
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 const writeJson = (p, v) => writeFileSync(p, JSON.stringify(v, null, 1) + "\n");
+
+/**
+ * Where a run's truth (its answer key) lives: beside the run directory, never inside it. The
+ * arms are told `<run>/input` and `<run>/work/<id>`, so a `cat <run>/*.json` or a Grep over the
+ * run must not reach the key (#1492). `secretReads` still catches a read that names the file.
+ */
+export function truthPath(run) {
+  return `${resolve(run)}.truth.json`;
+}
 
 export async function loadTask(name) {
   const file = join(HERE, "tasks", `${name}.mjs`);
@@ -114,8 +124,8 @@ export async function prepare(opts, task) {
   }
   const run = resolve(opts.out);
   // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
-  if (lstatSync(run, { throwIfNoEntry: false })) {
-    throw new Error(`${run} exists; pick a fresh --out`);
+  for (const p of [run, truthPath(run)]) {
+    if (lstatSync(p, { throwIfNoEntry: false })) throw new Error(`${p} exists; pick a fresh --out`);
   }
   const input = join(run, "input");
   const root = resolve(opts.root || REPO);
@@ -137,7 +147,7 @@ export async function prepare(opts, task) {
     if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
     freeze(input);
     writeJson(join(run, "manifest.json"), manifest(input));
-    writeJson(join(run, "truth.json"), task.truth ? task.truth(input) : null);
+    writeJson(truthPath(run), task.truth ? task.truth(input) : null);
     writeJson(join(run, "workflow-args.json"), args);
     console.log(`froze ${walk(input).length} files under ${input}`);
     console.log(`workflow args: ${join(run, "workflow-args.json")}`);
@@ -154,6 +164,8 @@ export async function prepare(opts, task) {
     }
     try {
       if (made) rmSync(made, { recursive: true, force: true });
+      // The truth sits outside `made`; the --out check above proved any there is this call's.
+      rmSync(truthPath(run), { force: true });
     } catch {
       // The original error is the one to report.
     }
@@ -238,7 +250,7 @@ function collect(opts) {
   writeJson(join(run, "runs.json"), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
-      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
+      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${formatCost(a.cost, a.unfinished, a.requests, 4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
     );
   }
 }
@@ -310,6 +322,7 @@ export function combineItems(task, args, agents, arm) {
       models: union((a) => a.models),
       efforts: union((a) => a.efforts),
       requests: sum((a) => a.requests),
+      unfinished: sum((a) => a.unfinished ?? 0),
       cost: parts.some((a) => a.cost === null) ? null : sum((a) => a.cost),
       longPrompt: sum((a) => a.longPrompt),
       bash: parts.flatMap((a) => a.bash || []),
@@ -428,7 +441,16 @@ async function score(opts) {
     problems.push("the frozen input changed during the run");
     blockers.push("the frozen input changed during the run");
   }
-  const truth = readJson(join(run, "truth.json"));
+  const truthFile = truthPath(run);
+  if (!existsSync(truthFile)) {
+    const old = join(run, "truth.json");
+    throw new Error(
+      existsSync(old)
+        ? `no truth at ${truthFile}; this run keeps it at ${old}, where its arms could read it (#1492). Move it to ${truthFile} to score.`
+        : `no truth at ${truthFile}; prepare writes it (null when the task has no truth)`,
+    );
+  }
+  const truth = readJson(truthFile);
   const gold = agents.gold?.structured;
   const reference = truth ?? gold;
   if (!reference)
@@ -502,6 +524,7 @@ async function score(opts) {
         score: per[a.id] ? `${per[a.id].correct}/${per[a.id].total}` : "(reference)",
         cost: agents[a.id].cost,
         requests: agents[a.id].requests,
+        unfinished: agents[a.id].unfinished,
         longPrompt: agents[a.id].longPrompt,
         byCollection: per[a.id] ? byCollection(per[a.id].byField) : undefined,
         errors: per[a.id]?.errors.slice(0, 20) || [],
@@ -520,7 +543,15 @@ async function score(opts) {
     result.decision = task.decision(
       Object.fromEntries(all.filter((a) => agents[a.id]).map((a) => [a.id, agents[a.id]])),
       args.dir,
-      { arms: all, invalid: [...invalid], referenceErrors, unruled: unruled.length, blockers },
+      {
+        arms: all,
+        invalid: [...invalid],
+        referenceErrors,
+        unruled: unruled.length,
+        blockers,
+        checksByArm,
+        rulings,
+      },
     );
   }
   writeJson(join(run, "result.json"), result);
@@ -553,9 +584,11 @@ export function formatResult(r) {
   ];
   for (const a of r.arms) {
     lines.push(
-      `| ${a.id} | ${a.asked} | ${a.ran} | ${a.score} | ${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(2)} | ${a.requests} | ${a.longPrompt} |`,
+      `| ${a.id} | ${a.asked} | ${a.ran} | ${a.score} | ${formatCost(a.cost, a.unfinished, a.requests)} | ${a.requests} | ${a.longPrompt} |`,
     );
   }
+  // Only a priced cost prints ≥, so only one explains the note.
+  if (r.arms.some((a) => a.unfinished && a.cost !== null)) lines.push("", LOWER_BOUND_NOTE);
   if (r.decision?.lines) lines.push("", ...r.decision.lines);
   if (r.problems.length) lines.push("", "Problems:", ...r.problems.map((p) => `- ${p}`));
   return lines.join("\n");

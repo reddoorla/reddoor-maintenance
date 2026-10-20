@@ -51,6 +51,8 @@ export interface ArmScore {
   unruled: number;
   byField: Record<string, { total: number; correct: number }>;
   errors: { check: string; got: string; expected: string }[];
+  /** Checks that differ from the reference and a ruling counted correct. */
+  credited: { check: string; got: string; key: string }[];
 }
 export type Spec = { collections: Collection[]; kinds?: Kinds };
 export const EXTRA: string;
