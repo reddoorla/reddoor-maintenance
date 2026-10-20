@@ -101,12 +101,13 @@ then `collect` (with that run's transcript directory) and `score` again.
 - the referee ruled an extra item real, so the reference is missing it and that item's field
   values went unscored: fix the reference (the truth function, or a gold that missed it) and
   score again;
-- an agent ran as an agent type other than `bakeoff-readonly`, or has no `.meta.json` to say
-  (below, "The agent type");
+- an agent ran as an agent type other than `bakeoff-readonly`, or has none recorded because its
+  `.meta.json` is missing, unreadable or names none (below, "The agent type");
 - an agent wrote outside its own directory (paths resolved; a relative path counts as outside),
   used a tool outside the allowlist (`Read`, `Bash`, `Glob`, `Grep`, `Write`, `Edit`,
-  `NotebookEdit`, `StructuredOutput`, `ToolSearch`, a superset of the agent type's tools kept
-  from before it), or ran a forbidden Bash command.
+  `NotebookEdit`, `StructuredOutput`, `ToolSearch`: the agent type's six tools, the
+  `StructuredOutput` its schema adds, and `NotebookEdit` and `ToolSearch` kept from before it),
+  or ran a forbidden Bash command.
 
 It also exits non-zero when there is no reference at all: no truth, and no gold output.
 
@@ -145,7 +146,8 @@ unmerged) kept finding forms it missed, and these are known and stay as they are
 - flagged though read-only: `git tag --merged HEAD`, `git tag -n5 'v1.*'`, `git tag -v v1.0`,
   `git config -f .gitmodules submodule.foo.path`, `git clean -n`, `git rm --dry-run`, a read
   with a redirect such as `git config user.email 2>/dev/null`, and a heredoc body line ending in
-  `\` whose next line is the delimiter (#1419, #1456);
+  `\`, as in `cat <<EOF⏎x \⏎EOF⏎gh pr create⏎EOF`, where bash joins `x \` with the first `EOF`,
+  so `gh pr create` is heredoc text and never runs (#1419, #1456);
 - local git writes not flagged: `git remote add`, `git config --unset`, `git notes add`,
   `git submodule update`, `git branch --no-color newb` (#1419);
 - not seen: an `echo` inside a group or loop piped into a shell (`{ echo 'git push'; } | sh`,
@@ -197,14 +199,14 @@ read after the run, by the Bash check in "Running a task".
 
 `score` holds every agent to the type. `collect` reads the agent type from the
 `agent-<id>.meta.json` the harness writes beside each transcript, and `score` reports an agent
-that ran as anything else, or has no such file. A launcher that `split` wrote before
+that ran as anything else, or whose file is missing, unreadable or names no type. A launcher that `split` wrote before
 2026-10-20 embeds the old workflow and runs the default agent, so split again.
 
 The type resolves from the agent registry the session read when it started, so run the
 workflow from a session started in this repo. A session started elsewhere (the workspace, by
 default) does not have it after `add_repo` and `register_repo_root`: there every `agent()`
 throws `agent type 'bakeoff-readonly' not found` before any agent runs, the workflow logs
-`0/N runs returned`, and `collect` and `score` then report the missing transcripts.
+`0/N runs returned`, and `score` then reports the missing transcripts.
 
 Results from before 2026-10-20 were measured with the default workflow agent, which had every
 tool and a different system prompt. Production fan-outs, such as

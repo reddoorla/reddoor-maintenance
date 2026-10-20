@@ -59,7 +59,8 @@ export function scorerFor(task: Record<string, unknown>): {
   extraCandidates: (...a: unknown[]) => Record<string, unknown>;
   scoreRun: (...a: unknown[]) => unknown[];
 };
-export type Collected = AgentTranscript & { transcript: string; agentType: string | null };
+// agentType is absent on a runs.json entry collected before 2026-10-20.
+export type Collected = AgentTranscript & { transcript: string; agentType?: string | null };
 export function collectFile(file: string): Collected;
 export type Marker = { kind: "arm" | "referee"; id: string; item?: string };
 export function agentKey(marker: Marker): string;
@@ -85,7 +86,7 @@ export function verifyRan(
 export function combineItems(
   task: { assemble: (outputs: Record<string, unknown>, dir: string) => unknown },
   args: RunArgs & { items: { id: string }[] },
-  agents: Record<string, AgentTranscript>,
+  agents: Record<string, AgentTranscript & { agentType?: string | null }>,
   arm: Arm,
 ): {
   record: (Omit<AgentTranscript, "marker" | "markerError"> & Record<string, unknown>) | null;

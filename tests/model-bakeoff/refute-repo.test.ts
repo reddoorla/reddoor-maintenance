@@ -728,6 +728,31 @@ describe("score on an item run", () => {
     expect(changed.decision.reasons).toContain("the frozen input changed during the run");
   });
 
+  it("faults an item agent or a referee that did not run as the read-only type", () => {
+    const run = build();
+    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    runs["opus-xhigh-2/r01"].agentType = "workflow-subagent";
+    delete runs["gold/r02"].agentType;
+    runs["referee:r1-1"] = {
+      ...runs["gold/r01"],
+      transcript: "/t/referee.jsonl",
+      marker: { kind: "referee", id: "r1-1" },
+      efforts: ["high"],
+      structured: { rulings: [] },
+      agentType: "workflow-subagent",
+    };
+    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    const r = score(run);
+    expect(r.problems).toEqual(
+      expect.arrayContaining([
+        "opus-xhigh-2/r01: ran as agent type workflow-subagent, not bakeoff-readonly",
+        "gold/r02: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be bakeoff-readonly",
+        "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
+      ]),
+    );
+    expect(r.decision.canRank).toBe(false);
+  });
+
   it("stops the ranking when the referee ran on the wrong model or broke a rule", () => {
     const run = build();
     const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));

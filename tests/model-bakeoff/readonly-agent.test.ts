@@ -1,5 +1,6 @@
 import { afterAll, describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,13 +125,67 @@ describe("score holds every agent to the read-only type", () => {
     expect(transcript("none").agentType).toBeNull();
   });
 
+  it("records no type for a meta file that is not JSON, not an object or names none", () => {
+    writeFileSync(join(dir, "agent-bad.meta.json"), "{");
+    writeFileSync(join(dir, "agent-bad.jsonl"), text);
+    expect(collectFile(join(dir, "agent-bad.jsonl")).agentType).toBeNull();
+    for (const [id, meta] of [
+      ["null", null],
+      ["empty", {}],
+      ["number", { agentType: 5 }],
+      ["blank", { agentType: "" }],
+    ] as const)
+      expect(transcript(id, meta).agentType, id).toBeNull();
+  });
+
+  it("refuses a path that is not a .jsonl transcript", () => {
+    expect(() => collectFile(join(dir, "agent-ro.meta.json"))).toThrow(/not a \.jsonl transcript/);
+  });
+
   it("passes an agent of the type, and reports one of another type or none", () => {
     expect(verifyRan(arm, transcript("ro2", { agentType: TYPE }))).toEqual([]);
     expect(verifyRan(arm, transcript("wf2", { agentType: "workflow-subagent" }))).toEqual([
       "a: ran as agent type workflow-subagent, not bakeoff-readonly",
     ]);
     expect(verifyRan(arm, transcript("none2"))).toEqual([
-      "a: ran as agent type unrecorded (no .meta.json), not bakeoff-readonly",
+      "a: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be bakeoff-readonly",
     ]);
+  });
+});
+
+describe("collect keeps each agent's type for score", () => {
+  const CLI = fileURLToPath(new URL("../../scripts/model-bakeoff/bakeoff.mjs", import.meta.url));
+  const run = mkdtempSync(join(tmpdir(), "bakeoff-collect-type-"));
+  afterAll(() => rmSync(run, { recursive: true, force: true }));
+  const args = {
+    task: "t",
+    dir: join(run, "input"),
+    work: join(run, "work"),
+    gold: { id: "gold", model: "haiku", effort: "low" },
+    arms: [{ id: "a", model: "haiku", effort: "low" }],
+  };
+  const transcripts = join(run, "transcripts", "wf_x");
+  const write = (file: string, marker: string, meta?: string) => {
+    const prompt = `Task over ${args.dir}.\nYour own scratch directory is ${args.work}/${file}.${marker}`;
+    writeFileSync(
+      join(transcripts, `agent-${file}.jsonl`),
+      JSON.stringify({ message: { role: "user", content: prompt } }),
+    );
+    if (meta !== undefined) writeFileSync(join(transcripts, `agent-${file}.meta.json`), meta);
+  };
+
+  it("writes the type from each .meta.json into runs.json, past a stray unreadable one", () => {
+    mkdirSync(transcripts, { recursive: true });
+    writeFileSync(join(run, "workflow-args.json"), JSON.stringify(args));
+    write("gold", "\n\n(BAKEOFF-ARM: gold)", JSON.stringify({ agentType: TYPE }));
+    write("a", "\n\n(BAKEOFF-ARM: a)", JSON.stringify({ agentType: "workflow-subagent" }));
+    write("stray", "", "{");
+    execFileSync(process.execPath, [CLI, "collect", "--run", run, "--transcripts", transcripts], {
+      encoding: "utf8",
+    });
+    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    expect(Object.keys(runs).sort()).toEqual(["a", "gold"]);
+    expect(runs.gold.agentType).toBe(TYPE);
+    expect(runs.a.agentType).toBe("workflow-subagent");
   });
 });

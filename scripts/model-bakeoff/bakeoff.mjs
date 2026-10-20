@@ -226,17 +226,30 @@ export function mergeAgents(prior, found, args) {
 
 /**
  * One subagent transcript as `collect` keeps it: what `readAgentTranscript` reads, the file, and
- * the agent type it ran as, from the sibling `agent-<id>.meta.json` the harness writes (null when
- * there is none). A launcher split before the agent type existed runs as the default agent, and
- * only this file says so.
+ * the agent type it ran as, from the sibling `agent-<id>.meta.json` the harness writes. A
+ * launcher split before the agent type existed runs as the default agent, and only that file
+ * says so.
  */
 export function collectFile(file) {
-  const meta = file.replace(/\.jsonl$/, ".meta.json");
+  if (!file.endsWith(".jsonl")) throw new Error(`${file}: not a .jsonl transcript`);
   return {
     transcript: file,
-    agentType: existsSync(meta) ? (readJson(meta).agentType ?? null) : null,
+    agentType: recordedAgentType(file.replace(/\.jsonl$/, ".meta.json")),
     ...readAgentTranscript(readFileSync(file, "utf8")),
   };
+}
+
+// Null when the meta file is missing, is not JSON or names no type: `score` then reports that
+// agent, rather than one stray file stopping the whole collect.
+function recordedAgentType(meta) {
+  if (!existsSync(meta)) return null;
+  let m;
+  try {
+    m = readJson(meta);
+  } catch {
+    return null;
+  }
+  return typeof m?.agentType === "string" && m.agentType !== "" ? m.agentType : null;
 }
 
 function collect(opts) {
@@ -250,7 +263,7 @@ function collect(opts) {
   writeJson(join(run, "runs.json"), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
-      `${k}: agentType=${a.agentType} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
+      `${k}: agentType=${a.agentType ?? "none"} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${a.cost === null ? "unpriced" : "$" + a.cost.toFixed(4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
     );
   }
 }
@@ -275,10 +288,12 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
       `${label}: asked for effort ${arm.effort}, transcripts show ${agent.efforts.join(", ") || "none"}`,
     );
   }
-  if (agent.agentType !== AGENT_TYPE) {
+  if (agent.agentType == null) {
     problems.push(
-      `${label}: ran as agent type ${agent.agentType ?? "unrecorded (no .meta.json)"}, not ${AGENT_TYPE}`,
+      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${AGENT_TYPE}`,
     );
+  } else if (agent.agentType !== AGENT_TYPE) {
+    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${AGENT_TYPE}`);
   }
   if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);
   if (agent.forbidden.length)
