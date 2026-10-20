@@ -49,6 +49,8 @@ export function mergeRecords(lists) {
   for (const list of lists) {
     for (const r of list) {
       if (byId.has(r.id)) crossFileRepeats++;
+      // The later file's copy wins, unless it is unfinished and an earlier one is not (#1435).
+      if (r.unfinished && byId.get(r.id)?.unfinished === false) continue;
       byId.set(r.id, r);
     }
   }
@@ -75,6 +77,9 @@ export function usageRecords(lines) {
       continue;
     }
     if (byId.has(m.id)) diag.repeats++;
+    const unfinished = m.stop_reason == null;
+    // A stream-start line after the final one would only lose the final usage.
+    if (unfinished && byId.get(m.id)?.unfinished === false) continue;
     byId.set(m.id, {
       id: m.id,
       model: m.model || "(none)",
@@ -82,9 +87,9 @@ export function usageRecords(lines) {
       timestamp: o.timestamp,
       usage: usageOf(m.usage),
       // Claude Code writes a request's usage from the start of its stream and updates it only
-      // when the stream ends with a stop_reason. A request whose last line has none keeps its
+      // when the stream ends with a stop_reason. A request with no line that has one keeps its
       // stream-start output count (4 to 16 tokens), so its cost is a floor (#1435).
-      unfinished: m.stop_reason == null,
+      unfinished,
     });
   }
   return { records: [...byId.values()], diag };
@@ -170,8 +175,12 @@ export function formatTable(summary) {
     );
   }
   const t = summary.total;
+  // A total over priced rows only counts only their unfinished requests.
+  const priced = t.priced ? [t] : summary.rows.filter((r) => r.priced);
+  const unfinished = priced.reduce((n, r) => n + r.unfinished, 0);
+  const requests = priced.reduce((n, r) => n + r.requests, 0);
   out.push(
-    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${formatCost(t.cost, t.unfinished, t.requests)}${t.priced ? "" : " (priced rows only)"} |`,
+    `| **total** | | ${t.requests} | ${M(t.input)} | ${M(t.cacheRead)} | ${M(t.cacheWrite5m)} / ${M(t.cacheWrite1h)} | ${M(t.output)} | ${t.longPrompt} | ${formatCost(t.cost, unfinished, requests)}${t.priced ? "" : " (priced rows only)"} |`,
   );
   return out.join("\n");
 }

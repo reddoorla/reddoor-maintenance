@@ -473,6 +473,23 @@ describe("the decision rule", () => {
     }
   });
 
+  it("lists only checks the score column credits, not one it drops with a refuted item", () => {
+    // a-1 leaves r02 out, and a ruling refutes the key's r02 item (it is not a claim), so the
+    // score column drops b-1's r02 verdict check rather than crediting it.
+    const a = { verdicts: truth.verdicts.filter((v) => v.id !== "r02") };
+    const b = run("b-1", "x", "y", { r02: "unclear" }).output;
+    const checksByArm = { "a-1": scoreRun(task, truth, a), "b-1": scoreRun(task, truth, b) };
+    const pres = checksByArm["a-1"].find((c) => c.check === "verdicts r02 / (present)")!;
+    const verd = checksByArm["b-1"].find((c) => c.check === "verdicts r02 / verdict")!;
+    const rulings = {
+      [disagreementId(pres)]: { armCorrect: true, refCorrect: false, note: "not a claim" },
+      [disagreementId(verd)]: { armCorrect: true, refCorrect: true, note: "unclear is fine" },
+    };
+    expect(task.rulingChanges(checksByArm, rulings)).toEqual([
+      { run: "a-1", check: "verdicts r02 / (present)", got: "absent", key: "present" },
+    ]);
+  });
+
   it("prints a pooled cost with an unfinished request as a lower bound (#1435)", () => {
     const records = Object.fromEntries(
       prod.map((r, i) => [r.id, { structured: r.output, cost: 1, requests: 3, unfinished: i }]),
@@ -827,7 +844,7 @@ describe("score on an item run", () => {
       err = String((e as { stderr: string }).stderr);
     }
     expect(err).toContain(
-      `no truth at ${truthPath(run)}; this run keeps it at ${join(run, "truth.json")}, where its arms could read it (#1492). Move it there to score.`,
+      `no truth at ${truthPath(run)}; this run keeps it at ${join(run, "truth.json")}, where its arms could read it (#1492). Move it to ${truthPath(run)} to score.`,
     );
   });
 

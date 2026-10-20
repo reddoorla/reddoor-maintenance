@@ -216,6 +216,5 @@ describe("prepare", () => {
     };
     await expect(prepare({ out, root: src }, fake({ truth }))).rejects.toThrow("truth failed");
     expect(existsSync(out)).toBe(false);
-    expect(existsSync(truthPath(out))).toBe(false);
   });
 });

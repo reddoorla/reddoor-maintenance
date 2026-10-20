@@ -131,7 +131,6 @@ export async function prepare(opts, task) {
   const root = resolve(opts.root || REPO);
   // The first directory this call creates (run, or a parent it lacked): all a failure removes.
   const made = mkdirSync(run, { recursive: true });
-  let wroteTruth = false;
   try {
     for (const s of task.sources) {
       const to = join(input, s.to);
@@ -148,9 +147,7 @@ export async function prepare(opts, task) {
     if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
     freeze(input);
     writeJson(join(run, "manifest.json"), manifest(input));
-    const truth = task.truth ? task.truth(input) : null;
-    wroteTruth = true;
-    writeJson(truthPath(run), truth);
+    writeJson(truthPath(run), task.truth ? task.truth(input) : null);
     writeJson(join(run, "workflow-args.json"), args);
     console.log(`froze ${walk(input).length} files under ${input}`);
     console.log(`workflow args: ${join(run, "workflow-args.json")}`);
@@ -167,8 +164,8 @@ export async function prepare(opts, task) {
     }
     try {
       if (made) rmSync(made, { recursive: true, force: true });
-      // The truth sits outside `made`; the --out check above proved this call wrote any there.
-      if (wroteTruth) rmSync(truthPath(run), { force: true });
+      // The truth sits outside `made`; the --out check above proved any there is this call's.
+      rmSync(truthPath(run), { force: true });
     } catch {
       // The original error is the one to report.
     }
@@ -449,7 +446,7 @@ async function score(opts) {
     const old = join(run, "truth.json");
     throw new Error(
       existsSync(old)
-        ? `no truth at ${truthFile}; this run keeps it at ${old}, where its arms could read it (#1492). Move it there to score.`
+        ? `no truth at ${truthFile}; this run keeps it at ${old}, where its arms could read it (#1492). Move it to ${truthFile} to score.`
         : `no truth at ${truthFile}; prepare writes it (null when the task has no truth)`,
     );
   }

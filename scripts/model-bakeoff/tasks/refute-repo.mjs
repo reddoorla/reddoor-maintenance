@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatCost } from "../lib/ledger.mjs";
-import { MISSING, disagreementId } from "../lib/score.mjs";
+import { finalScores } from "../lib/score.mjs";
 import {
   enforceQuoteRule,
   refutePrompt,
@@ -225,20 +225,14 @@ export function tally(output, data = DATA) {
 
 /**
  * The checks a referee ruling credited although the key disagrees, per run: the score column
- * counts them correct, and this rule counts them against the key. `checksByArm` is `score`'s,
- * before rulings; a ruling that upholds the key changes nothing and is not listed.
+ * counts them correct, and this rule counts them against the key. They are read from the score
+ * column's own `finalScores`, so a check it drops (a field of an item the referee refuted) is
+ * not listed, and a ruling that upholds the key changes nothing. `checksByArm` is `score`'s,
+ * before rulings.
  */
 export function rulingChanges(checksByArm = {}, rulings = {}) {
-  const out = [];
-  for (const [run, checks] of Object.entries(checksByArm)) {
-    for (const c of checks) {
-      if (c.ok || c.mechanical || c.armRaw === MISSING) continue;
-      if (rulings[disagreementId(c)]?.armCorrect === true) {
-        out.push({ run, check: c.check, got: c.armRaw, key: c.refRaw });
-      }
-    }
-  }
-  return out;
+  const { per } = finalScores(checksByArm, rulings);
+  return Object.entries(per).flatMap(([run, p]) => p.credited.map((c) => ({ run, ...c })));
 }
 
 export function passes(t, tol = TOLERANCE) {

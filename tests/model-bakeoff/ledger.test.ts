@@ -194,6 +194,42 @@ describe("unfinished requests", () => {
     expect(table.split("\n").at(-1)).toMatch(/\| ≥\$60\.00 \(1 of 3 unfinished\) \|$/);
   });
 
+  it("keeps a request's finished record over a stream-start copy, in a file and across files", () => {
+    const [start, done] = [ended("m1", 8, null), ended("m1", 6864, "tool_use")];
+    expect(usageRecords([start, done, start]).records[0]).toMatchObject({
+      unfinished: false,
+      usage: { out: 6864 },
+    });
+    const a = usageRecords([start, done]).records;
+    const b = usageRecords([start]).records;
+    for (const order of [
+      [a, b],
+      [b, a],
+    ]) {
+      expect(mergeRecords(order).records[0]).toMatchObject({
+        unfinished: false,
+        usage: { out: 6864 },
+      });
+    }
+  });
+
+  it("counts only priced rows' unfinished requests in a total that prices only those", () => {
+    const { records } = usageRecords([
+      ended("a", 1e6, "end_turn"),
+      JSON.stringify({
+        message: {
+          id: "b",
+          model: "claude-opus-5",
+          role: "assistant",
+          usage: { output_tokens: 1 },
+        },
+      }),
+    ]);
+    expect(formatTable(summarise(records)).split("\n").at(-1)).toMatch(
+      /\| \$20\.00 \(priced rows only\) \|$/,
+    );
+  });
+
   it("formats a cost as unpriced, exact, or a lower bound", () => {
     expect(formatCost(null, 3, 5)).toBe("unpriced");
     expect(formatCost(1.234, 0, 5)).toBe("$1.23");

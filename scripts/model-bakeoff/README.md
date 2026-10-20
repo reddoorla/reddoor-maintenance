@@ -73,10 +73,12 @@ node scripts/model-bakeoff/bakeoff.mjs prepare --task t5-census --out <run>
 
 `prepare` writes the task's truth (or `null`) to `<run>.truth.json`, beside the run directory
 and never inside it: the arms are told `<run>/input` and `<run>/work/<id>`, so a `cat <run>/*.json`
-or a Grep over the run must not reach the answer key (#1492). `score` reads it there, and refuses
+or a Grep over the run does not reach the truth file (#1492). `score` reads it there, and refuses
 a run prepared before the move, whose `truth.json` is still inside it. Copy or move the two
-together. A file outside the run is still readable by an arm that goes looking; the `secrets`
-check below catches a read that names it.
+together. A file outside the run is still readable by an arm that goes looking; for a task that
+lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. The run
+directory holds one other route to the answer: once `collect` has run, `runs.json` holds the
+gold's output, which an arm launched after it (the per-arm `only` flow) can read (#1540).
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
 `scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
