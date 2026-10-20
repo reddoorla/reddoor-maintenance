@@ -4,6 +4,7 @@ export interface Arm {
   effort?: string;
 }
 export const EFFORTS: readonly string[];
+export const AGENT_TYPE: string;
 export function validateArm(arm: unknown, where?: string): string[];
 export function validateArms(arms: unknown): string[];
 export function validateRun(arms: unknown, gold: unknown): string[];

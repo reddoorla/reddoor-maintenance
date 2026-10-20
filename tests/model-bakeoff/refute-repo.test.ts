@@ -13,6 +13,7 @@ import {
 } from "../../scripts/meta-week/lib/refute-claims.mjs";
 import { disagreementId, scoreRun } from "../../scripts/model-bakeoff/lib/score.mjs";
 import { readAgentTranscript } from "../../scripts/model-bakeoff/lib/transcripts.mjs";
+import { runWorkflow } from "../_helpers/bakeoff-workflow.js";
 import {
   combineItems,
   expectedWork,
@@ -540,27 +541,6 @@ const structured = (input: unknown) => ({
   input,
 });
 
-/** Runs the workflow script with a stub runtime and returns the prompts it would spawn. */
-async function runWorkflow(args: Record<string, unknown>) {
-  const src = readFileSync(WORKFLOW, "utf8").replace(/^export const meta/m, "const meta");
-  const calls: { prompt: string; opts: Record<string, unknown> }[] = [];
-  const agent = async (prompt: string, opts: Record<string, unknown>) => {
-    calls.push({ prompt, opts });
-    return {};
-  };
-  const parallel = (thunks: (() => Promise<unknown>)[]) => Promise.all(thunks.map((t) => t()));
-  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-  const body = new AsyncFunction("args", "agent", "parallel", "phase", "log", src);
-  const result = await body(
-    args,
-    agent,
-    parallel,
-    () => {},
-    () => {},
-  );
-  return { result, calls };
-}
-
 describe("the workflow's item mode", () => {
   const run = "/r";
   const args = { ...extractArgs(task, `${run}/input`, task.arms, `${run}/work`) };
@@ -628,6 +608,7 @@ describe("collecting and combining an item run", () => {
         ].join("\n"),
       ),
       transcript: extra.file ?? `/t/${arm}-${item}.jsonl`,
+      agentType: "bakeoff-readonly",
     }) as Collected;
 
   it("keys each transcript by arm and item, and refuses a stray or missing item", () => {
@@ -752,7 +733,11 @@ describe("split", () => {
       () => {},
     );
     expect(calls).toHaveLength(DATA.claims.length);
-    expect(calls.every((c) => c.model === "opus" && c.effort === "xhigh")).toBe(true);
+    expect(
+      calls.every(
+        (c) => c.model === "opus" && c.effort === "xhigh" && c.agentType === "bakeoff-readonly",
+      ),
+    ).toBe(true);
     expect(() => launchers(args, "no meta here")).toThrow(/meta/);
   });
 });
@@ -796,6 +781,7 @@ describe("score on an item run", () => {
           otherTools: [],
           forbidden: [],
           prompt: "",
+          agentType: "bakeoff-readonly",
         };
       }
     }
@@ -826,6 +812,35 @@ describe("score on an item run", () => {
     const changed = score(run);
     expect(changed.problems).toContain("the frozen input changed during the run");
     expect(changed.decision.reasons).toContain("the frozen input changed during the run");
+  });
+
+  it("faults an item agent or a referee that did not run as the read-only type", () => {
+    const run = build();
+    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    runs["opus-xhigh-2/r01"].agentType = "workflow-subagent";
+    delete runs["gold/r02"].agentType;
+    runs["referee:r1-1"] = {
+      ...runs["gold/r01"],
+      transcript: "/t/referee.jsonl",
+      marker: { kind: "referee", id: "r1-1" },
+      efforts: ["high"],
+      structured: { rulings: [] },
+      agentType: "workflow-subagent",
+    };
+    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    const r = score(run);
+    expect(r.problems).toEqual([
+      "gold/r02: no agent type in runs.json, which predates the agent-type check; collect again to read it from the .meta.json (a run launched before 2026-10-20 then shows as the default agent and must be launched again)",
+      "opus-xhigh-2/r01: ran as agent type workflow-subagent, not bakeoff-readonly",
+      "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
+    ]);
+    // A referee's fault blocks the ranking; an arm's marks that run invalid.
+    expect(r.decision.reasons).toContain(
+      "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
+    );
+    const invalid = (id: string) =>
+      r.decision.perRun.find((p: { id: string }) => p.id === id).invalid;
+    expect([invalid("gold"), invalid("opus-xhigh-2")]).toEqual([true, true]);
   });
 
   it("hands the referee's rulings to the decision, which names the check a ruling credited", () => {

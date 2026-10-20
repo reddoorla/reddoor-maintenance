@@ -15,7 +15,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { validateRun, workDir } from "./lib/arms.mjs";
+import { AGENT_TYPE, validateRun, workDir } from "./lib/arms.mjs";
 import {
   MISSING,
   extraCandidates,
@@ -236,21 +236,45 @@ export function mergeAgents(prior, found, args) {
   return { agents, errors };
 }
 
+/**
+ * One subagent transcript as `collect` keeps it: what `readAgentTranscript` reads, the file, and
+ * the agent type it ran as, from the sibling `agent-<id>.meta.json` the harness writes. A
+ * launcher split before the agent type existed runs as the default agent, and only that file
+ * says so.
+ */
+export function collectFile(file) {
+  if (!file.endsWith(".jsonl")) throw new Error(`${file}: not a .jsonl transcript`);
+  return {
+    transcript: file,
+    agentType: recordedAgentType(file.replace(/\.jsonl$/, ".meta.json")),
+    ...readAgentTranscript(readFileSync(file, "utf8")),
+  };
+}
+
+// Null when the meta file is missing, is not JSON or names no type: `score` then reports that
+// agent, rather than one stray file stopping the whole collect.
+function recordedAgentType(meta) {
+  let m;
+  try {
+    m = readJson(meta);
+  } catch {
+    return null;
+  }
+  return typeof m?.agentType === "string" && m.agentType !== "" ? m.agentType : null;
+}
+
 function collect(opts) {
   const run = resolve(opts.run);
   const files = walk(resolve(opts.transcripts)).filter((f) => /agent-[^/]*\.jsonl$/.test(f));
   const prior = existsSync(join(run, "runs.json")) ? readJson(join(run, "runs.json")) : {};
-  const found = files.map((f) => ({
-    transcript: f,
-    ...readAgentTranscript(readFileSync(f, "utf8")),
-  }));
+  const found = files.map(collectFile);
   const args = readJson(join(run, "workflow-args.json"));
   const { agents, errors } = mergeAgents(prior, found, args);
   if (errors.length) throw new Error(`collect refused:\n  ${errors.join("\n  ")}`);
   writeJson(join(run, "runs.json"), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
-      `${k}: models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${formatCost(a.cost, a.unfinished, a.requests, 4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
+      `${k}: agentType=${a.agentType ?? "none"} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${formatCost(a.cost, a.unfinished, a.requests, 4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
     );
   }
 }
@@ -274,6 +298,17 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
     problems.push(
       `${label}: asked for effort ${arm.effort}, transcripts show ${agent.efforts.join(", ") || "none"}`,
     );
+  }
+  if (agent.agentType === undefined) {
+    problems.push(
+      `${label}: no agent type in runs.json, which predates the agent-type check; collect again to read it from the .meta.json (a run launched before 2026-10-20 then shows as the default agent and must be launched again)`,
+    );
+  } else if (agent.agentType === null) {
+    problems.push(
+      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${AGENT_TYPE}`,
+    );
+  } else if (agent.agentType !== AGENT_TYPE) {
+    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${AGENT_TYPE}`);
   }
   if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);
   if (agent.forbidden.length)

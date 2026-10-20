@@ -24,6 +24,11 @@ const assistant = (id: string, content: unknown[], effort = "low", model = "clau
     },
   });
 const bash = (command: string) => ({ type: "tool_use", name: "Bash", input: { command } });
+// A transcript as `collect` keeps it from an agent that ran as the read-only type.
+const collected = (text: string) => ({
+  ...readAgentTranscript(text),
+  agentType: "bakeoff-readonly",
+});
 const output = (input: unknown, id = "so") => ({
   type: "tool_use",
   id,
@@ -253,7 +258,7 @@ describe("forbiddenCommand", () => {
 });
 
 describe("verifyRan", () => {
-  const ran = readAgentTranscript(
+  const ran = collected(
     [user("(BAKEOFF-ARM: a)"), assistant("m", [output({})], "xhigh", "claude-opus-5-5")].join("\n"),
   );
 
@@ -266,7 +271,7 @@ describe("verifyRan", () => {
   });
 
   it("reports a run with no accepted output, a write outside its own dir, and MCP use", () => {
-    const t = readAgentTranscript(
+    const t = collected(
       [
         user("(BAKEOFF-ARM: a)"),
         assistant(
@@ -288,7 +293,7 @@ describe("verifyRan", () => {
   });
 
   it("holds the referee to its own model and effort", () => {
-    const ref = readAgentTranscript(
+    const ref = collected(
       [
         user("(BAKEOFF-REFEREE: r1-1)"),
         assistant("m", [output({ rulings: [] })], "xhigh", "claude-sonnet-5-5"),
@@ -387,7 +392,7 @@ describe("collecting several rounds", () => {
 
 describe("a referee chunk that returned nothing", () => {
   it("stops counting once no disagreement is left unruled", () => {
-    const empty = readAgentTranscript(
+    const empty = collected(
       [user("(BAKEOFF-REFEREE: r1-1)"), assistant("m", [], "high", "claude-opus-5-5")].join("\n"),
     );
     expect(verifyRan(REFEREE, empty)).toEqual(["referee:r1-1: no accepted structured output"]);
@@ -398,9 +403,7 @@ describe("a referee chunk that returned nothing", () => {
 describe("verifyRan's write check", () => {
   it("resolves .. and treats a relative path as outside", () => {
     const t = {
-      ...readAgentTranscript(
-        [user("(BAKEOFF-ARM: a)"), assistant("m", [output({})], "low")].join("\n"),
-      ),
+      ...collected([user("(BAKEOFF-ARM: a)"), assistant("m", [output({})], "low")].join("\n")),
       writes: ["/r/work/a/../b/census.py", "census.py", "/r/work/a/sub/ok.py"],
     };
     expect(verifyRan({ id: "a", model: "haiku", effort: "low" }, t, "/r/work/a")).toEqual([
