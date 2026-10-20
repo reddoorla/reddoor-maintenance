@@ -27,7 +27,7 @@ function runCli(args: string[]): { out: string; code: number } {
     const err = e as { stdout?: Buffer; stderr?: Buffer; status?: number };
     return {
       out: `${err.stdout?.toString() ?? ""}${err.stderr?.toString() ?? ""}`,
-      code: err.status ?? 1,
+      code: err.status ?? -1,
     };
   }
 }
