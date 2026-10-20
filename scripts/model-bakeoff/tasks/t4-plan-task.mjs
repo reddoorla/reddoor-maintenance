@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -123,9 +124,10 @@ export const collections = [
 // A result's evidence (paths, instructions) is for the referee to read, not part of its key: a
 // 718-character id came back from the 2026-10-19 run-2 referee cut to 80, and matched nothing.
 // The key is the failure's first line and the arm it came from, so each arm is ruled on its own.
+// The arm is the last /eval/<id>/(tree|held)/ in the paths: a run dir can contain one of its own.
 export const kinds = {
   evidence: (v) => {
-    const m = /^(.*?)\. The agent's code is .*?\/eval\/([^/]+)\/(?:tree|held)\//s.exec(
+    const m = /^(.*?)\. The agent's code is .*\/eval\/([^/]+)\/(?:tree|held)\//s.exec(
       String(v ?? ""),
     );
     return m ? `${m[1]} [${m[2]}]` : String(v ?? "");
@@ -214,7 +216,8 @@ export function refereeEvidence(result, repo, testFile) {
 export const GATES = ["typecheck", "lint", "suite", "own-tests", "scope"];
 
 // The plan asks for its unit tests: the agent's own test file must exist and run, at least one
-// test passing and none failing, before the plan's version replaces it.
+// test passing and none failing, before the plan's version replaces it. A todo or pending test is
+// neither.
 export function ownTestsPass(report) {
   const files = report?.testResults || [];
   const tests = files.flatMap((f) => f.assertionResults || []);
@@ -222,8 +225,21 @@ export function ownTestsPass(report) {
     files.length > 0 &&
     files.every((f) => f.status === "passed") &&
     tests.some((t) => t.status === "passed") &&
-    tests.every((t) => t.status === "passed" || t.status === "skipped")
+    tests.every((t) => ["passed", "skipped", "todo", "pending"].includes(t.status))
   );
+}
+
+// vitest can exit 1 on an unhandled error while its JSON report still says every test passed.
+export const ownTestsGate = (ownRun, report) => ownRun?.status === 0 && ownTestsPass(report);
+
+// A vitest killed mid-write leaves a partial report: that reads as no report, which fails the
+// own-tests gate or marks the held-out tests not run.
+export function readReport(file) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 export function truth() {
@@ -257,7 +273,11 @@ const GIT_ENV = {
   GIT_OPTIONAL_LOCKS: "0",
 };
 const git = (cwd, ...a) =>
-  execFileSync("git", [...SAFE, "-C", cwd, ...a], { encoding: "utf8", env: GIT_ENV });
+  execFileSync("git", [...SAFE, "-C", cwd, ...a], {
+    encoding: "utf8",
+    env: GIT_ENV,
+    maxBuffer: 1 << 28,
+  });
 // A step that times out or floods its buffer is the agent's code (an infinite loop in a test) and
 // fails that gate; only a missing binary is the harness's, and stops the score.
 export function run(cwd, cmd, args, timeout = 15 * 60 * 1000) {
@@ -336,17 +356,35 @@ export function changedFiles(base, tree) {
   ].sort();
 }
 
-// The pinned tree with only the plan's files taken from the agent, installed.
-function planTree(root, repo, to) {
-  snapshot(root, PIN, to);
-  for (const f of ALLOWED) {
+// An agent's tree can still flood git's 256 MiB buffer (ENOBUFS): that is the agent's output and
+// fails scope; any other git failure is the harness's and stops the score.
+export function changedOrFlood(base, tree, list = changedFiles) {
+  try {
+    return list(base, tree);
+  } catch (e) {
+    if (e?.code === "ENOBUFS") return ["<too many changes>"];
+    throw e;
+  }
+}
+
+// Copies the plan's files from the agent's repo into `to`; any that is missing, not a regular file,
+// or reached through a symlinked directory outside the repo is removed from `to` instead.
+export function copyPlanFiles(repo, to, files = ALLOWED) {
+  const inside = realpathSync(repo) + "/";
+  for (const f of files) {
     const src = join(repo, f);
     const st = existsSync(src) ? lstatSync(src) : null;
-    if (st?.isFile()) {
+    if (st?.isFile() && realpathSync(src).startsWith(inside)) {
       mkdirSync(dirname(join(to, f)), { recursive: true });
       copyFileSync(src, join(to, f));
     } else rmSync(join(to, f), { force: true });
   }
+}
+
+// The pinned tree with only the plan's files taken from the agent, installed.
+function planTree(root, repo, to) {
+  snapshot(root, PIN, to);
+  copyPlanFiles(repo, to);
   // Its package.json and lockfile are the pin's, so a failed install is the harness's fault.
   const inst = install(to);
   if (inst.status !== 0)
@@ -383,7 +421,7 @@ export function evaluate({ run: runDir, work, id: armId }) {
   const base = join(ev, "base");
   snapshot(root, PIN, base);
   commitAll(base);
-  const changed = existsSync(repo) ? changedFiles(base, repo) : [];
+  const changed = existsSync(repo) ? changedOrFlood(base, repo) : [];
   const scope = scopeCheck(changed);
   // Both trees are built before any of the agent's code runs, so what its own tests do in `tree`
   // (rewrite vitest-setup.ts, say) cannot reach the held-out run in `held`. This is a tripwire
@@ -403,8 +441,9 @@ export function evaluate({ run: runDir, work, id: armId }) {
     if (r.error) detail[`${gate}Error`] = r.error;
   }
   const own = join(ev, "own-tests.json");
+  let ownRun = null;
   if (existsSync(join(tree, HELD_OUT_FILE))) {
-    const r = run(tree, "pnpm", [
+    ownRun = run(tree, "pnpm", [
       "exec",
       "vitest",
       "run",
@@ -412,11 +451,11 @@ export function evaluate({ run: runDir, work, id: armId }) {
       "--reporter=json",
       `--outputFile=${own}`,
     ]);
-    if (r.error) detail.ownTestsError = r.error;
+    if (ownRun.error) detail.ownTestsError = ownRun.error;
   }
-  const ownReport = existsSync(own) ? JSON.parse(readFileSync(own, "utf8")) : null;
+  const ownReport = readReport(own);
   const out = join(ev, "held-out.json");
-  run(held, "pnpm", [
+  const h = run(held, "pnpm", [
     "exec",
     "vitest",
     "run",
@@ -424,13 +463,14 @@ export function evaluate({ run: runDir, work, id: armId }) {
     "--reporter=json",
     `--outputFile=${out}`,
   ]);
-  const report = existsSync(out) ? JSON.parse(readFileSync(out, "utf8")) : null;
+  if (h.error) detail.heldOutError = h.error;
+  const report = readReport(out);
   return {
     gates: [
       { gate: "typecheck", pass: ok(check) },
       { gate: "lint", pass: ok(lint) },
       { gate: "suite", pass: ok(suite) },
-      { gate: "own-tests", pass: ownTestsPass(ownReport) },
+      { gate: "own-tests", pass: ownTestsGate(ownRun, ownReport) },
       { gate: "scope", pass: scope.pass },
     ],
     tests: heldOutResults(report).map((t) => ({

@@ -43,3 +43,14 @@ export function run(
 ): { status: number | null; error?: string; stdout: string; stderr: string };
 export function observe(work: string): Record<string, unknown>;
 export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;
+export function ownTestsGate(
+  ownRun: { status: number | null; error?: string } | null,
+  report: unknown,
+): boolean;
+export function readReport(file: string): unknown;
+export function changedOrFlood(
+  base: string,
+  tree: string,
+  list?: (base: string, tree: string) => string[],
+): string[];
+export function copyPlanFiles(repo: string, to: string, files?: string[]): void;

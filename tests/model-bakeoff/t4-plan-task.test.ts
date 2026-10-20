@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -331,5 +332,114 @@ describe("the scorer's git", () => {
       process.env.HOME = home;
       vi.resetModules();
     }
+  });
+});
+
+describe("the own-tests gate", () => {
+  const report = { testResults: [{ status: "passed", assertionResults: [{ status: "passed" }] }] };
+
+  it("needs vitest to exit 0 as well as a passing report (#1496)", () => {
+    expect(task.ownTestsGate({ status: 0 }, report)).toBe(true);
+    // An unhandled error makes vitest exit 1 while its JSON report still says passed.
+    expect(task.ownTestsGate({ status: 1 }, report)).toBe(false);
+    expect(task.ownTestsGate({ status: null, error: "ETIMEDOUT" }, report)).toBe(false);
+    expect(task.ownTestsGate(null, report)).toBe(false);
+    expect(task.ownTestsGate({ status: 0 }, null)).toBe(false);
+  });
+
+  it("accepts a todo or pending test beside a passing one (#1496)", () => {
+    const file = (tests: string[]) => ({
+      testResults: [{ status: "passed", assertionResults: tests.map((status) => ({ status })) }],
+    });
+    expect(task.ownTestsPass(file(["passed", "todo"]))).toBe(true);
+    expect(task.ownTestsPass(file(["passed", "pending"]))).toBe(true);
+    expect(task.ownTestsPass(file(["todo"]))).toBe(false);
+  });
+});
+
+describe("a vitest JSON report", () => {
+  it("reads as null when it is missing or half-written (#1497)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-report-"));
+    const f = join(dir, "r.json");
+    expect(task.readReport(f)).toBeNull();
+    writeFileSync(f, '{"testResults":[{"status":"pas');
+    expect(task.readReport(f)).toBeNull();
+    writeFileSync(f, '{"testResults":[]}');
+    expect(task.readReport(f)).toEqual({ testResults: [] });
+  });
+});
+
+describe("the scope gate on a flood of changes (#1497)", () => {
+  it("lists more than 1 MiB of untracked paths", () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-flood-"));
+    const base = join(dir, "base");
+    mkdirSync(base);
+    writeFileSync(join(base, "a.ts"), "a\n");
+    execFileSync("git", ["-C", base, "init", "-q"]);
+    execFileSync("git", ["-C", base, "add", "-A"]);
+    execFileSync("git", [
+      "-C",
+      base,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-qm",
+      "p",
+    ]);
+    const tree = join(dir, "tree");
+    mkdirSync(join(tree, "c"), { recursive: true });
+    writeFileSync(join(tree, "a.ts"), "a\n");
+    const n = 4600; // 4600 x ~240 bytes is over execFileSync's default 1 MiB
+    for (let i = 0; i < n; i++) writeFileSync(join(tree, "c", `${"f".repeat(230)}-${i}`), "");
+    expect(task.changedFiles(base, tree)).toHaveLength(n);
+  });
+
+  it("fails scope, without stopping the score, when git's output still overflows", () => {
+    const flood = () => {
+      throw Object.assign(new Error("spawnSync git ENOBUFS"), { code: "ENOBUFS" });
+    };
+    const changed = task.changedOrFlood("/b", "/t", flood);
+    expect(changed).toEqual(["<too many changes>"]);
+    expect(scopeCheck(changed).pass).toBe(false);
+    const missing = () => {
+      throw Object.assign(new Error("spawnSync git ENOENT"), { code: "ENOENT" });
+    };
+    expect(() => task.changedOrFlood("/b", "/t", missing)).toThrow(/ENOENT/);
+  });
+});
+
+describe("copying the plan's files into an eval tree (#1499)", () => {
+  it("refuses a file reached through a symlinked parent directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-link-"));
+    const outside = join(dir, "reference", "actions");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "hoverActivate.ts"), "reference\n");
+    const repo = join(dir, "repo");
+    mkdirSync(join(repo, "src", "lib", "components"), { recursive: true });
+    writeFileSync(join(repo, "src", "lib", "components", "PropertyListing.svelte"), "agent\n");
+    symlinkSync(join(dir, "reference", "actions"), join(repo, "src", "lib", "actions"));
+    const to = join(dir, "tree");
+    mkdirSync(join(to, "src", "lib", "actions"), { recursive: true });
+    writeFileSync(join(to, "src", "lib", "actions", "hoverActivate.ts"), "pinned\n");
+    task.copyPlanFiles(repo, to);
+    expect(existsSync(join(to, "src", "lib", "actions", "hoverActivate.ts"))).toBe(false);
+    expect(
+      readFileSync(join(to, "src", "lib", "components", "PropertyListing.svelte"), "utf8"),
+    ).toBe("agent\n");
+  });
+});
+
+describe("the evidence key (#1502)", () => {
+  it("keys on the arm's own eval dir when the run dir also contains /eval/<x>/tree/", () => {
+    const key = (arm: string) => {
+      const held = `/runs/eval/old/tree/r1/eval/${arm}/held`;
+      return task.kinds.evidence!(
+        task.refereeEvidence("failed: boom", held, `${held}/src/lib/actions/hoverActivate.test.ts`),
+      );
+    };
+    expect(key("haiku-1")).toBe("failed: boom [haiku-1]");
+    expect(key("opus-low-1")).toBe("failed: boom [opus-low-1]");
   });
 });

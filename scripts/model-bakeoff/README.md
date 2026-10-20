@@ -322,9 +322,10 @@ agent's own `vitest run` there, with no secrets in the environment. Then the pla
 from the implementing commit, replaces the agent's version and runs alone, in a second tree
 (`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
 `(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
-each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file before
-the swap: the plan asks for its tests, so the file must exist and run with a test passing and none
-failing. A step that times out (15 minutes) fails its gate; only a missing binary or a failed
+each, and 2 `(well-formed)`. The fifth gate, `own-tests`, runs the agent's own test file in
+`tree`; the plan's version runs only in `held`. The plan asks for its tests, so the file must exist
+and run, vitest must exit 0, and the report must show a test passing and none failing (a `todo` or
+`pending` test is neither). A step that times out (15 minutes) fails its gate; only a missing binary or a failed
 install, which are the harness's, stops `score`. A held-out test can fail on a detail the plan leaves open (run 1: a
 synthetic `pointerleave` with no `pointerType`), so a failed `result` goes to the referee with the
 failure's first line and the paths of the agent's code and of the test as run. Each arm's failure
