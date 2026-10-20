@@ -8,6 +8,7 @@ import {
   summarizeReducedMotion,
   FONT_HOSTS,
   MOTION_WAIT_MS,
+  RESET_HINT_AT,
   type MotionRun,
 } from "../../../src/audits/design-rules/reduced-motion.js";
 import { DESIGN_RULES, runDesignRules } from "../../../src/audits/design-rules/index.js";
@@ -290,9 +291,11 @@ const PAGES: Record<string, string> = {
   // a scroll() hero that drifts and fades;
   "/scroll-hero": page(
     `${RESET_AFTER_135}
-     @keyframes drift { to { transform: translateY(300px) scale(1.3); opacity: 0 } }
-     .hero { animation: drift linear both; animation-timeline: scroll(); } .tall { height: 3000px }`,
-    `<div class="hero">Hero</div><div class="tall"></div>`,
+     @keyframes drift { to { transform: translateY(300px) } }
+     @keyframes fill { from { transform: scaleX(0) } }
+     .hero { animation: drift linear both; animation-timeline: scroll(); } .tall { height: 3000px }
+     .bar { height: 4px; animation: fill linear both; animation-timeline: scroll(); }`,
+    `<div class="bar"></div><div class="hero">Hero</div><div class="tall"></div>`,
   ),
   // a ticker stepping four times a second;
   "/ticker": page(
@@ -306,7 +309,7 @@ const PAGES: Record<string, string> = {
     `.c { position: relative } #c-scroll { width: 100px; overflow: hidden; white-space: nowrap }`,
     `<div class="c" id="c-translate">a</div><div class="c" id="c-rotate">b</div>
      <div class="c" id="c-top">c</div><div class="c" id="c-right">d</div><div class="c" id="c-bottom">e</div>
-     <div class="c" id="c-margin-top">f</div><div class="c" id="c-opacity">g</div>
+     <div class="c" id="c-margin-top">f</div><div class="c" id="c-margin-right">f</div><div class="c" id="c-margin-bottom">f</div><div class="c" id="c-opacity">g</div>
      <div class="c" id="c-bg">h</div><div id="c-scroll">${"wide ".repeat(80)}</div>
      <svg width="200" height="60"><circle id="c-cx" r="4" cx="0" cy="10"/><circle id="c-cy" r="4" cx="10" cy="0"/>
        <rect id="c-x" width="4" height="4" x="0" y="20"/><rect id="c-y" width="4" height="4" x="20" y="0"/>
@@ -316,11 +319,24 @@ const PAGES: Record<string, string> = {
      (function step(t) { const k = ((t - t0) / 20) % 100;
        $("c-translate").style.translate = k + "px"; $("c-rotate").style.rotate = k + "deg";
        $("c-top").style.top = k + "px"; $("c-right").style.right = k + "px"; $("c-bottom").style.bottom = k + "px";
-       $("c-margin-top").style.marginTop = k + "px"; $("c-opacity").style.opacity = String(k / 100);
+       $("c-margin-top").style.marginTop = k + "px"; $("c-margin-right").style.marginRight = k + "px"; $("c-margin-bottom").style.marginBottom = k + "px"; $("c-opacity").style.opacity = String(k / 100);
        $("c-bg").style.backgroundPosition = k + "px 0"; $("c-scroll").scrollLeft = k;
        $("c-cx").setAttribute("cx", k); $("c-cy").setAttribute("cy", k); $("c-x").setAttribute("x", k); $("c-y").setAttribute("y", k);
        $("c-svg-transform").setAttribute("transform", "translate(" + k + ")"); $("c-dash").style.strokeDashoffset = String(k);
        requestAnimationFrame(step); })(t0);`,
+  ),
+  // durations on what moves: `all`, which covers transform; an opacity fade;
+  // a margin shift; and a colour fade, which is not motion (no reset);
+  "/durations": page(
+    `.all { transition: all 400ms } .fade { transition: opacity 400ms } .shift { transition: margin-left 400ms } .tint { transition: color 400ms }`,
+    `<p class="all">a</p><p class="fade">b</p><p class="shift">c</p><p class="tint">d</p>`,
+  ),
+  // a header a script hides on the way down: it changes once and holds;
+  "/hiding-header": page(
+    `header { position: fixed; top: 0 } .tall { height: 4600px }`,
+    `<header id="h">Bar</header><div class="tall"></div>`,
+    `let last = 0; const h = document.getElementById("h");
+     addEventListener("scroll", () => { h.style.transform = scrollY > last ? "translateY(-100%)" : "none"; last = scrollY; });`,
   ),
   // a frame that never answers, appended once the page has loaded;
   "/hang-frame": page(
@@ -333,6 +349,37 @@ const PAGES: Record<string, string> = {
     `header { position: sticky; top: 0; background-color: transparent; transition: background-color 600ms } header.solid { background-color: #fff } .tall { height: 3000px }`,
     `<header>Bar</header><div class="tall"></div>`,
     `addEventListener("scroll", () => document.querySelector("header").classList.toggle("solid", scrollY > 0));`,
+  ),
+  // Round 4's false passes, each a page that breaks R2:
+  // a view() hero zoom;
+  "/view-zoom": page(
+    `@keyframes zoom { from { transform: scale(1.4) } to { transform: scale(1) } }
+     .hero { height: 100vh; overflow: hidden } .hero img { display: block; width: 100%; height: 100%; animation: zoom linear both; animation-timeline: view(); animation-range: exit; } .tall { height: 2000px }`,
+    `<div class="hero"><img id="zoom" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></div><div class="tall"></div>`,
+  ),
+  // a hero whose backdrop a script moves for the hero's height, then holds;
+  "/hero-parallax": page(
+    `.hero { height: 100vh; overflow: hidden } .tall { height: 3200px }`,
+    `<div class="hero"><div id="bg">Backdrop</div></div><div class="tall"></div>`,
+    `const bg = document.getElementById("bg"); addEventListener("scroll", () => { bg.style.transform = "translate3d(0," + Math.min(scrollY, innerHeight) * 0.4 + "px,0)"; });`,
+  ),
+  // smooth scrolling left on under reduce (Tailwind's scroll-smooth);
+  "/smooth": `<!doctype html><html lang="en" style="scroll-behavior: smooth"><head><meta charset="utf-8"><title>R2</title></head><body><main><h1>R2</h1><a href="#end">Down</a><div style="height:2000px"></div><p id="end">End</p></main></body></html>`,
+  // a muted hero video that autoplays;
+  "/video": page(
+    "",
+    `<video id="v" muted autoplay playsinline loop width="80" height="40"></video>`,
+    `const c = document.createElement("canvas"); c.width = 80; c.height = 40; const g = c.getContext("2d");
+     setInterval(() => { g.fillStyle = "#" + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0"); g.fillRect(0, 0, 80, 40); }, 50);
+     const v = document.getElementById("v"); v.srcObject = c.captureStream(20); v.play();`,
+  ),
+  // a line drawn by a dash offset, and an image wiped in by clip-path;
+  "/draw-and-wipe": page(
+    `path { stroke-dasharray: 300; stroke-dashoffset: 300; transition: stroke-dashoffset 2s } path.in { stroke-dashoffset: 0 }
+     img { clip-path: inset(0 100% 0 0); transition: clip-path 1.5s } img.in { clip-path: inset(0) }`,
+    `<svg width="300" height="20"><path id="line" d="M0 10 H300" stroke="black"/></svg>
+     <img id="wipe" alt="" width="40" height="40" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">`,
+    `requestAnimationFrame(() => requestAnimationFrame(() => { document.getElementById("line").classList.add("in"); document.getElementById("wipe").classList.add("in"); }));`,
   ),
   // Round 3's false fails, each a page that honours R2:
   // Tailwind v4 transition-colors, a background fade and a shadow fade;
@@ -567,7 +614,7 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
       `iframe[src="/inner"] :: body > main > i.spin: animation spin still running under reduce`,
       `iframe[src="/inner"] :: div#mover: moved by script, frame by frame, under reduce`,
     ]);
-    expect(o.note).toMatch(/1 scroll\(\) animation\(s\) not judged/);
+    expect(o.note).toMatch(/1 size-only scroll-driven animation\(s\) not judged/);
   });
 
   it("does not sample a cross-origin frame, and says so", async () => {
@@ -707,10 +754,11 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
     const o = await run("/scroll-hero");
     expect(o.findings).toEqual([
       {
-        target: "body > main > div.hero:nth-of-type(1)",
+        target: "body > main > div.hero:nth-of-type(2)",
         problem: `animation drift (scroll-driven) still running under reduce (no end) ${BOTH}`,
       },
     ]);
+    expect(o.note).toContain("; 1 size-only scroll-driven animation(s) not judged");
   });
 
   it("FAILS a ticker that steps slower than one read gap", async () => {
@@ -746,6 +794,8 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
         "circle#c-cy",
         "div#c-bg",
         "div#c-bottom",
+        "div#c-margin-bottom",
+        "div#c-margin-right",
         "div#c-margin-top",
         "div#c-opacity",
         "div#c-right",
@@ -759,6 +809,22 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
         "rect#c-y",
       ].sort(),
     );
+  });
+
+  it("FAILS a duration on all, opacity and margin, and leaves a colour fade alone", async () => {
+    const o = await run("/durations");
+    const at = (f: { target: string; problem: string }) =>
+      `${f.target.replace(/^.* > |:nth-of-type\(\d\)$/g, "")}: ${f.problem.split(" (")[0]}`;
+    expect(o.findings.map(at)).toEqual([
+      "p.all: transition-duration 400ms under reduce",
+      "p.fade: transition-duration 400ms under reduce",
+      "p.shift: transition-duration 400ms under reduce",
+    ]);
+  });
+
+  it("PASSES a header a script hides once on the way down", async () => {
+    const o = await run("/hiding-header");
+    expect(o.findings).toEqual([]);
   });
 
   it("stops at its step cap and says so", async () => {
@@ -790,6 +856,49 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
     expect(o.findings).toEqual([]);
   });
 
+  it("FAILS a view() hero zoom, which is motion, not size", async () => {
+    const o = await run("/view-zoom");
+    expect(o.findings.map((f) => f.problem)).toContainEqual(
+      `animation zoom (scroll-driven) still running under reduce (no end) ${BOTH}`,
+    );
+    expect(o.note).not.toMatch(/size-only/);
+  });
+
+  it("FAILS a hero parallax that moves only for the hero's height", async () => {
+    const o = await run("/hero-parallax");
+    expect(o.findings).toEqual([
+      {
+        target: "div#bg",
+        problem: `moved by script with the scroll (parallax) under reduce ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("FAILS smooth scrolling left on under reduce", async () => {
+    const o = await run("/smooth");
+    expect(o.findings).toEqual([
+      { target: "html", problem: `smooth scrolling under reduce ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS a video that autoplays", async () => {
+    const o = await run("/video");
+    expect(o.findings).toContainEqual({
+      target: "video#v",
+      problem: `playing video under reduce ${BOTH}`,
+    });
+  });
+
+  it("FAILS a line drawn by its dash offset and an image wiped in by clip-path", async () => {
+    const o = await run("/draw-and-wipe");
+    expect(o.findings.map((f) => `${f.target}: ${f.problem}`).sort()).toEqual(
+      [
+        `img#wipe: transition-duration 1500ms under reduce ${BOTH}`,
+        `path#line: transition-duration 2000ms under reduce ${BOTH}`,
+      ].sort(),
+    );
+  });
+
   it("ignores an animation within PERCEPTIBLE_MS of its end, and reports one beyond it", async () => {
     const o = await run("/floor");
     expect(o.findings.map((f) => f.target)).toEqual(["p#left"]);
@@ -818,7 +927,7 @@ describe.concurrent("design-rules R2 (reduced motion), in a real browser", () =>
     const o = await run("/not-defects");
     expect(o.findings).toEqual([]);
     expect(o.status).toBe("pass");
-    expect(o.note).toMatch(/1 scroll\(\) animation\(s\) not judged/);
+    expect(o.note).toMatch(/1 size-only scroll-driven animation\(s\) not judged/);
   });
 
   it("is UNMEASURED, never a pass, when the context does not emulate reduce (negative control)", async () => {
@@ -896,6 +1005,22 @@ describe("summarizeReducedMotion", () => {
   it("notes a scroll that stopped at its step cap", () => {
     const o = summarizeReducedMotion("u", [{ ...run(1440, [clean]), capped: true }]);
     expect(o.note).toMatch(/; the scroll stopped at its 200-step cap$/);
+  });
+
+  it("says no reset reaches the page from RESET_HINT_AT elements, counting an element once", () => {
+    const items = (n: number) =>
+      Array.from({ length: n }, (_, i) => [
+        { target: `e${i}`, kind: "transition-duration", ms: 300 },
+        { target: `e${i}`, kind: "animation-duration", ms: 300 },
+      ]).flat();
+    const hint = /: no prefers-reduced-motion reset reaches them$/;
+    const at = (n: number) =>
+      summarizeReducedMotion("u", [run(1440, [{ ...clean, items: items(n) }])]);
+    expect(at(RESET_HINT_AT).note).toMatch(
+      new RegExp(`; ${RESET_HINT_AT} elements keep a duration`),
+    );
+    expect(at(RESET_HINT_AT).note).toMatch(hint);
+    expect(at(RESET_HINT_AT - 1).note).not.toMatch(hint);
   });
 
   it("notes cross-origin frames it could not sample", () => {

@@ -21,7 +21,8 @@ export function parseDesignRulesArgs(argv: string[]): DesignRulesArgs {
         };
       }
       picked.push(id as DesignRuleId);
-    } else urls.push(arg);
+    } else if (arg.startsWith("--")) return { error: `unknown option ${arg}` };
+    else urls.push(arg);
   }
   if (urls.length === 0) return { error: "usage: design-rules.mts <url…> [--rule R2] [--json]" };
   const rules = picked.length > 0 ? picked : (Object.keys(DESIGN_RULES) as DesignRuleId[]);
@@ -38,7 +39,8 @@ export function exitCodeFor(outcomes: RuleOutcome[]): 0 | 1 | 2 {
 
 /** Motion a reader sees now first, then what waits, then what a reset fixes. */
 function severity(problem: string): number {
-  if (/still running|paused short|moved by script/.test(problem)) return 0;
+  if (/still running|paused short|moved by script|playing video|smooth scrolling/.test(problem))
+    return 0;
   if (/-delay /.test(problem)) return 1;
   return 2;
 }

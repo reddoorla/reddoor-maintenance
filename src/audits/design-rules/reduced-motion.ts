@@ -16,7 +16,8 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //
 //   - a computed delay or duration above PERCEPTIBLE_MS on an element or its
 //     ::before/::after. Every animation counts; a transition counts unless it
-//     only fades a colour (a hover colour fade is not motion). Each list is read
+//     only fades a colour (a hover colour fade is not motion; `all` counts,
+//     since what it covers is unknown). Each list is read
 //     per animation name or transition property, so an entry no name uses is
 //     ignored, as the browser ignores it; an animation name no `@keyframes`
 //     defines is ignored, and so is one the page pauses (a marquee paused under
@@ -27,17 +28,20 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //   - a running animation (CSS, transition or Web Animations API, which
 //     Svelte's transitions run on and no CSS reset reaches) with more than
 //     PERCEPTIBLE_MS left or no end, scroll-driven ones (view(), scroll())
-//     included unless they only animate size; and a finite animation paused
-//     short of its end (an endless one paused is a marquee honouring reduce);
+//     included unless they only animate size (width, height, or a one-axis
+//     scale: a progress bar; a uniform scale() is a zoom, and counts); a
+//     finite animation paused short of its end (an endless one paused is a
+//     marquee honouring reduce); `scroll-behavior: smooth`; and a video
+//     playing;
 //   - motion a script drives frame by frame (a tween, a spring, GSAP): an
 //     element whose inline transform, position, margin, opacity, background
 //     position or dash offset, SVG position attribute, or horizontal scroll
 //     changes at two consecutive reads (SCRIPTED_GAP_MS apart; SCRIPTED_READS
 //     at every step, and reads through the last wait), or four times in the
-//     last wait (a slow stepper), or takes a new value at three scroll steps
-//     running (a script parallax). A snap or a swap changes at one read and
-//     holds, which reduce allows; width, height and scale() are size, not
-//     motion, and are not read.
+//     last wait (a slow stepper), or takes a value never seen before at two
+//     scroll steps running (a script parallax). A snap or a swap changes at
+//     one read and holds, which reduce allows; width, height and a one-axis
+//     scale are size, not motion, and are not read.
 //
 // Not covered: the single frame a zeroed Svelte transition can paint at t=0
 // (#135's `fly({ y: 22 })`); a script's delay before it shows an element (a
@@ -45,12 +49,21 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // script re-creates every frame, which has no identity to follow; two snaps
 // SCRIPTED_GAP_MS apart, which read as motion; motion that only hover, focus or an opened state
 // starts (`:hover { animation }`, `.is-open { transition }`), because nothing
-// here hovers, focuses or opens; scroll() animations (a reading-progress bar is
-// size, not motion; counted in the note); closed shadow roots and cross-origin
-// frames (a third-party embed is not the site's code; counted in the note),
-// and frames that do not answer within FRAME_TIMEOUT_MS (counted with them);
-// motion a script drives through a channel not read here (a CSS custom
-// property, a canvas); and motion a script starts after the last read.
+// here hovers, focuses or opens; size-only scroll-driven animations (counted in
+// the note); closed shadow roots and cross-origin frames (a third-party embed
+// is not the site's code; counted in the note), and frames that do not answer
+// within FRAME_TIMEOUT_MS (counted with them), though an about:blank frame a
+// third party's script writes is sampled as the site's; motion a script drives
+// through a channel not read here (a CSS custom property, a canvas, text
+// content: a typewriter or a count-up), or slower than four changes in the
+// last wait (a clock's second hand); an element's own vertical scroll (a
+// script auto-scrolling a list), since the page's own scroller moves with
+// every step; SMIL (`<animate>`); animated GIF and WebP images; and motion a
+// script starts after the last read. Known false fails: what a script moves
+// with the scroll to show progress or to stay put reads as parallax (a ring's
+// dash offset, a bar's translateX, an element a script pins by transform),
+// and keyframes declared only under `prefers-reduced-motion: no-preference`
+// count as defined.
 
 /** Below this, a delay, duration or remaining time is a reset's 0.01ms tail or
  *  a frame of rounding, not something a reader sees. */
@@ -163,8 +176,16 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
     }
   }
 
-  // Pass 2: computed delays and durations.
+  // Pass 2: smooth scrolling, playing video, and computed delays and durations.
   for (const el of elements) {
+    // `scroll-behavior: smooth` animates every anchor jump and scrollTo (the
+    // starters' reset sets it back to auto under reduce).
+    if (getComputedStyle(el).scrollBehavior === "smooth") {
+      pending.push({ el, pseudo: null, kind: "smooth scrolling", ms: null });
+    }
+    if (el instanceof HTMLVideoElement && !el.paused && !el.ended) {
+      pending.push({ el, pseudo: null, kind: "playing video", ms: null });
+    }
     for (const pseudo of [null, "::before", "::after"]) {
       const style = getComputedStyle(el, pseudo);
       if (pseudo !== null && (style.content === "none" || style.content === "normal")) continue;
@@ -209,7 +230,7 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
           // motion. Its delay still counts.
           const moves =
             family === "animation" ||
-            /^(all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*)$/.test(
+            /^(all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*|stroke-dashoffset|clip-path|background-position|filter)$/.test(
               name,
             );
           if (moves && Number.isFinite(dMs) && dMs > duration) duration = dMs;
@@ -237,10 +258,10 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
         for (const frame of effect.getKeyframes()) {
           for (const [prop, value] of Object.entries(frame)) {
             if (["offset", "computedOffset", "easing", "composite"].includes(prop)) continue;
-            const size = ["width", "height", "inlineSize", "blockSize", "scale"].includes(prop);
+            const size = ["width", "height", "inlineSize", "blockSize"].includes(prop);
             const scaleOnly =
               prop === "transform" &&
-              /^(none|(\s*scale[XYZ3d]*\([^)]*\))+)$/.test(String(value).trim());
+              /^(none|(\s*scale[XY]\([^)]*\))+)$/.test(String(value).trim());
             if (!size && !scaleOnly) sizeOnly = false;
           }
         }
@@ -258,7 +279,7 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
             : "Web Animation";
       if (
         name.startsWith("transition ") &&
-        !/^transition (all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*)$/.test(
+        !/^transition (all|transform|translate|scale|rotate|top|right|bottom|left|inset.*|margin.*|opacity|offset.*|stroke-dashoffset|clip-path|background-position|filter)$/.test(
           name,
         )
       ) {
@@ -306,7 +327,7 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
         changes: WeakMap<Element, number>;
         seen: WeakMap<Element, Set<string>>;
       };
-      __designRulesR2Steps?: { last: WeakMap<Element, string>; run: WeakMap<Element, number> };
+      __designRulesR2Steps?: { seen: WeakMap<Element, Set<string>>; run: WeakMap<Element, number> };
     };
     if (!w.__designRulesR2 || w.__designRulesR2.window !== windowId) {
       w.__designRulesR2 = {
@@ -319,17 +340,21 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
     }
     const state = w.__designRulesR2;
     // Across scroll steps: the value each step window opened on.
-    w.__designRulesR2Steps ??= { last: new WeakMap(), run: new WeakMap() };
+    w.__designRulesR2Steps ??= { seen: new WeakMap(), run: new WeakMap() };
     const steps = w.__designRulesR2Steps;
-    const stepOpen = read === 0 && windowId!.startsWith("step");
+    // The top window's first read is the baseline; each step window's first
+    // read is compared with every value seen at the openings before it.
+    const stepOpen = read === 0 && (windowId === "top" || windowId!.startsWith("step"));
     for (const el of elements) {
       const css = (el as HTMLElement).style;
       if (!css) continue;
       const svg = el instanceof SVGElement;
-      // A scale() alone is size, not motion (a script-driven progress bar).
+      // A one-axis scale is size, not motion (a script-driven progress bar); a
+      // uniform scale() is a zoom, and is read.
       const values = [
-        css.transform.replace(/scale[XYZ3d]*\([^)]*\)/g, ""),
+        css.transform.replace(/scale[XY]\([^)]*\)/g, ""),
         css.translate,
+        css.scale,
         css.rotate,
         css.left,
         css.top,
@@ -337,6 +362,8 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
         css.bottom,
         css.marginLeft,
         css.marginTop,
+        css.marginRight,
+        css.marginBottom,
         css.opacity,
         css.backgroundPosition,
         css.strokeDashoffset,
@@ -348,14 +375,17 @@ export function sampleReducedMotion([floorMs, windowRead, fontHosts]: readonly [
         el.scrollWidth > el.clientWidth ? String(el.scrollLeft) : null,
       ].join("|");
       if (stepOpen) {
-        // A value that is new at three scroll steps running moves with the
-        // scroll (a script parallax); a header nudge or a late image
+        // A value never seen before at two step openings running moves with
+        // the scroll (a script parallax, a hero's included: it moves for the
+        // first two steps, then holds); a hiding header or a late image
         // changes once.
-        const was = steps.last.get(el);
-        steps.last.set(el, values);
-        const run = was !== undefined && was !== values ? (steps.run.get(el) ?? 0) + 1 : 0;
+        const seen = steps.seen.get(el) ?? new Set<string>();
+        const fresh = seen.size > 0 && !seen.has(values);
+        seen.add(values);
+        steps.seen.set(el, seen);
+        const run = fresh ? (steps.run.get(el) ?? 0) + 1 : 0;
         steps.run.set(el, run);
-        if (run === 3) pending.push({ el, pseudo: null, kind: "scroll-linked", ms: null });
+        if (run === 2) pending.push({ el, pseudo: null, kind: "scroll-linked", ms: null });
       }
       const before = state.last.get(el);
       state.last.set(el, values);
@@ -491,6 +521,9 @@ export function summarizeReducedMotion(url: string, runs: MotionRun[]): RuleOutc
     if (kind === "scripted") {
       return { target, problem: `moved by script, frame by frame, under reduce${at}` };
     }
+    if (kind === "smooth scrolling" || kind === "playing video") {
+      return { target, problem: `${kind} under reduce${at}` };
+    }
     if (kind === "scroll-linked") {
       return { target, problem: `moved by script with the scroll (parallax) under reduce${at}` };
     }
@@ -509,14 +542,15 @@ export function summarizeReducedMotion(url: string, runs: MotionRun[]): RuleOutc
     return { target, problem: `${kind} ${time} under reduce${at}` };
   });
   const scrollDriven = Math.max(0, ...samples.map((s) => s.scrollDriven));
-  const durations = findings.filter((f) =>
-    / ?(transition|animation)-duration /.test(f.problem),
-  ).length;
+  // Elements, not findings: one element can keep both durations.
+  const durations = new Set(
+    findings.filter((f) => /(transition|animation)-duration /.test(f.problem)).map((f) => f.target),
+  ).size;
   const skipped = Math.max(0, ...runs.map((r) => r.skippedFrames));
   const note =
     `${samples.length} samples under reduce at ${runs.map((r) => `${r.width}px`).join(" and ")}` +
     ` (scrolled ${[...new Set(runs.map((r) => r.scrolled))].join(", ")}); ${findings.length} finding(s)` +
-    (scrollDriven > 0 ? `; ${scrollDriven} scroll() animation(s) not judged` : "") +
+    (scrollDriven > 0 ? `; ${scrollDriven} size-only scroll-driven animation(s) not judged` : "") +
     (skipped > 0 ? `; ${skipped} frame(s) not sampled (cross-origin or not answering)` : "") +
     (runs.some((r) => r.capped)
       ? `; the scroll stopped at its ${Math.max(...runs.map((r) => r.stepCap ?? STEP_CAP))}-step cap`
@@ -563,7 +597,12 @@ async function sampleAll(page: Page, windowRead: string | null): Promise<MotionS
       .frameElement()
       .then((el) => el.getAttribute("src"))
       .catch(() => null);
-    const at = src === null ? `iframe[srcdoc] :: ` : `iframe[src=${JSON.stringify(src)}] :: `;
+    const at =
+      src !== null
+        ? `iframe[src=${JSON.stringify(src)}] :: `
+        : frame.url() === "about:srcdoc"
+          ? `iframe[srcdoc] :: `
+          : `iframe:not([src]) :: `;
     top.items.push(...inner.items.map((i) => ({ ...i, target: at + i.target })));
     top.scrollDriven += inner.scrollDriven;
     top.reduceMatched &&= inner.reduceMatched;

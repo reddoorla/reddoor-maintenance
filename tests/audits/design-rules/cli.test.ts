@@ -40,6 +40,10 @@ describe("design-rules CLI", () => {
     expect(parseDesignRulesArgs([])).toHaveProperty("error");
   });
 
+  it("refuses an unknown option rather than reading it as a url", () => {
+    expect(parseDesignRulesArgs(["u", "--jsno"])).toEqual({ error: "unknown option --jsno" });
+  });
+
   it("exits 1 on any fail, else 2 on any unmeasured or nothing run, else 0", () => {
     expect(exitCodeFor([outcome("pass"), outcome("fail"), outcome("unmeasured")])).toBe(1);
     expect(exitCodeFor([outcome("pass"), outcome("unmeasured")])).toBe(2);
@@ -74,5 +78,31 @@ describe("formatOutcome", () => {
       "      c",
       "      (+1 more)",
     ]);
+  });
+
+  it("ranks motion a reader sees now above a delay, and a delay above a duration", () => {
+    const now = [
+      "moved by script, frame by frame, under reduce (at 1440px)",
+      "moved by script with the scroll (parallax) under reduce (at 1440px)",
+      "playing video under reduce (at 1440px)",
+      "smooth scrolling under reduce (at 1440px)",
+      "animation r paused short of its end under reduce (400ms left) (at 1440px)",
+    ];
+    const problems = [
+      "transition-duration 300ms under reduce (at 1440px)",
+      "animation-delay 900ms under reduce (at 1440px)",
+      ...now,
+    ];
+    const lines = formatOutcome({
+      ...outcome("fail"),
+      findings: problems.map((problem, i) => ({ target: `t${i}`, problem })),
+    }).filter((l) => l.startsWith("  - "));
+    expect(
+      lines
+        .slice(0, now.length)
+        .map((l) => l.slice(4))
+        .sort(),
+    ).toEqual([...now].sort());
+    expect(lines.slice(now.length).map((l) => l.slice(4))).toEqual(problems.slice(0, 2).reverse());
   });
 });
