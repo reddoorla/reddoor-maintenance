@@ -679,7 +679,7 @@ describe("retries", () => {
       all.length === 1
         ? {
             status: 409,
-            headers: { "Retry-After": "5" },
+            headers: { "Retry-After": "7" },
             body: { error_summary: "too_many_write_operations/" },
           }
         : { body: { size: 10, content_hash: contentHash(data) } },
@@ -693,7 +693,7 @@ describe("retries", () => {
     );
     expect(r.ok).toBe(true);
     expect(calls).toHaveLength(2);
-    expect(waits).toEqual([5000]);
+    expect(waits).toEqual([7000]);
   });
 
   it("resends a one-call upload that met too_many_write_operations", async () => {

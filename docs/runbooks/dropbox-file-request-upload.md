@@ -84,8 +84,9 @@ and renames what arrived.
    `dropbox.mjs upload` once `check` passes), two names Dropbox would treat
    as one, and an uploader name that contains `/` or `\`, names an entry
    in the working directory, or cannot be checked against the working
-   directory ("cannot be checked: ENAMETOOLONG", for example). The first two
-   usually mean the name was left out. `--dry-run` prints the
+   directory ("it cannot be checked against the working directory:
+   ENAMETOOLONG", for example). A name with `/` or `\`, or one that names an
+   entry, usually means the name was left out. `--dry-run` prints the
    table and uploads nothing. Dropbox emails the request's owner about each
    upload.
 
@@ -121,7 +122,7 @@ and renames what arrived.
   complete, up to max(120 s, 10 s per MB) per batch, so a commit the page
   retries after a 5xx is not cut off (a commit that never completes is
   reported FAILED at that deadline). That deadline is also the upper bound
-  on a batch's wait: about 22 minutes (1,342 s) for a full 128 MiB batch.
+  on a batch's commit wait: about 22 minutes (1,342 s) for a full 128 MiB batch.
   A definite commit failure, such as a 403 `{"error":"closed"}` or a 200
   `{"status":"error"}`, does not end the wait early: the batch waits out its
   whole deadline and then reports that file FAILED (#1471). It counts a
