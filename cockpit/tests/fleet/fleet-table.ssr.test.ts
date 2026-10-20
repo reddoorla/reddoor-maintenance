@@ -58,6 +58,7 @@ describe("/fleet parity with renderFleetTableHtml", () => {
       const before = canonical(bodyOf(renderFleetTableHtml(model, "op@example.com")), OLD_ONLY);
       const after = canonical(renderPage(Page, { data: { model } }));
       expect(after).toEqual(before);
+      expect(after).toMatchSnapshot();
     });
   }
 

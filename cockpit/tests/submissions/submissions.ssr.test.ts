@@ -104,9 +104,9 @@ describe("/submissions parity with renderSubmissionsPageHtml", () => {
   for (const [name, over] of CASES) {
     it(name, () => {
       const m = model(over);
-      expect(canonical(renderPage(Page, { data: buildSubmissionsPageData(m) }))).toEqual(
-        canonical(oldBody(m), OLD_ONLY),
-      );
+      const after = canonical(renderPage(Page, { data: buildSubmissionsPageData(m) }));
+      expect(after).toEqual(canonical(oldBody(m), OLD_ONLY));
+      expect(after).toMatchSnapshot();
     });
   }
 
