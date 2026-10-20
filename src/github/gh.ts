@@ -404,6 +404,12 @@ const REVIEW_SCALARS = [
   "require_last_push_approval",
 ] as const;
 
+/** protectionPutBody declined to write, because the write could weaken the
+ *  branch's protection (#1447). A caller can record it and go on. */
+export class ProtectionRefusedError extends Error {
+  override name = "ProtectionRefusedError";
+}
+
 /**
  * The PUT body for classic branch protection that requires `requiredChecks`
  * while keeping everything `existing` (a GET response, or null when the branch
@@ -413,12 +419,6 @@ const REVIEW_SCALARS = [
  * Throws, rather than risk weakening the protection, when the branch restricts
  * who may dismiss reviews but lists nobody (#1447): set that one by hand.
  */
-/** protectionPutBody declined to write, because the write could weaken the
- *  branch's protection (#1447). A caller can record it and go on. */
-export class ProtectionRefusedError extends Error {
-  override name = "ProtectionRefusedError";
-}
-
 export function protectionPutBody(
   existing: Record<string, unknown> | null,
   requiredChecks: string[],

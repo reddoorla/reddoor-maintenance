@@ -957,25 +957,28 @@ describe("selfUpdating: the protection write keeps what the branch already has (
     ]);
   });
 
+  // "Restrict who can dismiss reviews" on, with nobody listed (#1447).
+  const dismissalNobodyListed = {
+    stdout: JSON.stringify({
+      url: API,
+      required_status_checks: { strict: true, contexts: ["build"], checks: [] },
+      enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+      required_pull_request_reviews: {
+        ...reviews,
+        dismissal_restrictions: {
+          url: `${API}/dismissal_restrictions`,
+          users: [],
+          teams: [],
+          apps: [],
+        },
+      },
+      restrictions,
+    }),
+  };
+
   it("dismissal restriction on with nobody listed: no protection write, the ruleset still runs, the repo fails with the reason (#1447)", async () => {
     const { github, puts, calls } = restProtection(
-      {
-        stdout: JSON.stringify({
-          url: API,
-          required_status_checks: { strict: true, contexts: ["build"], checks: [] },
-          enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
-          required_pull_request_reviews: {
-            ...reviews,
-            dismissal_restrictions: {
-              url: `${API}/dismissal_restrictions`,
-              users: [],
-              teams: [],
-              apps: [],
-            },
-          },
-          restrictions,
-        }),
-      },
+      dismissalNobodyListed,
       // No fleet ruleset yet, so the admin-binding layer has work to do.
       { listRepoRulesets: async () => [] },
     );
@@ -983,36 +986,19 @@ describe("selfUpdating: the protection write keeps what the branch already has (
     expect(r.status).toBe("failed");
     expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*no user, team or app.*by hand/s);
     expect(r.notes).toContain(`completed: created ruleset "${FLEET_RULESET_NAME}"`);
+    // The refusal is the error that ended the run, so it is reported once.
+    expect((r.notes ?? "").split("protectBranch(").length - 1).toBe(1);
     expect(puts).toEqual([]);
     expect(calls.filter((c) => c.startsWith("ruleset-create:o/r:"))).toHaveLength(1);
   });
 
   it("a refused protection write stays in the notes when the ruleset step then fails (#1447)", async () => {
-    const { github, puts } = restProtection(
-      {
-        stdout: JSON.stringify({
-          url: API,
-          required_status_checks: { strict: true, contexts: ["build"], checks: [] },
-          enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
-          required_pull_request_reviews: {
-            ...reviews,
-            dismissal_restrictions: {
-              url: `${API}/dismissal_restrictions`,
-              users: [],
-              teams: [],
-              apps: [],
-            },
-          },
-          restrictions,
-        }),
+    const { github, puts } = restProtection(dismissalNobodyListed, {
+      listRepoRulesets: async () => [],
+      createRuleset: async () => {
+        throw new Error("ruleset 422 boom");
       },
-      {
-        listRepoRulesets: async () => [],
-        createRuleset: async () => {
-          throw new Error("ruleset 422 boom");
-        },
-      },
-    );
+    });
     const r = await run(github);
     expect(r.status).toBe("failed");
     expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*by hand.*; then ruleset 422 boom/s);
