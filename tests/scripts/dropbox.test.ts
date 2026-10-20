@@ -527,13 +527,13 @@ describe("uploadFile", () => {
       if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
       if (ep === "files/upload_session/finish") appendFileSync(local, Buffer.from("more"));
       return {
-        body: { path_display: "/X/grew-at-finish.bin", size: 100, content_hash: contentHash(data) },
+        body: { path_display: "/x/Grew-At-Finish.bin", size: 100, content_hash: contentHash(data) },
       };
     });
     await expect(
       uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
     ).rejects.toThrow(
-      "grew-at-finish.bin changed size during upload_session/finish; Dropbox committed /X/grew-at-finish.bin anyway, 100 bytes, matching the bytes read before the change",
+      "grew-at-finish.bin changed size during upload_session/finish; Dropbox committed /x/Grew-At-Finish.bin anyway, 100 bytes, matching the bytes read before the change",
     );
     expect(endpoints(calls).at(-1)).toBe("files/upload_session/finish");
   });
