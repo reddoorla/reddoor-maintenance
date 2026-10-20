@@ -68,6 +68,9 @@ jobs:
               due=true
             fi
           fi
+          if [ "$due" = "true" ] && [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::notice::monthly Dropbox copy: due, but this run is on ${GITHUB_REF:-an unknown ref}, and only main copies; the copy step will be skipped."
+          fi
           echo "dropbox copy due=$due month=$month"
           { echo "due=$due"; echo "month=$month"; } >> "$GITHUB_OUTPUT"
 
@@ -255,14 +258,14 @@ jobs:
       # the copy (skipped), so no month is lost in silence. Any other night
       # with no copy neither files nor closes.
       - name: Open/update the Dropbox-copy tracking issue
-        if: (steps.dropbox.outcome == 'failure' || ((failure() || cancelled()) && steps.dropbox-due.outputs.due == 'true')) && github.ref == 'refs/heads/main'
+        if: (steps.dropbox.outcome == 'failure' || ((failure() || cancelled()) && steps.dropbox-due.outputs.due == 'true' && steps.dropbox.outcome != 'success')) && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Monthly Dropbox backup copy failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'This month'"'"'s copy of the encrypted Turso dump to Dropbox `/Reddoor/Backups/turso` was not taken. Either the "Copy the encrypted dump to Dropbox" step failed (the 30-day artifact was already uploaded, so the backup itself is fine), or the run went red or was cancelled before the copy (then "Nightly Turso backup failing" names that too).\n\nRead the run for the cause. A `401`, `invalid_grant` or `missing_scope` from dropbox.mjs means the app'"'"'s one-time authorization must be redone and the `DROPBOX_REFRESH_TOKEN` secret replaced (`scripts/dropbox.mjs`). Then dispatch **fleet-db-backup** on main with `dropbox_copy: true` to take this month'"'"'s copy.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next successful copy._' "$run_url")
+          body=$(printf 'This run did not take this month'"'"'s copy of the encrypted Turso dump to Dropbox `/Reddoor/Backups/turso`. An earlier run this month may already have; look for `turso-YYYY-MM.sql.gpg` there first. Either the "Copy the encrypted dump to Dropbox" step failed (the 30-day artifact was already uploaded, so the backup itself is fine), or the run went red or was cancelled before the copy (then "Nightly Turso backup failing" names that too).\n\nRead the run for the cause. A `401`, `invalid_grant` or `missing_scope` from dropbox.mjs means the app'"'"'s one-time authorization must be redone and the `DROPBOX_REFRESH_TOKEN` secret replaced (`scripts/dropbox.mjs`). Then dispatch **fleet-db-backup** on main with `dropbox_copy: true` to take this month'"'"'s copy.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next successful copy._' "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)

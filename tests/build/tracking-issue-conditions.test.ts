@@ -564,6 +564,9 @@ describe("fleet-db-backup — the Dropbox-copy issue speaks only about copy nigh
       [MAIN_GREEN, "success", "true", false],
       [MAIN_FAILED, "skipped", "true", true],
       [MAIN_CANCELLED, "skipped", "true", true],
+      // A cancel AFTER a successful copy: the month has its copy.
+      [MAIN_CANCELLED, "success", "true", false],
+      [MAIN_FAILED, "success", "true", false],
       [MAIN_FAILED, "skipped", "false", false],
       [MAIN_CANCELLED, "skipped", "false", false],
       [BRANCH_GREEN, "failure", "true", false],

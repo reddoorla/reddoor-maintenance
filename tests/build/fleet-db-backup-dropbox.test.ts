@@ -114,6 +114,7 @@ esac
         PATH: `${bin}:${process.env.PATH ?? ""}`,
         RUNNER_TEMP: dir,
         GITHUB_OUTPUT: join(dir, "GITHUB_OUTPUT"),
+        GITHUB_REF: "refs/heads/main",
         ...opts.env,
       },
     });
@@ -181,6 +182,18 @@ describe("fleet-db-backup › Decide the monthly Dropbox copy", () => {
     const warning = r.out.split("\n").find((l) => l.startsWith("::warning::"));
     expect(warning).toBeDefined();
     for (const name of Object.keys(SECRETS)) expect(warning).toContain(name);
+  });
+
+  it("says so when a copy is due on a branch, where the copy step will skip", async () => {
+    const branch = await runStep(decide, {
+      day: "20",
+      env: { ...SECRETS, FORCE: "true", GITHUB_REF: "refs/heads/claude/x" },
+    });
+    expect(branch.out).toMatch(
+      /^::notice::monthly Dropbox copy: due, but this run is on refs\/heads\/claude\/x/m,
+    );
+    const main = await runStep(decide, { day: "20", env: { ...SECRETS, FORCE: "true" } });
+    expect(main.out).not.toContain("::notice::");
   });
 
   it("names only the secret that is missing", async () => {
@@ -261,6 +274,43 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("ada@example.com");
     expect(r.out).toContain("Ada <Reddoor>, team Example Team");
+  });
+
+  it("PASSES when Dropbox returns the path in another case (path_display keeps the existing folder's case)", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `${TEAM_ACCOUNT}\n${okLine("/reddoor/backups/Turso/turso-2026-11.sql.gpg", CIPHERTEXT)}\n`,
+    });
+    expect(r.code).toBe(0);
+  });
+
+  it("FAILS when 'team space' appears anywhere but as the account line's verdict", async () => {
+    for (const account of [
+      "account: Ada Example, team space fans, root namespace 1 (personal space: the root is the home folder)",
+      "warning: not team space (team space)",
+    ]) {
+      const r = await runStep(copy, {
+        env: { ...SECRETS, MONTH: "2026-11" },
+        dropboxOut: `${account}\n${okLine(PATH_NOV, CIPHERTEXT)}\n`,
+      });
+      expect(r.code, account).not.toBe(0);
+    }
+  });
+
+  it("FAILS when the ok line is not at the start of a line", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `${TEAM_ACCOUNT}\nnot ${okLine(PATH_NOV, CIPHERTEXT)}\n`,
+    });
+    expect(r.code).not.toBe(0);
+  });
+
+  it("redacts every address on the line", async () => {
+    const r = await runStep(copy, {
+      env: { ...SECRETS, MONTH: "2026-11" },
+      dropboxOut: `account: Ada <ada@example.com> <ada2@example.com>, team Example Team, root namespace 1 (team space)\n${okLine(PATH_NOV, CIPHERTEXT)}\n`,
+    });
+    expect(r.out).not.toMatch(/ada2?@example\.com/);
   });
 
   it("FAILS when the ok line names another month's file", async () => {
@@ -356,6 +406,21 @@ describe("fleet-db-backup — where the Dropbox copy sits, and what it may break
     expect(s.timeoutMinutes).toBeGreaterThan(0);
     // main only: a branch dispatch must never overwrite the month's copy.
     expect(s.if).toBe("steps.dropbox-due.outputs.due == 'true' && github.ref == 'refs/heads/main'");
+  });
+
+  // Pinned verbatim, because the expression evaluator in
+  // tracking-issue-conditions.test.ts reads `.outcome` and `.conclusion` as one
+  // value and every `steps.*.outputs.*` as one value. A continue-on-error
+  // step's conclusion is `success` even when it failed, so `.conclusion` here
+  // would never file; `steps.dropbox.outputs.due` or `.outputs.month` would be
+  // '' and the missed month silent. That evaluator cannot see either.
+  it("keys the Dropbox issue steps on the copy step's OUTCOME and the decide step's `due`, verbatim", () => {
+    expect(step("Open/update the Dropbox-copy tracking issue")!.if).toBe(
+      "(steps.dropbox.outcome == 'failure' || ((failure() || cancelled()) && steps.dropbox-due.outputs.due == 'true' && steps.dropbox.outcome != 'success')) && github.ref == 'refs/heads/main'",
+    );
+    expect(step("Close the Dropbox-copy issue on a successful copy")!.if).toBe(
+      "success() && github.ref == 'refs/heads/main' && steps.dropbox.outcome == 'success'",
+    );
   });
 
   it("the decide step cannot fail on the network: it calls nothing but date", () => {
