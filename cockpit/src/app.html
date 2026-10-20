@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    %sveltekit.head%
+  </head>
+  <!-- data-sveltekit-reload: every link is a full page load, as it was when each
+       page was its own Netlify function. Client-side navigation would keep one
+       page's stylesheet alive on the next, and the pages share class names. -->
+  <body data-sveltekit-reload>
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

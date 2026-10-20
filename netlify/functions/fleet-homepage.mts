@@ -1,14 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
-import { listSites, listAllReports } from "../../src/db/fleet-state.js";
-import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
-import type { NotifyBounceCounts } from "../../src/db/submissions.js";
-import { listFleetEvents } from "../../src/db/fleet-events.js";
-import { screenOutsSince } from "../../src/db/screenouts.js";
-import { readDigestState, readCockpitRollup } from "../../src/db/digest-state.js";
 import { requireOperator, denialResponse, renderCockpitHtml } from "../../src/dashboard/index.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import { loadCockpitModel } from "../../src/dashboard/page-data.js";
 import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Owns the root path. The per-site dashboard function continues to own
@@ -56,101 +49,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // Phase 2 (#539): Turso IS the cockpit's core data now (sites + reports +
     // submissions), so open it non-defensively — a failure 502s rather than
     // rendering a misleading "0 sites" page. As of #609 it is the ONLY store
-    // this handler reads.
+    // this handler reads. What it reads is `loadCockpitModel` (page-data.ts).
     const db = await openDb(readDbConfig());
-    // Fetch the three inputs once. reports + digest are each defensive so one
-    // hiccup can't blank the page; sites is the cockpit's core data, so a
-    // failure there can't degrade to an empty (misleading "0 sites") page —
-    // instead the whole try falls to handlerError for a clean retry-able 502.
-    const websites = await listSites(db);
-    let reports: Awaited<ReturnType<typeof listAllReports>> = [];
-    try {
-      reports = await listAllReports(db);
-    } catch {
-      // approve strip + delivery signals simply absent — triage still renders
-    }
-    let prior: Awaited<ReturnType<typeof readDigestState>> = {};
-    try {
-      prior = await readDigestState(db);
-    } catch {
-      // everything badges as not-NEW (the {} initial); never crashes the page
-    }
-    let newSubmissions: Awaited<ReturnType<typeof listNewSubmissions>> = [];
-    {
-      try {
-        newSubmissions = await listNewSubmissions(db);
-      } catch {
-        // submissions strip simply absent — triage still renders
-      }
-    }
-    // Both of the fleet-wide "since a window" numbers now come from ONE row read
-    // by primary key, computed by the nightly digest (MED-16). They used to be
-    // recomputed here on every page load — aggregates over the whole
-    // `submissions` table, which is the one unbounded-growth table in the schema,
-    // on the operator's most-loaded page, against a store that meters row scans.
-    //
-    // They are consequently up to 24h old. `null` when the digest has not written
-    // one yet, which the cockpit renders as ABSENT rather than as zeros: every
-    // one of these numbers has a legitimate zero, so a confident 0 for an
-    // unmeasured window is a lie the strip cannot walk back.
-    let rollup: Awaited<ReturnType<typeof readCockpitRollup>> = null;
-    {
-      try {
-        rollup = await readCockpitRollup(db);
-      } catch {
-        // strip simply absent — never blank the cockpit
-      }
-    }
-    const spamTotals =
-      rollup !== null ? { ...rollup.spamTotals, computedAt: rollup.computedAt } : null;
-    let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
-    {
-      try {
-        const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-        recentEvents = await listFleetEvents(db, { sinceIso, limit: 20 });
-      } catch {
-        // Recently lane simply absent — the cockpit still renders.
-      }
-    }
-    let autoFilteredCount = 0;
-    {
-      try {
-        const since = screenOutsSince(new Date(), 7);
-        autoFilteredCount = await countAutoSpamSince(db, since);
-      } catch {
-        // affordance simply absent — never blank the cockpit
-      }
-    }
-    // #783: the roll-up's per-site value is a {total, permanent} breakdown now.
-    // `readCockpitRollup` normalizes an older numeric payload into it, so this
-    // stays a plain Object.entries and the cockpit keeps rendering after a
-    // deploy that lands before the next nightly digest run.
-    const notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(
-      Object.entries(rollup?.notifyBounces ?? {}),
-    );
-    // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
-    // Defensive like every other libSQL read here: a blip drops the signal, it
-    // never blanks the cockpit.
-    let deadLetters: ReadonlyMap<string, number> = new Map();
-    try {
-      deadLetters = await countUnreplayedDeadLettersBySlug(db);
-    } catch {
-      // alarm simply absent — never blank the cockpit
-    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
-    const model = buildCockpitModel(
-      websites,
-      reports,
-      prior,
-      baseUrl,
-      new Date(),
-      newSubmissions,
-      spamTotals,
-      recentEvents,
-      autoFilteredCount,
-      notifyBounces,
-      deadLetters,
-    );
+    const model = await loadCockpitModel(db, new Date(), baseUrl);
     return html(renderCockpitHtml(model, auth.email), 200);
   } catch (err) {
     return handlerError("fleet-homepage", err);

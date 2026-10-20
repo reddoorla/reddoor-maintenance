@@ -1,12 +1,12 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listRecentProspectAudits } from "../../src/db/prospect-audits.js";
 import {
   requireOperator,
   denialResponse,
   renderProspectAuditsPageHtml,
 } from "../../src/dashboard/index.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { loadProspectAudits } from "../../src/dashboard/page-data.js";
 
 // GET-only page: the Run button on it POSTs to the separate
 // /api/prospect-audit/run endpoint (prospect-audit-run.mts), which carries its
@@ -17,10 +17,6 @@ export const config: Config = {
   path: ["/audits", "/.netlify/functions/prospect-audits-page"],
   rateLimit: { windowSize: 60, windowLimit: 60, aggregateBy: ["ip"] },
 };
-
-/** Plenty for one screen of "recent" without a pager; the design deliberately
- *  has no pagination for this list (v1 non-goal: no live progress, no extra UI). */
-const RECENT_AUDITS_LIMIT = 25;
 
 function plainText(
   body: string,
@@ -53,7 +49,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   try {
     const db = await openDb(readDbConfig());
-    const audits = await listRecentProspectAudits(db, RECENT_AUDITS_LIMIT);
+    const audits = await loadProspectAudits(db);
     return html(
       renderProspectAuditsPageHtml({ audits, now: new Date(), operatorEmail: auth.email }),
       200,
