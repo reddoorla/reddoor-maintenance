@@ -126,16 +126,51 @@ const normalise = (line) =>
 
 // The template's first line is "TODO the ask, in one line.". After list markers,
 // emphasis, code, quotes and brackets are stripped, the placeholder is a bare TODO,
-// TODO then punctuation and a space or the end ("TODO: ...", "TODO — ..."), or a
-// line that starts "TODO the ask". "TODO <word> ..." is a real ask ("TODO markers
-// in starter: delete them?"), as are "TODO-list ..." and "todo.txt ...". Other
-// wrappers, such as "(TODO)", "<TODO>" or "~~TODO~~", are not stripped.
+// TODO then punctuation and a space or the end ("TODO: ...", "TODO — ..."), TODO
+// then : ; , ? or … and text with no space ("TODO:the ask"), or a line that starts
+// "TODO the ask". "TODO <word> ..." is a real ask ("TODO markers in starter: delete
+// them?"), as are "TODO-list ..." and "todo.txt ...". Other wrappers, such as
+// "(TODO)", "<TODO>" or "~~TODO~~", are not stripped.
+const TODO_PUNCT = /^todo ?(?:[:.!?,;…—–‑(/-]+(?: |$)|[:;,?…]+(?=\S))/;
+
 export function isPlaceholder(line) {
   const n = normalise(line);
-  return n === "todo" || /^todo ?[:.!—–(/-]+(?: |$)/.test(n) || /^todo the ask/.test(n);
+  return n === "todo" || TODO_PUNCT.test(n) || /^todo the ask/.test(n);
 }
 
-const isBareTodo = (line) => /^todo[\s.:!]*$/.test(normalise(line));
+// The error for a refused first line. A line that is the template's own ask, or
+// TODO and punctuation alone, is the placeholder; TODO and punctuation in front of
+// other text is a real ask with the marker left on.
+function placeholderError(line) {
+  const n = normalise(line);
+  const rest = n.replace(TODO_PUNCT, "").trim();
+  return n === "todo" || rest === "" || /^todo the ask/.test(n) || /^the ask/.test(rest)
+    ? "the ask is still the TODO placeholder"
+    : "the ask starts with TODO and punctuation; drop the TODO";
+}
+
+// Under ## Answer: TODO with punctuation only, or the template's "fill in" and
+// "the answer" stand-ins, is no answer. "TODO: none, ship it as is." is one.
+const isBareTodo = (line) =>
+  /^todo[\s.:!?,;…—–‑-]*(?:(?:fill in|the answer)[\s.:!?,;…]*)?$/.test(normalise(line));
+
+// The opening ``` or ~~~ and every line up to its closer: their text is quoted, so
+// a "## Answer" inside one is not the heading. An unclosed fence runs to the end.
+function fenced(lines) {
+  const inside = [];
+  let open = null;
+  for (const l of lines) {
+    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+    if (open === null) {
+      if (m) open = m[1];
+      inside.push(open !== null);
+    } else {
+      inside.push(true);
+      if (m && m[1][0] === open[0] && m[1].length >= open.length && l.trim() === m[1]) open = null;
+    }
+  }
+  return inside;
+}
 
 const NOT_TEXT = (l) =>
   /^#{1,6}(\s|$)/.test(l) || /^(?:```|~~~)/.test(l) || /^([-*_])(\s*\1){2,}$/.test(l);
@@ -220,12 +255,14 @@ export function parseDecision(name, text, now = Date.now()) {
   if (unclosed) errors.push("a comment opens and never closes");
   const first = body.find((l) => l.trim() !== "");
   if (first === undefined || NOT_TEXT(first.trim())) errors.push("missing first line: the ask");
-  else if (isPlaceholder(first)) errors.push("the ask is still the TODO placeholder");
+  else if (isPlaceholder(first)) errors.push(placeholderError(first));
   else d.ask = first.trim();
   if (d.status === "answered") {
-    const at = body.findIndex((l) => /^##\s+Answer(?![\w-])/.test(l));
+    const quoted = fenced(body);
+    const at = body.findIndex((l, i) => !quoted[i] && /^##\s+Answer(?![\w-])/.test(l));
     const rest = at === -1 ? [] : body.slice(at + 1);
-    const stop = rest.findIndex((l) => /^#{1,2}\s/.test(l));
+    const restQuoted = at === -1 ? [] : quoted.slice(at + 1);
+    const stop = rest.findIndex((l, i) => !restQuoted[i] && /^#{1,2}\s/.test(l));
     const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter(
       (l) => l.trim() !== "" && !NOT_TEXT(l.trim()) && !isBareTodo(l),
     );

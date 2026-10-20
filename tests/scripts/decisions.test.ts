@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -959,13 +959,21 @@ describe("round 4 edges", () => {
   });
 
   it("runs git in its own repository, whatever the cwd", () => {
-    const out = join(tmpdir(), `decisions-cwd-${process.pid}`);
-    const r = spawnSync(process.execPath, [SCRIPT, "convert", out, "--rev", "HEAD"], {
-      encoding: "utf-8",
-      cwd: tmpdir(),
-    });
-    expect(r.stderr).not.toContain("not a git repository");
-    expect(r.stdout).toMatch(/^CONVERT_SUMMARY rev=[0-9a-f]{8} items=\d+/);
+    const base = mkdtempSync(join(tmpdir(), "decisions-cwd-"));
+    try {
+      const r = spawnSync(
+        process.execPath,
+        [SCRIPT, "convert", join(base, "out"), "--rev", "HEAD"],
+        {
+          encoding: "utf-8",
+          cwd: base,
+        },
+      );
+      expect(r.stderr).not.toContain("not a git repository");
+      expect(r.stdout).toMatch(/^CONVERT_SUMMARY rev=[0-9a-f]{8} items=\d+/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1010,7 +1018,12 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO:",
       "TODO!",
       "TODO — the ask",
-      "TODO: decide the ask",
+      "TODO:the ask",
+      "TODO,",
+      "TODO;",
+      "TODO?",
+      "TODO…",
+      "TODO\u2011 the ask",
       "TODO- the ask",
       "TODO-",
       "1) TODO the ask",
@@ -1031,6 +1044,31 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       expect(d.errors, first).toEqual([]);
       expect(d.ask).toBe(first);
     }
+  });
+
+  it("names TODO and punctuation in front of a real ask, rather than calling it the placeholder (#1468)", () => {
+    for (const first of [
+      "TODO: decide the ask",
+      "TODO: Ship the pricing page?",
+      "TODO — merge #12?",
+    ])
+      expect(pd(X, file({ first })).errors, first).toEqual([
+        "the ask starts with TODO and punctuation; drop the TODO",
+      ]);
+  });
+
+  it("does not read a ## Answer quoted inside a code fence as the heading (#1446)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    for (const fence of ["```", "~~~"]) {
+      const quoted = answered.replace("## Answer\n", `${fence}\n## Answer\n`) + `${fence}\n`;
+      expect(pd(X, quoted).errors, fence).toEqual([
+        "status is answered but has no ## Answer heading",
+      ]);
+    }
+    const after = answered.replace("## Answer\n", "```\n## Answer\nNo.\n```\n\n## Answer\n");
+    expect(pd(X, after).errors).toEqual([]);
+    const headingInFence = answered.replace("Yes.", "```\n## Not a heading\n```\nYes.");
+    expect(pd(X, headingInFence).errors).toEqual([]);
   });
 
   it("refuses a code fence as the ask (#1356)", () => {
@@ -1062,7 +1100,7 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO: none, ship it as is.",
     ])
       expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([]);
-    for (const answer of ["todo.", "**TODO**:"])
+    for (const answer of ["todo.", "**TODO**:", "TODO: fill in", "TODO?", "TODO the answer"])
       expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([
         "status is answered but ## Answer is empty",
       ]);
