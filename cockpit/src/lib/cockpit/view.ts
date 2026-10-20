@@ -52,6 +52,10 @@ export type DeployView =
   | { kind: "link"; cls: string; label: string; href: string }
   | { kind: "text"; cls: string; label: string };
 
+/** One unfilled roster cell on a Setup checklist (#672 step 2): what is
+ *  missing, and the exact text that marks it accepted. */
+export type SetupGapView = { reason: string; acceptKey: string };
+
 export type CardView = {
   key: string;
   signals: string;
@@ -73,6 +77,8 @@ export type CardView = {
   tier: Tier;
   pill: string;
   chips: ChipView[];
+  /** The card's Setup checklist: roster gaps, apart from the verdict. */
+  setupGaps: SetupGapView[];
   submissions: string | null;
   triggerUrl: string | null;
 };
@@ -108,6 +114,11 @@ export type CockpitView = {
   verdict: VerdictView;
   feedCount: number;
   feed: FeedGroupView[];
+  /** Sites with roster gaps, and each one's gaps (#672 step 2). Null when none. */
+  setup: {
+    count: number;
+    rows: Array<{ name: string; href: string; gaps: SetupGapView[] }>;
+  } | null;
   browse: { total: number; filters: readonly string[]; cards: CardView[] };
   recently: RecentRowView[];
   archived: Array<{ name: string; status: string; slug: string }>;
@@ -311,6 +322,8 @@ function signals(c: SiteCard): string {
   }
   if (c.items.some((it) => it.autoFixExhausted)) kinds.add("auto-fix-failed");
   for (const sig of c.watchSignals) kinds.add(sig);
+  // Roster gaps left the Watch band (#672 step 2) but keep their filter chips.
+  for (const gap of c.setup ?? []) kinds.add(gap.signal);
   return [...kinds].join(" ");
 }
 
@@ -363,10 +376,24 @@ function cardView(c: SiteCard, index: number, now: Date): CardView {
     tier: c.tier,
     pill: PILL_LABEL[c.tier],
     chips: chips(c),
+    setupGaps: setupGaps(c),
     submissions: submissionsBadge(c),
     // Only repo-backed sites have anything to dispatch.
     triggerUrl: site.gitRepo?.trim() ? `/api/sites/${slug}/trigger-renovate` : null,
   };
+}
+
+function setupGaps(c: SiteCard): SetupGapView[] {
+  return (c.setup ?? []).map((g) => ({ reason: g.reason, acceptKey: g.acceptKey }));
+}
+
+/** The Setup lane on `/`: every card with a roster gap, in card order. Setup is
+ *  not a verdict, so it is counted apart from the verdict bar. */
+function setupLane(model: CockpitModel): CockpitView["setup"] {
+  const rows = model.cards
+    .filter((c) => (c.setup ?? []).length > 0)
+    .map((c) => ({ name: c.site.name, href: `/s/${siteSlug(c.site.name)}`, gaps: setupGaps(c) }));
+  return rows.length === 0 ? null : { count: rows.length, rows };
 }
 
 /** Signal filters for the Fleet panel — card-derived tags only. */
@@ -472,6 +499,7 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
     verdict: verdict(model, feed, now),
     feedCount: feed.length,
     feed: feedGroups(feed),
+    setup: setupLane(model),
     browse: {
       total: model.cards.length,
       filters: FLEET_FILTERS,

@@ -169,6 +169,9 @@ export type PmCockpit = {
   sites: number;
   needsYou: PmEntry[];
   watch: PmEntry[];
+  /** Sites with roster gaps (#672 step 2). Not an ask and not Watch: listed so
+   *  the pass sees them, never counted in broken, watch or approval. */
+  setup: Array<{ siteName: string; url: string; gaps: string[] }>;
   waitingKeys: string[];
 };
 
@@ -297,6 +300,14 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     sites: model.cards.length,
     needsYou: entries.filter((e) => e.group !== "watch"),
     watch: entries.filter((e) => e.group === "watch"),
+    setup: model.cards
+      .filter((c) => (c.setup ?? []).length > 0)
+      .map((c) => ({
+        siteName: c.site.name,
+        url: `/s/${siteSlug(c.site.name)}`,
+        gaps: (c.setup ?? []).map((g) => g.reason),
+      }))
+      .sort((a, b) => a.siteName.toLowerCase().localeCompare(b.siteName.toLowerCase())),
     waitingKeys: waitingKeys.sort(),
   };
 }
@@ -311,7 +322,7 @@ export function formatPmCockpit(pm: PmCockpit): string {
   const sinceField =
     pm.since !== null ? ` new=${all.filter((e) => e.isNew).length} since=${pm.since}` : "";
   const out = [
-    `PM_COCKPIT_SUMMARY broken=${count("broken")} watch=${count("watch")} approval=${count("approval")} sites=${pm.sites}${sinceField}`,
+    `PM_COCKPIT_SUMMARY broken=${count("broken")} watch=${count("watch")} approval=${count("approval")} setup=${pm.setup.length} sites=${pm.sites}${sinceField}`,
     `now=${pm.now} just_wait_left_out=${pm.waitingKeys.length}`,
     "",
     `## Needs you (${pm.needsYou.length})`,
@@ -327,6 +338,9 @@ export function formatPmCockpit(pm: PmCockpit): string {
     out.push(
       `- ${e.isNew ? "NEW " : ""}${e.siteName} · ${e.url} · ${e.reasons.map(reasonText).join("; ")}`,
     );
+  out.push("", `## Setup (${pm.setup.length})`);
+  if (pm.setup.length === 0) out.push("(none)");
+  for (const e of pm.setup) out.push(`- ${e.siteName} · ${e.url} · ${e.gaps.join("; ")}`);
   return out.join("\n") + "\n";
 }
 

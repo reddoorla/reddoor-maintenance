@@ -8,6 +8,7 @@
   import OverrideControl from "../../../lib/site/OverrideControl.svelte";
   import CommentaryEditor from "../../../lib/site/CommentaryEditor.svelte";
   import TriggerRenovate from "../../../lib/TriggerRenovate.svelte";
+  import SetupChecklist from "../../../lib/SetupChecklist.svelte";
   import DetailField from "../../../lib/site/DetailField.svelte";
   import SubmissionRowInner from "../../../lib/submission/SubmissionRowInner.svelte";
   import "./site.css";
@@ -48,6 +49,7 @@
       >complete</span
     >{:else}<span class="setup-missing">Missing: {v.setup.missing.join(", ")}</span>{/if}
 </div>
+<SetupChecklist gaps={v.setupGaps} />
 {#if v.alarm}
   <div class="section alarm">
     <h2>{v.alarm.label}</h2>

@@ -1,4 +1,5 @@
 import type { WebsiteRow, SecurityAdvisory } from "../../../../src/fleet/site-row.js";
+import type { SetupGapView } from "../cockpit/view.js";
 import { SEVERITY_RANK, siteSlug } from "../../../../src/fleet/site-row.js";
 import type { ReportRow } from "../../../../src/reports/report-fields.js";
 import { isPendingApproval } from "../../../../src/reports/report-fields.js";
@@ -126,6 +127,8 @@ export type SiteView = {
   audited: string | null;
   failingAudits: string | null;
   setup: { score: number; total: number; missing: string[] };
+  /** Roster gaps (#672 step 2): the Setup checklist, apart from the alarm. */
+  setupGaps: SetupGapView[];
   alarm: { label: string; chips: Chip[] } | null;
   pending: PendingView[];
   scores: Tile[] | null;
@@ -569,6 +572,7 @@ export function buildSiteView(
     audited: site.lastLighthouseAuditAt ? relativeTimeFromNow(site.lastLighthouseAuditAt) : null,
     failingAudits: site.lighthouseFailingAudits ? site.lighthouseFailingAudits : null,
     setup: { score, total: setupTotal, missing: missingOnboarding(site, now) },
+    setupGaps: (siteAlarm?.setup ?? []).map((g) => ({ reason: g.reason, acceptKey: g.acceptKey })),
     alarm: alarm(siteAlarm),
     pending: reports.filter(isPendingApproval).map((r) => pendingView(r, site, now)),
     scores: allScoresNull

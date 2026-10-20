@@ -470,11 +470,15 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
   });
 
-  it("surfaces the canonical accept token next to an un-accepted watch chip", () => {
+  it("surfaces the canonical accept token on an un-accepted Setup gap, without a Watch", () => {
+    // #672 step 2: no custom domain is a roster gap, so it is on the Setup
+    // checklist and the verdict stays clear.
     const html = renderCockpitHtml(model([netlify()]));
-    expect(html).toContain('class="verdict watch"');
-    // The operator can see the EXACT string that would mute this watch.
-    expect(html).toContain('accept: "no custom domain"');
+    expect(html).toContain('class="verdict ok"');
+    // The operator can see the EXACT string that would mute this gap.
+    expect(html).toMatch(
+      /<ul class="setup-gaps"[^>]*>\s*<li[^>]*>\s*☐ on \*\.netlify\.app \(no custom domain\) · accept: "no custom domain"/,
+    );
   });
 
   it("keys Lighthouse acceptance on the label and tolerates a changed score (78 muted)", () => {
@@ -513,8 +517,9 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
         }),
       ]),
     );
-    // BP muted; netlify still an open watch with its accept token surfaced.
-    expect(html).toContain('class="verdict watch"');
+    // BP muted, so no watch is left: netlify is a Setup gap (#672 step 2), still
+    // open with its accept token surfaced.
+    expect(html).toContain('class="verdict ok"');
     expect(html).toContain("✓ accepted: Best Practices 78");
     expect(html).toContain('accept: "no custom domain"');
   });

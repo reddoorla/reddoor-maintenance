@@ -193,7 +193,7 @@ export function cases(): Array<[string, CockpitModel]> {
       ]),
     ],
     [
-      "watch: roster gaps",
+      "setup: roster gaps only, so all clear (#672 step 2)",
       built([
         siteRow({
           id: "recW",

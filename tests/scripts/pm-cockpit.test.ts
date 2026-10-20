@@ -93,7 +93,9 @@ describe("pm-cockpit — the formatter lists exactly the site that needs the ope
 
   it("lists the attention site with its reason and page, and nothing else", () => {
     const out = formatPmCockpit(buildPmCockpit(inputs(), NOW));
-    expect(out.split("\n")[0]).toBe("PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 sites=3");
+    expect(out.split("\n")[0]).toBe(
+      "PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 setup=0 sites=3",
+    );
     expect(out).toContain("Broken Co · broken · /s/broken-co");
     expect(out).toContain("Lighthouse Performance 60 (below 75)");
     expect(out).not.toMatch(/Healthy Co|healthy-co/);
@@ -114,7 +116,9 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
       deployStatus: "error",
     });
     const out = formatPmCockpit(buildPmCockpit(inputs({ websites: [HEALTHY, dead] }), NOW));
-    expect(out.split("\n")[0]).toBe("PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 sites=2");
+    expect(out.split("\n")[0]).toBe(
+      "PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 setup=0 sites=2",
+    );
     expect(out).toContain("- Deploy Co · broken · /s/deploy-co");
     expect(out).toContain("latest production deploy error (undated)");
   });
@@ -146,7 +150,9 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
         NOW,
       ),
     );
-    expect(out.split("\n")[0]).toBe("PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 sites=1");
+    expect(out.split("\n")[0]).toBe(
+      "PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 setup=0 sites=1",
+    );
     expect(out).toContain("(unknown site: ghost-site) · broken · (no site page)");
   });
 });
@@ -224,7 +230,7 @@ describe("pm-cockpit --since", () => {
     );
     const out = formatPmCockpit(pm);
     expect(out.split("\n")[0]).toBe(
-      "PM_COCKPIT_SUMMARY broken=2 watch=0 approval=0 sites=4 new=1 since=2026-10-05T11:48:00Z",
+      "PM_COCKPIT_SUMMARY broken=2 watch=0 approval=0 setup=0 sites=4 new=1 since=2026-10-05T11:48:00Z",
     );
     expect(out).toContain("- NEW Fresh Co · broken · /s/fresh-co");
     expect(out).toContain("- Broken Co · broken · /s/broken-co");
@@ -239,7 +245,7 @@ describe("pm-cockpit --since", () => {
     );
     const out = formatPmCockpit(pm);
     expect(out.split("\n")[0]).toBe(
-      "PM_COCKPIT_SUMMARY broken=0 watch=0 approval=0 sites=2 new=0 since=2026-10-01T00:00:00Z",
+      "PM_COCKPIT_SUMMARY broken=0 watch=0 approval=0 setup=0 sites=2 new=0 since=2026-10-01T00:00:00Z",
     );
     expect(out).not.toMatch(/Waiting Co|NEW/);
   });
@@ -254,8 +260,29 @@ describe("pm-cockpit --since", () => {
     const out = formatPmCockpit(
       buildPmCockpit(inputs({ websites: [HEALTHY, watch] }), NOW, "2026-10-05T00:00:00Z"),
     );
-    expect(out).toContain("PM_COCKPIT_SUMMARY broken=0 watch=1 approval=0 sites=2 new=0");
+    expect(out).toContain("PM_COCKPIT_SUMMARY broken=0 watch=1 approval=0 setup=0 sites=2 new=0");
     expect(out).toContain("Watch Co · /s/watch-co · Performance 80 (undated)");
+  });
+
+  it("lists a Setup-only site under Setup, never counted as watch (#672 step 2)", () => {
+    const gaps = site({
+      id: "recGAP",
+      name: "Gap Co",
+      url: "https://gap.example.com",
+      status: "maintained",
+      ga4PropertyId: null,
+      gitRepo: null,
+    });
+    const pm = buildPmCockpit(inputs({ websites: [HEALTHY, gaps] }), NOW);
+    expect(pm.watch).toEqual([]);
+    const out = formatPmCockpit(pm);
+    expect(out.split("\n")[0]).toBe(
+      "PM_COCKPIT_SUMMARY broken=0 watch=0 approval=0 setup=1 sites=2",
+    );
+    expect(out).toContain(
+      "## Setup (1)\n- Gap Co · /s/gap-co · GA4 property not recorded (reports carry no analytics); Git repo not recorded (checkout sweeps cannot clone this site)",
+    );
+    expect(out).not.toContain("Healthy Co");
   });
 
   it("parses --since only as an ISO time with a zone", () => {
