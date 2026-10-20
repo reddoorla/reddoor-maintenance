@@ -60,8 +60,8 @@ export function workDir(root, id) {
   return `${root}/${id}`;
 }
 
-// Every arm, gold and referee runs as this agent type, `.claude/agents/bakeoff-readonly.md`,
-// whose permission rules refuse gh, git push, curl and wget (Operator decisions 133).
+// Every arm, gold and referee runs as this agent type, `.claude/agents/bakeoff-readonly.md`:
+// Bash, file tools and no MCP, web or agent tools (Operator decisions 133).
 export const AGENT_TYPE = "bakeoff-readonly";
 
 export function readOnlyRules(dir, work) {

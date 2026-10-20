@@ -8,13 +8,14 @@ import { REFEREE, extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 import * as refute from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
 
-// Operator decisions 133 (c): every bake-off agent (arm, gold and referee) runs as the
-// `bakeoff-readonly` agent type, whose permission rules refuse gh, git push, curl and wget
-// before they run. Until 2026-10-20 "read-only" was prompt text, checked after the run by a
-// tripwire over each Bash command, and seven review rounds on #1444 kept finding shell forms it
-// missed. The probe showing these rules bind a Workflow agent() subagent, with the default
-// agent as the negative control, is in the PR that added this file. A workflow agent() with no
-// `agentType` runs as the default agent, which has every tool and no such rule.
+// Operator decisions 133 (c), answered (a): every bake-off agent (arm, gold and referee) runs
+// as the `bakeoff-readonly` agent type, whose `tools` allowlist keeps Bash and drops every MCP,
+// web and agent tool. A workflow agent() with no `agentType` runs as the default agent, which
+// has them all; the one read-only rule a real run broke was an MCP call (refute-repo,
+// 2026-10-19). The type cannot deny gh, git push or curl inside Bash: the 2026-10-20 probe
+// showed that a `disallowedTools` entry with a specifier, such as `Bash(gh *)`, removes the
+// whole Bash tool (a real arm answered "No such tool available: Bash"), and every task needs
+// Bash. Bash commands are still read after the run by `forbiddenCommand`, report-only.
 const TYPE = "bakeoff-readonly";
 const AGENT = fileURLToPath(new URL(`../../.claude/agents/${TYPE}.md`, import.meta.url));
 
@@ -27,13 +28,8 @@ describe(".claude/agents/bakeoff-readonly.md", () => {
     expect(AGENT_TYPE).toBe(TYPE);
   });
 
-  it("denies gh, git push, curl and wget in Bash", () => {
-    expect(toolList(fm.disallowedTools).sort()).toEqual([
-      "Bash(curl *)",
-      "Bash(gh *)",
-      "Bash(git push *)",
-      "Bash(wget *)",
-    ]);
+  it("sets no disallowedTools, because a Bash entry there removes Bash itself", () => {
+    expect(fm).not.toHaveProperty("disallowedTools");
   });
 
   it("keeps Bash, which pnpm-update, t4 and every gold and referee use, and no MCP, web or agent tool", () => {
@@ -41,13 +37,15 @@ describe(".claude/agents/bakeoff-readonly.md", () => {
   });
 
   it("leaves model and effort to each launch, and sets no key that could widen its permissions", () => {
-    expect(Object.keys(fm).sort()).toEqual(["description", "disallowedTools", "name", "tools"]);
+    expect(Object.keys(fm).sort()).toEqual(["description", "name", "tools"]);
   });
 
-  it("tells the agent what its frontmatter denies", () => {
-    expect(body(text).replace(/\s+/g, " ")).toContain(
-      "In Bash, `gh`, `git push`, `curl` and `wget` are denied",
+  it("tells the agent the tools its frontmatter grants, and that its Bash is read afterwards", () => {
+    const said = body(text).replace(/\s+/g, " ");
+    expect(said).toContain(
+      "You have Read, Grep, Glob, Bash, Write and Edit, and no MCP, web or agent tools.",
     );
+    expect(said).toContain("every Bash command you run is read after the run");
   });
 });
 

@@ -9,7 +9,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | File                                          | What it does                                                                                                                               |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                       |
-| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`)                               |
+| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`   |
 | `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                        |
 | `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                   |
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
@@ -135,6 +135,23 @@ inside another interpreter (`node -e`, `python3 -c`, `python3 - <<EOF`), a resol
 `$(which gh) api`, text piped into a shell's stdin (`echo 'git push' | sh`), substitutions inside
 an unquoted heredoc body, and `find -exec`. It is a tripwire, not a sandbox.
 
+The check is frozen as it is (Operator decisions 133): it reports, it gates nothing outside
+`score`, and seven review rounds of hardening (#1444, closed unmerged) kept finding forms it
+missed. These forms are known and stay as they are:
+
+- flagged though read-only: `git tag --merged HEAD`, `git tag -n5 'v1.*'`, `git tag -v v1.0`,
+  `git config -f .gitmodules submodule.foo.path`, `git clean -n`, `git rm --dry-run`, a read
+  with a redirect such as `git config user.email 2>/dev/null`, and a heredoc body line ending in
+  `\` whose next line is the delimiter (#1419, #1456);
+- local git writes not flagged: `git remote add`, `git config --unset`, `git notes add`,
+  `git submodule update`, `git branch --no-color newb` (#1419);
+- not seen: an `echo` inside a group or loop piped into a shell (`{ echo 'git push'; } | sh`,
+  `for …; do echo …; done | sh`, `echo … | cat | sh`), an `echo` whose arguments hold a `$(…)` or
+  backtick piped into a shell (#1438, #1456), and a redirect where the lexer does not strip one:
+  `>| out git push`, `<<< x git push`, `{fd}>` after the command name, `<>`,
+  inside `find -exec`, and among wrapper options (`timeout 2>/dev/null 5 git push`) (#1486);
+- `curl -X $M`, `wget --post-data`, and the forms in the paragraph above (#1419).
+
 `--arms <file>` on `prepare` replaces the task's default arms with a JSON array.
 
 `figma-inventory` (row 2) reads Figma connector output that is not in this repo. The output is
@@ -158,6 +175,29 @@ The truth refuses what it cannot read rather than guess. It refuses:
 - a metadata tag it cannot parse;
 - a field or slice id rendered more than once, on one page or across pages, which the prompt
   does not say how to list.
+
+## The agent type
+
+Every arm, the gold and every referee runs as `.claude/agents/bakeoff-readonly.md` (Operator
+decisions 133). Its `tools` are Read, Grep, Glob, Bash, Write and Edit, so it has no MCP, web or
+agent tools; a workflow `agent()` without an agent type has all of them, and the one read-only
+rule a real run broke was an MCP call (`refute-repo`, 2026-10-19). It keeps Bash because the
+gold and the referee verify with scripts and `pnpm-update` and `t4-plan-task` run pnpm.
+
+It cannot deny `gh`, `git push` or `curl` inside Bash. A `disallowedTools` entry with a
+specifier, such as `Bash(gh *)`, removes the whole Bash tool, in the agent file and in a
+workflow `agent()`'s own `disallowedTools` alike. On 2026-10-20 an arm of this type with
+`Bash(gh *)` in its file reported that it had no Bash tool, a probe agent of it was answered
+`No such tool available: Bash`, and the Claude Code sub-agents docs say the same. A settings deny
+rule does bind a subagent, but it applies to the whole session. So Bash commands are still only
+read after the run, by the Bash check in "Running a task".
+
+The type resolves from the agent registry of the session that runs the workflow: a session
+started in this repo, or one that attached it with `register_repo_root` and has since restarted
+(the registry is read at start). Elsewhere every `agent()` throws `agent type 'bakeoff-readonly'
+not found`, before any agent runs; the workflow logs `0/N runs returned`, and `collect` and
+`score` then report the missing transcripts. Results from before 2026-10-20 were measured with
+the default workflow agent, which had every tool and a different system prompt.
 
 ## Item tasks: one agent per item
 
@@ -283,7 +323,7 @@ Add `tasks/<id>.mjs` exporting:
   judging its group without it. `score` stores the summary in `result.json` as `summary` and
   prints it under the table.
 
-Arms run in the repository checkout, and the Bash check blocks writes, not reads. A task built from
+Arms run in the repository checkout, and the Bash check reports writes, not reads. A task built from
 this repository's own history, as `seeded-review` is, can be answered by `git log -S` on a line
 from its input, or by reading the task's key. The prompt forbids it; after the run, search every arm
 transcript for a git command and for a read outside `<run>/input`, and record the result. The
