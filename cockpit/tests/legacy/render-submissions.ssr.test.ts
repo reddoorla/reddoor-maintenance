@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { makeSubmissionRow } from "../_helpers/submission-row.js";
-import { siteSlug } from "../../src/fleet/site-row.js";
+import { renderSiteDashboardHtml } from "./render.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
+import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
+import { siteSlug } from "../../../src/fleet/site-row.js";
 
 describe("renderSiteDashboardHtml — submissions", () => {
   it("omits the section when there are no submissions", () => {
@@ -26,7 +26,7 @@ describe("renderSiteDashboardHtml — submissions", () => {
       ],
     );
     expect(html).toContain("Form submissions (1)");
-    expect(html).toContain("Jane &lt;x&gt;");
+    expect(html).toContain("Jane &lt;x>");
     expect(html).toContain("Hi &amp; bye");
     expect(html).toContain('data-url="/api/submissions/recSUB/status"');
     expect(html).toContain('data-status="archived"');

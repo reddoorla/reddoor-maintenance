@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { FleetEvent } from "../../src/db/fleet-events.js";
+import { renderCockpitHtml } from "./render.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+import type { FleetEvent } from "../../../src/db/fleet-events.js";
 
 function modelWith(events: FleetEvent[]) {
   return buildCockpitModel([], [], {}, "https://d.test", new Date(), [], null, events);

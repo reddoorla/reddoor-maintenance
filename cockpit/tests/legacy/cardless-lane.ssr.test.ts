@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+import { renderCockpitHtml } from "./render.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
  * #786 item 2. The cockpit's card grid is built from the VISIBLE sites and

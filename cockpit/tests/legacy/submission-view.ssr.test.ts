@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
-import {
-  renderSubmissionRow,
-  SUBMISSION_STATUS_SCRIPT,
-  isVisibleInStrip,
-  SUBMISSION_STYLES,
-} from "../../src/dashboard/submission-view.js";
-import type { SubmissionRow } from "../../src/reports/submission-row.js";
+import { readFileSync } from "node:fs";
+import { renderSubmissionRow } from "./render.js";
+import { isVisibleInStrip } from "../../../src/dashboard/submission-rules.js";
+
+/** The row's stylesheet, which the string renderer held as SUBMISSION_STYLES. */
+const SUBMISSION_STYLES = readFileSync(
+  new URL("../../src/lib/submission/submission.css", import.meta.url),
+  "utf8",
+);
+import type { SubmissionRow } from "../../../src/reports/submission-row.js";
 
 function row(overrides: Partial<SubmissionRow> = {}): SubmissionRow {
   return {
@@ -44,10 +47,6 @@ describe("renderSubmissionRow", () => {
     const html = renderSubmissionRow(row({ message: "<img src=x onerror=alert(1)>" }));
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img");
-  });
-  it("exposes the status client script as a string", () => {
-    expect(SUBMISSION_STATUS_SCRIPT).toContain("button.subm-status");
-    expect(SUBMISSION_STATUS_SCRIPT).toContain("b.dataset.status");
   });
 });
 
@@ -210,7 +209,7 @@ describe("renderSubmissionRow — bounce classification (#783)", () => {
         bounceMessage: '552 rejected <as> "spam"',
       }),
     );
-    expect(html).toContain("552 rejected &lt;as&gt;");
+    expect(html).toContain("552 rejected &lt;as>");
     expect(html).not.toContain("<as>");
   });
 
@@ -233,14 +232,6 @@ describe("renderSubmissionRow — bounce classification (#783)", () => {
     for (const s of ["sent", "failed", "skipped"] as const) {
       expect(renderSubmissionRow(row({ notifyStatus: s }))).not.toContain("data-ack=");
     }
-  });
-});
-
-describe("SUBMISSION_STATUS_SCRIPT — the acknowledge control posts an ack", () => {
-  it("sends the ack field rather than a status for an ack button", () => {
-    // The page ships ONE inline script; a bounce ack has to ride the same
-    // listener as the triage buttons rather than adding a second block.
-    expect(SUBMISSION_STATUS_SCRIPT).toContain("dataset.ack");
   });
 });
 

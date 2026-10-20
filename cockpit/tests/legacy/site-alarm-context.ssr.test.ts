@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildSiteAlarmContext, buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
-import type { NotifyBounceCounts } from "../../src/db/submissions.js";
-import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { buildSiteAlarmContext, buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+import { renderSiteDashboardHtml } from "./render.js";
+import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { NotifyBounceCounts } from "../../../src/db/submissions.js";
+import type { DigestSnapshot } from "../../../src/alerts/digest-state.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 const BASE = "https://reddoor-maintenance.netlify.app";

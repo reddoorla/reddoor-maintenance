@@ -1,17 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml, withdrawConfirmText } from "../../src/dashboard/render.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
-import type { ReportRow } from "../../src/reports/report-fields.js";
-import type { SubmissionRow } from "../../src/reports/submission-row.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { renderSiteDashboardHtml } from "./render.js";
+import { withdrawConfirmText } from "../../../src/dashboard/report-confirm.js";
+import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { ReportRow } from "../../../src/reports/report-fields.js";
+import type { SubmissionRow } from "../../../src/reports/submission-row.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import {
   MAINTENANCE_CHECKLIST,
   TESTING_CHECKLIST,
   gatingFields,
-} from "../../src/reports/checklist.js";
-import { escapeHtml } from "../../src/util/html.js";
-import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
-import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
+} from "../../../src/reports/checklist.js";
+import { escapeHtml } from "../../../src/util/html.js";
+import { EDITABLE_SITE_FIELDS } from "../../../src/dashboard/site-details.js";
+import type { EvidenceRecord } from "../../../src/reports/auto-tick.js";
 
 /** All 6 maintenance cells true → a complete Maintenance checklist. */
 const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
@@ -148,7 +149,7 @@ describe("renderSiteDashboardHtml", () => {
     // label-div inside each tile so the CSS hierarchy (2rem value, 0.85rem
     // label) renders correctly.
     expect(html).toMatch(
-      /<div class="tile"><div class="tile-value"[^>]*>12<\/div><div class="tile-label"[^>]*>Performance<\/div><\/div>/,
+      /<div class="tile"><div class="tile-value"[^>]*>12<\/div>\s*<div class="tile-label"[^>]*>Performance<\/div>\s*<\/div>/,
     );
   });
 
@@ -202,7 +203,7 @@ describe("renderSiteDashboardHtml", () => {
       [],
     );
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script>");
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
@@ -303,7 +304,7 @@ describe("renderSiteDashboardHtml — vulnerabilities section", () => {
       [],
     );
     expect(html).not.toContain("<script>x</script>");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script>");
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
@@ -424,7 +425,7 @@ describe("renderSiteDashboardHtml — submissions section", () => {
     ];
     const html = renderSiteDashboardHtml(siteRow(), [], subs);
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script>");
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
@@ -527,14 +528,7 @@ describe("renderSiteDashboardHtml — spam screen honest Delivered + Auto-filter
   });
 });
 
-describe("renderSiteDashboardHtml — home link", () => {
-  it("renders a top-left Home link to the cockpit (/), above the site heading", () => {
-    const html = renderSiteDashboardHtml(siteRow(), []);
-    expect(html).toMatch(/<a class="home" href="\/">/);
-    // It sits before the <h1> so it reads as a back/home affordance.
-    expect(html.indexOf('class="home"')).toBeLessThan(html.indexOf("<h1"));
-  });
-});
+// "renders a top-left Home link to the cockpit (/), above the site heading": the shell's nav replaces it (cockpit/tests/shell/shell.ssr.test.ts).
 
 describe("renderSiteDashboardHtml — setup status", () => {
   it("lists the missing onboarding items when the site is not fully onboarded", () => {
@@ -681,7 +675,7 @@ describe("renderSiteDashboardHtml — site details section", () => {
       [],
     );
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script>");
   });
 });
 
@@ -710,13 +704,13 @@ describe("renderSiteDashboardHtml — site health section", () => {
       [],
     );
     expect(html).toMatch(
-      /<div class="tile"><div class="tile-value"[^>]*>3<\/div><div class="tile-label"[^>]*>Accessibility issues<\/div>/,
+      /<div class="tile"><div class="tile-value"[^>]*>3<\/div>\s*<div class="tile-label"[^>]*>Accessibility issues<\/div>/,
     );
     expect(html).toMatch(
-      /<div class="tile"><div class="tile-value"[^>]*>5<\/div><div class="tile-label"[^>]*>Dependency updates<\/div>/,
+      /<div class="tile"><div class="tile-value"[^>]*>5<\/div>\s*<div class="tile-label"[^>]*>Dependency updates<\/div>/,
     );
     expect(html).toMatch(
-      /<div class="tile"><div class="tile-value"[^>]*>3<\/div><div class="tile-label"[^>]*>Security alerts<\/div>/,
+      /<div class="tile"><div class="tile-value"[^>]*>3<\/div>\s*<div class="tile-label"[^>]*>Security alerts<\/div>/,
     );
   });
 
@@ -846,19 +840,7 @@ describe("renderSiteDashboardHtml — approve button", () => {
     expect(html).toContain("&quot;");
   });
 
-  it("wraps the inline approve fetch in try/catch so a network rejection re-enables the button", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
-    // Isolate the inline <script>.
-    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
-    // The fetch must be inside a try/catch (a bare rejection would leave the
-    // button permanently disabled reading "Approve").
-    expect(script).toMatch(/try\s*\{/);
-    expect(script).toMatch(/catch\b/);
-    // The catch handler re-enables the button and surfaces a failure label,
-    // matching the !res.ok recovery path.
-    expect(script).toMatch(/catch[\s\S]*?(b\.disabled\s*=\s*false)/);
-    expect(script).toMatch(/catch[\s\S]*?(b\.textContent\s*=\s*"Failed")/);
-  });
+  // "wraps the inline approve fetch in try/catch so a network rejection re-enables the button": its behaviour is the DOM tests' now (site.dom: approve).
 });
 
 describe("renderSiteDashboardHtml — withdraw a draft (P1-28)", () => {
@@ -882,8 +864,7 @@ describe("renderSiteDashboardHtml — withdraw a draft (P1-28)", () => {
     expect(head).toContain(
       'data-confirm="Withdraw this draft? It will not be sent, and the next one drafts on schedule."',
     );
-    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
-    expect(script).toContain("confirm(b.dataset.confirm)");
+    // The confirm before the POST is the DOM tests' now (site.dom: withdraw).
   });
 
   it("the confirm text says what withdrawing a higher-tier draft releases", () => {
@@ -1327,7 +1308,7 @@ describe("renderSiteDashboardHtml — editable site details", () => {
       [],
     );
     const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
-    expect(statusSelect).toContain('<option value="" disabled selected hidden>— select —</option>');
+    expect(statusSelect).toContain('<option value="" disabled="" selected="" hidden="">— select —</option>');
     expect(statusSelect).not.toMatch(/<option value="archived" selected/);
   });
 
@@ -1353,7 +1334,7 @@ describe("renderSiteDashboardHtml — editable site details", () => {
   it("renders copy fields as textareas and escapes their content", () => {
     const html = renderSiteDashboardHtml(siteRow({ name: "Acme", copyIntro: "<b>hi</b>" }), []);
     expect(html).toMatch(/<textarea[^>]*data-detail-field="copyIntro"/);
-    expect(html).toContain("&lt;b&gt;hi&lt;/b&gt;");
+    expect(html).toContain("&lt;b>hi&lt;/b>");
   });
 });
 
@@ -1394,13 +1375,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 
-  it("the approve click handler surfaces the 409 body (Blocked + blockers in the title)", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
-    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
-    expect(script).toContain('data.reason === "send-blocked" ? "Blocked" : "Failed"');
-    expect(script).toContain("data.blockers");
-  });
-
+  // "the approve click handler surfaces the 409 body (Blocked + blockers in the title)": its behaviour is the DOM tests' now (site.dom: approve refusal).
   it("gates the history-table approve action too (no side door)", () => {
     const html = renderSiteDashboardHtml(siteRow({ pointOfContact: null }), [
       {
@@ -1609,7 +1584,7 @@ describe("renderSiteDashboardHtml — report commentary editor (#539 Phase 4)", 
       }),
     ]);
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;/textarea&gt;");
+    expect(html).toContain("&lt;/textarea>");
   });
 
   it("does NOT render the editor for a report that has been sent", () => {
@@ -1783,7 +1758,7 @@ describe("renderSiteDashboardHtml — Lighthouse failing audits", () => {
       [],
     );
     expect(named).toContain(
-      "Lighthouse failing audits: <code>best-practices/deprecations:w5:3/3&lt;x&gt;</code>",
+      "Lighthouse failing audits: <code>best-practices/deprecations:w5:3/3&lt;x></code>",
     );
     const none = renderSiteDashboardHtml(makeWebsiteRow({ lighthouseFailingAudits: null }), []);
     expect(none).not.toContain("Lighthouse failing audits");

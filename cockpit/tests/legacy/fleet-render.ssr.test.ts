@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
-import { mapRow } from "../../src/fleet/site-fields.js";
-import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { gatingFields } from "../../src/reports/checklist.js";
+import { renderCockpitHtml } from "./render.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import { mapRow } from "../../../src/fleet/site-fields.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
+import { gatingFields } from "../../../src/reports/checklist.js";
 
 const BASE = "https://reddoor-maintenance.netlify.app";
 const NOW = new Date("2026-06-11T12:00:00Z");
@@ -328,7 +328,7 @@ describe("renderCockpitHtml — escaping & safety", () => {
       model([siteRow({ name: "<script>alert(1)</script>", url: "javascript:alert(1)" })]),
     );
     expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&lt;script>");
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
@@ -827,11 +827,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toMatch(/Performance 80/);
   });
 
-  it("includes the filter script with the data-filter wiring", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("data-filter");
-    expect(html).toMatch(/querySelectorAll|addEventListener/);
-  });
+  // "includes the filter script with the data-filter wiring": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
 });
 
 describe("renderCockpitHtml — filter signals & all-clear", () => {
@@ -1002,15 +998,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/⚠ 1 site broken/);
   });
 
-  it("the fleet-browse filter script has no pending/submissions branch (they moved off the cards)", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    // pending lives on the Needs-you feed and submissions in the inbox lane — the
-    // browse filters are card-tag only, so the old scroll-branch is gone.
-    expect(html).not.toMatch(/f === 'pending'/);
-    expect(html).not.toMatch(/f === 'submissions'/);
-    // The card-tag filter loop is still wired (scoped to .fleet-browse).
-    expect(html).toContain(".fleet-browse .filters button");
-  });
+  // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
 });
 
 describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
@@ -1117,23 +1105,11 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
   it("includes the live-status panel scaffold and the poll endpoint", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('id="rf-status"');
-    expect(html).toContain("/api/fleet/refresh/status?since=");
+    // The poll endpoint is the DOM tests' now (cockpit.dom: the audit run).
   });
 
-  it("wires localStorage resume so a mid-run reload keeps following", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("reddoor:fleet-refresh");
-    expect(html).toMatch(/localStorage/);
-  });
-
-  it("the spinner client carries the eta/run-link detail wiring", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("view run"); // run link shown while running
-    expect(html).toContain("rf-sub"); // the detail sub-line class
-    expect(html).toContain("~48m"); // lighthouse ETA
-    expect(html).toContain("~2m"); // security ETA
-  });
-
+  // "wires localStorage resume so a mid-run reload keeps following": its behaviour is the DOM tests' now (cockpit.dom: resumes a run saved by an earlier page load).
+  // "the spinner client carries the eta/run-link detail wiring": its behaviour is the DOM tests' now (cockpit.dom: renders each run, eta and view-run link).
   it("carries no phase humanization, because nothing ever populated the step", () => {
     // `rfPhase` mapped a GitHub step name onto "auditing the fleet…" and was
     // never reachable: `summarizeFleetRunStatus` returned `step: null`
@@ -1146,18 +1122,7 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
     expect(html).not.toContain("w.step");
   });
 
-  it("escapes interpolated values and refuses a run link that is not a GitHub URL", () => {
-    // The panel builds HTML from a REMOTE API response and assigns it via
-    // innerHTML. Values are server enums and GitHub html_urls today, but the
-    // house rule on these pages is that no server string reaches the browser as
-    // markup — so the sink is escaped and the href is prefix-gated.
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("function rfEsc(v)");
-    expect(html).toContain("function rfRunUrl(u)");
-    expect(html).toContain("u.indexOf('https://github.com/') === 0");
-    // The raw, unescaped interpolations the old code used must be gone.
-    expect(html).not.toContain("'<a href=\"'+w.url+'\"");
-  });
+  // "escapes interpolated values and refuses a run link that is not a GitHub URL": its behaviour is the DOM tests' now (cockpit.dom: escaping and github.com-only run links).
 });
 
 describe("deploy badge", () => {
@@ -1316,11 +1281,6 @@ describe("renderCockpitHtml — fleet table link", () => {
   });
 });
 
-describe("renderCockpitHtml — prospect audits button", () => {
-  // Tim and Erik reach the cockpit through Google sign-in and run audits from
-  // /audits; until now that page was reachable only by typing the URL.
-  it("links to the prospect audits page as a visible button", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toMatch(/<a class="nav-btn" href="\/audits">Prospect audits/);
-  });
-});
+// Tim and Erik reach the cockpit through Google sign-in and run audits from
+// /audits; until now that page was reachable only by typing the URL.
+// "links to the prospect audits page as a visible button": the shell's nav replaces it (cockpit/tests/shell/shell.ssr.test.ts).

@@ -88,7 +88,7 @@ export {
 // src/ shape (where vitest evaluates the .ts directly).
 export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
 
-export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./dashboard/index.js";
+export { verifyBasicAuth } from "./dashboard/index.js";
 
 // Exported so `pnpm test:dist` can prove the plate resolves from the PUBLISHED
 // layout. The plate is its own tsup onSuccess copy, so it can go missing

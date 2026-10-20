@@ -58,3 +58,5 @@ scripts/model-bakeoff/tasks/seeded-review/cases.next/
 /cockpit/.svelte-kit/
 /cockpit/build/
 /cockpit/.netlify/
+# Netlify's build output at the repo root: the cockpit adapter's functions.
+/.netlify/

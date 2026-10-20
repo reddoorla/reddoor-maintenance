@@ -100,25 +100,3 @@ export function renderLoginPageHtml(input: LoginPageInput): string {
 </body>
 </html>`;
 }
-
-/**
- * The "signed in as … · sign out" fragment for a dashboard page header.
- *
- * There is no shared page shell — five renderers each emit their own
- * `<!doctype html>` — so this is a fragment each one drops in rather than a
- * layout. Converting the dashboard to a framework with a real layout is
- * tracked separately (#582); until then, five one-line insertions is the
- * honest cost.
- *
- * Returns empty for a session with no identity (the shared-password fallback):
- * showing "signed in as cockpit" would dress an anonymous shared credential up
- * as a person.
- */
-export function renderAuthChrome(email: string | null | undefined): string {
-  if (!email) return "";
-  // Styled inline rather than by class: the four dashboard pages each carry
-  // their own <style> block, and a fragment that depends on a rule existing in
-  // all four is a fragment that silently loses its styling in whichever one
-  // gets missed.
-  return `<div style="float:right;font-size:0.8rem;color:#666">${escapeHtml(email)} · <a href="/auth/logout">sign out</a></div>`;
-}
