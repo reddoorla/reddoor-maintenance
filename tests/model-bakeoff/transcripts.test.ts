@@ -50,6 +50,22 @@ describe("readAgentTranscript", () => {
     expect(t.forbidden).toEqual([]);
   });
 
+  it("counts the requests whose usage is only the stream-start figure (#1435)", () => {
+    const final = JSON.stringify({
+      effort: "low",
+      message: {
+        id: "m2",
+        model: "claude-haiku-5-5",
+        role: "assistant",
+        content: [output({ scripts: [] })],
+        usage: { input_tokens: 1, output_tokens: 900 },
+        stop_reason: "tool_use",
+      },
+    });
+    const t = readAgentTranscript([text, final].join("\n"));
+    expect([t.requests, t.unfinished]).toEqual([2, 1]);
+  });
+
   it("takes the last structured output the harness accepted, not one it rejected", () => {
     const rejected = JSON.stringify({
       message: {
