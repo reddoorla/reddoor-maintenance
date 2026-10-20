@@ -79,8 +79,8 @@ function collectionTools(spec, col) {
 export function referenceFaults(spec, reference) {
   return spec.collections.flatMap((col) => {
     const { m, duplicates, keyless } = collectionTools(spec, col).firstByKey(reference);
-    // A reference item with no value for a scored field (a truth.json in an older shape) would
-    // charge every arm on that field, so it is a fault, not a silent cost.
+    // A reference item with no value for a scored field (a truth.json in an older shape) charges
+    // an arm that gives a value on that field, so it is a fault, not a silent cost.
     const lacking = Object.keys(col.fields).flatMap((field) => {
       const keys = [...m.values()]
         .filter((r) => r[field] === undefined)
