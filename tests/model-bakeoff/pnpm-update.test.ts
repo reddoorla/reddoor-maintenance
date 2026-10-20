@@ -516,8 +516,18 @@ describe("pnpm-update refuses a snapshot taken with pnpm older than 11", () => {
   };
   const setup = (dir: string) => () => task.setup({ input: dir, work: join(dir, "w"), ids: [] });
 
-  it("lets pnpm 11 and 12 through", () => {
-    for (const v of ["11.0.0", "11.11.0", "12.5.1"]) expect(setup(snap(v))).not.toThrow();
+  it("lets pnpm 11 and 12 through, however the version is written", () => {
+    for (const v of ["11.0.0", "11.11.0", "12.5.1", "v11.2.0", " 11.0.0", "11.0.0-rc.1"])
+      expect(setup(snap(v))).not.toThrow();
+    const dir = snap();
+    writeFileSync(join(dir, "snapshot.json"), JSON.stringify({ pnpmVersion: 11 }));
+    expect(setup(dir)).not.toThrow();
+  });
+
+  it("names a missing snapshot.json rather than failing to open it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pnpm-update-version-"));
+    dirs.push(dir);
+    expect(setup(dir)).toThrow(`pnpm-update: no snapshot.json in ${dir}`);
   });
 
   it("refuses pnpm 9 and 10, and a snapshot that records no version", () => {

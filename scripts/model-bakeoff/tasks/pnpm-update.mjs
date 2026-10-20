@@ -243,13 +243,18 @@ function unpack(dir, into) {
 
 // The log gate (`exitCodes`) counts a log only when it holds pnpm's `$ <script body>` echo,
 // which pnpm 11 and 12 print and pnpm 9 and 10 do not (#1477). The snapshot records the pnpm
-// it ran, the one the arms and the truth will run, so prepare refuses an older one here
-// rather than score every honest arm's checks as absent.
+// it ran, so prepare refuses an older one here rather than score every honest arm's checks as
+// absent. The arms and the truth run that same pnpm only when the snapshot is taken in the
+// session that runs them, as the README says; this checks the record, not the binary.
 export const MIN_PNPM_MAJOR = 11;
 
 export function setup({ input }) {
-  const { pnpmVersion } = JSON.parse(readFileSync(join(input, "snapshot.json"), "utf8"));
-  const major = /^(\d+)\./.exec(String(pnpmVersion ?? ""))?.[1];
+  const file = join(input, "snapshot.json");
+  if (!existsSync(file)) {
+    throw new Error(`pnpm-update: no snapshot.json in ${input}; build the input with \`snapshot\``);
+  }
+  const { pnpmVersion } = JSON.parse(readFileSync(file, "utf8"));
+  const major = /^v?(\d+)(?:\.|$)/.exec(String(pnpmVersion ?? "").trim())?.[1];
   if (major === undefined) {
     throw new Error(
       `pnpm-update: snapshot.json records no pnpm version (${JSON.stringify(pnpmVersion)}); take the snapshot again`,

@@ -90,7 +90,6 @@ export function truth(dir: string): Reference;
 export function sameFile(a: unknown, b: unknown): boolean;
 export function span(f: Finding): [number, number] | null;
 export function relation(f: Finding, d: Defect): "overlap" | "near" | null;
-export function closestDefect(f: Finding, defects: Defect[]): Defect | null;
 export function scoreRun(task: unknown, reference: Reference, output: unknown): Check[];
 export function referenceFaults(): string[];
 export function extraCandidates(): Record<string, never>;

@@ -293,12 +293,12 @@ transcript for a git command and for a read outside `<run>/input`, and record th
 
 A finding in a seeded case is a candidate for a seeded defect when it names the defect's file
 and its range overlaps the defect's or comes within `NEAR_LINES` (10) of it, and the referee
-rules on every candidate. One finding is a candidate for at most one defect, the closest: the
-smallest gap, then the nearer midpoint, then the first in the key. r07's d5 and d6 are 8 lines
-apart, so without this one vague finding could clear two criticals with a lenient referee
-(#1465). On a clean control, findings are grouped by file (the control's own file under any
-path form, `src/x.ts`, `r02.after.x.ts` or `./x.ts`) and their overlapping ranges merged, so
-one finding restated three ways is one false positive, not three (#1462).
+rules on every candidate. On a clean control, findings are grouped by file (the control's own
+file under any path form, `src/x.ts`, `r02.after.x.ts` or `./x.ts`), and findings that all share
+a line are one false positive: one finding restated three ways is one, not three (#1462). A
+chain of ranges (1-3, 3-5, 5-7) or one wide range does not merge findings that never meet. The
+referee sees every wording of a merged finding, sorted, so the same findings in another order
+make the same check.
 
 `build.mjs` rebuilds `cases/` from git byte for byte, and a test holds it to the committed
 files. No user, system or environment git config reaches it, and from git 2.40 the checkout's
