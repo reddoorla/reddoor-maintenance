@@ -12,9 +12,9 @@ import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 const ORIGINAL_ENV = { ...process.env };
 const SECRET = "test-session-secret-0123456789abcdef";
 
-function event(headers: Record<string, string> = {}, path = "/fleet?sort=perf") {
+function event(headers: Record<string, string> = {}, path = "/fleet?sort=perf", method = "GET") {
   return {
-    request: new Request(`https://cockpit.example${path}`, { headers }),
+    request: new Request(`https://cockpit.example${path}`, { headers, method }),
     locals: {} as App.Locals,
   } as unknown as RequestEvent;
 }
@@ -80,5 +80,24 @@ describe("the cockpit auth hook", () => {
       event({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` }),
     );
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cross-site POST with a 403 before auth, signed in or not", async () => {
+    for (const headers of [{}, authHeader("s3cret")]) {
+      const ev = event({ ...headers, "sec-fetch-site": "cross-site" }, "/submissions", "POST");
+      const { res, resolve } = await run(ev);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("lets a same-origin POST through to auth", async () => {
+    const ev = event(
+      { ...authHeader("s3cret"), "sec-fetch-site": "same-origin" },
+      "/submissions",
+      "POST",
+    );
+    const { resolve } = await run(ev);
+    expect(resolve).toHaveBeenCalledOnce();
   });
 });

@@ -1,2 +1,8 @@
+# The SvelteKit cockpit (#582), a Netlify site of its own beside the
+# `reddoor-maintenance` site, which keeps every /api/* and /auth/* function.
+# Site settings: base directory empty (the repo root, where the install runs),
+# package directory `cockpit` (so this file, not the root one, is read).
+# Until the cutover PR proxies the old site's pages here, nothing links to it.
 [build]
+  command = "pnpm cockpit:build"
   publish = "build"

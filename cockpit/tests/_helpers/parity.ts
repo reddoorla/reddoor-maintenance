@@ -140,20 +140,29 @@ function canonicalLines(node: Node, depth: number, out: string[]): void {
 /** Drop whitespace-only text at the start and end of a child list, and trim
  *  the outer edge of the first and last text runs, as Svelte does. */
 function trimEdges(nodes: Node[]): Node[] {
+  // Comments, scripts and styles go first, and the text runs they separated
+  // become one: Svelte's `<!--[-->` markers otherwise split one whitespace run
+  // into several nodes, and the middle ones escape the "beside a block" rule.
+  const isDropped = (n: Node) =>
+    !(n instanceof TextNode) &&
+    (!(n instanceof HTMLElement) || ["script", "style"].includes(tagOf(n) ?? ""));
+  const list: Node[] = [];
+  for (const n of nodes) {
+    if (isDropped(n)) continue;
+    const prev = list[list.length - 1];
+    if (n instanceof TextNode && prev instanceof TextNode)
+      list[list.length - 1] = new TextNode(prev.rawText + n.rawText, prev.parentNode);
+    else list.push(n);
+  }
   const isBlank = (n: Node) => n instanceof TextNode && n.rawText.trim() === "";
-  const isComment = (n: Node) => !(n instanceof TextNode) && !(n instanceof HTMLElement);
-  const list = nodes.filter((n) => !isComment(n));
   while (list.length && isBlank(list[0]!)) list.shift();
   while (list.length && isBlank(list[list.length - 1]!)) list.pop();
-  if (list.length) {
-    const first = list[0]!;
-    const last = list[list.length - 1]!;
-    if (first instanceof TextNode)
-      list[0] = new TextNode(first.rawText.replace(/^\s+/, ""), first.parentNode);
-    const tail = list[list.length - 1]!;
-    if (last instanceof TextNode && tail instanceof TextNode)
-      list[list.length - 1] = new TextNode(tail.rawText.replace(/\s+$/, ""), tail.parentNode);
-  }
+  const first = list[0];
+  if (first instanceof TextNode)
+    list[0] = new TextNode(first.rawText.replace(/^\s+/, ""), first.parentNode);
+  const last = list[list.length - 1];
+  if (last instanceof TextNode)
+    list[list.length - 1] = new TextNode(last.rawText.replace(/\s+$/, ""), last.parentNode);
   return list;
 }
 

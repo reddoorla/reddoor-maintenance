@@ -1,3 +1,4 @@
+import { isVisibleInStrip, fanoutFailures } from "./submission-rules.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
@@ -24,30 +25,12 @@ function extraFieldsList(raw: string | null): string {
   return rows;
 }
 
-/** A submission belongs in the per-site strip unless it was auto-filtered as spam
- *  (status "spam_auto"): auto-spam is reviewed only on /submissions, so it never
- *  crowds the real-lead window. PURE. */
-export function isVisibleInStrip(s: SubmissionRow): boolean {
-  return s.status !== "spam_auto";
-}
-
 /** Split a comma-joined spam_reason string into its reason tokens. */
 function spamReasonTokens(reason: string | null | undefined): string[] {
   return (reason ?? "")
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t !== "");
-}
-
-/** The fan-out tokens that did NOT succeed (see ingest.ts for the grammar: one
- *  `<destination>:<outcome>` token per attempt, `ok` being the only good outcome).
- *  A failure here means the signup never reached that destination — the row itself
- *  still looks perfectly healthy, which is exactly why it needs surfacing. PURE. */
-export function fanoutFailures(fanoutStatus: string | null | undefined): string[] {
-  return (fanoutStatus ?? "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t !== "" && !t.endsWith(":ok"));
 }
 
 /** The inline chip shows at most this many reason tokens; a long classifier trail
@@ -223,3 +206,5 @@ export const SUBMISSION_STATUS_SCRIPT = `document.querySelectorAll("button.subm-
         }
       });
     });`;
+
+export { isVisibleInStrip, fanoutFailures };

@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import {
+  buildSubmissionsPageData,
+  type SubmissionsPageData,
+} from "../../src/routes/submissions/data.js";
 import Page from "../../src/routes/submissions/+page.svelte";
 import { renderSubmissionsPageHtml } from "../../../src/dashboard/submissions-page-render.js";
 import type { SubmissionsPageModel } from "../../../src/dashboard/submissions-page.js";
@@ -97,7 +101,7 @@ describe("/submissions parity with renderSubmissionsPageHtml", () => {
   for (const [name, over] of CASES) {
     it(name, () => {
       const m = model(over);
-      expect(canonical(renderPage(Page, { data: { model: m } }))).toEqual(
+      expect(canonical(renderPage(Page, { data: buildSubmissionsPageData(m) }))).toEqual(
         canonical(oldBody(m), OLD_ONLY),
       );
     });
@@ -106,7 +110,10 @@ describe("/submissions parity with renderSubmissionsPageHtml", () => {
   it("the instrument sees a missing space between two inline elements", () => {
     const m = model();
     const after = canonical(
-      renderPage(Page, { data: { model: m } }).replace("</strong> · ", "</strong>· "),
+      renderPage(Page, { data: buildSubmissionsPageData(m) }).replace(
+        "</strong> · ",
+        "</strong>· ",
+      ),
     );
     expect(after).not.toEqual(canonical(oldBody(m), OLD_ONLY));
   });

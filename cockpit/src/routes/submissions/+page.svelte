@@ -2,11 +2,12 @@
   import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
   import { SUBMISSION_STATUSES } from "../../../../src/reports/submission-row.js";
   import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
-  import SubmissionRowInner from "../../lib/submissions/SubmissionRowInner.svelte";
+  import SubmissionRowInner from "../../lib/submission/SubmissionRowInner.svelte";
+  import type { SubmissionsPageData } from "./data.js";
   import { pageHref, maxPage, spamFacets, markReadConfirmText } from "./view.js";
   import "./submissions.css";
 
-  let { data }: { data: { model: SubmissionsPageModel } } = $props();
+  let { data }: { data: SubmissionsPageData } = $props();
   const m = $derived(data.model);
   const f = $derived(m.filter);
   const pages = $derived(maxPage(m));
@@ -96,7 +97,7 @@
           {#if r.slug}<a class="subm-site" href="/s/{r.slug}">{r.siteName}</a>{:else}<span
               class="subm-site muted">{r.siteName}</span
             >{/if}
-          <div class="subm-row-main"><SubmissionRowInner s={r} /></div>
+          <div class="subm-row-main"><SubmissionRowInner row={data.rowViews[r.id]!} /></div>
         </div>
       </li>
     {/each}

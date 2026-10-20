@@ -1,6 +1,6 @@
 import type { SubmissionRow } from "../../../../src/reports/submission-row.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
-import { fanoutFailures } from "../../../../src/dashboard/submission-view.js";
+import { fanoutFailures } from "../../../../src/dashboard/submission-rules.js";
 import { safeUrl } from "../../../../src/util/html.js";
 
 /**

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  buildSubmissionsPageData,
+  type SubmissionsPageData,
+} from "../../src/routes/submissions/data.js";
 import { mount, unmount, flushSync } from "svelte";
 import Page from "../../src/routes/submissions/+page.svelte";
 import type { SubmissionsPageModel } from "../../../src/dashboard/submissions-page.js";
@@ -12,8 +16,8 @@ import { model } from "./fixtures.js";
 
 /** What the browser gets: the load data after serialization. Plain JSON must
  *  survive it unchanged. */
-function served(m: SubmissionsPageModel): { model: SubmissionsPageModel } {
-  const data = { model: m };
+function served(m: SubmissionsPageModel): SubmissionsPageData {
+  const data = buildSubmissionsPageData(m);
   const round = JSON.parse(JSON.stringify(data));
   expect(round).toEqual(data);
   return round;

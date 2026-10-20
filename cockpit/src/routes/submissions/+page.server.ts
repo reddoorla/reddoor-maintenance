@@ -3,12 +3,13 @@ import type { Actions, PageServerLoad } from "./$types";
 import { loadSubmissionsPage, markSubmissionsRead } from "../../../../src/dashboard/page-data.js";
 import { isCsrfAllowed } from "../../../../src/dashboard/csrf.js";
 import { withDb } from "../../lib/server.js";
+import { buildSubmissionsPageData } from "./data.js";
 
 export const load: PageServerLoad = ({ url }) =>
   withDb("submissions", async (db) => {
     const loaded = await loadSubmissionsPage(db, url.searchParams);
     if (loaded.kind === "no-site") error(404, `No site found for slug '${loaded.slug}'.`);
-    return { model: loaded.model };
+    return buildSubmissionsPageData(loaded.model);
   });
 
 export const actions: Actions = {

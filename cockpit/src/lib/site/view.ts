@@ -16,14 +16,17 @@ import {
 import { rendersCommentary } from "../../../../src/reports/render.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/orchestrate.js";
-import { isVisibleInStrip } from "../../../../src/dashboard/submission-view.js";
+import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
 import {
   SITE_STATUS_OPTIONS,
   FREQ_OPTIONS,
   WATCH_CONDITION_OPTIONS,
   CLEAR_SECRET,
 } from "../../../../src/dashboard/site-details.js";
-import { withdrawConfirmText, UNAPPROVE_CONFIRM_TEXT } from "../../../../src/dashboard/render.js";
+import {
+  withdrawConfirmText,
+  UNAPPROVE_CONFIRM_TEXT,
+} from "../../../../src/dashboard/report-confirm.js";
 import type { SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 
