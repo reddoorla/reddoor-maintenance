@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
+import { advisoriesFromResult } from "../../src/audits/security-fields.js";
+import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 function fakeSpawn(
   byCmd: Record<string, { code: number; stdout: string; stderr?: string }>,
@@ -308,6 +310,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       scope: "development",
       relationship: null,
       manifestPath: "pnpm-lock.yaml",
+      ghsaId: null,
     },
     {
       package: "cookie",
@@ -318,6 +321,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       scope: "runtime",
       relationship: null,
       manifestPath: "pnpm-lock.yaml",
+      ghsaId: null,
     },
   ];
 
@@ -353,6 +357,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           scope: "development",
           relationship: null,
           manifestPath: "pnpm-lock.yaml",
+          ghsaId: null,
         },
       ]),
     });
@@ -392,6 +397,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           scope: "runtime",
           relationship: null,
           manifestPath: "pnpm-lock.yaml",
+          ghsaId: null,
         },
       ]),
     });
@@ -467,6 +473,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           scope: null,
           relationship: null,
           manifestPath: "pnpm-lock.yaml",
+          ghsaId: null,
         },
       ]),
     });
@@ -521,6 +528,7 @@ describe("audits/security — alerts on a manifest GitHub no longer tracks (#702
     scope: "runtime",
     relationship: "inconclusive",
     manifestPath: "package-lock.json",
+    ghsaId: null,
   };
   const live: DependabotAlert = {
     package: "nanoid",
@@ -531,6 +539,7 @@ describe("audits/security — alerts on a manifest GitHub no longer tracks (#702
     scope: "runtime",
     relationship: "transitive",
     manifestPath: "pnpm-lock.yaml",
+    ghsaId: null,
   };
   type Details = {
     counts: { high: number };
@@ -742,6 +751,7 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     scope: "runtime",
     relationship: "direct",
     manifestPath: ".github/workflows/ci.yml",
+    ghsaId: null,
   };
   const cleanPnpm = JSON.stringify({
     metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } },
@@ -815,6 +825,542 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     });
     const details = result.details as { advisories: Array<Record<string, unknown>> };
     expect(details.advisories.some((a) => "relationship" in a)).toBe(false);
+  });
+
+  describe("merging pnpm audit with Dependabot (#1408, #1409, #1410, #1411)", () => {
+    const repo = () => clone({ "pnpm-lock.yaml": pnpm12Lockfile });
+    const devHighPnpm = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      advisories: {
+        "1": {
+          module_name: "vite",
+          severity: "high",
+          title: "vite: server.fs.deny bypass",
+          url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc",
+        },
+      },
+    });
+
+    // #1408: Dependabot counts every open alert, dev scope included, so the audit that stands in
+    // for it on a hidden lockfile must not narrow to production dependencies.
+    it("audits devDependencies too, as the Dependabot count it stands in for does", async () => {
+      const calls: string[][] = [];
+      const spawn: SpawnFn = async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        if (cmd !== "pnpm") throw new Error(`ENOENT: ${cmd}`);
+        // pnpm's --prod drops the dev-only vite advisory; without it the advisory is found.
+        const prod = args.includes("--prod");
+        return { code: prod ? 0 : 1, stdout: prod ? cleanPnpm : devHighPnpm, stderr: "" };
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([]),
+        spawn,
+      });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+      expect(calls).toEqual([["pnpm", "audit", "--json"]]);
+    });
+
+    it("leaves the plain lockfile fallback, with no Dependabot, at production scope", async () => {
+      const calls: string[][] = [];
+      const spawn: SpawnFn = async (cmd, args) => {
+        calls.push([cmd, ...args]);
+        return { code: 0, stdout: cleanPnpm, stderr: "" };
+      };
+      await securityAudit({ site: { path: repo() }, spawn });
+      expect(calls).toEqual([["pnpm", "audit", "--json", "--prod"]]);
+    });
+
+    // #1409: the same advisory, worded differently by the two sources, is one advisory.
+    it("counts once an advisory both sources report under one GHSA id, whatever its title", async () => {
+      const sameGhsa: DependabotAlert = {
+        ...actionAlert,
+        package: "sharp",
+        summary: "sharp vulnerable through bundled librsvg",
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([sameGhsa]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
+      expect((result.details as { advisories: unknown[] }).advisories).toHaveLength(2);
+    });
+
+    it("falls back to the CVE when one side has no GHSA id", async () => {
+      const cvePnpm = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+        advisories: {
+          "1": {
+            module_name: "sharp",
+            severity: "high",
+            title: "sharp : Vulnerability in librsvg dependency",
+            cves: ["CVE-2026-96889"],
+          },
+        },
+      });
+      const sameCve: DependabotAlert = {
+        ...actionAlert,
+        package: "sharp",
+        summary: "sharp vulnerable through bundled librsvg",
+        cves: ["CVE-2026-96889"],
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([sameCve]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: cvePnpm } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    it("keeps two advisories with different GHSA ids apart even under one module and title", async () => {
+      const otherGhsa: DependabotAlert = {
+        ...actionAlert,
+        package: "sharp",
+        summary: "sharp : Vulnerability in librsvg dependency CVE-2026-96889",
+        ghsaId: "GHSA-zzzz-zzzz-zzzz",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([otherGhsa]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+    });
+
+    // #1410: the merged count is the live count; Dependabot's own "0 live" must not follow it.
+    it("appends only the ghost clause, not Dependabot's own live count", async () => {
+      const ghost: DependabotAlert = {
+        ...actionAlert,
+        package: "immutable",
+        summary: "immutable prototype pollution",
+        manifestPath: "package-lock.json",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: { listAlerts: async () => [ghost], manifestExists: async () => false },
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+      });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toBe(
+        "pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L); 1 alert(s) on a manifest " +
+          "GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+      );
+    });
+
+    // #1411: the merged counts never add Dependabot's per-alert tallies to pnpm's metadata,
+    // which may count per path; per severity they are the larger of the two views.
+    it("takes the larger of the merged advisories and pnpm's metadata, never their sum", async () => {
+      const perPath = JSON.stringify({
+        ...JSON.parse(pnpmAuditOut),
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 5, critical: 0 } },
+      });
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([actionAlert]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: perPath } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 5 vulnerabilities (0C/5H/0M/0L)");
+      expect((result.details as { counts: Record<string, number> }).counts).toEqual({
+        low: 0,
+        moderate: 0,
+        high: 5,
+        critical: 0,
+      });
+    });
+
+    it("counts the merged advisories when they outnumber pnpm's metadata", async () => {
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([actionAlert]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+    });
+
+    it("never reads clean when pnpm counts a severity with no advisory detail", async () => {
+      const noDetail = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0 } },
+      });
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: noDetail } }),
+      });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
+    });
+
+    it("does not add a Dependabot alert onto pnpm's detail-less count of the same severity", async () => {
+      const noDetail = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      });
+      const sharp: DependabotAlert = {
+        ...actionAlert,
+        package: "sharp",
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([sharp]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: noDetail } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    it("keeps pnpm's count when it has detail for only some of a severity", async () => {
+      const partial = JSON.stringify({
+        ...JSON.parse(pnpmAuditOut),
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 3, critical: 0 } },
+      });
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: partial } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+    });
+
+    it("dedupes by GHSA when the merge falls back to npm audit", async () => {
+      const npmOut = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+        vulnerabilities: {
+          foo: {
+            name: "foo",
+            severity: "high",
+            via: [
+              {
+                source: 1,
+                name: "foo",
+                title: "Prototype pollution in foo",
+                url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc",
+                severity: "high",
+              },
+            ],
+          },
+        },
+      });
+      const foo: DependabotAlert = {
+        ...actionAlert,
+        package: "foo",
+        summary: "foo allows prototype pollution via merge()",
+        ghsaId: "GHSA-aaaa-bbbb-cccc",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([foo]),
+        spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+      });
+      expect(result.summary).toBe("npm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    it("counts once two Dependabot alerts on one GHSA filed against two manifests", async () => {
+      const a: DependabotAlert = { ...actionAlert, ghsaId: "GHSA-cccc-dddd-eeee" };
+      const b: DependabotAlert = { ...a, manifestPath: ".github/workflows/deploy.yml" };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([a, b]),
+        spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    describe("a duplicate stays within one module and keeps the worse severity", () => {
+      const GHSA = "GHSA-67hx-6x53-jw92";
+      const pnpmOne = (module: string, severity: string, extra: Record<string, unknown>) =>
+        JSON.stringify({
+          metadata: {
+            vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, [severity]: 1 },
+          },
+          advisories: {
+            "1": { module_name: module, severity, title: `${module} advisory`, ...extra },
+          },
+        });
+      const withPkg = () =>
+        clone({
+          "pnpm-lock.yaml": pnpm12Lockfile,
+          "package.json": JSON.stringify({ dependencies: {} }),
+        });
+
+      // One GHSA can cover several packages (GHSA-67hx-6x53-jw92: babel-traverse and
+      // @babel/traverse). Folding them into one hid a direct critical behind a transitive one.
+      it("keeps one GHSA on two different packages as two advisories", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "@babel/traverse",
+          severity: "critical",
+          summary: "Babel arbitrary code execution",
+          ghsaId: GHSA,
+          relationship: "direct",
+          manifestPath: "app/package-lock.json",
+        };
+        const result = await securityAudit({
+          site: { path: withPkg(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: {
+              code: 1,
+              stdout: pnpmOne("babel-traverse", "critical", {
+                url: `https://github.com/advisories/${GHSA}`,
+              }),
+            },
+          }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories.map((a) => [a.module, a.relationship])).toEqual([
+          ["babel-traverse", "transitive"],
+          ["@babel/traverse", "direct"],
+        ]);
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+        expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (2C/0H/0M/0L)");
+      });
+
+      it("keeps two Dependabot alerts on one GHSA but different packages apart", async () => {
+        const a: DependabotAlert = { ...actionAlert, package: "babel-traverse", ghsaId: GHSA };
+        const b: DependabotAlert = { ...a, package: "@babel/traverse" };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([a, b]),
+          spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+        });
+        expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
+      });
+
+      it("keeps the higher severity when two sources rate one advisory differently", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "x",
+          severity: "high",
+          ghsaId: GHSA,
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: {
+              code: 1,
+              stdout: pnpmOne("x", "moderate", { github_advisory_id: GHSA.toLowerCase() }),
+            },
+          }),
+        });
+        expect(result.status).toBe("fail");
+        expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+        expect(advisoriesFromResult(result).map((a) => a.severity)).toEqual(["high"]);
+      });
+
+      it("keeps a direct relationship when either source reports one", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "x",
+          ghsaId: GHSA,
+          relationship: "direct",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: withPkg(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: { code: 1, stdout: pnpmOne("x", "high", { github_advisory_id: GHSA }) },
+          }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories.map((a) => a.relationship)).toEqual(["direct"]);
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+      });
+    });
+
+    describe("one merged entry absorbs one advisory and keeps what either source knows", () => {
+      const npmTwoVias = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 1 } },
+        vulnerabilities: {
+          xpkg: {
+            name: "xpkg",
+            severity: "critical",
+            via: [
+              {
+                source: 1,
+                name: "xpkg",
+                title: "xpkg one",
+                url: "https://github.com/advisories/GHSA-1111-1111-1111",
+                severity: "high",
+              },
+              {
+                source: 2,
+                name: "xpkg",
+                title: "xpkg two",
+                url: "https://github.com/advisories/GHSA-2222-2222-2222",
+                severity: "critical",
+              },
+            ],
+          },
+        },
+      });
+
+      // One npm entry must not absorb two different Dependabot advisories.
+      it("does not fold two Dependabot advisories into one npm entry", async () => {
+        const one: DependabotAlert = {
+          ...actionAlert,
+          package: "xpkg",
+          severity: "high",
+          summary: "xpkg one",
+          ghsaId: "GHSA-1111-1111-1111",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const two: DependabotAlert = {
+          ...one,
+          severity: "critical",
+          summary: "xpkg two",
+          ghsaId: "GHSA-2222-2222-2222",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([one, two]),
+          spawn: fakeSpawn({ npm: { code: 1, stdout: npmTwoVias } }),
+        });
+        expect(advisoriesFromResult(result)).toHaveLength(2);
+        expect(result.summary).toBe("npm audit + Dependabot: 2 vulnerabilities (2C/0H/0M/0L)");
+      });
+
+      it("does not let an entry matched on a CVE absorb a second advisory with another GHSA", async () => {
+        const cveOnly = JSON.stringify({
+          metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+          advisories: {
+            "1": { module_name: "y", severity: "high", title: "y bug", cves: ["CVE-2026-1"] },
+          },
+        });
+        const a: DependabotAlert = {
+          ...actionAlert,
+          package: "y",
+          summary: "y bug A",
+          cves: ["CVE-2026-1"],
+          ghsaId: "GHSA-aaaa-1111-aaaa",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const b: DependabotAlert = {
+          ...a,
+          severity: "critical",
+          summary: "y bug B",
+          ghsaId: "GHSA-bbbb-2222-bbbb",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([a, b]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: cveOnly } }),
+        });
+        expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/1H/0M/0L)");
+      });
+
+      // #1408 brings dev-scope advisories in; the dashboard marks them by Dependabot's scope.
+      it("keeps Dependabot's scope on an advisory both sources report", async () => {
+        const vite = JSON.stringify({
+          metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+          advisories: {
+            "1": {
+              module_name: "vite",
+              severity: "high",
+              title: "vite: server.fs.deny bypass",
+              url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc",
+            },
+          },
+        });
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "vite",
+          summary: "Vite bypasses server.fs.deny",
+          ghsaId: "GHSA-aaaa-bbbb-cccc",
+          scope: "development",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: vite } }),
+        });
+        expect(advisoriesFromResult(result).map((a) => [a.module, a.scope])).toEqual([
+          ["vite", "development"],
+        ]);
+      });
+
+      // A workspace leaves pnpm's relationship unknown on purpose, so nothing is muted;
+      // Dependabot's "transitive" alone must not fill it in.
+      it("leaves the relationship unknown unless both sources say transitive", async () => {
+        const sharp = JSON.stringify({
+          metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+          advisories: {
+            "1": {
+              module_name: "sharp",
+              severity: "high",
+              title: "sharp : Vulnerability in librsvg dependency",
+              url: "https://github.com/advisories/GHSA-wq5f-xc86-pv6w",
+            },
+          },
+        });
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "sharp",
+          ghsaId: "GHSA-wq5f-xc86-pv6w",
+          relationship: "transitive",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: {
+            path: clone({
+              "pnpm-lock.yaml": pnpm12Lockfile,
+              "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+              "package.json": JSON.stringify({ dependencies: {} }),
+            }),
+            gitRepo: "reddoorla/acme",
+          },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: sharp } }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories).toHaveLength(1);
+        expect(advisories[0]!.relationship).toBeUndefined();
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+      });
+
+      const sharpAlert = (scope: "runtime" | "development"): DependabotAlert => ({
+        ...actionAlert,
+        package: "sharp",
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        scope,
+        manifestPath: scope === "runtime" ? "pnpm-lock.yaml" : "app/pnpm-lock.yaml",
+      });
+
+      for (const order of [
+        ["development", "runtime"],
+        ["runtime", "development"],
+      ] as const) {
+        it(`keeps runtime scope when one alert says runtime (${order.join(" then ")})`, async () => {
+          const result = await securityAudit({
+            site: { path: repo(), gitRepo: "reddoorla/acme" },
+            dependabotDeps: fakeDependabot(order.map(sharpAlert)),
+            spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+          });
+          expect(advisoriesFromResult(result).map((a) => a.scope)).toEqual(["runtime"]);
+        });
+      }
+
+      it("keeps runtime scope after a pnpm entry adopted development", async () => {
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([sharpAlert("development"), sharpAlert("runtime")]),
+          spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+        });
+        const sharp = advisoriesFromResult(result).filter((a) => a.module === "sharp");
+        expect(sharp.map((a) => a.scope)).toEqual(["runtime"]);
+      });
+    });
   });
 
   it("still prefers Dependabot for a single-document lockfile", async () => {
