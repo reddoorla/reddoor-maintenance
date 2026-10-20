@@ -233,7 +233,7 @@ export function scoreRun(_task, reference, output) {
       (o) => o !== d && candidates.some((f) => relation(f, o)),
     );
     const warning = others.length
-      ? ` One of these findings is also near ${others.map((o) => `${o.id} at ${whereOf(o)} (${o.description})`).join("; ")}: credit it here only if it identifies THIS defect, not only ${others.length > 1 ? "one of those" : "that one"}. A finding that identifies both counts for both.`
+      ? ` One of these findings is also near ${others.map((o) => `${o.id} at ${whereOf(o)} (${o.description})`).join("; ")}: credit it here only if it identifies THIS defect, not only ${others.length > 1 ? "one of those" : "that one"}. A finding counts for each defect it identifies.`
       : "";
     const refRaw = `Seeded defect at ${whereOf(d)}: ${d.description} ARM is correct only if one of its findings identifies this same defect.${warning}`;
     if (candidates.length) {

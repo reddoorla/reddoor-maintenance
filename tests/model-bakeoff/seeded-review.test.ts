@@ -355,10 +355,10 @@ describe("scoring one run", () => {
     const check = (findings: Finding[], id: string) =>
       review.scoreRun(null, two, { findings, unverified: [] }).find((c) => c.key === id)!;
 
-    it("names the other defect in each referee item, and credits only what it identifies", () => {
+    it("names the other defect in each referee item, and tells the referee to credit only what it identifies", () => {
       const both = [f("r07", "src/c.ts", 42, 44, "no -- before repoUrl, and name is unchecked")];
       expect(check(both, "d5").refRaw).toContain(
-        "One of these findings is also near d6 at r07 src/c.ts:34-35 (path traversal): credit it here only if it identifies THIS defect, not only that one. A finding that identifies both counts for both.",
+        "One of these findings is also near d6 at r07 src/c.ts:34-35 (path traversal): credit it here only if it identifies THIS defect, not only that one. A finding counts for each defect it identifies.",
       );
       expect(check(both, "d6").refRaw).toContain(
         "also near d5 at r07 src/c.ts:43-46 (argv injection)",
