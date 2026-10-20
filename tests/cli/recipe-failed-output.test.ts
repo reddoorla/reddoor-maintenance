@@ -68,3 +68,20 @@ describe.each(commands)("%s prints a failed recipe as failed", (name, run) => {
     expect(res.code).toBe(1);
   });
 });
+
+// #1434: sync-configs passes `noopNote: "all configs in sync"` to the shared
+// formatter. The real recipe's noop always carries notes, so only a stubbed
+// noop with no notes reaches that fallback.
+describe("sync-configs prints a note-less noop with its fallback note", () => {
+  it("prints `noop: all configs in sync`", async () => {
+    recipe.impl = async () => ({
+      recipe: "sync-configs",
+      site: label,
+      status: "noop",
+      commits: [],
+    });
+    const res = await runSyncConfigsCommand(dir, {});
+    expect(res.output).toBe(`[${label}] noop: all configs in sync`);
+    expect(res.code).toBe(0);
+  });
+});
