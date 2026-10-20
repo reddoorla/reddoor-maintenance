@@ -11,25 +11,28 @@ What it reads, after two dirty review rounds:
   - A paused animation that holds its element hidden.
   - Motion a script drives frame by frame: an inline motion value that changes at two consecutive reads 100 ms apart.
 
-**Proved on known-good pages first, and again after each round.** The round-3 code at 21:20Z:
+**Proved on known-good pages first, and again after each round.** The round-4 head, live at 22:22Z:
 
-| Page                         | Result                 |
-| ---------------------------- | ---------------------- |
-| www.beachfrontdentistry.com  | **PASS**, 152 samples  |
-| vidalegacy.org               | **PASS**, 122 samples  |
-| beachfront built at df53dee^ | **PASS**, 152 samples  |
-| gallerysonder.com            | **FAIL**, 20 findings  |
-| reddoorla.com                | **FAIL**, 195 findings |
+| Page                        | Result                 |
+| --------------------------- | ---------------------- |
+| www.beachfrontdentistry.com | **PASS**, 152 samples  |
+| vidalegacy.org              | **PASS**, 122 samples  |
+| gallerysonder.com           | **FAIL**, 15 findings  |
+| reddoorla.com               | **FAIL**, 184 findings |
 
-gallerysonder's 20 findings:
+gallerysonder's 15 findings: eight Web Animations API fades at 400 ms, and seven caption transition delays at 700 ms, at 390 px only.
 
-- eight Web Animations API fades, which no CSS reset reaches;
-- seven transition delays its durations-only reset leaves;
-- two infinite spinners.
+reddoorla.com's 184 findings:
 
-reddoorla.com's 195 findings: 168 transform and opacity durations, 13 delays and the arrow's infinite `pos-y-wiggle`. It has no reset at all.
+- six infinite `pos-y-wiggle` arrows;
+- two Web Animations;
+- 13 transition delays at 1000 ms;
+- six animation durations;
+- 157 transition durations of motion properties.
 
-Review lenses read both sites live and judged their failures real.
+The note names the fix: no `prefers-reduced-motion` reset reaches 163 elements.
+
+Counts move from run to run with what a live page loads, which is why every number here carries its time. At 21:20Z, the round-3 head gave gallerysonder 20 findings, five of them inside Vimeo's player. The round-3 review traced those five to a cross-origin frame sampled while it was still loading, a false fail now fixed.
 
 **Corrected on contact: R2 has no real past page.** The brief asks for a check that fails on a real past page. The obvious one is beachfront at df53dee^, whose reset zeroed durations but not delays. I built and served it here, and it passes, because no route renders the `delay-1000` components that reset missed. A research pass over seven fleet repos, from source, found the same everywhere: the reduced-motion fixes on record closed latent holes, and no past commit rendered the motion on a page. So the brief's bar is not met for R2 as written. The nearest are fixtures that copy the starter's reset verbatim from before and after #135, and the two current pages.
 
@@ -51,33 +54,74 @@ Review lenses read both sites live and judged their failures real.
   - colour-only transitions don't count;
   - paused animations count only when they hide content.
 - **A hang.** While re-proving that version live, one beachfront run did not finish in 11 minutes. A frame with an empty URL never answers `evaluate`. Frames now get 1 s and are counted as not sampled.
+- **Round 3** found the redesign still short on the rule's own text, with fixes for each:
+  - **False passes:**
+    - a finite entrance paused at its first frame;
+    - a script parallax;
+    - a `scroll()` hero (the size-only exemption had covered every `scroll()` animation);
+    - an escaped keyframe name;
+    - a 4 fps ticker.
+  - **False fails:**
+    - a still-loading Vimeo frame judged as the site's;
+    - Tailwind v4's `transition-colors`;
+    - a faint paused marquee;
+    - a `scaleX` progress bar.
+  - **Unheld behaviour:**
+    - the per-step window;
+    - the cap;
+    - the frame timeout;
+    - most scripted channels;
+    - the font-host exemption;
+    - the running colour filter.
+  - **Admitted rather than built:**
+    - a script's delay before it shows an element, which a read cannot tell from a slide swap;
+    - an element re-created every frame;
+    - two snaps 100 ms apart.
+  - **Fit:** the suite now runs concurrently, from 97 s of test time to 30 s.
+  - **Put to the operator, not recorded and moved past:** the missing real past page, and whether opacity-only transitions count.
 - **Abandoned:** a planned split of the sampler into full and light reads. Once the frame timeout was in, the full sampler took about 30 s a page, and the split script had silently not applied anyway; the tests and mutations below ran against the unsplit code.
 
 **Mutations.** Each turns at least one test red:
 
-| Mutation                                 | Red tests |
-| ---------------------------------------- | --------- |
-| ignoring `animation-delay` (the brief's) | 5         |
-| ignoring durations                       | 5         |
-| no shadow walk                           | 1         |
-| no frames                                | 1         |
-| no pseudo-elements                       | 1         |
-| paused animations skipped                | 1         |
-| no script diff                           | 1         |
-| no container scroll                      | 1         |
-| lists not aligned to names               | 1         |
-| scroll-driven judged                     | 1         |
-| the delay fold dropped                   | 2         |
-| any second change counted as scripted    | 1         |
-| colour transitions judged                | 1         |
-| paused names read statically             | 1         |
-| every paused animation reported          | 1         |
-| `@import` not followed                   | 1         |
-| `@media` not walked                      | 1         |
-| `view()` not judged                      | 1         |
-| cross-origin frames sampled              | 1         |
-| no per-step window                       | 1         |
-| endless running folded                   | 1         |
-| the cap always reported                  | 1         |
+| Mutation                                    | Red tests |
+| ------------------------------------------- | --------- |
+| ignoring `animation-delay` (the brief's)    | 5         |
+| ignoring durations                          | 5         |
+| no shadow walk                              | 1         |
+| no frames                                   | 1         |
+| no pseudo-elements                          | 1         |
+| paused animations skipped                   | 1         |
+| no script diff                              | 1         |
+| no container scroll                         | 1         |
+| lists not aligned to names                  | 1         |
+| scroll-driven judged                        | 1         |
+| the delay fold dropped                      | 2         |
+| any second change counted as scripted       | 1         |
+| colour transitions judged                   | 1         |
+| paused names read statically                | 1         |
+| every paused animation reported             | 1         |
+| `@import` not followed                      | 1         |
+| `@media` not walked                         | 1         |
+| `view()` not judged                         | 1         |
+| cross-origin frames sampled                 | 1         |
+| no per-step window                          | 1         |
+| endless running folded                      | 1         |
+| the cap always reported                     | 1         |
+| a per-step window of one read               | 1         |
+| no step cap                                 | 1         |
+| silent frames not counted                   | 1         |
+| unreadable sheets never make names unknown  | 1         |
+| running colour transitions judged           | 1         |
+| one scripted channel (`translate`) not read | 1         |
+| a frame's `scroll()` count not merged       | 1         |
+| paused finite animations allowed            | 1         |
+| escaped keyframe names not kept             | 1         |
+| no scroll-linked read                       | 1         |
+| `scroll()` never judged                     | 1         |
+| no slow-stepper read                        | 1         |
+| the stepper rule without distinct values    | 1         |
+| a foreign frame document kept               | 1         |
+| transition durations for any property       | 1         |
+| scale kept in the scripted read             | 1         |
 
-The suite is 46 tests, 97 s of test time in one file.
+The suite is 62 tests, 30 s of test time, run concurrently.
