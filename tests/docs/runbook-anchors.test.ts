@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url";
  *     on line 34) would have passed a case-insensitive match against line 33's
  *     `import { diffAttention, ... }` — "attention" inside "diffAttention".
  *
- * The instrument is proved before it is trusted (CLAUDE.md, "Prove the instrument before you
+ * The instrument is proved before it is trusted (reddoor-workspace CLAUDE.md, "Prove the instrument before you
  * trust its verdict"): the fixture tests below drive a known-good citation to `verified` and a
  * known-bad one to a failure, so the real-runbook assertion is not the first thing this code
  * has ever been asked.
