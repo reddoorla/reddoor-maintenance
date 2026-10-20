@@ -253,8 +253,14 @@ export function setup({ input }) {
   if (!existsSync(file)) {
     throw new Error(`pnpm-update: no snapshot.json in ${input}; build the input with \`snapshot\``);
   }
-  const { pnpmVersion } = JSON.parse(readFileSync(file, "utf8"));
-  const major = /^v?(\d+)(?:\.|$)/.exec(String(pnpmVersion ?? "").trim())?.[1];
+  let pnpmVersion;
+  try {
+    ({ pnpmVersion } = JSON.parse(readFileSync(file, "utf8")));
+  } catch (e) {
+    throw new Error(`pnpm-update: ${file} is not JSON (${e.message})`, { cause: e });
+  }
+  const written = typeof pnpmVersion === "string" || typeof pnpmVersion === "number";
+  const major = written ? /^v?(\d+)(?:\.|$)/.exec(String(pnpmVersion).trim())?.[1] : undefined;
   if (major === undefined) {
     throw new Error(
       `pnpm-update: snapshot.json records no pnpm version (${JSON.stringify(pnpmVersion)}); take the snapshot again`,

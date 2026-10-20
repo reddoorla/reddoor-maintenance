@@ -537,6 +537,11 @@ describe("pnpm-update refuses a snapshot taken with pnpm older than 11", () => {
     expect(setup(snap("9.15.0"))).toThrow(/ran pnpm 9\.15\.0/);
     expect(setup(snap())).toThrow(/records no pnpm version/);
     expect(setup(snap("next"))).toThrow(/records no pnpm version/);
+    const odd = snap();
+    writeFileSync(join(odd, "snapshot.json"), JSON.stringify({ pnpmVersion: ["11.0.0"] }));
+    expect(setup(odd)).toThrow(/records no pnpm version/);
+    writeFileSync(join(odd, "snapshot.json"), "{ not json");
+    expect(setup(odd)).toThrow(`pnpm-update: ${join(odd, "snapshot.json")} is not JSON`);
   });
 
   it("stops prepare before the truth runs, leaving no run dir", async () => {
