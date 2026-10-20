@@ -2,10 +2,12 @@
   import type { CommentaryView } from "./view.js";
 
   let { c }: { c: CommentaryView } = $props();
-  // What the server last accepted. A blur saves only when the text differs, and
-  // a successful save moves the baseline, so a later focus+blur does not repost.
+  // What the server last accepted, as a textarea shows it: a browser exposes
+  // CR LF as LF, so stored CRLF text must not read as an edit (the old page
+  // compared against `defaultValue`, which the parser had normalised). A blur
+  // saves only when the text differs, and a successful save moves the baseline.
   // svelte-ignore state_referenced_locally
-  let saved = c.text;
+  let saved = c.text.replace(/\r\n?/g, "\n");
   let mark = $state("");
 
   function onblur(e: FocusEvent & { currentTarget: HTMLTextAreaElement }) {

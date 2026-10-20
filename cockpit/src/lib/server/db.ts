@@ -1,5 +1,5 @@
 import { error, isHttpError, isRedirect } from "@sveltejs/kit";
-import { openDb, readDbConfig, type Db } from "../../../src/db/client.js";
+import { openDb, readDbConfig, type Db } from "../../../../src/db/client.js";
 
 /**
  * Run a page's reads against Turso, with the page functions' guards. A missing

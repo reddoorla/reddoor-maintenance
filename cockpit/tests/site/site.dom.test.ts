@@ -570,6 +570,16 @@ describe("commentary", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("stored CRLF text is not a change: a plain focus and blur posts nothing (review round 1)", async () => {
+    render(input({ reports: [pending({ id: "rc", commentary: "line one\r\nline two" })] }));
+    const t = $<HTMLTextAreaElement>('textarea[data-commentary-for="rc"]');
+    // What a browser's textarea exposes for that text: CR LF normalised to LF.
+    t.value = "line one\nline two";
+    blur(t);
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("a failed save marks ✗ and retries on the next blur", async () => {
     render(input({ reports: [reportRow({ id: "ra", sentAt: null, approvedToSend: true })] }));
     const t = $<HTMLTextAreaElement>('textarea[data-commentary-for="ra"]');

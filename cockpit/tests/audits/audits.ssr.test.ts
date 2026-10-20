@@ -15,6 +15,15 @@ import { AUDITS, NOW, item } from "./fixtures.js";
 
 const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
 
+/** The old page with its one intended difference: Run audit is server-rendered
+ *  disabled until the submit handler is attached (review round 1), so a submit
+ *  before hydration cannot fall back to a native GET carrying the prospect URL. */
+const withDisabledRun = (html: string) =>
+  html.replace(
+    '<button type="submit">Run audit</button>',
+    '<button type="submit" disabled>Run audit</button>',
+  );
+
 const CASES: Array<[string, ProspectAuditListItem[]]> = [
   ["no audits", []],
   ["every audit state and edge", AUDITS],
@@ -25,7 +34,11 @@ describe("/audits parity with renderProspectAuditsPageHtml", () => {
   for (const [name, audits] of CASES) {
     it(name, () => {
       const before = canonical(
-        bodyOf(renderProspectAuditsPageHtml({ audits, now: NOW, operatorEmail: "op@example.com" })),
+        withDisabledRun(
+          bodyOf(
+            renderProspectAuditsPageHtml({ audits, now: NOW, operatorEmail: "op@example.com" }),
+          ),
+        ),
         OLD_ONLY,
       );
       const after = canonical(renderPage(Page, { data: auditsPageView(audits, NOW) }));
@@ -35,7 +48,7 @@ describe("/audits parity with renderProspectAuditsPageHtml", () => {
 
   it("the instrument sees a changed status label", () => {
     const before = canonical(
-      bodyOf(renderProspectAuditsPageHtml({ audits: AUDITS, now: NOW })),
+      withDisabledRun(bodyOf(renderProspectAuditsPageHtml({ audits: AUDITS, now: NOW }))),
       OLD_ONLY,
     );
     const after = canonical(

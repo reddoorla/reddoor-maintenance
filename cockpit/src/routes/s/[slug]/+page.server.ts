@@ -2,7 +2,7 @@ import { error } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import { loadSiteDashboard } from "../../../../../src/dashboard/page-data.js";
 import { resolveDashboardBaseUrl } from "../../../../../src/dashboard/handler-helpers.js";
-import { withDb } from "../../../lib/server.js";
+import { withDb } from "../../../lib/server/db.js";
 import { buildSiteView } from "../../../lib/site/view.js";
 
 // The page's actions POST to the Netlify functions' /api/* endpoints, which

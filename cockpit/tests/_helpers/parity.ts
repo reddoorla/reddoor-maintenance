@@ -79,13 +79,21 @@ const BLOCK = new Set([
   "td",
   "th",
   "ul",
-  "option",
-  "select",
-  "textarea",
-  "label",
 ]);
 /** Containers whose whitespace-only children never render. */
 const NO_TEXT = new Set(["table", "thead", "tbody", "tfoot", "tr", "select", "ul", "ol", "dl"]);
+
+/** HTML whitespace, which collapses. Not `\s`: that also matches U+00A0, a
+ *  no-break space, which renders and must stay distinct. */
+const WS = /[ \t\n\r\f]+/g;
+const isWs = (s: string) => s.replace(WS, "") === "";
+
+/** Text compared verbatim, whitespace and all: a textarea's content, and the
+ *  pre-formatted elements (`.subm-msg` is `white-space: pre-wrap`). */
+function isVerbatim(el: HTMLElement): boolean {
+  const tag = el.rawTagName?.toLowerCase();
+  return tag === "textarea" || tag === "pre" || el.classList?.contains("subm-msg") === true;
+}
 
 const tagOf = (n: Node | undefined) =>
   n instanceof HTMLElement ? (n.rawTagName?.toLowerCase() ?? null) : null;
@@ -104,11 +112,15 @@ function significantBlank(node: TextNode, siblings: Node[], i: number): boolean 
   return true;
 }
 
-function canonicalLines(node: Node, depth: number, out: string[]): void {
+function canonicalLines(node: Node, depth: number, out: string[], verbatim = false): void {
   const pad = "  ".repeat(depth);
   if (node instanceof TextNode) {
-    const text = decodeEntities(node.rawText).replace(/\s+/g, " ");
-    if (text.trim() === "") {
+    if (verbatim) {
+      out.push(`${pad}${JSON.stringify(decodeEntities(node.rawText))}`);
+      return;
+    }
+    const text = decodeEntities(node.rawText).replace(WS, " ");
+    if (isWs(text)) {
       if (text !== "") out.push(`${pad}" "`);
       return;
     }
@@ -125,21 +137,26 @@ function canonicalLines(node: Node, depth: number, out: string[]): void {
       .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
     out.push(`${pad}<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>`);
   }
-  const children = trimEdges(node.childNodes);
-  children.forEach((child, i) => {
+  const inner = verbatim || (tag !== undefined && isVerbatim(node));
+  // Edge whitespace is not compared here (Svelte trims it); whether it shows is
+  // the text flow's question, below, where it collapses as the browser does.
+  const children = mergeRuns(node.childNodes);
+  const trimmed = inner ? children : trimEdges(children);
+  trimmed.forEach((child, i) => {
     if (
+      !inner &&
       child instanceof TextNode &&
-      child.rawText.trim() === "" &&
-      !significantBlank(child, children, i)
+      isWs(child.rawText) &&
+      !significantBlank(child, trimmed, i)
     )
       return;
-    canonicalLines(child, tag ? depth + 1 : depth, out);
+    canonicalLines(child, tag ? depth + 1 : depth, out, inner);
   });
 }
 
 /** Drop whitespace-only text at the start and end of a child list, and trim
  *  the outer edge of the first and last text runs, as Svelte does. */
-function trimEdges(nodes: Node[]): Node[] {
+function mergeRuns(nodes: Node[]): Node[] {
   // Comments, scripts and styles go first, and the text runs they separated
   // become one: Svelte's `<!--[-->` markers otherwise split one whitespace run
   // into several nodes, and the middle ones escape the "beside a block" rule.
@@ -154,25 +171,68 @@ function trimEdges(nodes: Node[]): Node[] {
       list[list.length - 1] = new TextNode(prev.rawText + n.rawText, prev.parentNode);
     else list.push(n);
   }
-  const isBlank = (n: Node) => n instanceof TextNode && n.rawText.trim() === "";
+  return list;
+}
+
+/** Drop whitespace at the start and end of a block element's children. */
+function trimEdges(nodes: Node[]): Node[] {
+  const list = [...nodes];
+  const isBlank = (n: Node) => n instanceof TextNode && isWs(n.rawText);
   while (list.length && isBlank(list[0]!)) list.shift();
   while (list.length && isBlank(list[list.length - 1]!)) list.pop();
   const first = list[0];
   if (first instanceof TextNode)
-    list[0] = new TextNode(first.rawText.replace(/^\s+/, ""), first.parentNode);
+    list[0] = new TextNode(first.rawText.replace(/^[ \t\n\r\f]+/, ""), first.parentNode);
   const last = list[list.length - 1];
   if (last instanceof TextNode)
-    list[list.length - 1] = new TextNode(last.rawText.replace(/\s+$/, ""), last.parentNode);
+    list[list.length - 1] = new TextNode(
+      last.rawText.replace(/[ \t\n\r\f]+$/, ""),
+      last.parentNode,
+    );
   return list;
 }
 
+/**
+ * The text a reader sees, in order: text runs with HTML whitespace collapsed
+ * ACROSS inline boundaries (so "(30)<span> — x</span>" keeps its space and
+ * "<span>x </span> y" shows one), a line break at each block boundary, and
+ * verbatim text where whitespace is preserved. This is the half of the
+ * comparison that edge whitespace inside inline elements cannot hide in.
+ */
+function textFlow(root: Node): string[] {
+  // A block boundary; U+2029 never occurs in these pages' text.
+  const BREAK = "\u2029";
+  let flow = "";
+  const walk = (node: Node, verbatim: boolean) => {
+    if (node instanceof TextNode) {
+      const t = decodeEntities(node.rawText);
+      flow += verbatim ? t.replace(/\n/g, "\u2424") : t;
+      return;
+    }
+    if (!(node instanceof HTMLElement)) return;
+    const tag = tagOf(node);
+    if (tag === "script" || tag === "style") return;
+    // An option is its own line: whitespace between options never renders.
+    const block = tag !== null && (BLOCK.has(tag) || tag === "option");
+    if (block) flow += BREAK;
+    for (const child of node.childNodes) walk(child, verbatim || isVerbatim(node));
+    if (block) flow += BREAK;
+  };
+  walk(root, false);
+  return flow
+    .split(BREAK)
+    .map((line) => line.replace(WS, " ").trim())
+    .filter((line) => line !== "");
+}
+
 /** Canonical lines for an HTML fragment, after removing every element that
- *  matches one of `drop` (CSS selectors). */
+ *  matches one of `drop` (CSS selectors): its structure, then its text flow. */
 export function canonical(html: string, drop: string[] = []): string[] {
   const root = parse(html, { comment: false, blockTextElements: { script: true, style: true } });
   for (const sel of drop) for (const el of root.querySelectorAll(sel)) el.remove();
   const out: string[] = [];
   canonicalLines(root, 0, out);
+  out.push("--- text flow ---", ...textFlow(root).map((l) => `| ${l}`));
   // Adjacent text runs (split by a removed comment or element) are one run.
   const merged: string[] = [];
   for (const line of out) {
@@ -186,7 +246,7 @@ export function canonical(html: string, drop: string[] = []): string[] {
     ) {
       const a = JSON.parse(prev.trimStart()) as string;
       const b = JSON.parse(line.trimStart()) as string;
-      merged[merged.length - 1] = " ".repeat(indent) + JSON.stringify((a + b).replace(/\s+/g, " "));
+      merged[merged.length - 1] = " ".repeat(indent) + JSON.stringify((a + b).replace(WS, " "));
     } else merged.push(line);
   }
   return merged;

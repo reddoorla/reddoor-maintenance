@@ -2,7 +2,7 @@ import { error, redirect } from "@sveltejs/kit";
 import type { Actions, PageServerLoad } from "./$types";
 import { loadSubmissionsPage, markSubmissionsRead } from "../../../../src/dashboard/page-data.js";
 import { isCsrfAllowed } from "../../../../src/dashboard/csrf.js";
-import { withDb } from "../../lib/server.js";
+import { withDb } from "../../lib/server/db.js";
 import { buildSubmissionsPageData } from "./data.js";
 
 export const load: PageServerLoad = ({ url }) =>

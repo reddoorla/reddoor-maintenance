@@ -224,8 +224,8 @@
   <div class="section submissions">
     <h2>
       Form submissions ({v.submissions
-        .total}){#if v.submissions.total > v.submissions.shown.length}<span class="muted">
-          — showing {v.submissions.shown.length} of {v.submissions.total}</span
+        .total}){#if v.submissions.total > v.submissions.shown.length}<span class="muted"
+          >{" "}— showing {v.submissions.shown.length} of {v.submissions.total}</span
         >{/if}
       <a class="subm-viewall" href={v.submissions.viewAllHref}>View all for this site →</a>
     </h2>

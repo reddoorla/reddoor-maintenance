@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
   import { SUBMISSION_STATUSES } from "../../../../src/reports/submission-row.js";
   import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
@@ -27,6 +28,15 @@
       ] as const
     ).filter(([, v]) => v !== ""),
   );
+
+  // The bulk button is disabled until this component has mounted, which is
+  // when `confirmMarkRead` is attached: the old form carried its confirm inline,
+  // so it held from first paint, and a click before hydration (or with the
+  // script blocked) must never post an unconfirmed mark-read.
+  let ready = $state(false);
+  onMount(() => {
+    ready = true;
+  });
 
   function confirmMarkRead(e: SubmitEvent) {
     if (!confirm(markReadConfirmText(m.markableNewCount))) e.preventDefault();
@@ -80,7 +90,8 @@
       {#each bulkFields as [name, value] (name)}
         <input type="hidden" {name} {value} />
       {/each}
-      <button type="submit">Mark all {m.markableNewCount} filtered as read</button>
+      <button type="submit" disabled={!ready}>Mark all {m.markableNewCount} filtered as read</button
+      >
     </form>{/if}{#if facets.length > 0}
     <div class="spam-facets muted">
       {#each facets as c, i (c.token)}{#if i > 0}{" "}{/if}<a

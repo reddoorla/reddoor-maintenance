@@ -20,9 +20,16 @@ Merging 1a changes nothing a visitor sees.
 
 **Instruments, and their proof.**
 
-- **The parity harness** (`cockpit/tests/_helpers/parity.ts`) renders the old renderer and the new page from the same input and compares canonical lines: tag, sorted decoded attributes, decoded text with whitespace runs collapsed. Layout-insignificant whitespace is dropped (beside a block element, inside table and list structure); whitespace between inline elements is still compared. Each page's parity test also checks that a one-character change is seen.
-  - The harness began too loose in one place and too strict in another. Svelte's `<!--[-->` markers split one whitespace run into several text nodes, so the middle ones escaped the block rule. Three forks each worked around this in their own markup until the harness merged adjacent runs; after that change all 94 parity tests still pass.
-  - Parity caught two real defects the forks introduced, both from Svelte trimming whitespace at the edge of an `{#if}`: "Caltex —summary" in the Recently lane, and "~48m· view run" / "timed outrun" in the fleet-refresh rows (the latter caught by a DOM test).
+- **The parity harness** (`cockpit/tests/_helpers/parity.ts`) renders the old renderer and the new page from the same input and compares two things.
+  - **Structure:** canonical lines of tag, sorted decoded attributes, and decoded text with whitespace runs collapsed.
+  - **Text flow:** the text a reader sees, with HTML whitespace collapsed across inline boundaries and a line break at each block boundary. Textarea and pre-wrap text is compared verbatim, and a no-break space stays distinct.
+
+  Each page's parity test also checks that a one-character change is seen, and `cockpit/tests/harness/` proves the harness on 17 known-good and known-bad pairs.
+
+- **The harness was wrong twice before it was right.**
+  - Svelte's `<!--[-->` markers split one whitespace run into several text nodes, and the middle ones escaped the block rule. Three forks each worked around this in their own markup before the harness merged adjacent runs.
+  - It trimmed whitespace at the edge of every element, inline ones included, so it could not see review round 1's first major. The submissions heading read "Form submissions (30)— showing 25 of 30": Svelte had dropped the space inside `<span class="muted"> — showing…</span>`. Keeping edge whitespace everywhere was too strict the other way: it failed on `inline-flex` clusters, and on a label's trailing space next to another space, neither of which renders. The text-flow comparison is the fix. It catches the lost space (proved by putting the bug back) and forgives the collapsing ones. The same round found that it collapsed textarea and pre-wrap text and treated `&nbsp;` as a space, both now covered by the self-test.
+- **Parity caught two defects the forks introduced**, both from Svelte trimming whitespace at the edge of an `{#if}`: "Caltex —summary" in the Recently lane, and "~48m· view run" / "timed outrun" in the fleet-refresh rows (the latter caught by a DOM test).
 - **DOM tests** mount each page in happy-dom, click, and assert the exact `fetch` (URL, method, headers, body) and the resulting DOM: approve, unapprove, override, withdraw, rerender, Trigger Renovate, the site-details editor, commentary, submission status, the bulk mark-read confirm, the audit run form, and the fleet audit with its polling and its resume-on-reload from localStorage. Mounted data goes through a JSON round trip first, which is stricter than SvelteKit's `devalue`.
 - **Hand mutations.** Every behaviour test was turned red by a hand mutation: 17 on `/`, 18 on `/s/:slug`, 12 of 13 on `/submissions` and `/audits`. The one survivor was equivalent: trimming a `type=url` value the browser already trims.
 - **The brief's three step-1 mutations** all went red:
@@ -32,10 +39,22 @@ Merging 1a changes nothing a visitor sees.
 
 **How it was built.** I wrote the shell, hook, loaders, harness and the `/fleet` port. Three forks ported `/`, `/s/:slug`, and `/submissions` plus `/audits` in parallel, in one worktree, each in its own directories. Two of them each wrote a submission-row component; the one that decides every string on the server was kept, and `/submissions` now uses it. The kept component was re-proved under the `/submissions` tests before the other was deleted.
 
+**Review round 1** (one manual pass: the lens agents could not be spawned from the review agent) found two majors, both fixed.
+
+- **The lost space**, above.
+- **The bulk mark-read form had no confirm until Svelte hydrated.** The old inline `onsubmit` held from first paint. A click before hydration, or with the script blocked, would have posted a fleet-bucket mark-read unconfirmed. The button is now server-rendered disabled and enabled on mount. Parity pins it (removing the guard turns it red). The audit Run button got the same guard, since a submit before hydration would have fallen back to a native GET carrying the prospect's URL.
+
+Folded in from the same round:
+
+- The commentary editor's baseline now normalises stored CR LF the way a textarea does. Before, a focus and blur with no edit reposted and rewrote stored CRLF text. A new DOM test was red before the fix.
+- The db helper moved to `cockpit/src/lib/server/db.ts`, where SvelteKit refuses a client import.
+
+**A gate the refactor would have blinded.** `tests/db/query-plans.test.ts` gates request-path queries by walking imports out from `netlify/functions/`. Its vacuity guard failed once the loaders moved, because `getSiteBySlug`'s importer became `page-data.ts`. The walk is transitive, so coverage held. The guard now names the real path, and the walk also starts from `cockpit/src/**/*.ts`, which after the cutover is a request path too.
+
 **What remains, deliberately.**
 
 - **The old renderers and their inline scripts are still live** until 1b, which deletes them with the five HTML page functions. The confirm texts and two submission rules the app needs moved first to `report-confirm.ts` and `submission-rules.ts`, so the cutover deletes no module the app imports.
-- **Two intentional differences from the old pages:**
-  - The bulk mark-read form's inline `onsubmit="return confirm(…)"` is a Svelte handler with the same text.
-  - The audit panel's Reload button's inline `onclick` is a handler.
+- **Intentional differences from the old pages:**
+  - The bulk mark-read confirm and the audit panel's Reload button are Svelte handlers, not inline attributes.
+  - The mark-read and Run audit buttons stay disabled until those handlers exist. With JS blocked, they cannot submit at all, where the old Run form fell back to a GET and the old bulk form still asked.
 - **SvelteKit's form-origin check** will refuse the proxied `/submissions` POST until 1b adds the dashboard origin to `csrf.trustedOrigins`.

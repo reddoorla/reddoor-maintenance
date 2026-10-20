@@ -16,8 +16,14 @@ import { model } from "./fixtures.js";
 
 const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
 
+/** The old page, with its two intended differences applied: the inline
+ *  `onsubmit` confirm became a Svelte handler (the DOM tests cover it), and the
+ *  bulk button is server-rendered disabled until that handler is attached, so
+ *  it can never post unconfirmed (review round 1). */
 function oldBody(m: SubmissionsPageModel): string {
-  return bodyOf(renderSubmissionsPageHtml(m, "op@example.com")).replace(/ onsubmit="[^"]*"/g, "");
+  return bodyOf(renderSubmissionsPageHtml(m, "op@example.com"))
+    .replace(/ onsubmit="[^"]*"/g, "")
+    .replace('<button type="submit">Mark all', '<button type="submit" disabled>Mark all');
 }
 
 const CASES: Array<[string, Partial<SubmissionsPageModel>]> = [
