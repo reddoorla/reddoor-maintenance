@@ -29,15 +29,21 @@ const run = (cwd, env, args) =>
 // pointing it at the empty tree drops them. Older git ignores the variable, so it is set only
 // where it works. $GIT_DIR/info/attributes is still read: neither this nor
 // core.attributesFile turns it off (checked with git 2.43).
+
+/** True when this git reads attributes from GIT_ATTR_SOURCE (2.40 and later). */
+export function gitAttrSourceWorks(cwd = REPO) {
+  const [major, minor] = (run(cwd, GIT_ENV, ["--version"]).match(/(\d+)\.(\d+)/) ?? [])
+    .slice(1)
+    .map(Number);
+  return major > 2 || (major === 2 && minor >= 40);
+}
+
 const envs = new Map();
 function envFor(cwd) {
   if (!envs.has(cwd)) {
     const env = { ...GIT_ENV };
     delete env.GIT_ATTR_SOURCE;
-    const [major, minor] = (run(cwd, env, ["--version"]).match(/(\d+)\.(\d+)/) ?? [])
-      .slice(1)
-      .map(Number);
-    if (major > 2 || (major === 2 && minor >= 40)) {
+    if (gitAttrSourceWorks(cwd)) {
       env.GIT_ATTR_SOURCE = run(cwd, env, ["hash-object", "-t", "tree", "/dev/null"]).trim();
     }
     envs.set(cwd, env);

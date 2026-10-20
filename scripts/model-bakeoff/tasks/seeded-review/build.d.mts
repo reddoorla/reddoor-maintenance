@@ -7,3 +7,4 @@ export function buildCases(
   repo?: string,
 ): { case: string; kind: string; commit: string; path: string }[];
 export function haveHistory(key?: unknown): boolean;
+export function gitAttrSourceWorks(cwd?: string): boolean;

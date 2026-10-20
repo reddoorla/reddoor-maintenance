@@ -8,6 +8,7 @@ import * as review from "../../scripts/model-bakeoff/tasks/seeded-review.mjs";
 import {
   buildCases,
   cleanDiff,
+  gitAttrSourceWorks,
   haveHistory,
 } from "../../scripts/model-bakeoff/tasks/seeded-review/build.mjs";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -115,8 +116,10 @@ describe("seeded-review key", () => {
       try {
         const clone = join(root, "r");
         execFileSync("git", ["clone", "-q", "--shared", "--no-checkout", REPO_ROOT, clone]);
-        // Each of these alone turns every case's diff into "Binary files differ".
-        writeFileSync(join(clone, ".gitattributes"), "*.ts -diff\n");
+        // Each of these alone turns every case's diff into "Binary files differ". A
+        // checkout's own .gitattributes can only be ignored where git honours
+        // GIT_ATTR_SOURCE (2.40 and later; stock macOS ships 2.39), so it is tried only there.
+        if (gitAttrSourceWorks()) writeFileSync(join(clone, ".gitattributes"), "*.ts -diff\n");
         writeFileSync(join(root, "attrs"), "*.ts -diff\n");
         execFileSync("git", ["-C", clone, "config", "core.attributesFile", join(root, "attrs")]);
         const out = join(root, "out");
