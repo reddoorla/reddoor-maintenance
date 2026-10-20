@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,6 +229,11 @@ describe("parseArgs", () => {
     );
     expect(() => parseArgs(["--backlog", "../BACKLOG.md"])).toThrow(/relative to the repo root/);
     expect(parseArgs(["--backlog", ".backlog/BACKLOG.md"]).backlog).toBe(".backlog/BACKLOG.md");
+  });
+  it("refuses an absolute --backlog at parse time, not later in git show (#1457)", () => {
+    expect(() => parseArgs(["--backlog", "/home/op/repo/docs/BACKLOG.md"])).toThrow(
+      /--backlog \/home\/op\/repo\/docs\/BACKLOG\.md: give the path relative to the repo root, not an absolute path/,
+    );
   });
   it("refuses an unknown flag and a missing value", () => {
     expect(() => parseArgs(["--nope"])).toThrow(/unknown/);
@@ -591,14 +596,16 @@ describe("the CLI, run on a real repository", () => {
   afterAll(() => {
     for (const r of roots) rmSync(r, { recursive: true, force: true });
   });
-  // Neither the host's git config nor an inherited GIT_DIR may reach the fixture: a global
-  // commit.gpgsign broke every commit, and an inherited GIT_DIR wrote into the caller's repo.
-  const ISOLATED: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_NOSYSTEM: "1",
+  // Neither the host's git config nor an inherited GIT_* variable may reach the fixture: a
+  // global commit.gpgsign broke every commit, an inherited GIT_DIR wrote into the caller's
+  // repo, and an inherited GIT_OBJECT_DIRECTORY wrote the fixture's objects into a foreign
+  // store (#1457). So every GIT_* key goes, and only then are the two config variables set.
+  const isolated = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+    const env = { ...base };
+    for (const k of Object.keys(env)) if (k.startsWith("GIT_")) delete env[k];
+    return { ...env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   };
-  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) delete ISOLATED[k];
+  const ISOLATED = isolated(process.env);
   const git = (cwd: string, args: string[], at?: string) => {
     const env = at ? { ...ISOLATED, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : ISOLATED;
     const r = spawnSync("git", args, { cwd, encoding: "utf-8", env });
@@ -674,6 +681,31 @@ describe("the CLI, run on a real repository", () => {
     expect(text.split("\n")[0]).toMatch(/^EVENING_BRANCHES_SUMMARY asks=1 .* scanned=1 /);
     expect(text).toContain("- claude/held (no PR, 1 line(s)");
     expect(text).toContain(`L7: ${branchAsk[0]}`);
+  });
+
+  it("strips every inherited GIT_* key before it sets the two config variables (#1457)", () => {
+    expect(isolated({ GIT_CONFIG_GLOBAL: "/x", GIT_DIR: "/y", HOME: "/h" })).toEqual({
+      HOME: "/h",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    });
+  });
+
+  it("an inherited GIT_OBJECT_DIRECTORY does not reach the fixture's git (#1457)", () => {
+    const dir = fixture();
+    const foreign = mkdtempSync(join(tmpdir(), "evening-branches-foreign-objects-"));
+    roots.push(foreign);
+    writeFileSync(join(dir, "probe.txt"), "probe\n");
+    const r = spawnSync("git", ["hash-object", "-w", "probe.txt"], {
+      cwd: dir,
+      encoding: "utf-8",
+      env: isolated({ ...process.env, GIT_OBJECT_DIRECTORY: foreign }),
+    });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(readdirSync(foreign)).toEqual([]);
+    const sha = r.stdout.trim();
+    expect(git(dir, ["cat-file", "-t", sha]).trim()).toBe("blob");
   });
 
   it("the summary line names the backlog as given, relative to the repo root, from any cwd (#1349)", () => {
