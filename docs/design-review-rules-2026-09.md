@@ -130,7 +130,7 @@ own words. The two lists disagree.
    catch them**, not a reason to drop them.
 
 Ranking by one kind of evidence alone would bury the other kind. Both kinds belong in the gate, for the two
-reasons above. Which to encode first is the operator's call; see "Asks" at the end.
+reasons above. The operator chose on 2026-10-20 to encode the never-reviewed kind first; see "Answered 2026-10-20" at the end.
 
 Guide, single-site and seen-once rules, counted the same way:
 
@@ -712,54 +712,209 @@ The issue's seed rule.
   heights: vida #74 notes that `min-h` guarantees the boxes either way. **Fully testable.**
 - **False-positive risk:** medium. Some boards are deliberately ragged, and vida #74 says nobody decided on that grid's alignment. Rows need an opt-in.
 
+## The ranked rules, continued: the second pass (accepted by the operator, 2026-10-20)
+
+The operator decided all 34 second-pass candidates on 2026-10-20, four to a question (his answers: [the workspace markup](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-20-design-review-rules-markup/markup.md)). These are the 26 he accepted, N162 as he edited it, and N4, which he revived from the contested list. They join the numbered list above, ranked by reviewer events. Each keeps its candidate ID, so no ID changes. Where the rest went:
+
+- N161 is absorbed into N162.
+- M63, M53 and N11 moved to "Rules for the written guide".
+- N94 moved to "Single-site rules".
+- M6 and N111 were cut.
+
+### N19. Repeated components are built once: every card, pill, carousel control set, thumbnail, filter bar or header renders identically (size, spacing, inset, border, radius, fill, part order, behaviour) on every page, in every state and at every breakpoint, unless the comp names a variant.
+
+**32 events on 14 sites.** The evidence is under N19 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Group elements by component identity and diff computed styles across instances, pages, scroll states and 390/768/1440; flag outliers. **Partly testable.**
+
+### N17. Every button of one type renders the site's one style for that type (shape, radius, fill, outline, label colour and case, icon and gap), and a fix to one instance reaches all of them.
+
+**14 events on 8 sites.** The evidence is under N17 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Fingerprint the computed styles of every button and CTA link; flag singletons and near-duplicates that differ from a larger cluster in one property. **Partly testable.**
+
+### N1. Spacing shows grouping: a heading, lead-in or CTA sits measurably closer to what it belongs to than to the neighbouring block, so the gap above a section heading is larger than the gap below it.
+
+**13 events on 9 sites.** The evidence is under N1 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Measure the painted gap above and below every heading and section-final CTA; flag gap-above ≤ gap-below. **Partly testable.**
+
+### N20. Pages or pop-ups built from one template share their header geometry at every breakpoint: masthead height, title position and alignment, and the line the content starts on.
+
+**13 events on 7 sites.** The evidence is under N20 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Group routes by template; at 390 and 1440 measure masthead height and title box; flag outliers over 4px or a different alignment. **Partly testable.**
+
+### N10. Every interactive control looks different hovered and at rest, and selected, active and disabled states are visibly distinct wherever they exist (R17 governs how the states behave; this governs that they exist).
+
+**10 events on 5 sites.** The evidence is under N10 in `claude-skills` `design-review-corpus/evidence.md`. N11's process half moved to the written guide: review checks every drawn state, and N10 scripts that the states exist.
+
+- **Check:** Force :hover through CDP and diff computed colour, background, border, decoration, opacity, transform and shadow against rest; flag no change. **Partly testable.**
+
+### N21. Sibling media in one set (logo wall, team grid, gallery, section videos) share one treatment (duotone, tint, overlay, shadow, edge), and an item added later gets it too.
+
+**9 events on 5 sites.** The evidence is under N21 in `claude-skills` `design-review-corpus/evidence.md`. It also covers the contested M92 (a newly added image gets the site's established treatment), as the question to the operator said.
+
+- **Check:** Compare filter, blend mode, overlay and shadow across siblings; for treatments baked into files, compare saturation and hue histograms. **Partly testable.**
+
+### N4. A page's primary action sits in the first screen at a common laptop size
+
+**8 events on 4 sites**, half of them one Hedloc thread. Cut on 2026-09-29 ("CTAs above the fold"), contested on 2026-09-30, and **revived by the operator on 2026-10-20**. The question cited two asks from Erik for above-the-fold buttons on Hedloc, on 2026-08-10 and 2026-10-20. Both dates came from that session's brief, and that session found neither message in the workspace or this repo. If the 10-20 ask is real, it is newer than the corpus, so it is a ninth event the count leaves out.
+
+- **Check:** at 1440×900 and at a common laptop height, the page's primary CTA (the one N136 styles primary) sits inside the first viewport. The second size is to be named when the check is built. **Partly testable**, because which CTA is primary needs N136's fingerprint.
+
+### N43. Every carousel or self-advancing sequence can be stepped by hand in both directions and shows the viewer's position; an indicator that looks clickable is clickable.
+
+**7 events on 4 sites.** The evidence is under N43 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Assert visible previous, next and position controls at each breakpoint; click each and assert the slide changes. **Partly testable.**
+
+### N158. Anything clickable signals it at rest, not only on hover, and says what it opens; a hover-revealed menu or expander shows a resting cue.
+
+**7 events on 4 sites.** The evidence is under N158 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Linked cards, tiles and hotspots need a visible label, CTA or icon at rest; hover-reveal menus need a visible trigger. **Partly testable.**
+
+### N5. The first view never reads as the whole page: a full-viewport opener shows the top of the next section, a scroll cue, or a reveal that plays on its own.
+
+**6 events on 6 sites.** The evidence is under N5 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** At 1440×900 and 390×844, if the first section fills the viewport, require a visible cue or an automatic reveal within 3 s. **Partly testable.**
+
+### N162. A hero or background video paints a still poster at once, and the same poster when playback is blocked; the video stays under 5 MB; slow page media gets a designed loading state
+
+**6 events on 4 sites, plus N161's 3 on 2.** The operator's edit of 2026-10-20 folds N161 ("a background video that cannot play rests on a designated poster frame, never a blank box, alt text or player error") into this rule, so it is one video rule. The evidence is under N162 and N161 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:**
+  - Record each video's transfer size and time-to-first-frame on a throttled run; fail a video over 5 MB, and a first paint with no poster.
+  - Load with autoplay blocked and screenshot: the video's box shows its poster frame, never a blank box, alt text or a player error.
+
+  **Partly testable.** Whether a loading state is "designed" is judgment.
+
+### N159. An element's look matches what it does: nothing static wears a control's styling, and each control reads as its type (a field as a field, a tab as a tab).
+
+**5 events on 4 sites.** The evidence is under N159 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Flag static elements whose style fingerprint matches a button, and inputs with neither fill nor box. **Partly testable.**
+
+### M27. Wherever an item that has its own page appears (a card, a feature, a label on a map), its image, name and CTA link to that page at every width.
+
+**5 events on 3 sites.** The evidence is under M27 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** For every listed item, compare the hrefs of its image, title and CTA with the item's own route at 390 and 1440. **Partly testable.**
+
+### N7. Content inside a painted or bordered box keeps an even inset in every state: left matches right, and the bottom inset is never tighter than the top.
+
+**4 events on 4 sites.** The evidence is under N7 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Compare content ink bounds with the box edges at rest, hover and open; flag differences over 2px. **Partly testable.**
+
+### N150. On first load the header shows the full logo lockup at every breakpoint; it condenses to the mark only after scrolling.
+
+**4 events on 3 sites.** The evidence is under N150 in `claude-skills` `design-review-corpus/evidence.md`. It also covers the contested N151 (words inside a rendered logo stay legible), as the question to the operator said.
+
+- **Check:** At 390 and 1440 on load, assert a visible full-lockup logo. **Fully testable.**
+
+### N54. A CMS-fed listing renders exactly the entries authored for its route, in order, on a fresh load and after client-side navigation.
+
+**4 events on 2 sites.** The evidence is under N54 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Compare the CMS query for the route with the rendered item IDs, both ways of arriving. **Partly testable.**
+
+### N6. A downward scroll cue is a real control: activating it brings the next section into view.
+
+**4 events on 2 sites.** The evidence is under N6 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Assert each cue is focusable and that activating it scrolls the next section to the top. **Partly testable.**
+
+### N92. Every overlay (modal, pop-up, lightbox, opened menu) shows a visible, named close control that dismisses it.
+
+**4 events on 3 sites.** The evidence is under N92 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Open each overlay; assert a visible close control with an accessible name that closes it. **Fully testable.**
+
+### N53. CMS rich text takes its spacing from the prose style: one paragraph gap everywhere, and images in the body get margins.
+
+**3 events on 3 sites.** The evidence is under N53 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Measure gaps between consecutive blocks in every rich-text container; flag zero gaps, spacer elements and differences between containers. **Partly testable.**
+
+### N133. Every page renders and behaves the same in WebKit (desktop and iOS Safari) as in Chromium.
+
+**3 events on 3 sites.** The evidence is under N133 in `claude-skills` `design-review-corpus/evidence.md`. The gate gains a WebKit project for it.
+
+- **Check:** Screenshot each page in both engines at the same viewport and diff, with a font-rendering tolerance. **Partly testable.**
+
+### N136. Where several CTAs share a view, exactly one is styled primary.
+
+**3 events on 3 sites.** The evidence is under N136 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Fingerprint the CTAs in each viewport-sized group; flag two primaries or no difference. **Partly testable.**
+
+### N2. Vertical spacing comes from a small per-site scale: sections of one kind share their padding, and every gap is a step of the scale.
+
+**3 events on 3 sites.** The evidence is under N2 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Collect section paddings and inter-block gaps; flag unequal like sections and values off the scale. **Partly testable.**
+
+### N99. An in-page jump link lands on the section it names, and a row of jump links runs in the sections' order.
+
+**3 events on 3 sites.** The evidence is under N99 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Click each anchor and assert the named section's top lands under the fixed bar; compare link order with DOM order. **Partly testable.**
+
+### N30. Entrances are timed to be seen: a reveal lands before its element reaches reading position, and a count-up starts only once fully in view.
+
+**3 events on 3 sites.** The evidence is under N30 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Scroll at a fixed rate and log where each animation starts and ends. **Partly testable.**
+
+### N80. A field's placeholder is visibly muted compared with typed text, and still legible.
+
+**3 events on 3 sites.** The evidence is under N80 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Compare ::placeholder colour and opacity with the input's text colour. **Fully testable.**
+
+### N157. The header's primary actions (book, pay, apply, donate) are buttons grouped at the trailing end of the nav, distinct from page links.
+
+**3 events on 3 sites.** The evidence is under N157 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Classify nav items by target; assert action items are last and button-styled. **Partly testable.**
+
+### N8. Every field in one form, textarea and select included, uses the same inner padding.
+
+**2 events on 3 sites.** The evidence is under N8 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Compare computed padding of every field in a form; flag differences over 2px. **Fully testable.**
+
+### N29. Entrance motion is systematic: elements of one kind share one entrance treatment, and none of a kind is left static.
+
+**2 events on 2 sites.** The evidence is under N29 in `claude-skills` `design-review-corpus/evidence.md`.
+
+- **Check:** Group elements by kind; flag mixed entrance treatments within a kind. **Partly testable.**
+
 ---
 
-## New candidate rules from the second pass (awaiting accept/cut)
+## New candidate rules from the second pass (decided 2026-10-20)
 
-These are the clusters of NEW instances that survived both refuters (evidence and generality) in round 4. The
-verbatim evidence is under each ID in `claude-skills` `design-review-corpus/evidence.md`. Events are counted as
-above, by the evidence refuter after collapsing repeats. None is ranked into the numbered list until the operator accepts it.
+These were the clusters of NEW instances that survived both refuters (evidence and generality) in round 4, counted by the evidence refuter after collapsing repeats. The verbatim evidence is under each ID in `claude-skills` `design-review-corpus/evidence.md`.
 
-| ID   | Rule                                                                                                                                                                                                                                                                                        | Events | Sites | Testable | Check                                                                                                                                                |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| N19  | Repeated components are built once: every card, pill, carousel control set, thumbnail, filter bar or header renders identically (size, spacing, inset, border, radius, fill, part order, behaviour) on every page, in every state and at every breakpoint, unless the comp names a variant. | 32     | 14    | partly   | Group elements by component identity and diff computed styles across instances, pages, scroll states and 390/768/1440; flag outliers.                |
-| N17  | Every button of one type renders the site's one style for that type (shape, radius, fill, outline, label colour and case, icon and gap), and a fix to one instance reaches all of them.                                                                                                     | 14     | 8     | partly   | Fingerprint the computed styles of every button and CTA link; flag singletons and near-duplicates that differ from a larger cluster in one property. |
-| N1   | Spacing shows grouping: a heading, lead-in or CTA sits measurably closer to what it belongs to than to the neighbouring block, so the gap above a section heading is larger than the gap below it.                                                                                          | 13     | 9     | partly   | Measure the painted gap above and below every heading and section-final CTA; flag gap-above ≤ gap-below.                                             |
-| N20  | Pages or pop-ups built from one template share their header geometry at every breakpoint: masthead height, title position and alignment, and the line the content starts on.                                                                                                                | 13     | 7     | partly   | Group routes by template; at 390 and 1440 measure masthead height and title box; flag outliers over 4px or a different alignment.                    |
-| N10  | Every interactive control looks different hovered and at rest, and selected, active and disabled states are visibly distinct wherever they exist (R17 governs how the states behave; this governs that they exist).                                                                         | 10     | 5     | partly   | Force :hover through CDP and diff computed colour, background, border, decoration, opacity, transform and shadow against rest; flag no change.       |
-| N21  | Sibling media in one set (logo wall, team grid, gallery, section videos) share one treatment (duotone, tint, overlay, shadow, edge), and an item added later gets it too.                                                                                                                   | 9      | 5     | partly   | Compare filter, blend mode, overlay and shadow across siblings; for treatments baked into files, compare saturation and hue histograms.              |
-| N43  | Every carousel or self-advancing sequence can be stepped by hand in both directions and shows the viewer's position; an indicator that looks clickable is clickable.                                                                                                                        | 7      | 4     | partly   | Assert visible previous, next and position controls at each breakpoint; click each and assert the slide changes.                                     |
-| N158 | Anything clickable signals it at rest, not only on hover, and says what it opens; a hover-revealed menu or expander shows a resting cue.                                                                                                                                                    | 7      | 4     | partly   | Linked cards, tiles and hotspots need a visible label, CTA or icon at rest; hover-reveal menus need a visible trigger.                               |
-| N5   | The first view never reads as the whole page: a full-viewport opener shows the top of the next section, a scroll cue, or a reveal that plays on its own.                                                                                                                                    | 6      | 6     | partly   | At 1440×900 and 390×844, if the first section fills the viewport, require a visible cue or an automatic reveal within 3 s.                           |
-| N162 | A hero or background video paints a still poster at once and stays small (under 5 MB); slow page media gets a designed loading state.                                                                                                                                                       | 6      | 4     | partly   | Record each video's transfer size and time-to-first-frame on a throttled run.                                                                        |
-| N159 | An element's look matches what it does: nothing static wears a control's styling, and each control reads as its type (a field as a field, a tab as a tab).                                                                                                                                  | 5      | 4     | partly   | Flag static elements whose style fingerprint matches a button, and inputs with neither fill nor box.                                                 |
-| M27  | Wherever an item that has its own page appears (a card, a feature, a label on a map), its image, name and CTA link to that page at every width.                                                                                                                                             | 5      | 3     | partly   | For every listed item, compare the hrefs of its image, title and CTA with the item's own route at 390 and 1440.                                      |
-| M63  | A page never says the same thing twice in one view: no image, block or phrase repeated in the next block or a second section (site chrome and CTAs exempt).                                                                                                                                 | 5      | 5     | partly   | Flag duplicate image sources and duplicate text blocks within one page, and two adjacent sections built from the same component.                     |
-| N7   | Content inside a painted or bordered box keeps an even inset in every state: left matches right, and the bottom inset is never tighter than the top.                                                                                                                                        | 4      | 4     | partly   | Compare content ink bounds with the box edges at rest, hover and open; flag differences over 2px.                                                    |
-| N150 | On first load the header shows the full logo lockup at every breakpoint; it condenses to the mark only after scrolling.                                                                                                                                                                     | 4      | 3     | fully    | At 390 and 1440 on load, assert a visible full-lockup logo.                                                                                          |
-| N54  | A CMS-fed listing renders exactly the entries authored for its route, in order, on a fresh load and after client-side navigation.                                                                                                                                                           | 4      | 2     | partly   | Compare the CMS query for the route with the rendered item IDs, both ways of arriving.                                                               |
-| N6   | A downward scroll cue is a real control: activating it brings the next section into view.                                                                                                                                                                                                   | 4      | 2     | partly   | Assert each cue is focusable and that activating it scrolls the next section to the top.                                                             |
-| M6   | A legibility aid over media (scrim, gradient, shadow) is no heavier than R3 needs: one aid, not two, and none where no text sits on the media.                                                                                                                                              | 4      | 3     | partly   | Run R3 with and without each aid; flag aids whose removal still passes (over-darkening) and stacked aids.                                            |
-| N94  | A disclosure toggle stays in place when its content opens; the opener becomes the closer in the same spot.                                                                                                                                                                                  | 4      | 1     | fully    | Record the toggle's box, click, and assert the close control occupies the same box within 4px.                                                       |
-| N92  | Every overlay (modal, pop-up, lightbox, opened menu) shows a visible, named close control that dismisses it.                                                                                                                                                                                | 4      | 3     | fully    | Open each overlay; assert a visible close control with an accessible name that closes it.                                                            |
-| N111 | Media beside text sits on a declared line of that text, measured on ink (by default the top of the heading); an offset matching neither line is a defect.                                                                                                                                   | 3      | 3     | partly   | In two-column rows compare the text's ink top (or centre) with the media's; flag 1–8px offsets.                                                      |
-| N53  | CMS rich text takes its spacing from the prose style: one paragraph gap everywhere, and images in the body get margins.                                                                                                                                                                     | 3      | 3     | partly   | Measure gaps between consecutive blocks in every rich-text container; flag zero gaps, spacer elements and differences between containers.            |
-| N133 | Every page renders and behaves the same in WebKit (desktop and iOS Safari) as in Chromium.                                                                                                                                                                                                  | 3      | 3     | partly   | Screenshot each page in both engines at the same viewport and diff, with a font-rendering tolerance.                                                 |
-| N136 | Where several CTAs share a view, exactly one is styled primary.                                                                                                                                                                                                                             | 3      | 3     | partly   | Fingerprint the CTAs in each viewport-sized group; flag two primaries or no difference.                                                              |
-| N2   | Vertical spacing comes from a small per-site scale: sections of one kind share their padding, and every gap is a step of the scale.                                                                                                                                                         | 3      | 3     | partly   | Collect section paddings and inter-block gaps; flag unequal like sections and values off the scale.                                                  |
-| N99  | An in-page jump link lands on the section it names, and a row of jump links runs in the sections' order.                                                                                                                                                                                    | 3      | 3     | partly   | Click each anchor and assert the named section's top lands under the fixed bar; compare link order with DOM order.                                   |
-| N30  | Entrances are timed to be seen: a reveal lands before its element reaches reading position, and a count-up starts only once fully in view.                                                                                                                                                  | 3      | 3     | partly   | Scroll at a fixed rate and log where each animation starts and ends.                                                                                 |
-| N161 | A background video that cannot play rests on a designated poster frame, never a blank box, alt text or player error.                                                                                                                                                                        | 3      | 2     | partly   | Load with autoplay blocked and screenshot.                                                                                                           |
-| N80  | A field's placeholder is visibly muted compared with typed text, and still legible.                                                                                                                                                                                                         | 3      | 3     | fully    | Compare ::placeholder colour and opacity with the input's text colour.                                                                               |
-| N157 | The header's primary actions (book, pay, apply, donate) are buttons grouped at the trailing end of the nav, distinct from page links.                                                                                                                                                       | 3      | 3     | partly   | Classify nav items by target; assert action items are last and button-styled.                                                                        |
-| M53  | Secondary UI and decoration (utility icons, badges, pills behind numbers, buttons over imagery) stay quieter than the content they serve.                                                                                                                                                   | 3      | 3     | judgment | Guide rule; no script check.                                                                                                                         |
-| N8   | Every field in one form, textarea and select included, uses the same inner padding.                                                                                                                                                                                                         | 2      | 3     | fully    | Compare computed padding of every field in a form; flag differences over 2px.                                                                        |
-| N11  | Every hover or click state the comp draws is built and checked against that drawn state, not only the page at rest.                                                                                                                                                                         | 2      | 2     | partly   | Enumerate the comp's interactive variants and diff each live state against it.                                                                       |
-| N29  | Entrance motion is systematic: elements of one kind share one entrance treatment, and none of a kind is left static.                                                                                                                                                                        | 2      | 2     | partly   | Group elements by kind; flag mixed entrance treatments within a kind.                                                                                |
+The operator decided all 34 on 2026-10-20 ([the workspace markup](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-20-design-review-rules-markup/markup.md)):
 
-**Contested.** One refuter killed each of these and the other let it stand. They are listed so the operator can revive any of them:
+| Outcome                        | IDs                                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Accepted (26)                  | N19, N17, N1, N20, N10, N21, N43, N158, N5, N159, M27, N7, N150, N54, N6, N92, N53, N133, N136, N2, N99, N30, N80, N157, N8, N29 |
+| Accepted as edited (1)         | N162, which absorbs N161                                                                                                         |
+| Absorbed (1)                   | N161, into N162                                                                                                                  |
+| Moved to the written guide (3) | M63, M53, N11                                                                                                                    |
+| Moved to single-site (1)       | N94                                                                                                                              |
+| Cut (2)                        | M6, N111 (under "Killed" below)                                                                                                  |
 
-- **N4** (8 events, 4 sites): a page's primary action sits in the first screen at a common laptop size. **Previously cut** ("CTAs above the fold"), and now back with this evidence; half of it is one Hedloc thread.
+The accepted rules, with their checks, are in "The ranked rules, continued" above.
+
+**Contested.** One refuter killed each of these and the other let it stand. They are listed so the operator can revive any of them. On 2026-10-20 only N4 was put to him, and he revived it. The others stay unrevived; M92 is covered by N21 and N151 by N150, as the questions said:
+
+- **N4** (8 events, 4 sites): a page's primary action sits in the first screen at a common laptop size. **Previously cut** ("CTAs above the fold"), and now back with this evidence; half of it is one Hedloc thread. **Revived by the operator, 2026-10-20**; it is in the numbered list.
 - **N75** (6 events, 5 sites): text of one kind (nav items, buttons, form labels, one heading level) uses one case and one terminal punctuation everywhere. Guide rule at most.
 - **M16** (5 events, 4 sites): a summary or key statement is never set in a caption or footnote style weaker than the text it sums up.
 - **N110** (4 events, 1 site): every route carries the site's designed ground (colour and texture) on body, header and nav. The overscroll half belongs under R19; the rest is reddoor-website only.
@@ -793,6 +948,11 @@ above, by the evidence refuter after collapsing repeats. None is ranked into the
 - The 404 route (N100) and the featured active item (N106) gathered too few items to reach the refuters.
 - Only CTAs above the fold (N4) came back contested, as listed above.
 
+**Cut by the operator, 2026-10-20**, both against the session's pick to accept:
+
+- **M6** (4 events, 3 sites): a legibility aid over media (scrim, gradient, shadow) is no heavier than R3 needs: one aid, not two, and none where no text sits on the media.
+- **N111** (3 events, 3 sites): media beside text sits on a declared line of that text, measured on ink (by default the top of the heading); an offset matching neither line is a defect.
+
 ## Single-site rules (kept by the operator, 2026-09-29)
 
 Each is evidenced mainly on one site. The operator kept these six and cut three: the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
@@ -816,6 +976,9 @@ Each is evidenced mainly on one site. The operator kept these six and cut three:
 - **Modals are centred, keep a side gutter, scroll-lock the page, and show a cue when the sheet scrolls.** Seen on the starter and on vida
   (reddoor-starter #142: "the open modal's gaps were **16px left and 737px right**"; vida #28, #43).
   _Fully testable_ (`tests/interaction/modal-centring.spec.ts` exists in both starters). This could be promoted to the main list.
+- **N94. A disclosure toggle stays in place when its content opens; the opener becomes the closer in the same spot.** All 4
+  events are on one site, so the operator made it single-site on 2026-10-20, with its spec in that site's repo.
+  _Fully testable:_ record the toggle's box, click, and assert the close control occupies the same box within 4px.
 
 ## Rules for the written guide (judgment-only, or about the process rather than the page)
 
@@ -845,6 +1008,14 @@ These go in the starter's written guide, per #674. A model can read them but can
 - **Icon strokes match the weight of the type beside them.** Seen on reddoor-website #42 and #166.
 - **Alignment and size are judged on painted ink, not CSS boxes.** Seen on the-pointe (Nicole, meta-week `04-journal:868`: "equal width
   in that row is not equal size to the eye") and reddoor-website `commits.jsonl:1968` ("centre step numerals on their ink").
+- **M63. A page never says the same thing twice in one view:** no image, block or phrase repeated in the next block or a
+  second section (site chrome and CTAs exempt). 5 events on 5 sites. The operator moved it here on 2026-10-20, because a
+  script would flag intentional repeats. The duplicate scan (duplicate image sources and text blocks within one page, two
+  adjacent sections built from one component) may run as a flag only, never as a gate.
+- **M53. Secondary UI and decoration stay quieter than the content they serve:** utility icons, badges, pills behind
+  numbers, buttons over imagery. 3 events on 3 sites. Judgment only, no script (the operator, 2026-10-20).
+- **N11. Review checks every hover or click state the comp draws against that drawn state**, not only the page at rest.
+  2 events on 2 sites. A process rule (the operator, 2026-10-20); N10 scripts that the states exist.
 
 ## Seen once (kept by the operator, 2026-09-29)
 
@@ -908,15 +1079,13 @@ The operator kept five of the sixteen and left the rest.
   `focus-floor.test.ts` (roalson). Each is one site's version of a rule above, and a ready-made fixture for
   "fails on a real past page".
 
-## Asks for the operator (2026-09-30)
+## Answered 2026-10-20
 
-1. **Accept or cut the 34 new candidates** in "New candidate rules from the second pass", and revive any contested one
-   you want. Evidence for each is under its ID in `claude-skills` `design-review-corpus/evidence.md`.
-2. **Ordering.** Which kind of rule gets encoded first: the ones reviewers enforce by eye (R21, R1, R3, R15 lead),
-   or the ones nobody reviews (R2, R4, R9, R12)? The numbered order above predates this evidence. The IDs stay
-   stable either way.
-3. **N4, "CTAs above the fold"**: cut on 2026-09-29, now back with 8 events on 4 sites, half of them one Hedloc
-   thread. Keep it cut, or revive it?
+The three asks of 2026-09-30 were put to the operator with AskUserQuestion on 2026-10-20. His answers are in [the workspace markup](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-20-design-review-rules-markup/markup.md), and the decision is workspace `decisions/2026-09-29-0653-od-18-standing-product-calls.md`.
+
+1. **The 34 candidates:** 26 accepted, N162 edited to absorb N161, M63, M53 and N11 moved to the written guide, N94 made single-site, and M6 and N111 cut. See "New candidate rules from the second pass (decided 2026-10-20)".
+2. **Ordering: the never-reviewed rules first.** R2 (reduced motion), R4 (no-JS visibility), R9 (heading levels) and R12 (focus ring) are encoded before R21, R1, R3 and R15. The IDs stay stable.
+3. **N4, "CTAs above the fold": revived.** It is in the numbered list with its check.
 
 To refresh the corpus, see `design-review-corpus/README.md` in `claude-skills`: four scripts, with credentials
 taken from the environment.
