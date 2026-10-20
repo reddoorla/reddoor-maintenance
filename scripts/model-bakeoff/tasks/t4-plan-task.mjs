@@ -216,8 +216,9 @@ export function refereeEvidence(result, repo, testFile) {
 export const GATES = ["typecheck", "lint", "suite", "own-tests", "scope"];
 
 // The plan asks for its unit tests: the agent's own test file must exist and run, at least one
-// test passing and none failing, before the plan's version replaces it. A todo or pending test is
-// neither.
+// test passing and none failing, before the plan's version replaces it. A todo test is neither.
+// Not "pending": vitest's JSON reporter writes that for a test that never finished (run, only,
+// queued).
 export function ownTestsPass(report) {
   const files = report?.testResults || [];
   const tests = files.flatMap((f) => f.assertionResults || []);
@@ -225,7 +226,7 @@ export function ownTestsPass(report) {
     files.length > 0 &&
     files.every((f) => f.status === "passed") &&
     tests.some((t) => t.status === "passed") &&
-    tests.every((t) => ["passed", "skipped", "todo", "pending"].includes(t.status))
+    tests.every((t) => ["passed", "skipped", "todo"].includes(t.status))
   );
 }
 
@@ -368,13 +369,14 @@ export function changedOrFlood(base, tree, list = changedFiles) {
 }
 
 // Copies the plan's files from the agent's repo into `to`; any that is missing, not a regular file,
-// or reached through a symlinked directory outside the repo is removed from `to` instead.
+// or reached through a symlinked directory outside the repo is removed from `to` instead. A missing
+// repo (the agent deleted it) copies nothing, and the arm fails its gates.
 export function copyPlanFiles(repo, to, files = ALLOWED) {
-  const inside = realpathSync(repo) + "/";
+  const inside = existsSync(repo) ? realpathSync(repo) + "/" : null;
   for (const f of files) {
     const src = join(repo, f);
     const st = existsSync(src) ? lstatSync(src) : null;
-    if (st?.isFile() && realpathSync(src).startsWith(inside)) {
+    if (inside && st?.isFile() && realpathSync(src).startsWith(inside)) {
       mkdirSync(dirname(join(to, f)), { recursive: true });
       copyFileSync(src, join(to, f));
     } else rmSync(join(to, f), { force: true });
@@ -429,17 +431,9 @@ export function evaluate({ run: runDir, work, id: armId }) {
   const tree = planTree(root, repo, join(ev, "tree"));
   const held = planTree(root, repo, join(ev, "held"));
   writeFileSync(join(held, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
-  const ok = (r) => r.status === 0;
-  const detail = { changed, outside: scope.outside };
   const check = run(tree, "pnpm", ["check"]);
   const lint = run(tree, "pnpm", ["lint"]);
   const suite = run(tree, "pnpm", ["exec", "vitest", "run"]);
-  detail.typecheck = check.stdout.slice(-1500);
-  detail.lint = (lint.stdout + lint.stderr).slice(-1500);
-  detail.suite = suite.stdout.slice(-1500);
-  for (const [gate, r] of Object.entries({ check, lint, suite })) {
-    if (r.error) detail[`${gate}Error`] = r.error;
-  }
   const own = join(ev, "own-tests.json");
   let ownRun = null;
   if (existsSync(join(tree, HELD_OUT_FILE))) {
@@ -451,11 +445,10 @@ export function evaluate({ run: runDir, work, id: armId }) {
       "--reporter=json",
       `--outputFile=${own}`,
     ]);
-    if (ownRun.error) detail.ownTestsError = ownRun.error;
   }
   const ownReport = readReport(own);
   const out = join(ev, "held-out.json");
-  const h = run(held, "pnpm", [
+  const heldRun = run(held, "pnpm", [
     "exec",
     "vitest",
     "run",
@@ -463,8 +456,34 @@ export function evaluate({ run: runDir, work, id: armId }) {
     "--reporter=json",
     `--outputFile=${out}`,
   ]);
-  if (h.error) detail.heldOutError = h.error;
   const report = readReport(out);
+  return scoreRuns({
+    changed,
+    scope,
+    check,
+    lint,
+    suite,
+    ownRun,
+    ownReport,
+    heldRun,
+    report,
+    held,
+  });
+}
+
+// The gates, held-out results and detail from evaluate's runs: no IO, so a test can hand it runs.
+export function scoreRuns(o) {
+  const { changed, scope, check, lint, suite, ownRun, ownReport, heldRun, report, held } = o;
+  const ok = (r) => r.status === 0;
+  const detail = { changed, outside: scope.outside };
+  detail.typecheck = check.stdout.slice(-1500);
+  detail.lint = (lint.stdout + lint.stderr).slice(-1500);
+  detail.suite = suite.stdout.slice(-1500);
+  for (const [gate, r] of Object.entries({ check, lint, suite })) {
+    if (r.error) detail[`${gate}Error`] = r.error;
+  }
+  if (ownRun?.error) detail.ownTestsError = ownRun.error;
+  if (heldRun.error) detail.heldOutError = heldRun.error;
   return {
     gates: [
       { gate: "typecheck", pass: ok(check) },

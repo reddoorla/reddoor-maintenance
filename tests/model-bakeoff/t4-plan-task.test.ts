@@ -335,6 +335,16 @@ describe("the scorer's git", () => {
   });
 });
 
+// A temp dir for one test, removed afterwards (the flood test writes 4,600 files).
+function withTmp(prefix: string, fn: (dir: string) => void) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("the own-tests gate", () => {
   const report = { testResults: [{ status: "passed", assertionResults: [{ status: "passed" }] }] };
 
@@ -347,88 +357,130 @@ describe("the own-tests gate", () => {
     expect(task.ownTestsGate({ status: 0 }, null)).toBe(false);
   });
 
-  it("accepts a todo or pending test beside a passing one (#1496)", () => {
+  it("accepts a todo test beside a passing one, but not one that never finished (#1496)", () => {
     const file = (tests: string[]) => ({
       testResults: [{ status: "passed", assertionResults: tests.map((status) => ({ status })) }],
     });
     expect(task.ownTestsPass(file(["passed", "todo"]))).toBe(true);
-    expect(task.ownTestsPass(file(["passed", "pending"]))).toBe(true);
     expect(task.ownTestsPass(file(["todo"]))).toBe(false);
+    // vitest's JSON reporter writes "pending" for a test still run, only or queued.
+    expect(task.ownTestsPass(file(["passed", "pending"]))).toBe(false);
+  });
+});
+
+describe("scoring evaluate's runs", () => {
+  const done = { status: 0, stdout: "", stderr: "" };
+  const passing = {
+    testResults: [{ status: "passed", assertionResults: [{ status: "passed" }] }],
+  };
+  const runs = (o: Partial<Parameters<typeof task.scoreRuns>[0]>) =>
+    task.scoreRuns({
+      changed: ["src/lib/actions/hoverActivate.ts"],
+      scope: { pass: true, outside: [] },
+      check: done,
+      lint: done,
+      suite: done,
+      ownRun: done,
+      ownReport: passing,
+      heldRun: done,
+      report: null,
+      held: "/e/held",
+      ...o,
+    });
+  const gate = (r: ReturnType<typeof runs>, g: string) => r.gates.find((x) => x.gate === g)!.pass;
+
+  it("fails own-tests when vitest exits 1 on a passing report (#1496)", () => {
+    expect(gate(runs({}), "own-tests")).toBe(true);
+    expect(gate(runs({ ownRun: { status: 1 } }), "own-tests")).toBe(false);
+  });
+
+  it("records a held-out run that timed out (#1497)", () => {
+    const r = runs({ heldRun: { status: null, error: "ETIMEDOUT" } });
+    expect(r.detail.heldOutError).toBe("ETIMEDOUT");
+    expect(runs({}).detail).not.toHaveProperty("heldOutError");
   });
 });
 
 describe("a vitest JSON report", () => {
-  it("reads as null when it is missing or half-written (#1497)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "t4-report-"));
-    const f = join(dir, "r.json");
-    expect(task.readReport(f)).toBeNull();
-    writeFileSync(f, '{"testResults":[{"status":"pas');
-    expect(task.readReport(f)).toBeNull();
-    writeFileSync(f, '{"testResults":[]}');
-    expect(task.readReport(f)).toEqual({ testResults: [] });
-  });
+  it("reads as null when it is missing or half-written (#1497)", () =>
+    withTmp("t4-report-", (dir) => {
+      const f = join(dir, "r.json");
+      expect(task.readReport(f)).toBeNull();
+      writeFileSync(f, '{"testResults":[{"status":"pas');
+      expect(task.readReport(f)).toBeNull();
+      writeFileSync(f, '{"testResults":[]}');
+      expect(task.readReport(f)).toEqual({ testResults: [] });
+    }));
 });
 
 describe("the scope gate on a flood of changes (#1497)", () => {
-  it("lists more than 1 MiB of untracked paths", () => {
-    const dir = mkdtempSync(join(tmpdir(), "t4-flood-"));
-    const base = join(dir, "base");
-    mkdirSync(base);
-    writeFileSync(join(base, "a.ts"), "a\n");
-    execFileSync("git", ["-C", base, "init", "-q"]);
-    execFileSync("git", ["-C", base, "add", "-A"]);
-    execFileSync("git", [
-      "-C",
-      base,
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "commit",
-      "-qm",
-      "p",
-    ]);
-    const tree = join(dir, "tree");
-    mkdirSync(join(tree, "c"), { recursive: true });
-    writeFileSync(join(tree, "a.ts"), "a\n");
-    const n = 4600; // 4600 x ~240 bytes is over execFileSync's default 1 MiB
-    for (let i = 0; i < n; i++) writeFileSync(join(tree, "c", `${"f".repeat(230)}-${i}`), "");
-    expect(task.changedFiles(base, tree)).toHaveLength(n);
-  });
+  it("lists more than 1 MiB of untracked paths", () =>
+    withTmp("t4-flood-", (dir) => {
+      const base = join(dir, "base");
+      mkdirSync(base);
+      writeFileSync(join(base, "a.ts"), "a\n");
+      execFileSync("git", ["-C", base, "init", "-q"]);
+      execFileSync("git", ["-C", base, "add", "-A"]);
+      execFileSync("git", [
+        "-C",
+        base,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-qm",
+        "p",
+      ]);
+      const tree = join(dir, "tree");
+      mkdirSync(join(tree, "c"), { recursive: true });
+      writeFileSync(join(tree, "a.ts"), "a\n");
+      const n = 4600; // 4600 x ~240 bytes is over execFileSync's default 1 MiB
+      for (let i = 0; i < n; i++) writeFileSync(join(tree, "c", `${"f".repeat(230)}-${i}`), "");
+      expect(task.changedFiles(base, tree)).toHaveLength(n);
+    }));
 
   it("fails scope, without stopping the score, when git's output still overflows", () => {
-    const flood = () => {
-      throw Object.assign(new Error("spawnSync git ENOBUFS"), { code: "ENOBUFS" });
-    };
+    const flood = () => execFileSync("git", ["--version"], { maxBuffer: 1 }).toString().split("\n");
     const changed = task.changedOrFlood("/b", "/t", flood);
     expect(changed).toEqual(["<too many changes>"]);
     expect(scopeCheck(changed).pass).toBe(false);
-    const missing = () => {
-      throw Object.assign(new Error("spawnSync git ENOENT"), { code: "ENOENT" });
-    };
+    const missing = () => execFileSync("no-such-binary-t4").toString().split("\n");
     expect(() => task.changedOrFlood("/b", "/t", missing)).toThrow(/ENOENT/);
   });
 });
 
 describe("copying the plan's files into an eval tree (#1499)", () => {
-  it("refuses a file reached through a symlinked parent directory", () => {
-    const dir = mkdtempSync(join(tmpdir(), "t4-link-"));
-    const outside = join(dir, "reference", "actions");
-    mkdirSync(outside, { recursive: true });
-    writeFileSync(join(outside, "hoverActivate.ts"), "reference\n");
-    const repo = join(dir, "repo");
-    mkdirSync(join(repo, "src", "lib", "components"), { recursive: true });
-    writeFileSync(join(repo, "src", "lib", "components", "PropertyListing.svelte"), "agent\n");
-    symlinkSync(join(dir, "reference", "actions"), join(repo, "src", "lib", "actions"));
-    const to = join(dir, "tree");
+  const pinned = (to: string) => {
     mkdirSync(join(to, "src", "lib", "actions"), { recursive: true });
     writeFileSync(join(to, "src", "lib", "actions", "hoverActivate.ts"), "pinned\n");
-    task.copyPlanFiles(repo, to);
-    expect(existsSync(join(to, "src", "lib", "actions", "hoverActivate.ts"))).toBe(false);
-    expect(
-      readFileSync(join(to, "src", "lib", "components", "PropertyListing.svelte"), "utf8"),
-    ).toBe("agent\n");
-  });
+  };
+
+  it("refuses a file reached through a symlinked parent directory", () =>
+    withTmp("t4-link-", (dir) => {
+      const outside = join(dir, "reference", "actions");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "hoverActivate.ts"), "reference\n");
+      const repo = join(dir, "repo");
+      mkdirSync(join(repo, "src", "lib", "components"), { recursive: true });
+      writeFileSync(join(repo, "src", "lib", "components", "PropertyListing.svelte"), "agent\n");
+      symlinkSync(join(dir, "reference", "actions"), join(repo, "src", "lib", "actions"));
+      const to = join(dir, "tree");
+      pinned(to);
+      task.copyPlanFiles(repo, to);
+      expect(existsSync(join(to, "src", "lib", "actions", "hoverActivate.ts"))).toBe(false);
+      expect(
+        readFileSync(join(to, "src", "lib", "components", "PropertyListing.svelte"), "utf8"),
+      ).toBe("agent\n");
+    }));
+
+  it("removes the plan's files, without stopping the score, when the repo is gone", () =>
+    withTmp("t4-gone-", (dir) => {
+      const to = join(dir, "tree");
+      pinned(to);
+      expect(() => task.copyPlanFiles(join(dir, "repo"), to)).not.toThrow();
+      expect(existsSync(join(to, "src", "lib", "actions", "hoverActivate.ts"))).toBe(false);
+    }));
 });
 
 describe("the evidence key (#1502)", () => {
