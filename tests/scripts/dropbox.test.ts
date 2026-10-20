@@ -483,10 +483,13 @@ describe("uploadFile", () => {
     expect(Buffer.concat(calls.map(bytes)).equals(data)).toBe(true);
   });
 
-  it("refuses a file that grew while its session was uploading", async () => {
+  const endpoints = (calls: Call[]) => calls.map((c) => c.url.split("/2/")[1]);
+
+  // #1454: finish commits (mode overwrite), so a size change is refused before it.
+  it("refuses a file that grew while its session was uploading, before finish", async () => {
     const data = pattern(100);
     const local = file("growing.bin", data);
-    const { fetch } = fake((ep) => {
+    const { fetch, calls } = fake((ep) => {
       if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
       if (ep === "files/upload_session/append_v2") {
         appendFileSync(local, Buffer.from("more"));
@@ -496,7 +499,57 @@ describe("uploadFile", () => {
     });
     await expect(
       uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
-    ).rejects.toThrow(/growing\.bin changed size while being read/);
+    ).rejects.toThrow(/growing\.bin changed size while being read; nothing was committed/);
+    expect(endpoints(calls)).not.toContain("files/upload_session/finish");
+  });
+
+  // The last read is empty when the first chunk held the whole file, so no read sees the shrink.
+  it("refuses a file that shrank after its last read, before finish", async () => {
+    const data = pattern(100);
+    const local = file("shrinking.bin", data);
+    const { fetch, calls } = fake((ep) => {
+      if (ep === "files/upload_session/start") {
+        writeFileSync(local, data.subarray(0, 60));
+        return { body: { session_id: "s" } };
+      }
+      return { body: { size: 100, content_hash: contentHash(data) } };
+    });
+    await expect(
+      uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 50, chunk: 1000 }),
+    ).rejects.toThrow(/shrinking\.bin changed size while being read; nothing was committed/);
+    expect(endpoints(calls)).toEqual(["files/upload_session/start"]);
+  });
+
+  it("still refuses a file that grew during finish, and says what Dropbox now holds", async () => {
+    const data = pattern(100);
+    const local = file("grew-at-finish.bin", data);
+    const { fetch, calls } = fake((ep) => {
+      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
+      if (ep === "files/upload_session/finish") appendFileSync(local, Buffer.from("more"));
+      return {
+        body: { path_display: "/x/Grew-At-Finish.bin", size: 100, content_hash: contentHash(data) },
+      };
+    });
+    await expect(
+      uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
+    ).rejects.toThrow(
+      "grew-at-finish.bin changed size during upload_session/finish; Dropbox committed /x/Grew-At-Finish.bin anyway, 100 bytes, matching the bytes read before the change",
+    );
+    expect(endpoints(calls).at(-1)).toBe("files/upload_session/finish");
+  });
+
+  it("names a mismatch in Dropbox's reply, not the local size, when a file grew during finish", async () => {
+    const local = file("grew-mismatch.bin", pattern(100));
+    const { fetch } = fake((ep) => {
+      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
+      if (ep === "files/upload_session/finish") appendFileSync(local, Buffer.from("more"));
+      return { body: { size: 99, content_hash: "bad" } };
+    });
+    await expect(
+      uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
+    ).rejects.toThrow(
+      "grew-mismatch.bin changed size during upload_session/finish; Dropbox committed /X/grew-mismatch.bin anyway, 99 bytes, NOT matching the bytes read (size or content_hash differs)",
+    );
   });
 
   it("uses a session above the limit even when one chunk holds the whole file", async () => {
