@@ -1,4 +1,5 @@
 import { availableParallelism } from "node:os";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { coverageConfigDefaults, defineConfig } from "vitest/config";
 
 /**
@@ -16,7 +17,30 @@ const workers = maxWorkersFor(process.env);
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
+    // The cockpit (#582) gets two projects of its own, so its Svelte compile
+    // and browser resolution never reach the rest of the suite. `*.ssr.test.ts`
+    // server-renders pages in node, as SvelteKit serves them. `*.dom.test.ts`
+    // mounts them in happy-dom under the "browser" export condition, which is
+    // where Svelte's `mount` lives; that condition would hand libsql,
+    // node-html-parser and the rest their browser builds.
+    projects: [
+      { extends: true, test: { name: "node", include: ["tests/**/*.test.ts"] } },
+      {
+        extends: true,
+        plugins: [svelte({ configFile: false })],
+        test: { name: "cockpit-ssr", include: ["cockpit/tests/**/*.ssr.test.ts"] },
+      },
+      {
+        extends: true,
+        plugins: [svelte({ configFile: false })],
+        resolve: { conditions: ["browser"] },
+        test: {
+          name: "cockpit-dom",
+          include: ["cockpit/tests/**/*.dom.test.ts"],
+          environment: "happy-dom",
+        },
+      },
+    ],
     environment: "node",
     testTimeout: 120_000,
     ...(workers === undefined ? {} : { maxWorkers: workers }),

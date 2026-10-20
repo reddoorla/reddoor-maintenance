@@ -1,3 +1,4 @@
+import { withdrawConfirmText, UNAPPROVE_CONFIRM_TEXT } from "./report-confirm.js";
 import { renderAuthChrome } from "./auth/render.js";
 import type { WebsiteRow, SecurityAdvisory } from "../fleet/site-row.js";
 import { SEVERITY_RANK, siteSlug } from "../fleet/site-row.js";
@@ -172,25 +173,12 @@ function withdrawButton(r: ReportRow): string {
   return `<button class="withdraw" data-report-id="${escapeHtml(r.id)}" data-withdraw-url="${escapeHtml(url)}" data-confirm="${escapeHtml(withdrawConfirmText(r))}">Don't send</button>`;
 }
 
-/** What "Don't send" does, said before it happens. A draft of a higher tier holds
- *  back a lower-tier draft of the same period (src/reports/queue.ts); withdrawing
- *  it lets the nightly run queue that one. */
-export function withdrawConfirmText(r: ReportRow): string {
-  const base = "Withdraw this draft? It will not be sent, and the next one drafts on schedule.";
-  if (r.reportType === "Maintenance") return base;
-  const held = r.reportType === "Testing" ? "Maintenance" : "Maintenance or Testing";
-  return `${base} If it held back this period's ${held} draft, that one is queued on the next nightly run instead.`;
-}
-
 /** "Unapprove" (#1262): take back an approval before the send batch delivers it.
  *  The report goes back to pending, where "refresh preview" re-reads its scores. */
 function unapproveButton(r: ReportRow): string {
   const url = `/api/reports/${encodeURIComponent(r.id)}/unapprove`;
   return `<button class="unapprove" data-report-id="${escapeHtml(r.id)}" data-unapprove-url="${escapeHtml(url)}" data-confirm="${escapeHtml(UNAPPROVE_CONFIRM_TEXT)}">Unapprove</button>`;
 }
-
-export const UNAPPROVE_CONFIRM_TEXT =
-  "Unapprove this report? It goes back to pending and will not send until it is approved again.";
 
 /** The label a withdrawn report carries in place of any action. */
 function withdrawnLabel(r: ReportRow): string {
@@ -1305,3 +1293,5 @@ export function renderSiteDashboardHtml(
 </body>
 </html>`;
 }
+
+export { withdrawConfirmText, UNAPPROVE_CONFIRM_TEXT };

@@ -26,3 +26,8 @@ captures/*/manifest.json
 # for byte by build.mjs. Line numbers in key.json point into them, so a
 # reformat would move every seeded defect off its range.
 scripts/model-bakeoff/tasks/seeded-review/cases/
+
+# The SvelteKit cockpit's generated and build output (#582).
+cockpit/.svelte-kit/
+cockpit/build/
+cockpit/.netlify/

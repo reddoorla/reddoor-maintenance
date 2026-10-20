@@ -1,0 +1,117 @@
+<script lang="ts">
+  import type { CockpitView } from "../lib/cockpit/view.js";
+  import AuditFleet from "../lib/cockpit/AuditFleet.svelte";
+  import BrowsePanel from "../lib/cockpit/BrowsePanel.svelte";
+  import "./cockpit.css";
+
+  // The fleet cockpit: verdict bar, the per-site Needs-you feed, the collapsed
+  // Fleet browse panel, and the quiet lanes (Recently, Archived, Cardless,
+  // Inbox). Every string comes decided from the server (lib/cockpit/view.ts).
+  let { data }: { data: { view: CockpitView } } = $props();
+  const v = $derived(data.view);
+</script>
+
+<svelte:head>
+  <title>Reddoor maintenance — fleet cockpit</title>
+</svelte:head>
+
+<h1>Reddoor fleet cockpit</h1>
+<div class="meta">
+  {v.total} site{v.total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Fleet table →</a>
+</div>
+
+<div class="verdict {v.verdict.cls}">
+  <div class="verdict-line">{v.verdict.line}</div>
+  <div class="verdict-meta">{v.verdict.meta}</div>
+  <AuditFleet />
+</div>
+
+{#if v.feedCount > 0}
+  <section class="needs-you">
+    <h2>Needs you ({v.feedCount})</h2>
+    {#each v.feed as g (g.group)}
+      <div class="feed-group">
+        <div class="feed-group-label">{g.label}</div>
+        {#each g.rows as row, i (i)}
+          <div class="feed-row" data-group={row.group}>
+            <span class="dot {row.group}"></span>
+            <span class="feed-what"><strong>{row.siteName}</strong> — {row.reasons}</span>
+            <a class="feed-open" href={row.url}>Open ▸</a>
+          </div>
+        {/each}
+      </div>
+    {/each}
+  </section>
+{/if}
+
+<BrowsePanel browse={v.browse} />
+
+{#if v.recently.length > 0}
+  <details class="recently">
+    <summary>🔧 Recently ({v.recently.length})</summary>
+    {#each v.recently as e, i (i)}
+      <div class="recent-row" data-type={e.type}>
+        <span class="recent-icon">{e.icon}</span>
+        <span class="recent-what"
+          >{#if e.siteName}<strong>{e.siteName}</strong>{" — "}{/if}{e.summary}</span
+        >
+        <span class="muted">{e.when}</span>
+        {#if e.link}<a href={e.link.href}>{e.link.text}</a>{/if}
+      </div>
+    {/each}
+  </details>
+{/if}
+
+{#if v.archived.length > 0}
+  <details class="archived">
+    <summary>🗄 Archived ({v.archived.length})</summary>
+    {#each v.archived as s, i (i)}
+      <div class="approve-row">
+        <strong>{s.name}</strong> <span class="muted">{s.status}</span>
+        <a href="/s/{s.slug}">open ▸</a>
+      </div>
+    {/each}
+  </details>
+{/if}
+
+<!-- #786: attention items that belong to no site card. No /s/<slug> link: the
+     whole point is that the site does not exist. -->
+{#if v.cardless.length > 0}
+  <details class="cardless">
+    <summary>⚠ Not on any site card ({v.cardless.length})</summary>
+    {#each v.cardless as item, i (i)}
+      <div class="approve-row">
+        <strong>{item.siteName}</strong> <span class="muted">{item.title}</span>
+      </div>
+    {/each}
+  </details>
+{/if}
+
+<!-- Submissions are a separate work stream: they never raise the verdict. -->
+{#if v.inbox}
+  <details class="inbox">
+    <summary>{v.inbox.summary}</summary>
+    {#each v.inbox.rows as sub (sub.key)}
+      <div class="approve-row" data-signal="submissions">
+        <strong>{sub.siteName}</strong>
+        <span class="muted">{sub.what}</span>
+        <span class="muted">{sub.when}</span>
+        <a href={sub.href}>open ▸</a>
+      </div>
+    {/each}
+    {#if v.inbox.more}
+      <div class="approve-row subm-more muted">
+        <a href="/submissions">{v.inbox.more.text}</a>
+      </div>
+    {/if}
+    {#if v.inbox.spamLine}
+      <div class="spam-rollup muted">{v.inbox.spamLine}</div>
+    {/if}
+    {#if v.inbox.autoFiltered !== null}
+      <div class="spam-rollup muted">
+        🚫 {v.inbox.autoFiltered} auto-filtered this week —
+        <a href="/submissions?status=spam_auto">review</a>
+      </div>
+    {/if}
+  </details>
+{/if}
