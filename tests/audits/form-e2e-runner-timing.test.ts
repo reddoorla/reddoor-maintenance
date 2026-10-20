@@ -85,12 +85,21 @@ describe("defaultFormRunner waits", () => {
   });
 
   it("passes the test-only values through to every wait they name", async () => {
-    await run({ hydrationTimeoutMs: 500, settleMs: 200, submitTimeoutMs: 3000 });
+    // 3100 is deliberately not a multiple of 500 or 200, so a submit cap derived
+    // from either of the other two values cannot pass by coincidence (#1470).
+    await run({ hydrationTimeoutMs: 500, settleMs: 200, submitTimeoutMs: 3100 });
     expect(calls.filter((c) => c.name === "waitForTimeout").map((c) => c.opts)).toEqual([200]);
     expect(timeoutOf("waitForLoadState")).toEqual([500]);
     expect(timeoutOf("waitForFunction")[0]).toBeLessThanOrEqual(500);
-    expect(timeoutOf("waitForResponse")).toEqual([3000]);
-    expect(timeoutOf("click")).toEqual([3000]);
-    expect(timeoutOf("waitFor")).toEqual([3000]);
+    expect(timeoutOf("waitForResponse")).toEqual([3100]);
+    expect(timeoutOf("click")).toEqual([3100]);
+    expect(timeoutOf("waitFor")).toEqual([3100]);
+  });
+
+  // A settle of 0 is a real value, not "unset": it must reach the wait as 0,
+  // not fall back to the 1200 ms default (`??`, never `||`) (#1470).
+  it("passes a settleMs of 0 through rather than falling back to the default", async () => {
+    await run({ settleMs: 0 });
+    expect(calls.filter((c) => c.name === "waitForTimeout").map((c) => c.opts)).toEqual([0]);
   });
 });

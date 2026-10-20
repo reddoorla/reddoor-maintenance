@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { isAbsolute } from "node:path";
 import { realRunner, resolveRepo } from "./land-prs.mjs";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
@@ -49,6 +50,10 @@ export function parseArgs(argv) {
   if (/^\.\.?\//.test(o.backlog))
     throw new Error(
       `--backlog ${o.backlog}: give the path relative to the repo root, with no leading ./ or ../`,
+    );
+  if (isAbsolute(o.backlog))
+    throw new Error(
+      `--backlog ${o.backlog}: give the path relative to the repo root, not an absolute path`,
     );
   return o;
 }
