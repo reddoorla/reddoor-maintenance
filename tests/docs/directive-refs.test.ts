@@ -368,6 +368,8 @@ describe("the real tree", () => {
     const r = run();
     expect(deadLines(r.stdout)).toEqual([]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/\b10 citations, all resolve\b/);
+    // 12 before the 2026-10-20 cutover; docs/pm-pass.md and docs/worker-brief.md carried 4
+    // and are now stubs naming reddoorla/reddoor-workspace, and the slimmed CLAUDE.md dropped 2.
+    expect(r.stdout).toMatch(/\b6 citations, all resolve\b/);
   });
 });
