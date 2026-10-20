@@ -61,6 +61,8 @@ Folded in from the same round:
   - SvelteKit's form-origin check needs the dashboard origin in `csrf.trustedOrigins`.
   - The five old page functions each carry a per-IP rate limit (60 a minute) that nothing in the cockpit site has yet.
 
+**Review round 3** checked the round-2 fixes and found only minors, so the round is clean under the five-round rule. The test name and the line above were folded in.
+
 **A gate the refactor would have blinded.** `tests/db/query-plans.test.ts` gates request-path queries by walking imports out from `netlify/functions/`. Its vacuity guard failed once the loaders moved, because `getSiteBySlug`'s importer became `page-data.ts`. The walk is transitive, so coverage held. The guard now names the real path, and the walk also starts from `cockpit/src/**/*.ts`, which after the cutover is a request path too.
 
 **What remains, deliberately.**
@@ -69,6 +71,7 @@ Folded in from the same round:
 - **Intentional differences from the old pages:**
   - The bulk mark-read confirm and the audit panel's Reload button are Svelte handlers, not inline attributes.
   - The mark-read and Run audit buttons stay disabled until those handlers exist. With JS blocked, they cannot submit at all, where the old Run form fell back to a GET and the old bulk form still asked.
+  - The site-details editor and the commentary textarea also wait for their handlers. The one-click action buttons (Approve, Don't send, Unapprove, refresh preview, Send anyway, Trigger Renovate, the submission status buttons) do not: a click before hydration does nothing and can simply be repeated, whereas the old inline script was live from first paint. Review round 3 rated this minor, and it was accepted rather than guarded.
 - **Two things the cutover must carry:**
   - SvelteKit's form-origin check will refuse the proxied `/submissions` POST until 1b adds the dashboard origin to `csrf.trustedOrigins`.
   - The old page functions' per-IP rate limit must be matched for the proxied pages before the old functions go.

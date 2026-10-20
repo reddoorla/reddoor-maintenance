@@ -527,7 +527,7 @@ describe("site details editor", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("every editor is disabled until its handlers attach, then enabled", () => {
+  it("every editor is enabled once mounted (the SSR parity test pins it disabled before)", () => {
     render(input({ reports: [pending({ id: "rp" })] }));
     for (const el of document.querySelectorAll<HTMLInputElement>(
       "[data-detail-field], textarea[data-commentary-for]",
