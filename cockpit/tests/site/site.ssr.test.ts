@@ -48,6 +48,7 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
     it(name, () => {
       const { before, after } = both(i);
       expect(after).toEqual(before);
+      expect(after).toMatchSnapshot();
     });
   }
 
@@ -63,6 +64,7 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
     it(`send-timing line at ${iso}`, () => {
       const { before, after } = both(input({ now: new Date(iso), reports: [pending()] }));
       expect(after).toEqual(before);
+      expect(after).toMatchSnapshot();
     });
   }
 
@@ -115,6 +117,7 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
     ];
     const { before, after } = both(input({ submissions: rows }));
     expect(after).toEqual(before);
+    expect(after).toMatchSnapshot();
   });
 
   it("the instrument sees a one-character difference", () => {

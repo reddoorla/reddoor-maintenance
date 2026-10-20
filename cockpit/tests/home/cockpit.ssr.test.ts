@@ -33,6 +33,7 @@ describe("/ parity with renderCockpitHtml", () => {
       const before = canonical(bodyOf(renderCockpitHtml(model, "op@example.com")), OLD_ONLY);
       const after = canonical(page(model));
       expect(after).toEqual(before);
+      expect(after).toMatchSnapshot();
     });
   }
 

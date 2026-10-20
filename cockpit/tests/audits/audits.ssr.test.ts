@@ -43,6 +43,7 @@ describe("/audits parity with renderProspectAuditsPageHtml", () => {
       );
       const after = canonical(renderPage(Page, { data: auditsPageView(audits, NOW) }));
       expect(after).toEqual(before);
+      expect(after).toMatchSnapshot();
     });
   }
 
