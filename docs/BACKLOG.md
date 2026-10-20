@@ -1,5 +1,8 @@
 # Backlog — what to work on next, in order
 
+> **Moved on 2026-10-20 to `reddoorla/reddoor-workspace`** `BACKLOG.md` (P0, P1, Active projects, Fleet snapshot) and `decisions/` (one file per ask), the home base.
+> This file is frozen as it stood at the cutover (`tests/docs/moved-files.test.ts`). Its item numbers stay valid for the runbooks, code and tests that cite them; never write here.
+
 **Last full re-rank: 2026-10-19 ~12:05Z** (the Monday PM pass, `claude/practical-franklin-67oatk`: P1 re-ranked from scratch as P1-52 (now fleet-wide), P1-53 and P1-54 (both new), P1-33 (dated 10-23), P1-51 (the operator's half), P1-46 (with Erik); Fleet snapshot rewritten from live Turso). Before that: 2026-10-12 ~12:00Z (the Monday PM pass, `claude/fervent-feynman-1u6stc`: P1 re-ranked from scratch as P1-45, P1-33, P1-31, then P1-43 (held on its worker's ask, #1294); the table kept its row order so the two open worker PRs that edit P1-43's row still merge; Fleet snapshot rewritten from live Turso), and before that: 2026-10-05 ~12:00Z (the Monday PM pass, `claude/youthful-turing-ad6g2n`) and 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z 2026-10-06 ~12:00Z (the Tuesday PM pass, `claude/happy-clarke-1cjx2r`: no re-rank, P0-4 and items 80, 81, 84, 85 re-read) and 2026-10-07 ~12:00Z (the Wednesday PM pass, `claude/happy-clarke-hv3s5p`: no re-rank, P0-4 re-read, item 91 added) and 2026-10-08 ~12:00Z (the Thursday PM pass, `claude/fervent-feynman-kquysg`: no re-rank, P0-4 re-read, P1-36 added) and 2026-10-11 ~14:00Z (a Sunday PM pass, `claude/fervent-feynman-7ey14s`: no re-rank, P0-4 and P0-5 re-read, P1-38 done, P1-39 to P1-42 added, items 90 and 91 closed) and 2026-10-13 ~12:00Z (the Tuesday PM pass, `claude/amazing-bardeen-447t0s`: no re-rank, P0-5 re-read, item 81 closed, item 110(b) re-measured) and 2026-10-14 ~12:00Z (the Wednesday PM pass, `claude/practical-franklin-ejwyf8`: no re-rank, P0-5 and P1-47 re-read, item 113 closed, P1-50 added) and 2026-10-15 ~12:00Z (the Thursday PM pass, `claude/practical-franklin-btdl10`: no re-rank, P0-5 and P1-51 re-read, P1-50's proof recorded, P1-52 added) and 2026-10-20 ~12:10Z (the Tuesday PM pass, `claude/practical-franklin-9o2svs`: no re-rank, P1-52 and P1-53 moved to Done, P1-64 added first, item 136 closed by reading).
 Built from five read-only surveys of that morning: the nightlies' job logs, every
 open PR, every open issue, the live Turso fleet state (SELECT-only), and a
@@ -436,6 +439,9 @@ Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
 ---
 
 ## Operator decisions (🔴 or product calls — agents prepare, never do)
+
+> **Moved on 2026-10-20 to `reddoorla/reddoor-workspace`** `BACKLOG.md` (P0, P1, Active projects, Fleet snapshot) and `decisions/` (one file per ask), the home base.
+> This file is frozen as it stood at the cutover (`tests/docs/moved-files.test.ts`). Its item numbers stay valid for the runbooks, code and tests that cite them; never write here.
 
 Ordered by what unblocks the most. Each line is the exact ask.
 
