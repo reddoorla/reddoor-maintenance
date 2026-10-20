@@ -3,15 +3,17 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium, type Browser } from "@playwright/test";
 import {
+  checkReducedMotion,
   reducedMotionRule,
   summarizeReducedMotion,
-  type MotionSample,
+  MOTION_WAIT_MS,
+  type MotionRun,
 } from "../../../src/audits/design-rules/reduced-motion.js";
 import { DESIGN_RULES, runDesignRules } from "../../../src/audits/design-rules/index.js";
 
 /**
- * R2, RUN FOR REAL. Each page below is served to a real Chromium, and the rule
- * is run the way scripts/design-rules.mts runs it. The known-good page passes
+ * R2, RUN FOR REAL. Each page below is served to a real Chromium and checked
+ * the way scripts/design-rules.mts checks it. The known-good page passes
  * first: until it does, a FAIL from the check is the instrument's, not the
  * page's (the workspace CLAUDE.md, "Prove the instrument").
  */
@@ -58,6 +60,8 @@ function page(css: string, body: string, script = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R2</title><style>${css}</style></head><body><main><h1>R2</h1>${body}</main>${script ? `<script>${script}</script>` : ""}</body></html>`;
 }
 
+const BOTH = "(at 1440 and 390px)";
+
 const PAGES: Record<string, string> = {
   "/good": page(`${MOTION}\n${RESET_AFTER_135}`, MOTION_MARKUP),
   "/before-135": page(`${MOTION}\n${RESET_BEFORE_135}`, MOTION_MARKUP),
@@ -68,11 +72,16 @@ const PAGES: Record<string, string> = {
      .entrance { animation: rise 0.01ms 1500ms both; }`,
     `<h2 class="entrance">Our team</h2>`,
   ),
-  // No reset at all, and an infinite animation.
   "/no-reset": page(
     `@keyframes pos-y-wiggle { 0% { transform: translateY(1px) } 100% { transform: translateY(-1px) } }
      .wiggle { animation: 1s infinite pos-y-wiggle ease-out; }`,
     `<span class="wiggle">↓</span>`,
+  ),
+  // An untriggered menu slide: nothing runs at sample time, but its duration
+  // is 600ms under reduce.
+  "/menu-duration": page(
+    `.menu { transform: translateX(100%); transition: transform 600ms; } .menu.open { transform: none; }`,
+    `<nav class="menu">Menu</nav>`,
   ),
   // A Web Animations API entrance (what Svelte transitions run on), which the
   // CSS reset cannot reach: the good reset is present and does not help.
@@ -81,13 +90,87 @@ const PAGES: Record<string, string> = {
     `<p id="intro">Hello</p>`,
     `document.getElementById("intro").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 4000, fill: "both" });`,
   ),
-  // Motion that only starts once its element is scrolled into view, two
-  // screens down: only a sampler that scrolls can see it.
+  "/paused": page(
+    `@keyframes r { from { opacity: 0 } to { opacity: 1 } } .rev { animation: r 1s both paused; }`,
+    `<p class="rev">Stuck at the first frame</p>`,
+  ),
+  "/pseudo-delay": page(
+    `.btn::after { content: ""; display: block; height: 2px; transition: opacity 0.01ms 800ms; }`,
+    `<a class="btn" href="#x">Book</a>`,
+  ),
+  // Motion only a 390px viewport has.
+  "/mobile-only": page(
+    `@media (max-width: 768px) { .nav a { transition: opacity 0.01ms 300ms; } }`,
+    `<div class="nav"><a href="#a">A</a></div>`,
+  ),
+  // Motion that starts once scrolled into view, two screens down.
   "/below-fold": page(
     `@keyframes spin { to { transform: rotate(1turn) } }
      .spacer { height: 2400px } .spin { animation: spin 2s linear infinite; }`,
     `<div class="spacer"></div><div id="late">Late</div>`,
     `new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.classList.add("spin"); o.disconnect(); } }).observe(document.getElementById("late"));`,
+  ),
+  // The same, inside a page that scrolls a container and not the window.
+  "/container-scroll": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R2</title>
+<style>html, body { height: 100%; margin: 0; overflow: hidden } main { height: 100%; overflow-y: auto } .spacer { height: 3000px }</style></head>
+<body><main><h1>R2</h1><div class="spacer"></div><p id="late">Late</p></main>
+<script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 3000 }); o.disconnect(); } }).observe(document.getElementById("late"));</script></body></html>`,
+  "/raf": page(
+    `#mover { position: relative; left: 0 }`,
+    `<div id="mover">Sliding</div>`,
+    `const el = document.getElementById("mover"); const t0 = performance.now();
+     (function step(t) { el.style.left = Math.min(300, ((t - t0) / 5000) * 300) + "px"; if (t - t0 < 5000) requestAnimationFrame(step); })(t0);`,
+  ),
+  "/timer": page(
+    RESET_AFTER_135,
+    `<p id="late">Hello</p>`,
+    `setTimeout(() => document.getElementById("late").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 2000 }), 400);`,
+  ),
+  "/shadow": page(
+    "",
+    `<x-card></x-card><x-menu></x-menu>`,
+    `customElements.define("x-card", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes s { to { transform: rotate(1turn) } } .s { animation: s 2s linear infinite }</style><i class=s>x</i>"; } });
+     customElements.define("x-menu", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<style>.m { transition: transform 0.01ms 900ms }</style><b class=m>m</b>"; } });`,
+  ),
+  "/iframe": page("", `<iframe src="/inner" title="inner"></iframe>`),
+  "/inner": page(
+    `@keyframes spin { to { transform: rotate(1turn) } } .spin { animation: spin 2s linear infinite; }`,
+    `<i class="spin">*</i>`,
+  ),
+  // Two elements on one short path: both must be reported, apart.
+  "/two-cards": page(
+    `.t { transition: opacity 0.01ms 600ms } .card:nth-of-type(2) .t { transition-delay: 100ms }`,
+    `<div class="card"><p class="t">A</p></div><div class="card"><p class="t">B</p></div>`,
+  ),
+  // Two Web Animations held near their end: 30ms left is under the floor,
+  // 200ms left is not.
+  "/floor": page(
+    "",
+    `<p id="tail">a</p><p id="left">b</p>`,
+    `for (const [id, at] of [["tail", 970], ["left", 800]]) {
+       const a = document.getElementById(id).animate([{ opacity: 0 }, { opacity: 1 }], 1000);
+       a.currentTime = at; a.playbackRate = 1e-4;
+     }`,
+  ),
+  // Motion that starts only when the page scrolls back up to the top.
+  "/on-scroll-up": page(
+    `.spacer { height: 2400px }`,
+    `<p id="top">Top</p><div class="spacer"></div>`,
+    `let low = 0; addEventListener("scroll", () => {
+       if (scrollY > low) low = scrollY;
+       else if (scrollY === 0 && low > 0) document.getElementById("top").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 5000 });
+     });`,
+  ),
+  // Not defects, each a false FAIL round 1 reproduced:
+  "/not-defects": page(
+    `${RESET_BEFORE_135}
+     @keyframes grow { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+     .progress { position: fixed; top: 0; height: 4px; width: 100%; animation: grow linear both; animation-timeline: scroll(); }
+     .dead { animation: nonexistentKeyframes 1s ease 500ms both; }
+     .extra { transition-property: opacity; transition-delay: 0s, 800ms; }
+     .blink { transition: opacity 0.01ms 31ms; }
+     .spacer { height: 2000px }`,
+    `<div class="progress"></div><p class="dead">a</p><p class="extra">b</p><p class="blink">c</p><div class="spacer"></div>`,
   ),
 };
 
@@ -111,9 +194,10 @@ afterAll(async () => {
   await new Promise((resolve) => server?.close(resolve));
 });
 
-async function run(path: string) {
-  const [outcome] = await runDesignRules([`${base}${path}`], [reducedMotionRule], browser);
-  return outcome!;
+/** The check as the CLI runs it, but with a 300ms last wait: only the timer
+ *  case needs the full MOTION_WAIT_MS. */
+async function run(path: string, waitMs = 300) {
+  return checkReducedMotion(browser, `${base}${path}`, { reducedMotion: "reduce" }, waitMs);
 }
 
 describe("design-rules R2 (reduced motion), in a real browser", () => {
@@ -127,105 +211,238 @@ describe("design-rules R2 (reduced motion), in a real browser", () => {
     expect(o.findings).toEqual([]);
   });
 
-  it("FAILS the reset before #135: the transition delay survives under reduce", async () => {
+  it("FAILS the reset before #135: the delays survive under reduce", async () => {
     const o = await run("/before-135");
     expect(o.status).toBe("fail");
-    expect(o.findings).toContainEqual({
-      target: "body > main > div.animate-in-triggered",
-      problem: "transition-delay 1000ms under reduce",
-    });
-    expect(o.findings).toContainEqual({
-      target: "body > main > h2.entrance",
-      problem: "animation-delay 1200ms under reduce",
-    });
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > div.animate-in-triggered",
+        problem: `transition-delay 1000ms under reduce ${BOTH}`,
+      },
+      {
+        target: "body > main > h2.entrance",
+        problem: `animation-delay 1200ms under reduce ${BOTH}`,
+      },
+    ]);
   });
 
   it("FAILS a page whose only defect is an animation delay, read from the computed style", async () => {
     const o = await run("/animation-delay-only");
-    expect(o.status).toBe("fail");
-    expect(o.findings).toContainEqual({
-      target: "body > main > h2.entrance",
-      problem: "animation-delay 1500ms under reduce",
-    });
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > h2.entrance",
+        problem: `animation-delay 1500ms under reduce ${BOTH}`,
+      },
+    ]);
   });
 
-  it("FAILS an infinite animation on a page with no reset", async () => {
+  it("FAILS an infinite animation on a page with no reset, by its duration and by its running", async () => {
     const o = await run("/no-reset");
-    expect(o.status).toBe("fail");
     expect(o.findings).toEqual([
       {
         target: "body > main > span.wiggle",
-        problem: "animation pos-y-wiggle still running under reduce (no end)",
+        problem: `animation-duration 1000ms under reduce ${BOTH}`,
+      },
+      {
+        target: "body > main > span.wiggle",
+        problem: `animation pos-y-wiggle still running under reduce (no end) ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("FAILS an untriggered transition by its duration", async () => {
+    const o = await run("/menu-duration");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > nav.menu",
+        problem: `transition-duration 600ms under reduce ${BOTH}`,
       },
     ]);
   });
 
   it("FAILS a Web Animations API entrance that the CSS reset cannot reach", async () => {
     const o = await run("/waapi");
-    expect(o.status).toBe("fail");
     expect(o.findings).toHaveLength(1);
     expect(o.findings[0]!.target).toBe("p#intro");
     expect(o.findings[0]!.problem).toMatch(
-      /^Web Animation still running under reduce \(\d+ms left\)$/,
+      /^Web Animation still running under reduce \(\d+ms left\) \(at 1440 and 390px\)$/,
     );
   });
 
-  it("FAILS motion that starts only when scrolled into view", async () => {
-    const o = await run("/below-fold");
-    expect(o.status).toBe("fail");
+  it("FAILS an animation paused short of its end", async () => {
+    const o = await run("/paused");
+    expect(o.findings).toContainEqual({
+      target: "body > main > p.rev",
+      problem: `animation r paused short of its end under reduce ${BOTH}`,
+    });
+  });
+
+  it("FAILS a delay on a ::after", async () => {
+    const o = await run("/pseudo-delay");
     expect(o.findings).toEqual([
       {
-        target: "div#late",
-        problem: "animation spin still running under reduce (no end)",
+        target: "body > main > a.btn::after",
+        problem: `transition-delay 800ms under reduce ${BOTH}`,
       },
     ]);
   });
 
-  it("is UNMEASURED, never a pass, when the context does not emulate reduce (negative control)", async () => {
-    const noReduce = {
-      ...reducedMotionRule,
-      contextOptions: { reducedMotion: "no-preference" as const },
-    };
-    const [o] = await runDesignRules([`${base}/before-135`], [noReduce], browser);
-    expect(o!.status).toBe("unmeasured");
-    expect(o!.note).toMatch(/did not take/);
+  it("FAILS motion only the phone viewport has, and says so", async () => {
+    const o = await run("/mobile-only");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > div.nav > a",
+        problem: "transition-delay 300ms under reduce (at 390px)",
+      },
+    ]);
   });
 
-  it("is UNMEASURED when the page cannot load", async () => {
-    const [o] = await runDesignRules(["http://127.0.0.1:9/"], [reducedMotionRule], browser);
-    expect(o!.status).toBe("unmeasured");
-    expect(o!.note).toMatch(/^the check threw: /);
+  it("FAILS motion that starts only when scrolled into view", async () => {
+    const o = await run("/below-fold");
+    expect(o.findings).toEqual([
+      { target: "div#late", problem: `animation-duration 2000ms under reduce ${BOTH}` },
+      { target: "div#late", problem: `animation spin still running under reduce (no end) ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS motion below the fold of a page that scrolls a container, not the window", async () => {
+    const o = await run("/container-scroll");
+    expect(o.status).toBe("fail");
+    expect(o.findings.map((f) => f.target)).toEqual(["p#late"]);
+    expect(o.note).toMatch(/scrolled main/);
+  });
+
+  it("FAILS motion a script drives frame by frame", async () => {
+    const o = await run("/raf");
+    expect(o.findings).toEqual([
+      { target: "div#mover", problem: `moved by script under reduce, with no animation ${BOTH}` },
+    ]);
+  });
+
+  it("FAILS motion a timer starts after load", async () => {
+    const o = await run("/timer", MOTION_WAIT_MS);
+    expect(o.findings.map((f) => f.target)).toEqual(["p#late"]);
+  });
+
+  it("FAILS motion inside open shadow roots", async () => {
+    const o = await run("/shadow");
+    expect(o.findings.map((f) => `${f.target}: ${f.problem}`)).toEqual([
+      `body > main > x-card ::shadow i.s: animation-duration 2000ms under reduce ${BOTH}`,
+      `body > main > x-menu ::shadow b.m: transition-delay 900ms under reduce ${BOTH}`,
+      `body > main > x-card ::shadow i.s: animation s still running under reduce (no end) ${BOTH}`,
+    ]);
+  });
+
+  it("FAILS motion inside a same-origin iframe", async () => {
+    const o = await run("/iframe");
+    expect(o.findings.map((f) => f.target)).toEqual([
+      `iframe[src="${base}/inner"] :: body > main > i.spin`,
+      `iframe[src="${base}/inner"] :: body > main > i.spin`,
+    ]);
+  });
+
+  it("ignores an animation within PERCEPTIBLE_MS of its end, and reports one beyond it", async () => {
+    const o = await run("/floor");
+    expect(o.findings.map((f) => f.target)).toEqual(["p#left"]);
+  });
+
+  it("samples again back at the top", async () => {
+    const o = await run("/on-scroll-up");
+    expect(o.findings.map((f) => f.target)).toEqual(["p#top"]);
+  });
+
+  it("reports two elements on one short path apart, with paths querySelector accepts", async () => {
+    const o = await run("/two-cards");
+    expect(o.findings).toEqual([
+      {
+        target: "body > main > div.card:nth-of-type(1) > p.t",
+        problem: `transition-delay 600ms under reduce ${BOTH}`,
+      },
+      {
+        target: "body > main > div.card:nth-of-type(2) > p.t",
+        problem: `transition-delay 100ms under reduce ${BOTH}`,
+      },
+    ]);
+  });
+
+  it("PASSES what is not a defect: a scroll-driven bar, a dead keyframe name, an unused list entry, a 31ms delay", async () => {
+    const o = await run("/not-defects");
+    expect(o.findings).toEqual([]);
+    expect(o.status).toBe("pass");
+    expect(o.note).toMatch(/1 scroll-driven animation\(s\) not judged/);
+  });
+
+  it("is UNMEASURED, never a pass, when the context does not emulate reduce (negative control)", async () => {
+    const o = await checkReducedMotion(browser, `${base}/before-135`, {
+      reducedMotion: "no-preference",
+    });
+    expect(o.status).toBe("unmeasured");
+    expect(o.note).toMatch(/did not take/);
+  });
+
+  it("is UNMEASURED when the page answers 404, or cannot load", async () => {
+    const [missing] = await runDesignRules([`${base}/missing`], [reducedMotionRule], browser);
+    expect(missing!.status).toBe("unmeasured");
+    expect(missing!.note).toBe("the check threw: the page answered 404");
+    const [down] = await runDesignRules(["http://127.0.0.1:9/"], [reducedMotionRule], browser);
+    expect(down!.status).toBe("unmeasured");
   });
 });
 
 describe("summarizeReducedMotion", () => {
-  const clean: MotionSample = { reduceMatched: true, scrollY: 0, delays: [], running: [] };
+  const run = (
+    width: number,
+    samples: MotionRun["samples"],
+    scripted: string[] = [],
+  ): MotionRun => ({
+    width,
+    samples,
+    scripted,
+    scrolled: "window",
+    skippedFrames: 0,
+  });
+  const clean = { reduceMatched: true, items: [], scrollDriven: 0 };
 
   it("is unmeasured with no samples", () => {
     expect(summarizeReducedMotion("u", []).status).toBe("unmeasured");
   });
 
-  it("reports a finding seen at several steps once, at its worst", () => {
+  it("reports a finding seen at several steps once, at its worst, with its widths", () => {
     const o = summarizeReducedMotion("u", [
-      { ...clean, delays: [{ target: "a", property: "transition-delay", ms: 300 }] },
-      { ...clean, scrollY: 450, delays: [{ target: "a", property: "transition-delay", ms: 900 }] },
-      { ...clean, running: [{ target: "b", name: "Web Animation", remainingMs: 120.4 }] },
+      run(1440, [
+        { ...clean, items: [{ target: "a", kind: "transition-delay", ms: 300 }] },
+        { ...clean, items: [{ target: "a", kind: "transition-delay", ms: 900 }] },
+      ]),
+      run(390, [{ ...clean, items: [{ target: "b", kind: "running Web Animation", ms: 120.4 }] }]),
     ]);
     expect(o).toEqual({
       rule: "R2",
       url: "u",
       status: "fail",
       findings: [
-        { target: "a", problem: "transition-delay 900ms under reduce" },
-        { target: "b", problem: "Web Animation still running under reduce (120ms left)" },
+        { target: "a", problem: "transition-delay 900ms under reduce (at 1440px)" },
+        {
+          target: "b",
+          problem: "Web Animation still running under reduce (120ms left) (at 390px)",
+        },
       ],
-      note: "3 samples under reduce; 2 finding(s)",
+      note: "3 samples under reduce at 1440px and 390px (scrolled window); 2 finding(s)",
     });
   });
 
   it("is unmeasured when any one sample lost the emulation", () => {
-    expect(summarizeReducedMotion("u", [clean, { ...clean, reduceMatched: false }]).status).toBe(
-      "unmeasured",
-    );
+    expect(
+      summarizeReducedMotion("u", [run(1440, [clean, { ...clean, reduceMatched: false }])]).status,
+    ).toBe("unmeasured");
+  });
+
+  it("notes a scroll that stopped at its step cap", () => {
+    const o = summarizeReducedMotion("u", [{ ...run(1440, [clean]), capped: true }]);
+    expect(o.note).toMatch(/; the scroll stopped at its 200-step cap$/);
+  });
+
+  it("notes cross-origin frames it could not sample", () => {
+    const o = summarizeReducedMotion("u", [{ ...run(1440, [clean]), skippedFrames: 2 }]);
+    expect(o.note).toMatch(/2 cross-origin frame\(s\) not sampled$/);
   });
 });

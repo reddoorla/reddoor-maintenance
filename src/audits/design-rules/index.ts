@@ -12,11 +12,11 @@ export const DESIGN_RULES: Record<DesignRuleId, DesignRule> = {
 };
 
 /**
- * Check each url against each rule, one fresh browser context per pair, so
- * one rule's emulation (reduced motion, JS off) never leaks into another's.
- * A page that fails to load, or a check that throws, is `unmeasured`, never
- * a pass. Not a gate: nothing here runs on its own, in CI or against the
- * fleet. Running it is `scripts/design-rules.mts`.
+ * Check each url against each rule. Each check opens its own contexts, so one
+ * rule's emulation (reduced motion, JS off) never leaks into another's. A page
+ * that fails to load, or a check that throws, is `unmeasured`, never a pass.
+ * Not a gate: nothing here runs on its own, in CI or against the fleet.
+ * Running it is `scripts/design-rules.mts`.
  */
 export async function runDesignRules(
   urls: string[],
@@ -26,10 +26,8 @@ export async function runDesignRules(
   const outcomes: RuleOutcome[] = [];
   for (const url of urls) {
     for (const rule of rules) {
-      const context = await browser.newContext(rule.contextOptions);
       try {
-        const page = await context.newPage();
-        outcomes.push(await rule.check(page, url));
+        outcomes.push(await rule.check(browser, url));
       } catch (error) {
         outcomes.push({
           rule: rule.id,
@@ -38,8 +36,6 @@ export async function runDesignRules(
           findings: [],
           note: `the check threw: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
         });
-      } finally {
-        await context.close().catch(() => {});
       }
     }
   }

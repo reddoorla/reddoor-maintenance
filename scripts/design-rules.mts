@@ -22,7 +22,7 @@ for (let i = 0; i < args.length; i++) {
   if (arg === "--json") json = true;
   else if (arg === "--rule") {
     const id = args[++i] as DesignRuleId | undefined;
-    if (!id || !(id in DESIGN_RULES)) {
+    if (!id || !Object.hasOwn(DESIGN_RULES, id)) {
       console.error(
         `unknown rule ${id ?? "(none)"}; known: ${Object.keys(DESIGN_RULES).join(", ")}`,
       );
@@ -39,7 +39,14 @@ const rules = (picked.length > 0 ? picked : (Object.keys(DESIGN_RULES) as Design
   (id) => DESIGN_RULES[id],
 );
 
-const browser = await chromium.launch();
+let browser;
+try {
+  browser = await chromium.launch();
+} catch (error) {
+  // Not a page's failure: exit 2, as for any other unmeasured run.
+  console.error(`UNMEASURED: the browser did not launch: ${String(error).split("\n")[0]}`);
+  process.exit(2);
+}
 try {
   const outcomes = await runDesignRules(urls, rules, browser);
   if (json) console.log(JSON.stringify(outcomes, null, 2));
