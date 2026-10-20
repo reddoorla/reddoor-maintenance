@@ -1,6 +1,9 @@
 import type { Context, Config } from "@netlify/functions";
 import { listSites, listAllReports } from "../../src/db/fleet-state.js";
-import { countUnreplayedDeadLettersBySlug } from "../../src/db/deadletter.js";
+import {
+  countUnreplayedDeadLettersBySlug,
+  oldestUnreplayedDeadLetterBySlug,
+} from "../../src/db/deadletter.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
 import type { NotifyBounceCounts } from "../../src/db/submissions.js";
@@ -137,6 +140,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     } catch {
       // alarm simply absent — never blank the cockpit
     }
+    // OD 87: the hold's clock. A blip leaves it empty, and then nothing is held.
+    let deadLetterOldest: ReadonlyMap<string, string> = new Map();
+    if (deadLetters.size > 0) {
+      try {
+        deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
+      } catch {
+        // nothing held — every dead letter alarms
+      }
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
       websites,
@@ -150,6 +162,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       autoFilteredCount,
       notifyBounces,
       deadLetters,
+      deadLetterOldest,
     );
     return html(renderCockpitHtml(model, auth.email), 200);
   } catch (err) {

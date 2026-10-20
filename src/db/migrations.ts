@@ -636,4 +636,20 @@ export const MIGRATIONS: Migration[] = [
     id: "0043_reports_send_started_at",
     sql: `ALTER TABLE reports ADD COLUMN send_started_at TEXT;`,
   },
+  {
+    // OD 87: a known site's dead letter waits two replay cycles from its oldest
+    // unreplayed row's `received_at`, which `/s/:slug` reads on every load. 0028's
+    // index lacks `received_at`, so the per-slug `min(received_at)` would leave it
+    // for a rowid lookup into the payload-bearing table on each of the slug's rows.
+    // This one adds it last, so the per-slug count and min are both COVERING.
+    // Single statement.
+    id: "0044_deadletter_slug_received_index",
+    sql: `CREATE INDEX IF NOT EXISTS idx_deadletter_slug_received
+            ON submission_deadletter (site_slug, replayed_at, abandoned_at, received_at);`,
+  },
+  {
+    // 0028's index is a strict prefix of 0044's, which serves every query it did.
+    id: "0045_drop_deadletter_slug_unreplayed_index",
+    sql: `DROP INDEX IF EXISTS idx_deadletter_slug_unreplayed;`,
+  },
 ];

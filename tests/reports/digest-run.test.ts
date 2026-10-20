@@ -7,6 +7,11 @@ import type { ResendClient, ResendSendInput } from "../../src/reports/send/resen
 import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
 import type { DigestSendLog } from "../../src/alerts/digest-send.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { createDeadLetter } from "../../src/db/deadletter.js";
 
 /** #609: the digest reads its prior snapshot from Turso, and the read is
  *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
@@ -953,6 +958,54 @@ describe("runDigest", () => {
     expect(result.output).toMatch(/skipped/i);
     expect(captured).toHaveLength(0); // no email
     expect(await store.read()).toEqual({}); // resolved key cleared
+  });
+
+  // ── OD 87: a known site's dead letter waits two replay cycles ────────────────
+  //
+  // Through runDigest's own libSQL read (fetchDeadLetterCounts), the path
+  // production takes: a file database, because each ":memory:" open is a new one.
+
+  async function digestWithDeadLetterAged(hours: number) {
+    const dir = mkdtempSync(join(tmpdir(), "od87-"));
+    vi.stubEnv("TURSO_DATABASE_URL", `file:${join(dir, "fleet.db")}`);
+    vi.stubEnv("TURSO_AUTH_TOKEN", "");
+    try {
+      const db = await openDb(readDbConfig());
+      await createDeadLetter(db, {
+        siteSlug: "acme-co",
+        payload: { email: "ada@example.com" },
+        turnstile: { outcome: "pass", hostname: "acme.example.com" },
+        error: "Error: upstream 429 quota",
+        receivedAt: new Date(DIGEST_NOW.getTime() - hours * 60 * 60 * 1000),
+      });
+      const { client, captured } = captureClient();
+      const result = await runDigest({
+        digestState: memoryDigestState({}),
+        ...io({
+          Reports: [],
+          Websites: [cleanSiteRow({ "URL Checked At": DIGEST_NOW.toISOString() })],
+        }),
+        resend: client,
+        baseUrl: "https://reddoor-maintenance.netlify.app",
+        now: DIGEST_NOW,
+      });
+      return { result, captured };
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("holds a known site's dead letter aged 11 h 59 m: no ask, no email", async () => {
+    const { result, captured } = await digestWithDeadLetterAged(11 + 59 / 60);
+    expect(captured).toHaveLength(0);
+    expect(result.output).toMatch(/skipped/i);
+  });
+
+  it("asks about it at 12 h, CRITICAL, with the age in the title", async () => {
+    const { captured } = await digestWithDeadLetterAged(12);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toContain("1 lead dead-lettered and not replayed for 12 h");
   });
 
   // ── Submissions (24h) telemetry ──────────────────────────────────────────────

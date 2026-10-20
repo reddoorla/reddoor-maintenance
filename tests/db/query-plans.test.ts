@@ -846,6 +846,19 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => deadletter.countUnreplayedDeadLettersForSlug(db, "acme"),
     },
     {
+      // OD 87: the hold's clock, the oldest unreplayed row per slug. Runs on a
+      // DASHBOARD request beside the count, on the count's plan; the per-slug form
+      // is covering on 0044's index. Both asserted in deadletter-per-slug-plan.test.ts.
+      name: "oldestUnreplayedDeadLetterBySlug (deadletter alarm hold)",
+      covers: ["oldestUnreplayedDeadLetterBySlug"],
+      run: (db) => deadletter.oldestUnreplayedDeadLetterBySlug(db),
+    },
+    {
+      name: "oldestUnreplayedDeadLetterForSlug (/s/:slug held dead letter)",
+      covers: ["oldestUnreplayedDeadLetterForSlug"],
+      run: (db) => deadletter.oldestUnreplayedDeadLetterForSlug(db, "acme"),
+    },
+    {
       // #786: the operator's write-off. Reads the target ids under the same
       // predicate the alarm counts on, then updates them by id — an operator
       // gesture, not a request path, but it touches the queue the alarm reads.

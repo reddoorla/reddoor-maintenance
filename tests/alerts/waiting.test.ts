@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   markWaiting,
   lockfileWindowClosesAfter,
@@ -6,6 +8,9 @@ import {
   directVulnEscalatesAt,
   LOCKFILE_SETTLE_DAYS,
   DIRECT_VULN_WAIT_DAYS,
+  deadLetterEscalatesAt,
+  DEADLETTER_HOLD_HOURS,
+  DEADLETTER_REPLAY_EVERY_HOURS,
 } from "../../src/alerts/waiting.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
@@ -279,5 +284,103 @@ describe("a held direct security PR (P1-54: 29 Navy's sharp, 2026-10-13)", () =>
       "2 Renovate PRs failing CI",
       "1 critical/high vuln — Renovate has not fixed it since 2026-10-13",
     ]);
+  });
+});
+
+/**
+ * OD 87 (answered (a), 2026-10-20). A dead letter on a slug that resolves to a
+ * site waits two replay cycles before it alarms: `forms-deadletter-replay.yml`
+ * drains the queue every 6 h, so a fresh row is a (iii) "just wait" signal. The
+ * clock is the OLDEST unreplayed row's `received_at`, which the collector stamps as
+ * `oldestReceivedAt`; a slug that resolves to no site gets none and alarms at once.
+ */
+describe("markWaiting — dead letter on a known site (OD 87)", () => {
+  const received = "2026-10-20T06:00:00.000Z";
+  const at = deadLetterEscalatesAt(received)!;
+  const held = (over: Partial<AttentionItem> = {}): AttentionItem => ({
+    key: "deadletter:acme-co",
+    kind: "deadletter",
+    siteName: "Acme Co",
+    title: "1 lead dead-lettered and not yet replayed — run `db replay-deadletters`",
+    url: `${BASE}/s/acme-co`,
+    severity: "critical",
+    metric: 1,
+    oldestReceivedAt: received,
+    ...over,
+  });
+  const snap = flagged("2026-10-20", "deadletter:acme-co");
+
+  it("escalates two replay cycles (12 h) after the oldest unreplayed row", () => {
+    expect(DEADLETTER_REPLAY_EVERY_HOURS).toBe(6);
+    expect(DEADLETTER_HOLD_HOURS).toBe(2 * DEADLETTER_REPLAY_EVERY_HOURS);
+    expect(at.toISOString()).toBe("2026-10-20T18:00:00.000Z");
+    expect(deadLetterEscalatesAt("not a date")).toBeNull();
+  });
+
+  it("the replay cadence is the workflow's own cron", () => {
+    // Change DEADLETTER_REPLAY_EVERY_HOURS when the workflow's schedule changes.
+    const yml = readFileSync(
+      fileURLToPath(
+        new URL("../../.github/workflows/forms-deadletter-replay.yml", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(yml).toMatch(
+      new RegExp(`cron:\\s*"\\d+ \\*/${DEADLETTER_REPLAY_EVERY_HOURS} \\* \\* \\*"`),
+    );
+  });
+
+  it("aged 11 h 59 m it is waiting: no ask yet", () => {
+    const now = new Date(at.getTime() - 60 * 1000);
+    const [out] = markWaiting([held()], snap, now, true);
+    expect(out!.waiting).toBe(true);
+    expect(out!.title).toMatch(/11 h ago/);
+    expect(out!.title).toMatch(/2026-10-20 18:00Z/);
+  });
+
+  it("one millisecond before the threshold it is still waiting", () => {
+    expect(markWaiting([held()], snap, justBefore(at), true)[0]!.waiting).toBe(true);
+  });
+
+  it("aged 12 h it is CRITICAL, with the age in the title", () => {
+    const [out] = markWaiting([held()], snap, at, true);
+    expect(out!.waiting).toBeUndefined();
+    expect(out!.severity).toBe("critical");
+    expect(out!.title).toMatch(/^1 lead dead-lettered and not replayed for 12 h/);
+    expect(out!.title).toMatch(/db replay-deadletters/);
+  });
+
+  it("names the age of the OLDEST row as it grows", () => {
+    const now = new Date(at.getTime() + 15 * 60 * 60 * 1000 + 59 * 60 * 1000);
+    const [out] = markWaiting([held({ metric: 3 })], snap, now, true);
+    expect(out!.title).toMatch(/^3 leads dead-lettered and not replayed for 27 h/);
+  });
+
+  it("is badged WORSE on the day it escalates, and not after", () => {
+    const same = held({ status: "standing" });
+    expect(markWaiting([same], snap, at, true)[0]!.status).toBe("worse");
+    const dayLater = new Date(at.getTime() + MS_PER_DAY);
+    expect(markWaiting([same], snap, dayLater, true)[0]!.status).toBe("standing");
+  });
+
+  it("is clocked by received_at, not by the digest snapshot", () => {
+    // The snapshot's day-granular firstFlaggedAt cannot express 12 h, and an
+    // unread snapshot cannot restart this clock, so it neither holds nor frees it.
+    expect(markWaiting([held()], {}, justBefore(at), false)[0]!.waiting).toBe(true);
+    expect(markWaiting([held()], {}, at, false)[0]!.waiting).toBeUndefined();
+  });
+
+  it("an item with no received_at alarms at once (an unknown slug, or a failed read)", () => {
+    const { oldestReceivedAt: _drop, ...ghost } = held({
+      key: "deadletter:ghost-co",
+      siteName: "(unknown site: ghost-co)",
+    });
+    const now = new Date(received);
+    expect(markWaiting([ghost], snap, now, true)[0]).toEqual(ghost);
+  });
+
+  it("an unparseable received_at never mutes", () => {
+    const bad = held({ oldestReceivedAt: "garbage" });
+    expect(markWaiting([bad], snap, new Date(received), true)[0]).toEqual(bad);
   });
 });

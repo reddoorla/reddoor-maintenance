@@ -183,7 +183,7 @@ export async function countUnreplayedDeadLettersBySlug(
  *  `countUnreplayedDeadLettersBySlug` stays. The site page did not: it built the
  *  fleet-wide map and read one key out of it.
  *
- *  Needs `idx_deadletter_slug_unreplayed` (0028) to be a per-slug read rather
+ *  Needs a `site_slug`-first index (0028, now 0044's) to be a per-slug read rather
  *  than a per-slug filter. Without it SQLite serves the predicate from
  *  `idx_deadletter_unreplayed (replayed_at)` and visits every unreplayed row in
  *  the fleet, then a rowid lookup into the payload-bearing table for each — the
@@ -199,6 +199,41 @@ export async function countUnreplayedDeadLettersForSlug(db: Db, slug: string): P
     .where("abandoned_at", "is", null)
     .executeTakeFirst();
   return Number(row?.n) || 0;
+}
+
+/** The oldest unreplayed row's `received_at` per slug: the clock of OD 87's hold
+ *  (a known site's dead letter alarms two replay cycles after it). A separate query
+ *  rather than a second column on the count, whose `Map<string, number>` reaches
+ *  five callers. Same predicate and the same query plan as the count, and like it
+ *  returns no payload: deadletter-per-slug-plan.test.ts asserts the plans match. */
+export async function oldestUnreplayedDeadLetterBySlug(
+  db: Db,
+): Promise<ReadonlyMap<string, string>> {
+  const rows = await db
+    .selectFrom("submission_deadletter")
+    .select((eb) => ["site_slug", eb.fn.min("received_at").as("oldest")])
+    .where("replayed_at", "is", null)
+    .where("abandoned_at", "is", null)
+    .groupBy("site_slug")
+    .execute();
+  return new Map(rows.map((r) => [r.site_slug, String(r.oldest)]));
+}
+
+/** The same for ONE slug, for `/s/:slug` (the MED-11 reason above). COVERING on
+ *  0044's index, which adds `received_at` to 0028's for exactly this. Null when the
+ *  slug has no unreplayed row. */
+export async function oldestUnreplayedDeadLetterForSlug(
+  db: Db,
+  slug: string,
+): Promise<string | null> {
+  const row = await db
+    .selectFrom("submission_deadletter")
+    .select((eb) => eb.fn.min("received_at").as("oldest"))
+    .where("site_slug", "=", slug)
+    .where("replayed_at", "is", null)
+    .where("abandoned_at", "is", null)
+    .executeTakeFirst();
+  return row?.oldest == null ? null : String(row.oldest);
 }
 
 /** Abandon dead letters as resolved-by-DECISION (#786).

@@ -194,6 +194,26 @@ describe("collectAttention", () => {
     expect(ghost.url).toBeUndefined();
   });
 
+  it("carries the oldest received_at onto a known slug only (OD 87)", async () => {
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const items = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+      deadLetterOldest: new Map([
+        ["acme-co", "2026-10-20T06:00:00.000Z"],
+        ["ghost-co", "2026-10-20T06:00:00.000Z"],
+      ]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBe(
+      "2026-10-20T06:00:00.000Z",
+    );
+    expect(items.find((i) => i.key === "deadletter:ghost-co")!.oldestReceivedAt).toBeUndefined();
+  });
+
   it("emits no deadletter item when the queue is empty", async () => {
     const tables = { Reports: [], Websites: [vulnSite()] };
     const none = await collectAttention({

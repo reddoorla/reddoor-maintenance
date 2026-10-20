@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { openDb, type Db } from "../../src/db/client.js";
 import { writeDigestState } from "../../src/db/digest-state.js";
 import { loadSiteAlarmContext } from "../../src/dashboard/site-alarm.js";
+import { createDeadLetter } from "../../src/db/deadletter.js";
+import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-10-05T12:00:00Z");
@@ -46,5 +48,39 @@ describe("loadSiteAlarmContext reads the digest snapshot the cockpit reads", () 
 
   it("with no snapshot row, nothing waits", async () => {
     expect((await load())!.tier).toBe("attention");
+  });
+});
+
+/** OD 87: the site page still shows a held dead letter, as the `waiting:` chip
+ *  #1199 gave a vuln Renovate is still fixing, read from the store end to end. */
+describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
+  const clean = makeWebsiteRow({ ...site, securityVulnsCritical: 0 });
+  const loadClean = () => loadSiteAlarmContext(db, clean, "acme", [], BASE, NOW);
+  const deadLetterAt = (receivedAt: Date) =>
+    createDeadLetter(db, {
+      siteSlug: "acme",
+      payload: { email: "ada@example.com" },
+      turnstile: { outcome: "pass", hostname: "acme.example.com" },
+      error: "Error: upstream 429 quota",
+      receivedAt,
+    });
+
+  it("aged 3 h: on the page as a waiting chip, and not a tier", async () => {
+    await deadLetterAt(new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+    const alarm = (await loadClean())!;
+    expect(alarm.tier).toBe("healthy");
+    expect(alarm.items.map((i) => [i.key, i.waiting])).toEqual([["deadletter:acme", true]]);
+    const html = renderSiteDashboardHtml(clean, [], [], null, NOW, alarm);
+    expect(html).toMatch(/chip waiting[^>]*>waiting: 1 lead dead-lettered, oldest 3 h ago/);
+    expect(html).not.toContain("Needs attention");
+  });
+
+  it("aged 12 h by its OLDEST row: an alarm, though a newer row just landed", async () => {
+    await deadLetterAt(new Date(NOW.getTime() - 12 * 60 * 60 * 1000));
+    await deadLetterAt(new Date(NOW.getTime() - 60 * 1000));
+    const alarm = (await loadClean())!;
+    expect(alarm.tier).toBe("attention");
+    expect(alarm.items[0]!.waiting).toBeUndefined();
+    expect(alarm.items[0]!.title).toMatch(/^2 leads dead-lettered and not replayed for 12 h/);
   });
 });

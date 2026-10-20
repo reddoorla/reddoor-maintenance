@@ -81,6 +81,7 @@ function inputs(over: Partial<CockpitInputs> = {}): CockpitInputs {
     autoFilteredCount: 0,
     notifyBounces: new Map(),
     deadLetters: new Map(),
+    deadLetterOldest: new Map(),
     ...over,
   };
 }
@@ -148,6 +149,35 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
     );
     expect(out.split("\n")[0]).toBe("PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 sites=1");
     expect(out).toContain("(unknown site: ghost-site) · broken · (no site page)");
+  });
+});
+
+describe("pm-cockpit — a dead letter on a known site waits two replay cycles (OD 87)", () => {
+  // NOW is 2026-10-07T12:00Z.
+  const held = (oldest: string) =>
+    buildPmCockpit(
+      inputs({
+        deadLetters: new Map([["healthy-co", 1]]),
+        deadLetterOldest: new Map([["healthy-co", oldest]]),
+      }),
+      NOW,
+    );
+
+  it("aged 11 h 59 m: counted in just_wait_left_out and not listed", () => {
+    const pm = held("2026-10-07T00:01:00.000Z");
+    expect(pm.waitingKeys).toEqual(["deadletter:healthy-co", "vuln:recWAIT"]);
+    const out = formatPmCockpit(pm);
+    expect(out).toContain("just_wait_left_out=2");
+    expect(out).not.toMatch(/Healthy Co|healthy-co/);
+  });
+
+  it("aged 16 h: listed as broken, dated the hour its hold ran out", () => {
+    const pm = held("2026-10-06T20:00:00.000Z");
+    expect(pm.waitingKeys).toEqual(["vuln:recWAIT"]);
+    const out = formatPmCockpit(pm);
+    expect(out).toContain("Healthy Co · broken · /s/healthy-co");
+    expect(out).toContain("1 lead dead-lettered and not replayed for 16 h");
+    expect(out).toContain("(escalated 2026-10-07)");
   });
 });
 

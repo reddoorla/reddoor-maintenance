@@ -78,6 +78,8 @@ describe("openDb", () => {
       "0041_reports_unapproved_at",
       "0042_reports_unapproved_by",
       "0043_reports_send_started_at",
+      "0044_deadletter_slug_received_index",
+      "0045_drop_deadletter_slug_unreplayed_index",
     ]);
     await db.destroy();
   });

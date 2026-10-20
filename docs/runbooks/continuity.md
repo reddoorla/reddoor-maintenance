@@ -144,7 +144,7 @@ Everything below degrades harmlessly. Leave it:
 | Signal                                         | What actually happens over a week                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Renovate PRs sitting open, green and unmerged  | Renovate runs every 12 hours and merges from inside its own run. Green + unmerged is far more often a rule working than a rule broken — under a grouped preset a single held package makes the whole branch non-automergeable. Naming the rule that would have to permit the merge is a prerequisite to calling anything stuck.   |
-| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:675–679`, consulted at `:743`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
+| A Prismic drift ack expiring                   | Acks carry an explicit `prismicAckUntil`; once it passes, `prismicAckIsLive` stops muting and the alarm simply comes back (`src/alerts/digest-collectors.ts:684–688`, consulted at `:752`). An ack only ever mutes a `fail`, never `unknown` and never staleness. A re-appearing drift alarm is the mute ending, not a new break. |
 | A red nightly that goes green on the next run  | Every tracking issue in section 1 auto-closes on recovery. One red night in a week is noise; the same issue still open on day three is not.                                                                                                                                                                                       |
 | Drafts accumulating in the approve queue       | See the two gates above. This is the system working.                                                                                                                                                                                                                                                                              |
 | Lighthouse scores drifting into the watch band | Watch is the soft band beneath the alert floor, by design (`src/dashboard/fleet-cockpit.ts:41–43`).                                                                                                                                                                                                                               |
@@ -170,12 +170,16 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:518–543`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:524–558`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
-- The slug **resolves** to a fleet site. The item reads _N leads dead-lettered and not yet
-  replayed — run `db replay-deadletters`_, and links to that site's page.
+- The slug **resolves** to a fleet site. Since Operator decision 87 (2026-10-20) it waits two
+  replay cycles first: until 12 hours after the oldest unreplayed row's `received_at`, it shows
+  only on that site's page, as a dotted _waiting:_ chip, and stays off the cockpit's cards, the
+  Needs-you feed and the digest. After that it reads _N leads dead-lettered and not replayed for
+  H h (two replay runs) — run `db replay-deadletters`_, badged WORSE that day, and links to
+  that site's page.
 - The slug resolves to **no** fleet site. The item reads _N leads dead-lettered for '&lt;slug&gt;',
   which resolves to NO fleet site — leads are being dropped; run `ensure-site <slug>` then
   `db replay-deadletters`_, and is rendered card-less with **no** link (a `/s/<slug>` link would

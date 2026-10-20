@@ -725,6 +725,41 @@ describe("buildCockpitModel", () => {
     expect(m.cards.find((c) => c.site.name === "Fine")!.tier).toBe("healthy");
   });
 
+  describe("OD 87: a known site's dead letter waits two replay cycles", () => {
+    // NOW is 2026-06-11T12:00Z. The hold runs 12 h from the oldest unreplayed row.
+    const model = (oldest: string) =>
+      buildCockpitModel(
+        [site({ id: "a", name: "Espada" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["espada", 2]]),
+        new Map([["espada", oldest]]),
+      );
+
+    it("aged 11 h 59 m: off the card and out of the Needs-you feed", () => {
+      const m = model("2026-06-11T00:01:00.000Z");
+      expect(m.cards[0]!.tier).toBe("healthy");
+      expect(m.cards[0]!.items.some((i) => i.kind === "deadletter")).toBe(false);
+      expect(buildNeedsYouFeed(m)).toEqual([]);
+    });
+
+    it("aged 12 h: CRITICAL on the card and in the feed, with the age in the title", () => {
+      const m = model("2026-06-11T00:00:00.000Z");
+      expect(m.cards[0]!.tier).toBe("attention");
+      const item = m.cards[0]!.items.find((i) => i.kind === "deadletter")!;
+      expect(item.severity).toBe("critical");
+      expect(item.title).toMatch(/^2 leads dead-lettered and not replayed for 12 h/);
+      expect(buildNeedsYouFeed(m).map((f) => f.siteName)).toEqual(["Espada"]);
+    });
+  });
+
   it("emits no deadletter item when the counts map is omitted (libSQL blip default)", () => {
     const m = buildCockpitModel([site({ id: "a", name: "Espada" })], [], {}, BASE, NOW);
     expect(m.cards[0]!.items.some((i) => i.kind === "deadletter")).toBe(false);

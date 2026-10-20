@@ -271,6 +271,10 @@ export type CollectAttentionDeps = {
   /** Pre-fetched unreplayed dead-letter counts per SLUG (#645). Same contract as
    *  `notifyBounces`: omitted → read from libSQL, defensively. */
   deadLetters?: ReadonlyMap<string, number>;
+  /** OD 87: the oldest unreplayed row's received_at per slug, the clock of a known
+   *  site's hold. Omitted with `deadLetters` → read from libSQL beside it; omitted
+   *  while `deadLetters` is given → empty, and nothing is held. */
+  deadLetterOldest?: ReadonlyMap<string, string>;
 };
 
 /** Per-site bounced-notification counts for the notify-bounce collector, read from
@@ -303,17 +307,36 @@ async function fetchNotifyBounceCounts(
  *  `fetchNotifyBounceCounts` above: kysely/libsql are devDependencies consuming
  *  fleet sites do not install, and the digest must never blank over a missing
  *  optional signal. */
-async function fetchDeadLetterCounts(): Promise<ReadonlyMap<string, number>> {
+async function fetchDeadLetterCounts(): Promise<{
+  counts: ReadonlyMap<string, number>;
+  oldest: ReadonlyMap<string, string>;
+}> {
+  let db;
+  let deadletter;
   try {
-    const [{ openDb, readDbConfig }, { countUnreplayedDeadLettersBySlug }] = await Promise.all([
+    const [{ openDb, readDbConfig }, mod] = await Promise.all([
       import("../db/client.js"),
       import("../db/deadletter.js"),
     ]);
-    const db = await openDb(readDbConfig());
-    return await countUnreplayedDeadLettersBySlug(db);
+    deadletter = mod;
+    db = await openDb(readDbConfig());
   } catch (e) {
     console.warn(`⚠ dead-letter counts unavailable (libSQL): ${(e as Error).message}`);
-    return new Map();
+    return { counts: new Map(), oldest: new Map() };
+  }
+  let counts: ReadonlyMap<string, number>;
+  try {
+    counts = await deadletter.countUnreplayedDeadLettersBySlug(db);
+  } catch (e) {
+    console.warn(`⚠ dead-letter counts unavailable (libSQL): ${(e as Error).message}`);
+    return { counts: new Map(), oldest: new Map() };
+  }
+  // OD 87: the hold's clock. A failed read holds nothing: every dead letter alarms.
+  try {
+    return { counts, oldest: await deadletter.oldestUnreplayedDeadLetterBySlug(db) };
+  } catch (e) {
+    console.warn(`⚠ dead-letter ages unavailable (libSQL): ${(e as Error).message}`);
+    return { counts, oldest: new Map() };
   }
 }
 
@@ -578,7 +601,9 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
   const { reports, websites } = deps;
   const now = deps.now ?? new Date();
   const notifyBounces = deps.notifyBounces ?? (await fetchNotifyBounceCounts(now));
-  const deadLetters = deps.deadLetters ?? (await fetchDeadLetterCounts());
+  const fetched = deps.deadLetters === undefined ? await fetchDeadLetterCounts() : null;
+  const deadLetters = deps.deadLetters ?? fetched!.counts;
+  const deadLetterOldest = deps.deadLetterOldest ?? fetched?.oldest ?? new Map();
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
@@ -599,7 +624,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // — a slug that resolves to no fleet site — has no card by construction. The
     // digest renders every item flat by title, so it carries both flavours.
     ...runCollector("deadletter", () =>
-      collectDeadLetterAlerts(websites, deadLetters, deps.baseUrl),
+      collectDeadLetterAlerts(websites, deadLetters, deps.baseUrl, deadLetterOldest),
     ),
     // Same collector the cockpit runs, over the same persisted `Prismic Models`
     // columns and the same keys — so the snapshot this digest writes is the one
