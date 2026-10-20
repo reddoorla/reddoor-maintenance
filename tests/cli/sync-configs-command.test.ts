@@ -80,6 +80,9 @@ export default { kit: { adapter: adapter(), alias: { $utils: "src/lib/utils" } }
   it("noop on clean fixture", async () => {
     const cwd = await copyFixtureToTmp(clean);
     const out = run(["sync-configs"], cwd);
-    expect(out).toMatch(/noop/);
+    // The recipe's noop carries its own note, so the command's fallback
+    // "all configs in sync" is not printed here; that fallback is pinned with a
+    // stubbed recipe in recipe-failed-output.test.ts (#1434).
+    expect(out).toMatch(/\] noop: all targeted configs already match/);
   });
 });

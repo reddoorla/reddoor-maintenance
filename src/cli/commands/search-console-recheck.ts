@@ -60,8 +60,9 @@ export async function runSearchConsoleRecheckCommand(
       return readFleetRoster();
     })
   )();
-  // The cockpit's own condition for the watch (fleet-cockpit.ts): an unstamped
-  // no-property row raises none, so a re-check must not stamp one into a watch.
+  // The cockpit's own condition for the watch (fleet-cockpit.ts): the re-check
+  // exists to clear that watch, so it skips what the cockpit does not count,
+  // an unstamped no-property row among them.
   const targets = websites.filter(
     (w) =>
       w.status === "maintained" &&

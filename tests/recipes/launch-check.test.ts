@@ -237,6 +237,27 @@ describe("launchCheck", () => {
       expect(detailOf(stale, "schedule")).toContain("more than 13 months old");
     });
 
+    // The other two pre-launch-only rules (#1449): the strict YYYY-MM-DD form
+    // and the unknown testing_freq. A maintained row keeps main's looser rule
+    // for both; the building row beside each shows the rule is live.
+    it("applies the strict calendar-date form only before launch", async () => {
+      const fields = { "maintenance day": "Oct 5 2026" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      expect(detailOf(building, "schedule")).toContain("is not a date");
+    });
+
+    it("refuses an unknown testing_freq only before launch", async () => {
+      const fields = { "testing freq": "Quaterly", "testing day": "2026-10-14" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      expect(detailOf(building, "schedule")).toContain("testing_freq");
+    });
+
     it("clamps a month-end anchor as nextDueDate does", async () => {
       const day = { "maintenence freq": "Monthly", "maintenance day": "2026-01-31" };
       const at = (iso: string) => goodDeps({ now: () => new Date(iso) });
