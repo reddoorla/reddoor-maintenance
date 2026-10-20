@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  renderProspectAuditsPageHtml,
-  type ProspectAuditsPageModel,
-} from "./render.js";
+import { renderProspectAuditsPageHtml, type ProspectAuditsPageModel } from "./render.js";
 import type { ProspectAuditListItem } from "../../../src/db/prospect-audits.js";
 
 function item(over: Partial<ProspectAuditListItem> = {}): ProspectAuditListItem {

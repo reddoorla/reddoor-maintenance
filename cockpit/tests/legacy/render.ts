@@ -37,14 +37,19 @@ import type { ProspectAuditListItem } from "../../../src/db/prospect-audits.js";
  *  substring assertions read the markup itself. */
 export function withoutComments(html: string): string {
   let out = html;
-  for (let prev = ""; prev !== out; ) {
+  for (let prev = ""; prev !== out;) {
     prev = out;
     out = out.replace(/<!--[\s\S]*?-->/g, "");
   }
   return out;
 }
 
-function documentOf(page: Component<any>, data: unknown, path: string, email: string | null): string {
+function documentOf<D>(
+  page: Component<{ data: D }>,
+  data: D,
+  path: string,
+  email: string | null,
+): string {
   const inner = render(page, { props: { data } });
   const children = createRawSnippet(() => ({ render: () => inner.body }));
   const outer = render(Layout, { props: { data: { email, path }, children } });
@@ -61,11 +66,17 @@ function documentOf(page: Component<any>, data: unknown, path: string, email: st
 </html>`);
 }
 
-export function renderCockpitHtml(model: CockpitModel, operatorEmail: string | null = null): string {
+export function renderCockpitHtml(
+  model: CockpitModel,
+  operatorEmail: string | null = null,
+): string {
   return documentOf(HomePage, { view: buildCockpitView(model, new Date()) }, "/", operatorEmail);
 }
 
-export function renderFleetTableHtml(m: FleetTableModel, operatorEmail: string | null = null): string {
+export function renderFleetTableHtml(
+  m: FleetTableModel,
+  operatorEmail: string | null = null,
+): string {
   return documentOf(FleetPage, { model: m }, "/fleet", operatorEmail);
 }
 
@@ -89,12 +100,24 @@ export function renderSubmissionsPageHtml(
   return documentOf(SubmissionsPage, buildSubmissionsPageData(m), "/submissions", operatorEmail);
 }
 
+/** The old renderer's input, kept so the moved tests' fixtures still type. */
+export type ProspectAuditsPageModel = {
+  audits: ProspectAuditListItem[];
+  now: Date;
+  operatorEmail?: string | null;
+};
+
 export function renderProspectAuditsPageHtml(input: {
   audits: ProspectAuditListItem[];
   now: Date;
   operatorEmail?: string | null;
 }): string {
-  return documentOf(AuditsPage, auditsPageView(input.audits, input.now), "/audits", input.operatorEmail ?? null);
+  return documentOf(
+    AuditsPage,
+    auditsPageView(input.audits, input.now),
+    "/audits",
+    input.operatorEmail ?? null,
+  );
 }
 
 /** The cockpit's Fleet browse panel on its own, as `renderFleetBrowsePanel` was. */

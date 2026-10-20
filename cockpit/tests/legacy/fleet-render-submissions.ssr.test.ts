@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "./render.js";
 import { renderFleetBrowsePanel } from "./render.js";
 import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
-import type { CockpitModel, SiteCard, SubmissionEntry } from "../../../src/dashboard/fleet-cockpit.js";
+import type {
+  CockpitModel,
+  SiteCard,
+  SubmissionEntry,
+} from "../../../src/dashboard/fleet-cockpit.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 function model(over: Partial<CockpitModel> = {}): CockpitModel {

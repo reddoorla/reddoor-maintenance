@@ -1,19 +1,17 @@
 import { describe, it, expect } from "vitest";
 import Page from "../../src/routes/fleet/+page.svelte";
-import { renderFleetTableHtml } from "../../../src/dashboard/fleet-table-render.js";
 import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery } from "../../../src/dashboard/fleet-table.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
-import { canonical, bodyOf, renderPage } from "../_helpers/parity.js";
+import { canonical, renderPage } from "../_helpers/parity.js";
 
 /**
- * /fleet, ported (#582): the page renders what the old string renderer did,
- * line for line in canonical form. The only intended difference is the shell:
- * the old page's own "← Fleet home" link and auth fragment give way to the
- * shared nav, which the layout renders and these page renders do not include.
+ * Since the cutover (#582) the old renderer is gone. Each case's markup is
+ * pinned by a snapshot written while parity with the old renderer held (commit
+ * "freeze each page's canonical markup as a snapshot, verified by parity"), so
+ * each snapshot is what the old page rendered. Keep these test names: the
+ * snapshots are keyed on them.
  */
-
-const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
 const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };
 
 function sites() {
@@ -55,19 +53,8 @@ describe("/fleet parity with renderFleetTableHtml", () => {
   for (const [name, query, rows] of CASES) {
     it(name, () => {
       const model = buildFleetTableModel(rows, { ...DEFAULT_QUERY, ...query });
-      const before = canonical(bodyOf(renderFleetTableHtml(model, "op@example.com")), OLD_ONLY);
       const after = canonical(renderPage(Page, { data: { model } }));
-      expect(after).toEqual(before);
       expect(after).toMatchSnapshot();
     });
   }
-
-  it("the instrument sees a one-character difference", () => {
-    const model = buildFleetTableModel(sites(), DEFAULT_QUERY);
-    const before = canonical(bodyOf(renderFleetTableHtml(model)), OLD_ONLY);
-    const after = canonical(
-      renderPage(Page, { data: { model } }).replace("Fleet table", "Fleet tabel"),
-    );
-    expect(after).not.toEqual(before);
-  });
 });

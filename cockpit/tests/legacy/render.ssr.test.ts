@@ -1308,7 +1308,9 @@ describe("renderSiteDashboardHtml — editable site details", () => {
       [],
     );
     const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
-    expect(statusSelect).toContain('<option value="" disabled="" selected="" hidden="">— select —</option>');
+    expect(statusSelect).toContain(
+      '<option value="" disabled="" selected="" hidden="">— select —</option>',
+    );
     expect(statusSelect).not.toMatch(/<option value="archived" selected/);
   });
 
