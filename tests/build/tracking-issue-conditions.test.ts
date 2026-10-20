@@ -264,6 +264,7 @@ const closes = (all: Found[]) => all.filter((s) => /\bgh issue close\b/.test(s.s
  * accident.
  */
 const FINDING_KEYED = new Set([
+  "fleet-db-backup.yml › Open/update the Dropbox-copy tracking issue",
   "fleet-config-drift.yml › Open/update the config-drift tracking issue",
   "fleet-security.yml › Open/update the protection-gap tracking issue",
   "release-health.yml › Open/update the npm-drift tracking issue",
@@ -292,6 +293,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-config-drift.yml › Open/update the config-drift tracking issue",
       "fleet-config-drift.yml › Open/update the config-drift-sweep-failing tracking issue",
       "fleet-db-backup.yml › Open/update the backup-failure tracking issue",
+      "fleet-db-backup.yml › Open/update the Dropbox-copy tracking issue",
       "fleet-db-backup.yml › Open/update the quota tracking issue",
       "fleet-form-e2e.yml › Open/update the nightly-form-e2e-failure tracking issue",
       "fleet-lighthouse.yml › Open/update the nightly-failure tracking issue",
@@ -313,6 +315,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-config-drift.yml › Close the config-drift issue on a clean sweep",
       "fleet-config-drift.yml › Close the config-drift-sweep-failing issue on recovery",
       "fleet-db-backup.yml › Close the backup-failure issue on recovery",
+      "fleet-db-backup.yml › Close the Dropbox-copy issue on a successful copy",
       "fleet-db-backup.yml › Close the quota issue on recovery",
       "fleet-form-e2e.yml › Close the nightly-form-e2e-failure issue on recovery",
       "fleet-lighthouse.yml › Close the nightly-failure issue on recovery",
@@ -534,6 +537,62 @@ describe("time-travel — a red run files exactly one issue, and only the suite 
   });
 });
 
+describe("fleet-db-backup — the Dropbox-copy issue speaks only about copy nights", () => {
+  // OD 97(g). The copy step is skipped on 29 or 30 nights a month. A skipped
+  // copy must neither file nor close; a failed copy must file on a green run;
+  // and a copy night whose run went red or was cancelled before the copy must
+  // file too, or that month's copy is lost with nothing open.
+  const step = (label: string) =>
+    all.find((s) => s.file === "fleet-db-backup.yml" && s.label === label)!;
+  const open = () => step("Open/update the Dropbox-copy tracking issue");
+  const close = () => step("Close the Dropbox-copy issue on a successful copy");
+  const at = (base: Scenario, copy: string, due: "true" | "false"): Scenario => ({
+    ...base,
+    output: due,
+    outcomes: { dropbox: copy },
+  });
+
+  it("finds both steps", () => {
+    expect(open()?.if).toBeDefined();
+    expect(close()?.if).toBeDefined();
+  });
+
+  it("files on a failed copy, and on a red or cancelled copy night; never on a skipped copy otherwise, nor on a branch", () => {
+    const cases: Array<[Scenario, string, "true" | "false", boolean]> = [
+      [MAIN_GREEN, "failure", "true", true],
+      [MAIN_GREEN, "skipped", "false", false],
+      [MAIN_GREEN, "success", "true", false],
+      [MAIN_FAILED, "skipped", "true", true],
+      [MAIN_CANCELLED, "skipped", "true", true],
+      // A cancel AFTER a successful copy: the month has its copy.
+      [MAIN_CANCELLED, "success", "true", false],
+      [MAIN_FAILED, "success", "true", false],
+      [MAIN_FAILED, "skipped", "false", false],
+      [MAIN_CANCELLED, "skipped", "false", false],
+      [BRANCH_GREEN, "failure", "true", false],
+      [BRANCH_FAILED, "skipped", "true", false],
+    ];
+    const wrong = cases
+      .filter(([b, c, d, want]) => evaluate(open().if!, at(b, c, d)) !== want)
+      .map(([b, c, d, want]) => `${b.name}, copy ${c}, due ${d}: want ${want}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("closes only after a copy that succeeded, on a green run on main", () => {
+    const cases: Array<[Scenario, string, boolean]> = [
+      [MAIN_GREEN, "success", true],
+      [MAIN_GREEN, "skipped", false],
+      [MAIN_GREEN, "failure", false],
+      [MAIN_CANCELLED, "skipped", false],
+      [BRANCH_GREEN, "success", false],
+    ];
+    const wrong = cases
+      .filter(([b, c, want]) => evaluate(close().if!, at(b, c, "true")) !== want)
+      .map(([b, c, want]) => `${b.name}, copy ${c}: want ${want}`);
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe("a step that runs past a failure is bounded", () => {
   // 36451921171: an `if: always()` sweep with no timeout ran from 17:51 to
   // 22:38 — past the 6-hour job limit and through the whole 5-minute post-cancel
@@ -581,6 +640,10 @@ const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
   [
     "daily-reports.yml › Keep the scheduled workflow alive",
     "hygiene only (resets the 60-day auto-disable timer); its failure is not the run's",
+  ],
+  [
+    "fleet-db-backup.yml › Copy the encrypted dump to Dropbox",
+    'OD 97(g): a failed monthly copy files its own finding-keyed issue ("Monthly Dropbox backup copy failing"); the backup it copies was already taken, verified and uploaded as the artifact, so the run is not the one that failed',
   ],
   [
     "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
@@ -754,8 +817,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 19 open steps", () => {
-    expect(opens(all)).toHaveLength(19);
+  it("finds all 20 open steps", () => {
+    expect(opens(all)).toHaveLength(20);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
