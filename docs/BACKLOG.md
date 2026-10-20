@@ -4698,6 +4698,21 @@ reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
         report check, the watcher's `dry_run date=2026-10-22` → `not-covered`
         check, and the 10-26 proof), and proves the watcher on the new dates
         before trusting it.
+        **Answered 2026-10-20 (cockpit, AskUserQuestion), runbook step 2, the
+        decision migration:** `decisions.mjs convert` on `8d909136` flagged 46
+        items against the morning report's 19. The operator closed 31 as
+        already settled in their own text (1, 2, 7, 8, 10, 12, 23, 29, 32,
+        38, 40, 44, 49, both 53s, 55, 63, 70, 71, 75, 81, 83, 85, 88, 90, 93,
+        107, 110, 113, 123, 126, 127, 128), and kept 17 open as files in
+        reddoor-workspace `decisions/` (13, 14, 15, 18, 31, 33, 45, 57, 61,
+        72, 77, 78, 79, 82, 87, 97, 120), the four judgment calls among them:
+        "keep them all open for now, will be a good test of the new system".
+        Two go into the home base's "Settled answers": never draft Discord
+        replies (10-12), and non-maintained sites are not pursued (57(d)).
+        The runbook, the watcher (`FIRST_COVERED` 2026-10-21, `KNOWN_GOOD`
+        2026-10-20T23:59Z) and the proof (Wed 10-21, report due 13:18Z) are
+        re-dated on workspace `cutover/loop-1020`; the watcher read blind,
+        not-covered, not-due, missed and ran on a scratch history first.
 
 122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
       `no-property` or write `soft-fail`?** The brief said the nightly re-check
@@ -5397,6 +5412,11 @@ am`), open the PR, and merge it once `validate` is green. Lock-file PRs
       operator pastes the URL. The session also asked whether a
       cleanup session may fold a clean round's minors in rather than file
       them. It gave no pick for that, so the question stays open.
+      **Answered 2026-10-20 (cockpit, AskUserQuestion): fold when cheap.** A
+      cleanup session may fold a minor into its own PR when it already
+      touches the same file and the fix needs no new test; anything else is
+      still filed as an issue. The rule line goes into the home base's
+      `CLAUDE.md` with the review-round rule.
 
 ## Active projects (the operator's list, read by the PM pass)
 
