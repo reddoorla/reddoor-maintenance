@@ -80,11 +80,17 @@ function normalizeSeverity(s: unknown): Severity {
   return "low";
 }
 
+/** A GHSA id inside an advisory URL (`https://github.com/advisories/GHSA-…`), as both pnpm and
+ *  npm audit link their advisories. */
+function ghsaFromUrl(url: string | undefined): string | undefined {
+  return /\bGHSA(?:-[0-9a-z]{4}){3}\b/i.exec(url ?? "")?.[0];
+}
+
 function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
   const out: AdvisoryEntry[] = [];
   for (const a of Object.values(parsed.advisories ?? {})) {
     if (!a) continue;
-    const ghsa = a.github_advisory_id || /\bGHSA(?:-[0-9a-z]{4}){3}\b/i.exec(a.url ?? "")?.[0];
+    const ghsa = a.github_advisory_id || ghsaFromUrl(a.url);
     out.push({
       module: a.module_name ?? "unknown",
       severity: normalizeSeverity(a.severity),
@@ -136,12 +142,15 @@ function extractAdvisoriesFromNpm(parsed: NpmAuditJson): AdvisoryEntry[] {
     const severity = normalizeSeverity(rootEntry?.severity ?? v.severity);
     const title = detail?.title ?? rootName;
     const url = detail?.url;
+    // npm's `via` detail carries no CVE list; its url names the GHSA, which the merge dedupes on.
+    const ghsa = ghsaFromUrl(url);
 
     roots.set(rootName, {
       module: rootEntry?.name ?? rootName,
       severity,
       title,
       ...(url ? { url } : {}),
+      ...(ghsa ? { ghsa } : {}),
     });
   }
 
@@ -513,9 +522,10 @@ function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
 
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency
  *  graph cannot read. A Dependabot advisory the lockfile audit already carries is counted once.
- *  The counts are one per merged advisory (#1411), since pnpm's metadata may count per path; a
- *  severity pnpm counts with no advisory behind it keeps pnpm's count, so missing detail never
- *  reads clean. Dependabot's ghost alerts ride along, with only their own clause in the summary
+ *  Per severity the count is the larger of the merged advisories and pnpm's own metadata count,
+ *  never their sum (#1411): pnpm's metadata may count per path, so adding Dependabot's per-alert
+ *  tallies mixed units, while taking the larger keeps a severity pnpm counts without (full)
+ *  advisory detail from reading low or clean. Dependabot's ghost alerts ride along, with only their own clause in the summary
  *  (#1410): Dependabot's live count is already inside the merged one. */
 function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResult {
   const lock = lockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
@@ -525,13 +535,14 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
   };
   const advisories = [...lock.advisories];
   for (const a of dep.advisories) {
-    if (lock.advisories.some((l) => sameAdvisory(l, a))) continue;
+    // Against the growing list, so two Dependabot alerts on one advisory (one per manifest) count once.
+    if (advisories.some((m) => sameAdvisory(m, a))) continue;
     advisories.push(a);
   }
   const counts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
   for (const a of advisories) counts[a.severity] += 1;
   for (const sev of Object.keys(counts) as Severity[]) {
-    if (!lock.advisories.some((a) => a.severity === sev)) counts[sev] += lock.counts[sev];
+    counts[sev] = Math.max(counts[sev], lock.counts[sev]);
   }
   const ghosts = dep.ghostAdvisories ?? [];
   const liveStatus = classify(counts);

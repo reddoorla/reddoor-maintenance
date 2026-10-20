@@ -944,8 +944,9 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       );
     });
 
-    // #1411: pnpm's metadata may count per path; the merged counts are one per advisory.
-    it("counts the merged advisories, not pnpm's per-path metadata plus Dependabot's alerts", async () => {
+    // #1411: the merged counts never add Dependabot's per-alert tallies to pnpm's metadata,
+    // which may count per path; per severity they are the larger of the two views.
+    it("takes the larger of the merged advisories and pnpm's metadata, never their sum", async () => {
       const perPath = JSON.stringify({
         ...JSON.parse(pnpmAuditOut),
         metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 5, critical: 0 } },
@@ -955,25 +956,111 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
         dependabotDeps: fakeDependabot([actionAlert]),
         spawn: fakeSpawn({ pnpm: { code: 1, stdout: perPath } }),
       });
-      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+      expect(result.summary).toBe("pnpm audit + Dependabot: 5 vulnerabilities (0C/5H/0M/0L)");
       expect((result.details as { counts: Record<string, number> }).counts).toEqual({
         low: 0,
         moderate: 0,
-        high: 3,
+        high: 5,
         critical: 0,
       });
     });
 
-    it("keeps pnpm's count for a severity it reports without any advisory detail", async () => {
+    it("counts the merged advisories when they outnumber pnpm's metadata", async () => {
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([actionAlert]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+    });
+
+    it("never reads clean when pnpm counts a severity with no advisory detail", async () => {
       const noDetail = JSON.stringify({
         metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0 } },
       });
       const result = await securityAudit({
         site: { path: repo(), gitRepo: "reddoorla/acme" },
-        dependabotDeps: fakeDependabot([actionAlert]),
+        dependabotDeps: fakeDependabot([]),
         spawn: fakeSpawn({ pnpm: { code: 1, stdout: noDetail } }),
       });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
+    });
+
+    it("does not add a Dependabot alert onto pnpm's detail-less count of the same severity", async () => {
+      const noDetail = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      });
+      const sharp: DependabotAlert = {
+        ...actionAlert,
+        package: "sharp",
+        ghsaId: "GHSA-wq5f-xc86-pv6w",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([sharp]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: noDetail } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    it("keeps pnpm's count when it has detail for only some of a severity", async () => {
+      const partial = JSON.stringify({
+        ...JSON.parse(pnpmAuditOut),
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 3, critical: 0 } },
+      });
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: partial } }),
+      });
       expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (0C/3H/0M/0L)");
+    });
+
+    it("dedupes by GHSA when the merge falls back to npm audit", async () => {
+      const npmOut = JSON.stringify({
+        metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+        vulnerabilities: {
+          foo: {
+            name: "foo",
+            severity: "high",
+            via: [
+              {
+                source: 1,
+                name: "foo",
+                title: "Prototype pollution in foo",
+                url: "https://github.com/advisories/GHSA-aaaa-bbbb-cccc",
+                severity: "high",
+              },
+            ],
+          },
+        },
+      });
+      const foo: DependabotAlert = {
+        ...actionAlert,
+        package: "foo",
+        summary: "foo allows prototype pollution via merge()",
+        ghsaId: "GHSA-aaaa-bbbb-cccc",
+        manifestPath: "pnpm-lock.yaml",
+      };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([foo]),
+        spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+      });
+      expect(result.summary).toBe("npm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    it("counts once two Dependabot alerts on one GHSA filed against two manifests", async () => {
+      const a: DependabotAlert = { ...actionAlert, ghsaId: "GHSA-cccc-dddd-eeee" };
+      const b: DependabotAlert = { ...a, manifestPath: ".github/workflows/deploy.yml" };
+      const result = await securityAudit({
+        site: { path: repo(), gitRepo: "reddoorla/acme" },
+        dependabotDeps: fakeDependabot([a, b]),
+        spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+      });
+      expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
     });
   });
 
