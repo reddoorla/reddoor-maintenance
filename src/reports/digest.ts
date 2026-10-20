@@ -1,7 +1,7 @@
 // src/reports/digest.ts
 import { isPendingApproval, type ReportRow } from "./report-row.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
-import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
+import { isDashboardVisible, siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
 import { isIdempotencyConflict } from "./send/idempotency.js";
 import {
@@ -624,7 +624,14 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // — a slug that resolves to no fleet site — has no card by construction. The
     // digest renders every item flat by title, so it carries both flavours.
     ...runCollector("deadletter", () =>
-      collectDeadLetterAlerts(websites, deadLetters, deps.baseUrl, deadLetterOldest),
+      // Visible rows last, so a visible site wins a slug its archived namesake's
+      // name also gives (the cockpit's order: buildCockpitModel).
+      collectDeadLetterAlerts(
+        [...websites.filter((w) => !isDashboardVisible(w)), ...websites.filter(isDashboardVisible)],
+        deadLetters,
+        deps.baseUrl,
+        deadLetterOldest,
+      ),
     ),
     // Same collector the cockpit runs, over the same persisted `Prismic Models`
     // columns and the same keys — so the snapshot this digest writes is the one

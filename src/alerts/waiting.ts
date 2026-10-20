@@ -170,7 +170,6 @@ function markDeadLetter(
 ): AttentionItem {
   const at = it.oldestReceivedAt === undefined ? null : deadLetterEscalatesAt(it.oldestReceivedAt);
   if (at === null) return it;
-  const noun = it.metric === 1 ? "lead" : "leads";
   const ageHours = Math.max(
     0,
     Math.floor((now.getTime() - Date.parse(it.oldestReceivedAt!)) / MS_PER_HOUR),
@@ -179,7 +178,7 @@ function markDeadLetter(
     return {
       ...it,
       waiting: true,
-      title: `${it.metric} ${noun} dead-lettered, oldest ${ageHours} h ago — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay should place ${it.metric === 1 ? "it" : "them"}; alarms at ${hhmm(at)} if not`,
+      title: `${it.metric === 1 ? "1 lead dead-lettered" : `${it.metric} leads dead-lettered, oldest`} ${ageHours} h ago — the ${DEADLETTER_REPLAY_EVERY_HOURS}-hourly replay should place ${it.metric === 1 ? "it" : "them"}; alarms at ${hhmm(at)} if not`,
     };
   return escalated(
     it,

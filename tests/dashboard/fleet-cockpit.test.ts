@@ -795,7 +795,8 @@ describe("buildCockpitModel", () => {
       );
       const lane = renderCockpitHtml(mixed, "op@example.com");
       expect(lane).toContain("Not on any site card (1)");
-      expect(lane).toContain("ghost-co");
+      // A slug no site owns is never linked: it has no page.
+      expect(lane).toContain("<strong>(unknown site: ghost-co)</strong>");
       const due = archived("2026-06-11T00:00:00.000Z");
       expect(due.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", undefined]]);
       expect(due.cardless![0]!.title).not.toMatch(/NO fleet site/);
@@ -803,6 +804,26 @@ describe("buildCockpitModel", () => {
       expect(html).toContain("Not on any site card (1)");
       // An archived site still has its page (getSiteBySlug ignores status).
       expect(html).toContain(`<a href="${BASE}/s/gone-co">Gone Co</a>`);
+    });
+
+    it("holds a dead letter on any site without a card, not only an archived one", () => {
+      // isDashboardVisible is {maintained, launching}; a building site has no card
+      // either, and replay places its leads all the same.
+      const m = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "b", name: "New Co", status: "building" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["new-co", 1]]),
+        new Map([["new-co", "2026-06-11T00:01:00.000Z"]]),
+      );
+      expect(m.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["New Co", true]]);
     });
 
     it("where an archived row's name gives a visible site's slug, the visible site keeps it", () => {

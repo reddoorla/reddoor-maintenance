@@ -1,3 +1,4 @@
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { describe, it, expect, vi } from "vitest";
 import { collectAttention } from "../../src/reports/digest.js";
 import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
@@ -212,6 +213,21 @@ describe("collectAttention", () => {
       "2026-10-20T06:00:00.000Z",
     );
     expect(items.find((i) => i.key === "deadletter:ghost-co")!.oldestReceivedAt).toBeUndefined();
+  });
+
+  it("a visible site keeps a slug its archived namesake's name also gives", async () => {
+    // listSites orders by name, byte order: "Acme Co" sorts after "ACME CO", so
+    // without visible-last ordering the archived row would win the slug.
+    const items = await collectAttention({
+      websites: [
+        makeWebsiteRow({ id: "recVIS", name: "ACME CO", status: "maintained" }),
+        makeWebsiteRow({ id: "recOLD", name: "Acme Co", status: "archived" }),
+      ],
+      reports: [],
+      baseUrl: BASE_URL,
+      deadLetters: new Map([["acme-co", 1]]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
   });
 
   it("given counts but no ages, holds nothing and reads no store (OD 87)", async () => {

@@ -13,6 +13,7 @@ import { createClient } from "@libsql/client";
 import { openDb } from "../../src/db/client.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import {
   assertReadOnly,
@@ -215,6 +216,71 @@ describe("pm-cockpit — a dead letter on a known site waits two replay cycles (
     );
     expect(out).toContain("- Gone Co · broken · /s/gone-co");
     expect(out).not.toContain("(no site page)");
+  });
+
+  it("an escalated dead letter joins its site's existing row rather than listing it twice", () => {
+    // An unrecognized Status already puts the site on Watch with its page; the
+    // dead letter moves that one row to broken.
+    const typo = site({ id: "recTYPO", name: "Typo Co", status: "actve" as never });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, typo],
+          deadLetters: new Map([["typo-co", 2]]),
+          deadLetterOldest: new Map([["typo-co", "2026-10-06T00:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out.split("\n").filter((l) => l.startsWith("- Typo Co"))).toEqual([
+      "- Typo Co · broken · /s/typo-co",
+    ]);
+    expect(out).toContain("2 leads dead-lettered, the oldest not replayed for 36 h");
+  });
+
+  it("an unparseable received_at holds nothing and is dated as first flagged", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          deadLetters: new Map([["healthy-co", 1]]),
+          deadLetterOldest: new Map([["healthy-co", "garbage"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("Healthy Co · broken · /s/healthy-co");
+    expect(out).toMatch(/not yet replayed[^\n]*\(first flagged 2026-10-07\)/);
+  });
+
+  it("a cardless item that is not a dead letter never gets a site page", () => {
+    // collectPreflightBlocked names a report's missing site "(unlinked site)" and
+    // links the fleet root; there is no /s/ page for it.
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          reports: [
+            {
+              id: "recR",
+              siteId: "recNOWHERE",
+              reportType: "Maintenance",
+              period: "2026-09",
+              periodStart: null,
+              periodEnd: null,
+              gaUsersCurrent: null,
+              gaUsersPrevious: null,
+              draftReady: true,
+              approvedToSend: true,
+              sentAt: null,
+              withdrawnAt: null,
+              deliveryStatus: "pending",
+            } as ReportRow,
+          ],
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("- (unlinked site) · broken · (no site page)");
+    expect(out).not.toContain("/s/unlinked-site");
   });
 
   it("aged 28 h: listed as broken, dated the DAY its hold ran out, not today", () => {

@@ -72,7 +72,7 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     expect(alarm.tier).toBe("healthy");
     expect(alarm.items.map((i) => [i.key, i.waiting])).toEqual([["deadletter:acme", true]]);
     const html = renderSiteDashboardHtml(clean, [], [], null, NOW, alarm);
-    expect(html).toMatch(/chip waiting[^>]*>waiting: 1 lead dead-lettered, oldest 3 h ago/);
+    expect(html).toMatch(/chip waiting[^>]*>waiting: 1 lead dead-lettered 3 h ago/);
     expect(html).not.toContain("Needs attention");
   });
 

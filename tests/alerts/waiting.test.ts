@@ -341,7 +341,7 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
   it("says it/them by the count, in full", () => {
     const now = new Date(at.getTime() - 60 * 1000);
     expect(markWaiting([held()], snap, now, true)[0]!.title).toBe(
-      "1 lead dead-lettered, oldest 11 h ago — the 6-hourly replay should place it; alarms at 2026-10-20 18:00Z if not",
+      "1 lead dead-lettered 11 h ago — the 6-hourly replay should place it; alarms at 2026-10-20 18:00Z if not",
     );
     expect(markWaiting([held({ metric: 3 })], snap, now, true)[0]!.title).toBe(
       "3 leads dead-lettered, oldest 11 h ago — the 6-hourly replay should place them; alarms at 2026-10-20 18:00Z if not",
@@ -385,7 +385,7 @@ describe("markWaiting — dead letter on a known site (OD 87)", () => {
     const ahead = held({ oldestReceivedAt: "2026-10-20T07:30:00.000Z" });
     const [out] = markWaiting([ahead], snap, new Date(received), true);
     expect(out!.waiting).toBe(true);
-    expect(out!.title).toMatch(/oldest 0 h ago/);
+    expect(out!.title).toMatch(/^1 lead dead-lettered 0 h ago/);
   });
 
   it("is clocked by received_at, not by the digest snapshot", () => {
