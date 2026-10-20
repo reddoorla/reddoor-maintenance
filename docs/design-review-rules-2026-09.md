@@ -3,7 +3,7 @@
 What this is: the first output #674 asks for. It lists candidate rules about how a Reddoor site should
 look and behave. Each rule is mined from review notes that already exist and each is
 stated so that a running page could be checked against it. **No code yet** (operator, 2026-09-29).
-This file is the list to accept or cut. It is not a spec.
+This file was the list to accept or cut, and the operator decided it on 2026-10-20 (see "Answered 2026-10-20"). It is not a spec.
 
 ## Operator decisions, 2026-09-29
 
@@ -158,6 +158,10 @@ Guide, single-site and seen-once rules, counted the same way:
 | O3   | 0               | 0     |
 | O4   | 0               | 0     |
 | O5   | 0               | 0     |
+| M63  | 5               | 5     |
+| M53  | 3               | 3     |
+| N11  | 2               | 2     |
+| N94  | 4               | 1     |
 
 G1 ("match the comp") is the most restated guide rule, with 32 events after the audit moved 21 of its items to more
 specific rules. It stays a guide rule. Its testable half is the match harness, which already exists.
@@ -757,11 +761,11 @@ The operator decided all 34 second-pass candidates on 2026-10-20, four to a ques
 
 - **Check:** Compare filter, blend mode, overlay and shadow across siblings; for treatments baked into files, compare saturation and hue histograms. **Partly testable.**
 
-### N4. A page's primary action sits in the first screen at a common laptop size
+### N4. A page's primary action sits in the first screen at a common laptop size.
 
 **8 events on 4 sites**, half of them one Hedloc thread. Cut on 2026-09-29 ("CTAs above the fold"), contested on 2026-09-30, and **revived by the operator on 2026-10-20**. The question cited two asks from Erik for above-the-fold buttons on Hedloc, on 2026-08-10 and 2026-10-20. Both dates came from that session's brief, and that session found neither message in the workspace or this repo. If the 10-20 ask is real, it is newer than the corpus, so it is a ninth event the count leaves out.
 
-- **Check:** at 1440×900 and at a common laptop height, the page's primary CTA (the one N136 styles primary) sits inside the first viewport. The second size is to be named when the check is built. **Partly testable**, because which CTA is primary needs N136's fingerprint.
+- **Check:** at 1440×900 and at a common laptop height, the page's primary CTA sits inside the first viewport. The second size is to be named when the check is built. **Partly testable.** A suggestion, not his: find the primary CTA with N136's fingerprint.
 
 ### N43. Every carousel or self-advancing sequence can be stepped by hand in both directions and shows the viewer's position; an indicator that looks clickable is clickable.
 
@@ -781,7 +785,7 @@ The operator decided all 34 second-pass candidates on 2026-10-20, four to a ques
 
 - **Check:** At 1440×900 and 390×844, if the first section fills the viewport, require a visible cue or an automatic reveal within 3 s. **Partly testable.**
 
-### N162. A hero or background video paints a still poster at once, and the same poster when playback is blocked; the video stays under 5 MB; slow page media gets a designed loading state
+### N162. A hero or background video paints a still poster at once, and the same poster when playback is blocked; the video stays under 5 MB; slow page media gets a designed loading state.
 
 **6 events on 4 sites, plus N161's 3 on 2.** The operator's edit of 2026-10-20 folds N161 ("a background video that cannot play rests on a designated poster frame, never a blank box, alt text or player error") into this rule, so it is one video rule. The evidence is under N162 and N161 in `claude-skills` `design-review-corpus/evidence.md`.
 
@@ -914,7 +918,7 @@ The accepted rules, with their checks, are in "The ranked rules, continued" abov
 
 **Contested.** One refuter killed each of these and the other let it stand. They are listed so the operator can revive any of them. On 2026-10-20 only N4 was put to him, and he revived it. The others stay unrevived; M92 is covered by N21 and N151 by N150, as the questions said:
 
-- **N4** (8 events, 4 sites): a page's primary action sits in the first screen at a common laptop size. **Previously cut** ("CTAs above the fold"), and now back with this evidence; half of it is one Hedloc thread. **Revived by the operator, 2026-10-20**; it is in the numbered list.
+- **N4** (8 events, 4 sites): a page's primary action sits in the first screen at a common laptop size. **Previously cut** ("CTAs above the fold"), and now back with this evidence; half of it is one Hedloc thread. **Revived by the operator, 2026-10-20**; it is in "The ranked rules, continued".
 - **N75** (6 events, 5 sites): text of one kind (nav items, buttons, form labels, one heading level) uses one case and one terminal punctuation everywhere. Guide rule at most.
 - **M16** (5 events, 4 sites): a summary or key statement is never set in a caption or footnote style weaker than the text it sums up.
 - **N110** (4 events, 1 site): every route carries the site's designed ground (colour and texture) on body, header and nav. The overscroll half belongs under R19; the rest is reddoor-website only.
@@ -955,7 +959,7 @@ The accepted rules, with their checks, are in "The ranked rules, continued" abov
 
 ## Single-site rules (kept by the operator, 2026-09-29)
 
-Each is evidenced mainly on one site. The operator kept these six and cut three: the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
+Each is evidenced mainly on one site. The operator kept these six and cut three, and on 2026-10-20 he added N94, making seven. The three cuts were the scroll-follower that must never jump, the column gutter ("we want them flush for some designs"), and mobile-is-not-the-comp-scaled-down.
 
 - **Labels sit on the baseline of the text beside them, then 1px higher.** Seen 4× on reddoor-website: #213, #217, and
   `RailRow.svelte:39` quoting Tim: "the baseline of this text should align to the baseline of the headline to the right".
@@ -1085,7 +1089,7 @@ The three asks of 2026-09-30 were put to the operator with AskUserQuestion on 20
 
 1. **The 34 candidates:** 26 accepted, N162 edited to absorb N161, M63, M53 and N11 moved to the written guide, N94 made single-site, and M6 and N111 cut. See "New candidate rules from the second pass (decided 2026-10-20)".
 2. **Ordering: the never-reviewed rules first.** R2 (reduced motion), R4 (no-JS visibility), R9 (heading levels) and R12 (focus ring) are encoded before R21, R1, R3 and R15. The IDs stay stable.
-3. **N4, "CTAs above the fold": revived.** It is in the numbered list with its check.
+3. **N4, "CTAs above the fold": revived.** It is in "The ranked rules, continued" with its check.
 
 To refresh the corpus, see `design-review-corpus/README.md` in `claude-skills`: four scripts, with credentials
 taken from the environment.
