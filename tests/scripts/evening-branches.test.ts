@@ -683,6 +683,14 @@ describe("the CLI, run on a real repository", () => {
     expect(text).toContain(`L7: ${branchAsk[0]}`);
   });
 
+  it("strips every inherited GIT_* key before it sets the two config variables (#1457)", () => {
+    expect(isolated({ GIT_CONFIG_GLOBAL: "/x", GIT_DIR: "/y", HOME: "/h" })).toEqual({
+      HOME: "/h",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    });
+  });
+
   it("an inherited GIT_OBJECT_DIRECTORY does not reach the fixture's git (#1457)", () => {
     const dir = fixture();
     const foreign = mkdtempSync(join(tmpdir(), "evening-branches-foreign-objects-"));
