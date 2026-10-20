@@ -1024,6 +1024,9 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO?",
       "TODO…",
       "TODO\u2011 the ask",
+      "TODO, the ask",
+      "TODO—the ask, in one line.",
+      "TODO–the ask, in one line.",
       "TODO- the ask",
       "TODO-",
       "1) TODO the ask",
@@ -1039,6 +1042,9 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO list for the starter: keep it?",
       "Todo app for Sonder: build it?",
       "todo.txt or Linear?",
+      "TODO, FIXME and HACK markers in starter: delete them?",
+      "TODO,FIXME markers in starter: delete them?",
+      "TODO; FIXME: which to keep?",
     ]) {
       const d = pd(X, file({ first }));
       expect(d.errors, first).toEqual([]);
@@ -1051,9 +1057,11 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
       "TODO: decide the ask",
       "TODO: Ship the pricing page?",
       "TODO — merge #12?",
+      "TODO—Ship X?",
+      "TODO: the asked-for page?",
     ])
       expect(pd(X, file({ first })).errors, first).toEqual([
-        "the ask starts with TODO and punctuation; drop the TODO",
+        "the ask starts with TODO and punctuation; drop the TODO or reword it",
       ]);
   });
 
@@ -1069,6 +1077,29 @@ describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
     expect(pd(X, after).errors).toEqual([]);
     const headingInFence = answered.replace("Yes.", "```\n## Not a heading\n```\nYes.");
     expect(pd(X, headingInFence).errors).toEqual([]);
+  });
+
+  it("closes a fence only on a bare closer of its own kind and length (#1446)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    for (const [open, inner, close] of [
+      ["````", "```", "````"],
+      ["```", "```js", "```"],
+      ["```", "~~~", "```"],
+    ]) {
+      const quoted =
+        answered.replace("## Answer\n", `${open}\n${inner}\n## Answer\n`) + `${close}\n`;
+      expect(pd(X, quoted).errors, `${open} ${inner}`).toEqual([
+        "status is answered but has no ## Answer heading",
+      ]);
+    }
+  });
+
+  it("reads inline code or a tab-indented line of backticks as text, not a fence (#1522 review)", () => {
+    const answered = file({ status: "answered", answer: "Yes, pin it." });
+    for (const line of ["```pnpm install``` fails on Node 24.", "```a`b", "\t```"]) {
+      const d = pd(X, answered.replace("## Answer\n", `${line}\n\n## Answer\n`));
+      expect(d.errors, line).toEqual([]);
+    }
   });
 
   it("refuses a code fence as the ask (#1356)", () => {

@@ -127,11 +127,13 @@ const normalise = (line) =>
 // The template's first line is "TODO the ask, in one line.". After list markers,
 // emphasis, code, quotes and brackets are stripped, the placeholder is a bare TODO,
 // TODO then punctuation and a space or the end ("TODO: ...", "TODO — ..."), TODO
-// then : ; , ? or … and text with no space ("TODO:the ask"), or a line that starts
-// "TODO the ask". "TODO <word> ..." is a real ask ("TODO markers in starter: delete
-// them?"), as are "TODO-list ..." and "todo.txt ...". Other wrappers, such as
-// "(TODO)", "<TODO>" or "~~TODO~~", are not stripped.
-const TODO_PUNCT = /^todo ?(?:[:.!?,;…—–‑(/-]+(?: |$)|[:;,?…]+(?=\S))/;
+// then : ? … or a dash and text with no space ("TODO:the ask", "TODO—the ask"), or
+// a line that starts "TODO the ask". A comma or semicolon counts only alone or
+// before "the ask", since "TODO, FIXME and HACK markers: delete them?" is a real
+// ask. "TODO <word> ..." is a real ask ("TODO markers in starter: delete them?"),
+// as are "TODO-list ..." and "todo.txt ...". Other wrappers, such as "(TODO)",
+// "<TODO>" or "~~TODO~~", are not stripped.
+const TODO_PUNCT = /^todo ?(?:[:.!?…—–‑(/-]+(?: |$)|[,;]+(?: *$| +the ask)|[:?…—–]+(?=\S))/;
 
 export function isPlaceholder(line) {
   const n = normalise(line);
@@ -144,9 +146,9 @@ export function isPlaceholder(line) {
 function placeholderError(line) {
   const n = normalise(line);
   const rest = n.replace(TODO_PUNCT, "").trim();
-  return n === "todo" || rest === "" || /^todo the ask/.test(n) || /^the ask/.test(rest)
+  return n === "todo" || rest === "" || /^todo the ask/.test(n) || /^the ask\b/.test(rest)
     ? "the ask is still the TODO placeholder"
-    : "the ask starts with TODO and punctuation; drop the TODO";
+    : "the ask starts with TODO and punctuation; drop the TODO or reword it";
 }
 
 // Under ## Answer: TODO with punctuation only, or the template's "fill in" and
@@ -160,13 +162,17 @@ function fenced(lines) {
   const inside = [];
   let open = null;
   for (const l of lines) {
-    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+    // CommonMark: up to three spaces of indent, and a backtick fence's info
+    // string has no backtick, so "```x``` ..." is inline code, not a fence.
+    const m = /^ {0,3}(?:(`{3,})[^`]*$|(~{3,}))/.exec(l);
+    const fence = m && (m[1] ?? m[2]);
     if (open === null) {
-      if (m) open = m[1];
+      if (fence) open = fence;
       inside.push(open !== null);
     } else {
       inside.push(true);
-      if (m && m[1][0] === open[0] && m[1].length >= open.length && l.trim() === m[1]) open = null;
+      if (fence && fence[0] === open[0] && fence.length >= open.length && l.trim() === fence)
+        open = null;
     }
   }
   return inside;
