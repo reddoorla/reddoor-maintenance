@@ -1,31 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { buildSubmissionsPageData } from "../../src/routes/submissions/data.js";
 import Page from "../../src/routes/submissions/+page.svelte";
-import { renderSubmissionsPageHtml } from "../../../src/dashboard/submissions-page-render.js";
 import type { SubmissionsPageModel } from "../../../src/dashboard/submissions-page.js";
-import { canonical, bodyOf, renderPage } from "../_helpers/parity.js";
+import { canonical, renderPage } from "../_helpers/parity.js";
 import { model } from "./fixtures.js";
 
 /**
- * /submissions, ported (#582): the page renders what renderSubmissionsPageHtml
- * did. Dropped from the old page: its own "← Fleet home" link and auth
- * fragment (the shell renders the nav and the fragment). The bulk form's inline
- * `onsubmit="return confirm(…)"` attribute is now a Svelte handler; the DOM
- * tests cover its confirm.
+ * Since the cutover (#582) the old renderer is gone. Each case's markup is
+ * pinned by a snapshot written while parity with the old renderer held (commit
+ * "freeze each page's canonical markup as a snapshot, verified by parity"), so
+ * each snapshot is what the old page rendered. Keep these test names: the
+ * snapshots are keyed on them.
  */
-
-const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
-
-/** The old page, with its two intended differences applied: the inline
- *  `onsubmit` confirm became a Svelte handler (the DOM tests cover it), and the
- *  bulk button is server-rendered disabled until that handler is attached, so
- *  it can never post unconfirmed (review round 1). */
-function oldBody(m: SubmissionsPageModel): string {
-  return bodyOf(renderSubmissionsPageHtml(m, "op@example.com"))
-    .replace(/ onsubmit="[^"]*"/g, "")
-    .replace('<button type="submit">Mark all', '<button type="submit" disabled>Mark all');
-}
-
 const CASES: Array<[string, Partial<SubmissionsPageModel>]> = [
   ["every row shape, first page", {}],
   [
@@ -105,19 +91,7 @@ describe("/submissions parity with renderSubmissionsPageHtml", () => {
     it(name, () => {
       const m = model(over);
       const after = canonical(renderPage(Page, { data: buildSubmissionsPageData(m) }));
-      expect(after).toEqual(canonical(oldBody(m), OLD_ONLY));
       expect(after).toMatchSnapshot();
     });
   }
-
-  it("the instrument sees a missing space between two inline elements", () => {
-    const m = model();
-    const after = canonical(
-      renderPage(Page, { data: buildSubmissionsPageData(m) }).replace(
-        "</strong> · ",
-        "</strong>· ",
-      ),
-    );
-    expect(after).not.toEqual(canonical(oldBody(m), OLD_ONLY));
-  });
 });

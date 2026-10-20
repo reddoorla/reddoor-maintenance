@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   resolveDashboardBaseUrl,
-  resolveSlug,
   handlerError,
 } from "../../src/dashboard/handler-helpers.js";
 
@@ -19,18 +18,6 @@ describe("resolveDashboardBaseUrl", () => {
   });
   it("leaves a no-trailing-slash value unchanged", () => {
     expect(resolveDashboardBaseUrl("https://ops.reddoor.test")).toBe("https://ops.reddoor.test");
-  });
-});
-
-describe("resolveSlug", () => {
-  it("prefers the path param", () => {
-    expect(resolveSlug("acme", "ignored")).toBe("acme");
-  });
-  it("falls back to the query slug when no path param", () => {
-    expect(resolveSlug(undefined, "acme")).toBe("acme");
-  });
-  it("returns null when neither is present (→ health check)", () => {
-    expect(resolveSlug(undefined, null)).toBeNull();
   });
 });
 

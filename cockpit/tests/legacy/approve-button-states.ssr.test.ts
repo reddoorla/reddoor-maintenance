@@ -1,7 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { renderSiteDashboardHtml } from "./render.js";
-import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
  * The approve button's visual states, as string assertions over the site page's
@@ -10,9 +8,6 @@ import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
  * executed in the DOM tests (cockpit/tests/site/site.dom.test.ts) since the
  * cockpit's port (#582).
  */
-const html = (): string =>
-  renderSiteDashboardHtml(makeWebsiteRow(), [], [], null, new Date("2026-07-30T12:00:00Z"), null);
-
 /** The page's stylesheet as one string, for order-sensitive assertions: the
  *  shared rules, then the site page's own, as the page loads them. */
 function styles(): string {

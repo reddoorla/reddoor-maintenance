@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { renderSubmissionsPageHtml } from "./render.js";
-import type { SubmissionsPageModel, SubmissionView } from "../../../src/dashboard/submissions-page.js";
+import type {
+  SubmissionsPageModel,
+  SubmissionView,
+} from "../../../src/dashboard/submissions-page.js";
 
 function model(over: Partial<SubmissionsPageModel> = {}): SubmissionsPageModel {
   return {
