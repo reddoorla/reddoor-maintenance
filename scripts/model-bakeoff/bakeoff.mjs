@@ -587,7 +587,8 @@ export function formatResult(r) {
       `| ${a.id} | ${a.asked} | ${a.ran} | ${a.score} | ${formatCost(a.cost, a.unfinished, a.requests)} | ${a.requests} | ${a.longPrompt} |`,
     );
   }
-  if (r.arms.some((a) => a.unfinished)) lines.push("", LOWER_BOUND_NOTE);
+  // Only a priced cost prints ≥, so only one explains the note.
+  if (r.arms.some((a) => a.unfinished && a.cost !== null)) lines.push("", LOWER_BOUND_NOTE);
   if (r.decision?.lines) lines.push("", ...r.decision.lines);
   if (r.problems.length) lines.push("", "Problems:", ...r.problems.map((p) => `- ${p}`));
   return lines.join("\n");

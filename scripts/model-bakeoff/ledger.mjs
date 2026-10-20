@@ -90,7 +90,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   );
   console.log("## All sources, by message.model and effort\n");
   console.log(formatTable(r.all));
-  if (r.all.total.unfinished) console.log(`\n${LOWER_BOUND_NOTE}`);
+  if (r.all.rows.some((x) => x.priced && x.unfinished)) console.log(`\n${LOWER_BOUND_NOTE}`);
   for (const [k, s] of Object.entries(r.byCategory)) {
     if (!s.total.requests) continue;
     console.log(`\n## ${NAMES[k]}\n`);

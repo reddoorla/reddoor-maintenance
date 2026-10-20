@@ -17,6 +17,7 @@ import {
   combineItems,
   expectedWork,
   extractArgs,
+  formatResult,
   launchers,
   manifest,
   mergeAgents,
@@ -667,6 +668,28 @@ describe("collecting and combining an item run", () => {
     expect(combineItems(fake, ARGS, {}, H).record).toBeNull();
     const silent = mergeAgents({}, [transcript("h", "r01", null)], ARGS).agents;
     expect(combineItems(fake, ARGS, silent, H).record!.structured).toBeNull();
+  });
+
+  it("explains a lower bound under the table only when a priced cost is one (#1435)", () => {
+    const arm = {
+      id: "h",
+      asked: "haiku @ low",
+      ran: "x",
+      score: "1/1",
+      requests: 3,
+      longPrompt: 0,
+    };
+    const result = (a: Record<string, unknown>) => ({
+      reference: "script truth",
+      disagreements: 0,
+      unruled: 0,
+      problems: [],
+      arms: [{ ...arm, ...a }],
+    });
+    const priced = formatResult(result({ cost: 1, unfinished: 2 }));
+    expect(priced).toContain("| ≥$1.00 (2 of 3 unfinished) |");
+    expect(priced).toMatch(/^≥: a lower bound/m);
+    expect(formatResult(result({ cost: null, unfinished: 2 }))).not.toMatch(/≥/);
   });
 
   it("names any agent that read or grepped for the answer key", () => {
