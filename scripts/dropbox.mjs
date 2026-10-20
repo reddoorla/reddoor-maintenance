@@ -183,7 +183,10 @@ async function parseBody(res) {
 
 // A 409 too_many_write_operations that Dropbox raised before taking the request can be
 // sent again unchanged: the top-level shape anywhere, and files/upload's WriteError
-// (path/too_many_write_operations), since one-call upload keeps nothing on failure. On
+// (path/too_many_write_operations): a failed one-call upload commits nothing to the path.
+// Dropbox does keep the bytes, in the upload session the error names (files.stone
+// UploadWriteFailed.upload_session_id), but this script never finishes that session, so
+// resending the whole body is how it commits them. On
 // upload_session/finish, path/too_many_write_operations comes after the bytes were already
 // appended to the session (files.stone UploadSessionFinishError.path: "retry with empty data
 // body and updated offset"), so resending the same cursor and bytes would only meet
