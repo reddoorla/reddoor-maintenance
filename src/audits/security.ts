@@ -17,9 +17,10 @@ type AdvisoryEntry = {
   title: string;
   cves?: string[];
   url?: string;
-  /** The GitHub advisory id (GHSA-…), when the source names one: pnpm's `github_advisory_id` or
-   *  advisory `url`, Dependabot's `ghsa_id`. What the merged audit dedupes on first (#1409). */
-  ghsa?: string;
+  /** The GitHub advisory ids (GHSA-…) the source names: pnpm's `github_advisory_id` or advisory
+   *  `url`, every `via[].url` npm lists for the package, Dependabot's `ghsa_id`. What the merged
+   *  audit dedupes on first, within one module (#1409). */
+  ghsas?: string[];
   /** Dependency graph scope from Dependabot ("runtime" | "development"); absent for the
    *  lockfile `pnpm audit` fallback, which carries no per-package scope. Display-only. */
   scope?: "runtime" | "development";
@@ -97,7 +98,7 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
       title: a.title ?? "(no title)",
       ...(a.cves ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
-      ...(ghsa ? { ghsa } : {}),
+      ...(ghsa ? { ghsas: [ghsa] } : {}),
     });
   }
   return out;
@@ -109,7 +110,7 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
 function resolveNpmAdvisoryRoot(
   startName: string,
   vulnerabilities: NonNullable<NpmAuditJson["vulnerabilities"]>,
-): { rootName: string; detail?: { title?: string; url?: string } } {
+): { rootName: string; detail?: { title?: string; url?: string }; urls?: string[] } {
   const seen = new Set<string>();
   let current = startName;
   while (!seen.has(current)) {
@@ -117,10 +118,13 @@ function resolveNpmAdvisoryRoot(
     const entry = vulnerabilities[current];
     if (!entry || !Array.isArray(entry.via)) return { rootName: current };
 
-    const detailed = entry.via.find(
+    const detailed = entry.via.filter(
       (e): e is { title?: string; url?: string } => typeof e === "object" && e !== null,
     );
-    if (detailed) return { rootName: current, detail: detailed };
+    if (detailed.length > 0) {
+      const urls = detailed.flatMap((d) => (d.url ? [d.url] : []));
+      return { rootName: current, detail: detailed[0]!, urls };
+    }
 
     const next = entry.via.find((e): e is string => typeof e === "string");
     if (!next || next === current) return { rootName: current };
@@ -135,22 +139,24 @@ function extractAdvisoriesFromNpm(parsed: NpmAuditJson): AdvisoryEntry[] {
 
   for (const [name, v] of Object.entries(vulnerabilities)) {
     if (!v) continue;
-    const { rootName, detail } = resolveNpmAdvisoryRoot(name, vulnerabilities);
+    const { rootName, detail, urls } = resolveNpmAdvisoryRoot(name, vulnerabilities);
     if (roots.has(rootName)) continue; // already surfaced via another transitive entry
 
     const rootEntry = vulnerabilities[rootName];
     const severity = normalizeSeverity(rootEntry?.severity ?? v.severity);
     const title = detail?.title ?? rootName;
     const url = detail?.url;
-    // npm's `via` detail carries no CVE list; its url names the GHSA, which the merge dedupes on.
-    const ghsa = ghsaFromUrl(url);
+    // npm's `via` detail carries no CVE list; each url names a GHSA, which the merge dedupes on.
+    const ghsas = [
+      ...new Set((urls ?? []).flatMap((u) => ghsaFromUrl(u) ?? []).map((g) => g.toUpperCase())),
+    ];
 
     roots.set(rootName, {
       module: rootEntry?.name ?? rootName,
       severity,
       title,
       ...(url ? { url } : {}),
-      ...(ghsa ? { ghsa } : {}),
+      ...(ghsas.length > 0 ? { ghsas } : {}),
     });
   }
 
@@ -299,7 +305,7 @@ async function dependabotAudit(
       title: a.summary || "(no title)",
       ...(a.cves.length > 0 ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
-      ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
+      ...(a.ghsaId ? { ghsas: [a.ghsaId] } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
       ...(a.relationship ? { relationship: a.relationship } : {}),
     };
@@ -511,13 +517,33 @@ async function lockfileAudit(
   };
 }
 
-/** Whether two advisories are the same one. The GHSA id decides when both carry it; else a shared
- *  CVE; module and title only when neither id is on both (#1409: the two sources word titles
- *  differently, so a title match alone misses a duplicate). */
+/** Whether two advisories are the same one. Only ever within one module; there, a shared GHSA id
+ *  decides when both carry one, else a shared CVE, else the title (#1409: the two sources word
+ *  titles differently, so a title match alone misses a duplicate). */
 function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
-  if (a.ghsa && b.ghsa) return a.ghsa.toUpperCase() === b.ghsa.toUpperCase();
+  // Always within one module: one GHSA can cover several packages (GHSA-67hx-6x53-jw92 names
+  // babel-traverse and @babel/traverse), and each is its own fix.
+  if (a.module !== b.module) return false;
+  if (a.ghsas?.length && b.ghsas?.length) {
+    const ids = new Set(a.ghsas.map((g) => g.toUpperCase()));
+    return b.ghsas.some((g) => ids.has(g.toUpperCase()));
+  }
   if (a.cves?.length && b.cves?.length) return a.cves.some((c) => b.cves!.includes(c));
-  return a.module === b.module && a.title === b.title;
+  return a.title === b.title;
+}
+
+const SEVERITY_ORDER: Record<Severity, number> = { low: 0, moderate: 1, high: 2, critical: 3 };
+
+/** One advisory both sources report: the higher severity, and "direct" if either says so, since
+ *  a direct dependency has a fix vehicle and must not be muted as transitive-only. */
+function combineAdvisories(kept: AdvisoryEntry, other: AdvisoryEntry): AdvisoryEntry {
+  const severity =
+    SEVERITY_ORDER[other.severity] > SEVERITY_ORDER[kept.severity] ? other.severity : kept.severity;
+  const relationship =
+    kept.relationship === "direct" || other.relationship === "direct"
+      ? "direct"
+      : (kept.relationship ?? other.relationship);
+  return { ...kept, severity, ...(relationship ? { relationship } : {}) };
 }
 
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency
@@ -534,15 +560,27 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
   const advisories = [...lock.advisories];
+  // pnpm's metadata, less each of its advisories that the merge moved to a higher severity, so
+  // the max below does not count that advisory again at its old severity.
+  const lockCounts: Counts = { ...lock.counts };
   for (const a of dep.advisories) {
     // Against the growing list, so two Dependabot alerts on one advisory (one per manifest) count once.
-    if (advisories.some((m) => sameAdvisory(m, a))) continue;
-    advisories.push(a);
+    const i = advisories.findIndex((m) => sameAdvisory(m, a));
+    if (i === -1) {
+      advisories.push(a);
+      continue;
+    }
+    advisories[i] = combineAdvisories(advisories[i]!, a);
   }
+  lock.advisories.forEach((original, i) => {
+    if (advisories[i]!.severity !== original.severity) {
+      lockCounts[original.severity] = Math.max(0, lockCounts[original.severity] - 1);
+    }
+  });
   const counts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
   for (const a of advisories) counts[a.severity] += 1;
   for (const sev of Object.keys(counts) as Severity[]) {
-    counts[sev] = Math.max(counts[sev], lock.counts[sev]);
+    counts[sev] = Math.max(counts[sev], lockCounts[sev]);
   }
   const ghosts = dep.ghostAdvisories ?? [];
   const liveStatus = classify(counts);

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
+import { advisoriesFromResult } from "../../src/audits/security-fields.js";
+import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 function fakeSpawn(
   byCmd: Record<string, { code: number; stdout: string; stderr?: string }>,
@@ -1061,6 +1063,152 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
         spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
       });
       expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+    });
+
+    describe("review round 2", () => {
+      const GHSA = "GHSA-67hx-6x53-jw92";
+      const pnpmOne = (module: string, severity: string, extra: Record<string, unknown>) =>
+        JSON.stringify({
+          metadata: {
+            vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, [severity]: 1 },
+          },
+          advisories: {
+            "1": { module_name: module, severity, title: `${module} advisory`, ...extra },
+          },
+        });
+      const withPkg = () =>
+        clone({
+          "pnpm-lock.yaml": pnpm12Lockfile,
+          "package.json": JSON.stringify({ dependencies: {} }),
+        });
+
+      // One GHSA can cover several packages (GHSA-67hx-6x53-jw92: babel-traverse and
+      // @babel/traverse). Folding them into one hid a direct critical behind a transitive one.
+      it("keeps one GHSA on two different packages as two advisories", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "@babel/traverse",
+          severity: "critical",
+          summary: "Babel arbitrary code execution",
+          ghsaId: GHSA,
+          relationship: "direct",
+          manifestPath: "app/package-lock.json",
+        };
+        const result = await securityAudit({
+          site: { path: withPkg(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: {
+              code: 1,
+              stdout: pnpmOne("babel-traverse", "critical", {
+                url: `https://github.com/advisories/${GHSA}`,
+              }),
+            },
+          }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories.map((a) => [a.module, a.relationship])).toEqual([
+          ["babel-traverse", "transitive"],
+          ["@babel/traverse", "direct"],
+        ]);
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+        expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (2C/0H/0M/0L)");
+      });
+
+      it("keeps two Dependabot alerts on one GHSA but different packages apart", async () => {
+        const a: DependabotAlert = { ...actionAlert, package: "babel-traverse", ghsaId: GHSA };
+        const b: DependabotAlert = { ...a, package: "@babel/traverse" };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([a, b]),
+          spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+        });
+        expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
+      });
+
+      it("keeps the higher severity when two sources rate one advisory differently", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "x",
+          severity: "high",
+          ghsaId: GHSA,
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: {
+              code: 1,
+              stdout: pnpmOne("x", "moderate", { github_advisory_id: GHSA.toLowerCase() }),
+            },
+          }),
+        });
+        expect(result.status).toBe("fail");
+        expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/1H/0M/0L)");
+        expect(advisoriesFromResult(result).map((a) => a.severity)).toEqual(["high"]);
+      });
+
+      it("keeps a direct relationship when either source reports one", async () => {
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "x",
+          ghsaId: GHSA,
+          relationship: "direct",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: withPkg(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({
+            pnpm: { code: 1, stdout: pnpmOne("x", "high", { github_advisory_id: GHSA }) },
+          }),
+        });
+        const advisories = advisoriesFromResult(result);
+        expect(advisories.map((a) => a.relationship)).toEqual(["direct"]);
+        expect(allActionableVulnsTransitive(advisories)).toBe(false);
+      });
+
+      it("matches a Dependabot alert on any of the GHSAs npm lists for a package", async () => {
+        const npmOut = JSON.stringify({
+          metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 1 } },
+          vulnerabilities: {
+            x: {
+              name: "x",
+              severity: "critical",
+              via: [
+                {
+                  source: 1,
+                  name: "x",
+                  title: "x a",
+                  url: "https://github.com/advisories/GHSA-aaaa-aaaa-aaaa",
+                  severity: "moderate",
+                },
+                {
+                  source: 2,
+                  name: "x",
+                  title: "x b",
+                  url: "https://github.com/advisories/GHSA-bbbb-bbbb-bbbb",
+                  severity: "critical",
+                },
+              ],
+            },
+          },
+        });
+        const dep: DependabotAlert = {
+          ...actionAlert,
+          package: "x",
+          severity: "critical",
+          ghsaId: "GHSA-bbbb-bbbb-bbbb",
+          manifestPath: "pnpm-lock.yaml",
+        };
+        const result = await securityAudit({
+          site: { path: repo(), gitRepo: "reddoorla/acme" },
+          dependabotDeps: fakeDependabot([dep]),
+          spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+        });
+        expect(result.summary).toBe("npm audit + Dependabot: 1 vulnerabilities (1C/0H/0M/0L)");
+      });
     });
   });
 
