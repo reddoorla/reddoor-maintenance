@@ -54,6 +54,8 @@ const GATED_MODULES: Record<string, Record<string, unknown>> = {
  *  a reviewer can veto. */
 const EXEMPT_MODULES: Record<string, string> = {
   "client.ts": "connection factory — no queries of its own",
+  "lazy-fleet-db.ts":
+    "lazily opens client.ts's connection for a CLI command and closes it — no queries of its own",
   "migrate.ts": "migration runner — DDL, not a query path",
   "migrations.ts": "DDL scripts",
   "schema.ts": "types only",

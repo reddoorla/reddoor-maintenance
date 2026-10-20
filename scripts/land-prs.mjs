@@ -77,9 +77,8 @@
 // The gh/git runner, the sleep and the clock are injected (see `landPrs`), which is how
 // tests/scripts/land-prs.test.ts drives every branch of this without a network.
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isMain, realOrSelf, sleep as realSleep } from "./lib/cli.mjs";
 
 export const DEFAULT_TIMING = {
   afterUpdateSleepMs: 25_000,
@@ -195,7 +194,7 @@ export function realRunner(cmd, args, { cwd, timeoutMs } = {}) {
   });
 }
 
-export const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export { realSleep };
 
 // ── helpers ──────────────────────────────────────────────────────────────────────────
 
@@ -260,14 +259,6 @@ export function parseWorktreeList(porcelain) {
     else if (line === "bare") cur.bare = true;
   }
   return out;
-}
-
-function realOrSelf(p) {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
 }
 
 function isWithin(parent, child) {
@@ -1001,7 +992,7 @@ async function main() {
   process.exitCode = code;
 }
 
-if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`land-prs: ${e?.stack ?? e}\n`);
     process.exitCode = 1;

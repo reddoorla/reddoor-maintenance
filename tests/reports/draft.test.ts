@@ -853,6 +853,45 @@ describe("draftReportForSite", () => {
       expect(res.propertyMissing).toBe(false);
       expect(res.defaultQueryMissed).toBe(false);
     });
+
+    // #1488: `quiet` must silence the "default query missed" and "no credentials"
+    // warnings, not only the property one. Each quiet case has an unquiet twin
+    // that shows the warning does fire on the same input.
+    describe("quiet suppresses its ⚑ warnings", () => {
+      const warnedBy = async (quiet: boolean): Promise<string[]> => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+          await fetchSearch(
+            siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+            period.start,
+            period.end,
+            { quiet },
+          );
+          return warn.mock.calls.map((c) => String(c[0]));
+        } finally {
+          warn.mockRestore();
+        }
+      };
+
+      it("the site-name default missed", async () => {
+        process.env.GA_SUBJECT = "tucker@reddoorla.com";
+        vi.mocked(fetchSearchPresence).mockResolvedValue({
+          foundOnPage1: false,
+          position: null,
+          propertyFound: true,
+        });
+        expect(await warnedBy(false)).toContainEqual(expect.stringContaining("site-name default"));
+        expect(await warnedBy(true)).toEqual([]);
+      });
+
+      it("no credentials in this environment", async () => {
+        delete process.env.GA_SUBJECT;
+        expect(await warnedBy(false)).toContainEqual(
+          expect.stringContaining("no GA/Search Console credentials"),
+        );
+        expect(await warnedBy(true)).toEqual([]);
+      });
+    });
   });
 
   describe("checklist auto-tick", () => {
@@ -1169,16 +1208,18 @@ describe("draftReportForSite → the Turso report writer", () => {
 
     it("a failing mirror write does not fail the draft", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.mocked(fetchSearchPresence).mockResolvedValue({
         foundOnPage1: true,
         position: 1,
         propertyFound: true,
         property: "sc-domain:acme.example.com",
       });
-      const result = await draftReportForSite(
-        siteFixture({ ga4PropertyId: "G-123" }),
-        "Maintenance",
-        {
+      // try/finally so a rejecting draft cannot leak the spy into later tests (#1474).
+      let result: Awaited<ReturnType<typeof draftReportForSite>>;
+      let warned: string[];
+      try {
+        result = await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
           ...NO_HEADER,
           siteMirror: {
             health: async () => {
@@ -1186,9 +1227,18 @@ describe("draftReportForSite → the Turso report writer", () => {
             },
             site: async () => {},
           },
-        },
-      );
+        });
+        warned = warn.mock.calls.map((c) => String(c[0]));
+      } finally {
+        warn.mockRestore();
+      }
       expect(result.reportRow).not.toBeNull();
+      // Not failing the draft means the operator still gets a queued draft, and
+      // the lost stamp is said out loud rather than swallowed.
+      expect(result.queued).toBe(true);
+      expect(warned).toContainEqual(
+        expect.stringContaining("analytics-health Turso mirror failed for Acme Co"),
+      );
     });
   });
 

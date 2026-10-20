@@ -4,6 +4,7 @@ import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import { withSubjectFailover } from "./failover.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { siteHostnames } from "../../client/site-host.js";
+import { ymd } from "../../util/date.js";
 
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
 const MS_PER_DAY = 86_400_000;
@@ -45,11 +46,6 @@ export function measuredHostnames(siteUrl: string): string[] {
   // emit side and the read side drift apart, and the resulting site reads as
   // "no traffic" rather than "misconfigured" — see that module's header.
   return siteHostnames(hostnameOf(siteUrl));
-}
-
-/** UTC YYYY-MM-DD — matches the rest of the reports pipeline's date handling. */
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 /**

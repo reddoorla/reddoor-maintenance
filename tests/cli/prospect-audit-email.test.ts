@@ -8,6 +8,7 @@
 // src/prospect/email.ts's OWN sending mechanics — the injected ResendClient,
 // escaping, the attachment — are covered offline in tests/prospect/email.test.ts.
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
 import type { SendAuditEmailResult } from "../../src/prospect/email.js";
@@ -30,12 +31,28 @@ vi.mock("../../src/prospect/email.js", async (importOriginal) => {
   };
 });
 
+// With --email and a persisted token, the command prints the PDF leave-behind
+// from the live website's print route: renderReportPdf launches Chromium and
+// navigates to REPORT_BASE_URL's /audit/{token}/print. Against an in-memory
+// token that page cannot exist, so every --email test here launched a browser,
+// waited on a real 404 from the website, and recorded "Could not attach the
+// PDF": 2 to 28 s a test, and a browser launch in a suite meant to be offline.
+// Stubbed to that same outcome (a throw the command turns into a warning), so
+// what these tests assert is unchanged. The renderer itself is covered by
+// tests/prospect/pdf.test.ts.
+vi.mock("../../src/prospect/pdf.js", () => ({
+  renderReportPdf: vi.fn(async () => {
+    throw new Error("PDF rendering disabled in tests");
+  }),
+}));
+
 const ORIGINAL_ENV = { ...process.env };
 
 /** Same offline crawl/analyze/lighthouse stubs the sibling prospect-audit test
  *  files use, trimmed to what this file needs. */
 function stubDeps(): PipelineDeps {
   return {
+    ...offlineNetworkDeps(),
     crawl: {
       async fetchUrl(url: string) {
         if (url === "https://acme.example/")
@@ -192,5 +209,33 @@ describe("prospect-audit CLI — --email", () => {
     };
     expect(payload.link).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
     expect(payload.email).toEqual(emailOverride);
+  });
+
+  // #1487: the --email PDF branch. renderReportPdf is stubbed to throw (above),
+  // so the command must have asked for the print route once, recorded the
+  // missing PDF as a warning, and still sent the email with no attachment.
+  it("prints the PDF from the report's print route, and a render failure is a warning with pdf: null", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_AUDIT_RECIPIENTS = "tucker@reddoorla.com";
+    delete process.env.REPORT_BASE_URL;
+    emailOverride = { sent: true, messageId: "msg_pdf", recipients: ["tucker@reddoorla.com"] };
+    const { renderReportPdf } = await import("../../src/prospect/pdf.js");
+    const { sendAuditEmail } = await import("../../src/prospect/email.js");
+    const { output, code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      email: true,
+      json: true,
+      deps: stubDeps(),
+    });
+    expect(code).toBe(0);
+    const payload = JSON.parse(output) as { token: string | null; warnings: string[] };
+    expect(payload.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(renderReportPdf).toHaveBeenCalledTimes(1);
+    expect(renderReportPdf).toHaveBeenCalledWith(
+      `https://reddoorla.com/audit/${payload.token}/print`,
+    );
+    expect(payload.warnings).toContain("Could not attach the PDF: PDF rendering disabled in tests");
+    expect(sendAuditEmail).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendAuditEmail).mock.calls[0]![1]).toMatchObject({ pdf: null });
   });
 });

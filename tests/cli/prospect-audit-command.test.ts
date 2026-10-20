@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -50,6 +51,7 @@ describe("prospect-audit CLI — writing a file", () => {
       out,
       probes: false,
       deps: {
+        ...offlineNetworkDeps(),
         crawl: {
           async fetchUrl(url: string) {
             if (url === "https://acme.example/")

@@ -1,5 +1,15 @@
 # @reddoorla/maintenance
 
+## 0.109.1
+
+### Patch Changes
+
+- 46eaa80: `bump-deps`, `upgrade` and `sync-configs` now print a failed site as `[site] failed: <reason>` instead of `[site] applied: 0 commit(s)`.
+- dba7cff: `launch-check` counts an unquoted privacy link and resolves relative links against the page the home page landed on and its `<base href>`; before launch it refuses a schedule whose first report has already fallen due and accepts only `YYYY-MM-DD` dates, while live rows keep the old anchor rule.
+- eb0c24d: The security audit adds `pnpm audit` to Dependabot for a pnpm 12 lockfile. GitHub's dependency graph cannot read a multi-document `pnpm-lock.yaml`, so Dependabot reported no alerts for those repos. The cockpit's Needs-you row for a broken site now also names its escalated vulns.
+- 9bd536b: `protectBranch` now reads the branch's existing classic protection and carries its reviews, restrictions, `enforce_admins`, flags and existing status checks into the PUT, adding only the requested checks, instead of replacing them with nulls and `enforce_admins: true` (#998).
+- 5229509: `search-console-recheck` no longer prints the draft's "no Search Console property matched" advice for its no-property control or doubles each still-missing site's line (`fetchSearch` takes a `quiet` option), names the key file when the control soft-fails, and skips `no-property` rows with no parseable `checked_at`, which the cockpit raises no watch for.
+
 ## 0.109.0
 
 ### Minor Changes

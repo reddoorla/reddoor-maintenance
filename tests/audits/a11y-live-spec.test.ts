@@ -251,6 +251,27 @@ function thirdPartyPage(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
 }
 
+/**
+ * A colour axe cannot parse, for #888's fixtures. Until axe-core 4.14 that
+ * was any colour with a `none` component (Tailwind 4.3's none-hued palette,
+ * `oklch(0.205 0 none)`), and fleet sites on axe-core <= 4.13 still meet it
+ * in that form. axe-core 4.14.0 parses `none` (dequelabs/axe-core#5422), and
+ * axe 4.14 parsed all 23 colour forms a probe rendered in Chromium 156, so no
+ * real CSS we have found makes axe's colour parser fail any more (a probe, not
+ * a proof that none exists; #1517). The fixtures therefore keep the CSS a
+ * site writes and, like FAKE_BLEND, have getComputedStyle hand axe a colour
+ * it cannot parse for each element marked `data-fake-bg` (background-color)
+ * or `data-fake-fg` (color and -webkit-text-fill-color, which axe reads
+ * first). `color(--brand ...)` is a CSS Color 5 custom colour space that
+ * Chromium does not render and that axe 4.13 and 4.14 both reject with
+ * "Unable to parse color", so axe's own colorParse and thrown-rule paths
+ * still run unmodified. Pseudo-elements are left alone: theirs is their own
+ * colour, not the element's.
+ */
+const UNPARSEABLE_BG = "color(--brand 0.205 0 0)";
+const UNPARSEABLE_FG = "color(--brand 0.4 0 0)";
+const FAKE_COLOUR = `<script>{ const gcs = window.getComputedStyle; const attr = { "background-color": "data-fake-bg", backgroundColor: "data-fake-bg", color: "data-fake-fg", "-webkit-text-fill-color": "data-fake-fg", webkitTextFillColor: "data-fake-fg" }; window.getComputedStyle = function (el, pseudo) { const s = gcs.call(window, el, pseudo); if (pseudo || !(el instanceof Element) || !(el.hasAttribute("data-fake-bg") || el.hasAttribute("data-fake-fg"))) return s; const fake = (p) => (typeof p === "string" && attr[p] && el.hasAttribute(attr[p]) ? el.getAttribute(attr[p]) : null); return new Proxy(s, { get(t, k) { if (k === "getPropertyValue") return (p) => fake(p) ?? t.getPropertyValue(p); const f = fake(k); if (f !== null) return f; const v = Reflect.get(t, k, t); return typeof v === "function" ? v.bind(t) : v; } }); }; }</script>`;
+
 /** Documents the second origin serves, by path. */
 const CROSS_PAGES: Record<string, string> = {
   // One image-alt failure, which is the third party's, not the site's.
@@ -261,7 +282,7 @@ const CROSS_PAGES: Record<string, string> = {
   // not the site's to fix, so it must be counted, not failed.
   "/unparseable.html": thirdPartyPage(
     "Widget",
-    `<p style="background-color: oklch(0.205 0 none); color: #3a3a3a">A sentence long enough that axe will actually judge its contrast.</p>`,
+    `${FAKE_COLOUR}<p data-fake-bg="${UNPARSEABLE_BG}" style="background-color: oklch(0.205 0 none); color: #3a3a3a">A sentence long enough that axe will actually judge its contrast.</p>`,
   ),
   // A third party's document on which axe's color-contrast rule THROWS (#888's
   // whole-page shape, inside the embed): a white button in a band of a colour
@@ -269,7 +290,7 @@ const CROSS_PAGES: Record<string, string> = {
   // it must not cost the site the contrast results axe produced for it.
   "/crash.html": thirdPartyPage(
     "Booking widget",
-    `<section style="position: relative; isolation: isolate; padding: 16px; background-color: oklch(0.205 0 none); color: #fff"><p>Widget copy long enough that axe will actually judge its contrast.</p><a href="#book" style="display: inline-block; padding: 8px; background: #fff; color: #000">Book</a></section>`,
+    `${FAKE_COLOUR}<section data-fake-bg="${UNPARSEABLE_BG}" style="position: relative; isolation: isolate; padding: 16px; background-color: oklch(0.205 0 none); color: #fff"><p>Widget copy long enough that axe will actually judge its contrast.</p><a href="#book" style="display: inline-block; padding: 8px; background: #fff; color: #000">Book</a></section>`,
   ),
   // Text over a plus-lighter grain inside a third party's document: axe's
   // blend crash there is the third party's, counted and never re-run around.
@@ -703,8 +724,10 @@ const SITE_H: SiteConfig = {
  * #888, run for real: text on a colour axe cannot parse. Chrome resolves
  * `oklch(0.205 0 none)` and paints it; axe-core 4.13 cannot parse it, and
  * leaves each such node `incomplete` with `messageKey: "colorParse"` while the
- * rule runs on everywhere else. Every sentence is long enough to be judged (a
- * one-character node comes back `shortTextContent` instead).
+ * rule runs on everywhere else. axe-core 4.14 parses it, so FAKE_COLOUR hands
+ * axe UNPARSEABLE_BG and UNPARSEABLE_FG for the marked nodes instead. Every
+ * sentence is long enough to be judged (a one-character node comes back
+ * `shortTextContent` instead).
  *
  *   - `#band-text`: #3a3a3a on that colour, 1.57:1 once measured — a real
  *     failure that axe never measures. It must be reported as unmeasured.
@@ -712,7 +735,11 @@ const SITE_H: SiteConfig = {
  *     white. axe cannot parse the foreground either: unmeasured.
  *   - `#hued-text`: the same two colours with an explicit hue, which renders
  *     identically. It must come back as the `color-contrast` violation the
- *     band hides — the remedy turns the measurement on.
+ *     band hides. Under axe 4.14 the band is unmeasured because FAKE_COLOUR
+ *     marks it, not because of `none`, so here this shows only that the same
+ *     pixels, unmarked, are measured. That the remedy (writing the hue) turns
+ *     measurement on is shown only on axe 4.13, which #1514 checked by hand;
+ *     no CI job runs this suite on 4.13 (#1516).
  *   - `#revealed-text`: the band's colour on a reveal at 150vh, at opacity 0
  *     until first seen. Only the reveal pass (#100) brings it into the rule, so
  *     its presence proves the detection reads what the pass revealed.
@@ -738,13 +765,14 @@ const UNMEASURED_PAGE = `<!doctype html>
 </style></head>
 <body><main><h1>Unmeasured contrast</h1>
 <p id="plain-text">A sentence long enough that axe will actually judge its contrast.</p>
-<p id="band-text" class="band">A sentence long enough that axe will actually judge its contrast.</p>
-<p id="fg-text" style="color: oklch(0.4 0 none)">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="band-text" class="band" data-fake-bg="${UNPARSEABLE_BG}">A sentence long enough that axe will actually judge its contrast.</p>
+<p id="fg-text" data-fake-fg="${UNPARSEABLE_FG}" style="color: oklch(0.4 0 none)">A sentence long enough that axe will actually judge its contrast.</p>
 <p id="hued-text" class="hued">A sentence long enough that axe will actually judge its contrast.</p>
 <p id="gradient-text" class="gradient">A sentence long enough that axe will actually judge its contrast.</p>
 <iframe id="xo-unparseable" title="Widget" src="CROSS_ORIGIN/unparseable.html"></iframe>
-<div id="reveal"><p id="revealed-text" class="band">A sentence long enough that axe will actually judge its contrast.</p></div>
+<div id="reveal"><p id="revealed-text" class="band" data-fake-bg="${UNPARSEABLE_BG}">A sentence long enough that axe will actually judge its contrast.</p></div>
 </main>
+${FAKE_COLOUR}
 <script>
   const el = document.getElementById("reveal");
   el.style.opacity = "0";
@@ -776,12 +804,12 @@ const HERO_PAGE = `<!doctype html>
 </style></head>
 <body><main><h1>Hero</h1>
 <p id="above">A sentence long enough that axe will actually judge its contrast.</p>
-<section class="hero"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a class="cta" href="#explore">Explore</a></section>
+${FAKE_COLOUR}<section class="hero" data-fake-bg="${UNPARSEABLE_BG}"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a class="cta" href="#explore">Explore</a></section>
 </main></body>
 </html>`;
 
 /** The Hero's band and CTA, as a fragment other pages embed. */
-const HERO_SECTION = `<section style="position: relative; isolation: isolate; padding: 24px; background-color: oklch(0.205 0 none); color: #fff"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a href="#explore" style="display: inline-block; padding: 8px 16px; background: #fff; color: #000">Explore</a></section>`;
+const HERO_SECTION = `${FAKE_COLOUR}<section data-fake-bg="${UNPARSEABLE_BG}" style="position: relative; isolation: isolate; padding: 24px; background-color: oklch(0.205 0 none); color: #fff"><h2>Hero slice</h2><p>Hero body copy over a dark backdrop, long enough to judge.</p><a href="#explore" style="display: inline-block; padding: 8px 16px; background: #fff; color: #000">Explore</a></section>`;
 
 /** A page of the site's own, with the given body. */
 function sitePage(title: string, body: string): string {
@@ -852,7 +880,7 @@ const SITE_U: SiteConfig = {
     "/dev/a11y-fixtures": plainPage("Fixtures"),
     "/dev/animate-in": sitePage(
       "Animate-in",
-      `<p id="late-band" style="background-color: oklch(0.205 0 none); color: #fff">${T}</p>`,
+      `${FAKE_COLOUR}<p id="late-band" data-fake-bg="${UNPARSEABLE_BG}" style="background-color: oklch(0.205 0 none); color: #fff">${T}</p>`,
     ),
     "/": plainPage("Home"),
   },
@@ -1279,7 +1307,7 @@ describe("audits/a11y — contrast that was never measured, run for real (#888)"
 
   it("names the count, the colour axe rejected and the remedy on the summary line", () => {
     expect(result?.summary).toContain(
-      'contrast-unmeasured on a11y fixtures (3 element(s) on a colour axe cannot parse (oklch(0.205 0 none), oklch(0.4 0 none)), so contrast was never measured there — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes))',
+      "contrast-unmeasured on a11y fixtures (3 element(s) on a colour axe cannot parse (color(--brand 0.205 0 0), color(--brand 0.4 0 0)), so contrast was never measured there — give the color() token a value axe-core can parse)",
     );
   });
 
@@ -1306,10 +1334,10 @@ describe("audits/a11y — contrast that was never measured, run for real (#888)"
     const hero = all().filter((v) => v.route === "/hero");
     expect(hero.map((v) => v.id)).toEqual(["rule-errored"]);
     expect(hero[0]?.help).toBe(
-      'axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes)',
+      'axe could not run "color-contrast": Unable to parse color "color(--brand 0.205 0 0)" Skipping color-contrast rule. — give the color() token a value axe-core can parse',
     );
     expect(result?.summary).toContain(
-      'rule-errored on /hero (axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)"',
+      'rule-errored on /hero (axe could not run "color-contrast": Unable to parse color "color(--brand 0.205 0 0)"',
     );
   });
 
@@ -1406,7 +1434,7 @@ describe("audits/a11y — each #888 finding fails the audit on its own (#916 rev
     const found = violationsOf(errored);
     expect(found.map((v) => `${v.id} on ${v.route}: ${v.help ?? ""}`).sort()).toEqual([
       'rule-errored on /title-throws: axe could not run "document-title": fixture: document.title threw Skipping document-title rule.',
-      'rule-errored on /two-crashes: axe could not run "color-contrast": Unable to parse color "oklch(0.205 0 none)" Skipping color-contrast rule. — write 0 for "none" in the oklch() token (browsers already render none as 0, so nothing on screen changes)',
+      'rule-errored on /two-crashes: axe could not run "color-contrast": Unable to parse color "color(--brand 0.205 0 0)" Skipping color-contrast rule. — give the color() token a value axe-core can parse',
       'rule-errored on /two-crashes: axe could not run "document-title": fixture: document.title threw Skipping document-title rule.',
     ]);
     expect(errored?.status).toBe("fail");
@@ -1667,7 +1695,7 @@ const SITE_BF: SiteConfig = {
     "/": plainPage("Home"),
     "/grain-faint": sitePage(
       "Grain beside faint text",
-      `<p id="faint" style="color: #aaa">${T}</p><p id="grain-fg" style="color: oklch(0.4 0 none)">${T}</p><iframe id="own-faint" title="Our page" src="/own-faint"></iframe>${GRAIN_BAND}`,
+      `<p id="faint" style="color: #aaa">${T}</p>${FAKE_COLOUR}<p id="grain-fg" data-fake-fg="${UNPARSEABLE_FG}" style="color: oklch(0.4 0 none)">${T}</p><iframe id="own-faint" title="Our page" src="/own-faint"></iframe>${GRAIN_BAND}`,
     ),
     "/own-faint": sitePage("Own faint", `<p id="faint-in-frame" style="color: #aaa">${T}</p>`),
     "/grain-wrap": sitePage(
@@ -1834,7 +1862,7 @@ describe("audits/a11y — a blend mode axe cannot compute is not measured, not a
   it("still fails a crash that is not the blend mode, found after the blend crash is re-run around", () => {
     const hero = violationsOf(grainFaint).filter((v) => v.route === "/grain-hero");
     expect(hero.map((v) => v.id)).toEqual(["rule-errored"]);
-    expect(hero[0]?.help).toContain('Unable to parse color "oklch(0.205 0 none)"');
+    expect(hero[0]?.help).toContain('Unable to parse color "color(--brand 0.205 0 0)"');
     expect(blendOf(grainFaint, "/grain-hero")).toEqual([
       'color-contrast ["#over-grain"] plus-lighter',
       'color-contrast ["#over-grain-2"] plus-lighter',

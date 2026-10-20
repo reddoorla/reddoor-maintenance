@@ -6,16 +6,12 @@ import type { Context } from "@netlify/functions";
 // behave; the render path is covered by the render unit tests.
 
 import siteDashboard from "../../netlify/functions/site-dashboard.mjs";
+import { authHeader } from "../_helpers/basic-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
 function get(url: string, headers: Record<string, string> = {}): Request {
   return new Request(url, { method: "GET", headers });
-}
-
-/** A valid Basic header for the given password (username is ignored by the gate). */
-function authHeader(password: string): Record<string, string> {
-  return { authorization: `Basic ${Buffer.from(`x:${password}`).toString("base64")}` };
 }
 
 // The handler only reads `ctx.params`; a minimal cast is enough and avoids

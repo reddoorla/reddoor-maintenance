@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -29,6 +29,7 @@ import {
   closeRequest,
   run,
   proxyReexecEnv,
+  resendable,
   type Ctx,
   type FetchLike,
   type RequestInitLike,
@@ -482,6 +483,22 @@ describe("uploadFile", () => {
     expect(Buffer.concat(calls.map(bytes)).equals(data)).toBe(true);
   });
 
+  it("refuses a file that grew while its session was uploading", async () => {
+    const data = pattern(100);
+    const local = file("growing.bin", data);
+    const { fetch } = fake((ep) => {
+      if (ep === "files/upload_session/start") return { body: { session_id: "s" } };
+      if (ep === "files/upload_session/append_v2") {
+        appendFileSync(local, Buffer.from("more"));
+        return { body: null };
+      }
+      return { body: { size: 100, content_hash: contentHash(data) } };
+    });
+    await expect(
+      uploadFile(ctxWith(fetch), local, "/X", { simpleLimit: 10, chunk: 40 }),
+    ).rejects.toThrow(/growing\.bin changed size while being read/);
+  });
+
   it("uses a session above the limit even when one chunk holds the whole file", async () => {
     const data = pattern(100);
     const local = file("tiny-session.bin", data);
@@ -556,6 +573,178 @@ describe("retries", () => {
     expect(sent.map((c) => argOf(c).cursor.offset)).toEqual([40, 40]);
     expect(bytes(sent[0]!).equals(bytes(sent[1]!))).toBe(true);
     expect(argOf(calls.at(-1)!).cursor.offset).toBe(80);
+  });
+
+  // A session that holds what it was sent, as Dropbox does: bytes at an offset other than the
+  // held length get incorrect_offset. failFinish picks how the first finish fails:
+  // "top" is rejected before the append, "path" after it (files.stone UploadSessionFinishError).
+  function sessionDropbox(failFinish: "top" | "path") {
+    let held = Buffer.alloc(0);
+    let finishes = 0;
+    return fake((ep, call) => {
+      const body = bytes(call);
+      if (ep === "files/upload_session/start") {
+        held = body;
+        return { body: { session_id: "s" } };
+      }
+      const offset = argOf(call).cursor.offset;
+      if (offset !== held.length)
+        return {
+          status: 409,
+          body: {
+            error_summary: `${ep.endsWith("finish") ? "lookup_failed/" : ""}incorrect_offset/..`,
+            error: { ".tag": "incorrect_offset", correct_offset: held.length },
+          },
+        };
+      if (ep === "files/upload_session/finish" && finishes++ === 0) {
+        if (failFinish === "top")
+          return {
+            status: 409,
+            body: {
+              error_summary: "too_many_write_operations/..",
+              error: { ".tag": "too_many_write_operations" },
+            },
+          };
+        held = Buffer.concat([held, body]);
+        return {
+          status: 409,
+          body: {
+            error_summary: "path/too_many_write_operations/..",
+            error: { ".tag": "path", path: { ".tag": "too_many_write_operations" } },
+          },
+        };
+      }
+      held = Buffer.concat([held, body]);
+      if (ep === "files/upload_session/finish")
+        return { body: { size: held.length, content_hash: contentHash(held) } };
+      return { body: null };
+    });
+  }
+
+  it("backs off and resends a finish that met the top-level too_many_write_operations", async () => {
+    const data = pattern(100);
+    const local = file("busy-finish.bin", data);
+    const waits: number[] = [];
+    const { fetch, calls } = sessionDropbox("top");
+    const r = await uploadFile(
+      ctxWith(fetch, async (ms) => {
+        waits.push(ms);
+      }),
+      local,
+      "/X",
+      { simpleLimit: 10, chunk: 60 },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.remoteSize).toBe(100);
+    const sent = calls.filter((c) => c.url.endsWith("finish"));
+    expect(sent).toHaveLength(2);
+    expect(argOf(sent[0]!)).toEqual(argOf(sent[1]!));
+    expect(bytes(sent[0]!).equals(bytes(sent[1]!))).toBe(true);
+    expect(calls.filter((c) => c.url.endsWith("upload_session/start"))).toHaveLength(1);
+    expect(waits).toEqual([1000]);
+  });
+
+  it("does not resend a finish whose path/too_many_write_operations came after the append", async () => {
+    const local = file("busy-finish-path.bin", pattern(100));
+    const { fetch, calls } = sessionDropbox("path");
+    await expect(
+      uploadFile(
+        ctxWith(fetch, async () => {}),
+        local,
+        "/X",
+        { simpleLimit: 10, chunk: 60 },
+      ),
+    ).rejects.toThrow(
+      /^files\/upload_session\/finish: HTTP 409 path\/too_many_write_operations\/\.\.$/,
+    );
+    expect(calls.filter((c) => c.url.endsWith("finish"))).toHaveLength(1);
+  });
+
+  it("resends only the too_many_write_operations shapes Dropbox raised before taking the request", () => {
+    expect(resendable("files/upload", "path/too_many_write_operations/.")).toBe(true);
+    expect(resendable("files/upload", "too_many_write_operations/")).toBe(true);
+    expect(resendable("files/upload_session/finish", "too_many_write_operations/..")).toBe(true);
+    expect(resendable("files/upload_session/finish", "path/too_many_write_operations/..")).toBe(
+      false,
+    );
+    expect(resendable("files/upload", "path/conflict/file/..")).toBe(false);
+    expect(resendable("files/upload", "path/too_many_write_operations_x/")).toBe(false);
+    expect(resendable("files/upload_session/finish", "too_many_write_operations_x/")).toBe(false);
+  });
+
+  it("waits the Retry-After a 409 too_many_write_operations asks for before resending", async () => {
+    const data = pattern(10);
+    const waits: number[] = [];
+    const { fetch, calls } = fake((_ep, _c, all) =>
+      all.length === 1
+        ? {
+            status: 409,
+            headers: { "Retry-After": "7" },
+            body: { error_summary: "too_many_write_operations/" },
+          }
+        : { body: { size: 10, content_hash: contentHash(data) } },
+    );
+    const r = await uploadFile(
+      ctxWith(fetch, async (ms) => {
+        waits.push(ms);
+      }),
+      file("busy-retry-after.bin", data),
+      "/X",
+    );
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(waits).toEqual([7000]);
+  });
+
+  it("resends a one-call upload that met too_many_write_operations", async () => {
+    const data = pattern(10);
+    const local = file("busy-upload.bin", data);
+    const { fetch, calls } = fake((_ep, _c, all) =>
+      all.length === 1
+        ? { status: 409, body: { error_summary: "path/too_many_write_operations/." } }
+        : { body: { size: 10, content_hash: contentHash(data) } },
+    );
+    const r = await uploadFile(
+      ctxWith(fetch, async () => {}),
+      local,
+      "/X",
+    );
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not resend any other 409", async () => {
+    const { fetch, calls } = fake(() => ({
+      status: 409,
+      body: { error_summary: "path/conflict/file/.." },
+    }));
+    await expect(
+      uploadFile(
+        ctxWith(fetch, async () => {}),
+        file("conflict-once.bin", pattern(10)),
+        "/X",
+      ),
+    ).rejects.toThrow(/HTTP 409 path\/conflict\/file/);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("gives up on too_many_write_operations after its last attempt, waiting between each", async () => {
+    const waits: number[] = [];
+    const { fetch, calls } = fake(() => ({
+      status: 409,
+      body: { error_summary: "path/too_many_write_operations/." },
+    }));
+    await expect(
+      uploadFile(
+        ctxWith(fetch, async (ms) => {
+          waits.push(ms);
+        }),
+        file("busy-forever.bin", pattern(10)),
+        "/X",
+      ),
+    ).rejects.toThrow(/HTTP 409 path\/too_many_write_operations/);
+    expect(calls).toHaveLength(MAX_ATTEMPTS);
+    expect(waits).toEqual(Array(MAX_ATTEMPTS - 1).fill(1000));
   });
 
   it("gives up after its last attempt", async () => {
@@ -639,14 +828,18 @@ describe("run", () => {
     );
   });
 
-  it("check shows a 409 other than not_found beside the granted scope", async () => {
-    const { fetch } = session((ep) =>
-      ep === "files/upload_session/start"
-        ? { body: { session_id: "s" } }
-        : { status: 409, body: { error_summary: "disabled_for_team/" } },
-    );
-    const r = await run({ cmd: "check" }, { fetch, env: ENV });
-    expect(r.lines[2]).toBe("file_requests.write: granted (HTTP 409 disabled_for_team/)");
+  it("check exits 1 on a file-request 409 other than not_found, since close-request would fail", async () => {
+    for (const s of ["disabled_for_team/", "email_unverified/", "no_permission/", "not_found_x/"]) {
+      const { fetch } = session((ep) =>
+        ep === "files/upload_session/start"
+          ? { body: { session_id: "s" } }
+          : { status: 409, body: { error_summary: s } },
+      );
+      const r = await run({ cmd: "check" }, { fetch, env: ENV });
+      expect(r.code).toBe(1);
+      expect(r.lines[1]).toBe("files.content.write: granted");
+      expect(r.lines[2]).toBe(`file_requests.write: UNKNOWN (file_requests/update: HTTP 409 ${s})`);
+    }
   });
 
   it("says when the root is only the personal home folder", () => {

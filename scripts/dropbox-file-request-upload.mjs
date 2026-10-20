@@ -11,7 +11,10 @@ const REQUEST = /^https:\/\/www\.dropbox\.com\/request\/[A-Za-z0-9]+\/?$/;
 export const USAGE = `usage: node scripts/dropbox-file-request-upload.mjs [--dry-run] <file-request-url> <uploader-name> <file>...
 
 Puts binary files into Dropbox through a file request's public upload page, driven by headless Chromium.
-It is the fallback: when "node scripts/dropbox.mjs check" passes, upload with scripts/dropbox.mjs instead.
+It is the fallback, for when the API cannot upload: "node scripts/dropbox.mjs check"
+fails before naming the account, or prints MISSING for files.content.write.
+Otherwise use "node scripts/dropbox.mjs upload", even when only file_requests.write is missing.
+If check prints UNKNOWN for files.content.write, re-run it; if that persists, treat the API as unable to upload.
 Create the request first with the Dropbox connector's create_file_request, with a deadline and no
 deadline_allow_late_uploads, so it closes itself. UPLOADER_EMAIL must be set: use the Dropbox account's
 own address (the connector's who_am_i). --dry-run prints each file's size, content_hash and expected
@@ -37,9 +40,10 @@ export function parseArgs(argv, env = process.env) {
     throw new Error(`not a Dropbox file request URL: ${url ?? "(none)"}`);
   }
   if (!name?.trim()) throw new Error("the uploader name is empty");
-  if (/[\\/]/.test(name) || statSync(name, { throwIfNoEntry: false })) {
+  const why = pathLike(name);
+  if (why) {
     throw new Error(
-      `the uploader name "${name}" looks like a file; the name comes before the files`,
+      `the uploader name "${name}" looks like a file (${why}); the name comes before the files`,
     );
   }
   if (files.length === 0) throw new Error("no files given");
@@ -53,6 +57,18 @@ export function parseArgs(argv, env = process.env) {
     throw new Error("UPLOADER_EMAIL is not set; use the Dropbox account's own address");
   }
   return { url, name: name.trim(), files, dryRun };
+}
+
+function pathLike(name) {
+  if (/[\\/]/.test(name)) return "it contains / or \\";
+  try {
+    if (statSync(name, { throwIfNoEntry: false })) {
+      return "the working directory has an entry by that name";
+    }
+  } catch (e) {
+    return `it cannot be checked against the working directory: ${e.code ?? "stat failed"}`;
+  }
+  return null;
 }
 
 export function uploadedName(name, file) {
@@ -86,7 +102,7 @@ export function plan(files, name, max = MAX_BATCH_BYTES) {
     if (!st?.isFile()) throw new Error(`not a file: ${file}`);
     if (st.size > max) {
       throw new Error(
-        `${file} is over ${max} bytes, too large for this route; use scripts/dropbox.mjs`,
+        `${file} is over ${max} bytes, too large for this route; it needs "node scripts/dropbox.mjs upload", once "node scripts/dropbox.mjs check" passes`,
       );
     }
     const buf = readFileSync(file);
@@ -149,6 +165,32 @@ export function exitCode(results) {
   return results.length > 0 && results.every((r) => r.ok) ? 0 : 1;
 }
 
+export function payloadFor(rows) {
+  return rows.map((r) => {
+    const buf = readFileSync(r.file);
+    if (contentHash(buf) !== r.contentHash)
+      throw new Error(`${r.file} changed after it was hashed`);
+    return {
+      name: basename(r.file),
+      type: r.file.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream",
+      b64: buf.toString("base64"),
+    };
+  });
+}
+
+export function missingAfterDrop(body, names) {
+  const text = squash(body);
+  return names.filter((n) => !text.includes(squash(n)));
+}
+
+export async function waitForCommits(committed, names, until, sleep, now = Date.now) {
+  const done = (n) => {
+    const c = committed.get(n);
+    return Boolean(c) && commitComplete(c.status, c.text);
+  };
+  while (names.some((n) => !done(n)) && now() < until) await sleep(500);
+}
+
 async function uploadBatch(browser, url, name, email, rows) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
@@ -165,18 +207,7 @@ async function uploadBatch(browser, url, name, email, rows) {
     const zone = await page.waitForSelector("#browse-target", { timeout: 30_000 }).catch(() => {
       throw new Error("no drop zone on the page: the request may be closed or past its deadline");
     });
-    const payload = rows.map((r) => {
-      const buf = readFileSync(r.file);
-      if (contentHash(buf) !== r.contentHash)
-        throw new Error(`${r.file} changed after it was hashed`);
-      return {
-        name: basename(r.file),
-        type: r.file.toLowerCase().endsWith(".pdf")
-          ? "application/pdf"
-          : "application/octet-stream",
-        b64: buf.toString("base64"),
-      };
-    });
+    const payload = payloadFor(rows);
     const dt = await page.evaluateHandle((files) => {
       const dt = new globalThis.DataTransfer();
       for (const f of files) {
@@ -192,18 +223,22 @@ async function uploadBatch(browser, url, name, email, rows) {
       await target.dispatchEvent(ev, { dataTransfer: dt });
     }
     await page.waitForSelector('input[name="email"]', { timeout: 30_000 });
-    const body = squash(await page.innerText("body"));
-    const missing = payload.filter((f) => !body.includes(squash(f.name))).map((f) => f.name);
+    const missing = missingAfterDrop(
+      await page.innerText("body"),
+      payload.map((f) => f.name),
+    );
     if (missing.length)
       throw new Error(`the page did not list ${missing.join(", ")} after the drop`);
     await page.fill('input[name="name"]', name);
     await page.fill('input[name="email"]', email);
     await page.getByRole("button", { name: "Upload", exact: true }).click();
     const bytes = rows.reduce((n, r) => n + r.size, 0);
-    const until = Date.now() + timeoutMs(bytes);
-    while (payload.some((f) => !committed.has(f.name)) && Date.now() < until) {
-      await page.waitForTimeout(500);
-    }
+    await waitForCommits(
+      committed,
+      payload.map((f) => f.name),
+      Date.now() + timeoutMs(bytes),
+      (ms) => page.waitForTimeout(ms),
+    );
     return verdicts(rows, committed);
   } catch (e) {
     return afterError(rows, committed, e.message.split("\n")[0]);

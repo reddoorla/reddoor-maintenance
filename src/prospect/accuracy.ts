@@ -8,6 +8,7 @@ import {
   type DomainVerdict,
   type OwnershipDeps,
 } from "./ownership.js";
+import { pathDepth } from "../util/path-depth.js";
 
 /**
  * When an AI describes this business, where is it getting that from?
@@ -245,17 +246,6 @@ that direction costs a client a conversation. Being wrong the other way tells th
 something it does not.`;
 }
 
-/** Which pages reach the model. Shallow pages first — the same reasoning as
- *  analyze's `selectPages`: a buyer-facing top-level page carries more of the
- *  business's own account of itself than the twelfth blog post. */
-function pathDepth(url: string): number {
-  try {
-    return new URL(url).pathname.split("/").filter(Boolean).length;
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
-  }
-}
-
 function viewOf(page: PageCapture) {
   return page.rendered ?? page.raw;
 }
@@ -302,6 +292,9 @@ export function selectPages(crawl: CrawlResult): {
 
   const [home, ...rest] = readable;
   if (!home) return { pages: [], fullyRead: crawl.pages.length === 0, pagesUnread };
+  // Shallow pages first — the same reasoning as analyze's `selectPages`: a
+  // buyer-facing top-level page carries more of the business's own account of
+  // itself than the twelfth blog post.
   const ordered = [home, ...rest.slice().sort((a, b) => pathDepth(a.url) - pathDepth(b.url))];
 
   const kept: PageCapture[] = [];

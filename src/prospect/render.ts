@@ -12,6 +12,7 @@ import type {
   ProspectAuditResult,
   StageResult,
 } from "./types.js";
+import { formatIsoDate } from "../util/date.js";
 
 const RED = "#d71920";
 const IMPACT_ORDER: Record<Fix["impact"], number> = { high: 0, medium: 1, low: 2 };
@@ -123,22 +124,6 @@ function skippableStageNote(error: string, skipConstant: string, skipMessage: st
     return `<p class="muted">${escapeHtml(skipMessage)}</p>`;
   }
   return notMeasuredNote();
-}
-
-/** `new Date(iso).toLocaleDateString()` never throws on a bad timestamp — it
- *  silently returns "Invalid Date" — so a try/catch here is dead code. Guard
- *  on getTime() instead, and fall back to the raw ISO string so a corrupt
- *  timestamp is at least visibly a timestamp rather than the literal words
- *  "Invalid Date". */
-function formatIsoDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 /** The probes section leads the report, so a branded-only run (analyze

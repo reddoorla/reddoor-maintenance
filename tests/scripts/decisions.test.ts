@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -959,12 +959,225 @@ describe("round 4 edges", () => {
   });
 
   it("runs git in its own repository, whatever the cwd", () => {
-    const out = join(tmpdir(), `decisions-cwd-${process.pid}`);
-    const r = spawnSync(process.execPath, [SCRIPT, "convert", out, "--rev", "HEAD"], {
-      encoding: "utf-8",
-      cwd: tmpdir(),
+    const base = mkdtempSync(join(tmpdir(), "decisions-cwd-"));
+    try {
+      const r = spawnSync(
+        process.execPath,
+        [SCRIPT, "convert", join(base, "out"), "--rev", "HEAD"],
+        {
+          encoding: "utf-8",
+          cwd: base,
+        },
+      );
+      expect(r.stderr).not.toContain("not a git repository");
+      expect(r.stdout).toMatch(/^CONVERT_SUMMARY rev=[0-9a-f]{8} items=\d+/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("round 5 minors (#1353, #1355, #1356, #1357)", () => {
+  const X = "2026-10-12-0900-x.md";
+
+  it("refuses --json outside check and list, and --rev outside convert even at its default (#1353)", () => {
+    expect(() => parseArgs(["new", "d", "x", "--json"])).toThrow(
+      "--json belongs to check and list",
+    );
+    expect(() => parseArgs(["convert", "d", "--json"])).toThrow("--json belongs to check and list");
+    expect(() => parseArgs(["check", "d", "--rev", "origin/main"])).toThrow(
+      "--rev belongs to convert",
+    );
+    expect(parseArgs(["check", "d", "--json"]).json).toBe(true);
+    expect(parseArgs(["list", "d", "--open", "--json"]).json).toBe(true);
+    expect(parseArgs(["convert", "d", "--rev", "origin/main"]).rev).toBe("origin/main");
+  });
+
+  it("refuses a flag value that starts with -, so it cannot reach git as an option (#1357)", () => {
+    expect(() => parseArgs(["convert", "d", "--rev", "-q"])).toThrow("--rev needs a value");
+    expect(() => parseArgs(["new", "d", "x", "--from", "-a/b#1"])).toThrow("--from needs a value");
+  });
+
+  it("refuses . and .. as the owner or repo of a ref, and keeps a dotted name (#1357)", () => {
+    for (const r of ["../..#1", "./x#1", "x/..#1", "x/.#1", "../x#1"])
+      expect(pd(X, file({ refs: `[${r}]` })).errors).toEqual([`ref is not owner/repo#N: ${r}`]);
+    expect(() => parseArgs(["new", "d", "x", "--from", "../..#1"])).toThrow("owner/repo#N");
+    expect(pd(X, file({ refs: "[reddoorla/.github#28, a.b/c..d#2]" })).errors).toEqual([]);
+  });
+
+  it("refuses the placeholder: a bare TODO, TODO then punctuation and a space, or TODO the ask (#1355)", () => {
+    for (const first of [
+      "TODO the ask, in one line.",
+      '"TODO the ask"',
+      "`TODO` the ask",
+      "[TODO] the ask",
+      "TODO",
+      "**TODO**",
+      "TODO the ask.",
+      "TODO.",
+      "TODO:",
+      "TODO!",
+      "TODO — the ask",
+      "TODO:the ask",
+      "TODO,",
+      "TODO;",
+      "TODO?",
+      "TODO…",
+      "TODO\u2011 the ask",
+      "TODO, the ask",
+      "TODO,the ask",
+      "TODO;the ask",
+      "TODO, the ask, in one line.",
+      "TODO; the ask, in one line.",
+      "TODO—the ask, in one line.",
+      "TODO–the ask, in one line.",
+      "TODO- the ask",
+      "TODO-",
+      "1) TODO the ask",
+    ])
+      expect(pd(X, file({ first })).errors, first).toEqual([
+        "the ask is still the TODO placeholder",
+      ]);
+    for (const first of [
+      "TODO-list markers in starter: delete them?",
+      "Todoist or Linear for the client board?",
+      "TODO markers in starter: delete them?",
+      "TODO comments in reddoor-starter: strip them before launch?",
+      "TODO list for the starter: keep it?",
+      "Todo app for Sonder: build it?",
+      "todo.txt or Linear?",
+      "TODO, FIXME and HACK markers in starter: delete them?",
+      "TODO,FIXME markers in starter: delete them?",
+      "TODO; FIXME: which to keep?",
+      "TODO, the asking price: hold it?",
+      "TODO the asking price: hold it?",
+    ]) {
+      const d = pd(X, file({ first }));
+      expect(d.errors, first).toEqual([]);
+      expect(d.ask).toBe(first);
+    }
+  });
+
+  it("names TODO and punctuation in front of a real ask, rather than calling it the placeholder (#1468)", () => {
+    for (const first of [
+      "TODO: decide the ask",
+      "TODO: Ship the pricing page?",
+      "TODO — merge #12?",
+      "TODO—Ship X?",
+      "TODO: the asked-for page?",
+    ])
+      expect(pd(X, file({ first })).errors, first).toEqual([
+        "the ask starts with TODO and punctuation; drop the TODO or reword it",
+      ]);
+  });
+
+  it("does not read a ## Answer quoted inside a code fence as the heading (#1446)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    for (const fence of ["```", "~~~"]) {
+      const quoted = answered.replace("## Answer\n", `${fence}\n## Answer\n`) + `${fence}\n`;
+      expect(pd(X, quoted).errors, fence).toEqual([
+        "status is answered but has no ## Answer heading",
+      ]);
+    }
+    const after = answered.replace("## Answer\n", "```\n## Answer\nNo.\n```\n\n## Answer\n");
+    expect(pd(X, after).errors).toEqual([]);
+    const headingInFence = answered.replace("Yes.", "```\n## Not a heading\n```\nYes.");
+    expect(pd(X, headingInFence).errors).toEqual([]);
+  });
+
+  it("names an unclosed fence that hides ## Answer (#1522 review)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    expect(pd(X, answered.replace("## Answer\n", "```\n\n## Answer\n")).errors).toEqual([
+      "status is answered but a code fence opens and never closes, hiding ## Answer",
+    ]);
+  });
+
+  it("closes a fence only on a bare closer of its own kind and length (#1446)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    for (const [open, inner, close] of [
+      ["````", "```", "````"],
+      ["```", "```js", "```"],
+      ["```", "~~~", "```"],
+    ]) {
+      const quoted =
+        answered.replace("## Answer\n", `${open}\n${inner}\n## Answer\n`) + `${close}\n`;
+      expect(pd(X, quoted).errors, `${open} ${inner}`).toEqual([
+        "status is answered but has no ## Answer heading",
+      ]);
+    }
+  });
+
+  it("reads inline code or a tab-indented line of backticks as text, not a fence (#1522 review)", () => {
+    const answered = file({ status: "answered", answer: "Yes, pin it." });
+    for (const line of ["```pnpm install``` fails on Node 24.", "```a`b", "\t```"]) {
+      const d = pd(X, answered.replace("## Answer\n", `${line}\n\n## Answer\n`));
+      expect(d.errors, line).toEqual([]);
+    }
+  });
+
+  it("refuses a code fence as the ask (#1356)", () => {
+    expect(pd(X, file({ first: "```\nMerge #12?\n```" })).errors).toEqual([
+      "missing first line: the ask",
+    ]);
+  });
+
+  it("reads an answer under a decorated ## Answer heading, and names a missing heading (#1356)", () => {
+    const answered = file({ status: "answered", answer: "Yes." });
+    expect(pd(X, answered.replace("## Answer\n", "## Answer (2026-10-13)\n")).errors).toEqual([]);
+    expect(pd(X, answered.replace("## Answer\n", "## Answer: (a)\n")).errors).toEqual([]);
+    expect(pd(X, answered.replace("## Answer\n", "## Answers\n")).errors).toEqual([
+      "status is answered but has no ## Answer heading",
+    ]);
+  });
+
+  it("counts a rule, a fence or the TODO placeholder under ## Answer as no answer (#1356)", () => {
+    for (const answer of ["---", "TODO", "```"])
+      expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([
+        "status is answered but ## Answer is empty",
+      ]);
+  });
+
+  it("reads a real answer that starts with TODO, and only a bare TODO counts as no answer (#1356)", () => {
+    for (const answer of [
+      "TODO markers: delete them all.",
+      "Todo app: no, skip it.",
+      "TODO: none, ship it as is.",
+    ])
+      expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([]);
+    for (const answer of ["todo.", "**TODO**:", "TODO: fill in", "TODO?", "TODO the answer"])
+      expect(pd(X, file({ status: "answered", answer })).errors, answer).toEqual([
+        "status is answered but ## Answer is empty",
+      ]);
+  });
+
+  it("reads an answer that follows a ### sub-heading, and stops at the next ## (#1357)", () => {
+    expect(
+      pd(X, file({ status: "answered", answer: "### Detail\n\n(a), 2026-10-13." })).errors,
+    ).toEqual([]);
+    expect(
+      pd(X, file({ status: "answered", answer: "## Later\n\n(a), 2026-10-13." })).errors,
+    ).toEqual(["status is answered but ## Answer is empty"]);
+  });
+
+  it("keeps a two-line gh error to one line in UNCHECKED (#1357)", async () => {
+    const run: Runner = async () => ({
+      code: 1,
+      stdout: "",
+      stderr: "gh: Not Found (HTTP 404)\nsee https://docs.github.com\n",
     });
-    expect(r.stderr).not.toContain("not a git repository");
-    expect(r.stdout).toMatch(/^CONVERT_SUMMARY rev=[0-9a-f]{8} items=\d+/);
+    expect(await refState("a/b#1", "2026-10-12T09:00Z", run)).toEqual({
+      ref: "a/b#1",
+      kind: "unchecked",
+      why: "gh: Not Found (HTTP 404)",
+    });
+  });
+
+  it("breaks a tie in asked by file name, whatever order the decisions arrive in (#1357)", async () => {
+    const mk = (name: string) => pd(name, file({ asked: "2026-10-12T09:00Z" }));
+    const rep = await decisionsReport(
+      { dir: "unused", offline: true },
+      { now: NOW, decisions: [mk("2026-10-12-0900-b.md"), mk("2026-10-12-0900-a.md")] },
+    );
+    expect(rep.decisions.map((d) => d.slug)).toEqual(["a", "b"]);
   });
 });

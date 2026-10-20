@@ -1,6 +1,4 @@
 #!/usr/bin/env -S pnpm tsx
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { LibsqlDialect } from "@libsql/kysely-libsql";
 import {
@@ -39,6 +37,7 @@ import type { DigestSnapshot } from "../src/alerts/digest-state.js";
 import type { AttentionItem } from "../src/alerts/attention.js";
 import { directVulnEscalatesAt, transitiveVulnEscalatesAt } from "../src/alerts/waiting.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
+import { isMain } from "./lib/cli.mjs";
 
 const USAGE = "usage: pnpm tsx scripts/pm-cockpit.mts [--since <iso with Z or offset>]";
 const REFUSAL = "pm-cockpit: read-only connection refused a";
@@ -352,14 +351,7 @@ async function main(): Promise<void> {
   }
 }
 
-const self = (p: string): string => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e: unknown) => {
     process.stderr.write(`pm-cockpit: ${e instanceof Error ? e.message : String(e)}\n`);
     process.exitCode = 1;

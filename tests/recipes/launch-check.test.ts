@@ -157,7 +157,7 @@ describe("launchCheck", () => {
     it("is missing when maintenance_day is more than 13 months old", async () => {
       const lines = await launchCheck(row({ "maintenance day": "2025-08-01" }), goodDeps());
       expect(stateOf(lines, "schedule")).toBe("missing");
-      const recent = await launchCheck(row({ "maintenance day": "2026-01-01" }), goodDeps());
+      const recent = await launchCheck(row({ "maintenance day": "2026-09-01" }), goodDeps());
       expect(stateOf(recent, "schedule")).toBe("ok");
     });
 
@@ -165,6 +165,119 @@ describe("launchCheck", () => {
       const lines = await launchCheck(row({ "maintenence freq": "Quaterly" }), goodDeps());
       expect(stateOf(lines, "schedule")).toBe("missing");
     });
+
+    // #1375 item 1: the anchor is judged by the first report it schedules, not
+    // by its own age. Checked on 2026-10-14.
+    it("is missing when the first due date has already passed, however young the anchor", async () => {
+      const monthly = await launchCheck(
+        row({ "maintenence freq": "Monthly", "maintenance day": "2025-11-20" }),
+        goodDeps(),
+      );
+      expect(stateOf(monthly, "schedule")).toBe("missing");
+      expect(detailOf(monthly, "schedule")).toContain("2025-12-20");
+      const quarterly = await launchCheck(row({ "maintenance day": "2026-07-13" }), goodDeps());
+      expect(stateOf(quarterly, "schedule")).toBe("missing");
+      expect(detailOf(quarterly, "schedule")).toContain("2026-10-13");
+    });
+
+    it("accepts an anchor whose first report falls due today or later", async () => {
+      const today = await launchCheck(row({ "maintenance day": "2026-07-14" }), goodDeps());
+      expect(stateOf(today, "schedule")).toBe("ok");
+      // Yearly from 13 months back is still ahead of the old 396-day line but due
+      // a month ago; Yearly from 11 months back is due next month.
+      const yearly = await launchCheck(
+        row({ "maintenence freq": "Yearly", "maintenance day": "2025-11-14" }),
+        goodDeps(),
+      );
+      expect(stateOf(yearly, "schedule")).toBe("ok");
+    });
+
+    it("judges testing_day by its own frequency's first due date", async () => {
+      const lines = await launchCheck(
+        row({ "testing freq": "Monthly", "testing day": "2026-09-01" }),
+        goodDeps(),
+      );
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      expect(detailOf(lines, "schedule")).toContain("testing_day");
+      const yearly = await launchCheck(
+        row({ "testing freq": "Yearly", "testing day": "2026-09-01" }),
+        goodDeps(),
+      );
+      expect(stateOf(yearly, "schedule")).toBe("ok");
+    });
+
+    it("is missing for a testing frequency the code does not know", async () => {
+      const lines = await launchCheck(
+        row({ "testing freq": "Quaterly", "testing day": "2026-10-14" }),
+        goodDeps(),
+      );
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      expect(detailOf(lines, "schedule")).toContain("testing_freq");
+    });
+
+    // The first-due rule is about the FIRST report of a site being launched. A
+    // live row's anchor is history: its next report counts from its last send,
+    // so it keeps the old age line (Data Dynamiq, Quarterly from 2026-07-05,
+    // sent 2026-10-09, must stay ok).
+    it("keeps the anchor-age rule on a maintained row and applies the first due date before launch", async () => {
+      const fields = { "maintenance day": "2026-07-05" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const hosted = await launchCheck(row({ ...fields, Status: "hosted-only" }), goodDeps());
+      expect(stateOf(hosted, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      const launching = await launchCheck(row({ ...fields, Status: "launching" }), goodDeps());
+      expect(stateOf(launching, "schedule")).toBe("missing");
+      const stale = await launchCheck(
+        row({ "maintenance day": "2025-08-01", Status: "maintained" }),
+        goodDeps(),
+      );
+      expect(stateOf(stale, "schedule")).toBe("missing");
+      expect(detailOf(stale, "schedule")).toContain("more than 13 months old");
+    });
+
+    // The other two pre-launch-only rules (#1449): the strict YYYY-MM-DD form
+    // and the unknown testing_freq. A maintained row keeps main's looser rule
+    // for both; the building row beside each shows the rule is live.
+    it("applies the strict calendar-date form only before launch", async () => {
+      const fields = { "maintenance day": "Oct 5 2026" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      expect(detailOf(building, "schedule")).toContain("is not a date");
+    });
+
+    it("refuses an unknown testing_freq only before launch", async () => {
+      const fields = { "testing freq": "Quaterly", "testing day": "2026-10-14" };
+      const live = await launchCheck(row({ ...fields, Status: "maintained" }), goodDeps());
+      expect(stateOf(live, "schedule")).toBe("ok");
+      const building = await launchCheck(row({ ...fields, Status: "building" }), goodDeps());
+      expect(stateOf(building, "schedule")).toBe("missing");
+      expect(detailOf(building, "schedule")).toContain("testing_freq");
+    });
+
+    it("clamps a month-end anchor as nextDueDate does", async () => {
+      const day = { "maintenence freq": "Monthly", "maintenance day": "2026-01-31" };
+      const at = (iso: string) => goodDeps({ now: () => new Date(iso) });
+      const feb28 = await launchCheck(row(day), at("2026-02-28T12:00:00Z"));
+      expect(stateOf(feb28, "schedule")).toBe("ok");
+      const mar1 = await launchCheck(row(day), at("2026-03-01T12:00:00Z"));
+      expect(stateOf(mar1, "schedule")).toBe("missing");
+      expect(detailOf(mar1, "schedule")).toContain("2026-02-28");
+    });
+
+    // #1375 item 2: the dashboard stores YYYY-MM-DD, so anything else is refused,
+    // including what Date.parse would read as a date.
+    it.each(["2026-13-01", "2026-02-30", "Oct 5", "Monthly 2026", "2026-10-14T00:00:00Z"])(
+      "is missing when maintenance_day is %j, which is not a YYYY-MM-DD calendar date",
+      async (day) => {
+        const lines = await launchCheck(row({ "maintenance day": day }), goodDeps());
+        expect(stateOf(lines, "schedule")).toBe("missing");
+        expect(detailOf(lines, "schedule")).toContain("is not a date");
+      },
+    );
   });
 
   it("is missing a contact when the only To is the operator's own address", async () => {
@@ -374,6 +487,77 @@ describe("launchCheck", () => {
       }),
     );
     expect(stateOf(lines, "privacy")).toBe("missing");
+  });
+
+  // #1373: a minifier that strips attribute quotes still links to /privacy.
+  it.each(["<a href=/privacy>Privacy</a>", "<a class=x href=/privacy/ id=p>Privacy</a>"])(
+    "counts an unquoted href: %s",
+    async (body) => {
+      const lines = await launchCheck(
+        row(),
+        goodDeps({
+          fetchPage: pages({
+            [URL_]: { status: 200, url: URL_, body },
+            "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+          }),
+        }),
+      );
+      expect(stateOf(lines, "privacy")).toBe("ok");
+    },
+  );
+
+  // #1374: a relative href resolves against the page the browser shows, which is
+  // where the home page landed, and against its <base href> when it has one.
+  function privacyFor(home: FetchedPage) {
+    return launchCheck(
+      row(),
+      goodDeps({
+        fetchPage: pages({
+          [URL_]: home,
+          "https://www.example.com/privacy": { status: 200, url: "", body: "" },
+        }),
+      }),
+    );
+  }
+
+  it("resolves a relative href against the page the home page landed on", async () => {
+    const en = "https://www.example.com/en/";
+    const relative = await privacyFor({ status: 200, url: en, body: '<a href="privacy">P</a>' });
+    expect(stateOf(relative, "privacy")).toBe("missing");
+    const up = await privacyFor({ status: 200, url: en, body: '<a href="../privacy">P</a>' });
+    expect(stateOf(up, "privacy")).toBe("ok");
+  });
+
+  it("resolves a relative href against the home page's <base href>", async () => {
+    const based = await privacyFor({
+      status: 200,
+      url: URL_,
+      body: '<head><base href="/en/"></head><a href="privacy">P</a>',
+    });
+    expect(stateOf(based, "privacy")).toBe("missing");
+    const root = await privacyFor({
+      status: 200,
+      url: "https://www.example.com/en/",
+      body: "<head><base href=/></head><a href=privacy>P</a>",
+    });
+    expect(stateOf(root, "privacy")).toBe("ok");
+  });
+
+  it("resolves a relative <base href> against the page the home page landed on", async () => {
+    const en = "https://www.example.com/en/";
+    const nested = await privacyFor({
+      status: 200,
+      url: en,
+      body: '<base href="legal/"><a href="../privacy">P</a>',
+    });
+    // en/ + legal/ = /en/legal/, and ../privacy from there is /en/privacy.
+    expect(stateOf(nested, "privacy")).toBe("missing");
+    const up = await privacyFor({
+      status: 200,
+      url: en,
+      body: '<base href="../"><a href="privacy">P</a>',
+    });
+    expect(stateOf(up, "privacy")).toBe("ok");
   });
 
   it("counts an absolute link to the site's own /privacy", async () => {

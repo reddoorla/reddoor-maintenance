@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
-import {
-  realpathSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  statSync,
-} from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { realRunner } from "./land-prs.mjs";
+import { isMain } from "./lib/cli.mjs";
 
 export const STATUSES = ["open", "answered", "parked", "withdrawn"];
 export const FIELDS = ["status", "asked", "from", "refs"];
@@ -18,7 +11,7 @@ export const NAME_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
 export const ASKED_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/;
 export const SESSION_URL = /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/;
-export const REF_PATTERN = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(\d+)$/;
+export const REF_PATTERN = /^(?!\.\.?\/)([A-Za-z0-9_.-]+)\/(?!\.\.?#)([A-Za-z0-9_.-]+)#(\d+)$/;
 export const DEFAULT_OWNER = "reddoorla";
 export const HOME_REPO = "reddoorla/reddoor-maintenance";
 const BACKLOG = "docs/BACKLOG.md";
@@ -29,6 +22,9 @@ const USAGE = [
   "       node scripts/decisions.mjs list <dir> (--open | --parked) [--since <iso>] [--offline] [--json]",
   "       node scripts/decisions.mjs new <dir> <slug> [--from owner/repo#N]",
   "       node scripts/decisions.mjs convert <outdir> [--rev origin/main]",
+  "limit: HTML comments are stripped from the whole body, code spans and fences included,",
+  "       so `<!-- x -->` in backticks drops out of the ask, and a lone `<!--` in code",
+  "       fails the file as an unclosed comment (#1354).",
 ].join("\n");
 
 export const FUTURE_SLACK_MS = 10 * 60_000;
@@ -61,13 +57,14 @@ export function parseArgs(argv) {
     from: undefined,
     rev: "origin/main",
   };
+  let revGiven = false;
   if (!["check", "list", "new", "convert"].includes(o.cmd)) throw new Error("needs a command");
   const pos = [];
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
       const v = argv[++i];
-      if (v === undefined || v.startsWith("--")) throw new Error(`${a} needs a value`);
+      if (v === undefined || v.startsWith("-")) throw new Error(`${a} needs a value`);
       return v;
     };
     if (a === "--open") o.open = true;
@@ -75,8 +72,10 @@ export function parseArgs(argv) {
     else if (a === "--offline") o.offline = true;
     else if (a === "--json") o.json = true;
     else if (a === "--from") o.from = next();
-    else if (a === "--rev") o.rev = next();
-    else if (a === "--since") {
+    else if (a === "--rev") {
+      o.rev = next();
+      revGiven = true;
+    } else if (a === "--since") {
       const v = next();
       if (Number.isNaN(Date.parse(v)) || !/(Z|[+-]\d\d:?\d\d)$/.test(v) || !calendarValid(v))
         throw new Error(`${a} needs an ISO time with Z or an offset`);
@@ -92,9 +91,11 @@ export function parseArgs(argv) {
   if (o.cmd !== "list" && (o.open || o.parked || o.since))
     throw new Error("--open, --parked and --since belong to list");
   if (o.from !== undefined && o.cmd !== "new") throw new Error("--from belongs to new");
-  if (o.rev !== "origin/main" && o.cmd !== "convert") throw new Error("--rev belongs to convert");
+  if (revGiven && o.cmd !== "convert") throw new Error("--rev belongs to convert");
   if (o.offline && !["check", "list"].includes(o.cmd))
     throw new Error("--offline belongs to check and list");
+  if (o.json && !["check", "list"].includes(o.cmd))
+    throw new Error("--json belongs to check and list");
   if (o.from !== undefined && !REF_PATTERN.test(o.from))
     throw new Error("--from needs owner/repo#N");
   return o;
@@ -114,6 +115,72 @@ export function stripComments(text) {
     i = end + 3;
   }
 }
+
+const normalise = (line) =>
+  line
+    .replace(/^(?:[-+>\s]|\*\s|\d+[.)]\s)*/, "")
+    .replace(/[*_`"'[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+// The template's first line is "TODO the ask, in one line.". After list markers,
+// emphasis, code, quotes and brackets are stripped, the placeholder is a bare TODO,
+// TODO then punctuation and a space or the end ("TODO: ...", "TODO — ..."), TODO
+// then : ? … or a dash and text with no space ("TODO:the ask", "TODO—the ask"), or
+// a line that starts "TODO the ask". A comma or semicolon counts only alone or
+// before "the ask", since "TODO, FIXME and HACK markers: delete them?" is a real
+// ask. "TODO <word> ..." is a real ask ("TODO markers in starter: delete them?"),
+// as are "TODO-list ..." and "todo.txt ...". Other wrappers, such as "(TODO)",
+// "<TODO>" or "~~TODO~~", are not stripped.
+const TODO_PUNCT = /^todo ?(?:[:.!?…—–‑(/-]+(?: |$)|[,;]+(?: *$| *(?=the ask\b))|[:?…—–]+(?=\S))/;
+
+export function isPlaceholder(line) {
+  const n = normalise(line);
+  return n === "todo" || TODO_PUNCT.test(n) || /^todo the ask\b/.test(n);
+}
+
+// The error for a refused first line. A line that is the template's own ask, or
+// TODO and punctuation alone, is the placeholder; TODO and punctuation in front of
+// other text is a real ask with the marker left on.
+function placeholderError(line) {
+  const n = normalise(line);
+  const rest = n.replace(TODO_PUNCT, "").trim();
+  return n === "todo" || rest === "" || /^todo the ask\b/.test(n) || /^the ask\b/.test(rest)
+    ? "the ask is still the TODO placeholder"
+    : "the ask starts with TODO and punctuation; drop the TODO or reword it";
+}
+
+// Under ## Answer: TODO with punctuation only, or the template's "fill in" and
+// "the answer" stand-ins, is no answer. "TODO: none, ship it as is." is one.
+const isBareTodo = (line) =>
+  /^todo[\s.:!?,;…—–‑-]*(?:(?:fill in|the answer)[\s.:!?,;…]*)?$/.test(normalise(line));
+
+// The opening ``` or ~~~ and every line up to its closer: their text is quoted, so
+// a "## Answer" inside one is not the heading. An unclosed fence runs to the end.
+function fenced(lines) {
+  const inside = [];
+  let open = null;
+  for (const l of lines) {
+    // CommonMark: up to three spaces of indent, and a backtick fence's info
+    // string has no backtick, so "```x``` ..." is inline code, not a fence.
+    const m = /^ {0,3}(?:(`{3,})[^`]*$|(~{3,}))/.exec(l);
+    const fence = m && (m[1] ?? m[2]);
+    if (open === null) {
+      if (fence) open = fence;
+      inside.push(open !== null);
+    } else {
+      inside.push(true);
+      if (fence && fence[0] === open[0] && fence.length >= open.length && l.trim() === fence)
+        open = null;
+    }
+  }
+  inside.unclosed = open !== null;
+  return inside;
+}
+
+const NOT_TEXT = (l) =>
+  /^#{1,6}(\s|$)/.test(l) || /^(?:```|~~~)/.test(l) || /^([-*_])(\s*\1){2,}$/.test(l);
 
 export function parseDecision(name, text, now = Date.now()) {
   const errors = [];
@@ -194,19 +261,22 @@ export function parseDecision(name, text, now = Date.now()) {
   const body = visible.split("\n");
   if (unclosed) errors.push("a comment opens and never closes");
   const first = body.find((l) => l.trim() !== "");
-  if (first === undefined || /^#{1,6}(\s|$)/.test(first.trim()))
-    errors.push("missing first line: the ask");
-  else if (/^(?:[-*+>_\s]|\d+\.\s)*TODO(?![A-Za-z0-9])/i.test(first.trim()))
-    errors.push("the ask is still the TODO placeholder");
+  if (first === undefined || NOT_TEXT(first.trim())) errors.push("missing first line: the ask");
+  else if (isPlaceholder(first)) errors.push(placeholderError(first));
   else d.ask = first.trim();
   if (d.status === "answered") {
-    const at = body.findIndex((l) => /^##\s+Answer\s*$/.test(l));
+    const quoted = fenced(body);
+    const at = body.findIndex((l, i) => !quoted[i] && /^##\s+Answer(?![\w-])/.test(l));
     const rest = at === -1 ? [] : body.slice(at + 1);
-    const stop = rest.findIndex((l) => /^#{1,2}\s/.test(l));
+    const restQuoted = at === -1 ? [] : quoted.slice(at + 1);
+    const stop = rest.findIndex((l, i) => !restQuoted[i] && /^#{1,2}\s/.test(l));
     const answer = (stop === -1 ? rest : rest.slice(0, stop)).filter(
-      (l) => l.trim() !== "" && !/^#{1,6}(\s|$)/.test(l.trim()),
+      (l) => l.trim() !== "" && !NOT_TEXT(l.trim()) && !isBareTodo(l),
     );
-    if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
+    if (at === -1 && quoted.unclosed)
+      errors.push("status is answered but a code fence opens and never closes, hiding ## Answer");
+    else if (at === -1) errors.push("status is answered but has no ## Answer heading");
+    else if (answer.length === 0) errors.push("status is answered but ## Answer is empty");
   }
   return d;
 }
@@ -748,14 +818,7 @@ async function main() {
   if (!rep.ok) process.exitCode = 1;
 }
 
-const self = (p) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-if (process.argv[1] && self(process.argv[1]) === self(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`decisions: ${e?.message ?? e}\n`);
     process.exitCode = 1;

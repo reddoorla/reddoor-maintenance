@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   parseArgs,
   sectionRange,
@@ -218,6 +223,18 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--backlog"])).toThrow(/needs a value/);
     expect(parseArgs(["--backlog", "backlog/BACKLOG.md"]).backlog).toBe("backlog/BACKLOG.md");
   });
+  it("refuses a --backlog that starts with ./ or ../: it is relative to the repo root", () => {
+    expect(() => parseArgs(["--backlog", "./docs/BACKLOG.md"])).toThrow(
+      /relative to the repo root/,
+    );
+    expect(() => parseArgs(["--backlog", "../BACKLOG.md"])).toThrow(/relative to the repo root/);
+    expect(parseArgs(["--backlog", ".backlog/BACKLOG.md"]).backlog).toBe(".backlog/BACKLOG.md");
+  });
+  it("refuses an absolute --backlog at parse time, not later in git show (#1457)", () => {
+    expect(() => parseArgs(["--backlog", "/home/op/repo/docs/BACKLOG.md"])).toThrow(
+      /--backlog \/home\/op\/repo\/docs\/BACKLOG\.md: give the path relative to the repo root, not an absolute path/,
+    );
+  });
   it("refuses an unknown flag and a missing value", () => {
     expect(() => parseArgs(["--nope"])).toThrow(/unknown/);
     expect(() => parseArgs(["--since-days"])).toThrow(/needs a value/);
@@ -256,6 +273,7 @@ function fakeRun(
       return ok(JSON.stringify(branches.find((b) => b.name === head)?.prs ?? []));
     }
     const [sub, ...rest] = args;
+    if (sub === "rev-parse") return ok("/repo\n");
     if (sub === "fetch") return ok();
     if (sub === "rev-list") return ok(revList);
     if (sub === "merge-base") {
@@ -391,19 +409,19 @@ describe("eveningBranches, end to end on a fake runner", () => {
     const { run } = fakeRun(branches);
     const text = formatReport(await eveningBranches(OPTS, { run, now: NOW }));
     expect(text.split("\n")[0]).toMatch(
-      /^EVENING_BRANCHES_SUMMARY asks=1 decision_lines=0 stale=3 stale_fresh=2 scanned=7 older_skipped=1 /,
+      /^EVENING_BRANCHES_SUMMARY asks=1 decision_lines=0 stale=3 stale_fresh=2 scanned=7 older_skipped=1 now=\S+ backlog=docs\/BACKLOG\.md$/,
     );
     expect(text).toContain("L6: - _Ask:_ (a) split the workflow");
     expect(text).toContain("older claude/last-week: 1 commit(s) not on main, no PR");
     expect(text).toContain("NEW   claude/jolly-keller-9h8tzh: 3 commit(s) not on main, no PR");
   });
 
-  it("issues only reads: git fetch/for-each-ref/show/cherry/diff and gh api GET", async () => {
+  it("issues only reads: git rev-parse/fetch/for-each-ref/show/cherry/diff and gh api GET", async () => {
     const { run, calls } = fakeRun(branches);
     await eveningBranches(OPTS, { run, now: NOW });
     for (const c of calls) {
       expect(c).toMatch(
-        /^(git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1 --first-parent|merge-base --is-ancestor) |gh api repos\/)/,
+        /^(git rev-parse --show-toplevel$|git (fetch -q --prune origin|for-each-ref|show|cherry|diff -U0|rev-list -1 --first-parent|merge-base --is-ancestor) |gh api repos\/)/,
       );
       expect(c).not.toMatch(/--method|-X |push|DELETE/);
     }
@@ -569,5 +587,129 @@ describe("eveningBranches, end to end on a fake runner", () => {
   it("without --main-since there is no main section", async () => {
     const { run } = fakeRun(branches);
     expect((await eveningBranches(OPTS, { run, now: NOW })).mainDecisions).toBeNull();
+  });
+});
+
+describe("the CLI, run on a real repository", () => {
+  const SCRIPT = fileURLToPath(new URL("../../scripts/evening-branches.mjs", import.meta.url));
+  const roots: string[] = [];
+  afterAll(() => {
+    for (const r of roots) rmSync(r, { recursive: true, force: true });
+  });
+  // Neither the host's git config nor an inherited GIT_* variable may reach the fixture: a
+  // global commit.gpgsign broke every commit, an inherited GIT_DIR wrote into the caller's
+  // repo, and an inherited GIT_OBJECT_DIRECTORY wrote the fixture's objects into a foreign
+  // store (#1457). So every GIT_* key goes, and only then are the two config variables set.
+  const isolated = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+    const env = { ...base };
+    for (const k of Object.keys(env)) if (k.startsWith("GIT_")) delete env[k];
+    return { ...env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+  };
+  const ISOLATED = isolated(process.env);
+  const git = (cwd: string, args: string[], at?: string) => {
+    const env = at ? { ...ISOLATED, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } : ISOLATED;
+    const r = spawnSync("git", args, { cwd, encoding: "utf-8", env });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout;
+  };
+  const commit = (dir: string, body: string, at: string) => {
+    writeFileSync(join(dir, "docs/BACKLOG.md"), body);
+    git(dir, ["add", "-A"]);
+    git(
+      dir,
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        at,
+      ],
+      at,
+    );
+  };
+
+  // The stand-in `gh` sits outside the repo, so no commit or checkout in it can touch it.
+  const BIN = mkdtempSync(join(tmpdir(), "evening-branches-bin-"));
+  roots.push(BIN);
+  writeFileSync(join(BIN, "gh"), "#!/bin/sh\necho '[]'\n", { mode: 0o755 });
+  const fixture = () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "evening-branches-")));
+    roots.push(dir);
+    git(dir, ["init", "-q", "--initial-branch=main"]);
+    mkdirSync(join(dir, "docs"));
+    commit(dir, MAIN_BACKLOG + "\n", "2026-10-05T10:00:00Z");
+    commit(dir, withDecision(TODAY_ASK) + "\n", "2026-10-05T13:00:00Z");
+    git(dir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    return dir;
+  };
+  // Every PR lookup goes to the stand-in `gh`, which answers "no PRs" with no network.
+  const report = (cwd: string, extra: string[]) => {
+    const r = spawnSync(
+      process.execPath,
+      [SCRIPT, "--repo", REPO, "--backlog", "docs/BACKLOG.md", "--no-fetch", ...extra],
+      {
+        cwd,
+        encoding: "utf-8",
+        env: { ...ISOLATED, PATH: `${BIN}:${process.env.PATH}` },
+      },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    return r.stdout;
+  };
+  const summary = (cwd: string) =>
+    report(cwd, ["--main-since", "2026-10-05T12:07:00Z", "--since-days", "0"]).split("\n")[0]!;
+
+  it("--main-since reads the same lines from a subdirectory as from the root (#1348)", () => {
+    const dir = fixture();
+    expect(summary(dir)).toMatch(/^EVENING_BRANCHES_SUMMARY main_decision_lines=1 /);
+    expect(summary(join(dir, "docs"))).toMatch(/^EVENING_BRANCHES_SUMMARY main_decision_lines=1 /);
+  });
+
+  it("from a subdirectory, a branch's ask under Operator decisions is still found (#1348)", () => {
+    const dir = fixture();
+    git(dir, ["checkout", "-q", "-b", "held"]);
+    const branchAsk = ["59. **Held on a branch.** _Ask:_ ship or hold?"];
+    commit(dir, withDecision([...TODAY_ASK, ...branchAsk]) + "\n", new Date().toISOString());
+    git(dir, ["update-ref", "refs/remotes/origin/claude/held", "HEAD"]);
+    git(dir, ["checkout", "-q", "main"]);
+    const text = report(join(dir, "docs"), []);
+    expect(text.split("\n")[0]).toMatch(/^EVENING_BRANCHES_SUMMARY asks=1 .* scanned=1 /);
+    expect(text).toContain("- claude/held (no PR, 1 line(s)");
+    expect(text).toContain(`L7: ${branchAsk[0]}`);
+  });
+
+  it("strips every inherited GIT_* key before it sets the two config variables (#1457)", () => {
+    expect(isolated({ GIT_CONFIG_GLOBAL: "/x", GIT_DIR: "/y", HOME: "/h" })).toEqual({
+      HOME: "/h",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+    });
+  });
+
+  it("an inherited GIT_OBJECT_DIRECTORY does not reach the fixture's git (#1457)", () => {
+    const dir = fixture();
+    const foreign = mkdtempSync(join(tmpdir(), "evening-branches-foreign-objects-"));
+    roots.push(foreign);
+    writeFileSync(join(dir, "probe.txt"), "probe\n");
+    const r = spawnSync("git", ["hash-object", "-w", "probe.txt"], {
+      cwd: dir,
+      encoding: "utf-8",
+      env: isolated({ ...process.env, GIT_OBJECT_DIRECTORY: foreign }),
+    });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(readdirSync(foreign)).toEqual([]);
+    const sha = r.stdout.trim();
+    expect(git(dir, ["cat-file", "-t", sha]).trim()).toBe("blob");
+  });
+
+  it("the summary line names the backlog as given, relative to the repo root, from any cwd (#1349)", () => {
+    const dir = fixture();
+    expect(summary(join(dir, "docs"))).toMatch(/ backlog=docs\/BACKLOG\.md$/);
   });
 });
