@@ -390,6 +390,28 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
     expect(calls[0]!.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("carries the advisory's GHSA id, so the merged audit can match it to pnpm's (#1409)", async () => {
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        body: [
+          {
+            html_url: "https://github.com/reddoorla/acme/security/dependabot/3",
+            dependency: { package: { name: "sharp" } },
+            security_advisory: {
+              severity: "high",
+              summary: "s",
+              ghsa_id: "GHSA-wq5f-xc86-pv6w",
+            },
+          },
+        ],
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    const alerts = await gh.listDependabotAlerts("reddoorla/acme");
+    expect(alerts[0]!.ghsaId).toBe("GHSA-wq5f-xc86-pv6w");
+  });
+
   it("defaults severity/summary/cves when an alert has no security_advisory object", async () => {
     const { fn } = fakeFetch([
       {

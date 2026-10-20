@@ -17,6 +17,9 @@ type AdvisoryEntry = {
   title: string;
   cves?: string[];
   url?: string;
+  /** The GitHub advisory id (GHSA-…), when the source names one: pnpm's `github_advisory_id` or
+   *  advisory `url`, Dependabot's `ghsa_id`. What the merged audit dedupes on first (#1409). */
+  ghsa?: string;
   /** Dependency graph scope from Dependabot ("runtime" | "development"); absent for the
    *  lockfile `pnpm audit` fallback, which carries no per-package scope. Display-only. */
   scope?: "runtime" | "development";
@@ -45,6 +48,7 @@ type PnpmAuditJson = {
       severity?: string;
       cves?: string[];
       url?: string;
+      github_advisory_id?: string;
     }
   >;
 };
@@ -80,12 +84,14 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
   const out: AdvisoryEntry[] = [];
   for (const a of Object.values(parsed.advisories ?? {})) {
     if (!a) continue;
+    const ghsa = a.github_advisory_id || /\bGHSA(?:-[0-9a-z]{4}){3}\b/i.exec(a.url ?? "")?.[0];
     out.push({
       module: a.module_name ?? "unknown",
       severity: normalizeSeverity(a.severity),
       title: a.title ?? "(no title)",
       ...(a.cves ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
+      ...(ghsa ? { ghsa } : {}),
     });
   }
   return out;
@@ -284,6 +290,7 @@ async function dependabotAudit(
       title: a.summary || "(no title)",
       ...(a.cves.length > 0 ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
+      ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
       ...(a.relationship ? { relationship: a.relationship } : {}),
     };
@@ -321,10 +328,7 @@ async function dependabotAudit(
   // minute (dismiss the alert as inaccurate, name the deletion commit), but it is not a live
   // vulnerability and must not land the site in the cockpit's Renovate-exhausted band.
   const status = liveStatus === "pass" ? "warn" : liveStatus;
-  const manifests = [...new Set(ghostAdvisories.map((g) => g.manifestPath))].join(", ");
-  const summary =
-    `${liveSummary}; ${ghostAdvisories.length} alert(s) on a manifest GitHub no longer tracks ` +
-    `(${manifests}) — dismiss as inaccurate`;
+  const summary = `${liveSummary}; ${ghostClause(ghostAdvisories)}`;
   return {
     audit: "security",
     site: label,
@@ -332,6 +336,15 @@ async function dependabotAudit(
     summary,
     details: { counts, advisories, ghostAdvisories },
   };
+}
+
+/** The summary's note on ghost alerts, shared by Dependabot's own summary and the merged one. */
+function ghostClause(ghosts: GhostAdvisoryEntry[]): string {
+  const manifests = [...new Set(ghosts.map((g) => g.manifestPath))].join(", ");
+  return (
+    `${ghosts.length} alert(s) on a manifest GitHub no longer tracks ` +
+    `(${manifests}) — dismiss as inaccurate`
+  );
 }
 
 /** True when `pnpm-lock.yaml` holds more than one YAML document. pnpm 12 writes its own
@@ -410,24 +423,31 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
           `[security] ${label}: pnpm-lock.yaml has more than one YAML document, which GitHub's ` +
             `dependency graph cannot read — adding pnpm audit to Dependabot`,
         );
-        const viaLockfile = await lockfileAudit(spawn, site.path, label);
+        // Every scope, not --prod: Dependabot counts dev-scope alerts too, and this audit stands
+        // in for what Dependabot cannot see (#1408).
+        const viaLockfile = await lockfileAudit(spawn, site.path, label, "all");
         return viaLockfile.status === "skip"
           ? viaLockfile
           : mergeAudits(viaLockfile, viaDependabot);
       }
     }
   }
-  return lockfileAudit(spawn, site.path, label);
+  return lockfileAudit(spawn, site.path, label, "prod");
 }
 
-/** The lockfile audit: `pnpm audit`, else `npm audit`, else skip (which writes no counts). */
+/** The lockfile audit: `pnpm audit`, else `npm audit`, else skip (which writes no counts).
+ *  `scope` "prod" audits production dependencies only (the stand-alone fallback); "all" adds
+ *  devDependencies, for the merge with Dependabot, whose tallies count every scope. */
 async function lockfileAudit(
   spawn: NonNullable<AuditContext["spawn"]>,
   dir: string,
   label: string,
+  scope: "prod" | "all",
 ): Promise<AuditResult> {
   let used: "pnpm audit" | "npm audit" = "pnpm audit";
-  let result = await runAuditTool(spawn, "pnpm", ["audit", "--json", "--prod"], dir);
+  const pnpmArgs = scope === "prod" ? ["audit", "--json", "--prod"] : ["audit", "--json"];
+  const npmArgs = scope === "prod" ? ["audit", "--json", "--omit=dev"] : ["audit", "--json"];
+  let result = await runAuditTool(spawn, "pnpm", pnpmArgs, dir);
 
   // Fall through to npm if pnpm is missing OR pnpm couldn't actually
   // audit the project (e.g., no pnpm-lock.yaml). Previously we only fell
@@ -435,7 +455,7 @@ async function lockfileAudit(
   // because pnpm returned an error envelope with no metadata.
   if (result.kind !== "ok") {
     const pnpmReason = result.kind === "missing" ? "not installed" : result.reason;
-    const npmResult = await runAuditTool(spawn, "npm", ["audit", "--json", "--omit=dev"], dir);
+    const npmResult = await runAuditTool(spawn, "npm", npmArgs, dir);
     if (npmResult.kind === "ok") {
       result = npmResult;
       used = "npm audit";
@@ -482,22 +502,36 @@ async function lockfileAudit(
   };
 }
 
+/** Whether two advisories are the same one. The GHSA id decides when both carry it; else a shared
+ *  CVE; module and title only when neither id is on both (#1409: the two sources word titles
+ *  differently, so a title match alone misses a duplicate). */
+function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
+  if (a.ghsa && b.ghsa) return a.ghsa.toUpperCase() === b.ghsa.toUpperCase();
+  if (a.cves?.length && b.cves?.length) return a.cves.some((c) => b.cves!.includes(c));
+  return a.module === b.module && a.title === b.title;
+}
+
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency
- *  graph cannot read. A Dependabot advisory the lockfile audit already carries (same module and
- *  title) is counted once. Dependabot's ghost alerts ride along as they would on their own. */
+ *  graph cannot read. A Dependabot advisory the lockfile audit already carries is counted once.
+ *  The counts are one per merged advisory (#1411), since pnpm's metadata may count per path; a
+ *  severity pnpm counts with no advisory behind it keeps pnpm's count, so missing detail never
+ *  reads clean. Dependabot's ghost alerts ride along, with only their own clause in the summary
+ *  (#1410): Dependabot's live count is already inside the merged one. */
 function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResult {
   const lock = lockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
   const dep = dependabot.details as {
     advisories: AdvisoryEntry[];
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
-  const seen = new Set(lock.advisories.map((a) => `${a.module}\u0000${a.title}`));
-  const counts: Counts = { ...lock.counts };
   const advisories = [...lock.advisories];
   for (const a of dep.advisories) {
-    if (seen.has(`${a.module}\u0000${a.title}`)) continue;
-    counts[a.severity] += 1;
+    if (lock.advisories.some((l) => sameAdvisory(l, a))) continue;
     advisories.push(a);
+  }
+  const counts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
+  for (const a of advisories) counts[a.severity] += 1;
+  for (const sev of Object.keys(counts) as Severity[]) {
+    if (!lock.advisories.some((a) => a.severity === sev)) counts[sev] += lock.counts[sev];
   }
   const ghosts = dep.ghostAdvisories ?? [];
   const liveStatus = classify(counts);
@@ -512,7 +546,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     audit: "security",
     site: lockfile.site,
     status,
-    summary: ghosts.length > 0 ? `${summary}; ${dependabot.summary}` : summary,
+    summary: ghosts.length > 0 ? `${summary}; ${ghostClause(ghosts)}` : summary,
     details:
       ghosts.length > 0 ? { counts, advisories, ghostAdvisories: ghosts } : { counts, advisories },
   };
