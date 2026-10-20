@@ -31,14 +31,14 @@ describe("design-rules CLI", () => {
   it("runs every rule when none is named", () => {
     expect(parseDesignRulesArgs(["https://a/"])).toEqual({
       urls: ["https://a/"],
-      rules: ["R2", "R4"],
+      rules: ["R2", "R4", "R9"],
       json: false,
     });
   });
 
   it("refuses an unknown rule, a name only the prototype has, and no url", () => {
     expect(parseDesignRulesArgs(["u", "--rule", "R99"])).toEqual({
-      error: "unknown rule R99; known: R2, R4",
+      error: "unknown rule R99; known: R2, R4, R9",
     });
     expect(parseDesignRulesArgs(["u", "--rule", "toString"])).toHaveProperty("error");
     expect(parseDesignRulesArgs(["u", "--rule"])).toHaveProperty("error");
@@ -139,7 +139,11 @@ describe("design-rules CLI under tsx", () => {
         { cwd: root, timeout: 120_000 },
       ).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "[]" }));
       const outcomes = JSON.parse(stdout) as Array<{ rule: string; status: string; note: string }>;
-      expect(outcomes.map((o) => `${o.rule} ${o.status}`)).toEqual(["R2 pass", "R4 pass"]);
+      expect(outcomes.map((o) => `${o.rule} ${o.status}`)).toEqual([
+        "R2 pass",
+        "R4 pass",
+        "R9 pass",
+      ]);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
