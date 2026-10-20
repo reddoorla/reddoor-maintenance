@@ -39,9 +39,10 @@ export type DependabotAlert = {
   cves: string[];
   /** Link to the alert (`html_url`), or null. */
   url: string | null;
-  /** The advisory's GHSA id (`security_advisory.ghsa_id`), when GitHub sends one. The merged
-   *  pnpm-12 audit matches it against `pnpm audit`'s advisory to count one advisory once (#1409). */
-  ghsaId?: string;
+  /** The advisory's GHSA id (`security_advisory.ghsa_id`), or null when GitHub sends none. The
+   *  merged pnpm-12 audit matches it against `pnpm audit`'s advisory to count one advisory once
+   *  (#1409). */
+  ghsaId: string | null;
   /** Dependency graph scope, or null when GitHub doesn't classify it. "development" marks a
    *  build-time-only dependency (lower live-exploit surface for a static site). */
   scope: "runtime" | "development" | null;
@@ -159,7 +160,7 @@ function mapDependabotAlert(raw: Record<string, unknown>): DependabotAlert | nul
     summary: typeof adv["summary"] === "string" ? (adv["summary"] as string) : "",
     cves: cveId ? [cveId] : [],
     url: typeof raw["html_url"] === "string" ? (raw["html_url"] as string) : null,
-    ...(ghsaId ? { ghsaId } : {}),
+    ghsaId,
     scope: rawScope === "runtime" || rawScope === "development" ? rawScope : null,
     relationship:
       rawRelationship === "direct" ||

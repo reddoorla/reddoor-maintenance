@@ -327,6 +327,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         scope: "development",
         relationship: null,
         manifestPath: null,
+        ghsaId: null,
       },
     ]);
     expect(calls[0]!.url).toContain(
@@ -437,6 +438,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         scope: "runtime",
         relationship: null,
         manifestPath: null,
+        ghsaId: null,
       },
     ]);
   });
@@ -521,6 +523,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         scope: null,
         relationship: null,
         manifestPath: null,
+        ghsaId: null,
       },
     ]);
     expect(decodeURIComponent(calls[0]!.url)).toContain("state=open");
@@ -589,6 +592,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         scope: "runtime",
         relationship: null,
         manifestPath: null,
+        ghsaId: null,
       },
     ]);
   });
