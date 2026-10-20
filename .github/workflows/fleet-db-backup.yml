@@ -19,7 +19,7 @@ name: fleet-db-backup
 #
 # The artifact lives 30 days and only on GitHub. Once a month (the first night
 # of the UTC month) the same ENCRYPTED file is also copied to Dropbox as
-# /Reddoor/Backups/turso/turso-YYYY-MM.sql.gpg and kept indefinitely
+# /Processes & Procedures/Backups/turso/turso-YYYY-MM.sql.gpg and kept indefinitely
 # (Operator decisions 97(g)). That copy can never turn the backup red.
 on:
   workflow_dispatch: # manual run from the Actions tab; the nightly conductor dispatches it with no inputs
@@ -188,7 +188,7 @@ jobs:
           cp "$out/dump.sql.gpg" "$out/dropbox/$name"
           # The account line carries the owner's email; this repo's run logs
           # are public, so keep the rest of the line and drop the address.
-          node scripts/dropbox.mjs upload /Reddoor/Backups/turso "$out/dropbox/$name" \
+          node scripts/dropbox.mjs upload "/Processes & Procedures/Backups/turso" "$out/dropbox/$name" \
             | sed -E 's/ <[^<>]*@[^<>]*>//g' | tee "$out/dropbox.out" || true
           # Gate on dropbox.mjs's own lines, not its exit code: the account it
           # wrote with is the team space, and the month's file came back with
@@ -198,14 +198,14 @@ jobs:
             exit 1
           fi
           if ! grep -qE '^account: .*\(team space\)$' "$out/dropbox.out"; then
-            echo "::warning::monthly Dropbox copy FAILED: dropbox.mjs did not write as the team space (see the account line above); /Reddoor/Backups would land elsewhere."
+            echo "::warning::monthly Dropbox copy FAILED: dropbox.mjs did not write as the team space (see the account line above); the copy would land elsewhere."
             exit 1
           fi
-          if ! grep -qiE "^ok /Reddoor/Backups/turso/turso-${MONTH}\.sql\.gpg [0-9]+ bytes content_hash [0-9a-f]{64} matches local$" "$out/dropbox.out"; then
+          if ! grep -qiE "^ok /Processes & Procedures/Backups/turso/turso-${MONTH}\.sql\.gpg [0-9]+ bytes content_hash [0-9a-f]{64} matches local$" "$out/dropbox.out"; then
             echo "::warning::monthly Dropbox copy FAILED: no hash-matched upload of $name (see dropbox.mjs above)."
             exit 1
           fi
-          echo "monthly Dropbox copy ok: /Reddoor/Backups/turso/$name"
+          echo "monthly Dropbox copy ok: /Processes & Procedures/Backups/turso/$name"
 
       # Mirror fleet-smoke's alarm plumbing: a red nightly is otherwise only a
       # best-effort email. continue-on-error so the alert machinery can never
@@ -270,7 +270,7 @@ jobs:
         run: |
           title="Monthly Dropbox backup copy failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'This run did not take this month'"'"'s copy of the encrypted Turso dump to Dropbox `/Reddoor/Backups/turso`. An earlier run this month may already have; look for `turso-YYYY-MM.sql.gpg` there first. Either the "Copy the encrypted dump to Dropbox" step failed (the 30-day artifact was already uploaded, so the backup itself is fine), or the run went red or was cancelled before the copy (then "Nightly Turso backup failing" names that too).\n\nRead the run for the cause. A `401`, `invalid_grant` or `missing_scope` from dropbox.mjs means the app'"'"'s one-time authorization must be redone and the `DROPBOX_REFRESH_TOKEN` secret replaced (`scripts/dropbox.mjs`). Then dispatch **fleet-db-backup** on main with `dropbox_copy: true` to take this month'"'"'s copy.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next successful copy._' "$run_url")
+          body=$(printf 'This run did not take this month'"'"'s copy of the encrypted Turso dump to Dropbox `/Processes & Procedures/Backups/turso`. An earlier run this month may already have; look for `turso-YYYY-MM.sql.gpg` there first. Either the "Copy the encrypted dump to Dropbox" step failed (the 30-day artifact was already uploaded, so the backup itself is fine), or the run went red or was cancelled before the copy (then "Nightly Turso backup failing" names that too).\n\nRead the run for the cause. A `401`, `invalid_grant` or `missing_scope` from dropbox.mjs means the app'"'"'s one-time authorization must be redone and the `DROPBOX_REFRESH_TOKEN` secret replaced (`scripts/dropbox.mjs`). Then dispatch **fleet-db-backup** on main with `dropbox_copy: true` to take this month'"'"'s copy.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next successful copy._' "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
@@ -294,7 +294,7 @@ jobs:
           for n in $(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
-            gh issue close "$n" --comment "Recovered — this month's encrypted dump is in Dropbox \`/Reddoor/Backups/turso\`." && echo "closed #$n"
+            gh issue close "$n" --comment "Recovered — this month's encrypted dump is in Dropbox \`/Processes & Procedures/Backups/turso\`." && echo "closed #$n"
           done
 
   # How much of the plan's quota the fleet has burned this billing cycle.

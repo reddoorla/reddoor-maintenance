@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 
 /**
  * OD 97(g): one copy a month of the ENCRYPTED nightly dump goes to Dropbox
- * `/Reddoor/Backups/turso/turso-YYYY-MM.sql.gpg`, kept indefinitely, so the
+ * `/Processes & Procedures/Backups/turso/turso-YYYY-MM.sql.gpg`, kept indefinitely, so the
  * backup no longer lives only in a 30-day Actions artifact.
  *
  * Two steps, both EXTRACTED FROM THE YAML AND EXECUTED against stubs:
@@ -28,7 +28,7 @@ const execFileAsync = promisify(execFile);
 
 const DECIDE = "Decide the monthly Dropbox copy";
 const COPY = "Copy the encrypted dump to Dropbox";
-const FOLDER = "/Reddoor/Backups/turso";
+const FOLDER = "/Processes & Procedures/Backups/turso";
 const SECRETS = {
   DROPBOX_APP_KEY: "k",
   DROPBOX_APP_SECRET: "s",
@@ -222,7 +222,7 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
   const PATH_NOV = `${FOLDER}/turso-2026-11.sql.gpg`;
   const good = `${TEAM_ACCOUNT}\n${okLine(PATH_NOV, CIPHERTEXT)}\n`;
 
-  it("uploads the ENCRYPTED dump as turso-YYYY-MM.sql.gpg to /Reddoor/Backups/turso, and passes on the hash match", async () => {
+  it("uploads the ENCRYPTED dump as turso-YYYY-MM.sql.gpg to /Processes & Procedures/Backups/turso, and passes on the hash match", async () => {
     const r = await runStep(copy, { env: { ...SECRETS, MONTH: "2026-11" }, dropboxOut: good });
     expect(r.code).toBe(0);
     expect(r.nodeCalls).toHaveLength(1);
@@ -284,7 +284,7 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
   it("PASSES when Dropbox returns the path in another case (path_display keeps the existing folder's case)", async () => {
     const r = await runStep(copy, {
       env: { ...SECRETS, MONTH: "2026-11" },
-      dropboxOut: `${TEAM_ACCOUNT}\n${okLine("/reddoor/backups/Turso/turso-2026-11.sql.gpg", CIPHERTEXT)}\n`,
+      dropboxOut: `${TEAM_ACCOUNT}\n${okLine("/processes & procedures/backups/Turso/turso-2026-11.sql.gpg", CIPHERTEXT)}\n`,
     });
     expect(r.code).toBe(0);
   });
