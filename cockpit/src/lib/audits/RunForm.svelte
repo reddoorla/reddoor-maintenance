@@ -1,14 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { mounted } from "../mounted.svelte.js";
   // The Run form. No polling and no live progress: a run takes minutes and the
   // result arrives by email. The server's `message` is shown as text only.
   let busy = $state(false);
-  // Disabled until mounted, when `onsubmit` is attached: before that a submit
-  // would fall back to a native GET of /audits carrying the prospect's URL.
-  let ready = $state(false);
-  onMount(() => {
-    ready = true;
-  });
+  // Disabled until `onsubmit` is attached: before that a submit would fall
+  // back to a native GET of /audits carrying the prospect's URL.
+  const m = mounted();
   let statusText = $state("");
   let statusError = $state(false);
   let reportUrl = $state<string | null>(null);
@@ -100,7 +97,7 @@
     Leave either blank and the audit chooses its own, as it does today. Fixed terms are what make
     two audits of the same site comparable.
   </p>
-  <button type="submit" disabled={busy || !ready}>{busy ? "Starting…" : "Run audit"}</button>
+  <button type="submit" disabled={busy || !m.ready}>{busy ? "Starting…" : "Run audit"}</button>
   <div
     id="audit-run-status"
     class={statusError ? "run-status is-error" : "run-status"}

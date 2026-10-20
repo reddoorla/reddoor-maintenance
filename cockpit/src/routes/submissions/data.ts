@@ -1,16 +1,25 @@
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../../lib/submission/view.js";
+import { spamFacets, type SpamFacet } from "./view.js";
 
+/** What `/submissions` sends the browser: the page model with each row cut to
+ *  what the list itself shows, one row view per row, and the spam facets
+ *  already tallied. The full rows and the bucket-wide facet reasons stay on the
+ *  server, as the string renderer's HTML never carried them (review round 2). */
 export type SubmissionsPageData = {
-  model: SubmissionsPageModel;
-  /** One row view per `model.rows` entry, by id: the row component that
-   *  `/s/:slug` uses too, with every derived string decided on the server. */
+  model: Omit<SubmissionsPageModel, "rows" | "facetReasons"> & {
+    rows: Array<Pick<SubmissionsPageModel["rows"][number], "id" | "slug" | "siteName">>;
+  };
+  /** By row id: the row component `/s/:slug` uses too, every string decided here. */
   rowViews: Record<string, SubmissionRowView>;
+  facets: SpamFacet[];
 };
 
 export function buildSubmissionsPageData(model: SubmissionsPageModel): SubmissionsPageData {
+  const { rows, facetReasons: _facetReasons, ...rest } = model;
   return {
-    model,
-    rowViews: Object.fromEntries(model.rows.map((r) => [r.id, buildSubmissionRowView(r)])),
+    model: { ...rest, rows: rows.map(({ id, slug, siteName }) => ({ id, slug, siteName })) },
+    rowViews: Object.fromEntries(rows.map((r) => [r.id, buildSubmissionRowView(r)])),
+    facets: spamFacets(model),
   };
 }

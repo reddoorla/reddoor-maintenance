@@ -1,18 +1,17 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
+  import { mounted } from "../../lib/mounted.svelte.js";
   import { SUBMISSION_STATUSES } from "../../../../src/reports/submission-row.js";
   import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
   import SubmissionRowInner from "../../lib/submission/SubmissionRowInner.svelte";
   import type { SubmissionsPageData } from "./data.js";
-  import { pageHref, maxPage, spamFacets, markReadConfirmText } from "./view.js";
+  import { pageHref, maxPage, markReadConfirmText } from "./view.js";
   import "./submissions.css";
 
   let { data }: { data: SubmissionsPageData } = $props();
   const m = $derived(data.model);
   const f = $derived(m.filter);
   const pages = $derived(maxPage(m));
-  const facets = $derived(spamFacets(m));
+  const facets = $derived(data.facets);
   // The hidden fields the bulk form posts back, in the order the old form had
   // them; an empty value is left out.
   const bulkFields = $derived(
@@ -29,14 +28,9 @@
     ).filter(([, v]) => v !== ""),
   );
 
-  // The bulk button is disabled until this component has mounted, which is
-  // when `confirmMarkRead` is attached: the old form carried its confirm inline,
-  // so it held from first paint, and a click before hydration (or with the
-  // script blocked) must never post an unconfirmed mark-read.
-  let ready = $state(false);
-  onMount(() => {
-    ready = true;
-  });
+  // The bulk button waits for `confirmMarkRead`: the old form's inline confirm
+  // held from first paint, and a mark-read must never post unconfirmed.
+  const m0 = mounted();
 
   function confirmMarkRead(e: SubmitEvent) {
     if (!confirm(markReadConfirmText(m.markableNewCount))) e.preventDefault();
@@ -90,7 +84,8 @@
       {#each bulkFields as [name, value] (name)}
         <input type="hidden" {name} {value} />
       {/each}
-      <button type="submit" disabled={!ready}>Mark all {m.markableNewCount} filtered as read</button
+      <button type="submit" disabled={!m0.ready}
+        >Mark all {m.markableNewCount} filtered as read</button
       >
     </form>{/if}{#if facets.length > 0}
     <div class="spam-facets muted">

@@ -49,6 +49,18 @@ Folded in from the same round:
 - The commentary editor's baseline now normalises stored CR LF the way a textarea does. Before, a focus and blur with no edit reposted and rewrote stored CRLF text. A new DOM test was red before the fix.
 - The db helper moved to `cockpit/src/lib/server/db.ts`, where SvelteKit refuses a client import.
 
+**Review round 2** ran the wiring, defensive and cut lenses as three parallel agents. The wiring lens read both large view builders line by line against the old renderers and found no divergence. The round was still dirty.
+
+- **Fixed:**
+  - The two Trigger Renovate buttons were the same component twice; there is now one.
+  - The site-details editor and the commentary textarea now carry the same pre-hydration guard as round 1's buttons. Before, an edit made before hydration was silently lost, with no ✓ or ✗, because the handlers did not exist yet. A small `mounted()` helper now backs all four guards.
+  - The details editor normalises stored CR LF in its baseline, as the commentary editor does. A new test was red without the fix.
+  - `/submissions` no longer ships every full row plus the bucket-wide facet reasons to the browser. The facets are tallied on the server, and rows are cut to what the list shows.
+  - The minor cuts: a pass-through row wrapper, three file-local exports, and two default tsconfig options.
+- **Deferred to the cutover,** since nothing serves the app yet:
+  - SvelteKit's form-origin check needs the dashboard origin in `csrf.trustedOrigins`.
+  - The five old page functions each carry a per-IP rate limit (60 a minute) that nothing in the cockpit site has yet.
+
 **A gate the refactor would have blinded.** `tests/db/query-plans.test.ts` gates request-path queries by walking imports out from `netlify/functions/`. Its vacuity guard failed once the loaders moved, because `getSiteBySlug`'s importer became `page-data.ts`. The walk is transitive, so coverage held. The guard now names the real path, and the walk also starts from `cockpit/src/**/*.ts`, which after the cutover is a request path too.
 
 **What remains, deliberately.**
@@ -57,4 +69,6 @@ Folded in from the same round:
 - **Intentional differences from the old pages:**
   - The bulk mark-read confirm and the audit panel's Reload button are Svelte handlers, not inline attributes.
   - The mark-read and Run audit buttons stay disabled until those handlers exist. With JS blocked, they cannot submit at all, where the old Run form fell back to a GET and the old bulk form still asked.
-- **SvelteKit's form-origin check** will refuse the proxied `/submissions` POST until 1b adds the dashboard origin to `csrf.trustedOrigins`.
+- **Two things the cutover must carry:**
+  - SvelteKit's form-origin check will refuse the proxied `/submissions` POST until 1b adds the dashboard origin to `csrf.trustedOrigins`.
+  - The old page functions' per-IP rate limit must be matched for the proxied pages before the old functions go.

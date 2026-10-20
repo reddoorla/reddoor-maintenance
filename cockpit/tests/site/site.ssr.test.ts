@@ -13,10 +13,28 @@ import { CASES, input, pending, type SiteInput } from "./fixtures.js";
  */
 const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
 
+/** The old page with its one intended difference: the site-details controls
+ *  and the commentary textareas are server-rendered disabled until their save
+ *  handlers attach (review round 2), so an edit before hydration is never lost
+ *  without a ✓/✗. A `data-detail-field` or `data-commentary-for` attribute
+ *  marks exactly those controls. */
+const withDisabledEditors = (html: string) =>
+  html.replace(/ (data-detail-field|data-commentary-for)="/g, ' disabled $1="');
+
 function both(i: SiteInput) {
   const before = canonical(
-    bodyOf(
-      renderSiteDashboardHtml(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm, "op@x.com"),
+    withDisabledEditors(
+      bodyOf(
+        renderSiteDashboardHtml(
+          i.site,
+          i.reports,
+          i.submissions,
+          i.spam,
+          i.now,
+          i.alarm,
+          "op@x.com",
+        ),
+      ),
     ),
     OLD_ONLY,
   );
@@ -102,7 +120,9 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
   it("the instrument sees a one-character difference", () => {
     const i = input({ reports: [pending()] });
     const before = canonical(
-      bodyOf(renderSiteDashboardHtml(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm)),
+      withDisabledEditors(
+        bodyOf(renderSiteDashboardHtml(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm)),
+      ),
       OLD_ONLY,
     );
     const view = buildSiteView(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm);

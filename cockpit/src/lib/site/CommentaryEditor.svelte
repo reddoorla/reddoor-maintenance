@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CommentaryView } from "./view.js";
+  import { mounted } from "../mounted.svelte.js";
 
   let { c }: { c: CommentaryView } = $props();
   // What the server last accepted, as a textarea shows it: a browser exposes
@@ -9,6 +10,8 @@
   // svelte-ignore state_referenced_locally
   let saved = c.text.replace(/\r\n?/g, "\n");
   let mark = $state("");
+  // Disabled until the blur handler exists, so an edit is never lost silently.
+  const m = mounted();
 
   function onblur(e: FocusEvent & { currentTarget: HTMLTextAreaElement }) {
     const t = e.currentTarget;
@@ -36,6 +39,7 @@
     data-commentary-for={c.id}
     data-commentary-url={c.url}
     rows="3"
+    disabled={!m.ready}
     value={c.text}
     {onblur}></textarea><span class="commentary-saved" data-for={c.id}>{mark}</span>
 </div>

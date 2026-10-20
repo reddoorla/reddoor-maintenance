@@ -53,7 +53,7 @@ function report(a: ProspectAuditListItem): AuditRowView["report"] {
   return { kind: "note", text: "Report unavailable" };
 }
 
-export function auditRowView(a: ProspectAuditListItem, now: Date): AuditRowView {
+function auditRowView(a: ProspectAuditListItem, now: Date): AuditRowView {
   const href = safeUrl(a.url);
   return {
     id: a.id,

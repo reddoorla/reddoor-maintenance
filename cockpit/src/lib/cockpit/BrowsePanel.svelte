@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CockpitView } from "./view.js";
-  import TriggerRenovate from "./TriggerRenovate.svelte";
+  import TriggerRenovate from "../TriggerRenovate.svelte";
 
   // The fleet browser: one collapsed <details> holding the filter chips and a
   // single flat card grid (already ordered attention → watch → healthy).

@@ -1,7 +1,7 @@
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
 
 /** Href for page `page` of the active filter. */
-export function pageHref(m: SubmissionsPageModel, page: number): string {
+export function pageHref(m: Pick<SubmissionsPageModel, "filter">, page: number): string {
   const p = new URLSearchParams();
   const f = m.filter;
   if (f.site) p.set("site", f.site);
@@ -31,7 +31,7 @@ export function facetHref(m: SubmissionsPageModel, reasonToken: string | null): 
   return qs === "" ? "/submissions" : `/submissions?${qs}`;
 }
 
-export function maxPage(m: SubmissionsPageModel): number {
+export function maxPage(m: Pick<SubmissionsPageModel, "total" | "pageSize">): number {
   return Math.max(1, Math.ceil(m.total / m.pageSize));
 }
 
@@ -40,9 +40,9 @@ export function maxPage(m: SubmissionsPageModel): number {
  *  is stripped so those group as one facet. Each is a chip that filters to rows
  *  carrying that token; the active chip clears it. Shown only on the spam views,
  *  where the tally describes screened rows alone. */
-export function spamFacets(
-  m: SubmissionsPageModel,
-): Array<{ token: string; count: number; active: boolean; href: string }> {
+export type SpamFacet = { token: string; count: number; active: boolean; href: string };
+
+export function spamFacets(m: SubmissionsPageModel): SpamFacet[] {
   if (m.filter.status !== "spam_auto" && m.filter.status !== "spam") return [];
   const counts = new Map<string, number>();
   for (const reasonString of m.facetReasons) {

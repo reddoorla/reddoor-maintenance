@@ -513,6 +513,28 @@ describe("site details editor", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("stored CRLF text is not a change: an edit undone before blur posts nothing (review round 2)", async () => {
+    render(input({ site: siteRow({ copyIntro: "line one\r\nline two" }) }));
+    const t = $<HTMLTextAreaElement>("#detail-copyIntro");
+    // Type a character and delete it: an edit gesture, and the textarea back to
+    // what a browser shows for the stored text, CR LF as LF.
+    t.value = "line one\nline twox";
+    fire(t, "input");
+    t.value = "line one\nline two";
+    fire(t, "input");
+    fire(t, "blur");
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("every editor is disabled until its handlers attach, then enabled", () => {
+    render(input({ reports: [pending({ id: "rp" })] }));
+    for (const el of document.querySelectorAll<HTMLInputElement>(
+      "[data-detail-field], textarea[data-commentary-for]",
+    ))
+      expect(el.disabled, el.id).toBe(false);
+  });
+
   it("a textarea and a date save the same way", async () => {
     render(input());
     const t = $<HTMLTextAreaElement>("#detail-copyIntro");

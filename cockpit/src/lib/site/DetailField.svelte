@@ -1,16 +1,23 @@
 <script lang="ts">
   import type { DetailRowView } from "./view.js";
+  import { mounted } from "../mounted.svelte.js";
 
   let { row, url }: { row: DetailRowView; url: string } = $props();
 
   let mark = $state("");
+  // Disabled until the save handlers exist, so an edit is never lost silently.
+  const m = mounted();
   // What the server last accepted, for the controls that save on blur. A save
   // needs BOTH a real edit gesture and a value that differs from it: a date input
   // handed a value it cannot represent rewrites `.value` on its own, and an
-  // untouched tab-through must never post that as a clear.
+  // untouched tab-through must never post that as a clear. Kept as a textarea
+  // shows it: a browser exposes stored CR LF as LF (the old page compared
+  // against `defaultValue`, which the parser had normalised).
   // svelte-ignore state_referenced_locally
   let saved =
-    row.kind === "input" || row.kind === "date" || row.kind === "textarea" ? row.value : "";
+    row.kind === "input" || row.kind === "date" || row.kind === "textarea"
+      ? row.value.replace(/\r\n?/g, "\n")
+      : "";
   let edited = false;
 
   /** The string the control POSTs. A checkbox's `.value` is its content
@@ -71,6 +78,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           {onchange}
           >{#if row.current === null || !row.options.includes(row.current)}<option
               value=""
@@ -87,6 +95,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           {onchange}
           >{#each row.options as o (o)}<option value={o} selected={row.selected.includes(o)}
               >{o}</option
@@ -98,6 +107,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           checked={row.checked}
           {onchange}
         />
@@ -109,6 +119,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           placeholder={row.placeholder}
           {oninput}
           {onblur}
@@ -118,6 +129,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           value={row.value}
           {oninput}
           {onblur}></textarea>
@@ -127,6 +139,7 @@
           id="detail-{row.field}"
           data-detail-field={row.field}
           data-details-url={url}
+          disabled={!m.ready}
           value={row.value}
           {oninput}
           {onblur}

@@ -280,7 +280,7 @@ export async function markSubmissionsRead(
 
 /** Plenty for one screen of "recent" without a pager; the design deliberately
  *  has no pagination for this list (v1 non-goal: no live progress, no extra UI). */
-export const RECENT_AUDITS_LIMIT = 25;
+const RECENT_AUDITS_LIMIT = 25;
 
 /** `/audits`. */
 export async function loadProspectAudits(db: Db) {

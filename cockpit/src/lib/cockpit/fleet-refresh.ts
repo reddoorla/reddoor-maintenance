@@ -42,7 +42,7 @@ function eta(label: string): string {
 /** A run link must be a GitHub run URL. Anything else is dropped rather than
  *  rendered, so a compromised or unexpected API response cannot place an
  *  arbitrary href (javascript:, data:, an attacker's host) in the panel. */
-export function runUrl(u: unknown): string | null {
+function runUrl(u: unknown): string | null {
   return typeof u === "string" && u.indexOf("https://github.com/") === 0 ? u : null;
 }
 

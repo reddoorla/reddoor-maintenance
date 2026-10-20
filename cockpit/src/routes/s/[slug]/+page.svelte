@@ -7,9 +7,9 @@
   import RerenderButton from "../../../lib/site/RerenderButton.svelte";
   import OverrideControl from "../../../lib/site/OverrideControl.svelte";
   import CommentaryEditor from "../../../lib/site/CommentaryEditor.svelte";
-  import TriggerRenovateButton from "../../../lib/site/TriggerRenovateButton.svelte";
+  import TriggerRenovate from "../../../lib/TriggerRenovate.svelte";
   import DetailField from "../../../lib/site/DetailField.svelte";
-  import SubmissionRow from "../../../lib/submission/SubmissionRow.svelte";
+  import SubmissionRowInner from "../../../lib/submission/SubmissionRowInner.svelte";
   import "./site.css";
   import "../../../lib/submission/submission.css";
 
@@ -205,7 +205,7 @@
 
 <div class="section site-details">
   <h2>
-    Site details {#if v.details.triggerUrl !== null}<TriggerRenovateButton
+    Site details {#if v.details.triggerUrl !== null}<TriggerRenovate
         url={v.details.triggerUrl}
       />{/if}
   </h2>
@@ -230,7 +230,9 @@
       <a class="subm-viewall" href={v.submissions.viewAllHref}>View all for this site →</a>
     </h2>
     <ul class="subm-list">
-      {#each v.submissions.shown as row (row.id)}<SubmissionRow {row} />{/each}
+      {#each v.submissions.shown as row (row.id)}<li class="subm-item">
+          <SubmissionRowInner {row} />
+        </li>{/each}
     </ul>
   </div>
 {/if}
