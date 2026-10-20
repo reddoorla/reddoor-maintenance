@@ -289,6 +289,25 @@ from its input, or by reading the task's key. The prompt forbids it; after the r
 transcript for a git command and for a read outside `<run>/input`, and record the result. The
 2026-10-19 seeded-review run found none in any of its 11 arm transcripts.
 
+### `seeded-review` (row 3)
+
+A finding in a seeded case is a candidate for a seeded defect when it names the defect's file
+and its range overlaps the defect's or comes within `NEAR_LINES` (10) of it, and the referee
+rules on every candidate. One finding is a candidate for at most one defect, the closest: the
+smallest gap, then the nearer midpoint, then the first in the key. r07's d5 and d6 are 8 lines
+apart, so without this one vague finding could clear two criticals with a lenient referee
+(#1465). On a clean control, findings are grouped by file (the control's own file under any
+path form, `src/x.ts`, `r02.after.x.ts` or `./x.ts`) and their overlapping ranges merged, so
+one finding restated three ways is one false positive, not three (#1462).
+
+`build.mjs` rebuilds `cases/` from git byte for byte, and a test holds it to the committed
+files. No user, system or environment git config reaches it, and from git 2.40 the checkout's
+own `.gitattributes` does not either (`GIT_ATTR_SOURCE` is the empty tree). One input still
+does: `$GIT_DIR/info/attributes`, which nothing turns off (checked with git 2.43). A local
+entry there such as `*.ts -diff` changes all 11 rebuilt diffs (measured 2026-10-20 in a fresh
+clone, which rebuilt 0 of 22 files differently without it) and turns the byte-for-byte test
+red. That is accepted (#1464): no clone of this repo has one unless someone adds it by hand.
+
 ### A task that changes a repository
 
 Some tasks are not extractions: the agent edits code, and what counts is the tree it leaves, not

@@ -200,6 +200,32 @@ export function relation(f, d) {
   return g <= NEAR_LINES ? "near" : null;
 }
 
+const mid = ([a, b]) => (a + b) / 2;
+
+/**
+ * The one seeded defect a finding is a candidate for: of those it is a candidate for, the
+ * closest by gap, then by the distance between midpoints, then the first in the key; or null.
+ * One vague finding can sit within NEAR_LINES of two defects (r07's d5 and d6 are 8 lines
+ * apart), and it counts for at most one, so a lenient referee cannot clear two with it (#1465).
+ */
+export function closestDefect(f, defects) {
+  let best = null;
+  let bestAt;
+  for (const d of defects) {
+    if (!relation(f, d)) continue;
+    const s = span(f);
+    const at = [
+      Math.min(...d.ranges.map((r) => gap(s, r))),
+      Math.min(...d.ranges.map((r) => Math.abs(mid(r) - mid(s)))),
+    ];
+    if (!best || at[0] < bestAt[0] || (at[0] === bestAt[0] && at[1] < bestAt[1])) {
+      best = d;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
 const describe = (f) =>
   `${normCase(f.case)} ${normPath(f.file)}:${span(f)?.join("-") ?? "?"} [${f.severity}] ${String(f.summary ?? "").trim()}`;
 const hash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 8);
@@ -225,7 +251,7 @@ export function scoreRun(_task, reference, output) {
     };
     const where = `${d.case} ${d.file}:${d.ranges.map((r) => r.join("-")).join(",")}`;
     const refRaw = `Seeded defect at ${where}: ${d.description} ARM is correct only if one of its findings identifies this same defect.`;
-    const candidates = usable.filter((f) => relation(f, d));
+    const candidates = usable.filter((f) => closestDefect(f, reference.defects) === d);
     if (candidates.length) {
       const armRaw = candidates.map((f) => `(${relation(f, d)}) ${describe(f)}`).join(" || ");
       checks.push({
@@ -247,26 +273,39 @@ export function scoreRun(_task, reference, output) {
       });
     }
   }
-  const seen = new Set();
   for (const c of reference.controls) {
+    // One check per stretch of a file that a control's findings cover. A finding listed twice,
+    // however reworded, or restated with another path form (src/x.ts, r02.after.x.ts, ./x.ts)
+    // or an overlapping range, is one false positive, not several (#1462).
+    const byFile = new Map();
     for (const f of usable.filter((x) => normCase(x.case) === normCase(c.case))) {
-      const armRaw = describe(f);
-      const where = `${normPath(f.file)}:${span(f).join("-")}`;
-      const name = `controls ${c.case} / finding ${where} #${hash(armRaw)}`;
-      // A finding listed twice, however reworded, is one false positive, not two.
-      if (seen.has(`${c.case} ${where}`)) continue;
-      seen.add(`${c.case} ${where}`);
-      checks.push({
-        collection: "controls",
-        key: c.case,
-        field: "finding",
-        check: name,
-        ok: false,
-        armKey: "defect",
-        refKey: "clean",
-        armRaw,
-        refRaw: `No defect: ${c.case} is a clean control. ARM is correct only if its finding is a real defect in the lines this change adds or modifies.`,
-      });
+      const file = sameFile(f.file, c.file) ? c.file : normPath(f.file);
+      if (!byFile.has(file)) byFile.set(file, []);
+      byFile.get(file).push({ f, s: span(f) });
+    }
+    for (const [file, found] of byFile) {
+      const stretches = [];
+      for (const x of found.sort((a, b) => a.s[0] - b.s[0] || a.s[1] - b.s[1])) {
+        const last = stretches.at(-1);
+        if (last && x.s[0] <= last.to) {
+          last.to = Math.max(last.to, x.s[1]);
+          last.findings.push(x.f);
+        } else stretches.push({ from: x.s[0], to: x.s[1], findings: [x.f] });
+      }
+      for (const st of stretches) {
+        const armRaw = [...new Set(st.findings.map(describe))].join(" || ");
+        checks.push({
+          collection: "controls",
+          key: c.case,
+          field: "finding",
+          check: `controls ${c.case} / finding ${file}:${st.from}-${st.to} #${hash(armRaw)}`,
+          ok: false,
+          armKey: "defect",
+          refKey: "clean",
+          armRaw,
+          refRaw: `No defect: ${c.case} is a clean control. ARM is correct only if its finding is a real defect in the lines this change adds or modifies.`,
+        });
+      }
     }
   }
   const malformed = findings.length - usable.length;
@@ -338,12 +377,13 @@ export function runSummary(reference, checks, rulings, output, refuted = new Set
     (f) => f && span(f),
   );
   // A finding next to a seeded defect counts here too once the referee has ruled it a
-  // different defect, such as the r09 rounding finding beside the seeded "#0".
-  const other = findings.filter(
-    (f) =>
-      seededCases.has(normCase(f.case)) &&
-      !reference.defects.some((d) => relation(f, d) && !ruledOff.has(d.id)),
-  ).length;
+  // different defect, such as the r09 rounding finding beside the seeded "#0". It is judged
+  // by the one defect it was a candidate for.
+  const other = findings.filter((f) => {
+    if (!seededCases.has(normCase(f.case))) return false;
+    const d = closestDefect(f, reference.defects);
+    return !d || ruledOff.has(d.id);
+  }).length;
   return {
     found: found.length,
     of: found.length + missed.length,

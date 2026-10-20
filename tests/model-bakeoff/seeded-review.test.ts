@@ -290,6 +290,99 @@ describe("scoring one run", () => {
     ).toBe(1);
   });
 
+  // #1462: control r02's one finding, restated as src/alerts/waiting.ts:10-12, r02.after.waiting.ts,
+  // ./waiting.ts and :10-13, made 3 control checks where 1 is meant.
+  it("counts one control finding as one false positive, whatever path form or overlapping range restates it", () => {
+    const restated = [
+      f("r02", "src/a.ts", 10, 12),
+      f("r02", "r02.after.a.ts", 10, 12, "the same bug"),
+      f("r02", "./a.ts", 10, 12),
+      f("r02", "src/a.ts", 10, 13),
+      f("r02", "a.ts", 13, 14, "and it runs on"),
+    ];
+    const exactCopy = { ...restated[0]! };
+    const checks = review.scoreRun(null, REF, {
+      findings: [...restated, exactCopy],
+      unverified: [],
+    });
+    const controls = checks.filter((c) => c.collection === "controls");
+    expect(controls.map((c) => c.check)).toEqual([
+      expect.stringMatching(/^controls r02 \/ finding src\/a\.ts:10-14 #[0-9a-f]{8}$/),
+    ]);
+    // The referee sees each finding as written, an exact copy once.
+    expect(controls[0]!.armRaw.split(" || ")).toHaveLength(restated.length);
+    expect(summary(restated, false).falsePositives).toBe(1);
+    // Lines that do not overlap stay a finding of their own, and so does another file.
+    const apart = [...restated, f("r02", "src/a.ts", 15, 16), f("r02", "src/other.ts", 10, 12)];
+    expect(summary(apart, false).falsePositives).toBe(3);
+  });
+
+  // #1465 (a): r07's d5 (43-46) and d6 (34-35) are 8 lines apart, inside NEAR_LINES.
+  describe("a finding near two seeded defects", () => {
+    const two: Reference = {
+      defects: [
+        {
+          id: "d6",
+          case: "r07",
+          file: "src/c.ts",
+          ranges: [[34, 35]],
+          critical: true,
+          description: "6",
+        },
+        {
+          id: "d5",
+          case: "r07",
+          file: "src/c.ts",
+          ranges: [[43, 46]],
+          critical: true,
+          description: "5",
+        },
+      ],
+      controls: [],
+    };
+    const run = (findings: Finding[], rule?: boolean) => {
+      const out = { findings, unverified: [] };
+      const checks = review.scoreRun(null, two, out);
+      const rulings = rule === undefined ? {} : ruleAll(checks, rule);
+      return { checks, s: review.runSummary(two, checks, rulings, out) };
+    };
+    const candidates = (checks: Check[], id: string) =>
+      checks
+        .find((c) => c.key === id)!
+        .armRaw.split(" || ")
+        .filter((x) => x !== "<missing>");
+
+    it("counts for at most one defect, the closest, so one ruling cannot clear two", () => {
+      const vague = f("r07", "src/c.ts", 42, 44, "something is off here");
+      const { checks, s } = run([vague], true);
+      expect(candidates(checks, "d5")).toHaveLength(1);
+      expect(candidates(checks, "d6")).toEqual([]);
+      expect(s).toMatchObject({ found: 1, missed: ["d6"], criticalMissed: ["d6"] });
+      // Two findings, one beside each, still find both.
+      expect(run([vague, f("r07", "src/c.ts", 37)], true).s.found).toBe(2);
+    });
+
+    it("picks the smaller gap, and breaks a tie on the gap by the nearer midpoint", () => {
+      expect(review.closestDefect(f("r07", "src/c.ts", 34, 46), two.defects)!.id).toBe("d5");
+      expect(review.closestDefect(f("r07", "src/c.ts", 30, 45), two.defects)!.id).toBe("d6");
+      expect(review.closestDefect(f("r07", "src/c.ts", 39, 40), two.defects)!.id).toBe("d5");
+      expect(review.closestDefect(f("r07", "src/c.ts", 38, 39), two.defects)!.id).toBe("d6");
+      expect(review.closestDefect(f("r07", "src/c.ts", 60), two.defects)).toBeNull();
+    });
+
+    it("counts it among the other findings when its own defect's ruling says it is something else", () => {
+      const vague = f("r07", "src/c.ts", 42, 44, "an unrelated slip");
+      const out = { findings: [vague], unverified: [] };
+      const checks = review.scoreRun(null, two, out);
+      const d5 = checks.find((c) => c.key === "d5")!;
+      // Only d5's candidates are ruled on: d6, 7 lines off, must not keep the finding from counting.
+      const rulings = {
+        [disagreementId(d5)]: { id: disagreementId(d5), armCorrect: false, refCorrect: true },
+      };
+      expect(review.runSummary(two, checks, rulings, out).otherFindings).toBe(1);
+    });
+  });
+
   it("refutes nothing when the rulings on a defect split, and gives no verdict", () => {
     const out = { findings: [f("r01", "src/a.ts", 11)], unverified: [] };
     const other = { findings: [f("r01", "src/a.ts", 12)], unverified: [] };
