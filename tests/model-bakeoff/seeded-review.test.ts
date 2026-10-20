@@ -290,6 +290,43 @@ describe("scoring one run", () => {
     ).toBe(1);
   });
 
+  // #1462: control r02's one finding, restated as src/alerts/waiting.ts:10-12, r02.after.waiting.ts,
+  // ./waiting.ts and :10-13, made 3 control checks where 1 is meant.
+  it("counts one control finding as one false positive, whatever path form or overlapping range restates it", () => {
+    const restated = [
+      f("r02", "src/a.ts", 10, 12),
+      f("r02", "r02.after.a.ts", 10, 12, "the same bug"),
+      f("r02", "./a.ts", 10, 12),
+      f("r02", "src/a.ts", 10, 13),
+    ];
+    const controls = (fs: Finding[]) =>
+      review
+        .scoreRun(null, REF, { findings: fs, unverified: [] })
+        .filter((c) => c.collection === "controls");
+    const [one, ...rest] = controls([...restated, { ...restated[0]! }]);
+    expect(rest).toEqual([]);
+    expect(one!.check).toMatch(/^controls r02 \/ finding src\/a\.ts:10-13 #[0-9a-f]{8}$/);
+    // The referee sees each wording once, and the same findings in another order make the same check.
+    expect(one!.armRaw.split(" || ")).toHaveLength(restated.length);
+    expect(controls([...restated].reverse())[0]).toEqual(one);
+    expect(summary(restated, false).falsePositives).toBe(1);
+    // Another file, or lines that do not overlap, stay findings of their own.
+    const apart = [...restated, f("r02", "src/a.ts", 14, 16), f("r02", "src/other.ts", 10, 12)];
+    expect(summary(apart, false).falsePositives).toBe(3);
+  });
+
+  it("merges only findings that all share a line, so a chain or a wide range swallows nothing", () => {
+    const chain = [1, 3, 5, 7].map((a) => f("r02", "src/a.ts", a, a + 2, `bug ${a}`));
+    // 1-3 and 3-5 share line 3, 5-7 and 7-9 share line 7; 1-3 and 5-7 share none.
+    expect(summary(chain, false).falsePositives).toBe(2);
+    const wide = [
+      f("r02", "src/a.ts", 1, 200, "the whole file"),
+      ...[10, 50, 150].map((a) => f("r02", "src/a.ts", a)),
+    ];
+    // The wide range meets each point, but the points never meet one another.
+    expect(summary(wide, false).falsePositives).toBe(3);
+  });
+
   it("refutes nothing when the rulings on a defect split, and gives no verdict", () => {
     const out = { findings: [f("r01", "src/a.ts", 11)], unverified: [] };
     const other = { findings: [f("r01", "src/a.ts", 12)], unverified: [] };
