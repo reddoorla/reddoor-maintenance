@@ -365,9 +365,11 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
   const { size } = await stat(local);
   const hash = contentHasher();
   let meta;
+  let changedAtFinish = false;
   if (size <= simpleLimit) {
     const data = await readFile(local);
-    if (data.length !== size) throw new Error(`${local} changed size while being read`);
+    if (data.length !== size)
+      throw new Error(`${local} changed size while being read; nothing was committed`);
     hash.update(data);
     meta = fileMeta("files/upload", await contentCall(ctx, "files/upload", commit, data));
   } else {
@@ -392,6 +394,12 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
       }
       const last = await readChunk(fh, offset, size - offset);
       hash.update(last);
+      // finish commits the file (in overwrite mode, over the path's old copy), so a file whose
+      // size moved while its session was uploading is refused here, before anything is
+      // committed (#1454). readChunk already throws on a shrink it reads past; this also
+      // catches growth, and a shrink after the last read.
+      if ((await fh.stat()).size !== size)
+        throw new Error(`${local} changed size while being read; nothing was committed`);
       meta = fileMeta(
         "files/upload_session/finish",
         await contentCall(
@@ -401,13 +409,20 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
           last,
         ),
       );
-      if ((await fh.stat()).size !== size)
-        throw new Error(`${local} changed size while being read`);
+      // A file can still change while finish is in flight; by then the copy is committed.
+      changedAtFinish = (await fh.stat()).size !== size;
     } finally {
       await fh.close();
     }
   }
   const localHash = hash.digest();
+  const ok = meta.content_hash === localHash && meta.size === size;
+  if (changedAtFinish) {
+    // What Dropbox holds is its reply's to say, so a mismatch is not hidden behind the size change.
+    throw new Error(
+      `${local} changed size during upload_session/finish; Dropbox committed ${meta.path_display ?? path} anyway, ${meta.size} bytes, ${ok ? "matching the bytes read before the change" : "NOT matching the bytes read (size or content_hash differs)"}`,
+    );
+  }
   return {
     local,
     path: meta.path_display ?? path,
@@ -415,7 +430,7 @@ export async function uploadFile(ctx, local, folder, opts = {}) {
     remoteSize: meta.size,
     localHash,
     remoteHash: meta.content_hash,
-    ok: meta.content_hash === localHash && meta.size === size,
+    ok,
   };
 }
 
