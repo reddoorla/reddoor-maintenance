@@ -82,8 +82,10 @@ and renames what arrived.
    ends. It exits 0 when every file committed, 1 when any failed, and 2 on
    bad arguments: among them a file over 128 MiB (it needs
    `dropbox.mjs upload` once `check` passes), two names Dropbox would treat
-   as one, and an uploader name that contains `/` or `\` or names an entry
-   in the working directory, which usually means the name was left out. `--dry-run` prints the
+   as one, and an uploader name that contains `/` or `\`, names an entry
+   in the working directory, or cannot be checked against the working
+   directory ("cannot be checked: ENAMETOOLONG", for example). The first two
+   usually mean the name was left out. `--dry-run` prints the
    table and uploads nothing. Dropbox emails the request's owner about each
    upload.
 
@@ -118,8 +120,12 @@ and renames what arrived.
   uploading". The script waits until every file's commit has answered
   complete, up to max(120 s, 10 s per MB) per batch, so a commit the page
   retries after a 5xx is not cut off (a commit that never completes is
-  reported FAILED at that deadline); it counts a file as committed only when its own
-  commit answered that way; a commit already seen still counts if the batch
+  reported FAILED at that deadline). That deadline is also the upper bound
+  on a batch's wait: about 22 minutes (1,342 s) for a full 128 MiB batch.
+  A definite commit failure, such as a 403 `{"error":"closed"}` or a 200
+  `{"status":"error"}`, does not end the wait early: the batch waits out its
+  whole deadline and then reports that file FAILED (#1471). It counts a
+  file as committed only when its own commit answered complete; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored
   file, which is why step 4 matches by hash.
