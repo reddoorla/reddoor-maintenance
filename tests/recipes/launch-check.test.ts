@@ -237,6 +237,27 @@ describe("launchCheck", () => {
       expect(detailOf(stale, "schedule")).toContain("more than 13 months old");
     });
 
+    // #1450: the scheduler drafts a null-status row like a live one, so its
+    // first report is judged as before launch (the operator's answer, 2026-10-20).
+    it("judges a row with no status by the pre-launch rules", async () => {
+      const passed = await launchCheck(
+        row({ "maintenance day": "2026-03-01", Status: null }),
+        goodDeps(),
+      );
+      expect(stateOf(passed, "schedule")).toBe("missing");
+      expect(detailOf(passed, "schedule")).toContain("2026-06-01");
+      const ahead = await launchCheck(
+        row({ "maintenance day": "2026-07-14", Status: null }),
+        goodDeps(),
+      );
+      expect(stateOf(ahead, "schedule")).toBe("ok");
+      const loose = await launchCheck(
+        row({ "maintenance day": "Oct 5 2026", Status: null }),
+        goodDeps(),
+      );
+      expect(stateOf(loose, "schedule")).toBe("missing");
+    });
+
     // The other two pre-launch-only rules (#1449): the strict YYYY-MM-DD form
     // and the unknown testing_freq. A maintained row keeps main's looser rule
     // for both; the building row beside each shows the rule is live.
