@@ -254,7 +254,6 @@ export function collectFile(file) {
 // Null when the meta file is missing, is not JSON or names no type: `score` then reports that
 // agent, rather than one stray file stopping the whole collect.
 function recordedAgentType(meta) {
-  if (!existsSync(meta)) return null;
   let m;
   try {
     m = readJson(meta);
@@ -302,7 +301,7 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
   }
   if (agent.agentType === undefined) {
     problems.push(
-      `${label}: no agent type in runs.json, which predates the agent-type check; run collect again`,
+      `${label}: no agent type in runs.json, which predates the agent-type check; collect again to read it from the .meta.json (a run launched before 2026-10-20 then shows as the default agent and must be launched again)`,
     );
   } else if (agent.agentType === null) {
     problems.push(

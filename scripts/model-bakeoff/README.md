@@ -48,8 +48,9 @@ These are workspace#1's nine steps, with where each one happens.
    ruling can credit an arm, and can refute the reference. An arm that agreed with a refuted
    reference loses that check. A value the arm left out is never credited.
 7. **Check what actually ran.** `collect` reads `message.model` and the per-line `effort` field
-   from each subagent transcript. `score` lists every arm and every referee whose transcripts
-   disagree with what it asked for.
+   from each subagent transcript, and the agent type from the `.meta.json` beside it. `score`
+   lists every arm and every referee whose transcripts disagree with what it asked for, or that
+   did not run as `bakeoff-readonly`.
 8. **Cost from usage, counted once per `message.id`.** Transcript lines repeat a message's
    usage, so summing every line roughly doubles the count. A request whose last line has no
    `stop_reason` kept only its stream-start usage, so its output tokens (thinking included)
@@ -198,9 +199,10 @@ The truth refuses what it cannot read rather than guess. It refuses:
 
 Every arm, the gold and every referee runs as `.claude/agents/bakeoff-readonly.md` (Operator
 decisions 133). Its `tools` are Read, Grep, Glob, Bash, Write and Edit, so it has no MCP, web or
-agent tools; a workflow `agent()` without an agent type has all of them, and the one read-only
-rule a real run broke was an MCP call (`refute-repo`, 2026-10-19). It keeps Bash because the
-gold and the referee verify with scripts and `pnpm-update` and `t4-plan-task` run pnpm.
+agent tools (the sub-agents docs make `tools` an allowlist, and the probe found no ToolSearch);
+a workflow `agent()` without an agent type has all of them, and the one read-only rule a real
+run broke was an MCP call (`refute-repo`, 2026-10-19). It keeps Bash because the gold and the
+referee verify with scripts and `pnpm-update` and `t4-plan-task` run pnpm.
 
 It cannot deny `gh`, `git push` or `curl` inside Bash. A `disallowedTools` entry with a
 specifier, such as `Bash(gh *)`, removes the whole Bash tool, in the agent file and in a
@@ -213,8 +215,9 @@ read after the run, by the Bash check in "Running a task".
 `score` holds every agent to the type. `collect` reads the agent type from the
 `agent-<id>.meta.json` the harness writes beside each transcript, and `score` reports an agent
 that ran as anything else, or whose file is missing, unreadable or names no type. A `runs.json`
-collected before 2026-10-20 has no type at all, so collect it again. A launcher that `split`
-wrote before then embeds the old workflow and runs the default agent, so split again.
+collected before 2026-10-20 has no type at all: collect it again, and a run launched before then
+will show as the default agent, which only a new launch clears. A launcher that `split` wrote
+before then embeds the old workflow and runs the default agent, so split again.
 
 The type resolves from the agent registry the session read when it started, so run the
 workflow from a session started in this repo. A session started elsewhere (the workspace, by
@@ -235,7 +238,7 @@ A task that exports `items(dir)` (an array of `{ id, prompt, schema }`) and
 agent per arm. `prepare` puts the items in `workflow-args.json`; the workflow marks each prompt
 `(BAKEOFF-ARM: <arm> ITEM: <item>)` and gives it the work dir `<work>/<arm>/<item>`. `collect`
 keys each transcript `<arm>/<item>` and refuses an item that is not in the run, or an arm
-marker without one. `score` checks each item agent on its own (model, effort, output, writes),
+marker without one. `score` checks each item agent on its own (model, effort, agent type, output, writes),
 reports a missing item, and then scores the arm on `assemble` of the outputs it has, with cost
 and requests summed over its items. `task.prompt(dir)` is then what the referee is shown as
 the task.

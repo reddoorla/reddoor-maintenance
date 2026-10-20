@@ -830,7 +830,7 @@ describe("score on an item run", () => {
     writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
     const r = score(run);
     expect(r.problems).toEqual([
-      "gold/r02: no agent type in runs.json, which predates the agent-type check; run collect again",
+      "gold/r02: no agent type in runs.json, which predates the agent-type check; collect again to read it from the .meta.json (a run launched before 2026-10-20 then shows as the default agent and must be launched again)",
       "opus-xhigh-2/r01: ran as agent type workflow-subagent, not bakeoff-readonly",
       "referee:r1-1: ran as agent type workflow-subagent, not bakeoff-readonly",
     ]);
