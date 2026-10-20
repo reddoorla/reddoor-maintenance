@@ -585,6 +585,11 @@ spawn(process.execPath, [server, port, pidFile], { detached: true, stdio: "ignor
 setInterval(() => {}, 1 << 30);
 `;
 
+  // Ceiling on the server coming up before the held timeout fires anyway. It is
+  // a backstop for a broken fixture, not a margin: a working server is up in
+  // 0.1-0.4 s even with 16 busy loops on 4 cores (measured for #1512).
+  const SERVER_UP_BACKSTOP_MS = 30_000;
+
   async function runDetachedServer(opts: {
     spawnFn: typeof defaultSpawn;
     timeoutMs: number;
@@ -599,18 +604,50 @@ setInterval(() => {}, 1 << 30);
     const port = await findFreePort();
     const q = JSON.stringify;
     const script = `${q(process.execPath)} ${q(middle)} ${q(server)} ${port} ${q(pidFile)}; :`;
+    // The spawn's own timeout is held until the server is up, then fired (#1512).
+    // Left on the clock, it raced `sh` cold-starting two `node` processes: under
+    // a loaded suite the timeout could land first and the test failed as "fixture
+    // broken" without testing the reap. The timeout's callback is captured as the
+    // spawn arms it (synchronously, inside the call) and run once the pid file
+    // appears, so what runs is still the real timeout path: the descendant-group
+    // reap, the group SIGTERM, the SIGKILL escalation and the SpawnTimeoutError.
+    // Only WHEN it fires changes. A server that never comes up still ends the
+    // spawn at SERVER_UP_BACKSTOP_MS and reports "fixture broken".
+    const realSetTimeout = globalThis.setTimeout;
+    let fireTimeout: (() => void) | undefined;
+    const hold = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms === opts.timeoutMs && fireTimeout === undefined) {
+        fireTimeout = fn;
+        return realSetTimeout(() => {}, 0);
+      }
+      return realSetTimeout(fn, ms);
+    }) as unknown as typeof setTimeout);
     let settled = false;
-    const outcome = opts
-      .spawnFn("sh", ["-c", script], {
-        timeoutMs: opts.timeoutMs,
-        ...(opts.env ? { env: opts.env } : {}),
-      })
-      .then(
-        () => undefined,
-        (e: unknown) => e,
-      );
+    let outcome: Promise<unknown>;
+    try {
+      outcome = opts
+        .spawnFn("sh", ["-c", script], {
+          timeoutMs: opts.timeoutMs,
+          ...(opts.env ? { env: opts.env } : {}),
+        })
+        .then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+    } finally {
+      hold.mockRestore();
+    }
     void outcome.finally(() => (settled = true));
+    const fire = (): void => {
+      if (!settled) fireTimeout?.();
+    };
+    const backstop = realSetTimeout(fire, SERVER_UP_BACKSTOP_MS);
     const serverPid = await waitForPid(pidFile, () => settled);
+    clearTimeout(backstop);
+    fire();
     const err = await outcome;
     return { port, serverPid, err, dir };
   }
