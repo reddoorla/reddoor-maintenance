@@ -688,6 +688,44 @@ export function prismicAckIsLive(ackUntil: string | null, now: Date): boolean {
   return until > now.getTime();
 }
 
+/**
+ * How the operator sets an ack: the expiry, and the drift report as it reads
+ * right now, copied in one statement so the two cannot disagree. The report
+ * lives in `site_health`, the ack in `sites`. Bind the expiry (ISO date or
+ * timestamp) and the site's Name. `docs/runbooks/continuity.md` carries this
+ * text verbatim, and a test runs it against a migrated schema.
+ */
+export const PRISMIC_ACK_UPDATE_SQL =
+  "UPDATE sites SET prismic_ack_until = ?, prismic_ack_drift = (SELECT prismic_models_drift FROM site_health WHERE site_health.site_id = sites.id) WHERE name = ?";
+
+/** A drift report as a comparable identity: line endings and the blank space
+ *  around the whole report are not part of the finding. */
+const driftIdentity = (report: string): string => report.replace(/\r\n?/g, "\n").trim();
+
+/**
+ * Does a live ack accept THIS `fail` — the report the operator reviewed, and not
+ * a later finding on the same site (#1608)? The whole report is the identity.
+ * Matching line by line would mute a dropped field whose line also appears under
+ * another model in the acked text; the report's lines are not self-describing.
+ * A changed report rings, including one that only lost a line: the operator
+ * re-acks with {@link PRISMIC_ACK_UPDATE_SQL}, and a noisy item is the
+ * recoverable direction.
+ *
+ * A report cut at the storage cap is identified by the SHA-256 its truncation
+ * notice carries. A cut report from before that notice carried one cannot say
+ * what was past the cut, so an ack of it covers nothing.
+ */
+export function prismicAckCovers(
+  site: Pick<WebsiteRow, "prismicAckUntil" | "prismicAckDrift" | "prismicModelsDrift">,
+  now: Date,
+): boolean {
+  if (!prismicAckIsLive(site.prismicAckUntil, now)) return false;
+  const acked = site.prismicAckDrift === null ? "" : driftIdentity(site.prismicAckDrift);
+  if (acked === "") return false;
+  if (acked.includes("…[truncated:") && !/\(sha256 [0-9a-f]{64}\)/.test(acked)) return false;
+  return site.prismicModelsDrift !== null && driftIdentity(site.prismicModelsDrift) === acked;
+}
+
 export function collectPrismicDriftAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -748,8 +786,9 @@ export function collectPrismicDriftAlerts(
     // The operator has reviewed THIS divergence and accepted it until a date they
     // set — see `WebsiteRow.prismicAckUntil`. Reached only on `fail`: the `unknown`
     // and staleness branches above have already returned, so an ack can never mute
-    // "the check could not run" or "nobody has re-established this".
-    if (prismicAckIsLive(s.prismicAckUntil, now)) continue;
+    // "the check could not run" or "nobody has re-established this". And only this
+    // report: a new finding on an acked site rings (#1608).
+    if (prismicAckCovers(s, now)) continue;
 
     items.push({
       key: `prismic-drift:${s.id}`,

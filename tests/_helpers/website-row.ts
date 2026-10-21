@@ -98,6 +98,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     prismicModelsCheckedAt: null,
     prismicModelsDrift: null,
     prismicAckUntil: null,
+    prismicAckDrift: null,
     urlResolves: null,
     urlStatus: null,
     urlCheckedAt: null,
