@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import Page from "../../src/routes/s/[slug]/+page.svelte";
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { canonical, renderPage } from "../_helpers/parity.js";
@@ -92,4 +92,21 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
     ];
     expect(rendered(input({ submissions: rows }))).toMatchSnapshot();
   });
+});
+
+/**
+ * Every relative time on the page reads the view's `now`, never the wall clock.
+ * Three did, so the snapshots drifted as real days passed ("3mo ago" became
+ * "4mo ago" on 2026-10-21 and failed CI with no code change).
+ */
+describe("/s/:slug reads only the injected clock", () => {
+  afterEach(() => vi.useRealTimers());
+  for (const [name, i] of CASES) {
+    it(`${name}: the same markup with the wall clock in 2031`, () => {
+      const today = rendered(i);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2031-01-01T00:00:00.000Z"));
+      expect(rendered(i)).toEqual(today);
+    });
+  }
 });

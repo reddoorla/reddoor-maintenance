@@ -7,7 +7,8 @@ export type { DesignRule, DesignRuleId, RuleFinding, RuleOutcome, RuleStatus } f
 
 /** The rules from `docs/design-review-rules-2026-09.md` that have a page check,
  *  encoded in the order the operator chose on 2026-10-20: the ones no reviewer
- *  catches by eye first (R2, R4, R9, R12). */
+ *  catches by eye first. R4 and R12 moved to the written guide instead (the
+ *  operator, 2026-10-21). */
 export const DESIGN_RULES: Record<DesignRuleId, DesignRule> = {
   R2: reducedMotionRule,
   R9: headingLevelsRule,

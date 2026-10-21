@@ -290,6 +290,8 @@ Also:
 
 ### 4. Nothing needs JavaScript to become visible, and nothing is visible and dead before it arrives
 
+> **Moved to the written guide (the operator, 2026-10-21).** No mechanical check. The encode took six review rounds (#1579, closed unmerged), and every round found a new false verdict in the same question: what "visible once the page has settled" means on a page with autoplay, count-ups and lazy media. The evidence and the check sketched below stay as the record. The guide's wording is under "Rules for the written guide".
+
 Reveal states ship in the markup, with a no-JS release and a fail-safe. A control that cannot work without JS is hidden or quiet.
 
 **≈25 instances on 5 sites.**
@@ -458,6 +460,8 @@ Nothing is keyed to the comp's own 1440, because a maximized 1440 window is abou
 - **False-positive risk:** low. Inline text links are exempt under 2.5.8.
 
 ### 12. Keyboard focus is always visible: the ring contrasts (≥3:1) with the ground it is drawn on, is not clipped, and is never under a pinned bar
+
+> **Moved to the written guide (the operator, 2026-10-21).** No mechanical check. The encode took six review rounds (#1590, closed unmerged). Its pixel measure held throughout, but each round found a new page state it could not read (a hidden input, a loader, a smooth scroll, motion), and a heuristic over arbitrary live sites kept finding one more. The evidence and the check sketched below stay as the record. The guide's wording is under "Rules for the written guide".
 
 **≈15 instances on 5 sites.**
 
@@ -1020,6 +1024,17 @@ These go in the starter's written guide, per #674. A model can read them but can
   numbers, buttons over imagery. 3 events on 3 sites. Judgment only, no script (the operator, 2026-10-20).
 - **N11. Review checks every hover or click state the comp draws against that drawn state**, not only the page at rest.
   2 events on 2 sites. A process rule (the operator, 2026-10-20); N10 scripts that the states exist.
+- **R4. Nothing needs JavaScript to become visible, and nothing is visible and dead before it arrives.** Reveal states
+  ship in the markup, with a no-JS release and a fail-safe. A stat renders its real value, never "0", without script.
+  A control that cannot work without JavaScript is hidden or inert until it can. Review it by loading the page with
+  JavaScript off and by blocking the app bundle. ≈25 instances on 5 sites. The operator moved it here on 2026-10-21,
+  after six review rounds found no stable mechanical test (#1579). The starters' `reveal-no-js.spec.ts` is one site's
+  version of it.
+- **R12. Keyboard focus is always visible.** The ring contrasts at least 3:1 with the ground it is drawn on, on every
+  ground the element sits on. It is not clipped by an ancestor's overflow. It is never under a pinned bar. Review it
+  by tabbing every page at desktop and phone widths, over photos and dark bands too. ≈15 instances on 5 sites. The
+  operator moved it here on 2026-10-21, after six review rounds (#1590); roalson's `focus-floor.test.ts` is one site's
+  version of it.
 
 ## Seen once (kept by the operator, 2026-09-29)
 
@@ -1082,6 +1097,12 @@ The operator kept five of the sixteen and left the rest.
   `reveal-no-js.spec.ts` (starters); `tests/a11y/home.spec.ts` hover and open (29-navy); `theme-utilities.test.ts` and
   `focus-floor.test.ts` (roalson). Each is one site's version of a rule above, and a ready-made fixture for
   "fails on a real past page".
+
+## Answered 2026-10-21
+
+**R4 and R12 move to the written guide**, and are dropped from the mechanical checks. Their encode PRs, #1579 and #1590,
+are closed unmerged. Each was parked after a dirty sixth review round; the rounds are in those PRs' journals. R2 and R9
+are the encoded rules (#1550, #1588).
 
 ## Answered 2026-10-20
 
