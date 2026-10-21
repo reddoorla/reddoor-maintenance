@@ -497,5 +497,42 @@
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M42-mutant-from-blob-again",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "[\"cat-file\", \"--filters\", `${sha}:${f}`]",
+        "replace": "[\"show\", `${sha}:${f}`]"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M43-disk-bytes-unchecked",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!o.check && !readFileSync(join(root, f)).equals(bytes))",
+        "replace": "      if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "survives",
+    "why": "A second layer: git status and the skip-worktree refusal already stop a checkout whose bytes differ from HEAD's, and a fresh worktree that writes differently is refused on its own."
+  },
+  {
+    "id": "M44-ill-formed-unicode-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "!e[k].isWellFormed()",
+        "replace": "false"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
   }
 ]

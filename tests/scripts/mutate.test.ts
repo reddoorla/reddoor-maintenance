@@ -944,6 +944,19 @@ describe("mutate, against a real repo", () => {
         why: "nothing reads b",
       },
     ]);
+    // --check reads the bytes the run reads, so a find spanning a CRLF passes both.
+    const crlfFind = sidecar(f.side, [
+      {
+        id: "eol",
+        edits: [{ file: "src/crlf.txt", find: "1\r\nb", replace: "1\r\nc" }],
+        test: "tests/a.test.ts",
+        expect: "survives",
+        why: "nothing reads it",
+      },
+    ]);
+    await expect(
+      mutate(opts(crlfFind, { check: true }), { cwd: f.dir, ...quiet }),
+    ).resolves.toMatchObject({ unparsed: [] });
     for (const inPlace of [false, true]) {
       const rep = await withEnv({ MUTATE_FAKE_CRLF: "1" }, () =>
         mutate(opts(p, { inPlace }), { cwd: f.dir, ...quiet }),
@@ -951,6 +964,36 @@ describe("mutate, against a real repo", () => {
       expect(rep.results[0]?.result).toBe("survived");
     }
     expect(readFileSync(join(f.dir, "src", "crlf.txt"), "utf-8")).toBe("a = 1\r\nb = 2\r\n");
+  });
+
+  it("accepts a CRLF file committed under text=auto, and --check reads what the run reads", async () => {
+    const f = fixture();
+    writeFileSync(join(f.dir, "src", "v.txt"), "a = 1\r\nb = 2\r\n");
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "crlf"]);
+    writeFileSync(join(f.dir, ".gitattributes"), "* text=auto\n");
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", ".gitattributes"]);
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "auto"]);
+    expect(status(f.dir)).toBe("");
+    const p = sidecar(f.side, [
+      {
+        id: "b",
+        edits: [{ file: "src/v.txt", find: "b = 2\r\n", replace: "b = 3\r\n" }],
+        test: "tests/a.test.ts",
+        expect: "survives",
+        why: "nothing reads it",
+      },
+    ]);
+    const check = await mutate(opts(p, { check: true }), { cwd: f.dir, ...quiet });
+    expect(check.unparsed).toEqual([]);
+    const rep = await mutate(opts(p), { cwd: f.dir, ...quiet });
+    expect(rep.results[0]?.result).toBe("survived");
+  });
+
+  it("refuses a find or replace that is not well-formed Unicode", () => {
+    expect(() =>
+      validateSidecar([{ ...red, edits: [{ file: "a", find: "\uFFFD", replace: "\uD800" }] }]),
+    ).toThrow(/replace is not well-formed Unicode/);
   });
 
   it("refuses a mutant whose edits cancel out", async () => {

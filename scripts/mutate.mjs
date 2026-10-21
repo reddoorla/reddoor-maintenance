@@ -115,6 +115,10 @@ export function validateSidecar(raw) {
       if (!file) problems.push(`${eat}: file must be a path relative to the repo root`);
       if (!isStr(e.find) || e.find === "") problems.push(`${eat}: find must be a non-empty string`);
       if (!isStr(e.replace)) problems.push(`${eat}: replace must be a string`);
+      // A lone surrogate is written as U+FFFD, so the bytes could change less than the text.
+      for (const k of ["find", "replace"])
+        if (isStr(e[k]) && !e[k].isWellFormed())
+          problems.push(`${eat}: ${k} is not well-formed Unicode`);
       if (isStr(e.find) && e.find === e.replace)
         problems.push(`${eat}: replace equals find, so it mutates nothing`);
       return { file, find: e.find, replace: e.replace };
@@ -520,27 +524,22 @@ export async function mutate(o, deps = {}) {
       throw new Refusal("node_modules/.bin/vitest is missing: run pnpm install first");
 
     // Every find is checked before anything runs, against the bytes a checkout of HEAD
-    // holds: git's eol, ident and encoding attributes make those differ from the blob, and
-    // a mutant built from the blob would rewrite every line ending, not just its edit. A
-    // file on disk that is not HEAD's (after git's own filters) is refused; --check, which
-    // allows a dirty tree, reads the blob. A file that is not UTF-8 is refused too, since
+    // writes (`git cat-file --filters`): git's eol, ident and encoding attributes make those
+    // differ from the blob, and a mutant built from the blob would rewrite every line ending,
+    // not just its edit. --check reads the same bytes, so it agrees with the run. A run
+    // refuses a file whose bytes on disk are not those, and a file that is not UTF-8, since
     // editing it as text would change bytes the mutant never named.
     const pristine = new Map();
     const problems = [];
     for (const f of files) {
-      let bytes;
-      if (o.check) {
-        const show = spawnSync("git", ["show", `${sha}:${f}`], { cwd: root, maxBuffer: 1 << 30 });
-        if (show.status !== 0) throw new Refusal(`cannot read ${f} at HEAD: ${show.stderr}`);
-        bytes = show.stdout;
-      } else {
-        bytes = readFileSync(join(root, f));
-        const blob = (await git(ctx, root, ["rev-parse", `${sha}:${f}`])).trim();
-        const disk = (
-          await git(ctx, root, ["hash-object", `--path=${f}`, "--", join(root, f)])
-        ).trim();
-        if (blob !== disk) problems.push(`${f} on disk is not HEAD's, after git's filters`);
-      }
+      const show = spawnSync("git", ["cat-file", "--filters", `${sha}:${f}`], {
+        cwd: root,
+        maxBuffer: 1 << 30,
+      });
+      if (show.status !== 0) throw new Refusal(`cannot read ${f} at HEAD: ${show.stderr}`);
+      const bytes = show.stdout;
+      if (!o.check && !readFileSync(join(root, f)).equals(bytes))
+        problems.push(`${f} on disk is not what a checkout of HEAD writes`);
       const text = bytes.toString("utf-8");
       if (!Buffer.from(text, "utf-8").equals(bytes)) problems.push(`${f} is not UTF-8 text`);
       pristine.set(f, text);
@@ -548,7 +547,7 @@ export async function mutate(o, deps = {}) {
     for (const m of mutants) {
       try {
         const out = applyEdits(pristine, m);
-        if ([...out].every(([f, text]) => text === pristine.get(f)))
+        if ([...out].every(([f, text]) => Buffer.from(text).equals(Buffer.from(pristine.get(f)))))
           problems.push(`mutant ${m.id}: its edits cancel out, leaving every file as it was`);
       } catch (e) {
         problems.push(e.message);
@@ -851,6 +850,8 @@ async function main() {
   try {
     o = parseArgs(process.argv.slice(2));
   } catch (e) {
+    if (process.argv.includes("--json"))
+      process.stdout.write(JSON.stringify({ refused: e.message }, null, 2) + "\n");
     process.stderr.write(`mutate: ${e.message}\n${USAGE}\n`);
     process.exitCode = 2;
     return;
