@@ -1,12 +1,12 @@
-import type { Context, Config } from "@netlify/functions";
-import { readAuthConfig } from "../../src/dashboard/auth/require.js";
+import type { Context } from "@netlify/functions";
+import { readAuthConfig } from "../../../../../src/dashboard/auth/require.js";
 import {
   createPkcePair,
   randomState,
   buildAuthorizeUrl,
   exchangeCodeForTokens,
   fetchVerifiedEmail,
-} from "../../src/dashboard/auth/google.js";
+} from "../../../../../src/dashboard/auth/google.js";
 import {
   mintOAuthState,
   verifyOAuthState,
@@ -14,31 +14,29 @@ import {
   stateSetCookie,
   stateClearCookie,
   STATE_COOKIE,
-} from "../../src/dashboard/auth/oauth-state.js";
+} from "../../../../../src/dashboard/auth/oauth-state.js";
 import {
   mintSession,
   sessionSetCookie,
   sessionClearCookie,
-} from "../../src/dashboard/auth/session.js";
-import { isAllowedEmail } from "../../src/dashboard/auth/allowlist.js";
-import { readCookie } from "../../src/dashboard/auth/cookies.js";
-import { renderLoginPageHtml } from "../../src/dashboard/auth/render.js";
-import { verifyBasicAuth } from "../../src/dashboard/basic-auth.js";
-import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
+} from "../../../../../src/dashboard/auth/session.js";
+import { isAllowedEmail } from "../../../../../src/dashboard/auth/allowlist.js";
+import { readCookie } from "../../../../../src/dashboard/auth/cookies.js";
+import { renderLoginPageHtml } from "../../../../../src/dashboard/auth/render.js";
+import { verifyBasicAuth } from "../../../../../src/dashboard/basic-auth.js";
+import {
+  resolveDashboardBaseUrl,
+  handlerError,
+} from "../../../../../src/dashboard/handler-helpers.js";
 
 /**
  * Sign-in: the only routes on the dashboard that are NOT behind
  * `requireOperator`. They cannot be — the login page has to be reachable by
  * someone who is not yet signed in.
  *
- * Four paths on one function, the same convention refresh-fleet.mts uses for
- * /api/fleet/refresh and its /status poll.
+ * Four paths on one handler: /auth/login, /auth/callback, /auth/logout and
+ * /auth/basic, each a route in cockpit/src/routes/auth/.
  */
-export const config: Config = {
-  path: ["/auth/login", "/auth/callback", "/auth/logout", "/auth/basic"],
-  // An unauthenticated surface, so capped harder than the read-only dashboards.
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
 
 /** The redirect URI registered with Google. Derived from the same helper the
  *  rest of the dashboard uses so it cannot drift from the registered value —

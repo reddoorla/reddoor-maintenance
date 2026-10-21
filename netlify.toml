@@ -7,11 +7,14 @@
 # The cockpit's own build (svelte, vite, the SvelteKit adapter) is devDependencies
 # too, for the same reason.
 #
-# The build is the SvelteKit cockpit (#582): `/`, `/fleet`, `/s/:slug`,
-# `/submissions` and `/audits`. Its adapter writes one function per page to
-# `.netlify/functions-internal` (from `svelte.config.js` at the repo root, which
-# is why the config lives there) and the browser assets to `publish`. Every
-# `/api/*`, `/auth/*` and other endpoint stays a function in `functions`.
+# The build is the SvelteKit cockpit (#582): the pages (`/`, `/fleet`,
+# `/s/:slug`, `/submissions`, `/audits`), the dashboard's own `/api/*`
+# endpoints and sign-in (`/auth/*`). Its adapter writes them as one function,
+# `sveltekit-render` on `/*`, to `.netlify/functions-internal` (from
+# `svelte.config.js` at the repo root, which is why the config lives there) and
+# the browser assets to `publish`. What stays a function in `functions` has a
+# caller outside the dashboard (the fleet's contact forms, Resend, the prospect
+# report and its JSON) or runs on a timer (the two clocks). maintenance#1642.
 [build]
   command = "pnpm cockpit:build"
   publish = "cockpit/build"
@@ -20,13 +23,11 @@
 [functions]
   node_bundler = "esbuild"
 
-# Every routed endpoint declares its own `config.path` on the function rather
-# than a [[redirects]] rule here. A [[redirects]] rewrite with status=200 passes
-# the ORIGINAL request URL to the function rather than the rewritten one, so
-# query-string substitution never reached the handler (the old /s/:slug page
-# function fell through to its health check that way). With `config.path`,
-# ctx.params is populated:
-#   /api/reports/:id/approve      → approve-report.mts
-#   /api/reports/:id/withdraw     → withdraw-report.mts
-#   /api/reports/:id/unapprove    → unapprove-report.mts
-#   /api/submissions/:id/status   → submission-status.mts
+# Every function endpoint declares its own `config.path` rather than a
+# [[redirects]] rule here. A [[redirects]] rewrite with status=200 passes the
+# ORIGINAL request URL to the function rather than the rewritten one, so
+# ctx.params would be empty. With `config.path`, ctx.params is populated:
+#   /api/forms/:slug                    → form-ingest.mts
+#   /api/audit-report/:token            → audit-report-json.mts
+#   /api/audit-report/:token/overrides  → audit-report-overrides.mts
+#   /r/:token                           → prospect-report.mts

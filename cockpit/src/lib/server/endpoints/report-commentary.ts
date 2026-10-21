@@ -1,20 +1,18 @@
-import type { Context, Config } from "@netlify/functions";
-import { getReportById, mirrorReportPatch } from "../../src/db/fleet-state.js";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { requireOperator, denialResponse, setReportCommentary } from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { isReportId } from "../../src/fleet/report-id.js";
+import type { Context } from "@netlify/functions";
+import { getReportById, mirrorReportPatch } from "../../../../../src/db/fleet-state.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { mirrorWrite } from "../../../../../src/db/mirror-write.js";
+import {
+  requireOperator,
+  denialResponse,
+  setReportCommentary,
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../../../../src/fleet/report-id.js";
 
-// #539 Phase 4 report review. Path-routed on the function itself for the same
-// reason as every other dashboard endpoint: a netlify.toml 200 rewrite leaves
-// ctx.params empty. The report rec id arrives in ctx.params.id; { text } in the
-// JSON body.
-export const config: Config = {
-  path: ["/api/reports/:id/commentary", "/.netlify/functions/report-commentary"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
+// #539 Phase 4 report review. The report rec id arrives in ctx.params.id;
+// { text } in the JSON body.
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

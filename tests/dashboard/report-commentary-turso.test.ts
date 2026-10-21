@@ -14,7 +14,7 @@ import { join } from "node:path";
  * suite at production.
  */
 
-import reportCommentary from "../../netlify/functions/report-commentary.mjs";
+import reportCommentary from "../../cockpit/src/lib/server/endpoints/report-commentary.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { sql } from "kysely";
 

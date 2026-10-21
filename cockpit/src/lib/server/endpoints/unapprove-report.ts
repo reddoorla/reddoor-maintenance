@@ -1,22 +1,17 @@
-import type { Context, Config } from "@netlify/functions";
-import { unapproveReport, requireOperator, denialResponse } from "../../src/dashboard/index.js";
+import type { Context } from "@netlify/functions";
+import {
+  unapproveReport,
+  requireOperator,
+  denialResponse,
+} from "../../../../../src/dashboard/index.js";
 
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { getReportById, unapproveReportIfUnsent } from "../../src/db/fleet-state.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { mirrorWrite } from "../../../../../src/db/mirror-write.js";
+import { getReportById, unapproveReportIfUnsent } from "../../../../../src/db/fleet-state.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
-// #1262: "Unapprove" on /s/:slug. Path-routed on the function itself for the
-// same reason as approve-report.mts, with the same rate limit.
-export const config: Config = {
-  path: ["/api/reports/:id/unapprove", "/.netlify/functions/unapprove-report"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
-};
+// #1262: "Unapprove" on /s/:slug. The record id arrives in ctx.params.id.
 
 function plainText(body: string, status: number): Response {
   return new Response(body, {
@@ -42,7 +37,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   if (req.method !== "POST") return plainText("Method not allowed", 405);
 
-  // The same CSRF, auth and store gates as approve-report.mts, in the same order.
+  // The same CSRF, auth and store gates as approve-report.ts, in the same order.
   if (!isCsrfAllowed(req)) {
     return plainText("Cross-site request rejected", 403);
   }

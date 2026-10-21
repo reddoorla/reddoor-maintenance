@@ -1,18 +1,16 @@
-import type { Context, Config } from "@netlify/functions";
-import { getSiteBySlug, mirrorSiteField } from "../../src/db/fleet-state.js";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { requireOperator, denialResponse, setSiteDetail } from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import type { Context } from "@netlify/functions";
+import { getSiteBySlug, mirrorSiteField } from "../../../../../src/db/fleet-state.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { mirrorWrite } from "../../../../../src/db/mirror-write.js";
+import {
+  requireOperator,
+  denialResponse,
+  setSiteDetail,
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
-// Path-route /api/sites/:slug/details on the function itself (same reason as the
-// other dashboard endpoints: a netlify.toml 200 rewrite would leave ctx.params
-// empty). The slug arrives in ctx.params.slug; { field, value } in the JSON body.
-export const config: Config = {
-  path: ["/api/sites/:slug/details", "/.netlify/functions/site-details"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
+// The slug arrives in ctx.params.slug; { field, value } in the JSON body.
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {

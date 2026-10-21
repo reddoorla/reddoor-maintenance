@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -10,7 +10,6 @@ import {
   MATCH_HARNESS_PREVIOUS,
   MATCH_HARNESS_COUPLED,
   HARNESS_JSON_RELATIVE,
-  MATCH_ROUTE_SERVER_RELATIVE,
   GITIGNORE_MARKER,
   GITIGNORE_BLOCK,
   PRETTIERIGNORE_MARKER,
@@ -20,7 +19,6 @@ import {
 } from "./template.js";
 import { MATCH_HARNESS_BLOCK_PREVIOUS } from "./previous.js";
 import { readTextIfExists } from "../../util/fs.js";
-import { readKitMajor } from "../sync-configs/kit-major.js";
 
 /** How long the target's own prettier gets. Also what makes the fleet's default
  *  spawn detach the child, so the kill reaches prettier and not just a wrapper.
@@ -51,52 +49,6 @@ export type MatchHarnessDeps = {
 };
 
 type Plan = { ref: string; cand: string; matrix: number[] };
-
-/** The route's one `dev` import, as the generated template ships it (kit 2). */
-const KIT2_DEV_IMPORT = 'import { dev } from "$app/environment";';
-/** The same import on SvelteKit 3, where svelte-check cannot resolve
- *  `$app/environment` (P1-53). Kit 2 has no `$app/env`, so neither name serves
- *  both majors (#1566). */
-const KIT3_DEV_IMPORT = 'import { dev } from "$app/env";';
-
-/**
- * A recipe-owned template as THIS site needs it: on a declared kit major of 3
- * or above, the /dev/match route imports `dev` from `$app/env`. Everything
- * else, and every site whose kit major is absent or unreadable, gets the
- * shipped bytes unchanged. Done here rather than in template.ts because that
- * file is generated; the snapshots stay the kit 2 bodies.
- */
-export function renderForKit(
-  rel: string,
-  template: string,
-  kitMajor: number | null | "unreadable",
-): string {
-  if (rel !== MATCH_ROUTE_SERVER_RELATIVE) return template;
-  if (typeof kitMajor !== "number" || kitMajor < 3) return template;
-  if (!template.includes(KIT2_DEV_IMPORT))
-    throw new Error(`${rel}: the template no longer carries \`${KIT2_DEV_IMPORT}\` (#1566)`);
-  return template.replace(KIT2_DEV_IMPORT, KIT3_DEV_IMPORT);
-}
-
-/** The kit 3 render of each shipped body that carries the kit 2 import. */
-function kit3Renders(rel: string, bodies: readonly string[]): string[] {
-  return bodies.filter((b) => b.includes(KIT2_DEV_IMPORT)).map((b) => renderForKit(rel, b, 3));
-}
-
-/** The `@sveltejs/kit` spec package.json declares, verbatim, looked up as
- *  readKitMajor looks it up. Only for quoting in a note: readKitMajor is what
- *  interprets it. */
-async function readKitSpec(cwd: string): Promise<string | null> {
-  try {
-    const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-    };
-    return pkg.devDependencies?.["@sveltejs/kit"] ?? pkg.dependencies?.["@sveltejs/kit"] ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /** CRLF and trailing whitespace are the only differences a site's formatter is
  *  allowed to introduce before a file stops counting as "ours". */
@@ -336,23 +288,9 @@ export async function matchHarness(
         action: ReturnType<typeof planFileWrite>;
       };
       const plans: Planned[] = [];
-      // The declared kit major, read as sync-configs reads it. An unreadable
-      // spec keeps the kit 2 import, and the notes say so: guessing kit 3
-      // would break a kit 2 site's dev server outright.
-      const kitMajor = await readKitMajor(cwd);
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
-        let template = renderForKit(f.rel, f.template, kitMajor);
-        // On kit 3, every body this recipe shipped is ours in BOTH renders:
-        // the raw kit 2 one (installed before #1566, or the current body as
-        // the kit 2 template), and its kit 3 render (this release's output,
-        // or a site's own hand fix of the import, as P1-53 made). Replace
-        // either rather than flag it as hand-edited.
-        const previous = previousAll[f.rel] ?? [];
-        const previousHere =
-          template === f.template
-            ? previous
-            : [...previous, ...kit3Renders(f.rel, previous), f.template];
+        let template = f.template;
         if (f.rel === HARNESS_JSON_RELATIVE) {
           // Patch the PARSED object, never the text. The seed is pretty-printed
           // two-space JSON, so `matrix` renders as a four-line exploded array
@@ -365,24 +303,11 @@ export async function matchHarness(
           template = JSON.stringify(seed, null, 2) + "\n";
         }
         const existing = await readTextIfExists(target);
-        if (kitMajor === "unreadable" && f.rel === MATCH_ROUTE_SERVER_RELATIVE) {
-          // The major is unknown, so the import name the site already has is
-          // the best evidence of it. A route in a kit 3 render of a body this
-          // recipe shipped (what the note below tells the user to make) is
-          // ours: kept when current, upgraded in the same render when not.
-          // Anything else takes the kit 2 path.
-          const kit3 = renderForKit(f.rel, f.template, 3);
-          const kit3Action = planFileWrite(existing, kit3, f.owner, kit3Renders(f.rel, previous));
-          if (kit3Action === "skip" || kit3Action === "replace") {
-            plans.push({ f, template: kit3, existing, action: kit3Action });
-            continue;
-          }
-        }
         plans.push({
           f,
           template,
           existing,
-          action: planFileWrite(existing, template, f.owner, previousHere),
+          action: planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []),
         });
       }
 
@@ -417,22 +342,6 @@ export async function matchHarness(
             `harness.mjs, so upgrading one without the others leaves a harness that cannot run.`,
         );
       }
-
-      // An unreadable kit spec keeps the kit 2 import (guessing kit 3 would
-      // break a kit 2 site's dev server outright), and says so only on a run
-      // that writes the route, not on every run after.
-      const routePlan = plans.find((p) => p.f.rel === MATCH_ROUTE_SERVER_RELATIVE);
-      if (
-        kitMajor === "unreadable" &&
-        (routePlan?.action === "write" || routePlan?.action === "replace") &&
-        routePlan.template.includes(KIT2_DEV_IMPORT)
-      )
-        // No "; " inside: the CLI joins notes with it.
-        notes.push(
-          `package.json declares @sveltejs/kit as ${JSON.stringify(await readKitSpec(cwd))}, ` +
-            `a spec match-harness cannot read, so ${MATCH_ROUTE_SERVER_RELATIVE} imports ` +
-            `\`dev\` from $app/environment (kit 2) — on SvelteKit 3 change that line by hand to exactly ${KIT3_DEV_IMPORT}`,
-        );
 
       // PASS 2 — write.
       const demotedRels = new Set(demoted.map((p) => p.f.rel));

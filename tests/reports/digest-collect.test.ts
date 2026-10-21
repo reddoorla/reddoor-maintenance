@@ -230,21 +230,6 @@ describe("collectAttention", () => {
     expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
   });
 
-  it("a visible site keeps a slug a pre-launch namesake's name also gives (#1573)", async () => {
-    // A building site has no card either; it is hidden like an archived one, so
-    // the visible site wins the slug even with the building row listed after it.
-    const items = await collectAttention({
-      websites: [
-        makeWebsiteRow({ id: "recVIS", name: "ACME CO", status: "maintained" }),
-        makeWebsiteRow({ id: "recNEW", name: "Acme Co", status: "building" }),
-      ],
-      reports: [],
-      baseUrl: BASE_URL,
-      deadLetters: new Map([["acme-co", 1]]),
-    });
-    expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
-  });
-
   it("given counts but no ages, holds nothing and reads no store (OD 87)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {

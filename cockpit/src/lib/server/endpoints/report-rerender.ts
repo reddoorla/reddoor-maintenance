@@ -1,23 +1,18 @@
-import type { Context, Config } from "@netlify/functions";
-import { requireOperator, denialResponse } from "../../src/dashboard/index.js";
-import { triggerReportRerender } from "../../src/dashboard/trigger-rerender.js";
-import { getReportById } from "../../src/db/fleet-state.js";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { makeGitHubRest } from "../../src/github/gh-rest.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { isReportId } from "../../src/fleet/report-id.js";
+import type { Context } from "@netlify/functions";
+import { requireOperator, denialResponse } from "../../../../../src/dashboard/index.js";
+import { triggerReportRerender } from "../../../../../src/dashboard/trigger-rerender.js";
+import { getReportById } from "../../../../../src/db/fleet-state.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { makeGitHubRest } from "../../../../../src/github/gh-rest.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../../../../src/fleet/report-id.js";
 
 // "Refresh preview" for one report (#539 Phase 4). Dispatches
 // report-rerender.yml on THIS repo — the render needs sharp, which no function
 // bundles, so it runs where the real send renders.
 const SELF_REPO = "reddoorla/reddoor-maintenance";
 const RERENDER_WORKFLOW_FILE = "report-rerender.yml";
-
-export const config: Config = {
-  path: ["/api/reports/:id/rerender", "/.netlify/functions/report-rerender"],
-  rateLimit: { windowSize: 60, windowLimit: 20, aggregateBy: ["ip"] },
-};
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
