@@ -104,8 +104,8 @@ export function measureRing(
  *  paste, whether something else covers its centre, whether this element
  *  was focused before (the tab order has wrapped), and whether focus is
  *  inside a frame (not measured). A visually hidden input (a Tailwind
- *  `peer sr-only` radio) is measured by its label, where its ring is drawn.
- *  Runs IN THE PAGE (self-contained, no named helpers). */
+ *  `peer sr-only` radio) is measured where its ring is drawn: its label,
+ *  else the next element not hidden too, else its parent. Runs IN THE PAGE (self-contained, no named helpers). */
 export function describeFocus(): {
   target: string;
   rect: { x: number; y: number; width: number; height: number };
@@ -127,13 +127,16 @@ export function describeFocus(): {
   const own = el.getBoundingClientRect();
   const labels = (el as HTMLInputElement).labels;
   // Hidden inputs draw their ring elsewhere: on their label, else (the `peer`
-  // pattern) on the next element, else on their parent.
+  // pattern) on the next element that is not hidden too (an sr-only text span
+  // can sit between), else on their parent.
   if (own.width <= 2 || own.height <= 2) {
-    box =
-      (labels && labels.length > 0 ? labels[0] : null) ??
-      el.nextElementSibling ??
-      el.parentElement ??
-      el;
+    let next = el.nextElementSibling;
+    while (next) {
+      const nr = next.getBoundingClientRect();
+      if (nr.width > 2 && nr.height > 2) break;
+      next = next.nextElementSibling;
+    }
+    box = (labels && labels.length > 0 ? labels[0] : null) ?? next ?? el.parentElement ?? el;
   }
   const r = box.getBoundingClientRect();
   const cx = r.left + r.width / 2;
@@ -280,7 +283,6 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
       if (s.covered) {
         // Covered: the capture shows the cover, not the ring; one finding.
         add(width, s.target, `is under ${s.covered} when focused`);
-        if (s.ring !== null) measured += 1;
         continue;
       }
       if (s.ring === null) {

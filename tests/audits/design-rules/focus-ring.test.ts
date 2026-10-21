@@ -77,11 +77,13 @@ const PAGES: Record<string, string> = {
      .sr:focus-visible + label { outline: 3px solid #000; outline-offset: 2px; }`,
     `<main><section><input type="radio" name="r" id="r1" class="sr"><label for="r1">Weekly</label></section></main>`,
   ),
-  // a hidden checkbox with no <label>, its ring on the next element;
+  // hidden checkboxes with no <label>, the ring on the next element, once with
+  // an sr-only text span in between;
   "/peer-sibling": page(
     `.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); } .box { display: inline-block; padding: 8px; }
-     .sr:focus-visible + .box { outline: 3px solid #000; outline-offset: 2px; }`,
-    `<main><section><input type="checkbox" class="sr" aria-label="Weekly"><span class="box">Weekly</span></section></main>`,
+     .sr:focus-visible ~ .box { outline: 3px solid #000; outline-offset: 2px; }`,
+    `<main><section><input type="checkbox" class="sr" aria-label="Weekly"><span class="box">Weekly</span></section>
+     <section><input type="checkbox" class="sr" aria-label="Monthly"><span class="sr">Monthly plan</span><span class="box">Monthly</span></section></main>`,
   ),
   // a footer link under a fixed banner: covered, reported once;
   "/under-banner": page(
