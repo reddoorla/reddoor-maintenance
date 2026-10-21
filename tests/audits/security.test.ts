@@ -8,6 +8,12 @@ import type { DependabotAlert } from "../../src/github/gh-rest.js";
 import { advisoriesFromResult, hasSecurityCounts } from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
+/** A clean `pnpm audit --json` answer. */
+const CLEAN_PNPM = JSON.stringify({
+  metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } },
+  advisories: {},
+});
+
 function fakeSpawn(
   byCmd: Record<string, { code: number; stdout: string; stderr?: string }>,
 ): SpawnFn {
@@ -857,7 +863,9 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm11Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: fakeDependabot([actionAlert]),
-      spawn: fakeSpawn({}),
+      // A clean lockfile audit: the #1612 cross-check runs (the alert is on a workflow file) and
+      // agrees, so Dependabot's own result stands.
+      spawn: fakeSpawn({ pnpm: { code: 0, stdout: CLEAN_PNPM } }),
     });
     const details = result.details as { advisories: Array<{ lockfile?: boolean }> };
     expect(details.advisories.map((a) => a.lockfile)).toEqual([false]);
@@ -1456,8 +1464,265 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm11Lockfile }), gitRepo: "reddoorla/29-navy" },
       dependabotDeps: fakeDependabot([]),
-      spawn: fakeSpawn({}),
+      spawn: fakeSpawn({ pnpm: { code: 0, stdout: CLEAN_PNPM } }),
     });
     expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+});
+
+// #1612, from the P1-33 negative-control sweep: Dependabot answering `200 []` beside a lockfile
+// that pins minimist 1.2.0 read `pass "Dependabot: 0 alerts"`, while the same lockfile with
+// Dependabot 403 (or no git repo) read `fail 1C/0H/1M/0L`. The multi-document lockfile was the
+// only cross-check; an empty answer is now checked against the lockfile audit wherever it comes
+// from.
+describe("audits/security — an empty Dependabot answer does not outrank a vulnerable lockfile (#1612)", () => {
+  const minimistAudit = JSON.stringify({
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 1 } },
+    advisories: {
+      "1": {
+        module_name: "minimist",
+        severity: "critical",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+      },
+      "2": {
+        module_name: "minimist",
+        severity: "moderate",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+      },
+    },
+  });
+  const cleanAudit = JSON.stringify({
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } },
+    advisories: {},
+  });
+  const lockfile = ["lockfileVersion: '9.0'", "", "importers:", "", "  .: {}", ""].join("\n");
+  const site = () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), lockfile);
+    return { path: dir, gitRepo: "reddoorla/acme" };
+  };
+  /** A spawn that records each call, so a test can tell whether the lockfile audit ran. */
+  function recordingSpawn(byCmd: Record<string, { code: number; stdout: string }>) {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawn: SpawnFn = async (cmd, args) => {
+      calls.push({ cmd, args: [...args] });
+      return fakeSpawn(byCmd)(cmd, args);
+    };
+    return { spawn, calls };
+  }
+  const ghost: DependabotAlert = {
+    package: "lodash",
+    severity: "high",
+    summary: "a ghost",
+    cves: [],
+    url: null,
+    scope: "runtime",
+    relationship: null,
+    manifestPath: "old/package-lock.json",
+    ghsaId: null,
+  };
+
+  it("fails on the lockfile's critical when Dependabot answers 200 []", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+    expect((result.details as { counts: unknown }).counts).toEqual({
+      low: 0,
+      moderate: 1,
+      high: 0,
+      critical: 1,
+    });
+    expect(advisoriesFromResult(result).map((a) => [a.module, a.severity, a.lockfile])).toEqual([
+      ["minimist", "critical", true],
+      ["minimist", "moderate", true],
+    ]);
+  });
+
+  // The fake pnpm answers the same for --prod and every scope, so this pins only that the two
+  // paths read one pnpm answer alike; the scope itself is pinned by the next test.
+  it("reads the same counts as the Dependabot-403 fallback on the same pnpm answer", async () => {
+    const fallback = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot(new Error("GitHub GET dependabot/alerts failed (403)")),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    const empty = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    expect(fallback.status).toBe("fail");
+    expect((empty.details as { counts: unknown }).counts).toEqual(
+      (fallback.details as { counts: unknown }).counts,
+    );
+  });
+
+  it("audits every scope, as Dependabot's tallies do", async () => {
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    await securityAudit({ site: site(), dependabotDeps: fakeDependabot([]), spawn });
+    expect(calls).toEqual([{ cmd: "pnpm", args: ["audit", "--json"] }]);
+  });
+
+  it("keeps 'Dependabot: 0 alerts' when the lockfile audit agrees", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanAudit } }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  // Review round 2: writing Dependabot's 0 here cleared a lockfile critical a good night wrote,
+  // and reset the auto-fix counter, every night the registry flaked. As on the hidden-lockfile
+  // path (#1561), the skip stands and writes nothing.
+  it("skips, writing nothing, when the lockfile audit cannot run, and names Dependabot's answer", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({ error: { code: "ERR_PNPM_AUDIT_BAD_RESPONSE" } }),
+        },
+      }),
+    });
+    expect(result.status).toBe("skip");
+    expect(hasSecurityCounts(result)).toBe(false);
+    expect(result.summary).toMatch(
+      /^cannot run audit — .*; not written, as Dependabot's answer could not be checked against the lockfile: Dependabot: 0 alerts$/,
+    );
+  });
+
+  // Review round 3: neither audit reads yarn.lock, so a yarn-only repo skipped every night.
+  it("keeps Dependabot's answer, running nothing, when the only root lockfile is yarn.lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(dir, "yarn.lock"), 'minimist@1.2.0:\n  version "1.2.0"\n');
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    const result = await securityAudit({
+      site: { path: dir, gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([]),
+      spawn,
+    });
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("keeps Dependabot's answer, running nothing, when the repo has no root lockfile", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "package.json"), "{}");
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    const result = await securityAudit({
+      site: { path: dir, gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([]),
+      spawn,
+    });
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("warns on a moderate-only lockfile, as the 403 fallback does, not 'Dependabot: 0 alerts'", async () => {
+    const moderateOnly = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 0 } },
+      advisories: {
+        "2": {
+          module_name: "minimist",
+          severity: "moderate",
+          title: "Prototype Pollution in minimist",
+          url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+        },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: moderateOnly } }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/0H/1M/0L)");
+  });
+
+  it("never runs the lockfile audit when Dependabot reports a live alert on a root lockfile", async () => {
+    for (const manifestPath of ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]) {
+      const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: fakeDependabot([{ ...ghost, manifestPath }]),
+        spawn,
+      });
+      expect(calls).toEqual([]);
+      expect(result.summary).toBe("Dependabot: 1 alert(s) (0C/1H/0M/0L)");
+    }
+  });
+
+  // Review round 2: an alert on a nested lockfile or a package.json does not show the root
+  // lockfile was read (the graph falls back to package.json when it cannot parse one).
+  it("still cross-checks when the live alert is on a nested lockfile or a package.json", async () => {
+    for (const manifestPath of [
+      "functions/package-lock.json",
+      "netlify/functions/package.json",
+      "package.json",
+    ]) {
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: fakeDependabot([{ ...ghost, severity: "low", manifestPath }]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+      });
+      expect(result.status).toBe("fail");
+      expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (1C/0H/1M/1L)");
+    }
+  });
+
+  // Review round 1: a live alert on a workflow file says nothing about the npm tree. Before this,
+  // one Actions low switched the check off and the lockfile's critical stayed hidden.
+  it("still cross-checks when Dependabot's only live alert is on a workflow file", async () => {
+    const actions: DependabotAlert = {
+      ...ghost,
+      package: "actions/download-artifact",
+      severity: "low",
+      manifestPath: ".github/workflows/ci.yml",
+    };
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([actions]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (1C/0H/1M/1L)");
+  });
+
+  it("still cross-checks when the live alert names no manifest", async () => {
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([{ ...ghost, manifestPath: null }]),
+      spawn,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("cross-checks ghost alerts alone too: they are not live, and keep their own clause", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: {
+        listAlerts: async () => [ghost],
+        manifestExists: async () => false,
+      },
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L); 1 alert(s) on a manifest " +
+        "GitHub no longer tracks (old/package-lock.json) — dismiss as inaccurate",
+    );
   });
 });

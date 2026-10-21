@@ -331,10 +331,22 @@ describe("formatUnmeasuredSmokeSummary", () => {
   // FAIL this gate produces is worth acting on. A gate that has only ever fired is an
   // untested assertion — and the alarm it replaces could never fire at all.
   it("emits count=0 for a fleet where every site was measured", () => {
+    // A verdict is what counts as measured (#1611): a green or failed suite carries one,
+    // and a site with no suite is marked not applicable.
     const out = formatUnmeasuredSmokeSummary([
-      { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
-      { audit: "smoke", site: "sonder", summary: "smoke: suite failed (exit 1) — 1 failed" },
-      { audit: "smoke", site: "espada", summary: "no test:smoke script" },
+      {
+        audit: "smoke",
+        site: "caltex",
+        summary: "smoke: suite green",
+        details: { ok: "pass", checkedAt: "2026-10-21T06:43:00.000Z" },
+      },
+      {
+        audit: "smoke",
+        site: "sonder",
+        summary: "smoke: suite failed (exit 1) — 1 failed",
+        details: { ok: "fail", checkedAt: "2026-10-21T06:43:00.000Z" },
+      },
+      { audit: "smoke", site: "espada", summary: "no test:smoke script", notApplicable: true },
     ]);
     expect(out).toContain("FLEET_SMOKE_UNMEASURED count=0 sites=");
     expect(out).not.toContain("never measured");
@@ -342,12 +354,31 @@ describe("formatUnmeasuredSmokeSummary", () => {
 
   it("names each unmeasured site and counts them", () => {
     const out = formatUnmeasuredSmokeSummary([
-      { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
+      {
+        audit: "smoke",
+        site: "caltex",
+        summary: "smoke: suite green",
+        details: { ok: "pass", checkedAt: "2026-10-21T06:43:00.000Z" },
+      },
       { audit: "smoke", site: "reddoor", summary: `${SMOKE_UNMEASURED_PREFIX} — budget` },
       { audit: "smoke", site: "beachfront-dentistry", summary: `${SMOKE_UNMEASURED_PREFIX} — x` },
     ]);
     expect(out).toContain("FLEET_SMOKE_UNMEASURED count=2 sites=reddoor,beachfront-dentistry");
     expect(out).toContain("2 site(s) never measured");
+  });
+
+  it("a result whose details carry no checkedAt is not a verdict, as the write-back reads it", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "caltex", summary: "smoke: odd", details: { ok: "pass" } },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=caltex");
+  });
+
+  it("counts a skip whose pnpm was unavailable: the site has a suite and nothing ran", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "espada", summary: "pnpm not available" },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=espada");
   });
 
   it("ignores non-smoke audits sharing the pool", () => {

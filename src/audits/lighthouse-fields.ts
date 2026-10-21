@@ -5,7 +5,12 @@ import type { LighthouseScoreWriteback } from "../reports/types.js";
 import type { FailingAudit } from "./lighthouse.js";
 import { siteSlug } from "../fleet/site-row.js";
 
-const LIGHTHOUSE_CATEGORIES = ["performance", "accessibility", "best-practices", "seo"] as const;
+export const LIGHTHOUSE_CATEGORIES = [
+  "performance",
+  "accessibility",
+  "best-practices",
+  "seo",
+] as const;
 
 /**
  * True when the result carries real lighthouse scores worth persisting.
@@ -27,6 +32,20 @@ export function hasRealScores(result: AuditResult): boolean {
   const summary = details.summary ?? {};
   return LIGHTHOUSE_CATEGORIES.some(
     (k) => typeof summary[k] === "number" && !Number.isNaN(summary[k]),
+  );
+}
+
+/** The categories a scored lighthouse result is missing (#1609): NO_LCP nulls the whole
+ *  performance category, and the scores that did arrive are still written, but a category
+ *  missing on more than a quarter of the fleet is a measurement that broke, so the fleet
+ *  write gate counts each one as `lighthouse.<category>`. Empty for an unscored result,
+ *  which is filed as a lighthouse miss instead. */
+export function missingLighthouseCategories(result: AuditResult): string[] {
+  if (!hasRealScores(result)) return [];
+  const details = (result.details ?? {}) as { summary?: Record<string, number> };
+  const summary = details.summary ?? {};
+  return LIGHTHOUSE_CATEGORIES.filter(
+    (k) => typeof summary[k] !== "number" || Number.isNaN(summary[k]),
   );
 }
 

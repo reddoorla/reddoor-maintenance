@@ -96,23 +96,26 @@ export async function screenOutTotalsForSite(
   siteId: string,
   sinceDate: string,
 ): Promise<ScreenOutTotals> {
-  const bucket = await db
-    .selectFrom("spam_screenouts")
-    .select((eb) => [
-      eb.fn.sum<number>("honeypot").as("honeypot"),
-      eb.fn.sum<number>("too_fast").as("too_fast"),
-    ])
-    .where("site_id", "=", siteId)
-    .where("date", ">=", sinceDate)
-    .executeTakeFirst();
-
-  const marked = await db
-    .selectFrom("submissions")
-    .select((eb) => eb.fn.countAll<number>().as("marked_spam"))
-    .where("site_id", "=", siteId)
-    .where("status", "=", "spam")
-    .where("submitted_at", ">=", sinceDate)
-    .executeTakeFirst();
+  // Independent, so issued together: one round trip on a `concurrentReads` Db
+  // (the site page's), and either failing still fails the whole read.
+  const [bucket, marked] = await Promise.all([
+    db
+      .selectFrom("spam_screenouts")
+      .select((eb) => [
+        eb.fn.sum<number>("honeypot").as("honeypot"),
+        eb.fn.sum<number>("too_fast").as("too_fast"),
+      ])
+      .where("site_id", "=", siteId)
+      .where("date", ">=", sinceDate)
+      .executeTakeFirst(),
+    db
+      .selectFrom("submissions")
+      .select((eb) => eb.fn.countAll<number>().as("marked_spam"))
+      .where("site_id", "=", siteId)
+      .where("status", "=", "spam")
+      .where("submitted_at", ">=", sinceDate)
+      .executeTakeFirst(),
+  ]);
 
   return {
     honeypot: Number(bucket?.honeypot) || 0,

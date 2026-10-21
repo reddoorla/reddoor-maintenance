@@ -120,6 +120,17 @@ export async function runProtectionAuditCommand(
   lines.push(renovateOutcomeSummary(measured));
   lines.push(rulesetBypassSummary(rows));
   lines.push(packageManagerPinSummary(pinRows));
+  // A sweep that judged no repo verified nothing (#1612: an org listing that
+  // returned `200 []` printed `gaps=0 … total=0` and exited 0). That is
+  // unmeasured, never clean, so it prints no `PROTECTION_AUDIT gaps=0 ` line,
+  // the one fleet-security's close step reads as a verified clean sweep.
+  if (gaps.length + covered.length === 0) {
+    lines.push(
+      `PROTECTION_AUDIT_UNMEASURED covered=0 gaps=0 skipped=${skipped.length} total=${rows.length} — ` +
+        `the org listing gave no public, unarchived repo to verify, so nothing was checked`,
+    );
+    return { output: lines.join("\n"), code: 1 };
+  }
   lines.push(
     `PROTECTION_AUDIT gaps=${gaps.length} covered=${covered.length} skipped=${skipped.length} total=${rows.length}`,
   );
