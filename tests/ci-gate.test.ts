@@ -48,7 +48,9 @@ describe("the CI workflow and `pnpm verify` are one gate", () => {
 
   it("verify covers every gate, including the ones a local run tends to skip", () => {
     const steps = verifySteps();
-    for (const gate of ["pnpm typecheck", "pnpm test:dist"]) {
+    // cockpit:build is the dashboard site's production bundle, which netlify.toml builds;
+    // without it here only a deploy preview would catch a bundle-time break (#1577).
+    for (const gate of ["pnpm typecheck", "pnpm test:dist", "pnpm cockpit:build"]) {
       expect(steps).toContain(gate);
     }
   });
