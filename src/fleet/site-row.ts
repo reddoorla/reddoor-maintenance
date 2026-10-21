@@ -285,14 +285,27 @@ export type WebsiteRow = {
    * looking at this" would render as "this is fine". An expiry means the worst
    * case is a silence that ends by itself.
    *
-   * Narrow by construction — it mutes only `fail`, the finding the operator
-   * actually reviewed. `unknown` (the check could not run) and a verdict too old
-   * to be current are never muted by it; see `collectPrismicDriftAlerts`.
+   * Narrow by construction — it mutes only a `fail` whose drift report is the
+   * one in {@link WebsiteRow.prismicAckDrift}, the finding the operator actually
+   * reviewed. A new or changed finding on the same site rings again (#1608).
+   * `unknown` (the check could not run) and a verdict too old to be current are
+   * never muted by it; see `collectPrismicDriftAlerts`.
    *
    * OPERATOR PRECONDITION: `Prismic Ack Until` is a dateTime column. Until it
    * exists this reads null and nothing is acked, which is the safe direction.
    */
   prismicAckUntil: string | null;
+  /**
+   * The finding {@link WebsiteRow.prismicAckUntil} accepts: the
+   * `prismicModelsDrift` report as it read when the operator set the ack, copied
+   * in the same UPDATE (`SET prismic_ack_until = …, prismic_ack_drift =
+   * prismic_models_drift`). The ack mutes only while tonight's report is this
+   * text (line endings and surrounding blank space aside), so a field dropped
+   * from another model on an acked site still reaches the digest (#1608). Null
+   * or blank covers nothing: an ack that cannot say what it accepted accepts
+   * nothing, which is the safe direction for every ack set before #1608.
+   */
+  prismicAckDrift: string | null;
   /** Does the roster `url` resolve (`roster-urls`, #912)? `pass` = a final 2xx;
    *  `fail` = anything else; null = blank url or never probed. Every
    *  non-archived row is probed, whatever its status. */

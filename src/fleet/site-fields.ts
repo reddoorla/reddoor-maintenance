@@ -166,6 +166,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     prismicModelsCheckedAt: (f["Prismic Models Checked At"] as string | undefined) ?? null,
     prismicModelsDrift: (f["Prismic Models Drift"] as string | undefined) ?? null,
     prismicAckUntil: (f["Prismic Ack Until"] as string | undefined) ?? null,
+    prismicAckDrift: (f["Prismic Ack Drift"] as string | undefined) ?? null,
     urlResolves: toVerdict(f["URL Resolves"]),
     urlStatus: (f["URL Status"] as string | undefined) ?? null,
     urlCheckedAt: (f["URL Checked At"] as string | undefined) ?? null,

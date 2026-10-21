@@ -688,6 +688,28 @@ export function prismicAckIsLive(ackUntil: string | null, now: Date): boolean {
   return until > now.getTime();
 }
 
+/** A drift report as a comparable identity: line endings and the blank space
+ *  around the whole report are not part of the finding. */
+const driftIdentity = (report: string): string => report.replace(/\r\n?/g, "\n").trim();
+
+/**
+ * Does a live ack accept THIS `fail` — the report the operator reviewed, and not
+ * a later finding on the same site (#1608)? The whole report is the identity.
+ * Matching line by line would mute a dropped field whose line also appears under
+ * another model in the acked text; the report's lines are not self-describing.
+ * A changed report rings, including one that only lost a line: the operator
+ * re-acks with one UPDATE, and a noisy item is the recoverable direction.
+ */
+export function prismicAckCovers(
+  site: Pick<WebsiteRow, "prismicAckUntil" | "prismicAckDrift" | "prismicModelsDrift">,
+  now: Date,
+): boolean {
+  if (!prismicAckIsLive(site.prismicAckUntil, now)) return false;
+  const acked = site.prismicAckDrift === null ? "" : driftIdentity(site.prismicAckDrift);
+  if (acked === "") return false;
+  return site.prismicModelsDrift !== null && driftIdentity(site.prismicModelsDrift) === acked;
+}
+
 export function collectPrismicDriftAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -748,8 +770,9 @@ export function collectPrismicDriftAlerts(
     // The operator has reviewed THIS divergence and accepted it until a date they
     // set — see `WebsiteRow.prismicAckUntil`. Reached only on `fail`: the `unknown`
     // and staleness branches above have already returned, so an ack can never mute
-    // "the check could not run" or "nobody has re-established this".
-    if (prismicAckIsLive(s.prismicAckUntil, now)) continue;
+    // "the check could not run" or "nobody has re-established this". And only this
+    // report: a new finding on an acked site rings (#1608).
+    if (prismicAckCovers(s, now)) continue;
 
     items.push({
       key: `prismic-drift:${s.id}`,

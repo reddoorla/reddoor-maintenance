@@ -52,6 +52,7 @@ describe("runMigrations", () => {
       "0043_reports_send_started_at",
       "0044_deadletter_slug_received_index",
       "0045_drop_deadletter_slug_unreplayed_index",
+      "0047_sites_prismic_ack_drift",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -115,6 +116,7 @@ describe("runMigrations", () => {
       "0043_reports_send_started_at",
       "0044_deadletter_slug_received_index",
       "0045_drop_deadletter_slug_unreplayed_index",
+      "0047_sites_prismic_ack_drift",
     ]);
   });
 
@@ -182,6 +184,7 @@ describe("runMigrations", () => {
       "0043_reports_send_started_at",
       "0044_deadletter_slug_received_index",
       "0045_drop_deadletter_slug_unreplayed_index",
+      "0047_sites_prismic_ack_drift",
     ]);
   });
 
@@ -252,6 +255,7 @@ describe("runMigrations", () => {
       "0043_reports_send_started_at",
       "0044_deadletter_slug_received_index",
       "0045_drop_deadletter_slug_unreplayed_index",
+      "0047_sites_prismic_ack_drift",
     ]);
   });
 });

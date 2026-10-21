@@ -652,4 +652,12 @@ export const MIGRATIONS: Migration[] = [
     id: "0045_drop_deadletter_slug_unreplayed_index",
     sql: `DROP INDEX IF EXISTS idx_deadletter_slug_unreplayed;`,
   },
+  {
+    // #1608: the Prismic drift report an ack accepts, copied from
+    // prismic_models_drift when the ack is set. The ack mutes only that finding;
+    // NULL covers nothing. 0046 is #1654's (site_health.security_lockfile_audit),
+    // landing separately; ids are an applied-set, so either order is safe.
+    id: "0047_sites_prismic_ack_drift",
+    sql: `ALTER TABLE sites ADD COLUMN prismic_ack_drift TEXT;`,
+  },
 ];
