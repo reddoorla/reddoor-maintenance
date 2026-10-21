@@ -560,8 +560,10 @@ describe("the close step closes only on evidence", () => {
     expect(r2.calls.filter((c) => c.sub === "edit")).toEqual([]);
     expect(r2.calls.filter((c) => c.sub === "comment").map((c) => c.args[0])).toEqual(["950"]);
     expect(r2.out).toContain("::warning::could not read the body of #950");
-    // The kept body still names espada, so a night where revogen delivers
-    // and espada is still unmeasured does not close it.
+    // With no edit, the issue keeps night 1's body (the fixture, since the
+    // stub stores nothing). That body names espada, so a night where revogen
+    // delivers and espada is still unmeasured does not close it. The fix
+    // itself is proved by the no-edit assertion above.
     const s3 = await sweep([
       { name: "espada", window: FROZEN, probeThrows: true },
       { name: "revogen", window: HEALTHY },
