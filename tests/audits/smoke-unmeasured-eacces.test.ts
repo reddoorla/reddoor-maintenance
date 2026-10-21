@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, onTestFinished } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, writeFile, chmod, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, chmod, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -29,12 +29,14 @@ vi.mock("../../src/audits/util/spawn.js", async (orig) => {
 });
 
 const { runOneAudit } = await import("../../src/audits/index.js");
+const { runAuditCommand } = await import("../../src/cli/commands/audit.js");
 const { formatUnmeasuredSmokeSummary, isUnmeasuredSmoke } =
   await import("../../src/audits/smoke.js");
 const { stepRunScript, workflowPath } = await import("../build/_helpers/workflow-source.js");
 
 async function siteWithSuite(): Promise<{ name: string; path: string }> {
   const dir = await mkdtemp(join(tmpdir(), "smoke-eacces-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
   await writeFile(
     join(dir, "package.json"),
     JSON.stringify({ name: "acme", scripts: { "test:smoke": "playwright test" } }),
@@ -55,18 +57,32 @@ describe("#1611: a smoke spawn that throws EACCES is unmeasured", () => {
     );
   });
 
-  it("reds fleet-smoke.yml's never-measured check, naming the site", async () => {
-    const r = await runOneAudit(await siteWithSuite(), "smoke");
+  it("the CLI's own output reds fleet-smoke.yml's never-measured check, naming the site", async () => {
+    // Through runAuditCommand, the entry point the nightly runs: a JSON fleet of one
+    // site whose suite spawn throws EACCES. No write-back, so no store is needed; the
+    // unmeasured line prints for any fleet sweep that ran smoke.
+    const site = await siteWithSuite();
+    const dir = await mkdtemp(join(tmpdir(), "smoke-eacces-wf-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(join(dir, "fleet.json"), JSON.stringify([site]));
+    const { output } = await runAuditCommand(undefined, {
+      fleet: join(dir, "fleet.json"),
+      only: "smoke",
+      workdir: join(dir, "work"),
+      cwd: dir,
+    });
+    expect(output).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=acme");
+
     const step = stepRunScript(
       await readFile(workflowPath("fleet-smoke.yml"), "utf-8"),
       "Fleet smoke suite + write-back",
     );
-    const dir = await mkdtemp(join(tmpdir(), "smoke-eacces-wf-"));
     await mkdir(join(dir, "bin"));
-    // Only what the never-measured check reads; it runs before the write gate.
+    // The never-measured check runs before the write gate, so a summary line is all
+    // the write half needs here.
     await writeFile(
       join(dir, "canned.txt"),
-      `FLEET_WRITE_SUMMARY wrote=0 failed=1 total=1\n${formatUnmeasuredSmokeSummary([r])}\n`,
+      `${output}\nFLEET_WRITE_SUMMARY wrote=0 failed=1 total=1\n`,
     );
     await writeFile(
       join(dir, "bin", "node"),

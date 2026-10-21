@@ -374,6 +374,13 @@ describe("formatUnmeasuredSmokeSummary", () => {
     expect(out).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=caltex");
   });
 
+  it("counts a skip whose pnpm was unavailable: the site has a suite and nothing ran", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "espada", summary: "pnpm not available" },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=espada");
+  });
+
   it("ignores non-smoke audits sharing the pool", () => {
     const out = formatUnmeasuredSmokeSummary([
       { audit: "lighthouse", site: "caltex", summary: `${SMOKE_UNMEASURED_PREFIX} — decoy` },

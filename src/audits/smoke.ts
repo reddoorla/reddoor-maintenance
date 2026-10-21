@@ -39,10 +39,10 @@ export const SMOKE_UNMEASURED_PREFIX = "smoke: NOT MEASURED";
 
 /** True when a smoke audit never reached a verdict.
  *
- *  Deliberately distinct from {@link hasSmokeResult}: an unmeasured run carries no
- *  `details`, so the write-back already preserves the prior verdict rather than
- *  recording a false fail. That is correct — and it is also why nothing surfaced it.
- *  This predicate is what makes it visible to CI.
+ *  The negation of {@link hasSmokeResult}, the write-back's own test: an unmeasured
+ *  run carries no `details`, so the write-back preserves the prior verdict rather
+ *  than recording a false fail. That is correct — and it is also why nothing
+ *  surfaced it. This predicate is what makes it visible to CI.
  *
  *  Any smoke result without a verdict counts, not only the timeout's
  *  `NOT MEASURED` prefix (#1611): a spawn that throws (`EACCES`) comes back from
@@ -177,7 +177,8 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  * immune to a zombie-vite squatting 5173 (see free-port.ts).
  *
  * A site that hasn't adopted `test:smoke` yet (no script, or no package.json) →
- * skip (R3.2), same bucket as `pnpm` itself being unavailable. exit 0 → pass;
+ * skip (R3.2), marked not applicable; `pnpm` itself being unavailable is also a
+ * skip, but an unmeasured one (#1611), since the site has a suite. exit 0 → pass;
  * non-zero → fail (only reached once the suite is known to exist). A skip never
  * carries details, so the write-back preserves the prior verdict.
  *
