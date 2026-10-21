@@ -64,7 +64,7 @@ describe("missingLighthouseCategories", () => {
     expect(missingLighthouseCategories(lh("a", summary))).toEqual([k]);
   });
 
-  it("checks all four categories", () => {
+  it("the category list is the four Lighthouse categories", () => {
     expect([...LIGHTHOUSE_CATEGORIES]).toEqual([
       "performance",
       "accessibility",
@@ -137,6 +137,29 @@ describe("#1609: a fleet-wide missing performance score is red", () => {
     );
   });
 
+  it("a slug pooling an unscored then a scored result is a miss, not an applicable site", async () => {
+    // Two roster rows share slug site-7 and pool into one group; the planner reads the
+    // first lighthouse result (unscored), so site-7 is filed as a lighthouse miss and
+    // must not count in the categories' denominator: 2 of 7, red, not 2 of 8.
+    const slugs = Array.from({ length: 8 }, (_, i) => `site-${i}`);
+    const results = slugs.flatMap((s, i) =>
+      i === 7 ? [lh(s, {}), lh(s, full)] : [lh(s, i < 2 ? noLcp : full)],
+    );
+    const result = await writeFleetAudits({
+      websites: websiteRowsFrom(
+        slugs.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+      ),
+      results,
+      mirror: async () => true,
+      expectedSites: slugs,
+    });
+    expect(result.failed.map((f) => f.slug)).toEqual(["site-7"]);
+    expect(result.applicableAudits?.["lighthouse.performance"]).toHaveLength(7);
+    expect(fleetWriteGate(result).reasons).toContain(
+      "lighthouse.performance missing on 2 of 7 site(s): site-0, site-1 (>25%)",
+    );
+  });
+
   it("two categories missing fleet-wide give two reasons", async () => {
     const { result } = await sweep(4, () => ({ performance: 0.9, accessibility: 1 }));
     const reasons = fleetWriteGate(result).reasons;
@@ -157,7 +180,7 @@ describe("#1609: a fleet-wide missing performance score is red", () => {
     expect(reasons.some((r) => r.startsWith("browser measured nothing on 4 of 4"))).toBe(true);
   });
 
-  it("a missing category is counted whether or not the site's write landed", async () => {
+  it("a missing category is counted even when the site's row update matched nothing", async () => {
     // 4 of 10 NO_LCP; 2 of those 4 have no site_health row. Measured is measured.
     const { result } = await sweep(10, (i) => (i < 4 ? noLcp : full), {
       mirrorOk: (i) => i !== 0 && i !== 1,

@@ -89,6 +89,8 @@ export type AuditWritePlan = {
   /** Lighthouse categories missing from scores that otherwise landed, as
    *  `lighthouse.<category>` (#1609). Their written cells are null; the gate counts them. */
   missingCategories: string[];
+  /** Lighthouse ran and its scores landed: the denominator for each category's share. */
+  lighthouseScored: boolean;
 };
 
 /** The audits whose results land in `site_health`. An audit outside this set (lint) has
@@ -264,6 +266,7 @@ export function planAuditWrite(args: {
       lhResult && lhHasScores
         ? missingLighthouseCategories(lhResult).map((c) => `lighthouse.${c}`)
         : [],
+    lighthouseScored: lhHasScores,
   };
 }
 
@@ -514,8 +517,9 @@ export async function writeFleetAudits(args: {
     const { summary } = plan;
     for (const u of plan.unmeasured) note(unmeasuredAudits, u.audit, slug);
     for (const c of plan.missingCategories) note(unmeasuredAudits, c, slug);
-    // A category applies wherever lighthouse scored at all; an unscored site is a miss.
-    if (siteResults.some((r) => r.audit === "lighthouse" && hasRealScores(r))) {
+    // A category applies wherever lighthouse scored; an unscored site is a miss. Read
+    // off the plan, so a slug pooling two results is judged by the one that was written.
+    if (plan.lighthouseScored) {
       for (const c of LIGHTHOUSE_CATEGORIES) {
         note(applicableAudits, `lighthouse.${c}`, slug);
       }
