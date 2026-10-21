@@ -13,6 +13,8 @@ jobs:
   burst:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      N: 50
     steps:
       - name: Burst from one IP
         shell: bash
@@ -28,7 +30,7 @@ jobs:
             echo "egress IP before: $(ip)"
             echo "start $(date -u +%H:%M:%S.%N)"
             : > codes.txt
-            for i in $(seq 1 80); do
+            for i in $(seq 1 ${N:-80}); do
               code=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
               printf '%s %02d %s\n' "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$i" "$code"
               echo "$code" >> codes.txt
@@ -41,6 +43,9 @@ jobs:
             curl -sS -D - -o /dev/null "$url" | grep -iv '^set-cookie'
             echo
           }
-          burst page https://reddoor-maintenance.netlify.app/fleet 60
+          # Run 2: the two lowest-sorted functions whose GET is harmless. If
+          # Netlify keeps only the Pro plan's 5 code-based rules, these are
+          # the likeliest survivors (approve-report sorts first).
+          burst approve https://reddoor-maintenance.netlify.app/api/reports/probe/approve 30
           echo "--- 65 s pause so the windows do not overlap"; sleep 65
-          burst api https://reddoor-maintenance.netlify.app/api/sites/probe/details 30
+          burst auth https://reddoor-maintenance.netlify.app/auth/login 30
