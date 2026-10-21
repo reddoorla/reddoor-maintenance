@@ -764,6 +764,7 @@ case "$1 $2" in
   "issue list") [ -n "\${GH_EXISTING:-}" ] && echo "$GH_EXISTING"; exit 0 ;;
   "issue edit") [ -n "\${GH_FAIL_EDIT:-}" ] && exit 1; exit 0 ;;
   "issue comment") [ -n "\${GH_FAIL_COMMENT:-}" ] && exit 1; exit 0 ;;
+  "issue view") exit 0 ;;
   "issue create") exit 0 ;;
 esac
 exit 1

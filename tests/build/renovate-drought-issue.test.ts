@@ -132,6 +132,7 @@ if (group === "issue" && sub === "list") {
   process.exit(0);
 }
 if (group === "issue" && sub === "view") {
+  if (process.env.GH_FAIL_VIEW) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
   const found = issues.find((r) => r.number === Number(rest[0]));
   if (!found) { process.stderr.write("no such issue\\n"); process.exit(1); }
   const fields = (flag("--json") ?? "body").split(",");
@@ -154,6 +155,7 @@ async function runStep(opts: {
   step: string;
   sweep: string;
   corpus?: Issue[];
+  env?: Record<string, string>;
 }): Promise<{ code: number; out: string; calls: Call[]; outputs: Record<string, string> }> {
   const wf = await readFile(workflowPath(WF), "utf-8");
   const script = stepRunScript(wf, opts.step).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
@@ -174,6 +176,7 @@ async function runStep(opts: {
     GITHUB_OUTPUT: join(dir, "github-output"),
     GH_STUB_CORPUS: join(dir, "corpus.json"),
     GH_STUB_LOG: join(dir, "gh.log"),
+    ...opts.env,
   };
   let code = 0;
   let out: string;
@@ -536,6 +539,35 @@ describe("the close step closes only on evidence", () => {
     const r3 = await runStep({ step: CLOSE_STEP, sweep: s3.output, corpus: corpus([night2]) });
     expect(r3.calls.filter((c) => c.sub === "close")).toEqual([]);
     expect(r3.out).toContain("did not see deliver: reddoorla/espada");
+  });
+
+  it("keeps the body, warns and still comments when the existing body cannot be read", async () => {
+    const night1: Issue = {
+      number: 950,
+      title: "Renovate drought: espada",
+      body: await openedBody([{ name: "espada", window: FROZEN }]),
+    };
+    const s2 = await sweep([
+      { name: "espada", window: FROZEN, probeThrows: true },
+      { name: "revogen", window: FROZEN },
+    ]);
+    const r2 = await runStep({
+      step: OPEN_STEP,
+      sweep: s2.output,
+      corpus: corpus([night1]),
+      env: { GH_FAIL_VIEW: "1" },
+    });
+    expect(r2.calls.filter((c) => c.sub === "edit")).toEqual([]);
+    expect(r2.calls.filter((c) => c.sub === "comment").map((c) => c.args[0])).toEqual(["950"]);
+    expect(r2.out).toContain("::warning::could not read the body of #950");
+    // The kept body still names espada, so a night where revogen delivers
+    // and espada is still unmeasured does not close it.
+    const s3 = await sweep([
+      { name: "espada", window: FROZEN, probeThrows: true },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r3 = await runStep({ step: CLOSE_STEP, sweep: s3.output, corpus: corpus([night1]) });
+    expect(r3.calls.filter((c) => c.sub === "close")).toEqual([]);
   });
 
   it("a named repo that delivered is not carried into the rewritten body", async () => {
