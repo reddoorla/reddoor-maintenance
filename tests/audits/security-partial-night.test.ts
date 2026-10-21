@@ -31,7 +31,14 @@ type PnpmAdvisory = Record<string, unknown>;
 type Pnpm = { advisories: PnpmAdvisory[]; metadata?: Record<string, number> };
 /** One night: Dependabot's open alerts (or its API failing), whether pnpm audit runs, and what
  *  it answers when it does (the scenario's answer unless the night names its own). */
-type Night = { alerts: DependabotAlert[] | Error; pnpm: "runs" | "fails"; answer?: Pnpm };
+type Night = {
+  alerts: DependabotAlert[] | Error;
+  pnpm: "runs" | "fails";
+  answer?: Pnpm;
+  /** The site's package.json from tonight on, and whether it is now a workspace. */
+  packageJson?: object;
+  workspace?: boolean;
+};
 
 const alert = (over: Partial<DependabotAlert>): DependabotAlert => ({
   package: "actions/checkout",
@@ -77,6 +84,9 @@ async function run(
   if (opts.packageJson) writeFileSync(join(dir, "package.json"), JSON.stringify(opts.packageJson));
   const rows: WebsiteRow[] = [];
   for (const night of nights) {
+    if (night.packageJson)
+      writeFileSync(join(dir, "package.json"), JSON.stringify(night.packageJson));
+    if (night.workspace) writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n");
     const result = await securityAudit({
       site: { path: dir, gitRepo: "reddoorla/acme" },
       dependabotDeps: {
@@ -493,6 +503,51 @@ describe("cross-check with a clean stored answer (#1654 review round 2)", () => 
       { advisories: [] },
       { lockfile: ONE_DOCUMENT },
     );
+  });
+});
+
+// Review round 4: the stored result carried each advisory's relationship, which a full night
+// works out from tonight's package.json; a partial night kept the stored night's, so a package
+// that became a direct dependency stayed "transitive" and muted the auto-fix escalation.
+describe("tonight's package.json decides relationship (#1654 review round 4)", () => {
+  const lodashHigh = {
+    module_name: "lodash",
+    severity: "high",
+    title: "lodash proto",
+    url: "https://github.com/advisories/GHSA-llll-llll-0001",
+  };
+
+  it("a package that became a direct dependency reads direct on a partial night", async () => {
+    const [v] = await expectPartialNightsReadAsFull(
+      [
+        { ...full([]), packageJson: { dependencies: { express: "^4" } } },
+        { ...partialPlus([]), packageJson: { dependencies: { express: "^4", lodash: "^4" } } },
+      ],
+      { advisories: [lodashHigh] },
+    );
+    expect(v!.advisories).toContain("lodash:high:direct:-");
+  });
+
+  it("a site that became a workspace carries no relationship, as a full night writes it", async () => {
+    const [v] = await expectPartialNightsReadAsFull(
+      [
+        { ...full([]), packageJson: { dependencies: { express: "^4" } } },
+        { ...partialPlus([]), workspace: true },
+      ],
+      { advisories: [lodashHigh] },
+    );
+    expect(v!.advisories).toContain("lodash:high:-:-");
+  });
+
+  it("the stored result keeps no relationship", async () => {
+    const [row] = await run(
+      [full([])],
+      { advisories: [lodashHigh] },
+      {
+        packageJson: { dependencies: { lodash: "^4" } },
+      },
+    );
+    expect(row!.securityLockfileAudit!.advisories[0]).not.toHaveProperty("relationship");
   });
 });
 

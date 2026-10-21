@@ -470,7 +470,9 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         // so they are written only merged with pnpm's own last result, which the row stores
         // (#1654): `planAuditWrite` runs the same mergeAudits a full night does. That holds with
         // no live alert too: a Dependabot alert closed since the last full night must drop out.
-        return partialResult(viaDependabot, viaLockfile);
+        return partialResult(viaDependabot, viaLockfile, {
+          direct: await directDependencies(site.path),
+        });
       }
     }
   }
@@ -501,7 +503,10 @@ async function crossCheckDependabot(
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
   const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
   if (viaLockfile.status === "skip")
-    return partialResult(viaDependabot, viaLockfile, { crossCheck: true });
+    return partialResult(viaDependabot, viaLockfile, {
+      crossCheck: true,
+      direct: await directDependencies(dir),
+    });
   // pnpm ran over every scope and found nothing: that clean answer is the one to store.
   if (!hasLiveCounts(viaLockfile))
     return withLockfileAudit(viaDependabot, lockfileViewOf(viaLockfile));
@@ -510,6 +515,19 @@ async function crossCheckDependabot(
       `${viaLockfile.summary} — adding pnpm audit to Dependabot`,
   );
   return mergeAudits(viaLockfile, viaDependabot);
+}
+
+/** The lockfile audit's advisories with their relationship from the site's own `package.json`
+ *  as it reads tonight: "direct" for a package it names, "transitive" otherwise, and none when
+ *  it cannot be read or the site is a workspace. Shared by a full night and a partial night's
+ *  rebuild (#1654 review round 4: a stored relationship outlived a `package.json` change). */
+function withRelationships(
+  advisories: AdvisoryEntry[],
+  direct: Set<string> | null,
+): AdvisoryEntry[] {
+  return advisories.map(({ relationship: _r, ...a }): AdvisoryEntry =>
+    direct ? { ...a, relationship: direct.has(a.module) ? "direct" : "transitive" } : a,
+  );
 }
 
 /** True when the repo root holds a lockfile the lockfile audit can read. */
@@ -533,7 +551,7 @@ async function hasRootLockfile(dir: string): Promise<boolean> {
 function partialResult(
   viaDependabot: AuditResult,
   viaLockfile: AuditResult,
-  opts: { crossCheck?: boolean } = {},
+  opts: { crossCheck?: boolean; direct: Set<string> | null },
 ): AuditResult {
   // The caveat qualifies the live count, so it goes before any ghost clause (#1641).
   const [live, ...rest] = viaDependabot.summary.split("; ");
@@ -549,6 +567,9 @@ function partialResult(
       // On #1612's cross-check a full night merges only when pnpm finds something; the write
       // follows the same rule (mergeWithStoredLockfileAudit).
       ...(opts.crossCheck ? { crossCheck: true } : {}),
+      // Tonight's direct dependencies, so the rebuilt pnpm side takes the relationship a full
+      // night would give it (withRelationships), not the stored night's.
+      directDependencies: opts.direct ? [...opts.direct] : null,
     },
   };
 }
@@ -557,12 +578,14 @@ function partialResult(
  *  the row, so a night the lockfile audit cannot run can rebuild it. */
 export type LockfileAuditView = { counts: Counts; advisories: AdvisoryEntry[] };
 
-/** pnpm's own result, as a lockfile audit reported it. */
+/** pnpm's own result, as a lockfile audit reported it. Without relationship: that comes from
+ *  the site's `package.json` on the night it is read, never from a stored night
+ *  (withRelationships, #1654 review round 4). */
 function lockfileViewOf(viaLockfile: AuditResult): LockfileAuditView {
   const lock = viaLockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
   return {
     counts: { ...lock.counts },
-    advisories: lock.advisories.map(({ lockfile: _l, ...a }) => a),
+    advisories: lock.advisories.map(({ lockfile: _l, relationship: _r, ...a }) => a),
   };
 }
 
@@ -585,17 +608,20 @@ export function mergeWithStoredLockfileAudit(
   // night writes Dependabot's result as it is, one count per alert. So does a partial night on
   // a clean stored answer (#1654 review round 2: two alerts on one advisory counted 2 on a full
   // night and 1 on a partial one).
-  const crossCheck = (partial.details as { crossCheck?: boolean }).crossCheck === true;
-  if (crossCheck && !Object.values(stored.counts).some((n) => n > 0)) return partial;
+  const { crossCheck, directDependencies: direct } = partial.details as {
+    crossCheck?: boolean;
+    directDependencies?: string[] | null;
+  };
+  if (crossCheck === true && !Object.values(stored.counts).some((n) => n > 0)) return partial;
   const merged = mergeAudits(
     {
       audit: "security",
       site: partial.site,
       status: "skip",
-      summary: "pnpm audit (stored):",
+      summary: "pnpm audit:",
       details: {
         counts: { ...stored.counts },
-        advisories: stored.advisories.map((a) => ({ ...a })),
+        advisories: withRelationships(stored.advisories, direct ? new Set(direct) : null),
       },
     },
     partial,
@@ -654,11 +680,9 @@ async function lockfileAudit(
     critical: parsed.metadata?.vulnerabilities?.critical ?? 0,
   };
 
-  const direct = await directDependencies(dir);
-  const advisories = (
-    used === "pnpm audit" ? extractAdvisoriesFromPnpm(parsed) : extractAdvisoriesFromNpm(parsed)
-  ).map((a): AdvisoryEntry =>
-    direct ? { ...a, relationship: direct.has(a.module) ? "direct" : "transitive" } : a,
+  const advisories = withRelationships(
+    used === "pnpm audit" ? extractAdvisoriesFromPnpm(parsed) : extractAdvisoriesFromNpm(parsed),
+    await directDependencies(dir),
   );
 
   const status = classify(counts);
