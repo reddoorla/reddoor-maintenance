@@ -297,13 +297,20 @@ export type WebsiteRow = {
   prismicAckUntil: string | null;
   /**
    * The finding {@link WebsiteRow.prismicAckUntil} accepts: the
-   * `prismicModelsDrift` report as it read when the operator set the ack, copied
-   * in the same UPDATE (`SET prismic_ack_until = …, prismic_ack_drift =
-   * prismic_models_drift`). The ack mutes only while tonight's report is this
-   * text (line endings and surrounding blank space aside), so a field dropped
-   * from another model on an acked site still reaches the digest (#1608). Null
-   * or blank covers nothing: an ack that cannot say what it accepted accepts
-   * nothing, which is the safe direction for every ack set before #1608.
+   * `site_health.prismic_models_drift` report as it read when the operator set
+   * the ack, copied in the same statement (`PRISMIC_ACK_UPDATE_SQL` in
+   * `src/alerts/digest-collectors.ts`). The ack mutes only while tonight's report
+   * is this text (line endings and surrounding blank space aside), so a field
+   * dropped from another model on an acked site still reaches the digest
+   * (#1608). Null or blank covers nothing: an ack that cannot say what it
+   * accepted accepts nothing, which is the safe direction for every ack set
+   * before #1608.
+   *
+   * The whole report is the identity, so it re-rings on changes that are not
+   * findings too: the report's "N already match" count moves when a model is
+   * added that already matches, and remote-only models are listed in the order
+   * Prismic returns them. Both err toward ringing; a re-ring after one of them is
+   * not a new finding, and re-acking is one statement.
    */
   prismicAckDrift: string | null;
   /** Does the roster `url` resolve (`roster-urls`, #912)? `pass` = a final 2xx;

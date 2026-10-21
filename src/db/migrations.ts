@@ -654,7 +654,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     // #1608: the Prismic drift report an ack accepts, copied from
-    // prismic_models_drift when the ack is set. The ack mutes only that finding;
+    // site_health.prismic_models_drift when the ack is set. The ack mutes only that finding;
     // NULL covers nothing. 0046 is #1654's (site_health.security_lockfile_audit),
     // landing separately; ids are an applied-set, so either order is safe.
     id: "0047_sites_prismic_ack_drift",

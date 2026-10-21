@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { canonicalizeStatus } from "./site-status.js";
 import { toSearchConsoleOutcome, type SearchConsoleOutcome } from "./search-console-evidence.js";
@@ -563,11 +564,17 @@ const MAX_PRISMIC_DETAIL_CHARS = 50_000;
  * The cut is by code unit, so it can land between the halves of an astral
  * character; a lone surrogate is not valid text and can make a store reject the
  * write, losing the entire finding to a cosmetic detail.
+ *
+ * The notice carries a SHA-256 of the whole report. Without it two reports that
+ * differ only past the cut, at the same length, store identical text, and an ack
+ * of one (`prismicAckCovers`, which compares stored text) would mute the other
+ * (#1608).
  */
 function truncatePrismicDetail(detail: string): string {
   if (detail.length <= MAX_PRISMIC_DETAIL_CHARS) return detail;
+  const sha = createHash("sha256").update(detail, "utf8").digest("hex");
   const notice =
-    `\n…[truncated: this report is ${detail.length} characters and only the first` +
+    `\n…[truncated: this report is ${detail.length} characters (sha256 ${sha}) and only the first` +
     ` ${MAX_PRISMIC_DETAIL_CHARS} are kept here. Run \`reddoor-maint prismic-models\` in the` +
     ` site — dry is the default — for the whole thing.]`;
   let head = detail.slice(0, MAX_PRISMIC_DETAIL_CHARS - notice.length);
