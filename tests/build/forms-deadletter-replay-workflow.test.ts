@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, chmod, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -13,9 +13,10 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-/** #1615 end-to-end cases: the real replay CLI, with Resend stubbed. `null`
- *  is an unconfigured key, which is how the CLI meets a missing secret. */
-const resend = vi.hoisted(() => ({ configured: true, sent: 0 }));
+/** #1615 end-to-end cases: the real replay CLI, with Resend stubbed.
+ *  `configured: false` throws from the client factory, which is how the CLI meets
+ *  a missing secret; `refuses: true` throws from `send`, a key Resend rejects. */
+const resend = vi.hoisted(() => ({ configured: true, refuses: false, sent: 0 }));
 vi.mock("../../src/reports/send/resend.js", async (importActual) => {
   const actual = await importActual<typeof import("../../src/reports/send/resend.js")>();
   return {
@@ -24,6 +25,7 @@ vi.mock("../../src/reports/send/resend.js", async (importActual) => {
       if (!resend.configured) throw new Error("RESEND_API_KEY not set");
       return {
         send: async () => {
+          if (resend.refuses) throw new Error("Resend error: API key is invalid");
           resend.sent++;
           return { messageId: `msg_${resend.sent}` };
         },
@@ -80,6 +82,8 @@ async function runGate(out: string, code = 0): Promise<{ code: number; log: stri
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
     return { code: err.code ?? 1, log: (err.stdout ?? "") + (err.stderr ?? "") };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -174,13 +178,24 @@ describe("forms-deadletter-replay — the gate FAILS on each thing it exists to 
 
   // #1615. The marker before it: rejected and notify-failed rows both counted
   // as `replayed`, so neither had a counter for this gate to read.
-  it("reds on the pre-#1615 marker, which has no rejected or notify_failed counter", async () => {
-    const r = await runGate(
-      "DEADLETTER_REPLAY replayed=3 still_failing=0 unmarked=0 unreadable=0\n",
-    );
-    expect(r.code).toBe(1);
-    expect(r.log).toContain("missing a counter");
-  });
+  // One case per counter, each leaving out only that one: a marker missing both
+  // would let either half of the check go unproven. Without the check, a missing
+  // counter is `[ "" -gt 0 ]` inside an `if`, which bash reads as false: PASS.
+  it.each(["replayed", "rejected", "notify_failed", "still_failing", "unmarked", "unreadable"])(
+    "reds on a marker missing only %s= — an older CLI cannot pass by omission",
+    async (counter) => {
+      const line = marker({ rejected: 1, notifyFailed: 1 })
+        .split(" ")
+        .filter((part) => !part.startsWith(`${counter}=`))
+        .join(" ")
+        .replace(/rejected=1/, "rejected=0")
+        .replace(/notify_failed=1/, "notify_failed=0");
+      expect(line).not.toContain(`${counter}=`);
+      const r = await runGate(line + "\n");
+      expect(r.code).toBe(1);
+      expect(r.log).toContain("missing a counter");
+    },
+  );
 
   it("reds on a lead rejected on replay — it left the queue with no submission", async () => {
     const r = await runGate(
@@ -243,14 +258,18 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
     },
   };
 
-  afterEach(() => {
+  const dirs: string[] = [];
+  afterEach(async () => {
     resend.configured = true;
+    resend.refuses = false;
     resend.sent = 0;
+    for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true });
   });
 
   /** A migrated scratch store holding one site and `leads` queued dead-letters. */
   async function seed(leads: Array<Record<string, unknown>>): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "dl-replay-e2e-"));
+    dirs.push(dir);
     const url = `file:${join(dir, "fleet.db")}`;
     const { runDbCommand } = await import("../../src/cli/commands/db.js");
     expect((await runDbCommand("migrate", { url })).code).toBe(0);
@@ -279,14 +298,19 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
     ...over,
   });
 
-  async function replayThroughGate(url: string): Promise<{ code: number; log: string }> {
+  /** The gate's verdict, plus the CLI's own exit code: the gate captures that
+   *  code and ignores it, so it is asserted separately. */
+  async function replayThroughGate(
+    url: string,
+  ): Promise<{ code: number; log: string; cliCode: number }> {
     const { runDbCommand } = await import("../../src/cli/commands/db.js");
     const cli = await runDbCommand("replay-deadletters", { url });
-    return runGate(cli.output + "\n", cli.code);
+    return { ...(await runGate(cli.output + "\n", cli.code)), cliCode: cli.code };
   }
 
   it("KNOWN-GOOD: an empty queue — last night's real run — is green", async () => {
     const r = await replayThroughGate(await seed([]));
+    expect(r.cliCode).toBe(0);
     expect(r.code).toBe(0);
     expect(r.log).toContain(
       "PASS: replayed=0 rejected=0 notify_failed=0 still_failing=0 unmarked=0 unreadable=0",
@@ -296,6 +320,7 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
   it("KNOWN-GOOD: three leads placed and emailed is green", async () => {
     const r = await replayThroughGate(await seed([lead(1), lead(2), lead(3)]));
     expect(resend.sent).toBe(3);
+    expect(r.cliCode).toBe(0);
     expect(r.code).toBe(0);
     expect(r.log).toContain("PASS: replayed=3 rejected=0 notify_failed=0");
   });
@@ -308,6 +333,8 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
     ]);
     const r = await replayThroughGate(url);
     expect(r.log).toContain("replayed=0 rejected=3");
+    expect(r.log).toContain("rejected:invalid-payload: formType is not a recognized form type");
+    expect(r.cliCode).toBe(1);
     expect(r.code).toBe(1);
     expect(r.log).not.toContain("PASS:");
   });
@@ -316,7 +343,110 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
     resend.configured = false;
     const r = await replayThroughGate(await seed([lead(1), lead(2), lead(3)]));
     expect(r.log).toContain("replayed=3 rejected=0 notify_failed=3");
+    expect(r.cliCode).toBe(1);
     expect(r.code).toBe(1);
     expect(r.log).not.toContain("PASS:");
+  });
+
+  it("a key Resend refuses: three leads placed un-emailed, and the gate reds", async () => {
+    resend.refuses = true;
+    const r = await replayThroughGate(await seed([lead(1), lead(2), lead(3)]));
+    expect(r.log).toContain("replayed=3 rejected=0 notify_failed=3");
+    expect(r.cliCode).toBe(1);
+    expect(r.code).toBe(1);
+  });
+});
+
+/**
+ * #1615 round 1. A REJECTED or NOTIFY FAILED row is terminal, so the run after
+ * the red one is green. The tracking issue is what carries the lead from then
+ * on: it has to name the row, and a green run must not close it. Both steps run
+ * here with a stubbed `gh` that logs its calls and serves one issue's text.
+ */
+describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#1615)", () => {
+  async function runIssueStep(
+    step: string,
+    opts: { replayOut?: string; issueText?: string },
+  ): Promise<{ code: number; log: string; calls: string }> {
+    const dir = await mkdtemp(join(tmpdir(), "dl-replay-issue-"));
+    try {
+      const bin = join(dir, "bin");
+      await mkdir(bin, { recursive: true });
+      if (opts.replayOut !== undefined) await writeFile(join(dir, "replay.out"), opts.replayOut);
+      await writeFile(join(dir, "issue.txt"), opts.issueText ?? "");
+      // `list` finds issue 42; `view` serves its text; every call is logged.
+      await writeFile(
+        join(bin, "gh"),
+        [
+          "#!/bin/sh",
+          `printf '%s\\n' "$*" >> "${join(dir, "calls.txt")}"`,
+          'case "$1 $2" in',
+          '  "issue list") echo 42 ;;',
+          `  "issue view") cat "${join(dir, "issue.txt")}" ;;`,
+          "esac",
+          "exit 0",
+        ].join("\n"),
+        "utf-8",
+      );
+      await chmod(join(bin, "gh"), 0o755);
+      const script = stepRunScript(workflow, step).replace(/\$\{\{[^}]*\}\}/g, "x");
+      let code = 0;
+      let log = "";
+      try {
+        const out = await execFileAsync("bash", ["-e", "-c", script], {
+          cwd: dir,
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
+        });
+        log = out.stdout + out.stderr;
+      } catch (e) {
+        const err = e as { code?: number; stdout?: string; stderr?: string };
+        code = err.code ?? 1;
+        log = (err.stdout ?? "") + (err.stderr ?? "");
+      }
+      const calls = await readFile(join(dir, "calls.txt"), "utf-8").catch(() => "");
+      return { code, log, calls };
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const OPEN = "Open/update the replay-failure tracking issue";
+  const CLOSE = "Close the replay-failure issue on recovery";
+  const REJECTED_LINE =
+    "REJECTED dl_f → rejected:invalid-payload: formType is not a recognized form type. The row is marked replayed";
+
+  it("the issue body names each REJECTED and NOTIFY FAILED row from the run", async () => {
+    const r = await runIssueStep(OPEN, {
+      replayOut: [
+        "replayed dl_a → accepted (sub_1)",
+        REJECTED_LINE,
+        "NOTIFY FAILED dl_g → accepted (sub_7): the lead is stored",
+        marker({ replayed: 2, rejected: 1, notifyFailed: 1 }),
+      ].join("\n"),
+    });
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain("REJECTED dl_f");
+    expect(r.calls).toContain("NOTIFY FAILED dl_g");
+    expect(r.calls).not.toContain("replayed dl_a");
+  });
+
+  it("KNOWN-GOOD: a green run closes an issue about an unmarked row", async () => {
+    const r = await runIssueStep(CLOSE, {
+      issueText: "What this run found:\n\nUNMARKED dl_d: re-ingested as sub_9",
+    });
+    expect(r.calls).toMatch(/issue close 42/);
+  });
+
+  it("a green run does NOT close an issue that names a REJECTED lead", async () => {
+    const r = await runIssueStep(CLOSE, { issueText: `What this run found:\n\n${REJECTED_LINE}` });
+    expect(r.calls).not.toMatch(/issue close/);
+    expect(r.log).toContain("not closing #42");
+  });
+
+  it("a green run does NOT close an issue whose COMMENT names a NOTIFY FAILED lead", async () => {
+    const r = await runIssueStep(CLOSE, {
+      issueText: "first failure body\nNOTIFY FAILED dl_g → accepted (sub_7)",
+    });
+    expect(r.calls).not.toMatch(/issue close/);
   });
 });

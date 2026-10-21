@@ -118,7 +118,7 @@ export async function replayDeadLetters(
  * MED-10. `still_failing` is a STANDING condition (a slug awaiting
  * `ensure-site`, or a dead one awaiting `--abandon`) and already has an alarm,
  * the `deadletter` attention item. Every other non-zero bucket is a DEFECT
- * whose only surface is this output: `unmarked` and `unreadable` (MED-10), and
+ * with no alarm but this output (and, for the workflow, its tracking issue): `unmarked` and `unreadable` (MED-10), and
  * since #1615 `rejected` (the lead left the queue with no submission) and
  * `notify_failed` (the lead was placed but nobody was emailed). Before #1615
  * both of those were counted in `replayed=`, so the gate read them as success.
@@ -132,12 +132,14 @@ export function formatReplayReport(result: ReplayResult): { output: string; code
     ...result.rejected.map(
       (r) =>
         `REJECTED ${r.id} → ${r.outcome}: ${r.errors.join("; ")}. The row is marked replayed ` +
-        `but NO submission exists: this lead is in no inbox, and this line is its only record.`,
+        `but NO submission exists, so this lead is in no inbox. Its payload is still in ` +
+        `submission_deadletter row ${r.id}: read it there and pass it to the client by hand.`,
     ),
     ...notifyFailed.map(
       (r) =>
         `NOTIFY FAILED ${r.id} → ${r.outcome} (${r.submissionId ?? "no submission"}): the lead ` +
-        `is stored, but its notification email did not send. Nobody has been told about it.`,
+        `is stored, but its notification email did not send. Nobody has been told about it: ` +
+        `open it in the cockpit's submissions and tell the client.`,
     ),
     ...result.stillFailing.map((r) => `still failing ${r.id}: ${r.error}`),
     ...result.unmarked.map(
@@ -221,9 +223,12 @@ async function replayOne(
   row: DeadLetterRow,
 ): Promise<ReplayOutcome> {
   // Strip deadLetter defensively even though the type forbids it — a structurally
-  // wider object passed through `as` must not re-arm the duplicate loop.
-  const { deadLetter: _stripped, ...safeDeps } = deps as IngestDeps;
+  // wider object passed through `as` must not re-arm the duplicate loop. #1615:
+  // strip `defer` too. A deferred tail answers `notifyStatus: "deferred"`, and
+  // the notify_failed count needs the real outcome.
+  const { deadLetter: _stripped, defer: _deferred, ...safeDeps } = deps as IngestDeps;
   void _stripped;
+  void _deferred;
   let res;
   try {
     res = await ingestSubmission(safeDeps, row.siteSlug, row.payload, row.turnstile);
