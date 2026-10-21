@@ -321,8 +321,12 @@ export function dashboardVocabularyGaps(dash: DependencyDashboard): string[] {
  */
 export function isFeatureUpdateBranch(headRef: string): boolean {
   if (!headRef.startsWith("renovate/")) return false;
-  if (headRef === "renovate/lock-file-maintenance") return false;
-  return !/^renovate\/npm-.+-vulnerability$/.test(headRef);
+  // A repo with two base branches (the staging flow) gets every branch name
+  // prefixed with its base: `renovate/main-npm-vite-vulnerability`,
+  // `renovate/staging-lock-file-maintenance`. Missing that prefix read six
+  // drought repos as delivering on 2026-10-21 (#1673).
+  if (/^renovate\/(?:[^/]+-)?lock-file-maintenance$/.test(headRef)) return false;
+  return !/^renovate\/(?:[^/]+-)?npm-.+-vulnerability$/.test(headRef);
 }
 
 /**

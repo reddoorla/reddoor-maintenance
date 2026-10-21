@@ -560,6 +560,92 @@ describe("what the metric counts", () => {
   });
 });
 
+describe("base-prefixed branches on the staging flow (#1673)", () => {
+  // With two base branches Renovate prefixes every branch name with its base
+  // (`renovate/main-…`, `renovate/staging-…`), so the two exclusions above
+  // missed the security and lock-file channels on every staging-flow repo.
+  it("excludes base-prefixed security and lock-file branches", () => {
+    expect(isFeatureUpdateBranch("renovate/main-npm-vite-vulnerability")).toBe(false);
+    expect(isFeatureUpdateBranch("renovate/staging-npm-sharp-vulnerability")).toBe(false);
+    expect(isFeatureUpdateBranch("renovate/staging-lock-file-maintenance")).toBe(false);
+    expect(isFeatureUpdateBranch("renovate/main-lock-file-maintenance")).toBe(false);
+  });
+
+  it("still counts base-prefixed feature branches", () => {
+    expect(isFeatureUpdateBranch("renovate/main-all-minor-patch")).toBe(true);
+    expect(isFeatureUpdateBranch("renovate/staging-sveltejs-kit-3.x")).toBe(true);
+    expect(isFeatureUpdateBranch("renovate/main-vulnerability-scanner-2.x")).toBe(true);
+  });
+
+  // The eight repos fleet-security run 39655255844 (2026-10-21 18:47Z) printed as
+  // DELIVER. Each window holds the merge the alarm named and the last real
+  // feature merge, as tabled on #1673 (dates from the run log and the issue;
+  // times of day are not in either, so the test asserts states, not day counts).
+  const RUN_AT = new Date("2026-10-21T18:47:39Z");
+  const W = (...merges: Array<[string, string]>) => ({
+    merges: merges.map(([headRef, mergedAt]) => ({ headRef, mergedAt })),
+    truncated: false,
+  });
+  const RUN_39655255844: Record<string, RenovateMergeWindow> = {
+    "data-dynamiq": W(
+      ["renovate/main-npm-vite-vulnerability", "2026-10-21T02:00:00Z"],
+      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
+    ),
+    espada: W(
+      ["renovate/main-npm-vite-vulnerability", "2026-10-21T02:00:00Z"],
+      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
+    ),
+    "caltex-landing": W(
+      ["renovate/main-npm-vite-vulnerability", "2026-10-21T02:00:00Z"],
+      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
+    ),
+    "vida-legacy-foundation": W(
+      ["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"],
+      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
+    ),
+    gallerysonder: W(
+      ["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"],
+      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
+    ),
+    "mantis-landscaping": W(["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"]),
+    // The known-good pair: these two really were delivering that night.
+    "alamo-anatomy": W(["renovate/main-all-minor-patch", "2026-10-20T12:00:00Z"]),
+    "reddoor-website": W(["renovate/all-minor-patch", "2026-10-06T12:00:00Z"]),
+  };
+  const outcomes = Object.fromEntries(
+    Object.entries(RUN_39655255844).map(([repo, w]) => [repo, renovateOutcome(w, RUN_AT)]),
+  );
+
+  it("the two repos that really delivered still read delivering", () => {
+    expect(outcomes["alamo-anatomy"]).toMatchObject({
+      state: "delivering",
+      lastBranch: "renovate/main-all-minor-patch",
+    });
+    expect(outcomes["reddoor-website"]).toMatchObject({ state: "delivering" });
+  });
+
+  it("the six false greens now read as what they are", () => {
+    for (const repo of [
+      "data-dynamiq",
+      "espada",
+      "caltex-landing",
+      "vida-legacy-foundation",
+      "gallerysonder",
+    ]) {
+      expect(outcomes[repo], repo).toMatchObject({
+        state: "drought",
+        lastBranch: "renovate/pnpm-12.x",
+      });
+    }
+    const mantis = outcomes["mantis-landscaping"]!;
+    expect(mantis.state).toBe("unmeasured");
+    expect(renovateOutcomeLine(mantis)).toContain("never merged");
+    expect(renovateOutcomeSummary(Object.values(outcomes))).toMatch(
+      /^RENOVATE_OUTCOME drought=5 delivering=2 unmeasured=1 /,
+    );
+  });
+});
+
 describe("unmeasured is never clean", () => {
   const feature = { headRef: "renovate/all-minor-patch", mergedAt: "2026-09-10T00:00:00Z" };
 
