@@ -28,6 +28,11 @@
 - **The `returnTo` after a signed-out data request** now comes from SvelteKit's `event.url`, so `/fleet/__data.json` returns to `/fleet` after sign-in, not to its JSON. The prefix check reads the raw request path instead, because SvelteKit rewrites `event.url` for its own requests.
 - **OD 87 landed on `main` mid-review (#1575)** and changed the old cardless lane: held dead letters are left out, and a dead letter for a site with no card links its page. Its tests drove the deleted renderers and `fleet-homepage`. The lane change is ported to the cockpit view and page. The handler test now drives the page's own `load` and renders the page from it, and the render assertions read the view models. Five mutations each turned one red.
 
+- **Round 3 was clean**, with minors and nits only. Three were folded in:
+  - The hook compares a normalised path: decoded, lowercased, with slash runs collapsed. If Netlify's edge router normalises a path such as `/%61pi/nope` before testing its exclusions, that path is still refused rather than reaching the gate unlimited. Whether the edge does decode was not verified; refusing more than it excludes costs nothing, because no page lives under those prefixes.
+  - A test now pins that only a dead letter's cardless entry links. The ported lane's own mutations had missed that guard.
+  - A stale comment that named the deleted renderers is corrected.
+
 **Beliefs corrected on contact.**
 
 - **The repo root was the published site.** With no `publish` set, the dashboard site published its whole repo root as static files. Setting `publish` ends that. No code links a static file on that domain: every use is the bare base URL, and every path built from it is a function.

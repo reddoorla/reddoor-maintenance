@@ -827,6 +827,27 @@ describe("buildCockpitModel", () => {
       expect(buildCockpitView(due, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
         ["Gone Co", `${BASE}/s/gone-co`],
       ]);
+      // Only a dead letter links: another kind on no card, carrying a url, is not
+      // known to have a page behind it (an "(unlinked site)" preflight, say).
+      const other = {
+        ...due,
+        cardless: [
+          ...due.cardless!,
+          {
+            key: "preflight:x",
+            kind: "preflight" as const,
+            siteName: "(unlinked site)",
+            title: "preflight failed",
+            url: `${BASE}/s/unlinked`,
+            severity: "warning" as const,
+            metric: 1,
+          },
+        ],
+      };
+      expect(buildCockpitView(other, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
+        ["Gone Co", `${BASE}/s/gone-co`],
+        ["(unlinked site)", null],
+      ]);
     });
 
     it("holds a dead letter on any site without a card, not only an archived one", () => {

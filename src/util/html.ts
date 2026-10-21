@@ -1,6 +1,6 @@
 /**
- * Shared HTML/XML escape. One implementation behind the dashboard renderers
- * (`src/dashboard/render.ts`, `fleet-render.ts`), the daily digest
+ * Shared HTML/XML escape. One implementation behind the remaining string
+ * renderers (the sign-in page, the prospect audit report), the daily digest
  * (`src/reports/digest.ts`), and the MJML email templates
  * (`src/reports/*-email/template.ts`).
  *

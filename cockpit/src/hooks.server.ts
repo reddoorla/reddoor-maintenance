@@ -23,7 +23,17 @@ export const NOT_COCKPIT_PREFIXES = ["/api/", "/auth/", "/r/", "/.netlify/", "/_
 export const handle: Handle = async ({ event, resolve }) => {
   // The raw request path: SvelteKit rewrites `event.url` for its own requests
   // (a remote call's is not `/_app/remote/…`), so it cannot be trusted here.
-  const path = new URL(event.request.url).pathname;
+  // Compared decoded, lowercased and with runs of slashes collapsed, so no
+  // spelling of a prefix (`/%61pi/x`, `/API/x`, `//api/x`, `/api`) gets past
+  // this check while an edge router that normalises paths excludes it from the
+  // limit. Refusing more than the edge excludes is safe: no page lives there.
+  let path = new URL(event.request.url).pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // a malformed escape: compare it as it came
+  }
+  path = `${path.replace(/[/\\]+/g, "/").toLowerCase()}/`;
   if (NOT_COCKPIT_PREFIXES.some((p) => path.startsWith(p))) {
     return new Response("Not found.", {
       status: 404,
