@@ -630,6 +630,10 @@ export const SYNTHESIZE_REQUIRED_EXPR = `
  *  never reached), so the probe waits past this before submitting. */
 const FILL_SETTLE_MS = 1200;
 const PAGE_TIMEOUT_MS = 30_000;
+/** How long, once the status region shows, to wait for the action POST's response
+ *  before trusting the banner (#1610). The banner normally follows the response, so
+ *  this is slack for a page that shows its region before the reply arrives. */
+const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
 
 /** The slice of a Playwright page the route probe needs. Declared structurally so
@@ -767,6 +771,9 @@ export type NoBannerEvidence = {
   hydrationMismatch: boolean;
   refilled: boolean;
   hydrationUnconfirmed?: boolean;
+  /** The `role="status"` region became visible, but the action POST failed
+   *  (#1610): a site that renders its error in the same region as its thanks. */
+  bannerShown?: boolean;
 };
 
 /** Compose the failure detail line. PURE — the line must say WHY nothing
@@ -791,7 +798,10 @@ export function noBannerDetail(e: NoBannerEvidence): string {
       "fields were wiped and re-filled once" +
         (e.hydrationUnconfirmed ? HYDRATION_UNCONFIRMED_NOTE : ""),
     );
-  return `no success banner after submit — ${bits.join("; ")}`;
+  const head = e.bannerShown
+    ? "the status region showed, but the submission failed"
+    : "no success banner after submit";
+  return `${head} — ${bits.join("; ")}`;
 }
 
 /**
@@ -1104,7 +1114,18 @@ export async function defaultFormRunner(
           .then(() => true)
           .catch(() => false);
         const elapsedMs = Date.now() - startedAt;
-        if (ok)
+        // The banner alone is not the verdict (#1610): a site can render its error
+        // text into the same `role="status"` region as its thanks, and a POST that
+        // came back 500 then read as a pass. Once the region shows, give the
+        // action POST a moment to answer, and a 4xx/5xx is a failure.
+        const settledPost = ok
+          ? await Promise.race([
+              postResponse,
+              new Promise<null>((r) => setTimeout(() => r(null), POST_SETTLE_MS)),
+            ])
+          : null;
+        const bannerLied = settledPost !== null && settledPost.status() >= 400;
+        if (ok && !bannerLied)
           return {
             formPresent: true,
             success: true,
@@ -1164,6 +1185,7 @@ export async function defaultFormRunner(
             hydrationMismatch,
             refilled,
             hydrationUnconfirmed,
+            ...(bannerLied ? { bannerShown: true } : {}),
           }),
           turnstile: turnstileSeen(),
           formsHealth,

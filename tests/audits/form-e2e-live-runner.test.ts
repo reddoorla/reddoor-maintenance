@@ -17,6 +17,7 @@ const contactPage = (opts: {
   disabledSubmit: boolean;
   dropMarkerOnChange: boolean;
   dropMarkerAlways: boolean;
+  statusOnError: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -64,6 +65,11 @@ const contactPage = (opts: {
       };
       const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
       if (r.ok && ${opts.banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
+      if (!r.ok && ${opts.statusOnError ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Sorry, something went wrong. Please try again.";
+        s.hidden = false;
+      }
     });
     if (${opts.resetSelect ? "true" : "false"}) {
       const sel = f.querySelector('[name="interest"]');
@@ -154,6 +160,10 @@ type Fixture = {
   dropMarkerOnChange?: boolean;
   dropMarkerAlways?: boolean;
   hydration?: Hydration;
+  /** The action POST's status (default 200). */
+  postStatus?: number;
+  /** On a failed POST, the page writes its error into the same role="status" region. */
+  statusOnError?: boolean;
 };
 
 let server: Server;
@@ -181,6 +191,7 @@ beforeAll(async () => {
           disabledSubmit: fixture.disabledSubmit ?? false,
           dropMarkerOnChange: fixture.dropMarkerOnChange ?? false,
           dropMarkerAlways: fixture.dropMarkerAlways ?? false,
+          statusOnError: fixture.statusOnError ?? false,
         }),
       );
       return;
@@ -194,8 +205,9 @@ beforeAll(async () => {
         } catch {
           posts.push({ unparsed: raw });
         }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end('{"ok":true}');
+        const status = fixture.postStatus ?? 200;
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(status < 400 ? '{"ok":true}' : '{"error":"ingest failed"}');
       });
       return;
     }
@@ -301,6 +313,43 @@ describe("form-e2e live runner — required fields outside the standard fill set
     expect(out).toMatchObject({ synthesized: ["company", "interest", "consent", "contactBy"] });
     expect(out).not.toHaveProperty("resynthesized");
   }, 90_000);
+});
+
+describe("form-e2e live runner — the verdict is the POST, not the banner (#1610)", () => {
+  it("fails a POST that returned 500 even though the status region showed", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 500 \{"error":"ingest failed"\}/,
+    );
+  });
+
+  it("scores that run as not passing end to end", async () => {
+    fixture = { health: DECLARED, banner: true, postStatus: 500, statusOnError: true };
+    posts = [];
+    runner = await defaultFormRunner(FAST);
+    const r = await formE2eAudit({
+      site: { name: "fixture", path: "/x", deployedUrl: base },
+      formRunner: runner,
+    });
+    expect(r.status).not.toBe("pass");
+    expect((r.details as { ok?: string }).ok).toBe("fail");
+  });
+
+  it("control: a 200 POST with the thanks banner still passes", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 200,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
 });
 
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {
