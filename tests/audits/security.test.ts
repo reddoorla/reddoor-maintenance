@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import { advisoriesFromResult } from "../../src/audits/security-fields.js";
+import { advisoriesFromResult, hasSecurityCounts } from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 function fakeSpawn(
@@ -790,6 +790,95 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       spawn: fakeSpawn({}),
     });
     expect(result.status).toBe("skip");
+  });
+
+  it("names Dependabot's live alerts in the skip, and writes nothing, when the lockfile audit cannot run (#1561)", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "critical" }]),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("skip");
+    expect(result.summary).toBe(
+      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
+        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (1C/0H/0M/0L)",
+    );
+    // A skip writes no counts: the row keeps what the last full run wrote.
+    expect(hasSecurityCounts(result)).toBe(false);
+  });
+
+  it("names a moderate-only Dependabot result too", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "moderate" }]),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("skip");
+    expect(result.summary).toMatch(
+      /part of the tree: Dependabot: 1 alert\(s\) \(0C\/0H\/1M\/0L\)$/,
+    );
+  });
+
+  it("with live and ghost alerts, the caveat qualifies the live count, not the ghost advice", async () => {
+    const ghost: DependabotAlert = {
+      ...actionAlert,
+      package: "nanoid",
+      manifestPath: "package-lock.json",
+    };
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: {
+        listAlerts: async () => [actionAlert, ghost],
+        manifestExists: async (_repo, path) => path !== "package-lock.json",
+      },
+      spawn: fakeSpawn({}),
+    });
+    expect(result.summary).toBe(
+      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
+        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (0C/1H/0M/0L); " +
+        "1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+    );
+  });
+
+  it("adds no note for ghost alerts alone: nothing live to name", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: {
+        listAlerts: async () => [actionAlert],
+        manifestExists: async () => false,
+      },
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("skip");
+    expect(result.summary).toBe("cannot run audit — pnpm: not installed; npm: not installed");
+  });
+
+  it("tags Dependabot's own advisories as not the lockfile audit's, on its stand-alone path too", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm11Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([actionAlert]),
+      spawn: fakeSpawn({}),
+    });
+    const details = result.details as { advisories: Array<{ lockfile?: boolean }> };
+    expect(details.advisories.map((a) => a.lockfile)).toEqual([false]);
+  });
+
+  it("a merged run tags pnpm's advisories true and Dependabot's own false, and both persist with their GHSA", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([{ ...actionAlert, ghsaId: "GHSA-cccc-dddd-2002" }]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: pnpmAuditOut } }),
+    });
+    const persisted = advisoriesFromResult(result);
+    expect(persisted.map((a) => [a.module, a.lockfile]).sort()).toEqual([
+      ["actions/checkout", false],
+      ["devalue", true],
+      ["sharp", true],
+    ]);
+    expect(persisted.find((a) => a.module === "actions/checkout")!.ghsa).toBe(
+      "GHSA-cccc-dddd-2002",
+    );
+    expect(persisted.find((a) => a.module === "sharp")!.ghsa).toBe("GHSA-wq5f-xc86-pv6w");
   });
 
   it("counts an aliased dependency as direct under the package it installs", async () => {
