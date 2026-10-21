@@ -1913,7 +1913,9 @@ async function loadDevMatch(
     JSON.stringify({
       name: "$app",
       type: "module",
-      exports: { "./environment": "./environment.js" },
+      // Both names: kit 2's `$app/environment`, and kit 3's `$app/env`, which
+      // the recipe writes on a kit 3 site (#1566).
+      exports: { "./environment": "./environment.js", "./env": "./environment.js" },
     }),
   );
   await put("$app/environment.js", 'export const dev = process.env.MATCH_PROBE_DEV === "1";\n');
@@ -2044,6 +2046,129 @@ describe("the installed /dev/match route's production guard", () => {
     // Prefixed with the machine tell the launch recipe's dev-guard denies on
     // (#719); the prose after it is free to change.
     expect(out.body?.message).toBe(`${UNGUARDED_TWIN_TELL}: no assembly for "nope" (have: home)`);
+  });
+});
+
+/**
+ * svelte-check cannot resolve `$app/environment` on SvelteKit 3, and kit 2 has
+ * no `$app/env`, so the route's one `dev` import has to follow the site's
+ * DECLARED kit major (#1566), read the way sync-configs reads it. A spec the
+ * recipe cannot read, or no kit at all, keeps today's kit 2 output.
+ */
+const ROUTE_SERVER = "src/routes/dev/match/[uid]/+page.server.ts";
+const KIT2_IMPORT = 'import { dev } from "$app/environment";';
+const KIT3_IMPORT = 'import { dev } from "$app/env";';
+const shippedRoute = () => MATCH_HARNESS_FILES.find((f) => f.rel === ROUTE_SERVER)!.template;
+
+/** A pristine copy whose package.json declares `@sveltejs/kit` as `spec`, or
+ *  declares no kit at all when `spec` is null. */
+async function siteOnKit(spec: string | null): Promise<string> {
+  return copyFixtureToTmp(pristine, async (dir) => {
+    const path = join(dir, "package.json");
+    const pkg = JSON.parse(await readFile(path, "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    delete pkg.dependencies?.["@sveltejs/kit"];
+    delete pkg.devDependencies?.["@sveltejs/kit"];
+    if (spec !== null) pkg.devDependencies = { ...pkg.devDependencies, "@sveltejs/kit": spec };
+    await writeFile(path, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+  });
+}
+
+async function installOnKit(spec: string | null) {
+  const cwd = await siteOnKit(spec);
+  const result = await matchHarness(
+    { path: cwd },
+    { ref: "https://ref.test" },
+    { spawn: noopSpawn },
+  );
+  expect(result.status).toBe("applied");
+  return { cwd, result, route: await read(cwd, ROUTE_SERVER) };
+}
+
+describe("the /dev/match route imports `dev` from the site's kit major (#1566)", () => {
+  it("the shipped template carries the kit 2 import exactly once (the precondition)", () => {
+    expect(occurrences(shippedRoute(), KIT2_IMPORT)).toBe(1);
+    expect(shippedRoute()).not.toContain('"$app/env"');
+  });
+
+  it("writes `$app/env` on a kit 3 site, and changes nothing else", async () => {
+    const { route } = await installOnKit("^3.0.0");
+    expect(route).toContain(KIT3_IMPORT);
+    expect(route).not.toContain('"$app/environment"');
+    expect(route).toBe(shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+  });
+
+  it("reads a union as its highest major, as sync-configs does", async () => {
+    const { route } = await installOnKit("^2.61.1 || ^3.0.0");
+    expect(route).toContain(KIT3_IMPORT);
+  });
+
+  it("keeps `$app/environment` on a kit 2 site, byte-identical to the shipped template", async () => {
+    const { route } = await installOnKit("^2.61.1");
+    expect(route).toBe(shippedRoute());
+  });
+
+  it("keeps `$app/environment` when the site declares no kit", async () => {
+    const { route } = await installOnKit(null);
+    expect(route).toBe(shippedRoute());
+  });
+
+  it("keeps `$app/environment` on a spec it cannot read, and says so", async () => {
+    const { route, result } = await installOnKit("catalog:");
+    expect(route).toBe(shippedRoute());
+    expect(result.notes).toMatch(/cannot read.*\$app\/environment/s);
+  });
+
+  it("the kit 3 route still refuses outside dev and serves in dev", async () => {
+    const { cwd } = await installOnKit("^3.0.0");
+    const off = await loadDevMatch(cwd, { dev: false, uid: "home", sitePages: ONE_PAGE });
+    expect(off.status).toBe(404);
+    expect(off.body?.message).toBe("Not found");
+    const on = await loadDevMatch(cwd, { dev: true, uid: "home", sitePages: ONE_PAGE });
+    expect(on.ok, JSON.stringify(on)).toBe(true);
+    expect(on.data?.uid).toBe("home");
+  });
+
+  it("re-running on a kit 3 site that is already current changes nothing", async () => {
+    const { cwd } = await installOnKit("^3.0.0");
+    const again = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(again.notes ?? "").not.toContain(ROUTE_SERVER);
+    expect(await read(cwd, ROUTE_SERVER)).toContain(KIT3_IMPORT);
+  });
+
+  it("upgrades a kit 3 site carrying the kit 2 render, instead of calling it hand-edited", async () => {
+    // The P1-53 shape: installed before this fix, so its route imports the
+    // name svelte-check cannot resolve on kit 3.
+    const cwd = await siteOnKit("^3.0.0");
+    await seed(cwd, ROUTE_SERVER, shippedRoute());
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ROUTE_SERVER)).toBe(shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+    expect(result.notes).toContain(`${ROUTE_SERVER} upgraded from a previous version`);
+    expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
+  });
+
+  it("does not downgrade a kit 2 site carrying the kit 3 render: it is flagged, not replaced", async () => {
+    const cwd = await siteOnKit("^2.61.1");
+    const kit3 = shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT);
+    await seed(cwd, ROUTE_SERVER, kit3);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(await read(cwd, ROUTE_SERVER)).toBe(kit3);
+    expect(result.notes).toContain(`${ROUTE_SERVER} differs from the shipped template`);
   });
 });
 

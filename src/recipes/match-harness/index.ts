@@ -10,6 +10,7 @@ import {
   MATCH_HARNESS_PREVIOUS,
   MATCH_HARNESS_COUPLED,
   HARNESS_JSON_RELATIVE,
+  MATCH_ROUTE_SERVER_RELATIVE,
   GITIGNORE_MARKER,
   GITIGNORE_BLOCK,
   PRETTIERIGNORE_MARKER,
@@ -19,6 +20,7 @@ import {
 } from "./template.js";
 import { MATCH_HARNESS_BLOCK_PREVIOUS } from "./previous.js";
 import { readTextIfExists } from "../../util/fs.js";
+import { readKitMajor } from "../sync-configs/kit-major.js";
 
 /** How long the target's own prettier gets. Also what makes the fleet's default
  *  spawn detach the child, so the kill reaches prettier and not just a wrapper.
@@ -49,6 +51,32 @@ export type MatchHarnessDeps = {
 };
 
 type Plan = { ref: string; cand: string; matrix: number[] };
+
+/** The route's one `dev` import, as the generated template ships it (kit 2). */
+const KIT2_DEV_IMPORT = 'import { dev } from "$app/environment";';
+/** The same import on SvelteKit 3, where svelte-check cannot resolve
+ *  `$app/environment` (P1-53). Kit 2 has no `$app/env`, so neither name serves
+ *  both majors (#1566). */
+const KIT3_DEV_IMPORT = 'import { dev } from "$app/env";';
+
+/**
+ * A recipe-owned template as THIS site needs it: on a declared kit major of 3
+ * or above, the /dev/match route imports `dev` from `$app/env`. Everything
+ * else, and every site whose kit major is absent or unreadable, gets the
+ * shipped bytes unchanged. Done here rather than in template.ts because that
+ * file is generated; the snapshots stay the kit 2 bodies.
+ */
+export function renderForKit(
+  rel: string,
+  template: string,
+  kitMajor: number | null | "unreadable",
+): string {
+  if (rel !== MATCH_ROUTE_SERVER_RELATIVE) return template;
+  if (typeof kitMajor !== "number" || kitMajor < 3) return template;
+  if (!template.includes(KIT2_DEV_IMPORT))
+    throw new Error(`${rel}: the template no longer carries \`${KIT2_DEV_IMPORT}\` (#1566)`);
+  return template.replace(KIT2_DEV_IMPORT, KIT3_DEV_IMPORT);
+}
 
 /** CRLF and trailing whitespace are the only differences a site's formatter is
  *  allowed to introduce before a file stops counting as "ours". */
@@ -288,9 +316,23 @@ export async function matchHarness(
         action: ReturnType<typeof planFileWrite>;
       };
       const plans: Planned[] = [];
+      // The declared kit major, read as sync-configs reads it. An unreadable
+      // spec keeps the kit 2 import, and the notes say so: guessing kit 3
+      // would break a kit 2 site's dev server outright.
+      const kitMajor = await readKitMajor(cwd);
+      if (kitMajor === "unreadable")
+        notes.push(
+          `package.json declares @sveltejs/kit with a spec match-harness cannot read, so ` +
+            `${MATCH_ROUTE_SERVER_RELATIVE} imports \`dev\` from $app/environment (kit 2); on ` +
+            `SvelteKit 3 change it to $app/env by hand`,
+        );
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
-        let template = f.template;
+        let template = renderForKit(f.rel, f.template, kitMajor);
+        // A kit 3 site installed before #1566 carries the shipped kit 2
+        // render, which is ours: replace it rather than flag it.
+        const previous = previousAll[f.rel] ?? [];
+        const previousHere = template === f.template ? previous : [...previous, f.template];
         if (f.rel === HARNESS_JSON_RELATIVE) {
           // Patch the PARSED object, never the text. The seed is pretty-printed
           // two-space JSON, so `matrix` renders as a four-line exploded array
@@ -307,7 +349,7 @@ export async function matchHarness(
           f,
           template,
           existing,
-          action: planFileWrite(existing, template, f.owner, previousAll[f.rel] ?? []),
+          action: planFileWrite(existing, template, f.owner, previousHere),
         });
       }
 
