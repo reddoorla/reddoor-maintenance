@@ -574,8 +574,9 @@ function partialResult(
   };
 }
 
-/** pnpm's own result over every scope, before any merge lifted a severity (#1654). Stored on
- *  the row, so a night the lockfile audit cannot run can rebuild it. */
+/** The lockfile audit's own result over every scope (pnpm's, or npm's where pnpm is missing),
+ *  before any merge lifted a severity (#1654). Stored on the row, so a night the lockfile audit
+ *  cannot run can rebuild it. */
 export type LockfileAuditView = { counts: Counts; advisories: AdvisoryEntry[] };
 
 /** pnpm's own result, as a lockfile audit reported it. Without relationship: that comes from

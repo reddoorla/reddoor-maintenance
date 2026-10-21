@@ -134,9 +134,10 @@ export type WebsiteRow = {
    *  WHICH packages are vulnerable, not just the totals. null = never audited / unparseable;
    *  empty array = audited clean. Written alongside the counts by the security audit. */
   securityAdvisories: SecurityAdvisory[] | null;
-  /** pnpm's own result on the last full merged security night, before any merge lifted a
-   *  severity (#1654): what a night the lockfile audit cannot run merges with. null = none
-   *  stored yet. Optional so a row built by hand reads as none stored. */
+  /** The lockfile audit's own result over every scope (pnpm's, or npm's where pnpm is
+   *  missing) on the last full security night that ran it, before any merge lifted a severity
+   *  (#1654): what a night the lockfile audit cannot run merges with. null = none stored.
+   *  Optional so a row built by hand reads as none stored. */
   securityLockfileAudit?: SecurityLockfileAudit | null;
   /** Domain/DNS/SSL probe (the `domain` audit). `certDaysRemaining` is days until the TLS cert
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
