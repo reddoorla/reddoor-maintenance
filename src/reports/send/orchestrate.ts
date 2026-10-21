@@ -88,7 +88,7 @@ export async function sendApprovedReports(
       (r) =>
         `✗ ${r.reportId} — approved but not in the send queue (not draft-ready), so no run will ` +
         `send it. A pending higher-tier draft for the site can hold it out. Unapprove it in the ` +
-        `site's report history to clear this.`,
+        `site's report history to clear this, then re-draft it to send it.`,
     );
   } catch (e) {
     invisibleLines = [
