@@ -1923,6 +1923,87 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
     expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
   });
 
+  // Review round 2. Real `npm audit --json` (npm 10, `{"mkdirp":"0.5.1","optimist":"0.6.1"}`):
+  // npm collapses minimist to one entry and counts the three vulnerable packages.
+  const npmOut = JSON.stringify({
+    metadata: {
+      vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 3, total: 3 },
+    },
+    vulnerabilities: {
+      minimist: {
+        name: "minimist",
+        severity: "critical",
+        via: [
+          {
+            source: 1,
+            name: "minimist",
+            title: "Prototype Pollution in minimist",
+            url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+            severity: "moderate",
+          },
+          {
+            source: 2,
+            name: "minimist",
+            title: "Prototype Pollution in minimist",
+            url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+            severity: "critical",
+          },
+        ],
+      },
+      mkdirp: { name: "mkdirp", severity: "critical", via: ["minimist"] },
+      optimist: { name: "optimist", severity: "critical", via: ["minimist"] },
+    },
+  });
+  const npmSite = () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    return { path: dir, gitRepo: "reddoorla/acme" };
+  };
+
+  it("npm's answer is never thinned: a dismissed moderate does not hide an undismissed critical", async () => {
+    const result = await securityAudit({
+      site: npmSite(),
+      dependabotDeps: deps([
+        dismissed({
+          ghsaId: "GHSA-vh95-rmgr-6w4m",
+          severity: "medium",
+          manifestPath: "package-lock.json",
+        }),
+      ]),
+      spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+    });
+    expect(result.status).toBe("fail");
+    expect((result.details as { counts: { critical: number } }).counts.critical).toBe(3);
+  });
+
+  it("npm's answer stands even with every advisory dismissed: its counts are packages", async () => {
+    const result = await securityAudit({
+      site: npmSite(),
+      dependabotDeps: deps([
+        dismissed({ manifestPath: "package-lock.json" }),
+        dismissed({
+          ghsaId: "GHSA-vh95-rmgr-6w4m",
+          severity: "medium",
+          manifestPath: "package-lock.json",
+        }),
+      ]),
+      spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+    });
+    expect(result.summary).not.toMatch(/dismissed in Dependabot left out/);
+    expect(result.status).toBe("fail");
+  });
+
+  it("a dismissal on the root package.json, or on no named manifest, speaks for the root lockfile", async () => {
+    for (const manifestPath of ["package.json", null]) {
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({ manifestPath })]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(result.summary).toMatch(/1 advisory dismissed in Dependabot left out$/);
+    }
+  });
+
   it("reads the dismissed list only when the cross-check found something", async () => {
     let asked = 0;
     await securityAudit({

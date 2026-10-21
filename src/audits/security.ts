@@ -530,9 +530,14 @@ async function crossCheckDependabot(
   const audited = await lockfileAudit(spawn, dir, label, "all");
   // Dependabot's list is the open alerts only, so a dismissed one is missing from it while pnpm
   // still reports the advisory: leave out what an operator dismissed (#1659).
-  const viaLockfile = hasLiveCounts(audited)
-    ? withoutDismissed(audited, await dismissed())
-    : audited;
+  // pnpm's output only: npm audit collapses each package to one entry (its first advisory's
+  // GHSA, its top severity) and counts packages, so no entry can be left out of it exactly, and
+  // leaving one out could hide an advisory nobody dismissed (#1659 review round 2). The loud
+  // direction: npm's answer stands.
+  const viaLockfile =
+    hasLiveCounts(audited) && audited.summary.startsWith("pnpm audit")
+      ? withoutDismissed(audited, await dismissed())
+      : audited;
   if (viaLockfile.status === "skip") {
     return {
       ...viaLockfile,
@@ -541,7 +546,16 @@ async function crossCheckDependabot(
         `against the lockfile: ${viaDependabot.summary}`,
     };
   }
-  if (!hasLiveCounts(viaLockfile)) return viaDependabot;
+  if (!hasLiveCounts(viaLockfile)) {
+    const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
+    // Everything pnpm found was dismissed: Dependabot's answer stands, and the log says why.
+    if (leftOut)
+      console.error(
+        `[security] ${label}: every advisory pnpm audit found (${leftOut}) was dismissed in ` +
+          `Dependabot, so Dependabot's answer stands`,
+      );
+    return viaDependabot;
+  }
   const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
   console.error(
     `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
@@ -590,7 +604,8 @@ function dismissedOnRoot(a: DependabotAlert): boolean {
 
 /** The lockfile audit's result without the advisories a dismissed Dependabot alert names (same
  *  package, same GHSA or CVE), and without their counts (#1659). `dismissedLeftOut` carries how
- *  many, for the merged summary, so a dismissal is never silent. */
+ *  many, for the merged summary or, when nothing is left, the run log, so a dismissal is never
+ *  silent. pnpm's output only (see the caller). */
 function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]): AuditResult {
   const lock = viaLockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
   // Dependabot dismisses per manifest, and this audit reads the root lockfile: a dismissal filed
