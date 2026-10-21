@@ -8,6 +8,7 @@
   import OverrideControl from "../../../lib/site/OverrideControl.svelte";
   import CommentaryEditor from "../../../lib/site/CommentaryEditor.svelte";
   import TriggerRenovate from "../../../lib/TriggerRenovate.svelte";
+  import SetupChecklist from "../../../lib/SetupChecklist.svelte";
   import DetailField from "../../../lib/site/DetailField.svelte";
   import SubmissionRowInner from "../../../lib/submission/SubmissionRowInner.svelte";
   import "./site.css";
@@ -44,10 +45,15 @@
     Lighthouse failing audits: <code>{v.failingAudits}</code>
   </div>{/if}
 <div class="setup-line">
-  Setup {v.setup.score}/{v.setup.total} — {#if v.setup.missing.length === 0}<span class="setup-ok"
-      >complete</span
-    >{:else}<span class="setup-missing">Missing: {v.setup.missing.join(", ")}</span>{/if}
+  Setup {v.setup.score}/{v.setup.total} — {#if v.setup.missing.length === 0 && v.setupGaps.length === 0}<span
+      class="setup-ok">complete</span
+    >{:else if v.setup.missing.length > 0}<span class="setup-missing"
+      >Missing: {v.setup.missing.join(", ")}</span
+    >{:else}<span class="setup-missing"
+      >{v.setupGaps.length} roster gap{v.setupGaps.length === 1 ? "" : "s"} open, below</span
+    >{/if}
 </div>
+<SetupChecklist gaps={v.setupGaps} />
 {#if v.alarm}
   <div class="section alarm">
     <h2>{v.alarm.label}</h2>

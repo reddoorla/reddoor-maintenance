@@ -215,16 +215,21 @@ body {
   }
 }
 details.fleet-browse,
+details.setup-lane,
 details.inbox {
   margin: 0.75rem 0;
 }
 details.fleet-browse > summary,
+details.setup-lane > summary,
 details.inbox > summary {
   cursor: pointer;
   font-weight: 700;
   font-size: 1.05rem;
   padding: 0.35rem 0;
   list-style: none;
+}
+.setup-row {
+  padding: 0.25rem 0;
 }
 .approve-row {
   display: flex;

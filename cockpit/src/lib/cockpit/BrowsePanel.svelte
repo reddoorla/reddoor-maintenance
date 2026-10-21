@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CockpitView } from "./view.js";
   import TriggerRenovate from "../TriggerRenovate.svelte";
+  import SetupChecklist from "../SetupChecklist.svelte";
 
   // The fleet browser: one collapsed <details> holding the filter chips and a
   // single flat card grid (already ordered attention → watch → healthy).
@@ -66,6 +67,7 @@
                 >{/each}
             </div>{/if}{#if c.submissions}<span class="chip">{c.submissions}</span
             >{/if}{#if c.triggerUrl}<TriggerRenovate url={c.triggerUrl} />{/if}
+          <SetupChecklist gaps={c.setupGaps} />
         </article>
       {/each}
     </div>

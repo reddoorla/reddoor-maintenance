@@ -2,6 +2,7 @@
   import type { CockpitView } from "../lib/cockpit/view.js";
   import AuditFleet from "../lib/cockpit/AuditFleet.svelte";
   import BrowsePanel from "../lib/cockpit/BrowsePanel.svelte";
+  import SetupChecklist from "../lib/SetupChecklist.svelte";
   import "./cockpit.css";
 
   // The fleet cockpit: verdict bar, the per-site Needs-you feed, the collapsed
@@ -42,6 +43,20 @@
       </div>
     {/each}
   </section>
+{/if}
+
+<!-- #672 step 2: roster gaps. Counted apart from the verdict, because Setup
+     never moves a site's tier. -->
+{#if v.setup}
+  <details class="setup-lane">
+    <summary>🧰 Setup ({v.setup.count} site{v.setup.count === 1 ? "" : "s"})</summary>
+    {#each v.setup.rows as row, i (i)}
+      <div class="setup-row">
+        <a href={row.href}><strong>{row.name}</strong></a>
+        <SetupChecklist gaps={row.gaps} />
+      </div>
+    {/each}
+  </details>
 {/if}
 
 <BrowsePanel browse={v.browse} />

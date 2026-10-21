@@ -364,6 +364,7 @@ export const CASES: Array<[string, SiteInput]> = [
     "alarm: attention items, waiting, stuck, watch with accept key, accepted",
     input({
       alarm: {
+        setup: [],
         tier: "attention",
         items: [
           { title: "Critical vuln", severity: "critical", kind: "vuln" },
@@ -381,6 +382,7 @@ export const CASES: Array<[string, SiteInput]> = [
     "alarm: watch tier",
     input({
       alarm: {
+        setup: [],
         tier: "watch",
         items: [],
         watchReasons: ["x"],
@@ -393,6 +395,7 @@ export const CASES: Array<[string, SiteInput]> = [
     "alarm: healthy with nothing to show",
     input({
       alarm: {
+        setup: [],
         tier: "healthy",
         items: [],
         watchReasons: [],
@@ -405,6 +408,7 @@ export const CASES: Array<[string, SiteInput]> = [
     "alarm: healthy with an accepted condition",
     input({
       alarm: {
+        setup: [],
         tier: "healthy",
         items: [],
         watchReasons: [],
