@@ -298,16 +298,18 @@ function securityAdvisoryFields(advisories: SecurityAdvisory[]): FieldSet {
   return { "Security advisories": JSON.stringify(capped) };
 }
 
-function securityFields(counts: SecurityCounts): FieldSet {
-  return {
+function securityFields(counts: SecurityCounts, partial: boolean): FieldSet {
+  const fields: FieldSet = {
     "Security Vulns Critical": counts.critical,
     "Security Vulns High": counts.high,
     "Security Vulns Moderate": counts.moderate,
     "Security Vulns Low": counts.low,
-    // Stamp freshness alongside the counts so the Security Updates auto-tick can require a recent
-    // audit (a clean count from months ago must not silently keep ticking the box).
-    "Last security audit at": new Date().toISOString(),
   };
+  // Stamp freshness alongside the counts so the Security Updates auto-tick can require a recent
+  // audit (a clean count from months ago must not silently keep ticking the box). A partial run
+  // is not a recent audit: stamping it would tick the box on a tree nobody audited (#1561).
+  if (!partial) fields["Last security audit at"] = new Date().toISOString();
+  return fields;
 }
 
 function domainFields(result: DomainResult): FieldSet {
@@ -451,6 +453,9 @@ export type AuditFieldInputs = {
   deps?: DepsCounts;
   security?: SecurityCounts;
   securityAdvisories?: SecurityAdvisory[];
+  /** The security counts cover only part of the tree (#1561): write them, but leave
+   *  "Last security audit at" as stored, since the run was not a full audit. */
+  securityPartial?: boolean;
   domain?: DomainResult;
   browser?: BrowserAuditFields;
   netlifyDeploy?: NetlifyDeployResult;
@@ -466,7 +471,8 @@ export function auditFields(audits: AuditFieldInputs): FieldSet {
     fields["Lighthouse failing audits"] = audits.lighthouseFailingAudits;
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
-  if (audits.security) Object.assign(fields, securityFields(audits.security));
+  if (audits.security)
+    Object.assign(fields, securityFields(audits.security, audits.securityPartial === true));
   // Separate slice (not folded into `security`) so the advisory list and the counts can be
   // written independently, but in practice the security audit supplies both together.
   if (audits.securityAdvisories)

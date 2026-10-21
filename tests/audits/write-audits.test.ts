@@ -247,6 +247,8 @@ describe("writeBackOneSite", () => {
         module: string;
       }>;
       expect(written.map((a) => a.module).sort()).toEqual(["actions/checkout", "sharp"]);
+      // Not a full audit: the stored freshness stands, so the auto-tick cannot read it as fresh.
+      expect("Last security audit at" in calls[0]!.fields).toBe(false);
     });
 
     it("a complete run still replaces the stored counts and advisories", async () => {
@@ -262,6 +264,65 @@ describe("writeBackOneSite", () => {
         module: string;
       }>;
       expect(written.map((a) => a.module)).toEqual(["actions/checkout"]);
+      expect(typeof calls[0]!.fields["Last security audit at"]).toBe("string");
+    });
+
+    const partialRun = (
+      counts: { critical: number; high: number; moderate: number; low: number },
+      advisories: unknown[],
+    ): AuditResult =>
+      ({
+        audit: "security",
+        site: "acme",
+        status: "fail",
+        summary: "Dependabot",
+        details: { counts, advisories, partial: true },
+      }) as unknown as AuditResult;
+    const write = async (stored: WebsiteRow, result: AuditResult) => {
+      const { mirror: mirrorHealth, calls } = recordingMirror();
+      await writeBackOneSite({ mirrorHealth, websites: [stored], slug: "acme", results: [result] });
+      return {
+        fields: calls[0]!.fields,
+        modules: (
+          JSON.parse(calls[0]!.fields["Security advisories"] as string) as Array<{ module: string }>
+        )
+          .map((a) => a.module)
+          .sort(),
+      };
+    };
+
+    it("takes each severity's larger count, never their sum", async () => {
+      const { fields } = await write(
+        row({ securityVulnsCritical: 2, securityVulnsHigh: 3, securityVulnsModerate: 1 }),
+        partialRun({ critical: 1, high: 1, moderate: 0, low: 2 }, []),
+      );
+      expect(fields).toMatchObject({
+        "Security Vulns Critical": 2,
+        "Security Vulns High": 3,
+        "Security Vulns Moderate": 1,
+        "Security Vulns Low": 2,
+      });
+    });
+
+    it("counts a new advisory beside a stored one of the same severity", async () => {
+      const other = { ...sharp, module: "devalue", title: "prototype pollution" };
+      const { fields, modules } = await write(
+        stored,
+        partialRun({ critical: 0, high: 1, moderate: 0, low: 0 }, [other]),
+      );
+      expect(modules).toEqual(["devalue", "sharp"]);
+      expect(fields["Security Vulns High"]).toBe(2);
+    });
+
+    it("keeps one entry for an advisory both lists name by CVE under different titles", async () => {
+      const pnpmWords = { ...sharp, cves: ["CVE-2026-1"], title: "sharp : librsvg" };
+      const githubWords = { ...sharp, cves: ["CVE-2026-1"], title: "Vulnerability in librsvg" };
+      const { fields, modules } = await write(
+        row({ securityVulnsHigh: 1, securityAdvisories: [pnpmWords] }),
+        partialRun({ critical: 0, high: 1, moderate: 0, low: 0 }, [githubWords]),
+      );
+      expect(modules).toEqual(["sharp"]);
+      expect(fields["Security Vulns High"]).toBe(1);
     });
   });
 

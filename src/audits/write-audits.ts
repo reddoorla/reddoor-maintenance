@@ -20,6 +20,8 @@ import {
   securityCountsFromResult,
   advisoriesFromResult,
 } from "./security-fields.js";
+import { sameAdvisory } from "./security.js";
+import type { SecurityAdvisory } from "../fleet/site-row.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-fields.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-fields.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-fields.js";
@@ -141,21 +143,26 @@ export function planAuditWrite(args: {
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
     let advisories = advisoriesFromResult(sec);
-    // A partial run saw no npm package, so it cannot clear one: each count is floored at the
-    // stored one and the stored advisories stay beside the new ones (#1561).
-    if (isPartialSecurityResult(sec)) {
-      counts = {
-        critical: Math.max(counts.critical, target.securityVulnsCritical ?? 0),
-        high: Math.max(counts.high, target.securityVulnsHigh ?? 0),
-        moderate: Math.max(counts.moderate, target.securityVulnsModerate ?? 0),
-        low: Math.max(counts.low, target.securityVulnsLow ?? 0),
-      };
-      const seen = new Set(advisories.map((a) => `${a.module}\u0000${a.title}`));
+    // A partial run saw no npm package, so it cannot clear one: the stored advisories stay beside
+    // the new ones, and each count is floored at the stored one and at the merged list's own
+    // tally (#1561). Failing toward "fail" means one fixed since stays until a full run; the
+    // timestamp is left as stored (securityPartial), so the row reads stale, not freshly clean.
+    const partial = isPartialSecurityResult(sec);
+    if (partial) {
       for (const a of target.securityAdvisories ?? [])
-        if (!seen.has(`${a.module}\u0000${a.title}`)) advisories = [...advisories, a];
+        if (!advisories.some((b) => sameAdvisory(a, b))) advisories = [...advisories, a];
+      const listed = (s: SecurityAdvisory["severity"]): number =>
+        advisories.filter((a) => a.severity === s).length;
+      counts = {
+        critical: Math.max(counts.critical, target.securityVulnsCritical ?? 0, listed("critical")),
+        high: Math.max(counts.high, target.securityVulnsHigh ?? 0, listed("high")),
+        moderate: Math.max(counts.moderate, target.securityVulnsModerate ?? 0, listed("moderate")),
+        low: Math.max(counts.low, target.securityVulnsLow ?? 0, listed("low")),
+      };
     }
     audits.security = counts;
     audits.securityAdvisories = advisories;
+    if (partial) audits.securityPartial = true;
     writes.push({ audit: "security", counts });
   }
 

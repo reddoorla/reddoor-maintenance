@@ -11,6 +11,8 @@ type Severity = "low" | "moderate" | "high" | "critical";
 
 type Counts = { low: number; moderate: number; high: number; critical: number };
 
+type AdvisoryIdentity = { module: string; title: string; cves?: string[]; ghsa?: string };
+
 type AdvisoryEntry = {
   module: string;
   severity: Severity;
@@ -534,8 +536,9 @@ async function lockfileAudit(
 
 /** Whether two advisories are the same one. Only ever within one module; there, a shared GHSA id
  *  decides when both carry one, else a shared CVE, else the title (#1409: the two sources word
- *  titles differently, so a title match alone misses a duplicate). */
-function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
+ *  titles differently, so a title match alone misses a duplicate). Also the identity a partial
+ *  run's write-back keeps stored advisories by (#1561), so it takes a persisted one too. */
+export function sameAdvisory(a: AdvisoryIdentity, b: AdvisoryIdentity): boolean {
   // Always within one module: one GHSA can cover several packages (GHSA-67hx-6x53-jw92 names
   // babel-traverse and @babel/traverse), and each is its own fix.
   if (a.module !== b.module) return false;
