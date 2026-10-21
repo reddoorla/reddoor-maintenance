@@ -48,8 +48,8 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // fill; two stops with the same path, whose findings are merged; and the set
 // of stops on a page whose carousel autoplays or whose frames load late,
 // which can differ between runs (the verdict on beachfront held across runs;
-// one of its findings did not; on reddoorla.com a footer link read as having
-// no indicator in 2 runs of 10).
+// one of its findings did not; on reddoorla.com a seventh finding came and
+// went, in 2 runs of 10).
 
 /** CSS px of ground captured round the element: outline offset plus width,
  *  with room to spare. */
