@@ -56,3 +56,9 @@ New tests pin four behaviours:
   - a test pins that a stored `legacy` stays visible;
   - the module header's stale line about merging `legacy` into `archived` is corrected.
 - **Not changed:** the Archived lane on Sites comes from the cockpit model, not the table. It still lists archived sites, collapsed, on the default view.
+
+**Review round 2 was clean**, with nits only. All three are filed as #1619, since each needs a test or reaches past this PR:
+
+- with every site hidden, the empty message blames filters that aren't set;
+- older tests still use the `archived`/`legacy` fixture shape;
+- a stored `__all__` would capture the Show all link.
