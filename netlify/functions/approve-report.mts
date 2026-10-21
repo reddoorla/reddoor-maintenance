@@ -159,13 +159,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         return formatBlockers(approveBlockers(site, report));
       },
     };
-    // Only pass the third argument when an override is actually in play — an
-    // explicit trailing `undefined` is a different call arity than omitting
-    // the arg (mock assertion equality cares), and approveReport's `override`
-    // param is already optional for exactly this no-override path.
-    const result = override
-      ? await approveReport(deps, id, override)
-      : await approveReport(deps, id);
+    // The approver is the session's signed-in email, never anything the request
+    // body says (#672 step 4); null under the shared-password fallback.
+    const result = await approveReport(deps, id, override, auth.email);
 
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });
