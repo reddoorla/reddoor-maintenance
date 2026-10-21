@@ -1,4 +1,5 @@
 import type { Browser } from "@playwright/test";
+import { focusRingRule } from "./focus-ring.js";
 import { headingLevelsRule } from "./heading-levels.js";
 import { reducedMotionRule } from "./reduced-motion.js";
 import type { DesignRule, DesignRuleId, RuleOutcome } from "./types.js";
@@ -11,6 +12,7 @@ export type { DesignRule, DesignRuleId, RuleFinding, RuleOutcome, RuleStatus } f
 export const DESIGN_RULES: Record<DesignRuleId, DesignRule> = {
   R2: reducedMotionRule,
   R9: headingLevelsRule,
+  R12: focusRingRule,
 };
 
 /**

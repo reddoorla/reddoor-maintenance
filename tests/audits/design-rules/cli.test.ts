@@ -31,14 +31,14 @@ describe("design-rules CLI", () => {
   it("runs every rule when none is named", () => {
     expect(parseDesignRulesArgs(["https://a/"])).toEqual({
       urls: ["https://a/"],
-      rules: ["R2", "R9"],
+      rules: ["R2", "R9", "R12"],
       json: false,
     });
   });
 
   it("refuses an unknown rule, a name only the prototype has, and no url", () => {
     expect(parseDesignRulesArgs(["u", "--rule", "R99"])).toEqual({
-      error: "unknown rule R99; known: R2, R9",
+      error: "unknown rule R99; known: R2, R9, R12",
     });
     expect(parseDesignRulesArgs(["u", "--rule", "toString"])).toHaveProperty("error");
     expect(parseDesignRulesArgs(["u", "--rule"])).toHaveProperty("error");
@@ -125,7 +125,7 @@ describe("design-rules CLI under tsx", () => {
     const server = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>CLI</title></head><body><main><h1>Plain</h1><p>Text</p></main></body></html>`,
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>CLI</title></head><body><main><h1>Plain</h1><p>Text and <a href="#x">a link</a></p></main></body></html>`,
       );
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -140,7 +140,11 @@ describe("design-rules CLI under tsx", () => {
         { cwd: root, timeout: 120_000 },
       ).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "[]" }));
       const outcomes = JSON.parse(stdout) as Array<{ rule: string; status: string; note: string }>;
-      expect(outcomes.map((o) => `${o.rule} ${o.status}`)).toEqual(["R2 pass", "R9 pass"]);
+      expect(outcomes.map((o) => `${o.rule} ${o.status}`)).toEqual([
+        "R2 pass",
+        "R9 pass",
+        "R12 pass",
+      ]);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
@@ -153,6 +157,7 @@ describe("design-rules CLI under tsx", () => {
       `const fns = {`,
       `  sampleReducedMotion: (await import("./src/audits/design-rules/reduced-motion.ts")).sampleReducedMotion,`,
       `  sampleOutline: (await import("./src/audits/design-rules/heading-levels.ts")).sampleOutline,`,
+      `  describeFocus: (await import("./src/audits/design-rules/focus-ring.ts")).describeFocus,`,
       `  revealBelowFold: (await import("./src/audits/util/reveal-below-fold.ts")).revealBelowFold,`,
       `};`,
       `console.log(JSON.stringify(Object.entries(fns).filter(([, f]) => String(f).includes("__name")).map(([n]) => n)));`,
