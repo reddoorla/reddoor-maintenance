@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2001,6 +2001,136 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
         spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
       });
       expect(result.summary).toMatch(/1 advisory dismissed in Dependabot left out$/);
+    }
+  });
+
+  // Review round 3.
+  const one = (advisory: Record<string, unknown>, metadata: Record<string, number>) =>
+    JSON.stringify({
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, ...metadata },
+      },
+      advisories: { "1": advisory },
+    });
+
+  it("a GHSA on one side and only a CVE on the other is no match: titles are never compared", async () => {
+    const cveOnly = one(
+      {
+        module_name: "minimist",
+        severity: "critical",
+        title: "GitHub words it",
+        cves: ["CVE-2021-44906"],
+      },
+      { critical: 1 },
+    );
+    const a = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ ghsaId: "GHSA-aaaa-bbbb-cccc" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: cveOnly } }),
+    });
+    expect(a.status).toBe("fail");
+    const b = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({
+          ghsaId: null,
+          cves: ["CVE-1999-0001"],
+          summary: "Prototype Pollution in minimist",
+        }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(b.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+  });
+
+  it("a dismissal matches by CVE when both sides carry one", async () => {
+    const cveOnly = one(
+      {
+        module_name: "minimist",
+        severity: "critical",
+        title: "pnpm words it",
+        cves: ["CVE-2021-44906"],
+      },
+      { critical: 1 },
+    );
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ ghsaId: null, cves: ["CVE-2021-44906"] })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: cveOnly } }),
+    });
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("a dismissed info advisory takes nothing off low: pnpm counts info apart", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 1, low: 2, moderate: 0, high: 0, critical: 0 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "info",
+          title: "i",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+        },
+        "2": {
+          module_name: "lodash",
+          severity: "low",
+          title: "l",
+          url: "https://github.com/advisories/GHSA-llll-llll-0001",
+          findings: [{ version: "1" }, { version: "2" }],
+        },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ severity: "low" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+    });
+    expect((result.details as { counts: { low: number } }).counts.low).toBe(2);
+  });
+
+  it("findings above pnpm's metadata count never take a severity below zero", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 1, moderate: 0, high: 0, critical: 1 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "critical",
+          title: "c",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+          findings: [{ version: "1" }, { version: "2" }],
+        },
+        "2": {
+          module_name: "lodash",
+          severity: "low",
+          title: "l",
+          url: "https://github.com/advisories/GHSA-llll-llll-0001",
+        },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({})]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+    });
+    expect((result.details as { counts: { critical: number } }).counts.critical).toBe(0);
+  });
+
+  it("with every advisory dismissed, the run log says so", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await securityAudit({
+        site: site(),
+        dependabotDeps: deps([
+          dismissed({}),
+          dismissed({ ghsaId: "GHSA-vh95-rmgr-6w4m", severity: "medium" }),
+        ]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringMatching(/every advisory pnpm audit found \(2\) was dismissed in Dependabot/),
+      );
+    } finally {
+      log.mockRestore();
     }
   });
 

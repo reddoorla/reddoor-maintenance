@@ -36,6 +36,9 @@ type AdvisoryEntry = {
   /** How many of pnpm's findings (installed versions) the advisory has, when more than one:
    *  its metadata count includes each. Absent means one. Never persisted. */
   findings?: number;
+  /** pnpm rated it "info": it reads as low, but pnpm's metadata counts it apart from low, so
+   *  leaving it out takes nothing off. Never persisted (#1659 review round 3). */
+  info?: true;
 };
 
 /** An open alert filed against a manifest that is no longer on the default branch. GitHub's
@@ -113,6 +116,8 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
       ...(Array.isArray(a.findings) && a.findings.length > 1
         ? { findings: a.findings.length }
         : {}),
+      // Read as low, but pnpm counts it under `metadata.info`, which no count here includes.
+      ...(a.severity === "info" ? { info: true } : {}),
     });
   }
   return out;
@@ -618,16 +623,19 @@ function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]
     ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
   }));
   // Only by id: titles differ between the two sources, and a title match is no proof.
+  // Only by an id both sides carry: a GHSA on both, or a CVE on both. Otherwise sameAdvisory
+  // falls back to the title, and titles are no proof (#1659 review round 3).
   const isDismissed = (a: AdvisoryEntry) =>
     gone.some(
-      (d) => (d.ghsa || d.cves?.length) && (a.ghsa || a.cves?.length) && sameAdvisory(a, d),
+      (d) => ((a.ghsa && d.ghsa) || (a.cves?.length && d.cves?.length)) && sameAdvisory(a, d),
     );
   const left = lock.advisories.filter((a) => !isDismissed(a));
   const dropped = lock.advisories.length - left.length;
   if (dropped === 0) return viaLockfile;
   const counts: Counts = { ...lock.counts };
   for (const a of lock.advisories)
-    if (isDismissed(a)) counts[a.severity] = Math.max(0, counts[a.severity] - (a.findings ?? 1));
+    if (isDismissed(a) && !a.info)
+      counts[a.severity] = Math.max(0, counts[a.severity] - (a.findings ?? 1));
   return { ...viaLockfile, details: { counts, advisories: left, dismissedLeftOut: dropped } };
 }
 
