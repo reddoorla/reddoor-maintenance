@@ -2231,7 +2231,8 @@ describe("land-prs: test changes", () => {
       const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
       for (const body of [
         "Test changes: ./tests/a.test.ts removed a dup",
-        "Test changes: [a.test.ts](https://github.com/o/r/blob/main/tests/a.test.ts) was a dup",
+        "Test changes: https://github.com/o/r/blob/main/tests/a.test.ts was a dup",
+        "Test changes: [tests/a.test.ts](https://github.com/o/r/blob/main/tests/a.test.ts) was a dup",
       ]) {
         expect(unnamedTestChanges(flags, body), body).toEqual([]);
       }
@@ -2257,6 +2258,7 @@ describe("land-prs: test changes", () => {
       for (const body of [
         "Summary.\n<!-- template\nTest changes: tests/a.test.ts",
         "Test changes: <!-- tests/a.test.ts --> none",
+        "Test changes: none <!-- a > b, tests/a.test.ts -->",
         "Summary.\n```\nTest changes: tests/a.test.ts",
       ]) {
         expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
@@ -2356,7 +2358,7 @@ describe("land-prs: test changes", () => {
     const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
     const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
     const A_TEST = testChangeFlags([file("tests/a.test.ts", "removed")]);
-    const names = (body: string) => unnamedTestChanges(A_TEST, body);
+    const names = (body: string) => unnamedTestChanges(A_TEST, body, ["claude/x", "main"]);
 
     it("every rename of a test is flagged: the runner's include may not collect the new path", () => {
       const f = file("scripts/land-prs.test.ts", "renamed", undefined, {
@@ -2380,7 +2382,7 @@ describe("land-prs: test changes", () => {
         "## Test changes\n\n- tests/a.test.ts: the count is now 4.\n---\nRelated: #12",
         "Test changes:\ntests/a.test.ts: retitled the case\n---\nCloses #12",
         "```pnpm test``` passes locally.\n\nTest changes: tests/a.test.ts, the count is now 4.",
-        "Test changes: [the assertion](https://github.com/o/r/blob/claude/x/tests/a.test.ts#L3) is 4.",
+        "Test changes: https://github.com/o/r/blob/claude/x/tests/a.test.ts#L3 is 4 now.",
         "Test changes:\n\n\n- tests/a.test.ts: dup",
       ]) {
         expect(names(body), body).toEqual([]);
@@ -2439,6 +2441,88 @@ describe("land-prs: test changes", () => {
       testChangesSection(`Test changes:\n${"<!--".repeat(16_000)}`);
       added("it.".repeat(20_000));
       expect(Date.now() - start).toBeLessThan(1_000);
+    });
+  });
+
+  describe("round-5 review findings", () => {
+    const one = (patch: string, name = T) => testChangeFlags([file(name, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+    const A_TEST = testChangeFlags([file("tests/a.test.ts", "removed")]);
+
+    it("a renamed test is flagged for the rename and still scanned", () => {
+      const f = file(
+        "tests/b.test.ts",
+        "renamed",
+        "@@ -1,2 +1,1 @@\n-it('a', () => {\n+it.skip('a', () => {\n-  expect(x).toBe(1);",
+        { previous_filename: "tests/a.test.ts" },
+      );
+      expect(testChangeFlags([f])).toEqual([
+        {
+          file: "tests/a.test.ts",
+          reasons: [
+            "test file renamed to tests/b.test.ts: say the runner still collects it",
+            "removed assertion not re-added: expect(x).toBe(1);",
+            "added skip: it.skip('a', () => {",
+          ],
+        },
+      ]);
+    });
+
+    it("a conditional skip() from the test context is a skip", () => {
+      for (const line of [
+        "if (process.env.CI) skip();",
+        'it("x", async ({ skip }) => { if (!process.env.DB) skip(); });',
+        "else skip();",
+        "cond && skip();",
+        "return skip();",
+        'test("x", (c) => { c.skip(); });',
+        'it.runIf(false)("x", () => {});',
+        "base.skip('x', async () => {});",
+        "authed.skip(true, 'flaky');",
+      ]) {
+        expect(added(line), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+    });
+
+    it("a stream's or a query's skip is not, on one line or split", () => {
+      for (const line of [
+        "skip(1),",
+        ".skip(10)",
+        "const rows = latest.skip(1);",
+        "const page = query.skip(10);",
+      ]) {
+        expect(added(line), line).toEqual([]);
+      }
+      expect(removed("const n = assertionsFor(x);")).toEqual([]);
+    });
+
+    it("a regex literal does not hide a call after it", () => {
+      expect(added('const p = s.replace(/\\//g, ""); it.skip("x", () => {});')).toHaveLength(1);
+      expect(
+        removed('const parts = url.split(/\\//); expect(parts).toEqual(["a", "b"]);'),
+      ).toHaveLength(1);
+      expect(added("/'/.test(a); it.skip(\"x\", () => {}); /'/.test(b);")).toHaveLength(1);
+    });
+
+    it("a name a reader never sees does not count", () => {
+      for (const body of [
+        "Test changes: none[](tests/a.test.ts)",
+        "Test changes: none ![](tests/a.test.ts)",
+        'Test changes: none <span title="tests/a.test.ts"></span>',
+        "Test changes: [ ](https://github.com/o/r/blob/main/tests/a.test.ts)",
+        "## Test changes\n\nnone\n\n[tests/a.test.ts]:<x>",
+        "Test changes:\n- https://github.com/o/r/blob/main/packages/web/tests/a.test.ts: toBe(1) -> toBe(2)",
+      ]) {
+        expect(unnamedTestChanges(A_TEST, body, ["main"]), body).toEqual(["tests/a.test.ts"]);
+      }
+      expect(unnamedTestChanges(A_TEST, "<!-->\nTest changes: tests/a.test.ts\n-->")).toEqual([]);
+    });
+
+    it("a line of chained dots is not slow", () => {
+      const start = Date.now();
+      for (let i = 0; i < 300; i++) added("it . ".repeat(390));
+      expect(Date.now() - start).toBeLessThan(2_000);
     });
   });
 

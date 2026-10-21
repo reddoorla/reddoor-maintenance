@@ -728,25 +728,32 @@ const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 // `assert.equal(`, `assertEquals(`, `assertType(`, `expect (x)`. Strings are blanked first,
 // so a test title "as users expect (no 404)" is not one; nor is `expectedFor(` or a bare
 // "assertions".
-const ASSERTION = /\b(expect|expectTypeOf|assert|assertType|assert[A-Z]\w*)(\s*\.\s*\w+)*\s*\(/;
+const ASSERTION = /\b(expect|expectTypeOf|assert|assertType|assert[A-Z]\w*)(\s*\.\s*\w+){0,8}\s*\(/;
 // A skip, tested on a line's code:
 // - a modifier on the test API, called or not: `it.skip(`, `describe.skip.each(…)`,
-//   `cond ? it.skip : it`, Playwright's `test.fixme(` and `test.fail(`;
+//   `cond ? it.skip : it`, `it.runIf(false)(`, Playwright's `test.fixme(` and `test.fail(`;
 // - a modifier called or chained on the test context or a test alias: `ctx.skip()`,
-//   `this.skip()`, `myTest.skip(`, `itLive.skip.each(`, `test.extend({…}).skip(`, or a
-//   chain split across lines (`.skip(` opening a line);
-// - a bare `skip(` statement from the test context (`({ skip }) => { skip(); }`);
+//   `c.skip()`, `this.skip()`, `myTest.skip(`, `itLive.skip.each(`,
+//   `test.extend({…}).skip(`;
+// - a modifier on ANY receiver whose first argument is a string or a boolean, which is
+//   how a test is skipped and not how a query or a stream skips rows: `base.skip("x", …)`,
+//   `authed.skip(true, "flaky")`, and a chain split across lines (`.skip("x", …` opening a
+//   line);
+// - a `skip()` statement from the test context: `if (cond) skip();`, `cond && skip();`,
+//   `return skip();`, `({ skip }) => { skip(); }`;
 // - `xit`, `xtest`, `xdescribe`.
-// A property that is only read (`store.todo`, `summary.fails`), RxJS's `skip(1)` inside a
-// pipe and a query builder's `.skip(10)` are not.
-const SKIP_WORDS = "skipIf|skip|todo|fails|fixme";
+// A property that is only read (`store.todo`, `summary.fails`), RxJS's `skip(1)` in a pipe
+// (on one line or split, `skip(1),`) and a query's `.skip(10)` or `latest.skip(1)` are not.
+const SKIP_WORDS = "skipIf|skip|todo|fails|fixme|runIf";
+const TEST_RECEIVER =
+  "this|ctx|context|c|t|task|(?:[a-z]\\w*)?(?:Test|Describe)\\w*|test\\w*|describe\\w*|it[A-Z]\\w*|\\w*It";
 const SKIP = new RegExp(
   [
-    `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+)*\\s*\\.\\s*(${SKIP_WORDS}|fail)\\b`,
-    `\\b(this|ctx|context|t|task|\\w*[tT]est\\w*|\\w*[dD]escribe\\w*|it[A-Z]\\w*|\\w*It)\\s*\\.\\s*(${SKIP_WORDS})\\s*(\\(|\\.\\s*(each|for|concurrent|sequential|only|skip|todo)\\b)`,
+    `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*(${SKIP_WORDS}|fail)\\b`,
+    `\\b(${TEST_RECEIVER})\\s*\\.\\s*(${SKIP_WORDS})\\s*(\\(|\\.\\s*(each|for|concurrent|sequential|only|skip|todo)\\b)`,
     `\\.\\s*extend\\s*\\([^)]*\\)\\s*\\.\\s*(${SKIP_WORDS})\\b`,
-    `^\\.\\s*(${SKIP_WORDS})\\s*\\(`,
-    `(^|[{;]|=>)\\s*(await\\s+)?skip(If)?\\s*\\(`,
+    `\\.\\s*(${SKIP_WORDS})\\s*\\(\\s*(true\\b|false\\b|["'\`]|$)`,
+    `(^|[{;)?:]|=>|&&|\\|\\||\\b(?:else|return))\\s*(await\\s+)?skip(If)?\\s*\\([^()]*\\)\\s*(;|\\}|$)`,
     `(^|[^\\w.$])x(it|test|describe)\\s*[.(]`,
   ].join("|"),
 );
@@ -782,13 +789,15 @@ function patchLines(patch) {
  *  and `"https://…"` are data, not comment markers), `//` and `/* … *\/` comments dropped, so
  *  `/* flaky *\/ it.skip(…)` is code and `// it.skip(…)` is not. A JSDoc continuation
  *  (`* expect(x)…`) is a comment. A stray `*\/` outside a string is kept as code: guessing
- *  that the line began inside a comment would let `it.skip(…); *\/` pass. `open` is true
- *  when a quote never closed (an apostrophe in JSX text, a quote in a regex literal), and
- *  then everything after it was blanked. One pass, linear. */
+ *  that the line began inside a comment would let `it.skip(…); *\/` pass. `retry` is true
+ *  when the code may have lost a real call: a quote never closed (an apostrophe in JSX
+ *  text), a quote opened right after a `/` (a regex literal `/'/`), or a comment began
+ *  after code (a regex literal `/\//`). One pass, linear. */
 function codeOf(line) {
-  if (/^\*(?!\/)/.test(line)) return { code: "", open: false };
+  if (/^\*(?!\/)/.test(line)) return { code: "", retry: false };
   let out = "";
   let quote = "";
+  let retry = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (quote) {
@@ -800,25 +809,28 @@ function codeOf(line) {
       continue;
     }
     if (c === '"' || c === "'" || c === "`") {
+      if (line[i - 1] === "/") retry = true;
       quote = c;
       out += c;
-    } else if (c === "/" && line[i + 1] === "/") break;
-    else if (c === "/" && line[i + 1] === "*") {
+    } else if (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
+      // A comment that starts after code may be a regex literal (`split(/\//)`) cut short.
+      if (out.trim() !== "") retry = true;
+      if (line[i + 1] === "/") break;
       const end = line.indexOf("*/", i + 2);
       if (end < 0) break;
       out += " ";
       i = end + 1;
     } else out += c;
   }
-  return { code: out.trim(), open: quote !== "" };
+  return { code: out.trim(), retry: retry || quote !== "" };
 }
 
-/** Whether `re` finds a call on the line: on its code, and also on the raw line when a
- *  quote never closed, because then the code may have lost a real call (a flag is cheap;
+/** Whether `re` finds a call on the line: on its code, and also on the raw line when
+ *  `codeOf` says the code may have lost a real call (a flag is cheap;
  *  a missed one is the failure this exists for). */
 function hasCall(line, re, prepare = (s) => s) {
-  const { code, open } = codeOf(line);
-  return re.test(prepare(code)) || (open && re.test(prepare(line)));
+  const { code, retry } = codeOf(line);
+  return re.test(prepare(code)) || (retry && re.test(prepare(line)));
 }
 
 /** `code` with type arguments taken out, innermost first, three levels deep: `expect<Array<
@@ -901,16 +913,16 @@ export function testChangeFlags(files) {
       out.push({ file: name, reasons: ["test file deleted"] });
       continue;
     }
+    // A renamed test is flagged for the rename and still scanned: `git mv` plus an edit
+    // must not hide a weakened assertion behind the rename's one line.
     const away = f?.status === "renamed" ? renamedAway(before, name) : "";
-    if (away) {
-      out.push({ file: before, reasons: [away] });
-      continue;
-    }
-    if (!isTestFile(name)) continue;
+    if (!away && !isTestFile(name)) continue;
+    const file = away ? before : name;
     if (typeof f.patch !== "string") {
-      if (Number(f.changes ?? 1) > 0) {
+      if (away) out.push({ file, reasons: [away] });
+      else if (Number(f.changes ?? 1) > 0) {
         out.push({
-          file: name,
+          file,
           reasons: [`GitHub left out the patch (${f.changes ?? "?"} changed lines): read the diff`],
         });
       }
@@ -919,7 +931,7 @@ export function testChangeFlags(files) {
     const { removed, added } = patchLines(f.patch);
     const addedLeft = lineCounts(added.map(lineKey));
     const removedLeft = lineCounts(removed.map(lineKey));
-    const reasons = [];
+    const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
       if (t.length > MAX_LINE) {
@@ -937,7 +949,7 @@ export function testChangeFlags(files) {
       if (!hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
       if (!takeOne(removedLeft, lineKey(t))) reasons.push(`added skip: ${t}`);
     }
-    if (reasons.length > 0) out.push({ file: name, reasons });
+    if (reasons.length > 0) out.push({ file, reasons });
   }
   return out;
 }
@@ -953,12 +965,13 @@ const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S|^\s*[|>`]/;
  *  line's start hiding the rest (as GitHub does), fenced code blocks dropped (a backtick
  *  fence's info string has no backtick, so ```` ```x``` ```` is inline code; a fence closes
  *  only on a run of its own character at least as long), and link reference definitions
- *  (`[//]: # (…)`, the markdown comment idiom) dropped. Linear. */
+ *  (`[//]: # (…)`, the markdown comment idiom) dropped. `<!-->` is a whole comment, as in
+ *  CommonMark. Linear. */
 function visibleBody(body) {
   const out = [];
   let fence = null;
   for (const line of String(body ?? "")
-    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!---?>|<!--[\s\S]*?-->/g, "")
     .split(/\r?\n/)) {
     if (fence) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
@@ -971,7 +984,7 @@ function visibleBody(body) {
       continue;
     }
     if (/^ {0,3}<!--/.test(line)) break;
-    if (/^ {0,3}\[[^\]]+\]:[ \t]/.test(line)) continue;
+    if (/^ {0,3}\[[^\]]+\]:/.test(line)) continue;
     out.push(line);
   }
   return out;
@@ -1038,24 +1051,36 @@ export function testChangesSection(body) {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// What may come right before a named path: nothing, a non-path character, `./`, or a GitHub
-// `/blob/<ref>/` or `/tree/<ref>/` link to it (a ref may have slashes: `claude/x`).
-const NAME_BEFORE = "(?:^|[^\\w./-]|(?<![\\w.])\\./|/(?:blob|tree)/\\S+?/)";
+/** What may come right before a named path: nothing, a non-path character, `./`, or a
+ *  GitHub `/blob/<ref>/` or `/tree/<ref>/` link to it, where the ref is one of `refs` (the
+ *  PR's own branches, which may hold slashes: `claude/x`), a SHA, or one path segment. A
+ *  ref is never "any run of segments", or `…/blob/main/packages/web/tests/a.test.ts` would
+ *  name a different `tests/a.test.ts`. */
+function nameBefore(refs) {
+  const listed = refs.filter((r) => typeof r === "string" && r !== "").map(escapeRe);
+  const ref = [...listed, "[0-9a-f]{7,40}", "[^\\s/]+"].join("|");
+  return `(?:^|[^\\w./-]|(?<![\\w.])\\./|/(?:blob|tree)/(?:${ref})/)`;
+}
+
+/** The section as a reader sees it: a link's or an image's destination and HTML tags taken
+ *  out, so `none[](tests/a.test.ts)` or `<span title="tests/a.test.ts">` names nothing, and
+ *  a link names a file only through its text. */
+const readerText = (section) => section.replace(/\]\([^)]*\)/g, "]").replace(/<[^<>]*>/g, " ");
 
 /** The flagged files that `section` (the joined `Test changes` sections) does not name. */
-function unnamedIn(flags, section) {
+function unnamedIn(flags, section, refs = []) {
+  const text = readerText(section);
+  const before = nameBefore(refs);
   return flags
     .map((f) => f.file)
-    .filter(
-      (file) => !new RegExp(`${NAME_BEFORE}${escapeRe(file)}(?![\\w/-]|\\.\\w)`).test(section),
-    );
+    .filter((file) => !new RegExp(`${before}${escapeRe(file)}(?![\\w/-]|\\.\\w)`).test(text));
 }
 
 /** The flagged files the PR body's `Test changes:` sections do not name. A name is the
  *  whole path: `tests/a.test.tsx` does not name `tests/a.test.ts`. */
-export function unnamedTestChanges(flags, body) {
+export function unnamedTestChanges(flags, body, refs = []) {
   if (flags.length === 0) return [];
-  return unnamedIn(flags, testChangesSection(body) ?? "");
+  return unnamedIn(flags, testChangesSection(body) ?? "", refs);
 }
 
 /** Every file the PR changed. GitHub lists at most 3000; a PR with more cannot be checked,
@@ -1086,7 +1111,8 @@ async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
     }
   }
   const section = flags.length > 0 ? testChangesSection(pr.body) : null;
-  const missing = flags.length > 0 ? unnamedIn(flags, section ?? "") : [];
+  const refs = [pr.headRefName, pr.baseRefName, pr.headRefOid];
+  const missing = flags.length > 0 ? unnamedIn(flags, section ?? "", refs) : [];
   if (missing.length > 0) {
     const count = `${missing.length} flagged test file${missing.length === 1 ? " is" : "s are"} not named in the PR body`;
     const fix =

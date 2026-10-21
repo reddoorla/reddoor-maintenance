@@ -200,4 +200,5 @@ export function testChangesSection(body: string | null | undefined): string | nu
 export function unnamedTestChanges(
   flags: Array<{ file: string; reasons: string[] }>,
   body: string | null | undefined,
+  refs?: Array<string | null | undefined>,
 ): string[];
