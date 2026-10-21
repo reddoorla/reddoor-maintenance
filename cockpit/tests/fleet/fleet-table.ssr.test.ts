@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { buildSitesView } from "../../src/lib/cockpit/view.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+
 import Page from "../../src/routes/fleet/+page.svelte";
 import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery } from "../../../src/dashboard/fleet-table.js";
@@ -9,9 +12,12 @@ import { canonical, renderPage } from "../_helpers/parity.js";
  * Since the cutover (#582) the old renderer is gone. Each case's markup is
  * pinned by a snapshot written while parity with the old renderer held (commit
  * "freeze each page's canonical markup as a snapshot, verified by parity"), so
- * each snapshot is what the old page rendered. Keep these test names: the
- * snapshots are keyed on them.
+ * each snapshot was what the old page rendered. Since #672 step 3 they also
+ * carry the Health column and the signal chips, re-baselined after the merge.
+ * Keep these test names: the snapshots are keyed on them.
  */
+const BASE = "https://reddoor-maintenance.netlify.app";
+const NOW = new Date("2026-06-11T12:00:00Z");
 const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };
 
 function sites() {
@@ -53,7 +59,12 @@ describe("/fleet parity with renderFleetTableHtml", () => {
   for (const [name, query, rows] of CASES) {
     it(name, () => {
       const model = buildFleetTableModel(rows, { ...DEFAULT_QUERY, ...query });
-      const after = canonical(renderPage(Page, { data: { model } }));
+      // Each row's health, from the cockpit model of the same rows (#672 step 3).
+      const sitesView = buildSitesView(
+        buildCockpitModel(rows, [], {}, BASE, NOW, [], null, [], 0, new Map(), new Map()),
+        NOW,
+      );
+      const after = canonical(renderPage(Page, { data: { model, sites: sitesView } }));
       expect(after).toMatchSnapshot();
     });
   }

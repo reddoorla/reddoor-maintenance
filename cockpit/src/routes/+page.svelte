@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { CockpitView } from "../lib/cockpit/view.js";
   import AuditFleet from "../lib/cockpit/AuditFleet.svelte";
-  import BrowsePanel from "../lib/cockpit/BrowsePanel.svelte";
   import SetupChecklist from "../lib/SetupChecklist.svelte";
+  import "../lib/cockpit/health.css";
   import "./cockpit.css";
 
-  // The fleet cockpit: verdict bar, the per-site Needs-you feed, the collapsed
-  // Fleet browse panel, and the quiet lanes (Recently, Archived, Cardless,
-  // Inbox). Every string comes decided from the server (lib/cockpit/view.ts).
+  // The fleet cockpit, a start page: verdict bar, the per-site Needs-you feed,
+  // the Setup count, and the quiet lanes (Cardless, Inbox). The per-site cards
+  // and the Recently and Archived lanes moved to Sites (/fleet, #672 step 3).
+  // Every string comes decided from the server (lib/cockpit/view.ts).
   let { data }: { data: { view: CockpitView } } = $props();
   const v = $derived(data.view);
 </script>
@@ -18,7 +19,7 @@
 
 <h1>Reddoor fleet cockpit</h1>
 <div class="meta">
-  {v.total} site{v.total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Fleet table →</a>
+  {v.total} site{v.total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Sites →</a>
 </div>
 
 <div class="verdict {v.verdict.cls}">
@@ -54,36 +55,6 @@
       <div class="setup-row">
         <a href={row.href}><strong>{row.name}</strong></a>
         <SetupChecklist gaps={row.gaps} />
-      </div>
-    {/each}
-  </details>
-{/if}
-
-<BrowsePanel browse={v.browse} />
-
-{#if v.recently.length > 0}
-  <details class="recently">
-    <summary>🔧 Recently ({v.recently.length})</summary>
-    {#each v.recently as e, i (i)}
-      <div class="recent-row" data-type={e.type}>
-        <span class="recent-icon">{e.icon}</span>
-        <span class="recent-what"
-          >{#if e.siteName}<strong>{e.siteName}</strong>{" — "}{/if}{e.summary}</span
-        >
-        <span class="muted">{e.when}</span>
-        {#if e.link}<a href={e.link.href}>{e.link.text}</a>{/if}
-      </div>
-    {/each}
-  </details>
-{/if}
-
-{#if v.archived.length > 0}
-  <details class="archived">
-    <summary>🗄 Archived ({v.archived.length})</summary>
-    {#each v.archived as s, i (i)}
-      <div class="approve-row">
-        <strong>{s.name}</strong> <span class="muted">{s.status}</span>
-        <a href="/s/{s.slug}">open ▸</a>
       </div>
     {/each}
   </details>
