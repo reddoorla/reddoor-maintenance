@@ -2157,6 +2157,121 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  describe("round-2 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+    it("a comment in front of a skip or an assertion does not hide it; a commented-out one is not code", () => {
+      expect(one('@@ -1 +1 @@\n-it("x", () => {\n+/* flaky */ it.skip("x", () => {')).toHaveLength(
+        1,
+      );
+      expect(one('@@ -1 +1 @@\n-it("x", () => {\n+*/ it.skip("x", () => {')).toHaveLength(1);
+      expect(one("@@ -1 +0,0 @@\n-/* note */ expect(a).toBe(1);")).toHaveLength(1);
+      expect(
+        one(
+          '@@ -0,0 +1,3 @@\n+// it.skip("x", () => {});\n+ * it.todo("doc");\n+/* xit("y") */ go();',
+        ),
+      ).toEqual([]);
+    });
+
+    it("a called .skip on any receiver is a skip: ctx, this, a test.extend alias, a split chain", () => {
+      for (const line of [
+        "ctx.skip();",
+        "this.skip();",
+        'myTest.skip("x", () => {});',
+        'test.extend({}).skip("x", () => {});',
+        'it("x", ({ skip }) => { skip(); });',
+        'it .skip("x", () => {});',
+        '.skip("x", () => {});',
+      ]) {
+        expect(one(`@@ -1 +1,2 @@\n keep();\n+${line}`), line).toEqual([
+          { file: T, reasons: [`added skip: ${line}`] },
+        ]);
+      }
+    });
+
+    it("assertions with generics, nested or chained, and type assertions are assertions", () => {
+      for (const line of [
+        "expect<Array<number>>(xs).toEqual([1]);",
+        "expect.soft<number>(x).toBe(1);",
+        "assertType<string>(x);",
+        'expectTypeOf<Site>().toHaveProperty("path");',
+      ]) {
+        expect(one(`@@ -1 +0,0 @@\n-${line}`), line).toHaveLength(1);
+      }
+    });
+
+    it("a hostile line is not slow to scan", () => {
+      const start = Date.now();
+      one(`@@ -1 +0,0 @@\n-${"expect<".repeat(20_000)}`);
+      testChangesSection(`Test changes:\n${"\n".repeat(60_000)}- a`);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    });
+
+    it("only a root tests/, test/ or e2e/ is a test directory; __tests__/ is one anywhere", () => {
+      for (const p of [
+        "src/routes/test/+page.svelte",
+        "src/lib/test/utils.ts",
+        "static/e2e/x.json",
+      ]) {
+        expect(isTestFile(p), p).toBe(false);
+      }
+      for (const p of ["packages/core/tests/a.ts", "e2e/a.ts", "src/__tests__/a.ts"]) {
+        expect(isTestFile(p), p).toBe(true);
+      }
+    });
+
+    it("names a file as ./path or as a GitHub blob link, but not as a longer name or another path", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Test changes: ./tests/a.test.ts removed a dup",
+        "Test changes: [a.test.ts](https://github.com/o/r/blob/main/tests/a.test.ts) was a dup",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      for (const body of [
+        "Test changes: tests/a.test.ts.off is gone",
+        "Test changes: foo.tests/a.test.ts",
+        "Test changes: src/tests/a.test.ts",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("comments and fences hide only what GitHub hides", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "This PR escapes `<!--` in templates.\n\nTest changes: tests/a.test.ts, reason",
+        "````md\n```\n````\n\nTest changes: tests/a.test.ts reason",
+        "Test changes\n------------\n\ntests/a.test.ts: reason",
+        "Test changes: none\n\n## Test changes\n- tests/a.test.ts: dup",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      for (const body of [
+        "Summary.\n<!-- template\nTest changes: tests/a.test.ts",
+        "Test changes: <!-- tests/a.test.ts --> none",
+        "Summary.\n```\nTest changes: tests/a.test.ts",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("prints the list once when the merging head flags what the first view did", async () => {
+      const NAMED = `Test changes:\n- ${T}: the count is 4 now.`;
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: NAMED }), merged()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines.filter((l) => l.startsWith("LAND #5 test change"))).toHaveLength(2);
+    });
+  });
+
   describe("the Test changes: section", () => {
     it("is found as a label or a heading, and ends at the next heading", () => {
       for (const body of [
