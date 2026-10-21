@@ -2,7 +2,7 @@ import type { Browser } from "@playwright/test";
 
 /** The design-review rules this module checks on a page, by their ID in
  *  `docs/design-review-rules-2026-09.md`. */
-export type DesignRuleId = "R2";
+export type DesignRuleId = "R2" | "R4";
 
 /** `unmeasured` is the instrument's own failure: the page did not load, or the
  *  condition the check depends on (an emulated preference, say) did not take.

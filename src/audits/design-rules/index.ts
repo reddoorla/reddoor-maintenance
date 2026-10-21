@@ -1,4 +1,5 @@
 import type { Browser } from "@playwright/test";
+import { noJsRule } from "./no-js.js";
 import { reducedMotionRule } from "./reduced-motion.js";
 import type { DesignRule, DesignRuleId, RuleOutcome } from "./types.js";
 
@@ -9,6 +10,7 @@ export type { DesignRule, DesignRuleId, RuleFinding, RuleOutcome, RuleStatus } f
  *  catches by eye first (R2, R4, R9, R12). */
 export const DESIGN_RULES: Record<DesignRuleId, DesignRule> = {
   R2: reducedMotionRule,
+  R4: noJsRule,
 };
 
 /**
