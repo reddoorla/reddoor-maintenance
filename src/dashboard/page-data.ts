@@ -186,7 +186,7 @@ export async function loadSiteDashboard(
       null,
     ),
     // The alarm's reads need only the site and the slug; its verdict needs the
-    // reports too, so it is built below (see loadSiteAlarmContext).
+    // reports too, so it is built below.
     readSiteAlarmInputs(db, site, slug, now),
   ]);
 

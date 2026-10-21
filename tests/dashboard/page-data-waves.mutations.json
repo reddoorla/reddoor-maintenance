@@ -160,5 +160,18 @@
       "tests/dashboard/site-alarm.test.ts"
     ],
     "expect": "red"
+  },
+  {
+    "id": "10-openDb-drops-option",
+    "why": "openDb builds the default dialect whatever it was asked (review round 1)",
+    "edits": [
+      {
+        "file": "src/db/client.ts",
+        "find": "  return kyselyOverClient(client, opts);",
+        "replace": "  return kyselyOverClient(client);"
+      }
+    ],
+    "test": ["tests/db/client-concurrency.test.ts"],
+    "expect": "red"
   }
 ]

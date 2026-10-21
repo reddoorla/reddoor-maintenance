@@ -246,6 +246,7 @@ describe("round trips per load", () => {
     const w = waves();
     const data = await loadSiteDashboard(db.withPlugin(w.plugin), "acme", NOW, BASE);
     expect(data?.site.name).toBe("Acme");
+    expect(w.count()).toBe(9);
     expect(w.depth()).toBe(2);
   });
 
