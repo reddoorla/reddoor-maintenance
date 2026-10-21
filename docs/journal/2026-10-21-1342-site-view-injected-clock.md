@@ -12,7 +12,7 @@ So every snapshot that carries those labels has drifted with real days since the
 
 **What hid it.** The snapshots were written at real time, so they matched for as long as each label's bucket held: weeks for "Xw ago", a month for "Xmo ago".
 
-**The fix.** All three now take the view's `now`. `buildSubmissionRowView` gains a `now` parameter that defaults to the wall clock, because `/submissions` builds its rows with no clock of its own. That page's tests pin the system time with fake timers already. The 30 site snapshots were rewritten: 126 lines changed each way, and every changed line carries a relative time (a grep for changed lines without one finds 0).
+**The fix.** All three now take the view's `now`. `buildSubmissionRowView` gains a `now` parameter that defaults to the wall clock, because `/submissions` builds its rows with no clock of its own. Its snapshot test pins the system time with fake timers already; its DOM and action tests assert no time label. The 30 site snapshots were rewritten: 126 lines changed each way, and every changed line carries a relative time (a grep for changed lines without one finds 0).
 
 **Measured.** A new test renders each case, moves the system clock to 2031, renders it again, and asks for identical markup. Mutations, each run and restored:
 
@@ -21,3 +21,5 @@ So every snapshot that carries those labels has drifted with real days since the
 | The last-commit label reads the wall clock | 2 tests red |
 | "Last audited" reads the wall clock        | 54 red      |
 | Submission rows read the wall clock        | 5 red       |
+
+**Review round 1 was clean**, with one minor and four nits. Two nits are folded in: the new test's name now says "in 2031" rather than "a year on", and this entry says which `/submissions` tests pin the clock. The minor is filed as #1603, since `fixtures.ts` is outside this PR: the fixture's submissions postdate its pinned `now`, so they all read "just now". The other nits needed no change: the clock loop covers `CASES` only, and the `afterEach` undoes the time-travel shim for tests that already run last.
