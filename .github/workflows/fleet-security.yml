@@ -360,6 +360,10 @@ jobs:
       # must still print DELIVER before it closes.
       - name: Read the Renovate outcome
         id: renovate-outcome
+        # `!cancelled()` (#1605): a write-gate red in the audit step must not freeze
+        # the drought issue; the protection audit it reads runs on a red run too.
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         run: |
           out="${RUNNER_TEMP:-/tmp}/protection.out"
           summary=$(grep -E "^RENOVATE_OUTCOME drought=[0-9]+ delivering=[0-9]+ unmeasured=[0-9]+ " "$out" 2>/dev/null | tail -n1 || true)
@@ -385,7 +389,7 @@ jobs:
 
       - name: Open/update the Renovate drought tracking issue
         # main only, like every tracking issue here.
-        if: steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -447,7 +451,7 @@ jobs:
           fi
 
       - name: Close the Renovate drought issue once every repo delivers
-        if: steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

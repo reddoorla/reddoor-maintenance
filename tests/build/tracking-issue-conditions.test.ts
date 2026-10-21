@@ -348,6 +348,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-security.yml › id: app-token-late",
       "fleet-security.yml › Trigger Renovate for sites with actionable vulnerabilities",
       "fleet-security.yml › Protection coverage audit (org-wide)",
+      "fleet-security.yml › Read the Renovate outcome",
     ]);
   });
 });
@@ -958,17 +959,32 @@ exit 1
   });
 
   // #1605: a write-gate red in the audit step must not stop the steps behind it.
-  it("fleet-security's late token, Renovate dispatch and protection audit run on a red run, not a cancelled one", () => {
+  it("fleet-security's late token, Renovate dispatch, protection audit and drought read run on a red run, not a cancelled one", () => {
     const labels = [
       "id: app-token-late",
       "Trigger Renovate for sites with actionable vulnerabilities",
       "Protection coverage audit (org-wide)",
+      "Read the Renovate outcome",
     ];
     for (const label of labels) {
       const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
       expect(s, label).toBeDefined();
       expect(evaluate(s.if ?? "success()", MAIN_FAILED), label).toBe(true);
       expect(evaluate(s.if ?? "success()", MAIN_CANCELLED), label).toBe(false);
+    }
+  });
+
+  it("the Renovate drought open and close conditions hold on a red run", () => {
+    for (const [label, drought] of [
+      ["Open/update the Renovate drought tracking issue", "yes"],
+      ["Close the Renovate drought issue once every repo delivers", "no"],
+    ] as const) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      expect(s, label).toBeDefined();
+      expect(evaluate(s.if ?? "success()", { ...MAIN_FAILED, output: drought }), label).toBe(true);
+      expect(evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, output: drought }), label).toBe(
+        false,
+      );
     }
   });
 
