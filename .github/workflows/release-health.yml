@@ -89,22 +89,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Newest DECISIVE run only. `cancelled` / `skipped` / `action_required` are excluded
-          # rather than treated as red — release.yml serialises on a concurrency group, so a
-          # queued-then-cancelled run says nothing about pipeline health. If the newest decisive
-          # run is green, an older failure has already been superseded and we are clear.
+          # Newest DECISIVE run only. `startup_failure` is decisive and red: it is
+          # what GitHub reports when it cannot start the workflow at all (an invalid
+          # file, a blocked action), and such a run published nothing (#1614).
+          # `cancelled` / `skipped` / `action_required` are skipped past rather than
+          # treated as red: release.yml serialises on a concurrency group, so one
+          # queued-then-cancelled run says nothing about pipeline health. A WINDOW of
+          # completed runs with not one verdict in it does: the API answered, and no
+          # release has finished in that many pushes. If the newest decisive run is
+          # green, an older failure has already been superseded and we are clear.
           latest=$(gh api \
             "/repos/${{ github.repository }}/actions/workflows/release.yml/runs?branch=main&per_page=30" \
-            --jq '[.workflow_runs[]
-                   | select(.status == "completed")
-                   | select(.conclusion == "success" or .conclusion == "failure" or .conclusion == "timed_out")]
-                  | .[0] // empty
-                  | "\(.conclusion)\t\(.html_url)\t\(.head_sha)"' || true)
+            --jq '[.workflow_runs[] | select(.status == "completed")] as $done
+                  | ($done | map(select(.conclusion == "success" or .conclusion == "failure"
+                                        or .conclusion == "timed_out" or .conclusion == "startup_failure"))
+                           | .[0]) as $d
+                  | if $d then "\($d.conclusion)\t\($d.html_url)\t\($d.head_sha)"
+                    elif ($done | length) > 0
+                    then "no_verdict_in_\($done | length)\t\($done[0].html_url)\t\($done[0].head_sha)"
+                    else empty end' \
+            || echo "::warning::could not read the release workflow's runs; guard 2 was not judged this run" >&2)
           concl=$(printf '%s' "$latest" | cut -f1)
           url=$(printf '%s' "$latest" | cut -f2)
           sha=$(printf '%s' "$latest" | cut -f3)
-          # No decisive run at all (fresh repo, or the API call failed) → nothing to judge. Stay
-          # silent rather than alarm; a broken query must not masquerade as a broken pipeline.
+          # No completed run at all (fresh repo) or the API call failed → nothing to
+          # judge. Stay green rather than alarm; a broken query must not masquerade
+          # as a broken pipeline. The failed call leaves the warning above.
           if [ -z "$concl" ]; then
             echo "no decisive release run on main — skipping guard 2"
             red=no
@@ -120,9 +130,14 @@ jobs:
             echo "url=${url:-n/a}"
             echo "sha=${sha:-n/a}"
           } >> "$GITHUB_OUTPUT"
-          if [ "$red" = "yes" ]; then
-            echo "::error::The release workflow's latest run on main is '$concl' ($url). Releases are blocked even though npm and main agree on the version."
-          fi
+          case "$concl" in
+            no_verdict_in_*)
+              echo "::error::none of the ${concl#no_verdict_in_} completed release runs on main reached a verdict (all cancelled, skipped or awaiting approval); the newest is $url. No release has finished in that window." ;;
+            *)
+              if [ "$red" = "yes" ]; then
+                echo "::error::The release workflow's latest run on main is '$concl' ($url). Releases are blocked even though npm and main agree on the version."
+              fi ;;
+          esac
           # POSITIVE evidence for the close step. `red=no` above is set on TWO
           # completely different findings — "the newest decisive run was green"
           # and "there was no decisive run to judge" — and the filing side is

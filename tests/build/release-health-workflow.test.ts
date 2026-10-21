@@ -49,6 +49,13 @@ beforeAll(async () => {
  *  any other — an unexpected subcommand silently returning "" would let a case
  *  pass for a step that no longer does what its name says. */
 const GH_STUB = `#!/bin/sh
+if [ "$1" = "api" ] && [ -n "$GH_API_FAIL" ]; then echo "gh: HTTP 403" >&2; exit 1; fi
+if [ "$1" = "api" ] && [ -n "$GH_API_JSON" ]; then
+  # Real jq over a real-shaped response, through the step's OWN --jq filter, so
+  # the filter is under test and not a canned string standing in for it.
+  while [ $# -gt 0 ]; do if [ "$1" = "--jq" ]; then shift; filter="$1"; fi; shift; done
+  printf '%s' "$GH_API_JSON" | jq -r "$filter"; exit $?
+fi
 if [ "$1" = "api" ]; then printf '%s' "$GH_API_OUT"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "list" ]; then printf '%s\\n' "$GH_ISSUES"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "close" ]; then echo "CLOSED $3"; exit 0; fi
@@ -61,7 +68,13 @@ const NPM_STUB = `#!/bin/sh
 printf '%s\\n' "$NPM_VERSION"
 `;
 
-type StepEnv = { GH_API_OUT?: string; GH_ISSUES?: string; NPM_VERSION?: string };
+type StepEnv = {
+  GH_API_OUT?: string;
+  GH_API_JSON?: string;
+  GH_API_FAIL?: string;
+  GH_ISSUES?: string;
+  NPM_VERSION?: string;
+};
 
 /**
  * Do what Actions does to a `run:` block before bash ever sees it: expand `${{
@@ -115,6 +128,8 @@ async function runStep(
         RUNNER_TEMP: d,
         GITHUB_OUTPUT: join(d, "github_output"),
         GH_API_OUT: env.GH_API_OUT ?? "",
+        GH_API_JSON: env.GH_API_JSON ?? "",
+        GH_API_FAIL: env.GH_API_FAIL ?? "",
         GH_ISSUES: env.GH_ISSUES ?? "",
         NPM_VERSION: env.NPM_VERSION ?? "",
       },
@@ -240,5 +255,102 @@ describe("release-health — its own run failing files an issue, and a finding d
     const script = stepRunScript(wf, OPEN);
     expect(script).toContain('title="Daily release-health check failing"');
     expect(stepRunScript(wf, CLOSE)).toContain('title="Daily release-health check failing"');
+  });
+});
+
+describe("release-health — guard 2 reads the runs a broken pipeline actually leaves (#1614)", () => {
+  // The release workflow's run list, newest first, in the shape
+  // `/actions/workflows/release.yml/runs` returns. Fed through the step's own
+  // `--jq` by the stub, so the conclusion filter is what is being tested.
+  const runs = (...conclusions: (string | null)[]): string =>
+    JSON.stringify({
+      workflow_runs: conclusions.map((c, i) => ({
+        status: c === null ? "in_progress" : "completed",
+        conclusion: c,
+        html_url: `https://github.com/reddoorla/reddoor-maintenance/actions/runs/${100 - i}`,
+        head_sha: `sha${i}`,
+      })),
+    });
+  const output = (dir: string) => readFile(join(dir, "github_output"), "utf-8");
+
+  // PASS CONTROL first, through the new path: the shape of the real history on
+  // 2026-10-21 (one run in flight, then green, with an older failure and some
+  // cancellations behind it) must stay green and still arm the close.
+  it("a green newest completed run stays green and still closes", async () => {
+    const check = await runStep(RELSTATE_STEP, {
+      GH_API_JSON: runs(null, "success", "cancelled", "failure", "success"),
+    });
+    expect(check.code).toBe(0);
+    expect(check.out).not.toContain("::error::");
+    expect(await output(check.dir)).toContain("red=no\n");
+    const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
+    expect(close.out).toContain("CLOSED 42");
+  });
+
+  it("an older failure behind a newer success is superseded", async () => {
+    const check = await runStep(RELSTATE_STEP, { GH_API_JSON: runs("success", "failure") });
+    expect(await output(check.dir)).toContain("red=no\n");
+  });
+
+  // Input 1. GitHub reports a workflow file it cannot even start (invalid YAML,
+  // a blocked action) as `startup_failure`. That run published nothing; it is
+  // a verdict, and the newest one.
+  it("a startup_failure newest run is red, not skipped past to an older success", async () => {
+    const check = await runStep(RELSTATE_STEP, { GH_API_JSON: runs("startup_failure", "success") });
+    expect(check.code).toBe(0); // a finding, not a crash — see the guard-2 case above
+    expect(check.out).toContain("::error::");
+    const out = await output(check.dir);
+    expect(out).toContain("red=yes\n");
+    expect(out).toContain("concl=startup_failure\n");
+    const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
+    expect(close.out).not.toContain("CLOSED");
+  });
+
+  // Input 2. Thirty completed runs and not one reached a verdict. That is not
+  // "nothing to judge" — the API answered, and the answer is that no release
+  // has finished in thirty pushes.
+  it("a window of completed runs that are all cancelled is red", async () => {
+    const check = await runStep(RELSTATE_STEP, {
+      GH_API_JSON: runs(...Array<string>(30).fill("cancelled")),
+    });
+    expect(check.code).toBe(0);
+    expect(check.out).toContain("::error::");
+    expect(check.out).toContain("none of the 30 completed release runs");
+    expect(await output(check.dir)).toContain("red=yes\n");
+    const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
+    expect(close.out).not.toContain("CLOSED");
+  });
+
+  it("skipped and action_required count as no verdict too, not as green", async () => {
+    const check = await runStep(RELSTATE_STEP, {
+      GH_API_JSON: runs(null, "skipped", "action_required", "cancelled"),
+    });
+    expect(await output(check.dir)).toContain("red=yes\n");
+  });
+
+  // The silent path that stays: the API answered with no runs at all (a fresh
+  // repo, or the workflow renamed). Nothing to judge, and no alarm.
+  it("an empty run list still stays silent and arms no close", async () => {
+    const check = await runStep(RELSTATE_STEP, { GH_API_JSON: runs() });
+    expect(check.code).toBe(0);
+    expect(check.out).toContain("no decisive release run on main");
+    expect(check.out).not.toContain("::error::");
+    expect(await output(check.dir)).toContain("red=no\n");
+    const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
+    expect(close.out).not.toContain("CLOSED");
+  });
+
+  // Input 3, decided: an API error stays green (a broken query must not
+  // masquerade as a broken pipeline) but is no longer silent — it leaves a
+  // warning on the run naming that guard 2 was not judged.
+  it("an API error stays green, arms no close, and says guard 2 was not judged", async () => {
+    const check = await runStep(RELSTATE_STEP, { GH_API_FAIL: "1" });
+    expect(check.code).toBe(0);
+    expect(check.out).not.toContain("::error::");
+    expect(check.out).toContain("::warning::");
+    expect(check.out).toContain("guard 2 was not judged");
+    expect(await output(check.dir)).toContain("red=no\n");
+    const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
+    expect(close.out).not.toContain("CLOSED");
   });
 });
