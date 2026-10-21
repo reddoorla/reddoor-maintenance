@@ -411,7 +411,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
   return { label, chips };
 }
 
-function detailRows(site: WebsiteRow): DetailRowView[] {
+function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
   const select = (
     label: string,
     field: string,
@@ -438,7 +438,7 @@ function detailRows(site: WebsiteRow): DetailRowView[] {
     field,
     value: (value ?? "").slice(0, 10),
   });
-  const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt)}` : null;
+  const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt, now)}` : null;
   return [
     // `statusRaw`, not `status`: the options ARE the stored cell values.
     select("Status", "status", SITE_STATUS_OPTIONS, site.statusRaw),
@@ -574,7 +574,9 @@ export function buildSiteView(
     name: site.name,
     url: site.url,
     urlHref: safeUrl(site.url),
-    audited: site.lastLighthouseAuditAt ? relativeTimeFromNow(site.lastLighthouseAuditAt) : null,
+    audited: site.lastLighthouseAuditAt
+      ? relativeTimeFromNow(site.lastLighthouseAuditAt, now)
+      : null,
     failingAudits: site.lighthouseFailingAudits ? site.lighthouseFailingAudits : null,
     setup: { score, total: setupTotal, missing: missingOnboarding(site, now) },
     // The gaps come from the row alone, so they survive an alarm read that
@@ -608,7 +610,7 @@ export function buildSiteView(
     details: {
       url: `/api/sites/${slug}/details`,
       triggerUrl: site.gitRepo?.trim() ? `/api/sites/${slug}/trigger-renovate` : null,
-      rows: detailRows(site),
+      rows: detailRows(site, now),
     },
     spam: spam(spamTotals, submissions, now),
     submissions:
@@ -616,7 +618,7 @@ export function buildSiteView(
         ? null
         : {
             total: visible.length,
-            shown: shown.map(buildSubmissionRowView),
+            shown: shown.map((r) => buildSubmissionRowView(r, now)),
             viewAllHref: `/submissions?site=${slug}`,
           },
   };
