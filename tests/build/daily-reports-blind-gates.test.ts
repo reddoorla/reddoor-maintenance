@@ -147,7 +147,6 @@ async function insertReport(fields: {
   await d
     .insertInto("reports")
     .values({
-      id: fields.id ?? "recREPORT",
       report_id: `Site 0 — Maintenance — ${fields.id ?? "2026-10-21"}`,
       site_id: "recSITE0",
       report_type: "Maintenance",
