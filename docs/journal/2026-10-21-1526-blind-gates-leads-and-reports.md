@@ -25,6 +25,7 @@ Each was shown green before any red was trusted. Production was read once, read-
   - a query that dropped `sent_at`, `withdrawn_at` or `approved_to_send` with every test still green.
 
   Each is now red. One worth remembering is a bash fact: inside an `if`, `[ "" -gt 0 ]` is false. A marker missing a counter therefore passes unless something checks for the empty string first.
+
 - Round 2's SIGPIPE finding on #1630's close step (`printf | grep -q` under pipefail) was real in the abstract but cannot fire today, because the workflow sets no `shell:` and Actions runs `bash -e`. It became a here-string anyway.
 
 **Defects of my own that CI or a test caught:**
