@@ -185,6 +185,12 @@ describe("changedFiles", () => {
     writeFileSync(join(base, "src", "gone.ts"), "g\n");
     writeFileSync(join(base, ".gitignore"), "node_modules\n");
     sh(base, "init", "-q");
+    // A commit starts `git maintenance run --auto`, which git 2.47+ detaches: its
+    // objects/maintenance.lock can vanish while cpSync walks .git, an ENOENT on CI (#1587's run).
+    sh(base, "config", "gc.auto", "0");
+    sh(base, "config", "maintenance.auto", "false");
+    expect(sh(base, "config", "gc.auto").toString().trim()).toBe("0");
+    expect(sh(base, "config", "maintenance.auto").toString().trim()).toBe("false");
     sh(base, "add", "-A");
     sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
     const tree = join(dir, "tree");
