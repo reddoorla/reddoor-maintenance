@@ -276,6 +276,10 @@ function ghSeverityToApp(s: string): Severity {
  *  graph falls back to `package.json` when it cannot parse a lockfile. */
 const ROOT_LOCKFILES = ["pnpm-lock.yaml", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock"];
 
+/** The root lockfiles `pnpm audit` or `npm audit` can read. `yarn.lock` shows Dependabot read the
+ *  tree, but neither audit reads it, so a yarn-only repo has nothing to cross-check. */
+const AUDITABLE_LOCKFILES = ["pnpm-lock.yaml", "package-lock.json", "npm-shrinkwrap.json"];
+
 /** Build a security AuditResult from GitHub Dependabot alerts, or null if the fetch failed so
  *  the caller falls back to `pnpm audit`. ALL open alerts count toward the severity tallies —
  *  the cockpit's auto-patching (amber) vs Renovate-exhausted (red) bands decide urgency, so the
@@ -521,7 +525,7 @@ async function crossCheckDependabot(
 
 /** True when the repo root holds a lockfile the lockfile audit can read. */
 async function hasRootLockfile(dir: string): Promise<boolean> {
-  for (const name of ROOT_LOCKFILES) {
+  for (const name of AUDITABLE_LOCKFILES) {
     try {
       await access(join(dir, name));
       return true;

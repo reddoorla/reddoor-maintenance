@@ -1600,6 +1600,22 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
     );
   });
 
+  // Review round 3: neither audit reads yarn.lock, so a yarn-only repo skipped every night.
+  it("keeps Dependabot's answer, running nothing, when the only root lockfile is yarn.lock", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(dir, "yarn.lock"), 'minimist@1.2.0:\n  version "1.2.0"\n');
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    const result = await securityAudit({
+      site: { path: dir, gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([]),
+      spawn,
+    });
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
   it("keeps Dependabot's answer, running nothing, when the repo has no root lockfile", async () => {
     const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
     writeFileSync(join(dir, "package.json"), "{}");
