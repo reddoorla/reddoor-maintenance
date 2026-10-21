@@ -67,7 +67,8 @@ same scripts, so 17 goes last among the script items.
   silent outage. Same question for the setup block (repeated in 13–17 files,
   about 100 lines).
 - **One-off generators and assemblers with no caller**:
-  `src/webflow/sites/beachfront.ts` (252 lines, test-only),
+  `src/webflow/sites/beachfront.ts` (252 lines, test-only; removed 2026-10-20 with
+  `src/webflow`, OD 97(c)),
   `scripts/gen-report-shapes.mts` and `scripts/gen-report-fixture.mts` (548
   lines, which write into reddoor-website; #893 asks to extend the first).
 - **Laptop-only tests that never run in CI or the cloud**:

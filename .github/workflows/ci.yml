@@ -78,6 +78,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm check:match-harness-snapshots
       - run: pnpm build
+      - run: pnpm cockpit:build
       - run: pnpm test:coverage
       - run: pnpm test:dist
 
