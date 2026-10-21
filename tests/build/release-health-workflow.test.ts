@@ -64,7 +64,7 @@ fi
 if [ "$1" = "api" ]; then printf '%s' "$GH_API_OUT"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "list" ]; then printf '%s\\n' "$GH_ISSUES"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "close" ]; then echo "CLOSED $3"; exit 0; fi
-if [ "$1" = "issue" ] && [ "$2" = "create" ]; then printf '%s\n' "$6" > "$RUNNER_TEMP/created_body"; echo "CREATED"; exit 0; fi
+if [ "$1" = "issue" ] && [ "$2" = "create" ]; then printf '%s\\n' "$6" > "$RUNNER_TEMP/created_body"; echo "CREATED"; exit 0; fi
 echo "unexpected gh $*" >&2
 exit 2
 `;
@@ -299,7 +299,11 @@ describe("release-health — guard 2 reads the runs a broken pipeline actually l
 
   it("an older failure behind a newer success is superseded", async () => {
     const check = await runStep(RELSTATE_STEP, { GH_API_JSON: runs("success", "failure") });
-    expect(await output(check.dir)).toContain("red=no\n");
+    const out = await output(check.dir);
+    expect(out).toContain("red=no\n");
+    expect(out).toContain("concl=success\n");
+    // Not the API-error path, which also reads red=no.
+    expect(check.out).not.toContain("::warning::");
   });
 
   // Input 1. GitHub reports a workflow file it cannot even start (invalid YAML,
@@ -345,6 +349,8 @@ describe("release-health — guard 2 reads the runs a broken pipeline actually l
     expect(check.code).toBe(0);
     expect(check.out).toContain("no decisive release run on main");
     expect(check.out).not.toContain("::error::");
+    // An answered, empty list is not a failed query: no "not judged" warning.
+    expect(check.out).not.toContain("::warning::");
     expect(await output(check.dir)).toContain("red=no\n");
     const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
     expect(close.out).not.toContain("CLOSED");
