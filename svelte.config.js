@@ -6,7 +6,8 @@ import adapter from "@sveltejs/adapter-netlify";
  * the Netlify adapter writes `.netlify/` (the render function) relative to the
  * build's working directory, and Netlify collects it from the root.
  *
- * `svelte-kit sync` therefore warns that the root tsconfig.json should extend
+ * `svelte-kit sync`, and so every `pnpm cockpit:build` in CI, therefore warns
+ * that the root tsconfig.json should extend
  * ./cockpit/.svelte-kit/tsconfig.json. That is expected and stays: the root
  * tsconfig is the Node package's and deliberately does not extend SvelteKit's;
  * cockpit/tsconfig.json is the one that extends it (#1578).

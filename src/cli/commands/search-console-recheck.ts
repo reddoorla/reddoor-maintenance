@@ -60,8 +60,9 @@ export async function runSearchConsoleRecheckCommand(
       return readFleetRoster();
     })
   )();
-  // The cockpit's own condition for the Setup gap "Search Console property not
-  // matched" (since #1580; it was a Watch chip before): the re-check exists to
+  // The cockpit's own condition (src/dashboard/fleet-cockpit.ts) for the Setup
+  // gap `search-console-no-property`, "Search Console: no property matched
+  // <host>" (since #1580; it was a Watch chip before): the re-check exists to
   // clear that gap, so it skips what the cockpit does not count, an unstamped
   // no-property row among them.
   const targets = websites.filter(
