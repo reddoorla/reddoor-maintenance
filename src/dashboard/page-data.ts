@@ -13,7 +13,6 @@ import {
   listSpamReasonsFiltered,
   markFilteredAsRead,
 } from "../db/submissions.js";
-import type { NotifyBounceCounts } from "../db/submissions.js";
 import { listFleetEvents } from "../db/fleet-events.js";
 import { screenOutsSince, screenOutTotalsForSite } from "../db/screenouts.js";
 import type { ScreenOutTotals } from "../db/screenouts.js";
@@ -23,7 +22,12 @@ import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "../reports/report-fields.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
-import { buildCockpitModel } from "./fleet-cockpit.js";
+import {
+  assembleCockpitModel,
+  RECENT_AUDITS_LIMIT,
+  RECENT_EVENTS_DAYS,
+  RECENT_EVENTS_LIMIT,
+} from "./snapshot-views.js";
 import type { CockpitModel, SiteAlarmContext } from "./fleet-cockpit.js";
 import { parseFleetTableQuery, buildFleetTableModel } from "./fleet-table.js";
 import type { FleetTableModel } from "./fleet-table.js";
@@ -77,8 +81,8 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     orElse(() => readCockpitRollup(db), null),
     // Recently lane simply absent — the cockpit still renders.
     orElse(() => {
-      const sinceIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      return listFleetEvents(db, { sinceIso, limit: 20 });
+      const sinceIso = new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString();
+      return listFleetEvents(db, { sinceIso, limit: RECENT_EVENTS_LIMIT });
     }, []),
     // affordance simply absent — never blank the cockpit
     orElse(() => countAutoSpamSince(db, screenOutsSince(now, 7)), 0),
@@ -91,40 +95,20 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     // only when the count found dead letters, as when it was read after it.
     orElse<ReadonlyMap<string, string>>(() => oldestUnreplayedDeadLetterBySlug(db), new Map()),
   ]);
-  const deadLetterOldest: ReadonlyMap<string, string> =
-    deadLetters.size > 0 ? deadLetterOldestRead : new Map();
-  // Both of the fleet-wide "since a window" numbers now come from ONE row read
-  // by primary key, computed by the nightly digest (MED-16). They used to be
-  // recomputed on every page load — aggregates over the whole `submissions`
-  // table, which is the one unbounded-growth table in the schema, on the
-  // operator's most-loaded page, against a store that meters row scans.
-  //
-  // They are consequently up to 24h old. `null` when the digest has not written
-  // one yet, which the cockpit renders as ABSENT rather than as zeros: every
-  // one of these numbers has a legitimate zero, so a confident 0 for an
-  // unmeasured window is a lie the strip cannot walk back.
-  const spamTotals =
-    rollup !== null ? { ...rollup.spamTotals, computedAt: rollup.computedAt } : null;
-  // #783: the roll-up's per-site value is a {total, permanent} breakdown now.
-  // `readCockpitRollup` normalizes an older numeric payload into it, so this
-  // stays a plain Object.entries and the cockpit keeps rendering after a
-  // deploy that lands before the next nightly digest run.
-  const notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(
-    Object.entries(rollup?.notifyBounces ?? {}),
-  );
-  return buildCockpitModel(
-    websites,
-    reports,
-    prior,
+  return assembleCockpitModel(
+    {
+      websites,
+      reports,
+      prior,
+      newSubmissions,
+      rollup,
+      recentEvents,
+      autoFilteredCount,
+      deadLetters,
+      deadLetterOldestRead,
+    },
     baseUrl,
     now,
-    newSubmissions,
-    spamTotals,
-    recentEvents,
-    autoFilteredCount,
-    notifyBounces,
-    deadLetters,
-    deadLetterOldest,
   );
 }
 
@@ -277,10 +261,6 @@ export async function markSubmissionsRead(
   const query = qs.toString();
   return { kind: "marked", count, location: query ? `/submissions?${query}` : "/submissions" };
 }
-
-/** Plenty for one screen of "recent" without a pager; the design deliberately
- *  has no pagination for this list (v1 non-goal: no live progress, no extra UI). */
-const RECENT_AUDITS_LIMIT = 25;
 
 /** `/audits`. */
 export async function loadProspectAudits(db: Db) {

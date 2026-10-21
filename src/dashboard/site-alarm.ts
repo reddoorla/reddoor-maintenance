@@ -11,7 +11,8 @@ import { screenOutsSince } from "../db/screenouts.js";
 import { readDigestState } from "../db/digest-state.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../alerts/digest-collectors.js";
-import { buildSiteAlarmContext, type SiteAlarmContext } from "./fleet-cockpit.js";
+import type { SiteAlarmContext } from "./fleet-cockpit.js";
+import { buildSiteAlarm, type SiteAlarmInputs } from "./site-alarm-verdict.js";
 import { orElse } from "./or-else.js";
 
 /**
@@ -55,13 +56,6 @@ export async function loadSiteAlarmContext(
   );
 }
 
-export type SiteAlarmInputs = {
-  notifyBounces: ReadonlyMap<string, NotifyBounceCounts>;
-  deadLetters: ReadonlyMap<string, number>;
-  deadLetterOldest: ReadonlyMap<string, string>;
-  prior: DigestSnapshot;
-};
-
 /** The alarm's four reads, together; each one's failure drops only its signal. */
 export async function readSiteAlarmInputs(
   db: Db,
@@ -94,27 +88,4 @@ export async function readSiteAlarmInputs(
   };
 }
 
-/** The verdict from the reads and the site's reports; null if a collector throws. */
-export function buildSiteAlarm(
-  site: WebsiteRow,
-  reports: ReportRow[],
-  baseUrl: string,
-  now: Date,
-  inputs: SiteAlarmInputs,
-): SiteAlarmContext | null {
-  try {
-    return buildSiteAlarmContext(
-      site,
-      reports,
-      baseUrl,
-      now,
-      inputs.notifyBounces,
-      inputs.deadLetters,
-      inputs.prior,
-      inputs.deadLetterOldest,
-    );
-  } catch (e) {
-    console.error(`[site-dashboard] alarm context failed: ${String(e)}`);
-    return null;
-  }
-}
+export { buildSiteAlarm, type SiteAlarmInputs } from "./site-alarm-verdict.js";

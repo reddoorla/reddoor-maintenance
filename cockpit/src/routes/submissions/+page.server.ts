@@ -1,17 +1,11 @@
 import { error, redirect } from "@sveltejs/kit";
-import type { Actions, PageServerLoad } from "./$types";
-import { loadSubmissionsPage, markSubmissionsRead } from "../../../../src/dashboard/page-data.js";
+import type { Actions } from "./$types";
+import { markSubmissionsRead } from "../../../../src/dashboard/page-data.js";
 import { isCsrfAllowed } from "../../../../src/dashboard/csrf.js";
 import { withDb } from "../../lib/server/db.js";
-import { buildSubmissionsPageData } from "./data.js";
 
-export const load: PageServerLoad = ({ url }) =>
-  withDb("submissions", async (db) => {
-    const loaded = await loadSubmissionsPage(db, url.searchParams);
-    if (loaded.kind === "no-site") error(404, `No site found for slug '${loaded.slug}'.`);
-    return buildSubmissionsPageData(loaded.model);
-  });
-
+// The page itself derives from the layout's snapshot (`+page.ts`); this file
+// holds only the bulk mark-read action, which writes.
 export const actions: Actions = {
   // The bulk mark-read form. It posts the ACTIVE filter as fields with the GET
   // query's names, so the same parse re-derives the identical filter.

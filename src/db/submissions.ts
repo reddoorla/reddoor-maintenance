@@ -143,6 +143,21 @@ export async function listSubmissionsForSite(
   return rows.map(rowFromDb);
 }
 
+/** Every submission, newest first: the cockpit snapshot's one read of the table
+ *  (`src/dashboard/snapshot.ts`), from which the browser derives the per-site lists,
+ *  the counts and the `/submissions` page (`matchesSubmissionFilter` there is this
+ *  file's `applySubmissionFilter`, row by row). The one unbounded table, read whole
+ *  once per snapshot rather than in slices on every page load; measured at 678 rows
+ *  on 2026-10-21. */
+export async function listAllSubmissions(db: Db): Promise<SubmissionRow[]> {
+  const rows = await db
+    .selectFrom("submissions")
+    .selectAll()
+    .orderBy("submitted_at", "desc")
+    .execute();
+  return rows.map(rowFromDb);
+}
+
 export async function setSubmissionStatusRow(
   db: Db,
   id: string,

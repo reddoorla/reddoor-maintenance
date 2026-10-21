@@ -2,7 +2,7 @@ import type { WebsiteRow } from "../fleet/site-row.js";
 import { parseNotifyRouting } from "../fleet/site-row.js";
 import { CANONICAL_STATUSES } from "../fleet/site-status.js";
 import type { CellValue } from "../fleet/site-fields.js";
-import { isOwnerRepo } from "../util/git.js";
+import { isOwnerRepo } from "../util/owner-repo.js";
 import { isHttpUrl } from "../util/url.js";
 import { normalizeSearchConsoleProperty } from "../reports/search/property.js";
 

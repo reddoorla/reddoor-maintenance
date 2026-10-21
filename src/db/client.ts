@@ -1,4 +1,4 @@
-import type { Client, Config as LibsqlConfig } from "@libsql/client";
+import type { Client, Config as LibsqlConfig, InStatement, ResultSet } from "@libsql/client";
 import type { Kysely as KyselyType } from "kysely";
 import { defaultCredentialsPath } from "../util/credentials.js";
 import type { Database } from "./schema.js";
@@ -69,6 +69,9 @@ export async function openDb(cfg: DbConfig, opts: OpenDbOptions = {}): Promise<D
     : { url: cfg.url };
   const client: Client = createClient(clientConfig);
   await ensureMigrated(cfg.url, client);
+  if (opts.batchReads) {
+    return kyselyOverClient(batchingReadClient(client), { ...opts, concurrentReads: true });
+  }
   return kyselyOverClient(client, opts);
 }
 
@@ -88,7 +91,65 @@ export type OpenDbOptions = {
    *  order. A transaction on a local `file:`/`:memory:` client hands that client's
    *  connection away (see `site-create.ts`), so never open one on a concurrent `Db`. */
   concurrentReads?: boolean;
+  /** Send every query issued in the same turn of the event loop as ONE
+   *  `client.batch(…, "read")`: one HTTP request to Turso, run in one read transaction,
+   *  however many statements it holds. Implies `concurrentReads`: with Kysely's mutex the
+   *  queries would arrive one per turn, and each would be a batch of one.
+   *
+   *  For the cockpit's snapshot only (`src/dashboard/snapshot.ts`), which issues all of its
+   *  reads at once. A batch fails as a whole, so when one does, each statement is run on
+   *  its own and fails or succeeds by itself: the snapshot's defensive reads still degrade
+   *  one at a time. Reads only: a write would ride a read batch and be refused. */
+  batchReads?: boolean;
 };
+
+/** A libSQL client whose `execute` queues statements and sends each turn's queue as one
+ *  read batch (`OpenDbOptions.batchReads`). Kysely's libSQL driver calls nothing but
+ *  `execute` outside a transaction, and a transaction is refused here. Exported so a
+ *  test can count the batches on a fake client. */
+export function batchingReadClient(client: Client): Client {
+  type Pending = {
+    stmt: InStatement;
+    resolve: (r: ResultSet) => void;
+    reject: (e: unknown) => void;
+  };
+  let queue: Pending[] = [];
+  const flush = async () => {
+    const run = queue;
+    queue = [];
+    let results: ResultSet[];
+    try {
+      results = await client.batch(
+        run.map((p) => p.stmt),
+        "read",
+      );
+    } catch {
+      // One failing statement fails the whole batch; settle each on its own instead.
+      await Promise.all(run.map((p) => client.execute(p.stmt).then(p.resolve, p.reject)));
+      return;
+    }
+    run.forEach((p, i) => p.resolve(results[i] as ResultSet));
+  };
+  const execute = (stmt: InStatement): Promise<ResultSet> =>
+    new Promise((resolve, reject) => {
+      // A timer, not a microtask: Kysely reaches `execute` through several awaits, and
+      // every query started in this turn must be queued before the batch goes.
+      if (queue.length === 0) setTimeout(() => void flush(), 0);
+      queue.push({ stmt, resolve, reject });
+    });
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === "execute") return execute;
+      if (prop === "transaction") {
+        return () =>
+          Promise.reject(new Error("batchReads: a read-batching Db opens no transaction"));
+      }
+      // Bound, because the client's methods read private fields off `this`.
+      const value: unknown = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? (value as () => unknown).bind(target) : value;
+    },
+  });
+}
 
 /** The Kysely over one libSQL client, as `openDb` builds it. Exported so a test can put
  *  a fake client under it and see the mutex directly. */
