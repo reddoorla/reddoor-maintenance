@@ -730,16 +730,6 @@ export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
   }
 }
 
-/**
- * Whether a POST landed on the SITE's own host (the form action, or the apex/www
- * twin it redirects to) rather than a third party. PURE. The runner's failure
- * lines used to name whatever POST happened first: on 2026-08-31 that was
- * Google Analytics' collect beacon ("POST 204") and Cloudflare Turnstile
- * telemetry ("POST 200"), and both warn lines sent triage chasing the wrong
- * component while the real story was "the submission never left the page".
- * `www.` is stripped because at least one site (beachfront-dentistry) is probed
- * at `www.` while its action lands on the apex.
- */
 /** True when a POST body carries the probe's `testMode` marker, so the response read is
  *  the form's own action and not a same-site beacon or a pre-submit call that happened
  *  to answer first (#1610 review). Multipart, URL-encoded and JSON bodies all spell the
@@ -763,6 +753,16 @@ export function actionFailureStatus(body: string): number | null {
   }
 }
 
+/**
+ * Whether a POST landed on the SITE's own host (the form action, or the apex/www
+ * twin it redirects to) rather than a third party. PURE. The runner's failure
+ * lines used to name whatever POST happened first: on 2026-08-31 that was
+ * Google Analytics' collect beacon ("POST 204") and Cloudflare Turnstile
+ * telemetry ("POST 200"), and both warn lines sent triage chasing the wrong
+ * component while the real story was "the submission never left the page".
+ * `www.` is stripped because at least one site (beachfront-dentistry) is probed
+ * at `www.` while its action lands on the apex.
+ */
 export function isSameSitePost(postUrl: string, baseUrl: string): boolean {
   try {
     const host = (u: string) => new URL(u).hostname.replace(/^www\./, "");
