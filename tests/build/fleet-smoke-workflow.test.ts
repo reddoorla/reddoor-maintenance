@@ -190,6 +190,14 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     );
   });
 
+  // #1611's own incident: ONE site, unmeasured, reds the nightly. The never-measured
+  // check has no tolerance, unlike the write gate's quarter.
+  it("FAILS on a single never-measured site", async () => {
+    const r = await runGate({ stdout: await realSweep(12, ["acme"]), exit: 1 });
+    expect(r.code).not.toBe(0);
+    expect(firstError(r.out)).toBe("::error::fleet smoke: 1 site(s) never measured — acme");
+  });
+
   // Four of thirteen past the write gate's quarter: both checks would red, and the
   // order decides the diagnosis. "Never measured" must be the one the reader sees.
   it("names timeouts as never measured even when they also pass the write gate's quarter", async () => {
