@@ -162,9 +162,9 @@ jobs:
       # flagged with critical/high vulns. Renovate's OSV vulnerability alerts bypass
       # the schedule, so the remediation PR opens now; GitHub platform auto-merge is
       # disabled fleet-wide, so Renovate merges it from inside its own run per the
-      # shared preset. Runs on any run not cancelled, a red sweep included (#1605),
-      # so counts for any site the sweep failed/skipped to write are last-known, not
-      # fresh; a stale-high false dispatch is a harmless Renovate
+      # shared preset. Runs whenever the sweep above ran, a red sweep included
+      # (#1605), so counts for any site the sweep failed/skipped to write are
+      # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
       # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the
       # security job — a missing token clean-skips, and a per-repo failure (no
       # renovate.yml / token lacks actions:write) is a warning, not a red.

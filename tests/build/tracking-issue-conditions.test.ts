@@ -974,6 +974,28 @@ exit 1
     }
   });
 
+  // Every `steps.<id>` an `if:` reads must be the `id:` of an EARLIER step in the
+  // same job. The evaluator above takes whatever outcome a scenario names, so a
+  // renamed, removed or moved id would pass every case here while production reads
+  // `''`: fleet-security's follow-ups gated on `steps.sweep.outcome` would then skip
+  // every night with the run green (#1605 review round 5).
+  it("every step id an if: reads names an earlier step in the same job", () => {
+    const stepId = (s: Found) => /^\s*-?\s*id:\s*([\w-]+)\s*$/m.exec(s.source)?.[1];
+    const dangling: string[] = [];
+    let checked = 0;
+    for (const s of all) {
+      for (const m of (s.if ?? "").matchAll(/\bsteps\.([\w-]+)\./g)) {
+        checked++;
+        const job = all.filter((x) => x.file === s.file && x.job === s.job);
+        const earlier = job.slice(0, job.indexOf(s)).map(stepId);
+        if (!earlier.includes(m[1])) dangling.push(`${id(s)}: steps.${m[1]}`);
+      }
+    }
+    // Vacuity floor: fleet-security alone reads sweep, protection and renovate-outcome.
+    expect(checked).toBeGreaterThanOrEqual(8);
+    expect(dangling).toEqual([]);
+  });
+
   // A failed checkout, install or build skips the sweep and leaves no `dist/`. The
   // protection audit would then die on a missing module behind its `tee`, leave an
   // empty protection.out, and the open step would file a false coverage gap.
