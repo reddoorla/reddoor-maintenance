@@ -99,7 +99,7 @@ export type OpenDbOptions = {
    *  For the cockpit's snapshot only (`src/dashboard/snapshot.ts`), which issues all of its
    *  reads at once. A batch fails as a whole, so when one does, each statement is run on
    *  its own and fails or succeeds by itself: the snapshot's defensive reads still degrade
-   *  one at a time. Reads only: a write would ride a read batch and be refused. */
+   *  one at a time. Reads only: anything but a SELECT is refused before it is queued. */
   batchReads?: boolean;
 };
 
@@ -132,6 +132,13 @@ export function batchingReadClient(client: Client): Client {
   };
   const execute = (stmt: InStatement): Promise<ResultSet> =>
     new Promise((resolve, reject) => {
+      // Reads only, refused here rather than by the batch: a failed batch re-runs
+      // each statement on its own, outside the read transaction.
+      const text = typeof stmt === "string" ? stmt : stmt.sql;
+      if (!/^\s*(select|with)\b/i.test(text)) {
+        reject(new Error(`batchReads: only reads may run here, not: ${text.slice(0, 40)}`));
+        return;
+      }
       // A timer, not a microtask: Kysely reaches `execute` through several awaits, and
       // every query started in this turn must be queued before the batch goes.
       if (queue.length === 0) setTimeout(() => void flush(), 0);

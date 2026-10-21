@@ -4,20 +4,29 @@ import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 /** What the root layout's server load returned, and what it asked for. */
 export type LayoutRun = {
-  data: { email: string | null; snapshot: CockpitSnapshot };
+  data: {
+    email: string | null;
+    snapshot: CockpitSnapshot;
+    failure: { status: number; message: string } | null;
+  };
   depends: string[];
   headers: Record<string, string>;
 };
 
 /** The root layout's server load as SvelteKit runs it: the snapshot from the
  *  store `TURSO_DATABASE_URL` names. */
-export async function runLayout(email: string | null = "op@example.com"): Promise<LayoutRun> {
+export async function runLayout(
+  email: string | null = "op@example.com",
+  routeId: string | null = "/",
+): Promise<LayoutRun> {
   const depends: string[] = [];
   const headers: Record<string, string> = {};
   const event = {
     locals: { email },
     depends: (...ids: string[]) => depends.push(...ids),
     setHeaders: (h: Record<string, string>) => Object.assign(headers, h),
+    route: { id: routeId },
+    untrack: <T>(f: () => T) => f(),
   };
   const data = (await (layoutServerLoad as unknown as (e: typeof event) => Promise<unknown>)(
     event,

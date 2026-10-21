@@ -193,13 +193,14 @@ const ALLOWED_RAW_SCANS: Array<{
     why: "BATCH ONLY — same roll-up, same two-handler history: site-dashboard.mts kept calling this per request until MED-11 moved it to screenOutTotalsForSite. Bounded by sites × days regardless",
   },
   // The cockpit snapshot (home base briefs/2026-10-21-cockpit-one-snapshot.md):
-  // read once per signed-in session, and kept in the browser, which derives every
-  // page from it, in place of a set of slices per page load.
+  // read on each full page load of a signed-in browser (never for a path no page
+  // owns), and kept in the browser, which derives every page from it as it
+  // navigates, in place of a set of slices per page.
   {
     scenario: "listAllSubmissions (the cockpit snapshot)",
     table: "submissions",
     requestPath: true,
-    why: "the snapshot reads the whole table once per session so the browser can derive /submissions and every per-site list; 678 rows on 2026-10-21, the brief's stop is 1 MB gzipped",
+    why: "the snapshot reads the whole table on every full page load (then client navigation reads nothing) so the browser can derive /submissions and every per-site list; 681 rows on 2026-10-21, the brief's stop is 1 MB gzipped",
   },
   {
     scenario: "listSiteSlugs (the cockpit snapshot)",

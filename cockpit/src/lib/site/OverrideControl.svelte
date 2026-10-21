@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import { reportUis } from "./report-ui.svelte.js";
 
   let { reportId, url }: { reportId: string; url: string } = $props();
@@ -19,8 +20,7 @@
     ui.overrideSubmitDisabled = true;
     status = "Sending…";
     try {
-      const res = await fetch(url, {
-        method: "POST",
+      const res = await postAction(url, {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reason }),
       });

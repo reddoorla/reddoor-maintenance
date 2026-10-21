@@ -6,7 +6,11 @@ import type { DigestSnapshot } from "../alerts/digest-state.js";
 import type { CockpitRollup } from "../db/digest-state.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 import type { ScreenOutBucket, ScreenOutTotals } from "../db/screenouts.js";
-import type { NotifyBounceCounts, SubmissionFilter } from "../db/submissions.js";
+import type {
+  NotifyBounceCounts,
+  RawSubmissionEnums,
+  SubmissionFilter,
+} from "../db/submissions.js";
 import type { ProspectAuditListItem } from "../db/prospect-audits.js";
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../alerts/digest-collectors.js";
 import { screenOutsSince } from "../util/date.js";
@@ -51,8 +55,11 @@ const AUTO_SPAM_WINDOW_DAYS = 7;
 export type CockpitSnapshot = {
   takenAt: string;
   baseUrl: string;
-  /** Mailchimp keys redacted to a marker (see `snapshot.ts`). */
-  sites: WebsiteRow[];
+  /** The reads that fell back (`snapshot.ts`); empty when every read worked. */
+  gaps: string[];
+  /** Mailchimp keys redacted to a marker (see `snapshot.ts`). Null when the read
+   *  failed: every page but `/audits` answers 502. */
+  sites: WebsiteRow[] | null;
   /** site id → the stored `sites.slug` that `/s/:slug` matches. */
   slugById: ReadonlyMap<string, string>;
   /** Null when the read failed: `/` degrades to none, `/s/:slug` answers 502. */
@@ -65,6 +72,9 @@ export type CockpitSnapshot = {
   /** Every submission, newest first. Null when the read failed: `/` and `/s/:slug`
    *  degrade, `/submissions` answers 502. */
   submissions: SubmissionRow[] | null;
+  /** By submission id: the stored status and form type of a row whose values are
+   *  not ours, which `SubmissionRow` narrows. Normally empty. */
+  rawSubmissionEnums: ReadonlyMap<string, RawSubmissionEnums>;
   /** Screen-out buckets for the last `SNAPSHOT_SCREENOUT_DAYS`. */
   screenOuts: ScreenOutBucket[] | null;
   /** Null when the read failed: `/audits` answers 502. */
@@ -134,6 +144,22 @@ export function assembleCockpitModel(
   );
 }
 
+/** What a submission's `status` and `form_type` columns hold: the SQL compares
+ *  these, and a stored value that is not ours (`toStatus` reads it as "new") must
+ *  not match a filter it never matched. */
+function storedStatus(s: CockpitSnapshot, r: SubmissionRow): string {
+  return s.rawSubmissionEnums.get(r.id)?.status ?? r.status;
+}
+function storedFormType(s: CockpitSnapshot, r: SubmissionRow): string {
+  return s.rawSubmissionEnums.get(r.id)?.formType ?? r.formType;
+}
+
+/** The snapshot's sites, which every page but `/audits` cannot do without. */
+function sitesOf(s: CockpitSnapshot): WebsiteRow[] {
+  if (s.sites === null) throw new SnapshotGap("sites");
+  return s.sites;
+}
+
 /** SQLite's `lower()`: ASCII only. */
 function asciiLower(s: string): string {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
@@ -147,10 +173,14 @@ function submittedSince(r: SubmissionRow, since: string): boolean {
 /** `applySubmissionFilter` (src/db/submissions.ts), one row at a time. The search
  *  and reason branches are its LIKEs: the column through SQLite's ASCII-only
  *  `lower()`, the term lowercased in JS first, a NULL column never matching. */
-export function matchesSubmissionFilter(r: SubmissionRow, f: SubmissionFilter): boolean {
+export function matchesSubmissionFilter(
+  r: SubmissionRow,
+  f: SubmissionFilter,
+  stored: { status: string; formType: string } = r,
+): boolean {
   if (f.siteId !== undefined && r.siteId !== f.siteId) return false;
-  if (f.formType !== undefined && r.formType !== f.formType) return false;
-  if (f.status !== undefined && r.status !== f.status) return false;
+  if (f.formType !== undefined && stored.formType !== f.formType) return false;
+  if (f.status !== undefined && stored.status !== f.status) return false;
   if (f.from !== undefined && !(typeof r.submittedAt === "string" && r.submittedAt >= f.from))
     return false;
   if (f.to !== undefined && !(typeof r.submittedAt === "string" && r.submittedAt <= f.to))
@@ -178,17 +208,20 @@ export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): Cockpit
   const autoSince = screenOutsSince(now, AUTO_SPAM_WINDOW_DAYS);
   return assembleCockpitModel(
     {
-      websites: s.sites,
+      websites: sitesOf(s),
       reports: s.reports ?? [],
       prior: s.digest,
       newSubmissions:
-        subs === null ? [] : subs.filter((r) => r.status === "new").slice(0, NEW_SUBMISSIONS_MAX),
+        subs === null
+          ? []
+          : subs.filter((r) => storedStatus(s, r) === "new").slice(0, NEW_SUBMISSIONS_MAX),
       rollup: s.rollup,
       recentEvents: s.recentEvents.filter((e) => e.ts >= eventsSince),
       autoFilteredCount:
         subs === null
           ? 0
-          : subs.filter((r) => r.status === "spam_auto" && submittedSince(r, autoSince)).length,
+          : subs.filter((r) => storedStatus(s, r) === "spam_auto" && submittedSince(r, autoSince))
+              .length,
       deadLetters: s.deadLetters,
       deadLetterOldestRead: s.deadLetterOldest,
     },
@@ -202,7 +235,7 @@ export function fleetTableModelFromSnapshot(
   s: CockpitSnapshot,
   params: URLSearchParams,
 ): FleetTableModel {
-  return buildFleetTableModel(s.sites, parseFleetTableQuery(params));
+  return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params));
 }
 
 /** `/s/:slug`. Null when no site has the slug, as `loadSiteDashboard`. */
@@ -211,7 +244,7 @@ export function siteDashboardFromSnapshot(
   slug: string,
   now: Date,
 ): SiteDashboardData | null {
-  const site = s.sites.find((w) => s.slugById.get(w.id) === slug);
+  const site = sitesOf(s).find((w) => s.slugById.get(w.id) === slug);
   if (!site) return null;
   // Not defensive on the site page: the full report set feeds the approve list.
   if (s.reports === null) throw new SnapshotGap("reports");
@@ -231,7 +264,7 @@ export function siteDashboardFromSnapshot(
       totals.tooFast += b.tooFast;
     }
     totals.markedSpam = subs.filter(
-      (r) => r.siteId === site.id && r.status === "spam" && submittedSince(r, since),
+      (r) => r.siteId === site.id && storedStatus(s, r) === "spam" && submittedSince(r, since),
     ).length;
     spamTotals = totals;
   }
@@ -269,14 +302,20 @@ export function submissionsPageFromSnapshot(
   params: URLSearchParams,
 ): SubmissionsPageLoad {
   const parsed = parseSubmissionsQuery(params);
+  const sites = sitesOf(s);
   if (parsed.siteSlug) {
-    const match = s.sites.find((w) => siteSlug(w.name) === parsed.siteSlug);
+    const match = sites.find((w) => siteSlug(w.name) === parsed.siteSlug);
     if (!match) return { kind: "no-site", slug: parsed.siteSlug };
     parsed.filter.siteId = match.id;
   }
   if (s.submissions === null) throw new SnapshotGap("submissions");
   const { filter, rawFilter, page } = parsed;
-  const bucket = s.submissions.filter((r) => matchesSubmissionFilter(r, filter));
+  const bucket = s.submissions.filter((r) =>
+    matchesSubmissionFilter(r, filter, {
+      status: storedStatus(s, r),
+      formType: storedFormType(s, r),
+    }),
+  );
   const offset = (page - 1) * PAGE_SIZE;
   const wantFacets = filter.status === "spam_auto" || filter.status === "spam";
   const facetReasons = wantFacets
@@ -287,13 +326,13 @@ export function submissionsPageFromSnapshot(
         .filter((r) => r !== "")
     : [];
   const newOnlyCount =
-    filter.status === undefined ? bucket.filter((r) => r.status === "new").length : 0;
+    filter.status === undefined ? bucket.filter((r) => storedStatus(s, r) === "new").length : 0;
   return {
     kind: "ok",
     model: buildSubmissionsPageModel({
       rows: bucket.slice(offset, offset + PAGE_SIZE),
       total: bucket.length,
-      sites: s.sites.map((w) => ({ id: w.id, name: w.name })),
+      sites: sites.map((w) => ({ id: w.id, name: w.name })),
       filter,
       rawFilter,
       page,

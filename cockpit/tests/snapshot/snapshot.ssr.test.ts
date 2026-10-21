@@ -2,13 +2,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { createClient, type Client, type InStatement } from "@libsql/client";
-import type { RequestEvent } from "@sveltejs/kit";
+import { createClient, type Client, type InStatement, type ResultSet } from "@libsql/client";
 import { batchingReadClient, kyselyOverClient, openDb, type Db } from "../../../src/db/client.js";
 import { runMigrations } from "../../../src/db/migrate.js";
-import { loadCockpitSnapshot } from "../../../src/dashboard/snapshot.js";
+import { loadCockpitSnapshot, SNAPSHOT_FIELD_MAX } from "../../../src/dashboard/snapshot.js";
+import {
+  SnapshotGap,
+  auditsFromSnapshot,
+  cockpitModelFromSnapshot,
+  siteDashboardFromSnapshot,
+  submissionsPageFromSnapshot,
+} from "../../../src/dashboard/snapshot-views.js";
+import { isHttpError, type RequestEvent } from "@sveltejs/kit";
+import { load as homeLoad } from "../../src/routes/+page.js";
 import { handle } from "../../src/hooks.server.js";
-import { runLayout } from "../_helpers/snapshot-load.js";
+import { runLayout, runPage } from "../_helpers/snapshot-load.js";
 
 /**
  * The snapshot itself (home base `briefs/2026-10-21-cockpit-one-snapshot.md`, PR 1):
@@ -73,6 +81,7 @@ async function countingClient(failSql?: (sql: string) => boolean) {
   await runMigrations(real);
   const batches: string[][] = [];
   const executes: string[] = [];
+  const results: ResultSet[] = [];
   const text = (s: InStatement) => (typeof s === "string" ? s : s.sql);
   const client = new Proxy(real, {
     get(target, prop, receiver) {
@@ -80,7 +89,9 @@ async function countingClient(failSql?: (sql: string) => boolean) {
         return async (stmts: InStatement[], mode: "read") => {
           batches.push(stmts.map(text));
           if (failSql && stmts.some((s) => failSql(text(s)))) throw new Error("injected");
-          return target.batch(stmts, mode);
+          const out = await target.batch(stmts, mode);
+          results.push(...out);
+          return out;
         };
       }
       if (prop === "execute") {
@@ -93,7 +104,7 @@ async function countingClient(failSql?: (sql: string) => boolean) {
       return bound(target, prop, receiver);
     },
   }) as Client;
-  return { client, batches, executes };
+  return { client, batches, executes, results };
 }
 
 async function batchedDb(client: Client): Promise<Db> {
@@ -104,28 +115,49 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
   it("is one batch to the store, holding every read", async () => {
     const c = await countingClient();
     const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
-    expect(s.sites.map((w) => w.name)).toEqual(["Acme"]);
+    expect(s.sites?.map((w) => w.name)).toEqual(["Acme"]);
+    expect(s.gaps).toEqual([]);
     expect(c.batches).toHaveLength(1);
     expect(c.batches[0]?.length).toBeGreaterThanOrEqual(11);
     expect(c.executes).toEqual([]);
   });
 
-  it("selects none of the three blob columns", async () => {
+  it("brings back none of the three blob columns, however a read is written", async () => {
+    // Every table that holds one has a row with the blob set, so a read that
+    // selected it (`select *`, `select "sites".*`, or by name) would return it as
+    // a column of its result.
+    const db = await openDb({ url });
+    await db
+      .updateTable("sites")
+      .set({ header_image: new Uint8Array([1, 2, 3]) } as never)
+      .execute();
+    await db
+      .insertInto("reports")
+      .values({ id: "rep1", site_id: "recA", report_id: "r1", rendered_html: "<p>x</p>" } as never)
+      .execute();
+    await db
+      .insertInto("prospect_audits")
+      .values({
+        id: "pa1",
+        token: "t",
+        url: "https://p.example/",
+        created_at: NOW.toISOString(),
+        status: "complete",
+        result_json: '{"big":"blob"}',
+      } as never)
+      .execute();
+    await db.destroy();
     const c = await countingClient();
-    await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
-    const all = (c.batches[0] ?? []).join("\n");
-    // Positive control: the reads that sit next to each blob are in the batch.
-    expect(all).toContain('from "sites"');
-    expect(all).toContain('from "prospect_audits"');
-    expect(all).toContain("(rendered_html is not null)");
-    expect(all).not.toMatch(/"header_image"|header_image"? *,|\.header_image\b(?!_)/);
-    expect(all).not.toContain("result_json");
-    expect(all).not.toContain("select *, ");
-    // `rendered_html` appears only inside the null test.
-    expect(all.replaceAll('(rendered_html is not null) as "has_rendered_html"', "")).not.toContain(
-      "rendered_html",
-    );
-    expect(all).not.toMatch(/select \* from "(sites|reports|prospect_audits)"/);
+    const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
+    // Positive control: each of those tables was read, and its row came back.
+    expect(s.reports?.map((r) => r.id)).toEqual(["rep1"]);
+    expect(s.audits?.map((a) => a.id)).toEqual(["pa1"]);
+    const columns = c.results.flatMap((r) => r.columns);
+    expect(columns).toContain("header_image_filename");
+    expect(
+      columns.filter((col) => ["header_image", "result_json", "rendered_html"].includes(col)),
+    ).toEqual([]);
+    expect(JSON.stringify([...c.results.flatMap((r) => r.rows)])).not.toContain("big");
   });
 
   it("a failing read fails only itself: the batch is retried statement by statement", async () => {
@@ -134,15 +166,63 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(c.batches).toHaveLength(1);
     expect(c.executes.some((q) => q.includes('from "fleet_events"'))).toBe(true);
     expect(s.recentEvents).toEqual([]);
+    expect(s.gaps).toEqual(["events"]);
     expect(s.sites).toHaveLength(1);
     expect(s.submissions).toEqual([]);
   });
 
-  it("a failing site read still fails the snapshot (a 502, never '0 sites')", async () => {
+  it("a failing site read leaves no sites, never '0 sites', and only /audits renders", async () => {
     const c = await countingClient((sql) => sql.includes('from "sites" left join'));
-    await expect(
-      loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example"),
-    ).rejects.toThrow("injected Turso blip");
+    const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
+    expect(s.sites).toBeNull();
+    expect(s.gaps).toEqual(["sites"]);
+    expect(() => cockpitModelFromSnapshot(s, NOW)).toThrow(SnapshotGap);
+    expect(() => siteDashboardFromSnapshot(s, "acme", NOW)).toThrow(SnapshotGap);
+    expect(() => submissionsPageFromSnapshot(s, new URLSearchParams())).toThrow(SnapshotGap);
+    expect(auditsFromSnapshot(s)).toEqual([]);
+  });
+
+  it("refuses anything but a read, before it is queued", async () => {
+    const c = await countingClient();
+    const client = batchingReadClient(c.client);
+    await expect(client.execute("delete from sites")).rejects.toThrow(/only reads/);
+    await expect(client.execute({ sql: " SELECT 1", args: [] })).resolves.toBeDefined();
+    expect(c.batches).toEqual([[" SELECT 1"]]);
+  });
+
+  it("cuts a visitor's oversized field, and leaves a real-sized lead whole", async () => {
+    const db = await openDb({ url });
+    const huge = "x".repeat(1_000_000);
+    const real = "y".repeat(7_924); // the longest real message, 2026-10-21
+    for (const [id, message] of [
+      ["big", huge],
+      ["real", real],
+    ] as const) {
+      await db
+        .insertInto("submissions")
+        .values({
+          id,
+          site_id: "recA",
+          form_type: "contact",
+          name: "Pat",
+          email: "pat@example.com",
+          message,
+          extra_fields: id === "big" ? huge : null,
+          status: "spam_auto",
+          notify_status: "skipped",
+          submitted_at: "2026-10-19T10:00:00.000Z",
+        } as never)
+        .execute();
+    }
+    const s = await loadCockpitSnapshot(db, NOW, "https://dash.example");
+    await db.destroy();
+    const byId = new Map((s.submissions ?? []).map((r) => [r.id, r]));
+    expect(byId.get("real")?.message).toBe(real);
+    const big = byId.get("big");
+    expect(big?.message?.length).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
+    expect(big?.message?.startsWith("x".repeat(SNAPSHOT_FIELD_MAX))).toBe(true);
+    expect(big?.message).toContain("980000 more characters cut by the cockpit");
+    expect(big?.extraFields?.length).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
   });
 
   it("refuses a transaction, so no write can ride the read batch", async () => {
@@ -163,7 +243,28 @@ describe("the root layout's load", () => {
     expect(run.depends).toEqual(["cockpit:snapshot"]);
     expect(run.headers).toEqual({ "cache-control": "private, no-store" });
     expect(run.data.email).toBe("op@example.com");
-    expect(run.data.snapshot.sites.map((w) => w.id)).toEqual(["recA"]);
+    expect(run.data.snapshot.sites?.map((w) => w.id)).toEqual(["recA"]);
+  });
+
+  it("off every route (the error page for an unknown path) reads nothing", async () => {
+    lib.batches.length = 0;
+    const run = await runLayout("op@example.com", null);
+    expect(run.data.snapshot).toBeNull();
+    expect(run.headers).toEqual({ "cache-control": "private, no-store" });
+    expect(lib.batches).toEqual([]);
+  });
+
+  it("a store failure is the page's own 500/502, answered inside the layout", async () => {
+    delete process.env.TURSO_DATABASE_URL;
+    const run = await runLayout();
+    expect(run.data.snapshot).toBeNull();
+    expect(run.data.failure).toEqual({ status: 500, message: "Turso env missing" });
+    try {
+      await runPage(homeLoad, "/", {}, run);
+      throw new Error("load returned");
+    } catch (thrown) {
+      expect(isHttpError(thrown) && thrown.status).toBe(500);
+    }
   });
 
   it("goes to Turso as one batch", async () => {
@@ -211,7 +312,9 @@ describe("no page reads the store on its own", () => {
     const serverLoads = files(ROUTES)
       .filter((f) => /\+(page|layout)\.server\.ts$/.test(f))
       .filter((f) =>
-        /export const load\b|export (async )?function load\b/.test(readFileSync(f, "utf8")),
+        /export const load\b|export (async )?function load\b|\bload\b[^;]*\}\s*from|as load\b/.test(
+          readFileSync(f, "utf8"),
+        ),
       )
       .map((f) => relative(ROUTES, f));
     expect(serverLoads).toEqual(["+layout.server.ts"]);
@@ -219,7 +322,11 @@ describe("no page reads the store on its own", () => {
 
   it("the root layout's server load reads nothing a navigation changes", () => {
     const src = readFileSync(join(ROUTES, "+layout.server.ts"), "utf8");
-    const body = src.slice(src.indexOf("export const load"));
+    // `route.id` is read once, untracked, to skip the snapshot off every route.
+    const body = src
+      .slice(src.indexOf("export const load"))
+      .replace("untrack(() => route.id)", "")
+      .replace(/\{[^}]*\broute, untrack \}/, "");
     // Reading any of these makes SvelteKit re-run the load (a server round trip)
     // whenever it changes.
     expect(body).not.toMatch(/\b(url|params|route|parent)\b/);
@@ -228,7 +335,11 @@ describe("no page reads the store on its own", () => {
   it("every page has a universal load", () => {
     const pages = files(ROUTES).filter((f) => f.endsWith("+page.svelte"));
     for (const p of pages) {
-      expect(files(ROUTES), relative(ROUTES, p)).toContain(p.replace("+page.svelte", "+page.ts"));
+      const universal = p.replace("+page.svelte", "+page.ts");
+      expect(files(ROUTES), relative(ROUTES, p)).toContain(universal);
+      expect(readFileSync(universal, "utf8"), relative(ROUTES, universal)).toMatch(
+        /export const load\b/,
+      );
     }
   });
 });

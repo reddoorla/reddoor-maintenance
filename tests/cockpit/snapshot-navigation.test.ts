@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { chromium, type Browser, type Page } from "@playwright/test";
+import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
 
 /**
@@ -39,12 +39,28 @@ const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
-/** The build is CI's (`pnpm cockpit:build` runs before the tests); locally, build
- *  it when it is missing or older than the cockpit's sources. */
+/** The build is CI's (`pnpm cockpit:build` runs before the tests); elsewhere
+ *  (`pnpm test` alone, the time-travel and release runs), build it when it is
+ *  missing or older than the sources it is built from. */
 function ensureBuilt(): void {
   const entry = join(OUT, "server/index.js");
-  if (existsSync(entry)) return;
+  if (existsSync(entry) && statSync(entry).mtimeMs >= newestSource()) return;
   execFileSync("pnpm", ["cockpit:build"], { cwd: ROOT, stdio: "inherit" });
+}
+
+/** The newest file the cockpit build reads: its own sources and the shared `src/`. */
+function newestSource(): number {
+  let newest = 0;
+  const walk = (d: string) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else newest = Math.max(newest, statSync(p).mtimeMs);
+    }
+  };
+  walk(join(ROOT, "cockpit/src"));
+  walk(join(ROOT, "src"));
+  return newest;
 }
 
 async function seed(url: string): Promise<void> {
@@ -107,12 +123,19 @@ beforeAll(async () => {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers))
         if (typeof v === "string") headers.set(k, v);
-      const response = await app.respond(new Request(`${origin}${req.url}`, { headers }), {
-        getClientAddress: () => "127.0.0.1",
-      });
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const method = req.method ?? "GET";
+      const body = method === "GET" || method === "HEAD" ? null : Buffer.concat(chunks);
+      const request = new Request(`${origin}${req.url}`, { method, headers, body });
+      const response = await app.respond(request, { getClientAddress: () => "127.0.0.1" });
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
-    })();
+    })().catch((err: unknown) => {
+      // Fail the request loudly rather than leave it hanging to a timeout.
+      res.writeHead(599, { "content-type": "text/plain" });
+      res.end(`test bridge: ${String(err)}`);
+    });
   });
   await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
   origin = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
@@ -120,6 +143,7 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
+  for (const c of contexts) await c.close();
   await browser?.close();
   await new Promise((r) => http?.close(r));
   rmSync(dir, { recursive: true, force: true });
@@ -132,14 +156,19 @@ async function signedIn(): Promise<Page> {
       authorization: `Basic ${Buffer.from(`op:${PASSWORD}`).toString("base64")}`,
     },
   });
+  contexts.push(context);
   return context.newPage();
 }
+
+const contexts: BrowserContext[] = [];
 
 /** Click a link to `href` and wait for the page it leads to. */
 async function follow(page: Page, href: string, heading: string): Promise<void> {
   await page.locator(`a[href="${href}"]`).first().click();
   await page.waitForURL(`${origin}${href}`);
-  await expect.poll(() => page.locator("h1").first().textContent()).toContain(heading);
+  await expect
+    .poll(() => page.locator("h1").first().textContent(), { timeout: 10_000 })
+    .toContain(heading);
 }
 
 /** The text of every page stylesheet in the head, in order. */
@@ -189,16 +218,82 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(auditSheets.length).toBe(2);
     for (const sheet of siteSheets.slice(1)) expect(auditSheets).not.toContain(sheet);
     expect(auditSheets[0]).toBe(siteSheets[0]);
+    // However a sheet arrived (an inline <style> or a <link>), none of the site
+    // page's rules applies now. `.tiles` is the site page's alone.
+    const selectors = (): Promise<string[]> =>
+      page.evaluate(() =>
+        [...document.styleSheets].flatMap((sh) =>
+          [...sh.cssRules].map((r) => (r as CSSStyleRule).selectorText ?? ""),
+        ),
+      );
+    expect(await selectors()).not.toContain(".tiles");
+    await follow(page, "/fleet", "Sites");
+    await page.locator('a[href="/s/acme"]').first().click();
+    await page.waitForURL(`${origin}/s/acme`);
+    // Positive control: on the site page itself the rule is there.
+    await expect.poll(selectors, { timeout: 10_000 }).toContain(".tiles");
   });
 
   it("a navigation within one route mounts the page afresh, as a full load did", async () => {
     const page = await signedIn();
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document") documents.push(r.url());
+    });
     await page.goto(`${origin}/submissions?status=new`);
     await page.waitForLoadState("networkidle");
     // Something only this mount carries: a full load, or a fresh mount, loses it.
     await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    await page.locator('a[href="/submissions"]').first().click();
+    await page.waitForURL(`${origin}/submissions`);
+    // The heading reads the same before and after, so wait on the mark itself.
+    await expect
+      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), {
+        timeout: 10_000,
+      })
+      .toBe(0);
+    expect(await page.locator("h1").count()).toBe(1);
+    // ...and it was the client router, not a full load, that mounted it.
+    expect(documents).toHaveLength(1);
+  });
+
+  it("a path no page owns renders without the snapshot, and leaving it loads one in full", async () => {
+    const page = await signedIn();
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    const res = await page.goto(`${origin}/no-such-page`);
+    expect(res?.status()).toBe(404);
+    expect(await page.content()).not.toContain("pat@example.com");
+    await page.waitForLoadState("networkidle");
     await follow(page, "/submissions", "Submissions");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(0);
+    expect(await page.content()).toContain("pat@example.com");
+    expect(documents).toEqual(["/no-such-page", "/submissions"]);
+  });
+
+  it("after a change, the next navigation is a full load and shows it", async () => {
+    const page = await signedIn();
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    await page.goto(`${origin}/submissions?status=new`);
+    await page.waitForLoadState("networkidle");
+    expect(await page.content()).toContain("pat@example.com");
+    const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
+    await page
+      .locator("button", { hasText: /^Archive$/ })
+      .first()
+      .click();
+    const resp = await posted;
+    expect(resp.status()).toBe(200);
+    await follow(page, "/submissions", "Submissions");
+    // A fresh read: the lead's row now says archived, and only an "archived"
+    // status button state could have come from the server.
+    const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
+    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("archived");
+    expect(documents).toEqual(["/submissions", "/submissions"]);
   });
 
   it("a signed-out browser gets no snapshot", async () => {

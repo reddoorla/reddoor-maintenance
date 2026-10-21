@@ -53,7 +53,8 @@ for (let i = 0; i < rounds; i++) {
   rows[keys[2]!]!.push(await time(() => loadCockpitModel(concurrent, now, "https://x")));
   rows[keys[3]!]!.push(await time(() => loadSiteDashboard(concurrent, slug, now, "https://x")));
 }
-for (const [k, v] of Object.entries(rows)) console.log(`${k}: ${v.join(", ")} ms; median ${median(v)}`);
+for (const [k, v] of Object.entries(rows))
+  console.log(`${k}: ${v.join(", ")} ms; median ${median(v)}`);
 
 const s = await loadCockpitSnapshot(batched, new Date(), "https://x");
 const wire = devalue.stringify(s);

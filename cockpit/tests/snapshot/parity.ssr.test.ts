@@ -133,24 +133,25 @@ async function seed() {
   }
   const r = rng(7);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
-  // 160 rows over the 70 days before LATER, one minute apart at least, so no two
-  // share a `submitted_at` (the SQL's order among ties is unspecified).
+  // 320 rows over the 70 days before LATER, one minute apart at least, so no two
+  // share a `submitted_at` (the SQL's order among ties is unspecified). Acme holds
+  // more than 200 of them, and more than 200 are "new", so both 200-row caps bite.
   const start = LATER.getTime() - 70 * 86_400_000;
-  for (let i = 0; i < 160; i++) {
-    const at = new Date(start + i * 37_000_000 + Math.floor(r() * 60) * 60_000);
+  for (let i = 0; i < 320; i++) {
+    const at = new Date(start + i * 18_500_000 + Math.floor(r() * 30) * 60_000);
     const bounced = r() < 0.2;
     await db
       .insertInto("submissions")
       .values({
         id: `sub${i}`,
         submission_id: i + 1,
-        site_id: pick(["recA", "recA", "recB", "recC"]),
+        site_id: pick(["recA", "recA", "recA", "recA", "recB", "recC"]),
         form_type: pick(FORMS),
         name: pick(NAMES) ?? "",
         email: pick(["pat@example.com", "ZOE@Example.COM", "x_y@ex.org"]),
         phone: pick([null, "555-0100", "+1 (555) 0199"]),
         message: pick(MESSAGES),
-        status: pick(STATUSES),
+        status: r() < 0.7 ? "new" : pick(STATUSES),
         notify_status: bounced ? "bounced" : pick(["sent", "skipped", "failed"]),
         bounce_type: bounced ? pick(BOUNCE_TYPES) : null,
         bounce_ack_at: bounced && r() < 0.3 ? "2026-10-01T00:00:00.000Z" : null,
@@ -160,9 +161,35 @@ async function seed() {
       } as never)
       .execute();
   }
+  // Stored values that are not ours: `rowFromDb` reads them as "new" and
+  // "contact", while the SQL filters compare what is stored.
+  for (const [id, status, form] of [
+    ["odd1", "unread", "contact"],
+    ["odd2", "NEW", "legacy-form"],
+    ["odd3", "new", "legacy-form"],
+  ] as const) {
+    await db
+      .insertInto("submissions")
+      .values({
+        id,
+        site_id: "recA",
+        form_type: form,
+        name: "Odd",
+        email: "odd@example.com",
+        status,
+        notify_status: "sent",
+        submitted_at: new Date(LATER.getTime() - 86_400_000 + id.length).toISOString(),
+      } as never)
+      .execute();
+  }
   for (let d = 0; d < 45; d += 3) {
     const date = new Date(LATER.getTime() - d * 86_400_000).toISOString().slice(0, 10);
     await recordScreenOut(db, pick(["recA", "recB"]), pick(["honeypot", "too-fast"]), date);
+  }
+  // Inside the snapshot's 31 days and outside the page's 30, at NOW and a day on.
+  for (const days of [30.5, 29.5]) {
+    const date = new Date(NOW.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+    await recordScreenOut(db, "recA", "honeypot", date);
   }
   await writeDigestState(db, { "vuln:recA": { metric: 1, firstFlaggedAt: "2026-10-19" } });
   await writeCockpitRollup(db, {
@@ -171,10 +198,11 @@ async function seed() {
     windowDays: { screenOuts: 7, bounces: 14 },
     computedAt: "2026-10-20T06:00:00.000Z",
   });
-  for (let i = 0; i < 30; i++) {
+  // More than RECENT_EVENTS_LIMIT inside the week, and some just outside it.
+  for (let i = 0; i < 50; i++) {
     await recordFleetEvent(db, {
       id: `ev${i}`,
-      ts: new Date(NOW.getTime() - i * 9 * 3_600_000).toISOString(),
+      ts: new Date(NOW.getTime() - i * 4 * 3_600_000).toISOString(),
       type: "pr_automerged",
       siteId: "recA",
       siteName: "Acme",
@@ -225,7 +253,14 @@ afterAll(() => {
 /** The snapshot as the browser holds it: through a structured clone, as
  *  SvelteKit's serialisation hands Maps and plain data across. */
 async function snapshotAt(now: Date): Promise<CockpitSnapshot> {
-  return structuredClone(await loadCockpitSnapshot(db, now, BASE));
+  // Through `batchReads`, as the layout reads it: one batch, results handed back
+  // statement by statement.
+  const batched = await openDb({ url: `file:${join(dir, "db.sqlite")}` }, { batchReads: true });
+  try {
+    return structuredClone(await loadCockpitSnapshot(batched, now, BASE));
+  } finally {
+    await batched.destroy();
+  }
 }
 
 /** The loader's site row carries the real key; the snapshot's a marker. */
@@ -289,6 +324,9 @@ const SUBMISSION_QUERIES = [
   "page=3&status=read",
   "page=99",
   "status=spam&site=acme&q=pat&type=contact",
+  "q=odd",
+  "q=odd&status=new",
+  "q=odd&type=contact",
 ];
 
 for (const [label, now] of [
@@ -360,6 +398,31 @@ for (const [label, now] of [
   });
 }
 
+for (const days of [1, 5]) {
+  describe(`a page derived ${days} day(s) after its snapshot was taken`, () => {
+    // The browser derives at its own `now`, long after the layout read the store.
+    // Every window must then be the one the loader would take at that `now`. Five
+    // days on, some of the snapshot's recent events have aged out of the week.
+    const ON = new Date(NOW.getTime() + days * 86_400_000);
+    it("/ equals the loader then", async () => {
+      const s = await snapshotAt(NOW);
+      expect(withKeys(cockpitModelFromSnapshot(s, ON))).toEqual(
+        await loadCockpitModel(db, ON, BASE),
+      );
+    });
+    for (const site of SITES.map((x) => x.slug)) {
+      it(`/s/${site} equals the loader then`, async () => {
+        const s = await snapshotAt(NOW);
+        const loaded = await loadSiteDashboard(db, site, ON, BASE);
+        const derived = siteDashboardFromSnapshot(s, site, ON);
+        expect(derived && loaded && unredacted(derived, loaded.site.mailchimpApiKey)).toEqual(
+          loaded,
+        );
+      });
+    }
+  });
+}
+
 describe("the parity instrument", () => {
   // It must be able to fail: a seed where every predicate is vacuous would pass any
   // derivation. Each of these buckets is non-empty and smaller than the table.
@@ -371,7 +434,7 @@ describe("the parity instrument", () => {
       expect(r.kind).toBe("ok");
       if (r.kind !== "ok") continue;
       expect(r.model.total, q).toBeGreaterThan(0);
-      expect(r.model.total, q).toBeLessThan(160);
+      expect(r.model.total, q).toBeLessThan(323);
     }
   });
 
@@ -388,9 +451,9 @@ describe("the parity instrument", () => {
 describe("what the snapshot holds", () => {
   it("never a Mailchimp key, only whether one is set", async () => {
     const s = await snapshotAt(NOW);
-    const acme = s.sites.find((w) => w.id === "recA");
+    const acme = s.sites?.find((w) => w.id === "recA");
     expect(acme?.mailchimpApiKey).toBe(MAILCHIMP_KEY_REDACTED);
-    expect(s.sites.find((w) => w.id === "recB")?.mailchimpApiKey).toBeNull();
+    expect(s.sites?.find((w) => w.id === "recB")?.mailchimpApiKey).toBeNull();
     expect(JSON.stringify(s.sites)).not.toContain("us1-secret-key");
   });
 });
