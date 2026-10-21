@@ -102,7 +102,8 @@ customElements.define("x-b", class extends HTMLElement { constructor() { super()
   // through a <slot>, which has no box of its own; and display:contents
   // headings a closed <details>, content-visibility:hidden or display:none
   // keeps out of the tree.
-  "/contents-chain": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><div style="display:contents"><h1 style="display:contents">Main</h1></div><x-p><h2 style="display:contents">Slotted</h2></x-p><h3>Detail</h3><details><summary>FAQ</summary><h5 style="display:contents">Folded</h5></details><section style="content-visibility:hidden"><h5 style="display:contents">Deferred</h5></section><div style="display:none"><h5 style="display:contents">Gone</h5></div></main>
+  "/contents-chain": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><div style="display:contents"><h1 style="display:contents">Main</h1></div><x-p><h2 style="display:contents">Slotted</h2></x-p><h3>Detail</h3><h3 class="words" style="display:contents"><span class="on">Hello</span><span>again</span></h3><details><summary>FAQ</summary><h5 style="display:contents">Folded</h5></details><section style="content-visibility:hidden"><h5 style="display:contents">Deferred</h5></section><div style="display:none"><h5 style="display:contents">Gone</h5></div></main>
+<style>.words > span { display: none } .words > span.on { display: inline }</style>
 <script>customElements.define("x-p", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<div><slot></slot></div>"; } });</script></body></html>`,
   "/lazy-slice": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Top</h1><h2>Intro</h2><div style="height:3000px"></div><div id="s"></div></main>
 <script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.innerHTML = "<h4>Lazy</h4>"; o.disconnect(); } }).observe(document.getElementById("s"));</script></body></html>`,
@@ -232,7 +233,7 @@ describe("design-rules R9 (heading levels), in a real browser", () => {
     expect(contents.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
     const chain = await checkHeadingLevels(browser, `${base}/contents-chain`);
     expect(chain.status, JSON.stringify(chain.findings)).toBe("pass");
-    expect(chain.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
+    expect(chain.note).toBe("headings in the outline: 4 at 1440px, 4 at 390px; 0 finding(s)");
   });
 
   it("FAILS a skip in a slice that mounts when scrolled into view", async () => {

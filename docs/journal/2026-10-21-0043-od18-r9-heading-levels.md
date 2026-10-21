@@ -17,7 +17,7 @@ It leaves out what is not in the accessibility tree:
 - `inert`;
 - inside `aria-hidden="true"`, walking up the flat tree, so a slot's own ancestors count.
 
-A heading tag with any role but `heading` (presentation, none, tab) is not a heading. A `display: contents` heading has no box of its own but stays in the tree. A zero-size probe put inside it, and removed at once, renders where its contents do and inherits its visibility, so the probe answers for it.
+A heading tag with any role but `heading` (presentation, none, tab) is not a heading. A `display: contents` heading has no box of its own but stays in the tree. A zero-size probe put inside it, and removed at once, renders where its contents do and inherits its visibility, so the probe answers for it. The probe is a tag no stylesheet names, with inline `!important` display and visibility, so no author rule can hide it; only what the flat tree above it hides does.
 
 The level is `aria-level` when it reads as 1 or more, else the tag's level; a bare `role=heading` is level 2, the ARIA default. `aria-level` is read as axe reads it, by its leading whole number, so "4x" is 4. I tried a stricter reading in round 1, and axe disagreed on the fixture, so the check follows the instrument it is checked against.
 
@@ -77,6 +77,10 @@ The fixtures copy that page's outline heading for heading, before and after #65 
 
 The header now also lists the page behind a modal `<dialog>` as not covered, which the journal already did.
 
+**Review round 5 was dirty**, the fifth in a row, so it went to the operator (workspace `decisions/2026-10-21-0148-od18-r9-round-five-dirty.md`). Both behaviour lenses reproduced the same false fail. Round 4's probe was a bare `<span>`, so a site that hides some of a heading's child spans, such as a rotating-word headline with `.words > span { display: none }`, hid the probe too. A page with a good `contents` `h1` then read as having none.
+
+The operator chose, at about 01:50Z, to fix the probe and run a sixth round, and to stop judging `display: contents` headings if that round is dirty. The probe is now a custom tag with inline `display: inline !important; visibility: inherit !important`, and it is removed in a `finally`. The fixture has the rotating-word headline.
+
 **Not covered.**
 
 - Part (b) of R9: a heading whose level changed should keep its visual size. That needs two builds to compare.
@@ -93,6 +97,7 @@ The header now also lists the page behind a modal `<dialog>` as not covered, whi
 | visibility not checked                              | 1         |
 | a `display: contents` heading judged by its own box | 1         |
 | a `display: contents` heading always shown          | 1         |
+| a bare span probe that author CSS reaches           | 1         |
 | `inert` not read                                    | 2         |
 | `aria-hidden` not read                              | 2         |
 | a slot's ancestors not walked                       | 1         |

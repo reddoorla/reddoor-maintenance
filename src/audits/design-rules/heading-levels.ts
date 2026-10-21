@@ -67,13 +67,23 @@ export function sampleOutline(): OutlineSample {
     // inside aria-hidden="true".
     // A `display: contents` heading has no box of its own but stays in the
     // tree. A probe put inside it renders where its contents do and inherits
-    // its visibility, so the probe answers for it.
+    // its visibility, so the probe answers for it. The probe is a tag no
+    // stylesheet names, with inline !important display and visibility, so no
+    // author rule (`h1 > span { display: none }`) can hide it; only what the
+    // flat tree above it hides does.
     let shown: boolean;
     if (getComputedStyle(el).display === "contents") {
-      const probe = document.createElement("span");
+      const probe = document.createElement("design-rules-probe");
+      probe.setAttribute(
+        "style",
+        "display: inline !important; visibility: inherit !important; content-visibility: visible !important",
+      );
       el.append(probe);
-      shown = probe.checkVisibility({ visibilityProperty: true });
-      probe.remove();
+      try {
+        shown = probe.checkVisibility({ visibilityProperty: true });
+      } finally {
+        probe.remove();
+      }
     } else shown = el.checkVisibility({ visibilityProperty: true });
     if (!shown) continue;
     let hidden = false;
