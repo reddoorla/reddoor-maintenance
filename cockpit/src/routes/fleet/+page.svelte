@@ -3,7 +3,7 @@
   import { safeUrl } from "../../../../src/util/html.js";
   import type { SitesView } from "../../lib/cockpit/view.js";
   import SetupChecklist from "../../lib/SetupChecklist.svelte";
-  import { COLUMNS, sortHref, sortArrow, statusOptions } from "./view.js";
+  import { COLUMNS, showHiddenHref, sortHref, sortArrow, statusOptions } from "./view.js";
   import "../../lib/cockpit/health.css";
   import "./fleet-table.css";
 
@@ -35,7 +35,12 @@
 {/snippet}
 
 <h1>Sites</h1>
-<div class="meta">{m.rows.length} of {m.totalSites} site{m.totalSites === 1 ? "" : "s"}</div>
+<div class="meta">
+  {m.rows.length} of {m.totalSites} site{m.totalSites === 1 ? "" : "s"}
+  {#if m.hiddenCount > 0}
+    · {m.hiddenCount} archived or external hidden · <a href={showHiddenHref(m)}>Show all</a>
+  {/if}
+</div>
 <form class="filters" method="get" action="/fleet">
   <!-- The sort rides along as hidden inputs, so Apply never silently drops the
        operator's ranking on a filter change. -->

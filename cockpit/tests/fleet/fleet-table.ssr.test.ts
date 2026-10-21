@@ -35,7 +35,7 @@ function sites() {
       nextTestingAt: "2026-10-01",
       lastLighthouseAuditAt: "2026-08-20T18:00:00Z",
     }),
-    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived", statusRaw: "legacy" }),
+    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived" }),
     makeWebsiteRow({ id: "r3", name: "Untracked", status: null, url: "javascript:alert(1)" }),
     makeWebsiteRow({
       id: "r4",
