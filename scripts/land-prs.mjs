@@ -960,6 +960,28 @@ const UNDERLINE = /^\s{0,3}(=+|-+)\s*$/;
 // line, a table row, a quote or a line opening with inline code.
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S|^\s*[|>`]/;
 
+/** `text` with every closed HTML comment taken out (`<!-->` and `<!--->` are whole comments,
+ *  as in CommonMark); an unclosed `<!--` and what follows it are left for `visibleBody`. An
+ *  `indexOf` scan, not a regex replace: linear, and nothing is re-scanned. This decides only
+ *  what text a reader sees; it is not a sanitizer, and nothing it returns is rendered. */
+function withoutHtmlComments(text) {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf("<!--", from);
+    if (open < 0) return out + text.slice(from);
+    out += text.slice(from, open);
+    const short = /^<!---?>/.exec(text.slice(open, open + 6));
+    if (short) {
+      from = open + short[0].length;
+      continue;
+    }
+    const close = text.indexOf("-->", open + 4);
+    if (close < 0) return out + text.slice(open);
+    from = close + 3;
+  }
+}
+
 /** The PR body as a reader sees it, line by line: HTML comments taken out (a PR template's
  *  `<!-- Test changes: … -->` would otherwise satisfy every PR), an unclosed `<!--` at a
  *  line's start hiding the rest (as GitHub does), fenced code blocks dropped (a backtick
@@ -970,9 +992,7 @@ const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S|^\s*[|>`]/;
 function visibleBody(body) {
   const out = [];
   let fence = null;
-  for (const line of String(body ?? "")
-    .replace(/<!---?>|<!--[\s\S]*?-->/g, "")
-    .split(/\r?\n/)) {
+  for (const line of withoutHtmlComments(String(body ?? "")).split(/\r?\n/)) {
     if (fence) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
       if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
@@ -1065,7 +1085,26 @@ function nameBefore(refs) {
 /** The section as a reader sees it: a link's or an image's destination and HTML tags taken
  *  out, so `none[](tests/a.test.ts)` or `<span title="tests/a.test.ts">` names nothing, and
  *  a link names a file only through its text. */
-const readerText = (section) => section.replace(/\]\([^)]*\)/g, "]").replace(/<[^<>]*>/g, " ");
+const readerText = (section) => withoutTags(section.replace(/\]\([^)]*\)/g, "]"));
+
+/** `text` with each `<…>` that holds no other `<` replaced by a space, in one pass: a tag's
+ *  attributes are not text a reader sees. Like `withoutHtmlComments`, it only decides what
+ *  counts as written; nothing it returns is rendered. */
+function withoutTags(text) {
+  const out = [];
+  let open = -1;
+  for (const c of text) {
+    if (c === "<") open = out.length;
+    else if (c === ">" && open >= 0) {
+      out.length = open;
+      out.push(" ");
+      open = -1;
+      continue;
+    }
+    out.push(c);
+  }
+  return out.join("");
+}
 
 /** The flagged files that `section` (the joined `Test changes` sections) does not name. */
 function unnamedIn(flags, section, refs = []) {
