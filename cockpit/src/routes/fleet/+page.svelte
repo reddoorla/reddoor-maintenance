@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { afterNavigate } from "$app/navigation";
   import type { FleetTableModel } from "../../../../src/dashboard/fleet-table.js";
   import { safeUrl } from "../../../../src/util/html.js";
   import type { SitesView } from "../../lib/cockpit/view.js";
@@ -11,7 +12,10 @@
   // and the status and name filters are links and a GET form. The signal chips
   // filter the rows in the browser, as the browse panel filtered its cards: a
   // row matches when its site's card carries that signal, so a row with no card
-  // (an archived or building site) shows only under "all".
+  // (an archived or building site) shows only under "all". SvelteKit keeps this
+  // component across client navigations, so the chip is reset after each one:
+  // the GET form and "Clear" start from "all", not from a chip the new rows
+  // were never filtered by (#1589).
   let { data }: { data: { model: FleetTableModel; sites: SitesView } } = $props();
   const m = $derived(data.model);
   const s = $derived(data.sites);
@@ -22,6 +26,10 @@
   const cardOf = (slug: string) => (Object.hasOwn(s.cards, slug) ? s.cards[slug] : undefined);
   const shown = (slug: string) =>
     filter === "all" || (cardOf(slug)?.signals.split(" ").includes(filter) ?? false);
+  const shownCount = $derived(m.rows.filter((r) => shown(r.slug)).length);
+  afterNavigate(() => {
+    filter = "all";
+  });
 </script>
 
 <svelte:head>
@@ -37,6 +45,7 @@
 <h1>Sites</h1>
 <div class="meta">
   {m.rows.length} of {m.totalSites} site{m.totalSites === 1 ? "" : "s"}
+  {#if filter !== "all"}· {shownCount} shown{/if}
   {#if m.hiddenCount > 0}
     · {m.hiddenCount} archived or external hidden · <a href={showHiddenHref(m)}>Show all</a>
   {/if}
@@ -66,7 +75,10 @@
 {#if m.rows.length === 0}
   <div class="empty">No sites match these filters.</div>
 {:else}
-  <div class="fleet-table-wrap">
+  {#if filter !== "all" && shownCount === 0}
+    <div class="empty">No sites carry this signal.</div>
+  {/if}
+  <div class="fleet-table-wrap" style:display={shownCount === 0 ? "none" : undefined}>
     <table class="fleet">
       <thead>
         <tr>
