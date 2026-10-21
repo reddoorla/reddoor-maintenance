@@ -101,6 +101,28 @@ describe("a page derives on the server's clock", () => {
   });
 });
 
+describe("the layout measures the clock offset once per snapshot", () => {
+  it("a navigation an hour later does not move the page's now back to takenAt", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-20T12:00:05.000Z"));
+      const { load } = await import("../../src/routes/+layout.js");
+      const data = { email: null, snapshot: snapshot(), failure: null };
+      const run = (path: string) =>
+        (load as unknown as (e: unknown) => { clockOffsetMs: number })({
+          data,
+          url: new URL(`https://x${path}`),
+        });
+      const first = run("/").clockOffsetMs;
+      expect(first).toBe(-5_000);
+      vi.setSystemTime(new Date("2026-10-20T13:00:05.000Z"));
+      expect(run("/fleet").clockOffsetMs).toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("every change goes through postAction", () => {
   // A component that posted with fetch itself would leave the snapshot stale.
   const LIB = join(import.meta.dirname, "../../src");

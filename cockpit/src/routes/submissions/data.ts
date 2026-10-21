@@ -16,11 +16,14 @@ export type SubmissionsPageData = {
   facets: SpamFacet[];
 };
 
-export function buildSubmissionsPageData(model: SubmissionsPageModel): SubmissionsPageData {
+export function buildSubmissionsPageData(
+  model: SubmissionsPageModel,
+  now: Date = new Date(),
+): SubmissionsPageData {
   const { rows, facetReasons: _facetReasons, ...rest } = model;
   return {
     model: { ...rest, rows: rows.map(({ id, slug, siteName }) => ({ id, slug, siteName })) },
-    rowViews: Object.fromEntries(rows.map((r) => [r.id, buildSubmissionRowView(r)])),
+    rowViews: Object.fromEntries(rows.map((r) => [r.id, buildSubmissionRowView(r, now)])),
     facets: spamFacets(model),
   };
 }

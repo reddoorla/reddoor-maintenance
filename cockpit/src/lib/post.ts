@@ -15,7 +15,12 @@ export async function postAction(input: string, init: RequestInit = {}): Promise
 }
 
 /** SvelteKit's own opt-out, set on <body>: every link and GET form under it is
- *  then a full page load. */
+ *  then a full page load (and Back and Forward too, through `+layout.svelte`). */
 export function reloadOnNextNavigation(): void {
   if (typeof document !== "undefined") document.body.setAttribute("data-sveltekit-reload", "");
+}
+
+/** Whether the snapshot in hand is stale, so the next navigation loads in full. */
+export function reloadsOnNextNavigation(): boolean {
+  return typeof document !== "undefined" && document.body.hasAttribute("data-sveltekit-reload");
 }

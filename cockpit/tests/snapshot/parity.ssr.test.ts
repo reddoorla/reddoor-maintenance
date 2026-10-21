@@ -29,6 +29,7 @@ import { buildCockpitView, buildSitesView } from "../../src/lib/cockpit/view.js"
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { auditsPageView } from "../../src/lib/audits/view.js";
 import { buildSubmissionsPageData } from "../../src/routes/submissions/data.js";
+import { buildSubmissionRowView } from "../../src/lib/submission/view.js";
 
 /**
  * The snapshot changes where a page's data comes from, never what the page shows
@@ -422,6 +423,20 @@ for (const days of [1, 5]) {
     }
   });
 }
+
+describe("/submissions dates its rows at the page's now", () => {
+  it("not at the machine's clock", async () => {
+    const s = await snapshotAt(NOW);
+    const loaded = submissionsPageFromSnapshot(s, new URLSearchParams("site=acme"));
+    if (loaded.kind !== "ok") throw new Error("no page");
+    const first = loaded.model.rows[0];
+    if (!first) throw new Error("no rows");
+    const at = new Date(Date.parse(first.submittedAt ?? "") + 5 * 60_000);
+    const data = buildSubmissionsPageData(loaded.model, at);
+    expect(data.rowViews[first.id]?.when).toBe(buildSubmissionRowView(first, at).when);
+    expect(data.rowViews[first.id]?.when).not.toBe(buildSubmissionRowView(first).when);
+  });
+});
 
 describe("the parity instrument", () => {
   // It must be able to fail: a seed where every predicate is vacuous would pass any

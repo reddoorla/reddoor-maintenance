@@ -296,6 +296,31 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(documents).toEqual(["/submissions", "/submissions"]);
   });
 
+  it("after a change, Back and Forward load the page in full too", async () => {
+    const page = await signedIn();
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    await page.goto(`${origin}/`);
+    await page.waitForLoadState("networkidle");
+    await follow(page, "/submissions", "Submissions");
+    const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
+    await page
+      .locator("li.subm-item", { hasText: "pat@example.com" })
+      .locator("button", { hasText: /^Spam$/ })
+      .click();
+    expect((await posted).status()).toBe(200);
+    await page.goBack();
+    await page.waitForURL(`${origin}/`);
+    await page.goForward();
+    await page.waitForURL(`${origin}/submissions`);
+    const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
+    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("spam");
+    expect(documents.slice(0, 1)).toEqual(["/"]);
+    expect(documents.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("a signed-out browser gets no snapshot", async () => {
     const context = await browser.newContext();
     const page = await context.newPage();
