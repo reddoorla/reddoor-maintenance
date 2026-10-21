@@ -110,7 +110,21 @@ describe("the cockpit auth hook", () => {
   });
 
   it("answers 404 before the gate under the prefixes no cockpit page owns, whatever the password", async () => {
-    for (const path of ["/api/nope", "/auth/nope", "/r/a/b", "/_app/remote/x", "/.netlify/x"]) {
+    for (const path of [
+      "/api/nope",
+      "/auth/nope",
+      "/r/a/b",
+      "/_app/remote/x",
+      "/.netlify/x",
+      // Other spellings of the same prefixes, in case the edge router normalises
+      // a path before testing its exclusions (review round 3).
+      "/%61pi/nope",
+      "/API/nope",
+      "//api/nope",
+      "/api",
+      "/api%2Fnope",
+      "/%2Fapi/nope",
+    ]) {
       for (const pw of ["s3cret", "wrong"]) {
         // `event.url` as SvelteKit rewrites it for its own requests: not the raw path.
         const { res, resolve } = await run(
