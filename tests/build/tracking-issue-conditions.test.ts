@@ -267,6 +267,7 @@ const FINDING_KEYED = new Set([
   "fleet-db-backup.yml › Open/update the Dropbox-copy tracking issue",
   "fleet-config-drift.yml › Open/update the config-drift tracking issue",
   "fleet-security.yml › Open/update the protection-gap tracking issue",
+  "fleet-security.yml › Open/update the Renovate drought tracking issue",
   "release-health.yml › Open/update the npm-drift tracking issue",
   "release-health.yml › Open/update the release-failing tracking issue",
 ]);
@@ -301,6 +302,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-prismic-drift.yml › Open/update the nightly-failure tracking issue",
       "fleet-prismic-sync.yml › Open/update the nightly-failure tracking issue",
       "fleet-security.yml › Open/update the protection-gap tracking issue",
+      "fleet-security.yml › Open/update the Renovate drought tracking issue",
       "fleet-security.yml › Open/update the nightly-failure tracking issue",
       "fleet-smoke.yml › Open/update the nightly-smoke-failure tracking issue",
       "forms-deadletter-replay.yml › Open/update the replay-failure tracking issue",
@@ -323,6 +325,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-prismic-drift.yml › Close the nightly-failure issue on recovery",
       "fleet-prismic-sync.yml › Close the nightly-failure issue on recovery",
       "fleet-security.yml › Close the protection-gap issue on a clean sweep",
+      "fleet-security.yml › Close the Renovate drought issue once every repo delivers",
       "fleet-security.yml › Close the nightly-failure issue on recovery",
       "fleet-smoke.yml › Close the nightly-smoke-failure issue on recovery",
       "forms-deadletter-replay.yml › Close the replay-failure issue on recovery",
@@ -764,13 +767,19 @@ case "$1 $2" in
   "issue list") [ -n "\${GH_EXISTING:-}" ] && echo "$GH_EXISTING"; exit 0 ;;
   "issue edit") [ -n "\${GH_FAIL_EDIT:-}" ] && exit 1; exit 0 ;;
   "issue comment") [ -n "\${GH_FAIL_COMMENT:-}" ] && exit 1; exit 0 ;;
+  "issue view") exit 0 ;;
   "issue create") exit 0 ;;
 esac
 exit 1
 `;
-  /** A protection-audit output carrying one GAP line, so fleet-security's
-   *  protection-gap step builds a body its close step can gate on. */
-  const PROTECTION_OUT = "GAP     reddoorla/example — no branch ruleset\nPROTECTION_AUDIT gaps=1\n";
+  /** A protection-audit output carrying one GAP line and one drought line, so
+   *  fleet-security's protection-gap and Renovate drought steps each build a
+   *  body their close step can gate on. */
+  const PROTECTION_OUT =
+    "GAP     reddoorla/example — no branch ruleset\n" +
+    "WARN    reddoorla/example — no feature update has LANDED in 34d (warns past 21d)\n" +
+    "RENOVATE_OUTCOME drought=1 delivering=0 unmeasured=0 threshold=21d\n" +
+    "PROTECTION_AUDIT gaps=1\n";
   /** A sweep output carrying one DRIFT line, for fleet-config-drift's finding step. */
   const CONFIG_DRIFT_OUT =
     "DRIFT reddoorla/example .gitignore\nSYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1\n";
@@ -823,8 +832,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 20 open steps", () => {
-    expect(opens(all)).toHaveLength(20);
+  it("finds all 21 open steps", () => {
+    expect(opens(all)).toHaveLength(21);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
@@ -961,6 +970,16 @@ exit 1
       expect(evaluate(s.if ?? "success()", MAIN_FAILED), label).toBe(true);
       expect(evaluate(s.if ?? "success()", MAIN_CANCELLED), label).toBe(false);
     }
+  });
+
+  it("Renovate drought keeps a body naming its repos when this run printed none, and still comments", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the Renovate drought tracking issue",
+    )!;
+    const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    expect(calls(got, "edit")).toEqual([]);
+    expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
+    expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
   });
 
   it("config-drift keeps a DRIFT-bearing body when this run printed no DRIFT line, and still comments", async () => {

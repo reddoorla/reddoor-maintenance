@@ -351,8 +351,9 @@ describe("no tracking-issue query anywhere in .github/workflows is unbounded", (
     // fleet-prismic-sync's run-failure issue, two more for fleet-nightly's
     // conductor issue (P1-38). pm-pass-watch's pair (P1-33d) moved to
     // reddoorla/reddoor-workspace at the 2026-10-20 cutover. Two more for
-    // fleet-db-backup's monthly Dropbox-copy issue (OD 97(g)).
-    expect(sites.length).toBe(40);
+    // fleet-db-backup's monthly Dropbox-copy issue (OD 97(g)). Two more for
+    // fleet-security's Renovate drought issue (#1606).
+    expect(sites.length).toBe(42);
     expect(sites.filter((s) => !s.includes("--limit "))).toEqual([]);
     expect(sites.filter((s) => !s.includes("--search "))).toEqual([]);
   });
