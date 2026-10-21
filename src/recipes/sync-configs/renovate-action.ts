@@ -63,7 +63,7 @@ function escapeRegExp(s: string): string {
  * Full-line only: a trailing `# vX.Y.Z` after a real `uses:` line is
  * meaningful (it's the human-readable version tag) and must survive — only
  * strip a line whose first non-whitespace character is `#`. This is safe
- * specifically because this workflow's YAML has no block scalars (`|`/`>`),
+ * specifically because the template's YAML has no block scalars (`|`/`>`),
  * so there is no line in a compliant or non-compliant renovate.yml where a
  * leading `#` is literal string content rather than a comment.
  */
@@ -128,88 +128,120 @@ const APP_AUTH_MARKERS = [
   "steps.app-token.outputs.token",
 ];
 
-/** A `key: value` line, with an optional `- ` sequence marker, less a trailing
- *  `# comment`. */
-const KEY_LINE_RE = /^([ \t]*)(- )?([\w-]+):[ \t]*(.*?)(?:[ \t]+#[^\r\n]*)?[ \t]*$/;
-const BLOCK_INDICATOR_RE = /^[|>][-+0-9]*$/;
-
 const indentOf = (line: string): number => line.length - line.trimStart().length;
 
+/** The column a line's key starts at: its indent, or past a `- ` (or `-   `)
+ *  sequence marker. A dash alone on its line has no key. */
+function keyColumn(line: string): number {
+  const m = /^([ \t]*)-([ \t]+)\S/.exec(line);
+  return m ? m[1]!.length + 1 + m[2]!.length : indentOf(line);
+}
+
+const isItemStart = (line: string): boolean => /^[ \t]*-([ \t]|$)/.test(line);
+const isBlank = (line: string): boolean => line.trim() === "";
+
+/** Lines after `at` that belong to it: blank, or indented deeper than `col`. */
+function childEnd(lines: string[], at: number, col: number): number {
+  let j = at + 1;
+  while (j < lines.length && (isBlank(lines[j]!) || indentOf(lines[j]!) > col)) j++;
+  return j;
+}
+
+/** The value of the `if:` key on line `at`, folding a block (`|`/`>`) or a plain
+ *  scalar continued below it; null when the line is not an `if:` key. */
+function ifValue(lines: string[], at: number): string | null {
+  const line = lines[at]!;
+  const m = /^[ \t]*(?:-[ \t]+)?if:(?:[ \t]+(.*?))?(?:[ \t]+#[^\r\n]*)?[ \t]*$/.exec(line);
+  if (!m) return null;
+  const value = m[1] ?? "";
+  if (value !== "" && !/^[|>][-+0-9]*$/.test(value)) return value;
+  const body = lines
+    .slice(at + 1, childEnd(lines, at, keyColumn(line)))
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  return body.join(value.startsWith("|") ? "\n" : " ");
+}
+
 /**
- * The `if:` conditions in a workflow that gate the job or a step Renovate needs,
- * each with its value as YAML reads it (#1607). A line regex is not enough:
- * a condition continued on the next line reads as empty, and `if: false` inside a
- * `run: |` body reads as a condition. So this walks the lines once, keeping
- * block-scalar bodies out, and folds a value that continues below its key.
+ * The `if:` conditions that can stop Renovate running (#1607): the one on the job
+ * that holds the `renovatebot/github-action` step, and the one on each step of
+ * that job that uses a {@link KNOWN_PINNED_ACTIONS} action.
  *
- * A step's condition counts only when that step uses one of
- * {@link KNOWN_PINNED_ACTIONS}: a site's own extra step being disabled does not
- * stop Renovate, and this check must not heal (overwrite) a file over it.
- * Callers must pass comment-stripped text.
+ * A false gap is the expensive mistake here: any gap makes `sync-configs` heal the
+ * file by overwriting it and `self-updating` open a PR, so a site's own guard, job
+ * or step would be deleted. So this reads only `if:` keys at the EXACT column of
+ * the job's own keys or a required step's own keys. A block-scalar body, an
+ * `env:`/`with:` map, another job and a site's own step all sit at other columns
+ * or outside those ranges, so none can match. What it does not read (a quoted
+ * `"if":` key, a flow mapping) is a miss, which leaves today's blind spot, never
+ * an overwrite. Callers must pass comment-stripped text.
  */
 function gatingConditions(contents: string): string[] {
   const lines = contents.split(/\r?\n/);
-  const found: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = KEY_LINE_RE.exec(lines[i]!);
-    if (!m) continue;
-    const keyIndent = m[1]!.length + (m[2] ? 2 : 0);
-    const value = m[4]!;
-    const block = BLOCK_INDICATOR_RE.test(value);
-    let resolved = value;
-    if (block || value === "") {
-      const body: string[] = [];
-      let j = i + 1;
-      while (j < lines.length && (lines[j]!.trim() === "" || indentOf(lines[j]!) > keyIndent)) {
-        body.push(lines[j]!.trim());
-        j++;
-      }
-      // A block body is text, never keys: step over it. An empty value may open a
-      // nested mapping (`steps:`), which must still be read, so only an `if:`
-      // folds what follows.
-      if (block) i = j - 1;
-      if (m[3] !== "if") continue;
-      resolved = body.filter((l) => l !== "").join(value.startsWith("|") ? "\n" : " ");
-      // `if:` with nothing below it is a YAML null, which Actions rejects as a
-      // workflow error rather than skipping the job; not this check's to call.
-      if (!block && resolved === "") continue;
+  const usesAt = (slugs: string[], from: number, to: number) => {
+    const res = slugs.map((s) => new RegExp(`^[ \\t]*(?:-[ \\t]+)?uses:\\s*${escapeRegExp(s)}@`));
+    const out: number[] = [];
+    for (let i = from; i < to; i++) if (res.some((re) => re.test(lines[i]!))) out.push(i);
+    return out;
+  };
+  /** The step holding line `at`: its `-` line, the column of its keys, its end. */
+  const stepOf = (at: number) => {
+    const col = keyColumn(lines[at]!);
+    let first = at;
+    while (first >= 0 && !(isItemStart(lines[first]!) && indentOf(lines[first]!) < col)) first--;
+    if (first < 0) return null;
+    return { first, col, end: childEnd(lines, first, indentOf(lines[first]!)) };
+  };
+  const ifsAt = (from: number, to: number, col: number) => {
+    const out: string[] = [];
+    for (let i = from; i < to; i++) {
+      if (isBlank(lines[i]!) || keyColumn(lines[i]!) !== col) continue;
+      const v = ifValue(lines, i);
+      if (v !== null) out.push(v);
     }
-    if (m[3] !== "if") continue;
-    if (isStepCondition(lines, i, keyIndent) && !stepUsesKnownAction(lines, i)) continue;
-    found.push(resolved);
+    return out;
+  };
+
+  const found: string[] = [];
+  for (const at of usesAt(["renovatebot/github-action"], 0, lines.length)) {
+    const step = stepOf(at);
+    if (!step) continue;
+    // `steps:` is the nearest line above the step at a shallower indent; the
+    // job's own keys share its column, and the job key sits above that.
+    const dash = indentOf(lines[step.first]!);
+    let stepsLine = step.first - 1;
+    // Skip the steps above it: their bodies are deeper, their `-` lines level.
+    while (
+      stepsLine >= 0 &&
+      (isBlank(lines[stepsLine]!) ||
+        indentOf(lines[stepsLine]!) > dash ||
+        (isItemStart(lines[stepsLine]!) && indentOf(lines[stepsLine]!) === dash))
+    )
+      stepsLine--;
+    if (stepsLine < 0 || !/^[ \t]*steps:[ \t]*$/.test(lines[stepsLine]!)) continue;
+    const jobCol = indentOf(lines[stepsLine]!);
+    let jobLine = stepsLine - 1;
+    while (jobLine >= 0 && (isBlank(lines[jobLine]!) || indentOf(lines[jobLine]!) >= jobCol))
+      jobLine--;
+    if (jobLine < 0) continue;
+    const jobEnd = childEnd(lines, jobLine, indentOf(lines[jobLine]!));
+    // The job's own `if:`: a line at the job-key column that is not a step item.
+    for (let i = jobLine + 1; i < jobEnd; i++) {
+      const l = lines[i]!;
+      if (isBlank(l) || isItemStart(l) || indentOf(l) !== jobCol) continue;
+      const v = ifValue(lines, i);
+      if (v !== null) found.push(v);
+    }
+    // Each required step's own `if:` within this job.
+    const seen = new Set<number>();
+    for (const u of usesAt(KNOWN_PINNED_ACTIONS, jobLine + 1, jobEnd)) {
+      const st = stepOf(u);
+      if (!st || seen.has(st.first)) continue;
+      seen.add(st.first);
+      found.push(...ifsAt(st.first, st.end, st.col));
+    }
   }
   return found;
-}
-
-/** Is the `if:` at line `at` inside a sequence item (a step) rather than on a
- *  job? Its nearest less-indented ancestor decides. */
-function isStepCondition(lines: string[], at: number, keyIndent: number): boolean {
-  if (/^[ \t]*- /.test(lines[at]!)) return true;
-  for (let k = at - 1; k >= 0; k--) {
-    const l = lines[k]!;
-    if (l.trim() === "") continue;
-    const ind = indentOf(l);
-    if (ind < keyIndent) return /^[ \t]*- /.test(l) && ind + 2 === keyIndent;
-  }
-  return false;
-}
-
-/** Does the step holding line `at` use a required action? The step runs from its
- *  `- ` line to the next line indented no deeper than that dash. */
-function stepUsesKnownAction(lines: string[], at: number): boolean {
-  let first = at;
-  while (first > 0 && !/^[ \t]*- /.test(lines[first]!)) first--;
-  const dash = indentOf(lines[first]!);
-  let last = at;
-  while (
-    last + 1 < lines.length &&
-    (lines[last + 1]!.trim() === "" || indentOf(lines[last + 1]!) > dash)
-  )
-    last++;
-  const step = lines.slice(first, last + 1).join("\n");
-  return KNOWN_PINNED_ACTIONS.some((slug) =>
-    new RegExp(`^[ \\t]*(?:- )?uses:\\s*${escapeRegExp(slug)}@`, "m").test(step),
-  );
 }
 
 /** Is this `if:` value a constant that can never be true (#1607)? `false`,
@@ -218,13 +250,17 @@ function stepUsesKnownAction(lines: string[], at: number): boolean {
  *  site's own business: this check owns "the job cannot run", not "the job has
  *  a condition" (the template has none, but a site may guard its own). */
 function isConstantFalse(raw: string): boolean {
-  const unquote = (v: string) => v.replace(/^(['"])(.*)\1$/, "$2").trim();
-  if (raw.trim() === "") return false;
-  let v = unquote(raw.trim());
+  // One layer of YAML quoting comes off: `if: "false"` hands Actions the
+  // expression `false`. What is left is an expression, bare or in `${{ }}`.
+  let v = raw
+    .trim()
+    .replace(/^(['"])(.*)\1$/, "$2")
+    .trim();
   const expr = v.match(/^\$\{\{\s*(.*?)\s*\}\}$/);
   if (expr) v = expr[1]!.trim();
-  v = v === "''" || v === '""' ? "" : unquote(v);
-  return ["", "false", "0", "null"].includes(v);
+  // In an expression `'…'` is a string literal, and only the empty one is
+  // falsy: `${{ 'false' }}` is a non-empty string, so the job runs.
+  return ["false", "0", "null", "''"].includes(v) || raw.trim() === "''" || raw.trim() === '""';
 }
 
 /** Gaps in a site's `.github/workflows/renovate.yml`. Empty = compliant,

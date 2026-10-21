@@ -221,6 +221,67 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     expect(renovateActionGaps(extra)).toEqual([]);
   });
 
+  // Review round 2: a false gap overwrites the site's file, so each of these
+  // must read clean.
+  const noGap = (yml: string) => {
+    expect(yml).not.toBe(CANONICAL);
+    expect(renovateActionGaps(yml)).toEqual([]);
+  };
+
+  it("an if: false on a site's own extra job is not a gap", () => {
+    noGap(
+      CANONICAL.trimEnd() +
+        "\n  sidecar:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n",
+    );
+  });
+
+  it("a key named if inside env: or with: on a required step is not a condition", () => {
+    noGap(
+      CANONICAL.replace(
+        "        id: app-token\n",
+        "        id: app-token\n        env:\n          if: false\n",
+      ),
+    );
+    noGap(CANONICAL.replace("        with:\n", "        with:\n          if: false\n"));
+  });
+
+  it("a quoted string inside ${{ }} is truthy in Actions, so not a gap", () => {
+    for (const cond of ["${{ 'false' }}", "${{ '0' }}", "${{ 'null' }}", `"'false'"`]) {
+      expect(renovateActionGaps(withJobIf(cond)), cond).toEqual([]);
+    }
+  });
+
+  it("- if: false as the first key of a site's own step is not a gap", () => {
+    noGap(
+      CANONICAL.replace("    steps:\n", "    steps:\n      - if: false\n        run: echo hi\n"),
+    );
+  });
+
+  it("a dash on its own line or a wide dash on a site's own step is not a gap", () => {
+    noGap(
+      CANONICAL.replace(
+        "    steps:\n",
+        "    steps:\n      -\n        if: false\n        run: echo hi\n",
+      ),
+    );
+    noGap(
+      CANONICAL.replace(
+        "    steps:\n",
+        "    steps:\n      -   run: echo hi\n          if: false\n",
+      ),
+    );
+  });
+
+  it("an if: false line inside a quoted-key block scalar is text", () => {
+    noGap(CANONICAL.replace("    steps:\n", '    steps:\n      - "run": |\n          if: false\n'));
+  });
+
+  it("if: | over false on the job is a gap (a literal block, read as its value)", () => {
+    expect(
+      renovateActionGaps(withJobIf("|\n      false")).some((g) => g.includes("can never run")),
+    ).toBe(true);
+  });
+
   it("a commented-out if: false is not a gap", () => {
     const commented = CANONICAL.replace(
       JOB,
