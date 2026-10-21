@@ -186,6 +186,14 @@ describe("#1613 (1) the send gate", () => {
     expect(step.code).toBe(0);
   });
 
+  it("KNOWN-GOOD: a superseded report, neither approved nor draft-ready, stays green", async () => {
+    await seedSites(3);
+    await insertReport({ draft_ready: 0, approved_to_send: 0 });
+    const { cli, step } = await sendThroughGate();
+    expect(cli).toEqual({ output: "No reports ready to send.", code: 0 });
+    expect(step.code).toBe(0);
+  });
+
   it("KNOWN-GOOD: a drafted report not yet approved stays green", async () => {
     await seedSites(3);
     await insertReport({ draft_ready: 1, approved_to_send: 0 });
@@ -429,6 +437,7 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     const r = await digestThroughGate();
     expect(r.out).toMatch(/read=absent/);
     expect(r.out).toContain("DIGEST_STATE_READ snapshot=absent");
+    expect(r.step.log).not.toContain("::warning::");
     expect(r.step.code).toBe(0);
   });
 
@@ -440,6 +449,32 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     expect(day2.out).toMatch(/DIGEST_SEND_LOG write=1 decision=first read=corrupt/);
     expect(day2.step.code).toBe(1);
     expect(day2.step.log).toContain("::error::");
+  });
+
+  it.each(["null", "[]", '"x"', '{"sent_on":"2026-10-20"}'])(
+    "a send-log row of the wrong shape (%s) reads as corrupt, not as a clean first send",
+    async (snapshot) => {
+      await seedDigestFleet();
+      await digestThroughGate();
+      const d = await db();
+      await d
+        .updateTable("digest_state")
+        .set({ snapshot })
+        .where("id", "=", "digest_send_log")
+        .execute();
+      const { readDigestSendLogChecked } = await import("../../src/db/digest-state.js");
+      expect((await readDigestSendLogChecked(d)).state).toBe("corrupt");
+      await d.destroy();
+    },
+  );
+
+  it("KNOWN-GOOD: the send log the digest itself writes reads back as ok", async () => {
+    await seedDigestFleet();
+    await digestThroughGate();
+    const d = await db();
+    const { readDigestSendLogChecked } = await import("../../src/db/digest-state.js");
+    expect((await readDigestSendLogChecked(d)).state).toBe("ok");
+    await d.destroy();
   });
 
   it("the sweep's input (4): a truncated snapshot prints a line, and the gate warns", async () => {

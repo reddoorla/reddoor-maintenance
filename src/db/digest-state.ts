@@ -208,11 +208,22 @@ export async function readDigestSendLogChecked(db: Db): Promise<DigestRead<Diges
     .where("id", "=", DIGEST_SEND_LOG_ID)
     .executeTakeFirst();
   if (!row) return { value: EMPTY_SEND_LOG, state: "absent" };
+  let raw: unknown;
   try {
-    return { value: coerceSendLog(JSON.parse(row.snapshot)), state: "ok" };
+    raw = JSON.parse(row.snapshot);
   } catch {
     return { value: EMPTY_SEND_LOG, state: "corrupt" };
   }
+  // Valid JSON of the wrong shape (null, an array, a renamed field) decodes to
+  // "never sent" just as truncated JSON does, so it is corrupt too.
+  const shaped =
+    typeof raw === "object" &&
+    raw !== null &&
+    !Array.isArray(raw) &&
+    ["sentOn", "sent", "readySince"].some((k) => k in raw);
+  return shaped
+    ? { value: coerceSendLog(raw), state: "ok" }
+    : { value: EMPTY_SEND_LOG, state: "corrupt" };
 }
 
 export async function writeDigestSendLog(
