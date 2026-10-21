@@ -1,8 +1,25 @@
 [
   {
+    "id": "M0-control-comment",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "/** How many times `find` occurs in `text`, without overlaps. */",
+        "replace": "/** How many times `find` occurs in `text`. */"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "survives",
+    "why": "A comment-only edit changes no behaviour: the control that this run can report a survivor at all."
+  },
+  {
     "id": "M1-find-twice-applied",
     "edits": [
-      { "file": "scripts/mutate.mjs", "find": "if (n !== 1) {", "replace": "if (n === 0) {" }
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "if (n !== 1) {",
+        "replace": "if (n === 0) {"
+      }
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
@@ -46,7 +63,11 @@
   {
     "id": "M5-dirty-tree-accepted",
     "edits": [
-      { "file": "scripts/mutate.mjs", "find": "  if (dirty.length)", "replace": "  if (false)" }
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (dirty.length)",
+        "replace": "  if (false)"
+      }
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
