@@ -1,6 +1,6 @@
 # 2026-10-21 — The dashboard's per-IP rate limits are not enforced
 
-**Where it landed:** this PR (reddoorla/reddoor-maintenance, branch `claude/rate-limit-one-ip-verdict`), journal only. The probe itself is the workflow on branch `claude/rate-limit-one-ip-probe`, which runs only on a push to that branch and is not meant to merge. Runs [39606055121](https://github.com/reddoorla/reddoor-maintenance/actions/runs/39606055121) and [39606688815](https://github.com/reddoorla/reddoor-maintenance/actions/runs/39606688815).
+**Where it landed:** this PR (reddoorla/reddoor-maintenance, branch `claude/rate-limit-one-ip-verdict`), this entry and the cockpit snapshot fix below. The probe itself is the workflow on branch `claude/rate-limit-one-ip-probe`, which runs only on a push to that branch and is not meant to merge. Runs [39606055121](https://github.com/reddoorla/reddoor-maintenance/actions/runs/39606055121) and [39606688815](https://github.com/reddoorla/reddoor-maintenance/actions/runs/39606688815).
 
 **Why.** Every limited function and, since the cutover (#1574), the edge function `cockpit-rate-limit.ts` declare a per-IP `rateLimit` so "a credential-guessing or scraping loop can't hammer Turso". The cutover entry (`2026-10-20-2315-od18-cockpit-cutover.md`) found no 429 from a cloud container. It could not tell a missing limit from an egress proxy that spreads requests over several IPs. This entry repeats the burst from one fixed IP.
 
@@ -38,3 +38,32 @@ If Netlify kept the first five rules in sort order, `approve-report` and `auth` 
 3. **If one rule alone still gives no 429**, the limit is truly absent on this plan. Then ask Netlify support, or limit inside the app with a per-IP counter in Netlify Blobs on the auth gate. That second option costs code on every gated request.
 
 The branch `claude/rate-limit-one-ip-probe` stays up for re-runs: edit the paths and push. The cloud proxy refuses branch deletes in any case.
+
+## The snapshot fix this PR carries
+
+The first CI run on this PR went red on `cockpit/tests/site/site.ssr.test.ts`, "submissions over the cap": the snapshot said `3mo ago` and the page rendered `4mo ago`. Every branch cut from `main` that day failed the same way. The page view is given a pinned `now` (`2026-06-15T10:00:00Z` in the fixture, the request time in production), but three of its age strings ignored it and read the wall clock:
+
+- the submission row's `when` (`buildSubmissionRowView`);
+- `Last audited`;
+- the details panel's last commit.
+
+The fixture's submissions are dated 2026-06-01 to 06-28, so one of them crosses a `floor(days / 30)` boundary every few days. The `Last audited` lines were already wrong, reading `4mo ago` against a fixture that says two weeks. All three now take the view's `now`. The `/s/:slug` snapshots were regenerated: the only lines that changed are the age strings (`Last audited 2w ago`, and the submission ages). Submissions dated after the pinned `now` read `just now`. Production already passed the request's `now`, so a visitor sees no change. The operator folded this into the session (2026-10-21).
+
+Two mutations, each run against the regenerated snapshots:
+
+| Mutation                                                                      | Result                |
+| ----------------------------------------------------------------------------- | --------------------- |
+| The submission row's `relativeTimeFromNow(…, now)` reverted to the wall clock | 3 snapshot tests red  |
+| `Last audited` reverted to the wall clock                                     | 30 snapshot tests red |
+
+`/submissions` still builds its rows with the wall clock (the parameter defaults to `new Date()`). Its tests do not pin a date, so they do not rot.
+
+## Why the cockpit is slow, measured the same morning
+
+Netlify's request log for the page functions, 13:18 to 13:31 UTC, gave these durations:
+
+- Signed in on production: `/` took 7.09 s, then 1.59 s and 2.19 s. `/s/sonder` took 6.00 s, `/s/29-navy` 2.64 s and `/s/caltex` 1.37 s. `/submissions` took 4.75 s and `/audits` 4.11 s.
+- Signed out on fresh deploy previews, where `/` does nothing but redirect to sign-in, five requests took 3.76 to 4.29 s.
+- A warm signed-out redirect on production (`/fleet` in the probe above) has a p50 of 162 ms.
+
+So about 3.5 s of a first visit is a cold start, before any query runs. `svelte.config.js` sets `split: true`, so each page is its own function of about 16 MB (`sveltekit-index` is 16,155,788 bytes), and each one cold-starts separately. The rest is the store. The functions run in `us-east-2`, but `TURSO_DATABASE_URL` is `aws-us-west-2`, so every query crosses the country. A warm `/s/caltex` still took 1.37 s.
