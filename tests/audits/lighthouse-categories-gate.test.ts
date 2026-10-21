@@ -137,6 +137,44 @@ describe("#1609: a fleet-wide missing performance score is red", () => {
     );
   });
 
+  it.each(LIGHTHOUSE_CATEGORIES)(
+    "%s is judged against the sites lighthouse scored: missing on 2 of 7",
+    async (k) => {
+      // 3 unscored sites (lighthouse misses), and k absent on 2 of the 7 that scored.
+      const without: Record<string, number> = { ...full };
+      delete without[k];
+      const { result } = await sweep(10, (i) => (i < 3 ? {} : i < 5 ? without : full));
+      expect(result.applicableAudits?.[`lighthouse.${k}`]).toHaveLength(7);
+      expect(fleetWriteGate(result).reasons).toContain(
+        `lighthouse.${k} missing on 2 of 7 site(s): site-3, site-4 (>25%)`,
+      );
+    },
+  );
+
+  it("a slug pooling a full then a NO_LCP result is judged by the one that was written", async () => {
+    // The planner reads the first lighthouse result; site-7 wrote pScore 90, so it is
+    // applicable and not missing performance, whatever its second result said.
+    const slugs = Array.from({ length: 8 }, (_, i) => `site-${i}`);
+    const written: Array<Record<string, unknown>> = [];
+    const result = await writeFleetAudits({
+      websites: websiteRowsFrom(
+        slugs.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+      ),
+      results: slugs.flatMap((s, i) =>
+        i === 7 ? [lh(s, full), lh(s, noLcp)] : [lh(s, i < 2 ? noLcp : full)],
+      ),
+      mirror: async (_id, f) => {
+        written.push(f);
+        return true;
+      },
+      expectedSites: slugs,
+    });
+    expect(written[7]).toMatchObject({ pScore: 90 });
+    expect(result.applicableAudits?.["lighthouse.performance"]).toContain("site-7");
+    expect(result.unmeasuredAudits?.["lighthouse.performance"]).toEqual(["site-0", "site-1"]);
+    expect(fleetWriteGate(result).red).toBe(false);
+  });
+
   it("a slug pooling an unscored then a scored result is a miss, not an applicable site", async () => {
     // Two roster rows share slug site-7 and pool into one group; the planner reads the
     // first lighthouse result (unscored), so site-7 is filed as a lighthouse miss and
