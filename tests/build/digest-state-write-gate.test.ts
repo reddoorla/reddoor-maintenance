@@ -60,7 +60,7 @@ async function runStep(out: string, code = 0): Promise<{ code: number; log: stri
 /** A real, verbatim-shaped healthy run: the CLI's own success line, then the marker. */
 const HEALTHY = [
   "DIGEST_STATE_WRITE turso=1 rollup=1",
-  "DIGEST_SEND_LOG write=1 decision=changed",
+  "DIGEST_SEND_LOG write=1 decision=changed read=ok",
   "Digest sent (changed) to tucker@reddoorla.com (msg_0193f1)",
 ].join("\n");
 
@@ -76,7 +76,7 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
     const r = await runStep(
       [
         "DIGEST_STATE_WRITE turso=1 rollup=1",
-        "DIGEST_SEND_LOG write=1 decision=empty",
+        "DIGEST_SEND_LOG write=1 decision=empty read=ok",
         "Digest skipped (nothing ready, nothing needs attention).",
       ].join("\n"),
     );
@@ -89,9 +89,10 @@ describe("daily-reports digest gate — PASSES on a known-good line (prove the i
     // number that is supposed to catch a dead writer." Reddening it here would
     // contradict the code's own description.
     const r = await runStep(
-      ["DIGEST_STATE_WRITE turso=1 rollup=absent", "DIGEST_SEND_LOG write=1 decision=first"].join(
-        "\n",
-      ),
+      [
+        "DIGEST_STATE_WRITE turso=1 rollup=absent",
+        "DIGEST_SEND_LOG write=1 decision=first read=absent",
+      ].join("\n"),
     );
     expect(r.code).toBe(0);
     expect(r.log).toContain("::warning::");
