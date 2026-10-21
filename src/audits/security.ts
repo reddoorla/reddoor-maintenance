@@ -433,8 +433,10 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
     const dependabot = ctx.dependabotDeps ?? defaultDependabotDeps();
     if (dependabot) {
       const viaDependabot = await dependabotAudit(dependabot, site.gitRepo, label);
-      if (viaDependabot && !(await lockfileHiddenFromDependencyGraph(site.path)))
-        return viaDependabot;
+      if (viaDependabot && !(await lockfileHiddenFromDependencyGraph(site.path))) {
+        if (hasLiveCounts(viaDependabot)) return viaDependabot;
+        return crossCheckEmptyDependabot(spawn, site.path, label, viaDependabot);
+      }
       if (viaDependabot) {
         console.error(
           `[security] ${label}: pnpm-lock.yaml has more than one YAML document, which GitHub's ` +
@@ -461,6 +463,28 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
     }
   }
   return lockfileAudit(spawn, site.path, label, "prod");
+}
+
+/** Dependabot reports no live alert on a lockfile its dependency graph can read. The graph can
+ *  stop reading a lockfile for reasons other than the multi-document one above, and an empty
+ *  answer looks the same either way, so it is checked against the lockfile audit before it is
+ *  believed (#1612: `200 []` beside a lockfile pinning minimist 1.2.0 read "Dependabot: 0
+ *  alerts"). When the lockfile audit finds a live advisory, both stand, merged as on the
+ *  hidden-lockfile path. When it finds none, or cannot run, Dependabot's answer stands. */
+async function crossCheckEmptyDependabot(
+  spawn: NonNullable<AuditContext["spawn"]>,
+  dir: string,
+  label: string,
+  viaDependabot: AuditResult,
+): Promise<AuditResult> {
+  // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
+  const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
+  if (viaLockfile.status === "skip" || !hasLiveCounts(viaLockfile)) return viaDependabot;
+  console.error(
+    `[security] ${label}: Dependabot reports no live alert, but ${viaLockfile.summary} — ` +
+      `adding pnpm audit to Dependabot`,
+  );
+  return mergeAudits(viaLockfile, viaDependabot);
 }
 
 /** True when a Dependabot result tallies at least one live alert (ghosts do not count). */

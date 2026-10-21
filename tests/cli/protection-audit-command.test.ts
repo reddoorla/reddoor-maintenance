@@ -115,6 +115,68 @@ describe("runProtectionAuditCommand", () => {
   });
 
   /**
+   * #1612: an org listing that returns `200 []` printed `PROTECTION_AUDIT
+   * gaps=0 covered=0 skipped=0 total=0` and exited 0. Nothing was verified, so
+   * it is unmeasured, never clean: exit 1, and no `gaps=0` line, the one the
+   * close step reads as a verified clean sweep.
+   */
+  describe("a sweep that verified no repo (#1612)", () => {
+    const deps = (repos: Awaited<ReturnType<ProtectionAuditDeps["listOrgRepos"]>>) =>
+      ({
+        listOrgRepos: async () => repos,
+        listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
+        getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
+        workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+        dependencyDashboard: async () => ({
+          present: true,
+          blockedBranches: [],
+          unknownSections: [],
+        }),
+        branchTip: async () => null,
+        openSecretAlerts: async () => 0,
+        renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+        repoTextFile: async () => null,
+        listWorkflowPaths: async () => [],
+        defaultBranch: async () => "main",
+        branchRequiredChecks: async () => null,
+      }) satisfies ProtectionAuditDeps;
+
+    it("an empty org listing exits 1 as unmeasured, and prints no gaps=0 line", async () => {
+      const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps([]));
+      expect(r.code).toBe(1);
+      expect(r.output).not.toContain("PROTECTION_AUDIT gaps=0 ");
+      expect(r.output).toMatch(
+        /^PROTECTION_AUDIT_UNMEASURED covered=0 gaps=0 skipped=0 total=0 — /m,
+      );
+    });
+
+    it("a listing of only private or archived repos verified nothing either", async () => {
+      const r = await runProtectionAuditCommand(
+        { org: "reddoorla" },
+        deps([
+          { name: "the-tower", visibility: "private", archived: false, ...SEC_ON },
+          { name: "old", visibility: "public", archived: true, ...SEC_ON },
+        ]),
+      );
+      expect(r.code).toBe(1);
+      expect(r.output).not.toContain("PROTECTION_AUDIT gaps=0 ");
+      expect(r.output).toMatch(
+        /^PROTECTION_AUDIT_UNMEASURED covered=0 gaps=0 skipped=2 total=2 — /m,
+      );
+    });
+
+    it("one verified repo is enough to be a measurement (control)", async () => {
+      const r = await runProtectionAuditCommand(
+        { org: "reddoorla" },
+        deps([{ name: "espada", ...PUBLIC_CLEAN }]),
+      );
+      expect(r.code).toBe(0);
+      expect(r.output).toContain("PROTECTION_AUDIT gaps=0 covered=1 skipped=0 total=1");
+      expect(r.output).not.toContain("PROTECTION_AUDIT_UNMEASURED");
+    });
+  });
+
+  /**
    * THE MERGE POINT. The pnpm-pin sweep is a separate collector, but its gaps
    * must land INSIDE the offending repo's own row: `fleet-security.yml` closes
    * the tracking issue only when every repo the issue named as a GAP comes back
