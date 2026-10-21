@@ -18,6 +18,8 @@ const contactPage = (opts: {
   dropMarkerOnChange: boolean;
   dropMarkerAlways: boolean;
   statusOnError: boolean;
+  statusFirst: boolean;
+  beacon: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -63,9 +65,20 @@ const contactPage = (opts: {
         testMode: f.querySelector('[name="testMode"]')?.value ?? null,
         honeypot: f.querySelector('[name="bot-field"]').value,
       };
+      if (${opts.statusFirst ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Sending…";
+        s.hidden = false;
+      }
+      if (${opts.beacon ? "true" : "false"}) await fetch("/beacon", { method: "POST", body: "ping" });
       const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
-      if (r.ok && ${opts.banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
-      if (!r.ok && ${opts.statusOnError ? "true" : "false"}) {
+      const failed = !r.ok || (await r.clone().json().catch(() => ({}))).type === "failure";
+      if (!failed && ${opts.banner ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Thanks, we will be in touch.";
+        s.hidden = false;
+      }
+      if (failed && ${opts.statusOnError ? "true" : "false"}) {
         const s = document.getElementById("ok");
         s.textContent = "Sorry, something went wrong. Please try again.";
         s.hidden = false;
@@ -164,6 +177,14 @@ type Fixture = {
   postStatus?: number;
   /** On a failed POST, the page writes its error into the same role="status" region. */
   statusOnError?: boolean;
+  /** The page shows its role="status" region ("Sending…") before it posts. */
+  statusFirst?: boolean;
+  /** How long the server holds the action POST before answering. */
+  postDelayMs?: number;
+  /** The action answers 200 with a SvelteKit `fail()` body, as `use:enhance` receives it. */
+  kitFailure?: boolean;
+  /** A same-site POST to /beacon goes first, answering this status. */
+  beaconStatus?: number;
 };
 
 let server: Server;
@@ -192,8 +213,18 @@ beforeAll(async () => {
           dropMarkerOnChange: fixture.dropMarkerOnChange ?? false,
           dropMarkerAlways: fixture.dropMarkerAlways ?? false,
           statusOnError: fixture.statusOnError ?? false,
+          statusFirst: fixture.statusFirst ?? false,
+          beacon: fixture.beaconStatus !== undefined,
         }),
       );
+      return;
+    }
+    if (req.method === "POST" && req.url === "/beacon") {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(fixture.beaconStatus ?? 204);
+        res.end();
+      });
       return;
     }
     if (req.method === "POST" && req.url === "/contact") {
@@ -205,9 +236,14 @@ beforeAll(async () => {
         } catch {
           posts.push({ unparsed: raw });
         }
-        const status = fixture.postStatus ?? 200;
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(status < 400 ? '{"ok":true}' : '{"error":"ingest failed"}');
+        const answer = () => {
+          const status = fixture.postStatus ?? 200;
+          res.writeHead(status, { "content-type": "application/json" });
+          if (fixture.kitFailure) res.end('{"type":"failure","status":502,"data":"[]"}');
+          else res.end(status < 400 ? '{"ok":true}' : '{"error":"ingest failed"}');
+        };
+        if (fixture.postDelayMs) setTimeout(answer, fixture.postDelayMs);
+        else answer();
       });
       return;
     }
@@ -341,15 +377,71 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     expect((r.details as { ok?: string }).ok).toBe("fail");
   });
 
-  it("a 4xx counts too: a 422 the page reports in the status region fails", async () => {
+  it.each([400, 422, 503])("a %i the page reports in the status region fails", async (code) => {
     const out = await submit({
       health: DECLARED,
       banner: true,
-      postStatus: 422,
+      postStatus: code,
       statusOnError: true,
     });
     expect(out).toMatchObject({ formPresent: true, success: false });
-    expect((out as { detail?: string }).detail).toContain("POST 422");
+    expect((out as { detail?: string }).detail).toContain(`POST ${code}`);
+  });
+
+  it("a SvelteKit action's fail() inside a 200 fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      kitFailure: true,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 200 \{"type":"failure","status":502/,
+    );
+  });
+
+  it("the region shown before the POST: a 500 that answers 800 ms later still fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 800,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+  });
+
+  it("a POST still pending when the settle ends passes, without waiting for it", async () => {
+    // The region shows at once and the POST takes 10 s: the 2 s settle ends the wait,
+    // not the 30 s submit timeout.
+    const started = Date.now();
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 10_000,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(Date.now() - started).toBeLessThan(6_000);
+  }, 20_000);
+
+  it("a same-site beacon that 404s first does not fail a form whose action succeeded", async () => {
+    const out = await submit({ health: DECLARED, banner: true, beaconStatus: 404 });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
+
+  it("a same-site beacon that answers 200 first does not hide the action's 500", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      beaconStatus: 200,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toContain("POST 500");
   });
 
   it("control: a 200 POST with the thanks banner still passes", async () => {
@@ -372,6 +464,8 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
       synthesized: ["company", "interest", "consent", "contactBy"],
       resynthesized: ["interest"],
     });
+    // A banner that never showed keeps its own diagnosis, not "the status region showed".
+    expect((out as { detail?: string }).detail).toMatch(/^no success banner after submit — /);
   }, 90_000);
 
   it("submits NOTHING to a site whose /health does not declare forms.testMode", async () => {

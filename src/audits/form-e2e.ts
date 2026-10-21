@@ -740,6 +740,28 @@ export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
  * `www.` is stripped because at least one site (beachfront-dentistry) is probed
  * at `www.` while its action lands on the apex.
  */
+/** True when a POST body carries the probe's `testMode` marker, so the response read is
+ *  the form's own action and not a same-site beacon or a pre-submit call that happened
+ *  to answer first (#1610 review). Multipart, URL-encoded and JSON bodies all spell the
+ *  field name. A body Playwright cannot read stays a candidate rather than be missed. */
+export function carriesProbeMarker(postData: string | null): boolean {
+  return postData === null || postData.includes("testMode");
+}
+
+/** The failure a SvelteKit form action reports inside an HTTP 200: an enhanced
+ *  submission answers `fail(502)` as `{"type":"failure","status":502,…}` (and an
+ *  error as `"type":"error"`), so the status line alone reads as success. Returns the
+ *  status the body names, or null for any other body. */
+export function actionFailureStatus(body: string): number | null {
+  try {
+    const parsed = JSON.parse(body) as { type?: unknown; status?: unknown };
+    if (parsed.type !== "failure" && parsed.type !== "error") return null;
+    return typeof parsed.status === "number" ? parsed.status : 500;
+  } catch {
+    return null;
+  }
+}
+
 export function isSameSitePost(postUrl: string, baseUrl: string): boolean {
   try {
     const host = (u: string) => new URL(u).hostname.replace(/^www\./, "");
@@ -782,7 +804,7 @@ export type NoBannerEvidence = {
 export function noBannerDetail(e: NoBannerEvidence): string {
   const bits: string[] = [
     e.post
-      ? `POST ${e.post.status}${e.post.status >= 400 && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
+      ? `POST ${e.post.status}${(e.post.status >= 400 || e.bannerShown) && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
       : "no same-site POST: the submission never left the page",
   ];
   if (e.alertText?.trim()) bits.push(`alert: ${e.alertText.trim().slice(0, 80)}`);
@@ -817,6 +839,8 @@ export async function defaultFormRunner(
     /** Test-only: the pause after the fills (default FILL_SETTLE_MS). A local
      *  fixture has no bot-timing screen to beat. */
     settleMs?: number;
+    /** Once the status region shows, how long to wait for the action POST (#1610). */
+    postSettleMs?: number;
     /** Test-only: the cap on the action POST, the submit click and the success
      *  banner (default PAGE_TIMEOUT_MS), so a fixture that must fail does not
      *  wait out 30 s to do it. */
@@ -826,6 +850,7 @@ export async function defaultFormRunner(
   const { chromium } = await import("@playwright/test");
   const hydrationTimeoutMs = opts.hydrationTimeoutMs ?? HYDRATION_TIMEOUT_MS;
   const settleMs = opts.settleMs ?? FILL_SETTLE_MS;
+  const postSettleMs = opts.postSettleMs ?? POST_SETTLE_MS;
   const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
   return {
     async submit({ baseUrl, testSitekey }) {
@@ -1087,7 +1112,10 @@ export async function defaultFormRunner(
         let postElapsedMs: number | undefined;
         const postResponse = page
           .waitForResponse(
-            (r) => r.request().method() === "POST" && isSameSitePost(r.url(), baseUrl),
+            (r) =>
+              r.request().method() === "POST" &&
+              isSameSitePost(r.url(), baseUrl) &&
+              carriesProbeMarker(r.request().postData()),
             {
               timeout: submitTimeoutMs,
             },
@@ -1118,13 +1146,23 @@ export async function defaultFormRunner(
         // text into the same `role="status"` region as its thanks, and a POST that
         // came back 500 then read as a pass. Once the region shows, give the
         // action POST a moment to answer, and a 4xx/5xx is a failure.
+        let settleTimer: ReturnType<typeof setTimeout> | undefined;
         const settledPost = ok
           ? await Promise.race([
               postResponse,
-              new Promise<null>((r) => setTimeout(() => r(null), POST_SETTLE_MS)),
+              new Promise<null>((r) => {
+                settleTimer = setTimeout(() => r(null), postSettleMs);
+              }),
             ])
           : null;
-        const bannerLied = settledPost !== null && settledPost.status() >= 400;
+        clearTimeout(settleTimer);
+        // A SvelteKit action's failure arrives as a 200 whose JSON says so.
+        const bodyFailure =
+          settledPost !== null && settledPost.status() < 400
+            ? actionFailureStatus(await settledPost.text().catch(() => ""))
+            : null;
+        const bannerLied =
+          settledPost !== null && (settledPost.status() >= 400 || bodyFailure !== null);
         if (ok && !bannerLied)
           return {
             formPresent: true,
@@ -1166,7 +1204,7 @@ export async function defaultFormRunner(
         const post = actionResp
           ? {
               status: actionResp.status(),
-              ...(actionResp.status() >= 400
+              ...(actionResp.status() >= 400 || bodyFailure !== null
                 ? { bodyBit: (await actionResp.text().catch(() => "")).slice(0, 80) }
                 : {}),
             }

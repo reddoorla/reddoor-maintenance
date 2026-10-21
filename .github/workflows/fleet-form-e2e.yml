@@ -220,8 +220,10 @@ jobs:
           # above, but when every site refused
           # (a starter regression dropping forms.testMode from /health, the 10-site
           # input that read green) nothing was tested end to end. `probed` counts the
-          # submissions that ran: a pass, or a warn (submitted and failed). formatTable
-          # pads the audit name to 12 and the status to 5.
+          # sites the probe drove: a pass, or a warn. A warn is a submission that failed,
+          # or one the probe could not complete (a click that timed out, a marker the
+          # page dropped); each still writes ok:fail. formatTable pads the audit name
+          # to 12 and the status to 5.
           probed=$(grep -cE "^form-e2e +(pass|warn) +" "$out" || true)
           echo "FLEET_FORM_E2E probed=$probed"
           if [ "$probed" -eq 0 ]; then
