@@ -127,6 +127,9 @@ jobs:
             exit 1
           fi
 
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           if [ "$wrote" -eq 0 ]; then
             echo "::error::fleet Lighthouse wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."

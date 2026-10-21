@@ -139,6 +139,9 @@ jobs:
             exit 1
           fi
 
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
           # Total write-back failure: nothing landed at all (creds/API/inventory). This
           # is the silent-green hazard — every site's "Security Updates" box would stay
           # unticked while the job reported success.
@@ -158,9 +161,9 @@ jobs:
       # flagged with critical/high vulns. Renovate's OSV vulnerability alerts bypass
       # the schedule, so the remediation PR opens now; GitHub platform auto-merge is
       # disabled fleet-wide, so Renovate merges it from inside its own run per the
-      # shared preset. Runs only when the sweep above succeeded (default step
-      # semantics) — though counts for any site the sweep failed/skipped to write are
-      # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
+      # shared preset. Runs on any run not cancelled, a red sweep included (#1605),
+      # so counts for any site the sweep failed/skipped to write are last-known, not
+      # fresh; a stale-high false dispatch is a harmless Renovate
       # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the
       # security job — a missing token clean-skips, and a per-repo failure (no
       # renovate.yml / token lacks actions:write) is a warning, not a red.
@@ -234,11 +237,22 @@ jobs:
       - name: Open/update the protection-gap tracking issue
         # main only: a branch run's finding is not main's to file (and a green PR-branch
         # dispatch of time-travel once closed #895 while main was still red).
-        if: steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main'
+        # `!cancelled()`: without a status function Actions prefixes `success() &&`,
+        # so a write-gate red in the audit step (#1605) would skip this and the
+        # close step below and freeze the issue on exactly the nights it is red.
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A token that never minted stops the audit before its `tee` creates
+          # protection.out. That is not a coverage gap, and before `!cancelled()`
+          # it skipped this step entirely; the run-failure issue speaks for it. A
+          # CLI that crashed still leaves the file, and still files.
+          if [ ! -e "${RUNNER_TEMP:-/tmp}/protection.out" ]; then
+            echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
+            exit 0
+          fi
           title="Fleet protection coverage gap"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
@@ -275,7 +289,7 @@ jobs:
 
       - name: Close the protection-gap issue on a clean sweep
         # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
-        if: steps.protection.outcome == 'success' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.protection.outcome == 'success' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

@@ -224,14 +224,10 @@ jobs:
           fi
 
           # The write gate's own verdict (#1605), computed by fleetWriteGate in
-          # write-audits.ts so five workflows cannot drift apart. It reds on what the
-          # counts above cannot see: a site that measured nothing (deps would not
-          # install, no lockfile), a site the run resolved that never reached
-          # write-back, a failure that recurs every night (no row to write to), and
-          # one audit that measured nothing across more than a quarter of the fleet.
-          # The CLI's exit status cannot carry this (a failing audit exits 1 by
-          # design, so the step tolerates it), so the verdict line is the contract,
-          # and an absent line is red.
+          # write-audits.ts so five workflows cannot drift apart. Here it adds one
+          # thing the counts above cannot see: a verdict that recurs every night
+          # because its site has no Websites row, or several. The sweep's own checks
+          # run first because they name the Prismic cause. An absent line is red.
           gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "$out" | tail -n1 || true)
           if [ -z "$gate" ]; then
             echo "::error::fleet prismic drift printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."

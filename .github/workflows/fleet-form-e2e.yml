@@ -183,6 +183,9 @@ jobs:
             exit 1
           fi
 
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
           # months, and this was the only fleet nightly without it.

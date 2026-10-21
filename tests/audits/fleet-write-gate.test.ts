@@ -327,8 +327,11 @@ describe("review round 1: the denominators count only sites with something to me
             : [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }],
     });
     expect(out).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=4 total=18");
-    expect(fleetWriteGate(result).reasons).toContain(
-      "4 of 5 site(s) not written or missing (>25%)",
+    const gate = fleetWriteGate(result);
+    expect(gate.reasons).toContain("4 of 5 site(s) not written or missing (>25%)");
+    // The per-audit share counts the blind sites as applicable, not only the written one.
+    expect(gate.reasons).toContain(
+      "smoke measured nothing on 4 of 5 site(s): site-1, site-2, site-3, site-4 (>25%)",
     );
   });
 
@@ -421,6 +424,8 @@ describe("review round 1: every persisted audit is watched", () => {
     expect(result.notApplicable).toEqual([]);
     expect(result.failed.map((f) => f.slug)).toEqual(["site-0"]);
     expect(result.failed[0]!.error).toMatch(/^Lighthouse audit produced no scores/);
+    // Filed once, as a lighthouse failure, not again as an audit that measured nothing.
+    expect(result.unmeasuredAudits).toEqual({});
   });
 });
 
@@ -436,15 +441,16 @@ describe("review round 1: the real paths, not hand-built results", () => {
     );
   });
 
-  it("the Prismic sweep's ambiguous match is as permanent as no match", () => {
-    const result: FleetWriteResult = {
-      written: Array.from({ length: 9 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
-      failed: [
-        { slug: "twin", error: '2 Websites rows match "Twin" (Twin, Twin) — refusing to guess' },
-      ],
-    };
-    expect(fleetWriteGate(result).reasons).toEqual(["1 site(s) with no row to write to: twin"]);
-  });
+  it.each([2, 3, 12])(
+    "the Prismic sweep's ambiguous match (%i rows) is as permanent as no match",
+    (n) => {
+      const result: FleetWriteResult = {
+        written: Array.from({ length: 9 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+        failed: [{ slug: "twin", error: `${n} Websites rows match "Twin" — refusing to guess` }],
+      };
+      expect(fleetWriteGate(result).reasons).toEqual(["1 site(s) with no row to write to: twin"]);
+    },
+  );
 
   it("a slug listed twice in the roster is missing once, and an audit miss counts it once", async () => {
     const { websites } = fleet(4);
@@ -464,5 +470,56 @@ describe("review round 1: the real paths, not hand-built results", () => {
     });
     expect(result.missing).toEqual(["site-3"]);
     expect(result.unmeasuredAudits?.browser).toEqual(["site-0"]);
+    // Counted once as applicable too: 1 of 3 is red, where a double count (1 of 4) is not.
+    expect(result.applicableAudits?.browser).toEqual(["site-0", "site-1", "site-2"]);
+    expect(fleetWriteGate(result).reasons).toContain(
+      "browser measured nothing on 1 of 3 site(s): site-0 (>25%)",
+    );
+  });
+});
+
+describe("review round 2", () => {
+  it("warnings count against the sites owed a write, not the n/a ones", async () => {
+    // 13 sites: 4 with no smoke script, one whose Turso write threw, 8 written.
+    const { result } = await sweep({
+      n: 13,
+      expected: 13,
+      results: (s, i) =>
+        i < 4
+          ? [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }]
+          : [measured("smoke", s)],
+      mirror: async (siteId) => {
+        if (siteId === "rec4") throw new Error("HTTP 503");
+        return true;
+      },
+    });
+    expect(fleetWriteGate(result).warnings).toEqual(["1 of 9 site(s) not written"]);
+  });
+
+  it("the missing-site warning counts against the sites owed a write too", async () => {
+    const { result } = await sweep({
+      n: 12,
+      expected: 13,
+      results: (s, i) =>
+        i < 4
+          ? [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }]
+          : [measured("smoke", s)],
+    });
+    expect(fleetWriteGate(result).warnings).toEqual([
+      "1 of 9 site(s) never reached write-back: site-12",
+    ]);
+  });
+
+  it("every site not applicable is red, and says so rather than blaming the write", async () => {
+    const { result } = await sweep({
+      n: 3,
+      expected: 3,
+      results: (s) => [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }],
+    });
+    expect(fleetWriteGate(result)).toEqual({
+      red: true,
+      reasons: ["every one of 3 site(s) was not applicable: nothing was measured"],
+      warnings: [],
+    });
   });
 });

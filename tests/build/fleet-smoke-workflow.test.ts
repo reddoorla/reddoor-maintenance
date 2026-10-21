@@ -7,6 +7,9 @@ import { join } from "node:path";
 import { formatUnmeasuredSmokeSummary, SMOKE_UNMEASURED_PREFIX } from "../../src/audits/smoke.js";
 import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
 import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
+import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
+import type { AuditResult } from "../../src/types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -85,6 +88,46 @@ const unmeasuredSummary = (sites: string[]): string =>
     ...sites.map((s) => ({ audit: "smoke", site: s, summary: `${SMOKE_UNMEASURED_PREFIX} — x` })),
   ]);
 
+/** The CLI's output after the table for a sweep where `measured` sites ran their suite
+ *  and each of `timedOut` exceeded its budget, through the real smoke summary and the
+ *  real `runFleetWriteBack`. */
+async function realSweep(measured: number, timedOut: string[]): Promise<string> {
+  const ok = Array.from({ length: measured }, (_, i) => `site-${i}`);
+  const results: AuditResult[] = [
+    ...ok.map((site) => ({
+      audit: "smoke" as const,
+      site,
+      status: "pass" as const,
+      summary: "smoke: suite green",
+      details: { ok: "pass", checkedAt: "2026-10-21T06:43:00.000Z" },
+    })),
+    ...timedOut.map((site) => ({
+      audit: "smoke" as const,
+      site,
+      status: "fail" as const,
+      summary: `${SMOKE_UNMEASURED_PREFIX} — suite exceeded its 10-minute budget`,
+    })),
+  ];
+  const sites = [...ok, ...timedOut];
+  const wb = await runFleetWriteBack({
+    results,
+    which: ["smoke"],
+    expectedSites: sites,
+    deps: {
+      roster: async () =>
+        websiteRowsFrom(
+          sites.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+        ),
+      makeMirror: async () => async () => true,
+      recordEvents: async () => {},
+    },
+  });
+  return `${formatUnmeasuredSmokeSummary(results)}\n\n${wb.summary}\n`;
+}
+
+const firstError = (out: string): string | undefined =>
+  out.split("\n").find((l) => l.startsWith("::error::"));
+
 describe("fleet-smoke — the gate cannot go green having measured nothing", () => {
   it("passes a sweep where every site was measured", async () => {
     const r = await runGate({
@@ -93,7 +136,7 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::error::");
-    expect(r.out).toContain("all 13 site(s) measured");
+    expect(r.out).toContain("all 13 site(s) with a smoke suite measured (0 without one)");
   });
 
   // A failing suite is a finding ABOUT THE SITE, recorded on its row. Reddening
@@ -110,20 +153,31 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     expect(r.out).not.toContain("::error::");
   });
 
-  // THE REGRESSION THIS CHANGE EXISTS FOR. Identical write-back to the green case —
-  // 13 of 13 rows written, zero write failures — because an unmeasured site still
-  // writes (it writes nothing new). Only the unmeasured line separates them.
+  // THE REGRESSION THIS CHANGE EXISTS FOR. Before #1605 an unmeasured site still
+  // counted as written, so only the unmeasured line separated this from a green
+  // night. Built through the REAL write-back: the two timed-out sites are now
+  // `failed` (nothing measured) as well, and the unmeasured check still speaks
+  // first, because it names the cause.
   it("FAILS when a site's suite exceeded its budget and was never measured", async () => {
     const r = await runGate({
-      stdout:
-        `${writeSummary(13, 0)}\n` + `${unmeasuredSummary(["reddoor", "beachfront-dentistry"])}\n`,
+      stdout: await realSweep(11, ["reddoor", "beachfront-dentistry"]),
       exit: 1,
     });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("::error::");
-    expect(r.out).toContain("2 site(s) never measured");
-    expect(r.out).toContain("reddoor");
-    expect(r.out).toContain("beachfront-dentistry");
+    expect(firstError(r.out)).toBe(
+      "::error::fleet smoke: 2 site(s) never measured — reddoor,beachfront-dentistry",
+    );
+  });
+
+  // Four of thirteen past the write gate's quarter: both checks would red, and the
+  // order decides the diagnosis. "Never measured" must be the one the reader sees.
+  it("names timeouts as never measured even when they also pass the write gate's quarter", async () => {
+    const timedOut = ["reddoor", "beachfront-dentistry", "sonder", "espada"];
+    const r = await runGate({ stdout: await realSweep(9, timedOut), exit: 1 });
+    expect(r.code).not.toBe(0);
+    expect(firstError(r.out)).toBe(
+      `::error::fleet smoke: 4 site(s) never measured — ${timedOut.join(",")}`,
+    );
   });
 
   // An absent line means the CLI crashed before the summary, or predates the gate.

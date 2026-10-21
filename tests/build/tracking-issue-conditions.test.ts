@@ -890,10 +890,48 @@ exit 1
     const s = opens(all).find(
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
-    const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    // The audit ran and printed its summary, but no GAP line (a crash mid-sweep).
+    const got = await ghCalls(
+      s,
+      { GH_EXISTING: EXISTING },
+      { protectionOut: "PROTECTION_AUDIT gaps=0 covered=0 skipped=0 total=0\n" },
+    );
     expect(calls(got, "edit")).toEqual([]);
     expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
     expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
+  });
+
+  // #1605: the open step now runs on a red run too, so a token that never minted
+  // (the audit exits before its `tee` creates protection.out) must not be filed as
+  // a coverage gap. Before `!cancelled()` the red run skipped this step entirely.
+  it("protection-gap files nothing when the audit never produced output", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
+    )!;
+    const none = await ghCalls(s, {}, { protectionOut: "" });
+    expect(calls(none, "create")).toEqual([]);
+    const existing = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    expect(calls(existing, "comment")).toEqual([]);
+    expect(calls(existing, "edit")).toEqual([]);
+  });
+
+  it("protection-gap open and close both still run on a red run whose audit found a gap / none", () => {
+    const steps = all.filter(
+      (s) =>
+        s.file === "fleet-security.yml" &&
+        /protection-gap/.test(s.label) &&
+        /^(Open|Close)/.test(s.label),
+    );
+    expect(steps).toHaveLength(2);
+    for (const s of steps) {
+      const want = /^Open/.test(s.label) ? "failure" : "success";
+      expect(
+        evaluate(s.if ?? "success()", { ...MAIN_FAILED, outcomes: { protection: want } }),
+      ).toBe(true);
+      expect(
+        evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, outcomes: { protection: want } }),
+      ).toBe(false);
+    }
   });
 
   it("config-drift keeps a DRIFT-bearing body when this run printed no DRIFT line, and still comments", async () => {

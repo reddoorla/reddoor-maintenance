@@ -364,8 +364,16 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   const reasons: string[] = [];
   const warnings: string[] = [];
 
-  if (wrote === 0) reasons.push(`wrote 0 of ${total} site(s)`);
   const owed = total - (result.notApplicable?.length ?? 0);
+  // A sweep where every site said "not applicable" established nothing either; it is
+  // red, under its own name rather than as a write failure.
+  if (wrote === 0) {
+    reasons.push(
+      owed === 0 && total > 0
+        ? `every one of ${total} site(s) was not applicable: nothing was measured`
+        : `wrote 0 of ${total} site(s)`,
+    );
+  }
   const short = failed + missing.length;
   if (short * 4 > owed) {
     reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);
