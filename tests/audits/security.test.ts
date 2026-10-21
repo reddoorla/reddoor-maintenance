@@ -1864,13 +1864,15 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
 
   it("leaving one out takes only its own findings off its severity", async () => {
     const withLodash = JSON.parse(twoVersions);
-    withLodash.metadata.vulnerabilities.critical = 3;
+    // lodash at two versions too: 4 critical findings. Zeroing the severity would read 1 (the
+    // merge keeps the larger of pnpm's count and the advisories), the truth is 2.
+    withLodash.metadata.vulnerabilities.critical = 4;
     withLodash.advisories["3"] = {
       module_name: "lodash",
       severity: "critical",
       title: "Prototype Pollution in lodash",
       url: "https://github.com/advisories/GHSA-jf85-cpcp-j695",
-      findings: [{ version: "4.17.4" }],
+      findings: [{ version: "4.17.4" }, { version: "4.17.11" }],
     };
     const result = await securityAudit({
       site: site(),
@@ -1881,7 +1883,7 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
       low: 0,
       moderate: 2,
       high: 0,
-      critical: 1,
+      critical: 2,
     });
     expect(result.summary).toMatch(/; 1 advisory dismissed in Dependabot left out$/);
   });
@@ -1908,6 +1910,17 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
       spawn: fakeSpawn({ pnpm: { code: 1, stdout: titled } }),
     });
     expect(result.status).toBe("fail");
+  });
+
+  it("a dismissed alert that names neither GHSA nor CVE leaves nothing out, even on a shared title", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({ ghsaId: null, cves: [], summary: "Prototype Pollution in minimist" }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
   });
 
   it("reads the dismissed list only when the cross-check found something", async () => {
