@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { RequestEvent } from "@sveltejs/kit";
-import svelteConfig from "../../../svelte.config.js";
 
 /**
  * The dashboard's `/api/*` and `/auth/*` endpoints, moved from Netlify
@@ -148,6 +147,8 @@ describe("the cockpit's endpoint routes", () => {
   it("are not fronted by SvelteKit's own origin check, which the old functions never had", () => {
     // It would refuse a form-typed POST with no Origin before the handler's own
     // isCsrfAllowed, which lets that through to auth.
-    expect(svelteConfig.kit?.csrf?.trustedOrigins).toEqual(["*"]);
+    // Read as text: the config is untyped JS, and svelte-check refuses its import.
+    const config = readFileSync(join(import.meta.dirname, "../../../svelte.config.js"), "utf8");
+    expect(config).toMatch(/^\s*csrf: \{ trustedOrigins: \["\*"\] \},$/m);
   });
 });
