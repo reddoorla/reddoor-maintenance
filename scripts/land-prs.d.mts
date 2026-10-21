@@ -138,6 +138,7 @@ export interface Pr {
   number: number;
   title: string;
   body: string;
+  changedFiles: number | null;
   state: string;
   isDraft: boolean;
   baseRefName: string;

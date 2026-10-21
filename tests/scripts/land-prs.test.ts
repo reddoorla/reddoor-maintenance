@@ -69,6 +69,7 @@ interface Model {
   headRepo: string | null;
   mergeCommit: string;
   body: string | null;
+  changedFiles?: number;
 }
 
 function view(over: Partial<Model> = {}): RunResult {
@@ -92,6 +93,7 @@ function view(over: Partial<Model> = {}): RunResult {
       number: m.number,
       title: m.title,
       body: m.body,
+      ...(m.changedFiles === undefined ? {} : { changed_files: m.changedFiles }),
       state: m.state === "OPEN" ? "open" : "closed",
       merged,
       merged_at: merged ? "2026-09-28T12:30:00Z" : null,
@@ -438,6 +440,7 @@ describe("land-prs: REST shapes", () => {
       number: 920,
       title: PR_920.title,
       body: "",
+      changedFiles: null,
       state: "OPEN",
       isDraft: false,
       baseRefName: "feat/fleet-analytics",
@@ -2065,6 +2068,95 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  describe("round-1 review findings", () => {
+    it("counts copies: removing an assertion twice and adding it back once loses one", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,4 +1,3 @@\n-  expect(res.ok).toBe(true);\n-it("b", () => {\n-  expect(res.ok).toBe(true);\n+it("b", () => {});\n+    expect(res.ok).toBe(true);',
+      );
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(res.ok).toBe(true);"] },
+      ]);
+    });
+
+    it("counts copies of a skip too: one moved and one new is one added skip", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,1 +1,2 @@\n-it.skip("a", () => {});\n+  it.skip("a", () => {});\n+  it.skip("a", () => {});',
+      );
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ['added skip: it.skip("a", () => {});'] },
+      ]);
+    });
+
+    it("a test renamed out of the runner but still under tests/ is flagged", () => {
+      for (const to of ["tests/scripts/thing.test.ts.off", "tests/scripts/thing.ts"]) {
+        const f = file(to, "renamed", undefined, { previous_filename: T });
+        expect(testChangeFlags([f]), to).toEqual([
+          { file: T, reasons: [`test file renamed to ${to}, which is not named as a test`] },
+        ]);
+      }
+    });
+
+    it("a property named todo, skip or fails is not a skip, nor is a call ending in xit", () => {
+      const f = file(
+        "tests/store.test.ts",
+        "added",
+        "@@ -0,0 +1,4 @@\n+expect(store.todo.length).toBe(1);\n+expect(summary.fails).toBe(0);\n+const o = opts.skip;\n+process.exit(1); fixit(2);",
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("assertions are calls: a comment, a name or an import that says assert is not one", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,4 +1,4 @@\n-// The assertions are on the recorded commands.\n-const assertions = 3;\n-import { strict as assert } from "node:assert";\n- * expect(x) in a doc comment\n+// The checks are on the recorded commands.',
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+      const g = file(
+        T,
+        "modified",
+        "@@ -1,3 +1,0 @@\n-assertEquals(a, b);\n-assert.strict.equal(a, b);\n-expect<number>(n).toBe(3);",
+      );
+      expect(testChangeFlags([g])[0]?.reasons).toHaveLength(3);
+    });
+
+    it("a name is the whole path: a longer path does not name the flagged one, a sentence's full stop does", () => {
+      const flags = testChangeFlags([
+        file("tests/a.test.ts", "removed"),
+        file("test/a.js", "removed"),
+      ]);
+      expect(
+        unnamedTestChanges(flags, "Test changes:\n- tests/a.test.tsx: renamed\n- src/test/a.json"),
+      ).toEqual(["tests/a.test.ts", "test/a.js"]);
+      expect(
+        unnamedTestChanges(flags, "Test changes: removed tests/a.test.ts. And `test/a.js`, too."),
+      ).toEqual([]);
+    });
+
+    it("a label section ends at a paragraph, and a hidden or fenced label does not count", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Summary.\n\n**Test changes:** none.\n\nFiles touched: tests/a.test.ts, src/x.ts",
+        "<!--\nTest changes: tests/a.test.ts\n-->\n\nSummary: cleanup of tests/a.test.ts",
+        "```\nTest changes: tests/a.test.ts\n```\nSummary.",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+      for (const body of [
+        "Test changes:\n\n- tests/a.test.ts: obsolete\n- more",
+        "## Summary\n- Fixes x.\n- Test changes: tests/a.test.ts was obsolete.",
+        "1. Test changes: tests/a.test.ts was obsolete.",
+        "## Test changes\n\nOne paragraph.\n\ntests/a.test.ts was obsolete.",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+    });
+  });
+
   describe("the Test changes: section", () => {
     it("is found as a label or a heading, and ends at the next heading", () => {
       for (const body of [
@@ -2109,7 +2201,7 @@ describe("land-prs: test changes", () => {
         `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
       );
       expect(r.lines.at(-1)).toBe(
-        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: add a "Test changes:" section to the PR body naming ${T}, each with why its test changed, then land again`,
+        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: add a "Test changes:" line or heading to the PR body naming ${T}, each with why its test changed, then land again`,
       );
       expect(pastTheRefusal(r.calls)).toEqual([]);
       expect(r.calls.some((c) => /\/pulls\/9\b/.test(c))).toBe(false);
@@ -2179,9 +2271,35 @@ describe("land-prs: test changes", () => {
       );
       expect(r.code).toBe(1);
       expect(r.lines.at(-1)).toBe(
-        "LAND #5 stopped reason=gh api pulls/5/files still had files after 30 pages (GitHub lists at most 3000): the test-change check cannot see them all",
+        "LAND #5 stopped reason=gh api pulls/5/files listed 3000 of an unknown number of changed files (GitHub lists at most 3000): the test-change check cannot see them all",
       );
       expect(pastTheRefusal(r.calls)).toEqual([]);
+      const over = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view({ changedFiles: 3412 })]],
+        ],
+      );
+      expect(over.lines.at(-1)).toContain("listed 3000 of 3412 changed files");
+    });
+
+    it("a PR of exactly 3000 files is complete, and is not stopped for the cap", async () => {
+      const page = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view({ changedFiles: 3000 })]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain("LAND #5 test changes: none flagged");
     });
 
     it("a change that appears only on the merging head stops there, and nothing merges", async () => {

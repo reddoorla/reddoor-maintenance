@@ -414,6 +414,7 @@ export function prFromRest(p) {
     number: p.number,
     title: p.title,
     body: typeof p.body === "string" ? p.body : "",
+    changedFiles: Number.isFinite(p.changed_files) ? p.changed_files : null,
     state: merged ? "MERGED" : String(p.state ?? "").toUpperCase(),
     isDraft: p.draft === true,
     baseRefName: p.base?.ref,
@@ -720,36 +721,68 @@ async function deleteBranch(ctx, n, branch) {
 
 const TEST_DIR = /(^|\/)(tests?|__tests__|e2e)\//;
 const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
-const ASSERTION = /\bexpect(\.\w+)*\s*\(|assert/;
-const SKIP = /\.(skipIf|skip|todo|fails)\b|(^|[^\w.$])x(it|describe)\s*[.(]/;
+// A call, not a word: `expect(`, `expect<number>(`, `expect.soft(`, `assert(`,
+// `assert.equal(`, `assertEquals(`. A bare "assertions" in a comment or a name is not one.
+const ASSERTION = /\bexpect(\s*<[^>]*>)?(\.\w+)*\s*\(|\bassert\w*(\.\w+)*\s*\(/;
+// The test API's modifiers only, so `store.todo` or `summary.fails` is not a skip.
+const SKIP =
+  /\b(it|test|describe|suite|bench)(\.\w+)*\.(skipIf|skip|todo|fails)\b|(^|[^\w.$])x(it|describe)\s*[.(]/;
+const COMMENT_LINE = /^(\/\/|\/\*|\*)/;
 const MAX_FILES_PAGES = 30; // GitHub lists at most 3000 files on a pull request.
 
 /** Whether `path` is a test: under a tests/, test/, __tests__/ or e2e/ directory, or named
- *  `*.test.*` / `*.spec.*`. */
+ *  `*.test.*` / `*.spec.*` with a JS or TS extension. */
 export function isTestFile(path) {
   const p = String(path ?? "");
   return TEST_DIR.test(p) || TEST_NAME.test(p);
 }
 
-/** The removed and added lines of a unified-diff `patch`, without their +/- marker. */
+/** The removed and added lines of a unified-diff `patch`, trimmed, without their marker. */
 function patchLines(patch) {
   const removed = [];
   const added = [];
   for (const line of String(patch).split("\n")) {
-    if (line.startsWith("-")) removed.push(line.slice(1));
-    else if (line.startsWith("+")) added.push(line.slice(1));
+    if (line.startsWith("-")) removed.push(line.slice(1).trim());
+    else if (line.startsWith("+")) added.push(line.slice(1).trim());
   }
   return { removed, added };
 }
 
+/** How many times each line occurs: a removed line is matched by one added copy, so
+ *  removing an assertion twice and adding it back once still loses one. */
+function lineCounts(lines) {
+  const m = new Map();
+  for (const l of lines) m.set(l, (m.get(l) ?? 0) + 1);
+  return m;
+}
+function takeOne(counts, line) {
+  const left = counts.get(line) ?? 0;
+  if (left === 0) return false;
+  counts.set(line, left - 1);
+  return true;
+}
+
+/** Why a rename takes a test out of the runner, or "" when it does not: a test renamed to a
+ *  path that is not a test, or from a `*.test.ts` name to one that is not (`a.test.ts.off`
+ *  under `tests/` is still under tests/, and no runner collects it). */
+function renamedAway(before, after) {
+  if (!isTestFile(before)) return "";
+  if (!isTestFile(after)) return `test file renamed to ${after}, which is not a test`;
+  if (TEST_NAME.test(before) && !TEST_NAME.test(after)) {
+    return `test file renamed to ${after}, which is not named as a test`;
+  }
+  return "";
+}
+
 /** `GET pulls/N/files` → the flagged test files, `[{ file, reasons }]`, in the API's order.
  *
- *  Flagged: a test file deleted, or renamed to a path that is not a test; a removed line
- *  holding `expect(` or `assert` that is not added back, re-indented or moved, anywhere in
- *  the same file (so `toBe(3)` → `toBe(4)` is flagged, a moved assertion is not); an added
- *  `.skip`, `.skipIf`, `.todo`, `.fails`, `xit` or `xdescribe` that was not there before;
- *  and a changed test file whose patch GitHub left out (it does for a large diff), because
- *  nothing here can read it. */
+ *  Flagged: a test file deleted, or renamed out of the runner (see `renamedAway`); a removed
+ *  line holding an `expect(` or `assert…(` call that is not added back, re-indented or moved,
+ *  as many times as it was removed, in the same file (so `toBe(3)` → `toBe(4)` is flagged, a
+ *  moved assertion is not); an added `.skip`, `.skipIf`, `.todo`, `.fails`, `xit` or
+ *  `xdescribe` on the test API that was not there before; and a changed test file whose
+ *  patch GitHub left out (it does for a large diff), because nothing here can read it.
+ *  Comment lines are not assertions. */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -759,8 +792,9 @@ export function testChangeFlags(files) {
       out.push({ file: name, reasons: ["test file deleted"] });
       continue;
     }
-    if (f?.status === "renamed" && isTestFile(before) && !isTestFile(name)) {
-      out.push({ file: before, reasons: [`test file renamed to ${name}, which is not a test`] });
+    const away = f?.status === "renamed" ? renamedAway(before, name) : "";
+    if (away) {
+      out.push({ file: before, reasons: [away] });
       continue;
     }
     if (!isTestFile(name)) continue;
@@ -774,43 +808,75 @@ export function testChangeFlags(files) {
       continue;
     }
     const { removed, added } = patchLines(f.patch);
-    const addedSet = new Set(added.map((l) => l.trim()));
-    const removedSet = new Set(removed.map((l) => l.trim()));
+    const addedLeft = lineCounts(added);
+    const removedLeft = lineCounts(removed);
     const reasons = [];
-    for (const l of removed) {
-      const t = l.trim();
-      if (ASSERTION.test(t) && !addedSet.has(t))
-        reasons.push(`removed assertion not re-added: ${t}`);
+    for (const t of removed) {
+      if (COMMENT_LINE.test(t) || !ASSERTION.test(t)) continue;
+      if (!takeOne(addedLeft, t)) reasons.push(`removed assertion not re-added: ${t}`);
     }
-    for (const l of added) {
-      const t = l.trim();
-      if (SKIP.test(t) && !removedSet.has(t)) reasons.push(`added skip: ${t}`);
+    for (const t of added) {
+      if (COMMENT_LINE.test(t) || !SKIP.test(t)) continue;
+      if (!takeOne(removedLeft, t)) reasons.push(`added skip: ${t}`);
     }
     if (reasons.length > 0) out.push({ file: name, reasons });
   }
   return out;
 }
 
-/** The PR body's `Test changes:` section: from a line that starts with "Test changes" (a
- *  label, bold or not, or a heading) to the next heading. `null` when there is none. */
-export function testChangesSection(body) {
-  const lines = String(body ?? "").split(/\r?\n/);
-  const heading = (l) => /^\s{0,3}#{1,6}\s/.test(l);
-  const start = lines.findIndex((l) => /^test changes\b/i.test(l.replace(/^[\s#*_]+/, "")));
-  if (start < 0) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex(heading);
-  return [lines[start], ...(end < 0 ? rest : rest.slice(0, end))].join("\n");
+const HEADING = /^\s{0,3}#{1,6}\s/;
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S/;
+
+/** The PR body without what a reader does not see as prose: HTML comments (a PR template's
+ *  `<!-- Test changes: … -->` would otherwise satisfy every PR) and fenced code blocks. */
+function visibleBody(body) {
+  return String(body ?? "")
+    .replace(/<!--[\s\S]*?(-->|$)/g, "")
+    .replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?(^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, "");
 }
 
-/** The flagged files the PR body's `Test changes:` section does not name, by path. */
+/** The PR body's `Test changes:` section, or `null` when there is none. It starts at a
+ *  heading "Test changes" or a line labelled "Test changes:" (bold, quoted or as a list item
+ *  are all fine). A heading's section runs to the next heading; a label's ends there too, or
+ *  at a blank line followed by anything but a list item, so "Test changes: none" does not
+ *  swallow the paragraphs below it. */
+export function testChangesSection(body) {
+  const lines = visibleBody(body).split(/\r?\n/);
+  const isHeading = (l) => HEADING.test(l) && /^[\s#*_]*test changes\b/i.test(l);
+  const isLabel = (l) => /^test changes[*_]*\s*:/i.test(l.replace(/^(\s|>|[-*+_]|\d+[.)])+/, ""));
+  const start = lines.findIndex((l) => isHeading(l) || isLabel(l));
+  if (start < 0) return null;
+  const label = !isHeading(lines[start]);
+  const out = [lines[start]];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (HEADING.test(l)) break;
+    if (label && l.trim() === "") {
+      const next = lines.slice(i + 1).find((x) => x.trim() !== "");
+      if (next === undefined || !LIST_ITEM.test(next)) break;
+    }
+    out.push(l);
+  }
+  return out.join("\n");
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The flagged files the PR body's `Test changes:` section does not name. A name is the
+ *  whole path: `tests/a.test.tsx` does not name `tests/a.test.ts`. */
 export function unnamedTestChanges(flags, body) {
   if (flags.length === 0) return [];
   const section = testChangesSection(body) ?? "";
-  return flags.map((f) => f.file).filter((file) => !section.includes(file));
+  return flags
+    .map((f) => f.file)
+    .filter(
+      (file) => !new RegExp(`(^|[^\\w./-])${escapeRe(file)}(?![\\w/-]|\\.\\w)`).test(section),
+    );
 }
 
-async function prFiles(ctx, n) {
+/** Every file the PR changed. GitHub lists at most 3000; a PR with more cannot be checked,
+ *  and says so, but a PR of exactly 3000 (`changed_files` from the view) is complete. */
+async function prFiles(ctx, n, changedFiles) {
   const items = [];
   for (let page = 1; page <= MAX_FILES_PAGES; page++) {
     const body = await apiJson(ctx, `pulls/${n}/files?per_page=100&page=${page}`);
@@ -818,8 +884,9 @@ async function prFiles(ctx, n) {
     items.push(...got);
     if (got.length < 100) return items;
   }
+  if (Number.isFinite(changedFiles) && items.length >= changedFiles) return items;
   throw new Stop(
-    `gh api pulls/${n}/files still had files after ${MAX_FILES_PAGES} pages (GitHub lists at most 3000): the test-change check cannot see them all`,
+    `gh api pulls/${n}/files listed ${items.length} of ${Number.isFinite(changedFiles) ? changedFiles : "an unknown number of"} changed files (GitHub lists at most 3000): the test-change check cannot see them all`,
   );
 }
 
@@ -827,7 +894,7 @@ async function prFiles(ctx, n) {
  *  `pr.body` names every flagged file. Returns the flags' key, so the second check can
  *  print the list only when it changed. */
 async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
-  const flags = testChangeFlags(await prFiles(ctx, n));
+  const flags = testChangeFlags(await prFiles(ctx, n, pr.changedFiles));
   const key = JSON.stringify(flags);
   if (key !== seen) {
     for (const f of flags) {
@@ -839,7 +906,7 @@ async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
     const count = `${missing.length} flagged test file${missing.length === 1 ? " is" : "s are"} not named in the PR body`;
     const fix =
       testChangesSection(pr.body) === null
-        ? `add a "Test changes:" section to the PR body naming ${missing.join(", ")}, each with why its test changed, then land again`
+        ? `add a "Test changes:" line or heading to the PR body naming ${missing.join(", ")}, each with why its test changed, then land again`
         : `the "Test changes:" section does not name ${missing.join(", ")}; add each, with why its test changed, then land again`;
     throw new Stop(`${count}: ${fix}${at}`);
   }
