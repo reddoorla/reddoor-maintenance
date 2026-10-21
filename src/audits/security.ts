@@ -500,7 +500,8 @@ async function crossCheckDependabot(
   if (!(await hasRootLockfile(dir))) return withLockfileAudit(viaDependabot, null);
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
   const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
-  if (viaLockfile.status === "skip") return partialResult(viaDependabot, viaLockfile);
+  if (viaLockfile.status === "skip")
+    return partialResult(viaDependabot, viaLockfile, { crossCheck: true });
   // pnpm ran over every scope and found nothing: that clean answer is the one to store.
   if (!hasLiveCounts(viaLockfile))
     return withLockfileAudit(viaDependabot, lockfileViewOf(viaLockfile));
@@ -529,7 +530,11 @@ async function hasRootLockfile(dir: string): Promise<boolean> {
  *  (`mergeWithStoredLockfileAudit`), exactly as that night merged, and leaves the audit time as
  *  stored. With no stored result to merge with, it writes nothing, unless the row was never
  *  audited (there is nothing to lower) and Dependabot has a live alert. */
-function partialResult(viaDependabot: AuditResult, viaLockfile: AuditResult): AuditResult {
+function partialResult(
+  viaDependabot: AuditResult,
+  viaLockfile: AuditResult,
+  opts: { crossCheck?: boolean } = {},
+): AuditResult {
   // The caveat qualifies the live count, so it goes before any ghost clause (#1641).
   const [live, ...rest] = viaDependabot.summary.split("; ");
   const caveat =
@@ -538,7 +543,13 @@ function partialResult(viaDependabot: AuditResult, viaLockfile: AuditResult): Au
   return {
     ...viaDependabot,
     summary: [live, caveat, ...rest].join("; "),
-    details: { ...(viaDependabot.details as object), partial: true },
+    details: {
+      ...(viaDependabot.details as object),
+      partial: true,
+      // On #1612's cross-check a full night merges only when pnpm finds something; the write
+      // follows the same rule (mergeWithStoredLockfileAudit).
+      ...(opts.crossCheck ? { crossCheck: true } : {}),
+    },
   };
 }
 
@@ -570,6 +581,12 @@ export function mergeWithStoredLockfileAudit(
   partial: AuditResult,
   stored: LockfileAuditView,
 ): AuditResult {
+  // #1612's cross-check merges only when pnpm finds a live advisory; on a clean answer a full
+  // night writes Dependabot's result as it is, one count per alert. So does a partial night on
+  // a clean stored answer (#1654 review round 2: two alerts on one advisory counted 2 on a full
+  // night and 1 on a partial one).
+  const crossCheck = (partial.details as { crossCheck?: boolean }).crossCheck === true;
+  if (crossCheck && !Object.values(stored.counts).some((n) => n > 0)) return partial;
   const merged = mergeAudits(
     {
       audit: "security",

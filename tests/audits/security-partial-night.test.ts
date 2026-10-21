@@ -20,7 +20,8 @@ import { securityAudit } from "../../src/audits/security.js";
 import { planAuditWrite } from "../../src/audits/write-audits.js";
 import { autoTickChecklist } from "../../src/reports/auto-tick.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import { parseSecurityLockfileAudit, type WebsiteRow } from "../../src/fleet/site-row.js";
+import { lockfileAuditFromResult } from "../../src/audits/security-fields.js";
 
 const TWO_DOCUMENTS = "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '9.0'\n";
 const ONE_DOCUMENT = "lockfileVersion: '9.0'\n";
@@ -465,6 +466,36 @@ describe("the write gate still sees a partial night (#1654 review round 1)", () 
   });
 });
 
+// Review round 2: on #1612's cross-check a full night with a clean pnpm answer writes Dependabot's
+// result unmerged, one count per alert; a partial night merged it, so two alerts on one advisory
+// read 2 on a full night and 1 on a partial one.
+describe("cross-check with a clean stored answer (#1654 review round 2)", () => {
+  const lodash = (manifestPath: string, relationship: "direct" | "transitive" = "direct") =>
+    alert({ package: "lodash", ghsaId: "GHSA-aaaa-bbbb-cccc", manifestPath, relationship });
+
+  it("two alerts on one advisory count as a full night counts them", async () => {
+    const alerts = [lodash("apps/a/package.json"), lodash("apps/b/package.json")];
+    const [v] = await expectPartialNightsReadAsFull(
+      [full(alerts), partialPlus(alerts)],
+      { advisories: [] },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(v!.counts).toEqual([0, 2, 0, 1]);
+  });
+
+  it("with a direct and a transitive copy, the relationships stay as a full night writes them", async () => {
+    const alerts = [
+      lodash("apps/a/package.json", "direct"),
+      lodash("apps/b/package.json", "transitive"),
+    ];
+    await expectPartialNightsReadAsFull(
+      [full(alerts), partialPlus(alerts)],
+      { advisories: [] },
+      { lockfile: ONE_DOCUMENT },
+    );
+  });
+});
+
 // Review round 1, lens 3.
 describe("more partial nights (#1654 review round 1)", () => {
   it("hidden lockfile: every Dependabot alert closed since the full night drops out", async () => {
@@ -478,6 +509,44 @@ describe("more partial nights (#1654 review round 1)", () => {
   it("a never-audited row with no live alert writes nothing: an unaudited lockfile never reads clean", async () => {
     const [row] = await run([partial([])], { advisories: [] }, { lockfile: ONE_DOCUMENT });
     expect(view(row!).counts).toEqual([null, null, null, null]);
+  });
+
+  it("a repo with no auditable lockfile clears the stored result", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-night-"));
+    writeFileSync(join(dir, "package.json"), "{}");
+    const result = await securityAudit({
+      site: { path: dir, gitRepo: "reddoorla/acme" },
+      dependabotDeps: { listAlerts: async () => [] },
+      spawn: async (cmd) => {
+        throw new Error(`ENOENT: ${cmd}`);
+      },
+    });
+    expect(lockfileAuditFromResult(result)).toBeNull();
+  });
+
+  it("exactly as many pnpm advisories as the cell keeps is not truncated", async () => {
+    const two00 = Array.from({ length: 200 }, (_, i) => ({
+      module_name: `pkg${i}`,
+      severity: "low",
+      title: `t${i}`,
+    }));
+    const [row] = await run([full([])], { advisories: two00 });
+    expect(row!.securityLockfileAudit!.truncated).toBe(false);
+    expect(row!.securityLockfileAudit!.advisories).toHaveLength(200);
+  });
+
+  it("a stored cell with a negative or fractional count reads as none stored", () => {
+    const cell = (counts: object) => JSON.stringify({ counts, advisories: [] });
+    expect(
+      parseSecurityLockfileAudit(cell({ critical: 0, high: 0, moderate: 0, low: 0 })),
+    ).not.toBeNull();
+    expect(
+      parseSecurityLockfileAudit(cell({ critical: -1, high: 0, moderate: 0, low: 0 })),
+    ).toBeNull();
+    expect(
+      parseSecurityLockfileAudit(cell({ critical: 0, high: 1.5, moderate: 0, low: 0 })),
+    ).toBeNull();
+    expect(parseSecurityLockfileAudit(cell({ critical: 0, high: 0, moderate: 0 }))).toBeNull();
   });
 
   it("more pnpm advisories than the cell keeps: stored truncated, and a partial night writes nothing", async () => {
