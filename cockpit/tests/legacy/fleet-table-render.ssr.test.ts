@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { renderFleetTableHtml } from "./render.js";
-import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
+import {
+  ALL_STATUSES_FILTER,
+  buildFleetTableModel,
+  NO_STATUS_FILTER,
+} from "../../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery, FleetTableRow } from "../../../src/dashboard/fleet-table.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
@@ -39,12 +43,37 @@ function render(query: Partial<FleetTableQuery> = {}, rows = sites()) {
 
 describe("renderFleetTableHtml — document + rows", () => {
   it("renders a full document with one row per site and a back link home", () => {
-    const html = render();
+    const html = render({ status: ALL_STATUSES_FILTER });
     expect(html).toContain("<!doctype html>");
     expect(html).toContain('href="/"'); // ← Fleet home, same as the submissions page
     // Since #672 step 3 a row also carries its signals for the chip filter.
     expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
     expect(html).toContain("3 of 3 sites");
+    expect(html).not.toContain("archived or external hidden");
+  });
+  it("hides archived and external rows by default, says so, and links to them", () => {
+    // The operator, 2026-10-21: they come up only when he is looking for them.
+    const html = render({ sort: "perf", dir: "desc", q: "" });
+    expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(2);
+    expect(html).not.toContain(">Beachfront</a>");
+    expect(html).toMatch(
+      /2 of 3 sites\s*· 1 archived or external hidden · <a href="([^"]*)">Show all<\/a>/,
+    );
+    const href = /<a href="([^"]*)">Show all<\/a>/.exec(html)![1]!.replaceAll("&amp;", "&");
+    // The link keeps the operator's sort.
+    expect(href).toBe(`/fleet?sort=perf&dir=desc&status=${ALL_STATUSES_FILTER}`);
+    // The default option says what it hides; "All statuses" is the way back.
+    expect(formOf(html)).toMatch(
+      /<option value="">Current \(archived &amp; external hidden\)<\/option>/,
+    );
+    expect(formOf(html)).toContain(`<option value="${ALL_STATUSES_FILTER}">All statuses</option>`);
+  });
+  it("marks 'All statuses' selected when it is in force, and shows the hidden rows", () => {
+    const html = render({ status: ALL_STATUSES_FILTER });
+    expect(formOf(html)).toContain(
+      `<option value="${ALL_STATUSES_FILTER}" selected="">All statuses</option>`,
+    );
+    expect(html).toContain(">Beachfront</a>");
   });
   it("links each site name to its detail page and its URL out", () => {
     const html = render();
@@ -54,7 +83,7 @@ describe("renderFleetTableHtml — document + rows", () => {
     expect(html).toContain('href="https://acme.example.com/"');
   });
   it("renders the RAW status value IN ITS CELL, and a dash for null status", () => {
-    const html = render();
+    const html = render({ status: ALL_STATUSES_FILTER });
     // `toContain("legacy")` is satisfied by the filter <option> alone — the
     // whole status COLUMN could render blank and still pass. Pin the cell.
     expect(html).toMatch(/<td>legacy<\/td>/); // raw value, no remap
