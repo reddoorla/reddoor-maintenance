@@ -14,7 +14,10 @@ import type { Db, DbConfig } from "../src/db/client.js";
 import { readDbConfig } from "../src/db/client.js";
 import type { Database } from "../src/db/schema.js";
 import { listSites, listAllReports } from "../src/db/fleet-state.js";
-import { countUnreplayedDeadLettersBySlug } from "../src/db/deadletter.js";
+import {
+  countUnreplayedDeadLettersBySlug,
+  oldestUnreplayedDeadLetterBySlug,
+} from "../src/db/deadletter.js";
 import { listNewSubmissions, countAutoSpamSince } from "../src/db/submissions.js";
 import type { NotifyBounceCounts } from "../src/db/submissions.js";
 import { listFleetEvents } from "../src/db/fleet-events.js";
@@ -35,7 +38,11 @@ import type { SubmissionRow } from "../src/reports/submission-row.js";
 import type { FleetEvent } from "../src/db/fleet-events.js";
 import type { DigestSnapshot } from "../src/alerts/digest-state.js";
 import type { AttentionItem } from "../src/alerts/attention.js";
-import { directVulnEscalatesAt, transitiveVulnEscalatesAt } from "../src/alerts/waiting.js";
+import {
+  deadLetterEscalatesAt,
+  directVulnEscalatesAt,
+  transitiveVulnEscalatesAt,
+} from "../src/alerts/waiting.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 
@@ -110,6 +117,8 @@ export type CockpitInputs = {
   autoFilteredCount: number;
   notifyBounces: ReadonlyMap<string, NotifyBounceCounts>;
   deadLetters: ReadonlyMap<string, number>;
+  /** OD 87: the oldest unreplayed row per slug, the clock of a known site's hold. */
+  deadLetterOldest: ReadonlyMap<string, string>;
 };
 
 export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInputs> {
@@ -129,6 +138,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
     Object.entries(rollup?.notifyBounces ?? {}),
   );
   const deadLetters = await countUnreplayedDeadLettersBySlug(db);
+  const deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
   return {
     websites,
     reports,
@@ -140,6 +150,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
     autoFilteredCount,
     notifyBounces,
     deadLetters,
+    deadLetterOldest,
   };
 }
 
@@ -176,6 +187,13 @@ export type PmCockpit = {
 };
 
 function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): DatedReason {
+  // OD 87: a held dead letter became an ask when its hold ran out, whatever the
+  // snapshot says. Its clock is the oldest row's received_at, not firstFlaggedAt.
+  if (it.kind === "deadletter" && it.oldestReceivedAt !== undefined) {
+    const at = deadLetterEscalatesAt(it.oldestReceivedAt);
+    if (at !== null)
+      return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };
+  }
   const was = prior[it.key];
   if (was === undefined) return { text: it.title, day: today, how: "first flagged" };
   if (it.kind === "vuln" && it.autoFixExhausted === true)
@@ -210,6 +228,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     inputs.autoFilteredCount,
     inputs.notifyBounces,
     inputs.deadLetters,
+    inputs.deadLetterOldest,
   );
   const today = now.toISOString().slice(0, 10);
   const dated = new Map<string, DatedReason>();
@@ -267,16 +286,28 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
 
   for (const it of model.cardless ?? []) {
     if (it.waiting === true) continue;
-    const reasons = [askedFrom(it, inputs.prior, today)];
-    entries.push({
-      group: "broken",
-      siteName: it.siteName,
-      slug: "",
-      url: "(no site page)",
-      reasons,
-      isNew: isNew(reasons),
-      hasCritical: it.severity === "critical",
-    });
+    const reason = askedFrom(it, inputs.prior, today);
+    // A dead letter with a url resolved to a site with no card (archived, or an
+    // unrecognized status): it has a page, and the site may already have a row
+    // (Watch, or an approval), which it joins as the deploy loop above does. Any
+    // other cardless item, and a dead letter for a slug no site owns, has no page.
+    const slug = it.kind === "deadletter" && it.url ? it.key.slice("deadletter:".length) : "";
+    const e = slug ? entries.find((x) => x.slug === slug) : undefined;
+    if (e) {
+      e.reasons.push(reason);
+      e.group = "broken";
+      e.isNew = isNew(e.reasons);
+      e.hasCritical ||= it.severity === "critical";
+    } else
+      entries.push({
+        group: "broken",
+        siteName: it.siteName,
+        slug,
+        url: slug ? `/s/${slug}` : "(no site page)",
+        reasons: [reason],
+        isNew: isNew([reason]),
+        hasCritical: it.severity === "critical",
+      });
   }
   entries.sort(comparePmEntries);
 
@@ -290,9 +321,12 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
       inputs.notifyBounces,
       inputs.deadLetters,
       inputs.prior,
+      inputs.deadLetterOldest,
     );
     for (const it of ctx.items) if (it.waiting === true) waitingKeys.push(it.key);
   }
+  // A held dead letter on a site with no card (archived) has no site page loop above.
+  for (const it of model.cardless ?? []) if (it.waiting === true) waitingKeys.push(it.key);
 
   return {
     now: now.toISOString(),

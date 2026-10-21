@@ -688,6 +688,15 @@ function collectFleetAttentionItems(
   // Optional like every other libSQL input: a Turso blip drops the signal, never
   // the cockpit.
   deadLetters: ReadonlyMap<string, number> = new Map(),
+  // OD 87. The oldest unreplayed row's received_at per slug
+  // (oldestUnreplayedDeadLetterBySlug): a known site's dead letter waits two replay
+  // cycles from it. Empty on a blip, and then nothing waits.
+  deadLetterOldest: ReadonlyMap<string, string> = new Map(),
+  // The rows a dead-letter slug resolves against. The cockpit passes the WHOLE
+  // roster, as the digest does: ingest and replay place a lead by `getSiteBySlug`,
+  // which ignores status, so an archived site's slug is known, not "NO fleet site",
+  // and OD 87 holds it on both surfaces alike.
+  deadLetterSites: WebsiteRow[] = sites,
 ): AttentionItem[] {
   return [
     ...collectVulnAlerts(sites, baseUrl),
@@ -699,7 +708,7 @@ function collectFleetAttentionItems(
     ...collectAnalyticsFailures(sites, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
     ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
-    ...collectDeadLetterAlerts(sites, deadLetters, baseUrl),
+    ...collectDeadLetterAlerts(deadLetterSites, deadLetters, baseUrl, deadLetterOldest),
     // Reads the nightly-persisted `Prismic Models` verdict columns — no live
     // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
     // request-path; a collector that shelled out would 502 in Lambda).
@@ -745,6 +754,9 @@ export function buildSiteAlarmContext(
   // item escalates here on the same day it does on the cockpit. Absent or empty,
   // nothing waits (markWaiting: missing data never mutes).
   priorSnapshot: DigestSnapshot = {},
+  // OD 87, as in collectFleetAttentionItems. A held dead letter shows here as a
+  // `waiting:` chip, the precedent #1199 set for a vuln Renovate is still fixing.
+  deadLetterOldest: ReadonlyMap<string, string> = new Map(),
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
@@ -756,6 +768,7 @@ export function buildSiteAlarmContext(
     now,
     notifyBounces,
     deadLetters,
+    deadLetterOldest,
   );
   const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
   const items = markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0).sort(
@@ -807,6 +820,9 @@ export function buildCockpitModel(
   // so the DIGEST is the surface that carries that flavour. A dead letter on a
   // site the fleet does know lands on that site's card like any other item.
   deadLetters: ReadonlyMap<string, number> = new Map(),
+  // OD 87, as in collectFleetAttentionItems: a held dead letter leaves the card and
+  // the Needs-you feed until two replay cycles after its oldest row.
+  deadLetterOldest: ReadonlyMap<string, string> = new Map(),
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -863,6 +879,10 @@ export function buildCockpitModel(
     now,
     notifyBounces,
     deadLetters,
+    deadLetterOldest,
+    // Visible rows LAST, so where two rows' names give one slug the visible site
+    // (the card the operator watches) wins it, not an archived namesake.
+    [...websites.filter((w) => !isDashboardVisible(w)), ...visible],
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves

@@ -1,6 +1,9 @@
 import type { Db } from "../db/client.js";
 import { listSites, listAllReports, getSiteBySlug, listReportsForSite } from "../db/fleet-state.js";
-import { countUnreplayedDeadLettersBySlug } from "../db/deadletter.js";
+import {
+  countUnreplayedDeadLettersBySlug,
+  oldestUnreplayedDeadLetterBySlug,
+} from "../db/deadletter.js";
 import {
   listNewSubmissions,
   countAutoSpamSince,
@@ -112,6 +115,15 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
   } catch {
     // alarm simply absent — never blank the cockpit
   }
+  // OD 87: the hold's clock. A blip leaves it empty, and then nothing is held.
+  let deadLetterOldest: ReadonlyMap<string, string> = new Map();
+  if (deadLetters.size > 0) {
+    try {
+      deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
+    } catch {
+      // nothing held — every dead letter alarms
+    }
+  }
   return buildCockpitModel(
     websites,
     reports,
@@ -124,6 +136,7 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     autoFilteredCount,
     notifyBounces,
     deadLetters,
+    deadLetterOldest,
   );
 }
 

@@ -122,7 +122,10 @@ export type CockpitView = {
   browse: { total: number; filters: readonly string[]; cards: CardView[] };
   recently: RecentRowView[];
   archived: Array<{ name: string; status: string; slug: string }>;
-  cardless: Array<{ siteName: string; title: string }>;
+  /** Attention items on no site card (#786). A held one (OD 87) is left out. A
+   *  dead letter carrying a `url` links its site: a site with no card (archived)
+   *  still has its page, while a slug that resolves to no site has none. */
+  cardless: Array<{ siteName: string; title: string; href: string | null }>;
   inbox: InboxView | null;
 };
 
@@ -507,7 +510,13 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
     },
     recently: recently(model, now),
     archived: (model.archived ?? []).map((s) => ({ name: s.name, status: s.status, slug: s.slug })),
-    cardless: (model.cardless ?? []).map((i) => ({ siteName: i.siteName, title: i.title })),
+    cardless: (model.cardless ?? [])
+      .filter((i) => i.waiting !== true)
+      .map((i) => ({
+        siteName: i.siteName,
+        title: i.title,
+        href: i.kind === "deadletter" && i.url ? i.url : null,
+      })),
     inbox: inbox(model, now),
   };
 }
