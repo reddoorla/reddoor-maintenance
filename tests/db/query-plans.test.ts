@@ -131,6 +131,12 @@ const ALLOWED_RAW_SCANS: Array<{
     requestPath: false,
     why: "same table and same bound as listAllReports above — the send reads the queue once a day over a table sized by the fleet's report cadence; a partial index on three low-cardinality columns would not change the plan",
   },
+  {
+    scenario: "listApprovedUnsentReports (the send queue's cross-check, #1613)",
+    table: "reports",
+    requestPath: false,
+    why: "the send queue's own scan without its draft_ready term, read once by the same daily send",
+  },
   // The two SubmissionFilter shapes that cannot be served by any B-tree index.
   // Both are `LIKE '%…%'` with a LEADING wildcard — `search` ORs it across four
   // columns, `reason` applies it to a `',' || spam_reason || ','` expression — and
@@ -573,6 +579,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => fleetState.listSendableReports(db),
     },
     {
+      name: "listApprovedUnsentReports (the send queue's cross-check, #1613)",
+      covers: ["listApprovedUnsentReports"],
+      run: (db) => fleetState.listApprovedUnsentReports(db),
+    },
+    {
       name: "listReportsForSite (site page)",
       covers: ["listReportsForSite"],
       run: (db) => fleetState.listReportsForSite(db, "recA"),
@@ -606,7 +617,7 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       // one JSON row rather than a keyed table: this stays a primary-key lookup
       // instead of the raw scan a "give me every key" query would be.
       name: "readDigestState (digest diff + fleet-homepage NEW badges)",
-      covers: ["readDigestState"],
+      covers: ["readDigestState", "readDigestStateChecked"],
       run: (db) => digestState.readDigestState(db),
     },
     {
@@ -635,7 +646,7 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
     },
     {
       name: "readDigestSendLog (what the digest last sent, P1-20)",
-      covers: ["readDigestSendLog"],
+      covers: ["readDigestSendLog", "readDigestSendLogChecked"],
       run: (db) => digestState.readDigestSendLog(db),
     },
     {

@@ -679,6 +679,26 @@ export async function listSendableReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
+/** #1613. Every report the operator approved that has not gone out and was not
+ *  withdrawn — WITHOUT `draft_ready`. The send batch compares it with
+ *  {@link listSendableReports}: the approve write requires `draft_ready = 1` and
+ *  a supersede touches only unapproved rows, so the two should never differ,
+ *  and an approved row the queue cannot see is a report the client is waiting
+ *  for that no run will send. Same scan, same bound, as the queue itself. */
+export async function listApprovedUnsentReports(
+  db: Db,
+): Promise<Array<{ id: string; reportId: string }>> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(["id", "report_id"])
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => ({ id: r.id, reportId: r.report_id ?? r.id }));
+}
+
 /** Columns a report writer patches into Turso (same pattern as
  *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
  *  status, and — since #539 Phase 5 — the drafting path's queue flag and a

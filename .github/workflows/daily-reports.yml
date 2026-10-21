@@ -146,7 +146,33 @@ jobs:
             # the time regardless of whether the secrets are good.
             node dist/cli/bin.js report "$slug" --preview --enrich
           else
-            node dist/cli/bin.js report --due
+            set -o pipefail
+            out="${RUNNER_TEMP:-/tmp}"
+            node dist/cli/bin.js report --due | tee "$out/draft.out"
+
+            # #1613. NEXT_DUE_WRITE is the only trace of the site_schedule writes
+            # the console's "next maintenance" dates come from, and nothing read
+            # it: every write could throw (mirror_failed=N), the draft exited 0,
+            # and next_maintenance stayed null. Red on any write that did not
+            # land. A missing counter is an empty string here, so a reworded
+            # marker fails rather than passes.
+            line=$(grep -a '^NEXT_DUE_WRITE ' "$out/draft.out" | tail -1 || true)
+            if [ -z "$line" ]; then
+              echo "::error::draft: no NEXT_DUE_WRITE line — the next-due dates were never written."
+              exit 1
+            fi
+            if printf '%s\n' "$line" | grep -q ' mirror=absent'; then
+              echo "::error::draft: $line — no Turso credentials reached the site_schedule writes."
+              exit 1
+            fi
+            failed=$(printf '%s\n' "$line" | sed -nE 's/.* failed=([0-9]+).*/\1/p')
+            mirror_failed=$(printf '%s\n' "$line" | sed -nE 's/.* mirror_failed=([0-9]+).*/\1/p')
+            mirror_missed=$(printf '%s\n' "$line" | sed -nE 's/.* mirror_missed=([0-9]+).*/\1/p')
+            if [ "$failed" != "0" ] || [ "$mirror_failed" != "0" ] || [ "$mirror_missed" != "0" ]; then
+              echo "::error::draft: $line — a site's next-due date did not land in site_schedule, so the console shows a stale or empty next date for it. See the ⚠ lines above."
+              exit 1
+            fi
+            echo "PASS: $line"
           fi
 
       # Verdict for a preview run. The ANALYTICS block is rendered only when
@@ -331,7 +357,25 @@ jobs:
             echo "::error::digest: send-log write missing or failed (${sendlog:-no DIGEST_SEND_LOG line}) — tomorrow's digest cannot tell what it already sent."
             exit 1
           fi
+
+          # #1613. The READ side of the same record. A send-log row that would not
+          # decode (corrupt), or a read that threw (failed), makes this run believe
+          # it never sent, so it re-sends as `first`: the nag P1-20 removed, with
+          # no error. `absent` is the first run ever, and fine. A missing field
+          # fails here, so an older or reworded marker cannot pass.
+          sendlog_read=$(printf '%s\n' "$sendlog" | sed -nE 's/.* read=([a-z]+).*/\1/p')
+          if [ "$sendlog_read" != "ok" ] && [ "$sendlog_read" != "absent" ]; then
+            echo "::error::digest: send-log read=${sendlog_read:-<absent>} in: $sendlog — this run could not read what the digest last sent, so it treated today as a first send. Today's row is rewritten; check the email for a repeat."
+            exit 1
+          fi
           echo "PASS: $sendlog"
+
+          # #1613. A corrupt snapshot reads as {} by design (src/db/digest-state.ts:
+          # one run of wrong NEW badges, never a lost send). Not red, but said, so
+          # an inbox where "everything is NEW" has its reason next to it.
+          if grep -qa '^DIGEST_STATE_READ snapshot=corrupt' "$out/digest.out"; then
+            echo "::warning::digest: the prior-run snapshot would not decode, so today's digest badged every item NEW. Today's snapshot replaces it."
+          fi
 
       # Keepalive (inline, dependency-free): re-enabling an already-enabled
       # workflow is a no-op that still resets GitHub's 60-day auto-disable

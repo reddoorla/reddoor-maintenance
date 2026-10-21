@@ -114,6 +114,7 @@ export async function runReportCommand(
     const {
       mirrorReportPatch,
       listSendableReports,
+      listApprovedUnsentReports,
       listSites,
       claimReportForSend,
       releaseSendClaim,
@@ -131,6 +132,7 @@ export async function runReportCommand(
     try {
       return await sendApprovedReports({
         sendable: async () => listSendableReports(await getFleetDb()),
+        approvedUnsent: async () => listApprovedUnsentReports(await getFleetDb()),
         roster: async () => listSites(await getFleetDb()),
         loadHeaderPlate: async (siteId) =>
           (await loadHeaderImage(await getFleetDb(), siteId))?.bytes ?? null,
@@ -303,7 +305,8 @@ export function findExistingForPeriod(
  * write to maintained sites by construction: no schedule → computed null →
  * equal to the stored null → skipped. Each real write goes through
  * `scheduleMirror` into site_schedule (null mirror = Turso creds absent). The
- * NEXT_DUE_WRITE line is observability, not a CI gate — nothing greps it yet.
+ * NEXT_DUE_WRITE line is a CI gate since #1613: daily-reports.yml's draft step
+ * reds on failed, mirror_failed or mirror_missed above 0, and on mirror=absent.
  */
 export async function writeNextDueDates(
   websites: WebsiteRow[],
