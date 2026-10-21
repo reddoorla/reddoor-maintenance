@@ -137,6 +137,7 @@ export function refusal(
 export interface Pr {
   number: number;
   title: string;
+  body: string;
   state: string;
   isDraft: boolean;
   baseRefName: string;
@@ -173,3 +174,29 @@ export function resolveRepo(opts?: {
 }): Promise<{ repo: string; error?: undefined } | { repo?: undefined; error: string }>;
 
 export function landPrs(opts: LandOptions): Promise<{ code: number; results: LandResult[] }>;
+
+/** One entry of `GET repos/{o}/{r}/pulls/{n}/files`; `patch` is absent when GitHub leaves
+ *  it out. */
+export interface PrFile {
+  filename: string;
+  status: string;
+  changes?: number;
+  patch?: string;
+  previous_filename?: string;
+}
+
+/** Whether a path is a test file (a tests/, test/, __tests__/ or e2e/ directory, or a
+ *  `*.test.*` / `*.spec.*` name). */
+export function isTestFile(path: string): boolean;
+
+/** The test files a PR deletes, skips or weakens, each with why it was flagged. */
+export function testChangeFlags(files: PrFile[]): Array<{ file: string; reasons: string[] }>;
+
+/** The PR body's `Test changes:` section, or null when it has none. */
+export function testChangesSection(body: string | null | undefined): string | null;
+
+/** The flagged files that the body's `Test changes:` section does not name. */
+export function unnamedTestChanges(
+  flags: Array<{ file: string; reasons: string[] }>,
+  body: string | null | undefined,
+): string[];

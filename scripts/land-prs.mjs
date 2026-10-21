@@ -24,6 +24,9 @@
 //      `chore(release)…` or head `changeset-release/*`, which AUTONOMY.md §"Merge
 //      authority" keeps human) → stop. DIRTY → stop (a conflict gets no CI). Then pick
 //      the merge method (see `chooseMergeMethod`); none allowed → stop.
+//   1b. test changes (see `testChangeFlags`): read `GET pulls/N/files`, list every test
+//      file the PR deletes, skips or weakens, and stop unless the PR body's `Test changes:`
+//      section names each one. --dry-run prints the list too.
 //   2. BEHIND → `PUT pulls/N/update-branch` with expected_head_sha set to the head just
 //      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
@@ -38,7 +41,8 @@
 //      again on this view, so a PR retargeted, retitled as a release or made a draft while
 //      the checks ran is refused, not merged. Otherwise the merge state
 //      must be CLEAN (UNKNOWN/BLOCKED get a short settle first, because GitHub recomputes
-//      it lazily after the last check completes); any other state stops.
+//      it lazily after the last check completes); any other state stops. Then the test
+//      changes are read and checked again, on this head and this body, which is what merges.
 //   5. `PUT pulls/N/merge` with merge_method=<the picked method> and sha=<the gated head>,
 //      then verify
 //      MERGED from a fresh view: the view is the verdict, not the exit code. Then delete
@@ -409,6 +413,7 @@ export function prFromRest(p) {
   return {
     number: p.number,
     title: p.title,
+    body: typeof p.body === "string" ? p.body : "",
     state: merged ? "MERGED" : String(p.state ?? "").toUpperCase(),
     isDraft: p.draft === true,
     baseRefName: p.base?.ref,
@@ -704,6 +709,150 @@ async function deleteBranch(ctx, n, branch) {
   );
 }
 
+// ── test changes ─────────────────────────────────────────────────────────────────────
+//
+// Over 79% of agent cheats edit tests, and a reviewer reading a PR's summary does not see
+// a weakened assertion (workspace `reviews/2026-10-06-two-touch-review/recommendations.md`
+// §4, #1597). So before anything merges, the files the PR changed are read and every test
+// file it deletes, skips or weakens is listed; the PR lands only when its body has a
+// `Test changes:` section naming each listed file. A flag is cheap: it costs the author
+// one line saying why. It is not a verdict that the change is wrong.
+
+const TEST_DIR = /(^|\/)(tests?|__tests__|e2e)\//;
+const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
+const ASSERTION = /\bexpect(\.\w+)*\s*\(|assert/;
+const SKIP = /\.(skipIf|skip|todo|fails)\b|(^|[^\w.$])x(it|describe)\s*[.(]/;
+const MAX_FILES_PAGES = 30; // GitHub lists at most 3000 files on a pull request.
+
+/** Whether `path` is a test: under a tests/, test/, __tests__/ or e2e/ directory, or named
+ *  `*.test.*` / `*.spec.*`. */
+export function isTestFile(path) {
+  const p = String(path ?? "");
+  return TEST_DIR.test(p) || TEST_NAME.test(p);
+}
+
+/** The removed and added lines of a unified-diff `patch`, without their +/- marker. */
+function patchLines(patch) {
+  const removed = [];
+  const added = [];
+  for (const line of String(patch).split("\n")) {
+    if (line.startsWith("-")) removed.push(line.slice(1));
+    else if (line.startsWith("+")) added.push(line.slice(1));
+  }
+  return { removed, added };
+}
+
+/** `GET pulls/N/files` → the flagged test files, `[{ file, reasons }]`, in the API's order.
+ *
+ *  Flagged: a test file deleted, or renamed to a path that is not a test; a removed line
+ *  holding `expect(` or `assert` that is not added back, re-indented or moved, anywhere in
+ *  the same file (so `toBe(3)` → `toBe(4)` is flagged, a moved assertion is not); an added
+ *  `.skip`, `.skipIf`, `.todo`, `.fails`, `xit` or `xdescribe` that was not there before;
+ *  and a changed test file whose patch GitHub left out (it does for a large diff), because
+ *  nothing here can read it. */
+export function testChangeFlags(files) {
+  const out = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const name = String(f?.filename ?? "");
+    const before = typeof f?.previous_filename === "string" ? f.previous_filename : "";
+    if (f?.status === "removed" && isTestFile(name)) {
+      out.push({ file: name, reasons: ["test file deleted"] });
+      continue;
+    }
+    if (f?.status === "renamed" && isTestFile(before) && !isTestFile(name)) {
+      out.push({ file: before, reasons: [`test file renamed to ${name}, which is not a test`] });
+      continue;
+    }
+    if (!isTestFile(name)) continue;
+    if (typeof f.patch !== "string") {
+      if (Number(f.changes ?? 1) > 0) {
+        out.push({
+          file: name,
+          reasons: [`GitHub left out the patch (${f.changes ?? "?"} changed lines): read the diff`],
+        });
+      }
+      continue;
+    }
+    const { removed, added } = patchLines(f.patch);
+    const addedSet = new Set(added.map((l) => l.trim()));
+    const removedSet = new Set(removed.map((l) => l.trim()));
+    const reasons = [];
+    for (const l of removed) {
+      const t = l.trim();
+      if (ASSERTION.test(t) && !addedSet.has(t))
+        reasons.push(`removed assertion not re-added: ${t}`);
+    }
+    for (const l of added) {
+      const t = l.trim();
+      if (SKIP.test(t) && !removedSet.has(t)) reasons.push(`added skip: ${t}`);
+    }
+    if (reasons.length > 0) out.push({ file: name, reasons });
+  }
+  return out;
+}
+
+/** The PR body's `Test changes:` section: from a line that starts with "Test changes" (a
+ *  label, bold or not, or a heading) to the next heading. `null` when there is none. */
+export function testChangesSection(body) {
+  const lines = String(body ?? "").split(/\r?\n/);
+  const heading = (l) => /^\s{0,3}#{1,6}\s/.test(l);
+  const start = lines.findIndex((l) => /^test changes\b/i.test(l.replace(/^[\s#*_]+/, "")));
+  if (start < 0) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex(heading);
+  return [lines[start], ...(end < 0 ? rest : rest.slice(0, end))].join("\n");
+}
+
+/** The flagged files the PR body's `Test changes:` section does not name, by path. */
+export function unnamedTestChanges(flags, body) {
+  if (flags.length === 0) return [];
+  const section = testChangesSection(body) ?? "";
+  return flags.map((f) => f.file).filter((file) => !section.includes(file));
+}
+
+async function prFiles(ctx, n) {
+  const items = [];
+  for (let page = 1; page <= MAX_FILES_PAGES; page++) {
+    const body = await apiJson(ctx, `pulls/${n}/files?per_page=100&page=${page}`);
+    const got = Array.isArray(body) ? body : [];
+    items.push(...got);
+    if (got.length < 100) return items;
+  }
+  throw new Stop(
+    `gh api pulls/${n}/files still had files after ${MAX_FILES_PAGES} pages (GitHub lists at most 3000): the test-change check cannot see them all`,
+  );
+}
+
+/** Read the PR's files, list what is flagged (when `seen` differs from it), and stop unless
+ *  `pr.body` names every flagged file. Returns the flags' key, so the second check can
+ *  print the list only when it changed. */
+async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
+  const flags = testChangeFlags(await prFiles(ctx, n));
+  const key = JSON.stringify(flags);
+  if (key !== seen) {
+    for (const f of flags) {
+      for (const why of f.reasons) ctx.log(`LAND #${n} test change: ${f.file}: ${why}`);
+    }
+  }
+  const missing = unnamedTestChanges(flags, pr.body);
+  if (missing.length > 0) {
+    const count = `${missing.length} flagged test file${missing.length === 1 ? " is" : "s are"} not named in the PR body`;
+    const fix =
+      testChangesSection(pr.body) === null
+        ? `add a "Test changes:" section to the PR body naming ${missing.join(", ")}, each with why its test changed, then land again`
+        : `the "Test changes:" section does not name ${missing.join(", ")}; add each, with why its test changed, then land again`;
+    throw new Stop(`${count}: ${fix}${at}`);
+  }
+  if (key !== seen) {
+    ctx.log(
+      flags.length === 0
+        ? `LAND #${n} test changes: none flagged`
+        : `LAND #${n} test changes: ${flags.length} flagged file${flags.length === 1 ? "" : "s"}, named in the PR body`,
+    );
+  }
+  return key;
+}
+
 // ── cleanup ──────────────────────────────────────────────────────────────────────────
 
 async function cleanupWorktree(ctx, n, branch, mergedSha) {
@@ -815,6 +964,7 @@ async function landOne(ctx, n) {
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
+  const testChanges = await checkTestChanges(ctx, n, pr);
 
   if (ctx.dryRun) {
     const steps = [];
@@ -872,6 +1022,12 @@ async function landOne(ctx, n) {
     break;
   }
 
+  // Again on the head and body that merge: a push or a body edit during the checks wait
+  // can add a flagged change or drop the section that named it.
+  await checkTestChanges(ctx, n, pr, {
+    seen: testChanges,
+    at: `; seen on the merging head ${short(pr.headRefOid)}`,
+  });
   const sha = pr.headRefOid;
   const mergeCommit = await merge(ctx, n, pr, method);
   ctx.log(`LAND #${n} merged ${mergeCommit} head=${sha} method=${method}`);

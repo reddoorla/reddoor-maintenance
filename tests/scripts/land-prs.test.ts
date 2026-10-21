@@ -15,7 +15,12 @@ import {
   isReadOnlyApiCall,
   isTransientReadFailure,
   chooseMergeMethod,
+  isTestFile,
+  testChangeFlags,
+  testChangesSection,
+  unnamedTestChanges,
   type RunResult,
+  type PrFile,
 } from "../../scripts/land-prs.mjs";
 
 /**
@@ -63,6 +68,7 @@ interface Model {
   mergeStateStatus: string;
   headRepo: string | null;
   mergeCommit: string;
+  body: string | null;
 }
 
 function view(over: Partial<Model> = {}): RunResult {
@@ -77,6 +83,7 @@ function view(over: Partial<Model> = {}): RunResult {
     mergeStateStatus: "CLEAN",
     headRepo: REPO,
     mergeCommit: MERGE,
+    body: "",
     ...over,
   };
   const merged = m.state === "MERGED";
@@ -84,6 +91,7 @@ function view(over: Partial<Model> = {}): RunResult {
     JSON.stringify({
       number: m.number,
       title: m.title,
+      body: m.body,
       state: m.state === "OPEN" ? "open" : "closed",
       merged,
       merged_at: merged ? "2026-09-28T12:30:00Z" : null,
@@ -141,6 +149,10 @@ const DELETE = (branch = "feat/something") =>
   new RegExp(`^gh api ${P}/git/refs/heads/${branch} --method DELETE$`);
 const REF = (branch = "feat/something") => new RegExp(`^gh api ${P}/git/ref/heads/${branch}$`);
 const REPO_META = new RegExp(`^gh api ${P}$`);
+const FILES = (n: number | string = "\\d+") =>
+  new RegExp(`^gh api ${P}/pulls/${n}/files\\?per_page=100&page=\\d+$`);
+const FILES_PAGE = (n: number, page: number) =>
+  new RegExp(`^gh api ${P}/pulls/${n}/files\\?per_page=100&page=${page}$`);
 const RULES = (branch = "main") =>
   new RegExp(`^gh api ${P}/rules/branches/${branch}\\?per_page=100&page=\\d+$`);
 
@@ -170,9 +182,12 @@ const MAINTENANCE_MAIN_RULES = rules(
   { type: "required_linear_history", ruleset_id: 1 },
   pullRequestRule(["merge", "squash", "rebase"], 1),
 );
+// The files a PR changed: none by default, so a test that is not about test changes never
+// trips the test-change gate. A test about them routes `FILES(n)` ahead of this one.
 const methodRoutes: Route[] = [
   [REPO_META, [repoMeta()]],
   [RULES(ANY_BRANCH), [MAINTENANCE_MAIN_RULES]],
+  [FILES(), [ok("[]")]],
 ];
 
 // What Netlify posts on this repo's heads, about 2 s before Actions registers `build`
@@ -422,6 +437,7 @@ describe("land-prs: REST shapes", () => {
     expect(prFromRest(PR_920)).toEqual({
       number: 920,
       title: PR_920.title,
+      body: "",
       state: "OPEN",
       isDraft: false,
       baseRefName: "feat/fleet-analytics",
@@ -1641,7 +1657,12 @@ describe("land-prs: --dry-run", () => {
     expect(r.code).toBe(0);
     expect(
       r.calls.every(
-        (c) => VIEW(852).test(c) || VIEW(5).test(c) || REPO_META.test(c) || RULES().test(c),
+        (c) =>
+          VIEW(852).test(c) ||
+          VIEW(5).test(c) ||
+          REPO_META.test(c) ||
+          RULES().test(c) ||
+          FILES(5).test(c),
       ),
     ).toBe(true);
     expect(r.lines).toContain("LAND #852 skipped reason=already merged");
@@ -1879,3 +1900,383 @@ describe("land-prs: a read that fails in transport is retried; an answer or a wr
 function firstLineOf(r: RunResult): string {
   return (r.stderr || r.stdout).split("\n")[0]!.trim();
 }
+
+/**
+ * P1-33 next-4(2), #1597: a PR that deletes, skips or weakens a test does not land unless
+ * its body has a `Test changes:` section naming each flagged file. Over 79% of agent
+ * cheats edit tests (workspace `reviews/2026-10-06-two-touch-review/recommendations.md`
+ * §4), and this script is the path every landing takes. The fixtures are in the shape
+ * `GET pulls/N/files` answers: a bare array, `patch` absent when GitHub leaves it out.
+ */
+describe("land-prs: test changes", () => {
+  const file = (filename: string, status: string, patch?: string, over: Partial<PrFile> = {}) =>
+    ({
+      filename,
+      status,
+      changes: patch === undefined ? 0 : patch.split("\n").length,
+      ...(patch === undefined ? {} : { patch }),
+      ...over,
+    }) as PrFile;
+  const files = (...fs: PrFile[]): RunResult => ok(JSON.stringify(fs));
+  const T = "tests/scripts/thing.test.ts";
+
+  const WEAKENED = file(
+    T,
+    "modified",
+    [
+      '@@ -10,3 +10,3 @@ describe("thing", () => {',
+      '   it("counts", () => {',
+      "-    expect(count()).toBe(3);",
+      "+    expect(count()).toBe(4);",
+      "   });",
+    ].join("\n"),
+  );
+
+  describe("which files are tests", () => {
+    it("knows a test by its directory or its name, and nothing else", () => {
+      for (const t of [
+        "tests/scripts/land-prs.test.ts",
+        "test/a.js",
+        "src/lib/__tests__/x.ts",
+        "e2e/forms.spec.ts",
+        "src/a.test.mjs",
+        "packages/x/src/b.spec.tsx",
+      ]) {
+        expect(isTestFile(t), t).toBe(true);
+      }
+      for (const n of ["src/testing.ts", "scripts/land-prs.mjs", "docs/tests.md", "contest/a.ts"]) {
+        expect(isTestFile(n), n).toBe(false);
+      }
+    });
+  });
+
+  describe("testChangeFlags", () => {
+    it("PASS control: an add-only PR, new test file and new cases in an old one, flags nothing", () => {
+      expect(
+        testChangeFlags([
+          file(
+            "tests/new.test.ts",
+            "added",
+            '@@ -0,0 +1,3 @@\n+it("a", () => {\n+  expect(1).toBe(1);\n+});',
+          ),
+          file(
+            T,
+            "modified",
+            '@@ -5,2 +5,5 @@\n   });\n+  it("b", () => {\n+    assert.equal(2, 2);\n+  });\n });',
+          ),
+          file("src/a.ts", "removed", "@@ -1 +0,0 @@\n-export const expect = (x) => x;"),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("a changed assertion is a removed one: toBe(3) → toBe(4) is flagged, with the line", () => {
+      expect(testChangeFlags([WEAKENED])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(count()).toBe(3);"] },
+      ]);
+    });
+
+    it("an assert line removed is flagged too", () => {
+      const f = file(T, "modified", "@@ -1,2 +1,1 @@\n-assert.ok(x);\n keep();");
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: assert.ok(x);"] },
+      ]);
+    });
+
+    it("an assertion moved within the file, or only re-indented, is not flagged", () => {
+      const f = file(
+        T,
+        "modified",
+        "@@ -1,4 +1,4 @@\n-  expect(a).toBe(1);\n   other();\n+      expect(a).toBe(1);\n   more();",
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("an added skip, skipIf, todo, fails, xit or xdescribe is flagged", () => {
+      for (const line of [
+        'it.skip("a", () => {});',
+        'describe.skipIf(isCi)("b", () => {});',
+        'test.todo("c");',
+        'it.fails("d", () => {});',
+        'xit("e", () => {});',
+        'xdescribe("f", () => {});',
+      ]) {
+        const f = file(T, "modified", `@@ -1,1 +1,2 @@\n keep();\n+${line}`);
+        expect(testChangeFlags([f]), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+    });
+
+    it("a skip that was already there and only moved is not flagged, nor is a word like skipped", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,2 +1,3 @@\n-it.skip("old", () => {});\n+  it.skip("old", () => {});\n+const skipped = r.skipped;',
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("a deleted test file is flagged, whatever its patch says", () => {
+      for (const f of [
+        file(T, "removed", '@@ -1,1 +0,0 @@\n-it("a", () => {});'),
+        file(T, "removed", undefined, { changes: 400 }),
+      ]) {
+        expect(testChangeFlags([f])).toEqual([{ file: T, reasons: ["test file deleted"] }]);
+      }
+    });
+
+    it("a test file renamed to a path that is not a test is flagged as deleted", () => {
+      const f = file("docs/old-thing.txt", "renamed", undefined, { previous_filename: T });
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["test file renamed to docs/old-thing.txt, which is not a test"] },
+      ]);
+      const moved = file("tests/b/thing.test.ts", "renamed", undefined, { previous_filename: T });
+      expect(testChangeFlags([moved])).toEqual([]);
+    });
+
+    it("a test file whose patch GitHub left out is flagged; an unchanged rename or a non-test file is not", () => {
+      expect(testChangeFlags([file(T, "modified", undefined, { changes: 12_000 })])).toEqual([
+        { file: T, reasons: ["GitHub left out the patch (12000 changed lines): read the diff"] },
+      ]);
+      expect(
+        testChangeFlags([
+          file("tests/b/thing.test.ts", "renamed", undefined, { previous_filename: T }),
+          file("src/huge.ts", "modified", undefined, { changes: 12_000 }),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("lists every reason in a file, and every flagged file", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,3 +1,2 @@\n-expect(a).toBe(1);\n-expect(b).toBe(2);\n+it.skip("x", () => {});',
+      );
+      const g = file("tests/other.test.ts", "removed");
+      expect(testChangeFlags([f, g])).toEqual([
+        {
+          file: T,
+          reasons: [
+            "removed assertion not re-added: expect(a).toBe(1);",
+            "removed assertion not re-added: expect(b).toBe(2);",
+            'added skip: it.skip("x", () => {});',
+          ],
+        },
+        { file: "tests/other.test.ts", reasons: ["test file deleted"] },
+      ]);
+    });
+  });
+
+  describe("the Test changes: section", () => {
+    it("is found as a label or a heading, and ends at the next heading", () => {
+      for (const body of [
+        `Summary.\n\nTest changes: \`${T}\` pinned the old count.\n\n## Next\nother.test.ts`,
+        `## Test changes\n\n- ${T}: the count changed.\n\n## Next\nother.test.ts`,
+        `**Test changes:**\n- ${T}: the count changed.\n### Next\nother.test.ts`,
+      ]) {
+        const section = testChangesSection(body);
+        expect(section, body).toContain(T);
+        expect(section, body).not.toContain("other.test.ts");
+      }
+      expect(testChangesSection("No section here; tests/a.test.ts changed.")).toBeNull();
+      expect(testChangesSection(null)).toBeNull();
+    });
+
+    it("names the flagged files the section leaves out, and a file named outside it does not count", () => {
+      const flags = testChangeFlags([WEAKENED, file("tests/other.test.ts", "removed")]);
+      expect(unnamedTestChanges(flags, `Test changes:\n- ${T}: the count changed.`)).toEqual([
+        "tests/other.test.ts",
+      ]);
+      expect(unnamedTestChanges(flags, `I changed ${T} and tests/other.test.ts.`)).toEqual([
+        T,
+        "tests/other.test.ts",
+      ]);
+      expect(unnamedTestChanges([], "")).toEqual([]);
+    });
+  });
+
+  describe("at landing", () => {
+    const NAMED = `Fix.\n\nTest changes:\n- \`${T}\`: the count is 4 now (#1597).`;
+
+    it("a flagged change with no Test changes: section stops before any check is watched, saying what to add", async () => {
+      const r = await land(
+        [5, 9],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: add a "Test changes:" section to the PR body naming ${T}, each with why its test changed, then land again`,
+      );
+      expect(pastTheRefusal(r.calls)).toEqual([]);
+      expect(r.calls.some((c) => /\/pulls\/9\b/.test(c))).toBe(false);
+    });
+
+    it("the same change lands once the section names the file, re-read on the merging head", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: NAMED }), merged()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
+      expect(r.calls.filter((c) => FILES(5).test(c))).toHaveLength(2);
+      const checks = r.calls.findIndex((c) => RUNS().test(c));
+      const files2 = r.calls.map((c) => FILES(5).test(c)).lastIndexOf(true);
+      const mergeAt = r.calls.findIndex((c) => MERGE_CMD(5).test(c));
+      expect(checks < files2 && files2 < mergeAt).toBe(true);
+    });
+
+    it("a section that names only some of the files stops, naming the rest", async () => {
+      const other = file("tests/other.test.ts", "removed");
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED, other)]],
+          [VIEW(5), [view({ body: NAMED })]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: the "Test changes:" section does not name tests/other.test.ts; add each, with why its test changed, then land again`,
+      );
+    });
+
+    it("reads every page of the files: a deleted test on page 2 still stops", async () => {
+      const clean = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES_PAGE(5, 1), [files(...clean)]],
+          [FILES_PAGE(5, 2), [files(file(T, "removed"))]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(`LAND #5 test change: ${T}: test file deleted`);
+      expect(r.calls.some((c) => FILES_PAGE(5, 3).test(c))).toBe(false);
+    });
+
+    it("a file list at GitHub's 3000-file cap stops: the check cannot see past it", async () => {
+      const page = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        "LAND #5 stopped reason=gh api pulls/5/files still had files after 30 pages (GitHub lists at most 3000): the test-change check cannot see them all",
+      );
+      expect(pastTheRefusal(r.calls)).toEqual([]);
+    });
+
+    it("a change that appears only on the merging head stops there, and nothing merges", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(), files(WEAKENED)]],
+          [VIEW(5), [view(), view()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toMatch(
+        /^LAND #5 stopped reason=1 flagged test file is not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+      );
+      expect(kinds(r.calls)).toEqual(["checks"]);
+    });
+
+    it("a section removed from the body during the checks wait stops at the gate", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: "Fix." })]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toMatch(
+        /not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+      );
+      expect(kinds(r.calls)).toEqual(["checks"]);
+    });
+
+    it("--dry-run prints the list and the stop it would make", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view()]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toMatch(/^LAND #5 stopped reason=1 flagged test file is not named/);
+    });
+
+    it("--dry-run with the file named prints the list, then the plan", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED })]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines).toContain(`LAND #5 test changes: 1 flagged file, named in the PR body`);
+      expect(r.lines.some((l) => l.startsWith("LAND #5 dry-run would: wait for checks"))).toBe(
+        true,
+      );
+    });
+
+    it("--dry-run says when nothing is flagged", async () => {
+      const r = await land([5], [[VIEW(5), [view()]]], { dryRun: true });
+      expect(r.lines).toContain("LAND #5 test changes: none flagged");
+    });
+
+    it("a files read GitHub refuses stops with the call and its reason", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [httpError(404, "Not Found")]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        "LAND #5 stopped reason=gh api pulls/5/files?per_page=100&page=1 failed: gh: Not Found (HTTP 404)",
+      );
+    });
+  });
+});
