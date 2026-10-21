@@ -679,19 +679,22 @@ export async function listSendableReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** #1613. Every report the operator approved that has not gone out and was not
- *  withdrawn — WITHOUT `draft_ready`. The send batch compares it with
- *  {@link listSendableReports}: the approve write requires `draft_ready = 1` and
- *  a supersede touches only unapproved rows, so the two should never differ,
- *  and an approved row the queue cannot see is a report the client is waiting
- *  for that no run will send. Same scan, same bound, as the queue itself. */
-export async function listApprovedUnsentReports(
+/** #1613. Reports the operator approved that the send queue cannot see:
+ *  approved, unsent and unwithdrawn, but not draft-ready. The approve write
+ *  requires `draft_ready = 1`, yet the drafting path can still clear it on an
+ *  approved row (announce's reuse path hands `queueDraft` a row that may be
+ *  approved, and a pending higher-tier draft for the site blocks it). Such a
+ *  report waits for a send no run will make. ONE query, the queue's own WHERE
+ *  with `draft_ready = 0`, so there is no second read to race an approval
+ *  landing between them. Same scan, same bound, as the queue. */
+export async function listApprovedUnqueuedReports(
   db: Db,
 ): Promise<Array<{ id: string; reportId: string }>> {
   const rows = await db
     .selectFrom("reports")
     .select(["id", "report_id"])
     .where("approved_to_send", "=", 1)
+    .where("draft_ready", "=", 0)
     .where("sent_at", "is", null)
     .where("withdrawn_at", "is", null)
     .orderBy("id")

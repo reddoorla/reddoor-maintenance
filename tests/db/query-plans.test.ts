@@ -132,7 +132,7 @@ const ALLOWED_RAW_SCANS: Array<{
     why: "same table and same bound as listAllReports above — the send reads the queue once a day over a table sized by the fleet's report cadence; a partial index on three low-cardinality columns would not change the plan",
   },
   {
-    scenario: "listApprovedUnsentReports (the send queue's cross-check, #1613)",
+    scenario: "listApprovedUnqueuedReports (the send queue's cross-check, #1613)",
     table: "reports",
     requestPath: false,
     why: "the send queue's own scan without its draft_ready term, read once by the same daily send",
@@ -579,9 +579,9 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => fleetState.listSendableReports(db),
     },
     {
-      name: "listApprovedUnsentReports (the send queue's cross-check, #1613)",
-      covers: ["listApprovedUnsentReports"],
-      run: (db) => fleetState.listApprovedUnsentReports(db),
+      name: "listApprovedUnqueuedReports (the send queue's cross-check, #1613)",
+      covers: ["listApprovedUnqueuedReports"],
+      run: (db) => fleetState.listApprovedUnqueuedReports(db),
     },
     {
       name: "listReportsForSite (site page)",

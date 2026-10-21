@@ -67,12 +67,11 @@ export type OrchestrateOptions = {
   /** Drops the claim after Resend refused the send outright, so a report whose
    *  send keeps being refused can still be unapproved. */
   releaseSendClaim: (reportId: string) => Promise<void>;
-  /** #1613. Every approved, unsent, unwithdrawn report, read WITHOUT the queue's
-   *  `draft_ready` term. An approved report missing from `sendable` reds the run
-   *  by name: before this, an empty queue returned "No reports ready to send."
-   *  with exit 0 whether or not an approval existed. The CLI wires it; a test
-   *  that omits it skips the cross-check. */
-  approvedUnsent?: () => Promise<Array<{ id: string; reportId: string }>>;
+  /** #1613. Approved, unsent, unwithdrawn reports that are NOT draft-ready, so
+   *  the queue cannot see them. Each reds the run by name: before this, an empty
+   *  queue returned "No reports ready to send." with exit 0 whether or not an
+   *  approval existed. The CLI wires it; a test that omits it skips the check. */
+  approvedUnqueued?: () => Promise<Array<{ id: string; reportId: string }>>;
 };
 
 export async function sendApprovedReports(
@@ -81,15 +80,21 @@ export async function sendApprovedReports(
   const client = options.resend ?? defaultResendClient();
 
   const sendable = await options.sendable();
-  // #1613. What the queue cannot see. Read beside the queue, from the same
-  // store, so "nothing approved" and "approvals the queue cannot see" differ.
-  const queued = new Set(sendable.map((r) => r.id));
-  const invisible = ((await options.approvedUnsent?.()) ?? []).filter((r) => !queued.has(r.id));
-  const invisibleLines = invisible.map(
-    (r) =>
-      `✗ ${r.reportId} — approved but not in the send queue (not draft-ready), so no run will send it. ` +
-      `Re-draft or re-approve it in the console.`,
-  );
+  // #1613. What the queue cannot see. A failed read of it reds the run, but never
+  // stops the sends below: it is a check, and the queue is already read.
+  let invisibleLines: string[];
+  try {
+    invisibleLines = ((await options.approvedUnqueued?.()) ?? []).map(
+      (r) =>
+        `✗ ${r.reportId} — approved but not in the send queue (not draft-ready), so no run will ` +
+        `send it. A pending higher-tier draft for the site can hold it out: unapprove it and ` +
+        `re-draft, or withdraw it.`,
+    );
+  } catch (e) {
+    invisibleLines = [
+      `✗ could not check for approved reports outside the send queue: ${(e as Error).message}`,
+    ];
+  }
   if (sendable.length === 0) {
     if (invisibleLines.length > 0) return { output: invisibleLines.join("\n"), code: 1 };
     // #1613. An empty queue from a store that holds no sites is not a quiet day:

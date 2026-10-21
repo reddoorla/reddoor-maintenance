@@ -114,7 +114,7 @@ export async function runReportCommand(
     const {
       mirrorReportPatch,
       listSendableReports,
-      listApprovedUnsentReports,
+      listApprovedUnqueuedReports,
       listSites,
       claimReportForSend,
       releaseSendClaim,
@@ -132,7 +132,7 @@ export async function runReportCommand(
     try {
       return await sendApprovedReports({
         sendable: async () => listSendableReports(await getFleetDb()),
-        approvedUnsent: async () => listApprovedUnsentReports(await getFleetDb()),
+        approvedUnqueued: async () => listApprovedUnqueuedReports(await getFleetDb()),
         roster: async () => listSites(await getFleetDb()),
         loadHeaderPlate: async (siteId) =>
           (await loadHeaderImage(await getFleetDb(), siteId))?.bytes ?? null,
@@ -339,7 +339,10 @@ export async function writeNextDueDates(
           if (await scheduleMirror(site.id, fields, today.toISOString())) {
             mirrored++;
             wrote++;
-          } else mirrorMissed++;
+          } else {
+            mirrorMissed++;
+            console.warn(`⚠ [schedule-mirror] ${site.name}: no site_schedule row to update`);
+          }
         } catch (e) {
           mirrorFailed++;
           console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);

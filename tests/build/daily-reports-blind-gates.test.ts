@@ -197,6 +197,17 @@ describe("#1613 (1) the send gate", () => {
     expect(resend.sent).toHaveLength(0);
   });
 
+  it("KNOWN-GOOD: an approved report IN the queue is not reported as outside it", async () => {
+    await seedSites(1);
+    await insertReport({ draft_ready: 1, approved_to_send: 1 });
+    const { listApprovedUnqueuedReports, listSendableReports } =
+      await import("../../src/db/fleet-state.js");
+    const d = await db();
+    expect((await listSendableReports(d)).map((r) => r.id)).toEqual(["recREPORT"]);
+    expect(await listApprovedUnqueuedReports(d)).toEqual([]);
+    await d.destroy();
+  });
+
   it("reds when the store holds no sites at all — an empty or wrong database", async () => {
     const { cli, step } = await sendThroughGate();
     expect(cli.output).toMatch(/no sites/i);
@@ -221,7 +232,7 @@ async function nextDueThroughGate(mirror: (siteId: string) => Promise<boolean>) 
   const { listSites } = await import("../../src/db/fleet-state.js");
   const lines: string[] = [];
   vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(String(l)));
-  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  vi.spyOn(console, "warn").mockImplementation((l: string) => void lines.push(String(l)));
   await seedSites(1);
   const d = await db();
   const sites = await listSites(d);
@@ -259,6 +270,7 @@ describe("#1613 (2) the draft step reads NEXT_DUE_WRITE", () => {
   it("reds on a write that matched no site_schedule row", async () => {
     const { out, step } = await nextDueThroughGate(async () => false);
     expect(out).toMatch(/mirror_missed=1/);
+    expect(out).toContain("Site 0: no site_schedule row to update");
     expect(step.code).toBe(1);
   });
 
