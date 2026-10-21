@@ -2116,9 +2116,16 @@ describe("the /dev/match route imports `dev` from the site's kit major (#1566)",
   });
 
   it("keeps `$app/environment` on a spec it cannot read, and says so", async () => {
-    const { route, result } = await installOnKit("catalog:");
+    const { cwd, route, result } = await installOnKit("catalog:");
     expect(route).toBe(shippedRoute());
     expect(result.notes).toMatch(/cannot read.*\$app\/environment/s);
+    // Said on the run that writes the route, not on every re-run after.
+    const again = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(again.notes ?? "").not.toMatch(/cannot read/);
   });
 
   it("the kit 3 route still refuses outside dev and serves in dev", async () => {
@@ -2147,6 +2154,25 @@ describe("the /dev/match route imports `dev` from the site's kit major (#1566)",
     // name svelte-check cannot resolve on kit 3.
     const cwd = await siteOnKit("^3.0.0");
     await seed(cwd, ROUTE_SERVER, shippedRoute());
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(result.status).toBe("applied");
+    expect(await read(cwd, ROUTE_SERVER)).toBe(shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+    expect(result.notes).toContain(`${ROUTE_SERVER} upgraded from a previous version`);
+    expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
+  });
+
+  it("upgrades a kit 3 site carrying the kit 3 render of a PREVIOUS body (P1-53's hand fix)", async () => {
+    // The 0.95.1 route with its import hand-changed to the kit 3 name: what a
+    // kit 3 site does by hand to get `pnpm check` green, and what every kit 3
+    // site holding this release's render will look like after the next one.
+    const prev = MATCH_HARNESS_PREVIOUS[ROUTE_SERVER]![0]!;
+    expect(occurrences(prev, KIT2_IMPORT)).toBe(1);
+    const cwd = await siteOnKit("^3.0.0");
+    await seed(cwd, ROUTE_SERVER, prev.replace(KIT2_IMPORT, KIT3_IMPORT));
     const result = await matchHarness(
       { path: cwd },
       { ref: "https://ref.test" },

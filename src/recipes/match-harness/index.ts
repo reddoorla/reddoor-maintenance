@@ -320,19 +320,25 @@ export async function matchHarness(
       // spec keeps the kit 2 import, and the notes say so: guessing kit 3
       // would break a kit 2 site's dev server outright.
       const kitMajor = await readKitMajor(cwd);
-      if (kitMajor === "unreadable")
-        notes.push(
-          `package.json declares @sveltejs/kit with a spec match-harness cannot read, so ` +
-            `${MATCH_ROUTE_SERVER_RELATIVE} imports \`dev\` from $app/environment (kit 2); on ` +
-            `SvelteKit 3 change it to $app/env by hand`,
-        );
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
         let template = renderForKit(f.rel, f.template, kitMajor);
-        // A kit 3 site installed before #1566 carries the shipped kit 2
-        // render, which is ours: replace it rather than flag it.
+        // On kit 3, every body this recipe shipped is ours in BOTH renders:
+        // the raw kit 2 one (installed before #1566, or the current body as
+        // the kit 2 template), and its kit 3 render (this release's output,
+        // or a site's own hand fix of the import, as P1-53 made). Replace
+        // either rather than flag it as hand-edited.
         const previous = previousAll[f.rel] ?? [];
-        const previousHere = template === f.template ? previous : [...previous, f.template];
+        const previousHere =
+          template === f.template
+            ? previous
+            : [
+                ...previous,
+                ...previous
+                  .filter((p) => p.includes(KIT2_DEV_IMPORT))
+                  .map((p) => renderForKit(f.rel, p, kitMajor)),
+                f.template,
+              ];
         if (f.rel === HARNESS_JSON_RELATIVE) {
           // Patch the PARSED object, never the text. The seed is pretty-printed
           // two-space JSON, so `matrix` renders as a four-line exploded array
@@ -384,6 +390,20 @@ export async function matchHarness(
             `harness.mjs, so upgrading one without the others leaves a harness that cannot run.`,
         );
       }
+
+      // An unreadable kit spec keeps the kit 2 import (guessing kit 3 would
+      // break a kit 2 site's dev server outright), and says so only on a run
+      // that writes the route, not on every run after.
+      const routePlan = plans.find((p) => p.f.rel === MATCH_ROUTE_SERVER_RELATIVE);
+      if (
+        kitMajor === "unreadable" &&
+        (routePlan?.action === "write" || routePlan?.action === "replace")
+      )
+        notes.push(
+          `package.json declares @sveltejs/kit with a spec match-harness cannot read, so ` +
+            `${MATCH_ROUTE_SERVER_RELATIVE} imports \`dev\` from $app/environment (kit 2); on ` +
+            `SvelteKit 3 change it to $app/env by hand`,
+        );
 
       // PASS 2 — write.
       const demotedRels = new Set(demoted.map((p) => p.f.rel));
