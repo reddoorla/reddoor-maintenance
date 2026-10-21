@@ -454,7 +454,7 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
       const fromDependabot = await dependabotAudit(dependabot, site.gitRepo, label);
       const viaDependabot = fromDependabot?.result;
       if (viaDependabot && !(await lockfileHiddenFromDependencyGraph(site.path))) {
-        if (fromDependabot.readsNpmTree) return viaDependabot;
+        if (fromDependabot.readsNpmTree) return withLockfileAudit(viaDependabot, null);
         return crossCheckDependabot(spawn, site.path, label, viaDependabot);
       }
       if (viaDependabot) {
@@ -476,7 +476,8 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
       }
     }
   }
-  return lockfileAudit(spawn, site.path, label, "prod");
+  // Production scope only, so not the view a partial night merges with: clear it.
+  return withLockfileAudit(await lockfileAudit(spawn, site.path, label, "prod"), null);
 }
 
 /** Dependabot reports no live alert on a root lockfile, on a lockfile its dependency graph can
@@ -498,11 +499,13 @@ async function crossCheckDependabot(
   label: string,
   viaDependabot: AuditResult,
 ): Promise<AuditResult> {
-  if (!(await hasRootLockfile(dir))) return viaDependabot;
+  if (!(await hasRootLockfile(dir))) return withLockfileAudit(viaDependabot, null);
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
   const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
   if (viaLockfile.status === "skip") return partialResult(viaDependabot, viaLockfile);
-  if (!hasLiveCounts(viaLockfile)) return viaDependabot;
+  // pnpm ran over every scope and found nothing: that clean answer is the one to store.
+  if (!hasLiveCounts(viaLockfile))
+    return withLockfileAudit(viaDependabot, lockfileViewOf(viaLockfile));
   console.error(
     `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
       `${viaLockfile.summary} — adding pnpm audit to Dependabot`,
@@ -541,9 +544,27 @@ function partialResult(viaDependabot: AuditResult, viaLockfile: AuditResult): Au
   };
 }
 
-/** pnpm's own result on a full merged night, before the merge lifted any severity (#1654).
- *  Stored on the row, so a night the lockfile audit cannot run can rebuild it. */
+/** pnpm's own result over every scope, before any merge lifted a severity (#1654). Stored on
+ *  the row, so a night the lockfile audit cannot run can rebuild it. */
 export type LockfileAuditView = { counts: Counts; advisories: AdvisoryEntry[] };
+
+/** pnpm's own result, as a lockfile audit reported it. */
+function lockfileViewOf(viaLockfile: AuditResult): LockfileAuditView {
+  const lock = viaLockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
+  return {
+    counts: { ...lock.counts },
+    advisories: lock.advisories.map(({ lockfile: _l, ...a }) => a),
+  };
+}
+
+/** A full night's result, carrying what the row should now store as pnpm's own result
+ *  (`details.lockfileAudit`): the view when pnpm ran over every scope tonight, null to clear
+ *  it when it did not (#1654). Every full night replaces it, so a later partial night never
+ *  merges with an answer pnpm has since changed. A skip carries no details and leaves it. */
+function withLockfileAudit(result: AuditResult, view: LockfileAuditView | null): AuditResult {
+  if (!result.details) return result;
+  return { ...result, details: { ...(result.details as object), lockfileAudit: view } };
+}
 
 /** A partial night's result merged with pnpm's stored result, by the same mergeAudits a full
  *  night runs, so the two read the same on the same alerts (#1654). */
@@ -698,10 +719,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
   // pnpm's own result, as it reported it, for a later night it cannot run (#1654).
-  const lockfileAudit: LockfileAuditView = {
-    counts: { ...lock.counts },
-    advisories: lock.advisories.map(({ lockfile: _l, ...a }) => a),
-  };
+  const lockfileAudit = lockfileViewOf(lockfile);
   const advisories: AdvisoryEntry[] = lock.advisories.map((a) => ({ ...a, lockfile: true }));
   // pnpm's metadata, less each of its advisories that the merge moved to a higher severity, so
   // the max below does not count that advisory again at its old severity.

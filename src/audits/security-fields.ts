@@ -10,7 +10,7 @@ type SecurityDetails = {
   counts: { low: number; moderate: number; high: number; critical: number };
   advisories?: unknown;
   partial?: boolean;
-  lockfileAudit?: { counts: SecurityDetails["counts"]; advisories: unknown[] };
+  lockfileAudit?: { counts: SecurityDetails["counts"]; advisories: unknown[] } | null;
 };
 
 /** True when the result is Dependabot's alone, from a night the lockfile audit was needed but
@@ -19,11 +19,15 @@ export function isPartialSecurityResult(result: AuditResult): boolean {
   return (result.details as SecurityDetails | undefined)?.partial === true;
 }
 
-/** pnpm's own result on a full merged night, ready to store (#1654), or undefined on any other
- *  night. Past `MAX_STORED_LOCKFILE_ADVISORIES` the list is cut and marked `truncated`. */
-export function lockfileAuditFromResult(result: AuditResult): SecurityLockfileAudit | undefined {
+/** What the row should store as pnpm's own result after this night (#1654): the result when
+ *  pnpm ran over every scope, null to clear it on a full night it did not, undefined to leave it
+ *  (a partial night). Past `MAX_STORED_LOCKFILE_ADVISORIES` the list is cut and marked
+ *  `truncated`. */
+export function lockfileAuditFromResult(
+  result: AuditResult,
+): SecurityLockfileAudit | null | undefined {
   const view = (result.details as SecurityDetails | undefined)?.lockfileAudit;
-  if (!view) return undefined;
+  if (view === undefined || view === null) return view;
   const advisories = view.advisories
     .map(normalizeSecurityAdvisory)
     .filter((a): a is SecurityAdvisory => a !== null);

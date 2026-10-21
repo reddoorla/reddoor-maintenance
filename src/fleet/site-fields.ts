@@ -459,9 +459,9 @@ export type AuditFieldInputs = {
   /** The counts come from a partial night (#1654): written, but `Last security audit at` is
    *  left as stored. */
   securityPartial?: boolean;
-  /** pnpm's own result on a full merged night (#1654). Omitted on every other night, so the
-   *  stored one stands. */
-  securityLockfileAudit?: SecurityLockfileAudit;
+  /** pnpm's own result after a full night (#1654): written when pnpm ran over every scope,
+   *  null clears it when it did not, omitted on a partial night so the stored one stands. */
+  securityLockfileAudit?: SecurityLockfileAudit | null;
   domain?: DomainResult;
   browser?: BrowserAuditFields;
   netlifyDeploy?: NetlifyDeployResult;
@@ -479,8 +479,9 @@ export function auditFields(audits: AuditFieldInputs): FieldSet {
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
   if (audits.security)
     Object.assign(fields, securityFields(audits.security, audits.securityPartial === true));
-  if (audits.securityLockfileAudit)
-    fields["Security lockfile audit"] = JSON.stringify(audits.securityLockfileAudit);
+  if (audits.securityLockfileAudit !== undefined)
+    (fields as Record<string, string | null>)["Security lockfile audit"] =
+      audits.securityLockfileAudit === null ? null : JSON.stringify(audits.securityLockfileAudit);
   // Separate slice (not folded into `security`) so the advisory list and the counts can be
   // written independently, but in practice the security audit supplies both together.
   if (audits.securityAdvisories)

@@ -28,8 +28,9 @@ const ONE_DOCUMENT = "lockfileVersion: '9.0'\n";
 type PnpmAdvisory = Record<string, unknown>;
 /** pnpm's answer: its advisories, and its metadata counts (tallied from them unless given). */
 type Pnpm = { advisories: PnpmAdvisory[]; metadata?: Record<string, number> };
-/** One night: Dependabot's open alerts, and whether pnpm audit runs. */
-type Night = { alerts: DependabotAlert[]; pnpm: "runs" | "fails" };
+/** One night: Dependabot's open alerts (or its API failing), whether pnpm audit runs, and what
+ *  it answers when it does (the scenario's answer unless the night names its own). */
+type Night = { alerts: DependabotAlert[] | Error; pnpm: "runs" | "fails"; answer?: Pnpm };
 
 const alert = (over: Partial<DependabotAlert>): DependabotAlert => ({
   package: "actions/checkout",
@@ -77,10 +78,15 @@ async function run(
   for (const night of nights) {
     const result = await securityAudit({
       site: { path: dir, gitRepo: "reddoorla/acme" },
-      dependabotDeps: { listAlerts: async () => night.alerts },
+      dependabotDeps: {
+        listAlerts: async () => {
+          if (night.alerts instanceof Error) throw night.alerts;
+          return night.alerts;
+        },
+      },
       spawn: async (cmd) => {
         if (cmd !== "pnpm" || night.pnpm === "fails") throw new Error(`ENOENT: ${cmd}`);
-        return { code: 1, stdout: pnpmJson(pnpm), stderr: "" };
+        return { code: 1, stdout: pnpmJson(night.answer ?? pnpm), stderr: "" };
       },
     });
     const before = (await getSiteById(db, "recACME"))!;
@@ -109,8 +115,8 @@ function view(r: WebsiteRow) {
 
 /**
  * The property. `history` starts with a full night. Every later partial night must leave the row
- * as that same night would have, had pnpm run and given the same answer, and must not stamp the
- * audit time. Returns the partial nights' views for case-specific checks.
+ * as that same night would have, had pnpm run and given its latest answer, and must not stamp
+ * the audit time. Returns the partial nights' views for case-specific checks.
  */
 async function expectPartialNightsReadAsFull(
   history: Night[],
@@ -122,9 +128,15 @@ async function expectPartialNightsReadAsFull(
   const views = [];
   for (let i = 1; i < history.length; i++) {
     if (history[i]!.pnpm !== "fails") continue;
+    // pnpm's latest answer before this night: what a full night tonight would have read.
+    const latest = history
+      .slice(0, i)
+      .filter((n) => n.pnpm === "runs")
+      .map((n) => n.answer ?? pnpm)
+      .at(-1);
     const asFull = history
       .slice(0, i + 1)
-      .map((n, j) => (j === i ? { ...n, pnpm: "runs" as const } : n));
+      .map((n, j) => (j === i ? { ...n, pnpm: "runs" as const, answer: latest } : n));
     const expected = (await run(asFull, pnpm, opts))[i]!;
     expect({ night: i, ...view(actual[i]!) }).toEqual({ night: i, ...view(expected) });
     expect(actual[i]!.lastSecurityAuditAt).toBe(actual[i - 1]!.lastSecurityAuditAt);
@@ -133,7 +145,7 @@ async function expectPartialNightsReadAsFull(
   return views;
 }
 
-const full = (alerts: DependabotAlert[]): Night => ({ alerts, pnpm: "runs" });
+const full = (alerts: DependabotAlert[] | Error): Night => ({ alerts, pnpm: "runs" });
 const partial = (alerts: DependabotAlert[]): Night => ({ alerts, pnpm: "fails" });
 /** A partial night with one more live alert than the full night before it. Without it, a night
  *  that writes nothing would leave the row equal to the full night's, and pass. */
@@ -353,6 +365,99 @@ describe("a partial night reads as a full night on the same alerts (#1654)", () 
       { lockfile: ONE_DOCUMENT },
     );
     expect(v!.counts).toEqual([0, 1, 0, 1]);
+  });
+});
+
+// Review round 1 (blocker): the stored result was written only on a merged night, so a newer full
+// night that ran pnpm clean, on #1612's cross-check, left it standing, and a later partial night
+// brought back an advisory pnpm had dropped. Every full night now replaces it.
+describe("pnpm's answer changes between nights (#1654 review round 1)", () => {
+  const clean: Pnpm = { advisories: [] };
+
+  it("cross-check: a vulnerable night, then a clean one, then a partial one reads clean", async () => {
+    const [v] = await expectPartialNightsReadAsFull(
+      [full([]), { ...full([]), answer: clean }, partial([])],
+      { advisories: [sharpHigh] },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(v!.counts).toEqual([0, 0, 0, 0]);
+  });
+
+  it("cross-check, with a live Actions alert every night", async () => {
+    const actions = alert({ severity: "low" });
+    const [v] = await expectPartialNightsReadAsFull(
+      [full([actions]), { ...full([actions]), answer: clean }, partial([actions])],
+      { advisories: [sharpHigh] },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(v!.counts).toEqual([0, 0, 0, 1]);
+  });
+
+  it("hidden lockfile: pnpm's answer changes between two merged nights", async () => {
+    const low = alert({ severity: "low" });
+    const sharpModerate = { ...sharpHigh, severity: "moderate" };
+    const [v] = await expectPartialNightsReadAsFull(
+      [full([low]), { ...full([low]), answer: { advisories: [sharpModerate] } }, partial([low])],
+      { advisories: [sharpHigh] },
+    );
+    expect(v!.counts).toEqual([0, 0, 1, 1]);
+  });
+
+  it("a night Dependabot reads the tree clears the stored result: the next partial night writes nothing", async () => {
+    const onLockfile = alert({
+      package: "x",
+      manifestPath: "pnpm-lock.yaml",
+      ghsaId: "GHSA-xxxx-xxxx-0001",
+    });
+    const rows = await run(
+      [full([]), full([onLockfile]), partial([])],
+      { advisories: [sharpHigh] },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(rows[0]!.securityLockfileAudit).not.toBeNull();
+    expect(rows[1]!.securityLockfileAudit).toBeNull();
+    expect(view(rows[2]!)).toEqual(view(rows[1]!));
+  });
+
+  it("a stand-alone night (Dependabot API down, production scope only) clears it too", async () => {
+    const rows = await run(
+      [
+        full([alert({ severity: "low" })]),
+        full(new Error("HTTP 403")),
+        partial([alert({ severity: "low" })]),
+      ],
+      { advisories: [sharpHigh] },
+    );
+    expect(rows[0]!.securityLockfileAudit).not.toBeNull();
+    expect(rows[1]!.securityLockfileAudit).toBeNull();
+    expect(view(rows[2]!)).toEqual(view(rows[1]!));
+  });
+});
+
+// Review round 1: a written partial night still measured no lockfile, so the fleet write gate
+// must keep counting it, as it counted the skip before #1654.
+describe("the write gate still sees a partial night (#1654 review round 1)", () => {
+  it("lists security under unmeasured while writing the merged counts", async () => {
+    const db = await freshDb({
+      "Security lockfile audit": JSON.stringify({
+        counts: { critical: 0, high: 1, moderate: 0, low: 0 },
+        advisories: [{ module: "sharp", severity: "high", title: "t", cves: [] }],
+      }),
+    });
+    const before = (await getSiteById(db, "recACME"))!;
+    await db.destroy();
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-night-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+    const result = await securityAudit({
+      site: { path: dir, gitRepo: "reddoorla/acme" },
+      dependabotDeps: { listAlerts: async () => [alert({ severity: "low" })] },
+      spawn: async (cmd) => {
+        throw new Error(`ENOENT: ${cmd}`);
+      },
+    });
+    const plan = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
+    expect(plan.summary.writes.map((w) => w.audit)).toEqual(["security"]);
+    expect(plan.unmeasured.map((u) => u.audit)).toEqual(["security"]);
   });
 });
 

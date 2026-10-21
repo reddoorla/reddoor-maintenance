@@ -596,7 +596,8 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
   if (!parsed || typeof parsed !== "object") return null;
   const p = parsed as Record<string, unknown>;
   const c = p["counts"] as Record<string, unknown> | undefined;
-  const n = (k: string) => (c && typeof c[k] === "number" ? (c[k] as number) : null);
+  const n = (k: string) =>
+    c && Number.isSafeInteger(c[k]) && (c[k] as number) >= 0 ? (c[k] as number) : null;
   const counts = {
     critical: n("critical"),
     high: n("high"),

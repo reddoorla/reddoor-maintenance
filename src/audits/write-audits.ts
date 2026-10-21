@@ -167,7 +167,7 @@ export function planAuditWrite(args: {
     audits.securityAdvisories = advisoriesFromResult(secToWrite);
     if (isPartialSecurityResult(secToWrite)) audits.securityPartial = true;
     const lockfileAudit = lockfileAuditFromResult(secToWrite);
-    if (lockfileAudit) audits.securityLockfileAudit = lockfileAudit;
+    if (lockfileAudit !== undefined) audits.securityLockfileAudit = lockfileAudit;
     writes.push({ audit: "security", counts });
   }
 
@@ -258,6 +258,10 @@ export function planAuditWrite(args: {
         !(r.audit === "lighthouse" && lighthouseMiss),
     )
     .map((r) => ({ audit: r.audit, summary: r.summary }));
+  // A partial night is written, but tonight's lockfile audit still measured nothing: the gate
+  // keeps seeing it, so a fleet-wide pnpm or registry failure still reds the run (#1654).
+  if (secToWrite && isPartialSecurityResult(secToWrite) && sec)
+    unmeasured.push({ audit: "security", summary: sec.summary });
 
   return {
     summary: { siteName: target.name, writes, events, siteId: target.id, fields },
