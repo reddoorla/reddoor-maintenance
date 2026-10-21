@@ -539,10 +539,14 @@ describe("check-brief round 1: verdicts", () => {
     expect(refusedBy(stderr)).not.toBeNull();
   });
 
-  it("an unreachable registry cannot pass an absence claim", async () => {
-    const { exec } = fakeExec({ code: 1, stdout: "", stderr: "npm error code ECONNREFUSED" });
+  it("an unreachable host cannot pass an absence claim", async () => {
+    const { exec } = fakeExec({
+      code: 1,
+      stdout: "",
+      stderr: 'Get "https://api.github.com/repos/o/r": dial tcp: connect: ECONNREFUSED',
+    });
     const path = writeBrief(scratch, [
-      "- react was never published — `npm view react version` → exit 1",
+      "- the repo was never created — `gh api repos/o/r` → exit 1",
     ]);
     const r = await runCheckBrief(path, { cwd: scratch }, { exec, env: {} });
     expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN"]);
@@ -713,7 +717,6 @@ describe("check-brief round 2: flag allowlists and confinement to --cwd", () => 
     "tail -n +3 README.md",
     "rg -c foo",
     "grep -cF foo -- -weird-name.txt",
-    "npm view react version",
   ])("allows %s (a real brief would cite it)", (cmd) => {
     expect(classifyCommand(cmd, scratch).ok).toBe(true);
   });
@@ -882,14 +885,13 @@ describe("check-brief round 3: git, jq, npm and secret names", () => {
     "git merge-base --is-ancestor main HEAD",
     "git log --format=%h:%s -1",
     "git ls-files --error-unmatch src/cli/bin.ts",
-    "git for-each-ref --format=%h refs/heads",
+
     "git status --porcelain",
     "git describe --tags --always",
     "rg -F 'impetus should come from a person'",
     "gh api repos/o/r/pulls/12 --jq '.state'",
     "gh api repos/o/r/pulls --jq '.[] | .number'",
-    "npm view react version",
-    "npm view @sveltejs/kit@^2 version",
+
     "grep -c x src/util/credentials.ts",
   ])("allows %s", (cmd) => {
     expect(classifyCommand(cmd, scratch).ok).toBe(true);
@@ -1229,7 +1231,7 @@ describe("check-brief round 6: no option consumes the next word", () => {
   it.each([
     "git rev-parse --short HEAD",
     "git rev-parse --short=8 HEAD",
-    "git for-each-ref --count=1 refs/heads",
+    "git log --max-count=1 --oneline",
     "git describe --abbrev=7 --always",
     "git status --untracked-files=no",
     "git log --format=%H -1",
@@ -1264,5 +1266,60 @@ describe("check-brief round 6: CodeQL", () => {
       "**Item.** <!<!---->-- HIDDEN_TOKEN -->\n\n**Verify first.**\n\n- a — `ls` → exit 0\n",
     );
     expect(p.warnings.join("\n")).not.toContain("HIDDEN_TOKEN");
+  });
+});
+
+// ── Revival on the smaller surface (the operator, 2026-10-21, option 1) ──
+
+describe("check-brief revival: no free-form input left", () => {
+  it.each([
+    // Round 7: %(signature) ran the signature program; npm view .. read outside --cwd.
+    "git for-each-ref refs/heads",
+    "git for-each-ref '--format=%(signature:grade)' refs/heads",
+    "git for-each-ref --sort=signature:grade refs/heads",
+    "npm view react version",
+    "npm view .. description",
+    // --format and --pretty take a fixed set of placeholders and named formats.
+    "git log -1 '--format=%(describe)'",
+    "git log -1 '--format=%(trailers)'",
+    "git log -1 --format=%N",
+    "git log -1 --format=%GS",
+    "git log -1 --pretty=raw",
+    "git log -1 --pretty=email",
+    "git log -1 '--pretty=format:%h %x00'",
+    // Round 7's surviving mutations.
+    "git log -1 HEAD@{1}",
+    "git rev-parse HEAD@{1}",
+    "ls ..",
+    "test -d ..",
+    "git ls-files ..",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
+  });
+
+  it.each([
+    "git log -1 --format=%H",
+    "git log -1 '--format=%h %s'",
+    "git log -1 --format=tformat:%H",
+    "git log -3 '--pretty=format:%h %an %ad'",
+    "git log -1 --pretty=oneline",
+    "git log -1 --pretty=fuller",
+    "git log -1 '--format=%%'",
+  ])("allows %s", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(true);
+  });
+
+  it("a separate option value is refused with a reason that names --opt=value", () => {
+    const c = classifyCommand("git log --since 2.weeks", process.cwd());
+    expect(c.ok).toBe(false);
+    expect(!c.ok && c.reason).toMatch(/--since=<value>/);
+  });
+
+  it("the round-7 signature line is NOT RUN end to end", async () => {
+    const path = writeBrief(scratch, [
+      "- sig — `git for-each-ref '--format=%(signature:grade)' refs/heads` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: process.cwd() }, { exec: noExec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
   });
 });

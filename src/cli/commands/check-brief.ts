@@ -535,6 +535,14 @@ const FILE_TOOLS: Record<string, FileTool> = {
 };
 
 const ANY = /^[\s\S]*$/;
+// A named format, or a format string (`format:`/`tformat:`, or holding a %,
+// since git reads any other bare word as a format's name) whose every % is one of these
+// placeholders: commit, tree and parent ids, author and committer names,
+// emails and dates, subject, body, ref names, newline and a literal %. No
+// %(...) atom, %G signature check or %N notes: each free-form placeholder
+// was a route around the allowlist (#1635 round 7: %(signature)).
+const LOG_FORMAT =
+  /^(?:oneline|short|medium|full|fuller|reference|(?:t?format:|(?=[^%]*%))(?:[^%]|%(?:an|ae|ad|aI|ai|ar|at|cn|ce|cd|cI|ci|cr|ct|H|h|T|t|P|p|s|b|B|d|D|n|%))*)$/;
 const COUNT = /^\d+$/;
 
 /** git keeps only subcommands that answer metadata questions: does this commit,
@@ -561,8 +569,8 @@ const GIT_TOOLS: Record<string, FileTool> = {
     valued: { n: COUNT },
     digits: true,
     valuedLongs: {
-      "--format": ANY,
-      "--pretty": ANY,
+      "--format": LOG_FORMAT,
+      "--pretty": LOG_FORMAT,
       "--max-count": COUNT,
       "--since": ANY,
       "--until": ANY,
@@ -598,19 +606,6 @@ const GIT_TOOLS: Record<string, FileTool> = {
       "--error-unmatch",
       "--full-name",
     ],
-  },
-  "for-each-ref": {
-    shorts: "",
-    longs: [],
-    valuedLongs: {
-      "--format": ANY,
-      "--sort": ANY,
-      "--count": COUNT,
-      "--contains": ANY,
-      "--merged": ANY,
-      "--no-merged": ANY,
-      "--points-at": ANY,
-    },
   },
   "merge-base": { shorts: "", longs: ["--is-ancestor"] },
   describe: {
@@ -650,8 +645,12 @@ function parseFileArgs(
         }
         continue;
       }
-      if (!tool.longs.includes(a))
-        return { ok: false, reason: `${bin}: option ${a} is not allowed` };
+      if (!tool.longs.includes(a)) {
+        const reason = tool.valuedLongs?.[a]
+          ? `${bin}: write ${a}=<value>; a value never comes as the next word`
+          : `${bin}: option ${a} is not allowed`;
+        return { ok: false, reason };
+      }
       continue;
     }
     if (a.startsWith("-") && a.length > 1) {
@@ -699,10 +698,6 @@ function realOrSelf(p: string): string {
     return parent === p ? p : join(realOrSelf(parent), basename(p));
   }
 }
-
-// A registry package name with an optional version or range: no `file:`,
-// `git+ssh:`, `github:` or URL spec, each of which leaves the registry.
-const NPM_SPEC = /^(?:@[\w.-]+\/)?[\w.-]+(?:@[\w.^~<>=*| -]+)?$/;
 
 export type Classified =
   { ok: true; argv: string[]; builtin?: "env-set" } | { ok: false; reason: string };
@@ -807,16 +802,6 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     (bin === "node" || bin === "pnpm" || bin === "npm") &&
     argv.length === 2 &&
     sub === "--version"
-  ) {
-    return { ok: true, argv };
-  }
-  // `npm view <pkg>[@range] [field…]` and no option: `--registry` would send
-  // the request, and `--userconfig` its auth, wherever the brief says.
-  if (
-    bin === "npm" &&
-    sub === "view" &&
-    NPM_SPEC.test(rest[0] ?? "") &&
-    !rest.some((a) => a.startsWith("-"))
   ) {
     return { ok: true, argv };
   }
@@ -934,9 +919,9 @@ async function runLine(line: VerifyLine, cwd: string, deps: CheckBriefDeps): Pro
     }
     if (result.code === null)
       return { ...base, status: "COULD NOT RUN", why: `${file} did not run` };
-    // Only the networked tools: a local tool's stderr can echo a file name
+    // Only gh, the one networked tool: a local tool's stderr can echo a file name
     // such as `E403-notes.md`, which is not a refusal.
-    const networked = file === "gh" || file === "npm";
+    const networked = file === "gh";
     const refused = networked && result.code !== 0 ? refusedBy(result.stderr) : null;
     if (refused) return { ...base, status: "COULD NOT RUN", why: `${file} ${refused}` };
   }
