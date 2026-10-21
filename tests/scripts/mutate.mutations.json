@@ -149,7 +149,7 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "rebuildRootDist = existsSync(join(root, \"dist\")) && hasBuildScript(root);",
+        "find": "rebuildRootDist = hadDist && hasBuildScript(root);",
         "replace": "rebuildRootDist = false;"
       }
     ],
@@ -221,20 +221,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "      if (!(await syntaxError({ file: f, abs: join(root, f), text: pristine.get(f), root, run })))\n        checkable.add(f);",
+        "find": "      if (!(await syntaxError({ file: f, text: pristine.get(f), root, run }))) checkable.add(f);",
         "replace": "      checkable.add(f);"
-      }
-    ],
-    "test": "tests/scripts/mutate.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "M19-filter-extras-allowed",
-    "edits": [
-      {
-        "file": "scripts/mutate.mjs",
-        "find": "    if (extra.length)",
-        "replace": "    if (false)"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -305,11 +293,120 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "    if (o.check)\n      return {",
-        "replace": "    if (false)\n      return {"
+        "find": "    if (o.check) {",
+        "replace": "    if (false) {"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M26-unrun-test-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (notRun.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M27-overlapping-filters-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (widened.length)\n      throw new Refusal(",
+        "replace": "    if (false)\n      throw new Refusal("
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M28-symlinked-tmp-not-resolved",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "st.tmp = realpathSync(mkdtempSync(",
+        "replace": "st.tmp = (mkdtempSync("
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M29-skip-worktree-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (hidden.length && !o.check)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M30-pathspec-as-glob",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "[\"--literal-pathspecs\", \"ls-files\"",
+        "replace": "[\"ls-files\""
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M31-created-dist-kept",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "removeRootDist = !hadDist;",
+        "replace": "removeRootDist = false;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M32-syntax-opt-out-ignored",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "if (m.syntax && checkable.has(f)) {",
+        "replace": "if (checkable.has(f)) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M33-check-refuses-dirty",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const dirty = o.check ? [] : await dirtyLines(ctx, root);",
+        "replace": "const dirty = await dirtyLines(ctx, root);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M34-mutant-run-unrun-check-dropped",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "          if (other.length || missing.length)",
+        "replace": "          if (other.length)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "survives",
+    "why": "A second layer: the baseline already refuses a named file vitest does not run, so a mutant run can only miss one if the include changes mid-run."
   }
 ]

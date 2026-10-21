@@ -674,10 +674,10 @@ export async function mutate(o, deps = {}) {
       const also = ran.filter((n) => n !== t && n.includes(t));
       return also.length ? [`${t} also matches ${also.join(", ")}`] : [];
     });
-    const extra = ran.filter((n) => !allTests.includes(n));
-    if (widened.length || extra.length)
+    // Any file vitest ran beyond the named ones matched one of them as a substring.
+    if (widened.length)
       throw new Refusal(
-        `vitest takes a test path as a substring filter, and ${[...widened, ...(extra.length ? [`it also ran ${extra.join(", ")}`] : [])].join("; ")}: name paths no other file contains`,
+        `vitest takes a test path as a substring filter, and ${widened.join("; ")}: name paths no other file contains`,
       );
     await clean("the unmutated run");
 
