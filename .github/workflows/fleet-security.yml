@@ -228,6 +228,8 @@ jobs:
       # job: a red here would fire the generic "Nightly fleet security audit
       # failing" issue below and misdirect triage at the vuln sweep. The
       # dedicated title is the signal; it auto-closes on the next clean pass.
+      # The one exception is a sweep that verified no repo (UNMEASURED, #1612):
+      # that is not a posture gap, so the step after the open step reds the run.
       - name: Protection coverage audit (org-wide)
         id: protection
         if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
