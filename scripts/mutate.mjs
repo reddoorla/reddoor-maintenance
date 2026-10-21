@@ -6,6 +6,10 @@
 //
 //   node scripts/mutate.mjs tests/<area>/<name>.mutations.json [--only id,id] [--in-place]
 //
+// Exit codes: 0 every mutant as expected, 1 some mutant not as expected, 2 refused before
+// any mutant was applied, 3 stopped by an error mid-run (the results so far are printed),
+// 129/130/143 stopped by SIGHUP/SIGINT/SIGTERM after restoring.
+//
 // A sidecar is a JSON array of {id, edits:[{file, find, replace}], test, build?, expect, why?}.
 // `file` is relative to the repo root, `test` is one vitest file path or an array of them,
 // `build: true` runs `pnpm run build` after the edits (for tests that spawn dist/), and
@@ -25,7 +29,8 @@ import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
 const USAGE =
-  "usage: node scripts/mutate.mjs <sidecar.json> [--only id,id] [--in-place] [--timeout-ms 600000] [--json]";
+  "usage: node scripts/mutate.mjs <sidecar.json> [--only id,id] [--in-place] [--timeout-ms 600000] [--json]\n" +
+  "exit: 0 all as expected, 1 a mutant not as expected, 2 refused, 3 error mid-run";
 
 export const DEFAULT_TIMEOUT_MS = 600_000;
 
@@ -162,42 +167,62 @@ export function applyEdits(texts, mutant) {
 }
 
 /**
- * What one vitest run says. Red only when a test case failed: a file that fails to load
- * (no cases, a message), a timeout, a crash with no report or a run with no cases at all
- * is "stillborn", never a kill.
+ * vitest 4.1's JSON reporter drops a timed-out case's "Test timed out" message and keeps
+ * only the stack of the error it pre-made for it, which begins with this line (measured
+ * on vitest 4.1.12, 2026-10-21; pinned by a test built from that output).
+ */
+export const TIMEOUT_MARK = "Error: STACK_TRACE_ERROR";
+
+/**
+ * What one vitest run says. Red only when a test case failed on an assertion or a throw.
+ * Everything else is "stillborn", never a kill: a timeout (the run's or a case's), a file
+ * that failed before its cases ran (a load error or a failing hook), a crash with no
+ * report, or a run where no case passed or failed (all skipped). "survived" needs at least
+ * one case that passed.
  */
 export function classifyRun({ timedOut, report, code }) {
-  if (timedOut) return { result: "stillborn", reason: "timed out" };
+  if (timedOut) return { result: "stillborn", reason: "the run timed out" };
   if (!report || !Array.isArray(report.testResults))
     return { result: "stillborn", reason: `no vitest report (exit ${code})` };
-  let failed = 0;
-  let total = 0;
-  const loadFailures = [];
+  const n = { failed: 0, passed: 0, skipped: 0, timeouts: 0 };
+  const fileErrors = [];
+  const failedNames = [];
   for (const f of report.testResults) {
     const cases = Array.isArray(f.assertionResults) ? f.assertionResults : [];
-    total += cases.length;
-    failed += cases.filter((c) => c.status === "failed").length;
+    for (const c of cases) {
+      if (c.status === "failed") {
+        const msgs = Array.isArray(c.failureMessages) ? c.failureMessages : [];
+        if (msgs.length && msgs.every((m) => isStr(m) && m.startsWith(TIMEOUT_MARK))) n.timeouts++;
+        else {
+          n.failed++;
+          failedNames.push(isStr(c.fullName) ? c.fullName : String(c.title));
+        }
+      } else if (c.status === "passed") n.passed++;
+      else n.skipped++;
+    }
     if (f.status === "failed" && !cases.some((c) => c.status === "failed"))
-      loadFailures.push(relativeName(f.name));
+      fileErrors.push(`${relativeName(f.name)}: ${firstLine(f.message) || "failed"}`);
   }
-  if (failed > 0)
-    return {
-      result: "red",
-      failed,
-      total,
-      reason: loadFailures.length ? `also failed to load: ${loadFailures.join(", ")}` : "",
-    };
-  if (loadFailures.length)
-    return {
-      result: "stillborn",
-      failed,
-      total,
-      reason: `failed to load: ${loadFailures.join(", ")}`,
-    };
-  if (total === 0) return { result: "stillborn", failed, total, reason: "no test cases ran" };
+  const notes = [];
+  if (n.timeouts) notes.push(`${n.timeouts} case(s) timed out`);
+  if (fileErrors.length)
+    notes.push(`failed before its cases ran (load error or hook): ${fileErrors.join("; ")}`);
+  if (n.failed > 0) {
+    const shown = failedNames.slice(0, 3).map((t) => `"${t}"`);
+    if (failedNames.length > 3) shown.push(`${failedNames.length - 3} more`);
+    return { result: "red", ...n, reason: [`failed: ${shown.join(", ")}`, ...notes].join("; ") };
+  }
+  const reason = notes.join("; ");
+  if (notes.length) return { result: "stillborn", ...n, reason };
+  if (n.passed === 0)
+    return { result: "stillborn", ...n, reason: `no case passed or failed (${n.skipped} skipped)` };
   if (code !== 0)
-    return { result: "stillborn", failed, total, reason: `exit ${code} with every case passing` };
-  return { result: "survived", failed, total, reason: "" };
+    return { result: "stillborn", ...n, reason: `exit ${code} with every case passing` };
+  return { result: "survived", ...n, reason: "" };
+}
+
+function firstLine(m) {
+  return isStr(m) ? m.split("\n")[0].slice(0, 200) : "";
 }
 
 function relativeName(name) {
@@ -284,161 +309,191 @@ async function dirtyLines(ctx, cwd, ignore = []) {
 
 export class Refusal extends Error {}
 
+const SIGNAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+const JS_FILE = /\.(mjs|cjs|js)$/;
+
 /**
  * Runs the sidecar's mutants. Returns the report; throws a Refusal (exit 2) for anything
- * found before the first mutant is applied, so a refused run has changed nothing.
+ * found before the first mutant is applied, so a refused run has changed nothing. Any other
+ * error carries the results so far as `error.report`.
  */
 export async function mutate(o, deps = {}) {
   const run = deps.run ?? makeRunner();
   const ctx = { run, log: deps.log ?? ((s) => process.stderr.write(s + "\n")) };
   const proc = deps.process ?? process;
   const cwd = deps.cwd ?? process.cwd();
-  const root = (await git(ctx, cwd, ["rev-parse", "--show-toplevel"])).trim();
-  const sha = (await git(ctx, root, ["rev-parse", "HEAD"])).trim();
 
-  const sidecarPath = resolve(cwd, o.sidecar);
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync(sidecarPath, "utf-8"));
-  } catch (e) {
-    throw new Refusal(`cannot read ${o.sidecar}: ${e.message}`);
-  }
-  let mutants;
-  try {
-    mutants = validateSidecar(raw);
-  } catch (e) {
-    throw new Refusal(e.message);
-  }
-  if (o.only) {
-    const missing = o.only.filter((id) => !mutants.some((m) => m.id === id));
-    if (missing.length) throw new Refusal(`--only names no such mutant: ${missing.join(", ")}`);
-    mutants = mutants.filter((m) => o.only.includes(m.id));
-  }
-
-  const dirty = await dirtyLines(ctx, root);
-  if (dirty.length)
-    throw new Refusal(
-      `the working tree is not clean; commit or stash first, so the run describes HEAD:\n  ${dirty.join("\n  ")}`,
-    );
-
-  const files = [...new Set(mutants.flatMap((m) => m.edits.map((e) => e.file)))];
-  const tracked = new Set(
-    (await git(ctx, root, ["ls-files", "-z", "--", ...files])).split("\0").filter(Boolean),
-  );
-  const untracked = files.filter((f) => !tracked.has(f));
-  if (untracked.length)
-    throw new Refusal(`edits name files git does not track: ${untracked.join(", ")}`);
-  const missingTests = [...new Set(mutants.flatMap((m) => m.test))].filter(
-    (t) => !existsSync(join(root, t)),
-  );
-  if (missingTests.length) throw new Refusal(`no such test file: ${missingTests.join(", ")}`);
-  const vitestBin = join(root, "node_modules", ".bin", "vitest");
-  if (!existsSync(vitestBin))
-    throw new Refusal(`${relative(cwd, vitestBin)} is missing: run pnpm install first`);
-
-  // Every find is checked against HEAD before anything runs.
-  const pristine = new Map(files.map((f) => [f, readFileSync(join(root, f), "utf-8")]));
-  const problems = [];
-  for (const m of mutants) {
-    try {
-      applyEdits(pristine, m);
-    } catch (e) {
-      problems.push(e.message);
-    }
-  }
-  if (problems.length) throw new Refusal(problems.join("\n"));
-
-  const tmp = mkdtempSync(join(deps.tmpdir ?? tmpdir(), "mutate-"));
-  const outDir = join(tmp, "out");
-  mkdirSync(outDir);
-  let work = root;
-  let mode = "in-place";
-  const ignore = [];
-  if (!o.inPlace) {
-    const wt = join(tmp, "wt");
-    const r = await run("git", ["worktree", "add", "--detach", wt, sha], {
-      cwd: root,
-      timeoutMs: 120_000,
-    });
-    if (r.code === 0) {
-      work = wt;
-      mode = "worktree";
-    } else {
-      ctx.log(
-        `mutate: git worktree add failed, so the edits go in place and are restored: ${r.stderr.trim()}`,
-      );
-    }
-  }
-
-  // What to put back if the run is stopped: the original bytes of every file a mutant
-  // has touched, written synchronously, so a signal mid-run leaves the tree as it was.
-  const applied = new Map();
+  // State the signal handler needs, set up before anything is created, so a signal at any
+  // point removes exactly what this run made and nothing else.
+  const st = { tmp: undefined, work: undefined, root: undefined, mode: "worktree" };
+  const applied = new Map(); // file -> original text, while a mutant is on disk
+  let rebuildRootDist = false;
+  let stopping = false;
   const restoreSync = () => {
-    for (const [f, text] of applied) writeFileSync(join(work, f), text);
+    for (const [f, text] of applied) writeFileSync(join(st.work, f), text);
   };
-  let built = false;
   const cleanupSync = () => {
     for (const c of run.active ?? []) killGroup(c, "SIGKILL");
-    restoreSync();
-    if (mode === "worktree") {
-      spawnSync("git", ["worktree", "remove", "--force", work], { cwd: root });
-      spawnSync("git", ["worktree", "prune"], { cwd: root });
-    } else if (built) {
-      spawnSync("pnpm", ["run", "build"], { cwd: root, stdio: "ignore" });
+    if (st.work) restoreSync();
+    if (st.mode === "worktree" && st.work && st.work !== st.root)
+      spawnSync("git", ["worktree", "remove", "--force", st.work], { cwd: st.root });
+    if (st.mode === "in-place" && rebuildRootDist) {
+      const b = spawnSync("pnpm", ["run", "build"], { cwd: st.root, stdio: "ignore" });
+      if (b.status !== 0) ctx.log("mutate: WARNING: the rebuild of dist/ after the run failed");
     }
-    rmSync(tmp, { recursive: true, force: true });
+    if (st.tmp) rmSync(st.tmp, { recursive: true, force: true });
   };
   const onSignal = (sig) => {
+    if (stopping) {
+      ctx.log(`mutate: ${sig} again; still restoring, please wait`);
+      return;
+    }
+    stopping = true;
     cleanupSync();
     ctx.log(`mutate: stopped by ${sig}; files restored`);
-    proc.exit(sig === "SIGINT" ? 130 : 143);
+    proc.exit(SIGNAL_EXIT[sig]);
   };
-  const handlers = { SIGINT: () => onSignal("SIGINT"), SIGTERM: () => onSignal("SIGTERM") };
-  for (const [s, h] of Object.entries(handlers)) proc.on(s, h);
-
-  const vitest = async (tests, label) => {
-    const outFile = join(outDir, `${label}.json`);
-    const r = await run(
-      join(work, "node_modules", ".bin", "vitest"),
-      ["run", ...tests, "--reporter=json", `--outputFile=${outFile}`],
-      { cwd: work, timeoutMs: o.timeoutMs },
-    );
-    let report;
-    try {
-      report = JSON.parse(readFileSync(outFile, "utf-8"));
-    } catch {
-      report = null;
-    }
-    return { ...classifyRun({ timedOut: r.timedOut, report, code: r.code }), run: r };
-  };
-  const build = async () => {
-    built = true;
-    return run("pnpm", ["run", "build"], { cwd: work, timeoutMs: o.timeoutMs });
-  };
+  const handlers = Object.fromEntries(
+    Object.keys(SIGNAL_EXIT).map((sig) => [sig, () => onSignal(sig)]),
+  );
+  for (const [sig, h] of Object.entries(handlers)) proc.on(sig, h);
 
   const results = [];
-  const command = ["node", "scripts/mutate.mjs", relative(root, sidecarPath) || o.sidecar]
-    .concat(o.only ? ["--only", o.only.join(",")] : [])
-    .concat(o.inPlace ? ["--in-place"] : [])
-    .join(" ");
+  let rep;
   try {
-    // A pnpm repo installs into the worktree from the store: pnpm refuses to run scripts
-    // (vitest's global setup runs `pnpm build`) over a node_modules linked from elsewhere.
-    if (mode === "worktree" && existsSync(join(root, "pnpm-lock.yaml"))) {
-      let r = await run("pnpm", ["install", "--frozen-lockfile", "--offline"], {
-        cwd: work,
-        timeoutMs: o.timeoutMs,
+    const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd, timeoutMs: 60_000 });
+    if (top.code !== 0) throw new Refusal(`${cwd} is not inside a git repository`);
+    const root = top.stdout.trim();
+    st.root = root;
+    const sha = (await git(ctx, root, ["rev-parse", "HEAD"])).trim();
+
+    const sidecarPath = resolve(cwd, o.sidecar);
+    let raw;
+    try {
+      raw = JSON.parse(readFileSync(sidecarPath, "utf-8"));
+    } catch (e) {
+      throw new Refusal(`cannot read ${o.sidecar}: ${e.message}`);
+    }
+    let mutants;
+    try {
+      mutants = validateSidecar(raw);
+    } catch (e) {
+      throw new Refusal(e.message);
+    }
+    if (o.only) {
+      const missing = o.only.filter((id) => !mutants.some((m) => m.id === id));
+      if (missing.length) throw new Refusal(`--only names no such mutant: ${missing.join(", ")}`);
+      mutants = mutants.filter((m) => o.only.includes(m.id));
+    }
+
+    const dirty = await dirtyLines(ctx, root);
+    if (dirty.length)
+      throw new Refusal(
+        `the working tree is not clean; commit or stash first, so the run describes HEAD:\n  ${dirty.join("\n  ")}`,
+      );
+
+    const files = [...new Set(mutants.flatMap((m) => m.edits.map((e) => e.file)))];
+    const staged = (await git(ctx, root, ["ls-files", "-s", "-z", "--", ...files]))
+      .split("\0")
+      .filter(Boolean)
+      .map((l) => ({ mode: l.split(" ")[0], file: l.split("\t")[1] }));
+    const untracked = files.filter((f) => !staged.some((x) => x.file === f));
+    if (untracked.length)
+      throw new Refusal(`edits name files git does not track: ${untracked.join(", ")}`);
+    const links = staged.filter((x) => x.mode === "120000").map((x) => x.file);
+    if (links.length)
+      throw new Refusal(`edits name symlinks, which would write through: ${links.join(", ")}`);
+    const missingTests = [...new Set(mutants.flatMap((m) => m.test))].filter(
+      (t) => !existsSync(join(root, t)),
+    );
+    if (missingTests.length) throw new Refusal(`no such test file: ${missingTests.join(", ")}`);
+    if (!existsSync(join(root, "node_modules", ".bin", "vitest")))
+      throw new Refusal("node_modules/.bin/vitest is missing: run pnpm install first");
+
+    // Every find is checked against HEAD before anything runs.
+    const pristine = new Map(files.map((f) => [f, readFileSync(join(root, f), "utf-8")]));
+    const problems = [];
+    for (const m of mutants) {
+      try {
+        applyEdits(pristine, m);
+      } catch (e) {
+        problems.push(e.message);
+      }
+    }
+    if (problems.length) throw new Refusal(problems.join("\n"));
+
+    st.tmp = mkdtempSync(join(deps.tmpdir ?? tmpdir(), "mutate-"));
+    const outDir = join(st.tmp, "out");
+    mkdirSync(join(outDir, "baseline"), { recursive: true });
+    mkdirSync(join(outDir, "mutant"), { recursive: true });
+    const ignore = [];
+    if (o.inPlace) {
+      st.mode = "in-place";
+      st.work = root;
+      // vitest's global setup in this repo rebuilds dist/ from whatever src/ holds, and
+      // dist/ is ignored, so an in-place run rebuilds it from HEAD at the end.
+      rebuildRootDist = existsSync(join(root, "dist")) && hasBuildScript(root);
+    } else {
+      const wt = join(st.tmp, "wt");
+      const r = await run("git", ["worktree", "add", "--detach", wt, sha], {
+        cwd: root,
+        timeoutMs: 120_000,
       });
       if (r.code !== 0)
-        r = await run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], {
-          cwd: work,
+        throw new Refusal(
+          `git worktree add failed (${r.stderr.trim()}); rerun with --in-place to edit this checkout and restore it, knowing a SIGKILL mid-run would leave a mutant in it`,
+        );
+      st.work = wt;
+      if (existsSync(join(root, "pnpm-lock.yaml"))) {
+        // pnpm refuses to run scripts (vitest's global setup runs `pnpm build`) over a
+        // node_modules linked from elsewhere, so the worktree installs from the store.
+        let ri = await run("pnpm", ["install", "--frozen-lockfile", "--offline"], {
+          cwd: wt,
           timeoutMs: o.timeoutMs,
         });
-      if (r.code !== 0) throw new Refusal(`pnpm install in the worktree failed:\n${tail(r)}`);
-    } else if (mode === "worktree") {
-      symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
-      ignore.push("?? node_modules");
+        if (ri.code !== 0)
+          ri = await run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], {
+            cwd: wt,
+            timeoutMs: o.timeoutMs,
+          });
+        if (ri.code !== 0) throw new Refusal(`pnpm install in the worktree failed:\n${tail(ri)}`);
+      } else {
+        symlinkSync(join(root, "node_modules"), join(wt, "node_modules"), "dir");
+        ignore.push("?? node_modules");
+      }
     }
+    const work = st.work;
+
+    const vitest = async (tests, outFile) => {
+      const r = await run(
+        join(work, "node_modules", ".bin", "vitest"),
+        ["run", ...tests, "--reporter=json", `--outputFile=${outFile}`],
+        { cwd: work, timeoutMs: o.timeoutMs },
+      );
+      let report;
+      try {
+        report = JSON.parse(readFileSync(outFile, "utf-8"));
+      } catch {
+        report = null;
+      }
+      return { ...classifyRun({ timedOut: r.timedOut, report, code: r.code }), run: r };
+    };
+    const build = () => run("pnpm", ["run", "build"], { cwd: work, timeoutMs: o.timeoutMs });
+    const clean = async (after) => {
+      const left = await dirtyLines(ctx, work, ignore);
+      if (left.length)
+        throw new Error(`the tree is not clean after ${after}:\n  ${left.join("\n  ")}`);
+    };
+
+    const outside = relative(root, sidecarPath).startsWith("..");
+    const command = [
+      "node scripts/mutate.mjs",
+      outside ? sidecarPath : relative(root, sidecarPath),
+      ...(o.only ? ["--only", o.only.join(",")] : []),
+      ...(o.inPlace ? ["--in-place"] : []),
+      ...(o.timeoutMs !== DEFAULT_TIMEOUT_MS ? ["--timeout-ms", String(o.timeoutMs)] : []),
+    ].join(" ");
+    rep = { sha, mode: st.mode, command, sidecar: relative(root, sidecarPath), results };
 
     // Unmutated first: a test that fails on HEAD would make every mutant look red.
     const sets = new Map();
@@ -454,29 +509,42 @@ export async function mutate(o, deps = {}) {
     }
     let n = 0;
     for (const s of sets.values()) {
-      const pre = await vitest(s.tests, `unmutated-${n++}`);
+      const pre = await vitest(s.tests, join(outDir, "baseline", `${n++}.json`));
       if (pre.result !== "survived")
         throw new Refusal(
           `the unmutated run of ${s.tests.join(" ")} did not pass (${pre.result}${pre.failed ? `, ${pre.failed} failed` : ""}${pre.reason ? `, ${pre.reason}` : ""}), so no mutant can be judged:\n${tail(pre.run)}`,
         );
     }
+    await clean("the unmutated run");
 
     for (const m of mutants) {
       const current = new Map(files.map((f) => [f, readFileSync(join(work, f), "utf-8")]));
       const next = applyEdits(current, m);
-      for (const [f, text] of next) {
-        applied.set(f, current.get(f));
-        writeFileSync(join(work, f), text);
-      }
       let outcome;
       try {
-        if (m.build) {
+        for (const [f, text] of next) {
+          applied.set(f, current.get(f));
+          writeFileSync(join(work, f), text);
+        }
+        // A test that spawns a mutated script reports a syntax error as a failed case.
+        const unparsed = [];
+        for (const f of next.keys())
+          if (JS_FILE.test(f)) {
+            const c = await run(process.execPath, ["--check", join(work, f)], {
+              cwd: work,
+              timeoutMs: 60_000,
+            });
+            if (c.code !== 0) unparsed.push(f);
+          }
+        if (unparsed.length)
+          outcome = { result: "stillborn", reason: `does not parse: ${unparsed.join(", ")}` };
+        else if (m.build) {
           const b = await build();
           outcome =
             b.code === 0
-              ? await vitest(m.test, m.id)
+              ? await vitest(m.test, join(outDir, "mutant", `${m.id}.json`))
               : { result: "stillborn", reason: `build failed (exit ${b.code})` };
-        } else outcome = await vitest(m.test, m.id);
+        } else outcome = await vitest(m.test, join(outDir, "mutant", `${m.id}.json`));
       } finally {
         restoreSync();
       }
@@ -484,35 +552,54 @@ export async function mutate(o, deps = {}) {
         if (readFileSync(join(work, f), "utf-8") !== text)
           throw new Error(`${f} did not restore after ${m.id}`);
       applied.clear();
+      results.push({
+        id: m.id,
+        expect: m.expect,
+        result: outcome.result,
+        failed: outcome.failed,
+        passed: outcome.passed,
+        skipped: outcome.skipped,
+        reason: outcome.reason,
+        test: m.test,
+        why: m.why,
+        ok: asExpected(m.expect, outcome.result),
+      });
       // dist/ is ignored, so the restore leaves the mutant's build in it; the next
       // mutant must not run against that.
       if (m.build) {
         const b = await build();
         if (b.code !== 0) throw new Error(`the rebuild after ${m.id} failed:\n${tail(b)}`);
       }
-      const left = await dirtyLines(ctx, work, ignore);
-      if (left.length)
-        throw new Error(`the tree is not clean after ${m.id}:\n  ${left.join("\n  ")}`);
-      results.push({
-        id: m.id,
-        expect: m.expect,
-        result: outcome.result,
-        failed: outcome.failed,
-        total: outcome.total,
-        reason: outcome.reason,
-        test: m.test,
-        why: m.why,
-        ok: asExpected(m.expect, outcome.result),
-      });
+      await clean(m.id);
     }
+    if (rebuildRootDist) {
+      const b = await build();
+      if (b.code !== 0) throw new Error(`the rebuild of dist/ after the run failed:\n${tail(b)}`);
+      rebuildRootDist = false;
+    }
+  } catch (e) {
+    if (!(e instanceof Refusal) && rep) e.report = rep;
+    throw e;
   } finally {
-    for (const [s, h] of Object.entries(handlers)) proc.off(s, h);
+    stopping = true; // a signal now waits for the cleanup below rather than racing it
     cleanupSync();
+    for (const [sig, h] of Object.entries(handlers)) proc.off(sig, h);
   }
-  const after = await dirtyLines(ctx, root);
-  if (after.length)
-    throw new Error(`the tree is not clean after the run:\n  ${after.join("\n  ")}`);
-  return { sha, mode, command, sidecar: relative(root, sidecarPath), results };
+  const after = await dirtyLines(ctx, st.root);
+  if (after.length) {
+    const e = new Error(`the tree is not clean after the run:\n  ${after.join("\n  ")}`);
+    e.report = rep;
+    throw e;
+  }
+  return rep;
+}
+
+function hasBuildScript(root) {
+  try {
+    return Boolean(JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).scripts?.build);
+  } catch {
+    return false;
+  }
 }
 
 function tail(r) {
@@ -527,13 +614,17 @@ export function formatReport(rep) {
     "",
     `At \`${rep.sha}\`, \`${rep.command}\`:`,
     "",
-    "| Mutant | Expect | Result | Failed / cases | Test | Note |",
+    "| Mutant | Expect | Result | Failed / ran | Test | Note |",
     "| --- | --- | --- | --- | --- | --- |",
   ];
   for (const r of rep.results) {
     const res = r.ok ? r.result : `**${r.result}** (unexpected)`;
-    const counts = r.total === undefined ? "–" : `${r.failed} / ${r.total}`;
-    const note = (r.expect === "survives" ? r.why : r.reason) ?? "";
+    const counts =
+      r.failed === undefined
+        ? "–"
+        : `${r.failed} / ${r.failed + r.passed}${r.skipped ? ` (${r.skipped} skipped)` : ""}`;
+    // An outcome that is not as expected shows why it happened first.
+    const note = (r.ok ? [r.why, r.reason] : [r.reason, r.why]).filter(Boolean).join(" — ");
     out.push(
       `| ${r.id} | ${r.expect} | ${res} | ${counts} | ${r.test.map((t) => `\`${t}\``).join(", ")} | ${note.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`,
     );
@@ -559,7 +650,11 @@ async function main() {
       process.exitCode = 2;
       return;
     }
-    throw e;
+    if (e?.report?.results?.length)
+      process.stdout.write(`${formatReport(e.report)}\n(stopped early; results so far)\n`);
+    process.stderr.write(`mutate: error: ${e?.message ?? e}\n`);
+    process.exitCode = 3;
+    return;
   }
   process.stdout.write(o.json ? JSON.stringify(rep, null, 2) + "\n" : formatReport(rep));
   process.exitCode = rep.results.every((r) => r.ok) ? 0 : 1;
@@ -568,6 +663,6 @@ async function main() {
 if (isMain(import.meta.url)) {
   main().catch((e) => {
     process.stderr.write(`mutate: ${e?.stack ?? e}\n`);
-    process.exitCode = 1;
+    process.exitCode = 3;
   });
 }

@@ -1,6 +1,7 @@
 import type { RunResult } from "./land-prs.mjs";
 
 export const DEFAULT_TIMEOUT_MS: number;
+export const TIMEOUT_MARK: string;
 
 export interface Options {
   sidecar: string;
@@ -30,7 +31,9 @@ export type Result = "red" | "survived" | "stillborn";
 export interface Classified {
   result: Result;
   failed?: number;
-  total?: number;
+  passed?: number;
+  skipped?: number;
+  timeouts?: number;
   reason: string;
 }
 
@@ -39,7 +42,8 @@ export interface MutantResult {
   expect: "red" | "survives";
   result: Result;
   failed: number | undefined;
-  total: number | undefined;
+  passed: number | undefined;
+  skipped: number | undefined;
   reason: string;
   test: string[];
   why: string | undefined;
@@ -71,7 +75,7 @@ export function applyEdits(
 ): Map<string, string>;
 export function classifyRun(r: { timedOut?: boolean; report: unknown; code: number }): Classified;
 export function asExpected(expect: string, result: string): boolean;
-export function makeRunner(active?: Set<unknown>): Runner;
+export function makeRunner(active?: Set<unknown>): Runner & { active: Set<unknown> };
 export function mutate(
   o: Options,
   deps?: {
