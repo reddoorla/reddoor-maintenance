@@ -398,7 +398,7 @@ export const FIXES_PHRASE =
 
 /** Same-repo PR numbers `pr`'s title names, and those its body names as the PR it fixes. */
 export function namedPrs(pr, repo) {
-  const esc = repo.replace(/[.]/g, "\\.");
+  const esc = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const ref = new RegExp(
     `(?<![\\w/.-])#(\\d+)\\b|(?<![\\w-])${esc}#(\\d+)\\b|https://github\\.com/${esc}/(?:pull|issues)/(\\d+)\\b`,
     "g",
