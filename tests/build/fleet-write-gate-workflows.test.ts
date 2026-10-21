@@ -119,7 +119,10 @@ async function cliOutput(args: {
       recordEvents: async () => {},
     },
   });
-  return `${formatUnmeasuredSmokeSummary(args.results)}\n\n${wb.summary}\n`;
+  // One probed form-e2e row as formatTable renders it, for fleet-form-e2e's
+  // probed-nothing check (#1610); the other workflows ignore it.
+  const probedRow = `${"form-e2e".padEnd(12)} ${"pass".padEnd(5)} site-0\n  form-e2e: synthetic submission succeeded`;
+  return `${probedRow}\n${formatUnmeasuredSmokeSummary(args.results)}\n\n${wb.summary}\n`;
 }
 
 describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit, label }) => {
