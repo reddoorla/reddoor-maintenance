@@ -36,8 +36,6 @@ import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handl
  */
 export const config: Config = {
   path: ["/auth/login", "/auth/callback", "/auth/logout", "/auth/basic"],
-  // An unauthenticated surface, so capped harder than the read-only dashboards.
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 /** The redirect URI registered with Google. Derived from the same helper the

@@ -51,11 +51,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // meaning something and per-slug becomes worth its cost.
 export const config: Config = {
   path: ["/api/forms/:slug", "/.netlify/functions/form-ingest"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 120,
-    aggregateBy: ["ip"],
-  },
 };
 
 // Log the unset-secret fail-open path once per warm instance (not per request).

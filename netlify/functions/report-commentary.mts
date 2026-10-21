@@ -13,7 +13,6 @@ import { isReportId } from "../../src/fleet/report-id.js";
 // JSON body.
 export const config: Config = {
   path: ["/api/reports/:id/commentary", "/.netlify/functions/report-commentary"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 function json(body: unknown, status: number): Response {

@@ -17,7 +17,6 @@ import { RENOVATE_WORKFLOW_FILE } from "../../src/github/renovate-dispatch.js";
 // in ctx.params.slug.
 export const config: Config = {
   path: ["/api/sites/:slug/trigger-renovate", "/.netlify/functions/trigger-renovate"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {

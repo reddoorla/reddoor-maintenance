@@ -15,7 +15,6 @@ import { makeGitHubRest } from "../../src/github/gh-rest.js";
 // not a per-site repo. Path-routed on the function like the other endpoints.
 export const config: Config = {
   path: ["/api/fleet/refresh", "/api/fleet/refresh/status", "/.netlify/functions/refresh-fleet"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 // The repo whose Actions run the fleet sweeps. Defaults to the dashboard's own

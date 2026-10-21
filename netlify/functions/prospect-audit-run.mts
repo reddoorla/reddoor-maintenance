@@ -25,7 +25,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // hardcoded — see prospect-audit-trigger.ts for the injectable dispatcher.
 export const config: Config = {
   path: ["/api/prospect-audit/run", "/.netlify/functions/prospect-audit-run"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {

@@ -9,11 +9,6 @@ import { isReportId } from "../../src/fleet/report-id.js";
 // behind the same operator Basic auth as every other dashboard page.
 export const config: Config = {
   path: ["/api/reports/:id/preview"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 120,
-    aggregateBy: ["ip"],
-  },
 };
 
 function plainText(body: string, status: number, headers: Record<string, string> = {}): Response {

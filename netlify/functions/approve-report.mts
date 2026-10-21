@@ -15,13 +15,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // routing the record id arrives in ctx.params.id.
 export const config: Config = {
   path: ["/api/reports/:id/approve", "/.netlify/functions/approve-report"],
-  // Tighter than the read-only dashboards (fleet-homepage is 60/min): this is a
-  // state-changing POST behind ambient Basic-auth creds, so cap it harder.
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
 };
 
 function plainText(

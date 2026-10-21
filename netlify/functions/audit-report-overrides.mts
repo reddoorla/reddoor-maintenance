@@ -21,7 +21,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // audience. WRITING to somebody's report is not something a link should permit.
 export const config: Config = {
   path: ["/api/audit-report/:token/overrides"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 /**

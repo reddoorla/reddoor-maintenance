@@ -16,11 +16,6 @@ import { reportUrl } from "../../src/prospect/report-url.js";
 // 128-bit token IS the credential.
 export const config: Config = {
   path: ["/r/:token"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 60,
-    aggregateBy: ["ip"],
-  },
 };
 
 function plainText(body: string, status: number): Response {

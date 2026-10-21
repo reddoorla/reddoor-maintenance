@@ -16,7 +16,6 @@ const RERENDER_WORKFLOW_FILE = "report-rerender.yml";
 
 export const config: Config = {
   path: ["/api/reports/:id/rerender", "/.netlify/functions/report-rerender"],
-  rateLimit: { windowSize: 60, windowLimit: 20, aggregateBy: ["ip"] },
 };
 
 function json(body: unknown, status: number): Response {

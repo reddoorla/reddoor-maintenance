@@ -11,7 +11,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // empty). The slug arrives in ctx.params.slug; { field, value } in the JSON body.
 export const config: Config = {
   path: ["/api/sites/:slug/details", "/.netlify/functions/site-details"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {

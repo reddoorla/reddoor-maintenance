@@ -19,11 +19,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // reason.
 export const config: Config = {
   path: ["/api/submissions/:id/status", "/.netlify/functions/submission-status"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
 };
 
 function json(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {

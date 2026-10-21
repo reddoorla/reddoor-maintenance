@@ -21,11 +21,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // empty), with the same rate limit.
 export const config: Config = {
   path: ["/api/reports/:id/withdraw", "/.netlify/functions/withdraw-report"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
 };
 
 /** A withdrawal moves the site's next-due date (it consumes its cycle), so

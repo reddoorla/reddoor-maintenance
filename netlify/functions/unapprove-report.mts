@@ -11,11 +11,6 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // same reason as approve-report.mts, with the same rate limit.
 export const config: Config = {
   path: ["/api/reports/:id/unapprove", "/.netlify/functions/unapprove-report"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
 };
 
 function plainText(body: string, status: number): Response {

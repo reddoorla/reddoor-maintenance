@@ -14,11 +14,6 @@ import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
 // Modest per-IP cap. The legitimate caller is svix (Resend) at low volume; this
 // only blunts a flood of forged/unsigned POSTs before signature verification.
 export const config: Config = {
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 60,
-    aggregateBy: ["ip"],
-  },
 };
 
 type ResendEvent = {
