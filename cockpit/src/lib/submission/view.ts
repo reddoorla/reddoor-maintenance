@@ -68,8 +68,6 @@ function extraFields(raw: string | null): SubmissionDetail[] {
   }));
 }
 
-/** `now` defaults to the wall clock; a caller with its own clock (`/s/:slug`)
- *  passes it, so one page never mixes two. */
 export function buildSubmissionRowView(
   s: SubmissionRow,
   now: Date = new Date(),

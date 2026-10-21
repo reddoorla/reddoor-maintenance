@@ -102,7 +102,7 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
 describe("/s/:slug reads only the injected clock", () => {
   afterEach(() => vi.useRealTimers());
   for (const [name, i] of CASES) {
-    it(`${name}: the same markup with the wall clock a year on`, () => {
+    it(`${name}: the same markup with the wall clock in 2031`, () => {
       const today = rendered(i);
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2031-01-01T00:00:00.000Z"));
