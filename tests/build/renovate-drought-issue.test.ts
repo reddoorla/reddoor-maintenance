@@ -466,7 +466,7 @@ describe("the close step closes only on evidence", () => {
     expect(r.out).toContain("reddoorla/espada");
   });
 
-  it("refuses an issue whose body names no drought or UNMEASURED repo", async () => {
+  it("refuses an issue whose body names no dry repo", async () => {
     const s = await sweep([{ name: "espada", window: HEALTHY }]);
     const handFiled: Issue = { number: 950, title: "Renovate drought: espada", body: "by hand" };
     const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([handFiled]) });
@@ -505,6 +505,53 @@ describe("the close step closes only on evidence", () => {
     expect(s.output).toContain("RENOVATE_OUTCOME drought=0 delivering=1 unmeasured=1 ");
     const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([issue]) });
     expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950"]);
+  });
+
+  it("a named repo that goes UNMEASURED on a night that still has a drought stays named, so it still holds", async () => {
+    // Night 1: espada is dry, and the issue names it.
+    const night1: Issue = {
+      number: 950,
+      title: "Renovate drought: espada",
+      body: await openedBody([{ name: "espada", window: FROZEN }]),
+    };
+    // Night 2: espada's probe throws (UNMEASURED) and revogen is dry, so the
+    // open step rewrites the body to tonight's drought.
+    const s2 = await sweep([
+      { name: "espada", window: FROZEN, probeThrows: true },
+      { name: "revogen", window: FROZEN },
+    ]);
+    const r2 = await runStep({ step: OPEN_STEP, sweep: s2.output, corpus: corpus([night1]) });
+    const edit = r2.calls.find((c) => c.sub === "edit")!;
+    expect(edit.flag("--title")).toBe("Renovate drought: revogen, espada");
+    const night2: Issue = { number: 950, title: edit.flag("--title")!, body: edit.flag("--body")! };
+    expect(night2.body).toMatch(
+      /^WARN {4}reddoorla\/espada — no feature update has LANDED since an earlier night/m,
+    );
+    // Night 3: revogen delivers, espada is still UNMEASURED. It never
+    // delivered, so the issue stays open.
+    const s3 = await sweep([
+      { name: "espada", window: FROZEN, probeThrows: true },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r3 = await runStep({ step: CLOSE_STEP, sweep: s3.output, corpus: corpus([night2]) });
+    expect(r3.calls.filter((c) => c.sub === "close")).toEqual([]);
+    expect(r3.out).toContain("did not see deliver: reddoorla/espada");
+  });
+
+  it("a named repo that delivered is not carried into the rewritten body", async () => {
+    const night1: Issue = {
+      number: 950,
+      title: "Renovate drought: espada",
+      body: await openedBody([{ name: "espada", window: FROZEN }]),
+    };
+    const s2 = await sweep([
+      { name: "espada", window: HEALTHY },
+      { name: "revogen", window: FROZEN },
+    ]);
+    const r2 = await runStep({ step: OPEN_STEP, sweep: s2.output, corpus: corpus([night1]) });
+    const edit = r2.calls.find((c) => c.sub === "edit")!;
+    expect(edit.flag("--title")).toBe("Renovate drought: revogen");
+    expect(edit.flag("--body")).not.toContain("reddoorla/espada");
   });
 
   it("leaves other titles alone", async () => {

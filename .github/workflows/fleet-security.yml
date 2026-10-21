@@ -351,16 +351,32 @@ jobs:
           detail=$(grep -E "^WARN +[^ ]+ — no feature update has LANDED" "$out" || true)
           unmeasured=$(grep -E "^WARN +[^ ]+ — renovate outcome UNMEASURED" "$out" || true)
           summary=$(grep -E "^RENOVATE_OUTCOME " "$out" | tail -n1 || true)
-          # The title names tonight's dry repos, cut to stay well inside GitHub's
-          # 256-character limit, with a count of the rest.
-          full_title=$(printf '%s\n' "$detail" | awk -v t="$title" '
-            NF >= 2 { n++; name = $2; sub(/^[^\/]*\//, "", name)
-                      if (n == shown + 1 && length(s) + length(name) + 2 <= 170) { s = s (shown ? ", " : "") name; shown++ } }
-            END { if (shown == 0) { print t; exit } r = t ": " s; if (n > shown) r = r " (+" (n - shown) " more)"; print r }')
-          body=$(printf 'The nightly protection-coverage sweep measures when a feature-update Renovate PR last MERGED on each public repo. These repos are past the drought threshold:\n\n```\n%s\n```\n\n`%s`\n\nNot measured tonight (listed for context; these neither open nor hold this issue):\n\n```\n%s\n```\n\nSecurity and lock-file Renovate PRs are excluded on purpose: they bypass the schedule and kept merging through the 2026-09-14 freeze, which is why a sweep counting them read green for a month. This is feature-version drift, not a security signal, and it never opens or holds the "Fleet protection coverage gap" issue.\n\n- **A drought line:** open the repo'\''s Dependency Dashboard issue. Look for a grouped PR that is open and waiting on CI or review, a branch a human edit has blocked, or a schedule window that never fired.\n- **An UNMEASURED line:** "window is FULL" means the last 100 closed PRs hold no feature merge, so the answer is older than the sweep reads (#898). "never merged" means there is no baseline yet. Neither is a known drought.\n\nRun: %s\n\n_Auto-filed; auto-closes once every repo in the drought list delivers again._' "${detail:-see run output}" "${summary:-no RENOVATE_OUTCOME line}" "${unmeasured:-none}" "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\" or (.title | startswith(\"$title: \")))) | .[0].number // empty" || true)
+          # A repo the existing issue named as dry that neither delivered nor
+          # is dry again tonight (its probe threw, say) stays named: rewriting
+          # the body to tonight's dry list alone would drop it, and the issue
+          # could then close on a later night without it ever delivering.
+          held=""
+          nl=$'\n'
+          if [ -n "$existing" ] && [ -n "$detail" ]; then
+            delivering=$(awk '/^DELIVER / { print $2 }' "$out")
+            dry=$(printf '%s\n' "$detail" | awk 'NF >= 2 { print $2 }')
+            for repo in $(gh issue view "$existing" --json body --jq '.body' 2>/dev/null \
+              | grep -E "^WARN +[^ ]+ — no feature update has LANDED" | awk '{ print $2 }' | sort -u || true); do
+              printf '%s\n' "$delivering" "$dry" | grep -qxF "$repo" && continue
+              held="${held:+$held$nl}WARN    $repo — no feature update has LANDED since an earlier night named it, and tonight it was not measured, so it still holds this issue"
+            done
+          fi
+          all_dry=$(printf '%s\n%s\n' "$detail" "$held" | sed '/^$/d')
+          # The title names tonight's dry repos, cut to stay well inside GitHub's
+          # 256-character limit, with a count of the rest.
+          full_title=$(printf '%s\n' "$all_dry" | awk -v t="$title" '
+            NF >= 2 { n++; name = $2; sub(/^[^\/]*\//, "", name)
+                      if (n == shown + 1 && length(s) + length(name) + 2 <= 170) { s = s (shown ? ", " : "") name; shown++ } }
+            END { if (shown == 0) { print t; exit } r = t ": " s; if (n > shown) r = r " (+" (n - shown) " more)"; print r }')
+          body=$(printf 'The nightly protection-coverage sweep measures when a feature-update Renovate PR last MERGED on each public repo. These repos are past the drought threshold:\n\n```\n%s\n```\n\n`%s`\n\nNot measured tonight (listed for context; these neither open nor hold this issue):\n\n```\n%s\n```\n\nSecurity and lock-file Renovate PRs are excluded on purpose: they bypass the schedule and kept merging through the 2026-09-14 freeze, which is why a sweep counting them read green for a month. This is feature-version drift, not a security signal, and it never opens or holds the "Fleet protection coverage gap" issue.\n\n- **A drought line:** open the repo'\''s Dependency Dashboard issue. Look for a grouped PR that is open and waiting on CI or review, a branch a human edit has blocked, or a schedule window that never fired.\n- **An UNMEASURED line:** "window is FULL" means the last 100 closed PRs hold no feature merge, so the answer is older than the sweep reads (#898). "never merged" means there is no baseline yet. Neither is a known drought.\n\nRun: %s\n\n_Auto-filed; auto-closes once every repo in the drought list delivers again._' "${all_dry:-see run output}" "${summary:-no RENOVATE_OUTCOME line}" "${unmeasured:-none}" "$run_url")
           if [ -n "$existing" ]; then
             # Retitle and rewrite to tonight's repos, and comment for the
             # history. Never onto a body with no repo line: the close step
