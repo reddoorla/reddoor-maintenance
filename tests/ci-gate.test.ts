@@ -144,7 +144,9 @@ describe("a workflow that runs the suite checks out the tags the suite reads", (
  */
 describe("a workflow that runs the suite syncs the cockpit before it", () => {
   type Step = { name?: string; run?: string; "working-directory"?: string };
-  const SUITE = /^\s*pnpm (test|test:coverage)\b/;
+  // Any line of the step, so a `run: |` block is policed too; not `test:dist`, which
+  // smokes the built package and loads no cockpit test.
+  const SUITE = /^\s*pnpm (test|test:coverage)(?=\s|$)/m;
   // `pnpm typecheck` reaches `cockpit:check`, whose first command is the sync.
   const SYNC = /^\s*pnpm (exec svelte-kit sync|typecheck|cockpit:check)\s*$/;
 

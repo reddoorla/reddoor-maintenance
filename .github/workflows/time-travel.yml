@@ -102,7 +102,7 @@ jobs:
       # wall-clock diagnosis the rest of the text asserts.
       #
       # A failure or cancel OUTSIDE the suite step (checkout, `pnpm install --frozen-lockfile`,
-      # the browser install — a hang there to the 30-minute limit) used to file nothing at all
+      # the browser install, the cockpit sync — a hang there to the 30-minute limit) used to file nothing at all
       # (P1-15). It now files a SEPARATE issue, not this one: "Time-travel suite failing" is
       # itself a diagnosis, and a setup break commenting on an open wall-clock issue would
       # read as another clock failure. The two conditions are exact complements on the
