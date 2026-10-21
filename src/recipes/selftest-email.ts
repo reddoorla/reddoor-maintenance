@@ -8,7 +8,7 @@ import { applyReportTypeHeadline } from "../reports/header-image/index.js";
 import { buildReportDataForSite, scoresFromRow } from "../reports/report-data.js";
 import { renderReportEmail } from "../reports/send/render-email.js";
 import { defaultResendClient, type ResendClient } from "../reports/send/resend.js";
-import { parseAddresses, isProbablyEmail } from "../reports/send/orchestrate.js";
+import { parseAddresses, isProbablyEmail } from "../reports/send/addresses.js";
 import { operatorEmail } from "../util/operator.js";
 import type { ReportType } from "../reports/types.js";
 
