@@ -39,9 +39,11 @@ export async function runMigrations(client: Client): Promise<string[]> {
     }
     // Several clients can run a pending migration at once (nightlies starting
     // together, a function cold-starting beside them; #1667). The DDL above is
-    // idempotent, so the marker is the only race: the loser's insert hits the
-    // primary key, which means "another client recorded it". `ON CONFLICT(id)`
-    // ignores that one conflict only; any other insert failure still throws.
+    // idempotent, so between clients in one process the marker is the only race
+    // (across processes on one local file, SQLITE_BUSY can come first: #1674).
+    // The loser's insert hits the primary key, which means "another client
+    // recorded it". `ON CONFLICT(id)` ignores that one conflict only; any other
+    // insert failure still throws.
     const marked = await client.execute({
       sql: "INSERT INTO _migrations (id, applied_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
       args: [m.id, new Date().toISOString()],
