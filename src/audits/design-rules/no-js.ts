@@ -12,7 +12,10 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //     revealBelowFold has scrolled the page and let every reveal settle,
 //     SETTLE_MIN_MS later, and once two samples SETTLE_GAP_MS apart agree (a
 //     script that decides the layout late, beachfront's `isMobile`, has then
-//     run): the page as designed.
+//     run): the page as designed. It then keeps sampling through
+//     STEADY_WINDOW_MS, and only what every sample shows counts as visible: a
+//     slideshow's slides come and go (sliding, fading, any width) and are not
+//     judged, so the verdict does not depend on which slide a sample caught.
 //   - WITHOUT JavaScript, and with NO reduced-motion preference. A reveal's
 //     hidden state often sits behind `prefers-reduced-motion: no-preference`
 //     (the starters' `[data-reveal]`), so a no-JS render under `reduce` would
@@ -40,11 +43,9 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // copy in a container that also holds a `<noscript>` alternative; a number
 // script updates (a year), unless the served value is zero (a count-up); a date
 // or time script rewrites ("January 5, 2026" to "9 months ago", hours to "Open
-// now"), unless the served value is a zero; a slide clipped out of its box
-// while a sibling slide beside it (same tag, same width, a width apart)
-// shows content without JavaScript (a carousel's later slide, which an
-// autoplay timer can bring on screen at any sample); and, on a page with no <main>, layers that are fixed
-// or dialogs (a consent banner), since the whole <body> is read there.
+// now"), unless the served value is a zero; and, on a page with no <main>,
+// layers that are fixed or dialogs (a consent banner), since the whole <body>
+// is read there.
 //
 // Both renders run at 1440×900 and at 390×844, and open shadow roots are read
 // with the page, slotted light children included.
@@ -54,8 +55,8 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // script on; text outside <main> on a page that has one; text inside iframes
 // and closed shadow roots; a count-up that ships a non-zero start ("12" to
 // "1,200"), which reads as a year; a carousel that cannot be advanced without
-// JavaScript (its later slides are not judged); a reveal clipped among
-// same-tag, same-width siblings in a row (a card row), which reads as a slide; an image or
+// JavaScript (its later slides are not judged); copy that keeps changing on
+// its own (a rotating headline, a ticker), which is not steady; an image or
 // embed only script mounts, without alt or title, beside a served one without
 // either (both read `image ""`); and copy a script renders more than
 // SETTLE_MIN_MS after load and after the samples agree.
@@ -63,10 +64,15 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 /** How long the JS render waits after revealing before it samples: a late
  *  script (a review widget, a layout decided on a timer) has run by then. */
 const SETTLE_MIN_MS = 2000;
-/** The gap between the JS render's samples, until two agree. */
+/** The gap between the JS render's samples, until two agree, and through the
+ *  steady window. */
 const SETTLE_GAP_MS = 500;
 /** Samples the JS render takes at most before it reads the last one. */
 const SETTLE_TRIES = 8;
+/** How long the JS render keeps sampling once it has settled. Only what is
+ *  visible in every sample of this window is judged: a slide an autoplay
+ *  brings on screen (sliding, fading, any width) is absent from some. */
+const STEADY_WINDOW_MS = 6000;
 
 export type TextItem = {
   /** The path shown to a reader. */
@@ -78,9 +84,6 @@ export type TextItem = {
    *  name: `image "alt"`, `video src`, `"aria label"`, `reveal`. */
   text: string;
   visible: boolean;
-  /** Hidden only because a clipping box that shows other visible content
-   *  cuts it off: a carousel's later slide, a horizontal scroller's tail. */
-  parked?: boolean;
 };
 
 export type TextSample = {
@@ -94,6 +97,9 @@ export type TextSample = {
   noscriptKeys: string[];
   /** A fixed layer over 90% or more of the viewport, at its centre, or null. */
   cover: string | null;
+  /** Items the JS render showed but not in every sample of its steady
+   *  window (an autoplay's slides), so not judged. Set by the JS render. */
+  unsteady?: number;
   /** True when the page had no <main> and <body> was read. */
   noMain: boolean;
 };
@@ -134,7 +140,6 @@ export function sampleVisibleText(): TextSample {
     kind: "item" | "noscript" | "cover";
     text: string;
     visible: boolean;
-    clip?: Element | null;
   }> = [];
   for (const el of order) {
     if (el.tagName === "NOSCRIPT") {
@@ -188,7 +193,6 @@ export function sampleVisibleText(): TextSample {
     const rect = el.getBoundingClientRect();
     let opacity = 1;
     let clipped = false;
-    let clip: Element | null = null;
     for (let node: Element | null = el; node;) {
       const s = getComputedStyle(node);
       opacity *= Number(s.opacity);
@@ -206,7 +210,6 @@ export function sampleVisibleText(): TextSample {
           rect.top >= box.bottom
         ) {
           clipped = true;
-          clip ??= node;
         }
       }
       node = node.parentElement ?? ((node.getRootNode() as ShadowRoot).host || null);
@@ -228,17 +231,16 @@ export function sampleVisibleText(): TextSample {
       !el.getAttribute("src") &&
       !el.getAttribute("srcset") &&
       !el.parentElement?.querySelector("source[srcset]");
-    // Visible but for clipping: a slide past the page's edge is past it
-    // because its box clips it.
-    const shows =
+    const visible =
       !unsourced &&
       rect.width >= 2 &&
       rect.height >= 2 &&
       style.visibility === "visible" &&
       opacity >= 0.1 &&
-      !transparent;
-    const visible = shows && !clipped && !offPage;
-    pending.push({ el, kind: "item", text, visible, clip: clipped && shows ? clip : null });
+      !transparent &&
+      !clipped &&
+      !offPage;
+    pending.push({ el, kind: "item", text, visible });
   }
   // A full-screen cover at the viewport's centre: a fixed layer of 90% or more.
   for (
@@ -300,41 +302,7 @@ export function sampleVisibleText(): TextSample {
     const key = keyParts.join(" > ").replace(/ > ::shadow > /g, " ::shadow ");
     if (item.kind === "noscript") noscriptKeys.push(key);
     else if (item.kind === "cover") cover = target;
-    else {
-      const clip = item.clip;
-      // Parked: a slide, one of a row of siblings of one tag and one width,
-      // side by side (a full width apart) inside the clipping box, where another
-      // of them shows content. Classes are not evidence (a server renders
-      // `is-active` on the first slide; page sections have none); layout
-      // is. A reveal clipped beside or below other copy is not parked.
-      let parked = false;
-      for (
-        let n: Element | null = item.el;
-        clip && n && n !== clip && !parked;
-        n = n.parentElement
-      ) {
-        const parent: Element | null = n.parentElement;
-        if (!parent || !clip.contains(parent)) break;
-        for (const sib of Array.from(parent.children)) {
-          if (sib === n || sib.tagName !== n.tagName) continue;
-          const a = n.getBoundingClientRect();
-          const b = sib.getBoundingClientRect();
-          const row = Math.abs(a.width - b.width) <= 1 && Math.abs(a.left - b.left) >= a.width - 1;
-          if (!row) continue;
-          if (pending.some((o) => o.kind === "item" && o.visible && sib.contains(o.el))) {
-            parked = true;
-            break;
-          }
-        }
-      }
-      items.push({
-        target,
-        key,
-        text: item.text,
-        visible: item.visible,
-        ...(parked ? { parked } : {}),
-      });
-    }
+    else items.push({ target, key, text: item.text, visible: item.visible });
   }
   return {
     scriptingOff: probe.querySelector("i") !== null,
@@ -368,9 +336,8 @@ type NoJsPair = { width: number; withJs: TextSample; withoutJs: TextSample };
  *   - otherwise, by text: fine if the text is visible anywhere without
  *     JavaScript (a marquee's copy), or inside the element that held it
  *     before script split it into words; "hidden" at an invisible copy if
- *     there is one, unless a clipping box that shows other content parks it
- *     (a carousel's slide); fine inside a container that holds a
- *     `<noscript>` alternative; else "not rendered".
+ *     there is one; fine inside a container that holds a `<noscript>`
+ *     alternative; else "not rendered".
  *
  * A cover only the no-JS render has is a finding of its own. A finding seen at
  * both widths is reported once, with the widths.
@@ -422,7 +389,7 @@ export function summarizeNoJs(url: string, pairs: NoJsPair[]): RuleOutcome {
       shownTotal += 1;
       const there = byPlace.get(i.place);
       if (there && there.text === i.text) {
-        if (!there.visible && !there.parked) {
+        if (!there.visible) {
           add(width, i.place, there.target, `${quote(i.text)} is hidden without JavaScript`);
         }
         continue;
@@ -451,7 +418,6 @@ export function summarizeNoJs(url: string, pairs: NoJsPair[]): RuleOutcome {
       );
       if (elsewhere) continue;
       const hidden = noJs.find((n) => n.text === i.text && !n.visible);
-      if (hidden?.parked) continue;
       if (hidden) {
         add(width, i.place, hidden.target, `${quote(i.text)} is hidden without JavaScript`);
         continue;
@@ -465,13 +431,17 @@ export function summarizeNoJs(url: string, pairs: NoJsPair[]): RuleOutcome {
     problem: `${f.problem} (at ${f.widths.join(" and ")}px)`,
   }));
   const noMain = pairs.some((p) => p.withJs.noMain);
+  const unsteady = Math.max(0, ...pairs.map((p) => p.withJs.unsteady ?? 0));
   return {
     ...base,
     status: findings.length === 0 ? "pass" : "fail",
     findings,
     note:
       `${shownTotal} visible item(s) with JavaScript across ${pairs.map((p) => `${p.width}px`).join(" and ")}; ${findings.length} missing without it` +
-      (noMain ? "; no <main>, so <body> was read, its fixed layers and dialogs left out" : ""),
+      (noMain ? "; no <main>, so <body> was read, its fixed layers and dialogs left out" : "") +
+      (unsteady > 0
+        ? `; ${unsteady} item(s) came and went with JavaScript (a slideshow), not judged`
+        : ""),
   };
 }
 
@@ -489,7 +459,7 @@ export const WITHOUT_JS_CONTEXT: BrowserContextOptions = {
 
 /** The JS render: wait for the network to go quiet, reveal everything, then
  *  sample until two samples SETTLE_GAP_MS apart see the same visible things. */
-async function settledSample(page: Page): Promise<TextSample> {
+async function settledSample(page: Page, windowMs: number): Promise<TextSample> {
   await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
   await page.evaluate(revealBelowFold);
   await page.waitForTimeout(SETTLE_MIN_MS);
@@ -506,18 +476,38 @@ async function settledSample(page: Page): Promise<TextSample> {
     last = next;
     if (same) break;
   }
-  return last;
+  // The steady window: an item is visible with JavaScript only if every
+  // sample shows it.
+  const steady = new Set(shown(last).split("\u0001"));
+  for (let t = 0; t < windowMs; t += SETTLE_GAP_MS) {
+    await page.waitForTimeout(SETTLE_GAP_MS);
+    const now = new Set(shown(await page.evaluate(sampleVisibleText)).split("\u0001"));
+    for (const k of steady) if (!now.has(k)) steady.delete(k);
+  }
+  const unsteady = last.items.filter(
+    (x) => x.visible && !steady.has(`${x.key}\u0000${x.text}`),
+  ).length;
+  return {
+    ...last,
+    unsteady,
+    items: last.items.map((x) =>
+      x.visible && !steady.has(`${x.key}\u0000${x.text}`) ? { ...x, visible: false } : x,
+    ),
+  };
 }
 
 async function render(
   browser: Browser,
   url: string,
   options: BrowserContextOptions,
+  windowMs: number,
 ): Promise<TextSample> {
   return withPage(browser, options, url, (page) =>
     // Without script nothing changes after load, and a frame-and-timer wait
     // never resolves in a page with scripting off.
-    options.javaScriptEnabled === false ? page.evaluate(sampleVisibleText) : settledSample(page),
+    options.javaScriptEnabled === false
+      ? page.evaluate(sampleVisibleText)
+      : settledSample(page, windowMs),
   );
 }
 
@@ -527,13 +517,14 @@ export async function checkNoJs(
   browser: Browser,
   url: string,
   withoutJs: BrowserContextOptions = WITHOUT_JS_CONTEXT,
+  windowMs = STEADY_WINDOW_MS,
 ): Promise<RuleOutcome> {
   const pairs: NoJsPair[] = [];
   for (const viewport of NO_JS_VIEWPORTS) {
     pairs.push({
       width: viewport.width,
-      withJs: await render(browser, url, { ...WITH_JS_CONTEXT, viewport }),
-      withoutJs: await render(browser, url, { ...withoutJs, viewport }),
+      withJs: await render(browser, url, { ...WITH_JS_CONTEXT, viewport }, windowMs),
+      withoutJs: await render(browser, url, { ...withoutJs, viewport }, windowMs),
     });
   }
   return summarizeNoJs(url, pairs);

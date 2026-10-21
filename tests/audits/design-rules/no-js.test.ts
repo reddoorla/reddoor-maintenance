@@ -218,6 +218,27 @@ const PAGES: Record<string, string> = {
     `#app { overflow-x: hidden } .x { transform: translateX(-120vw) } .x.in { transform: none }`,
     `<div id="app"><section><div><h2 class="x">Hero headline</h2></div></section><section><p>About our practice</p></section></div>`,
   ),
+  // Round 5's: a crossfade slideshow and a variable-width logo strip that
+  // scrolls on its own (false fails); two equal columns, one sliding in, and
+  // a section translated by its own width beside a stacked one (false passes);
+  "/crossfade": page(
+    `<style>.show { position: relative; height: 80px } .s { position: absolute; inset: 0; opacity: 0 } .s.on { opacity: 1 }</style>`,
+    `<h1>Page</h1><div class="show">${["Great, Ann", "Kind, Bo", "Wonderful, Cleo", "Best ever, Dan"].map((t, i) => `<blockquote class="s${i === 0 ? " on" : ""}">${t}</blockquote>`).join("")}</div>`,
+    `const s = [...document.querySelectorAll(".s")]; let n = 0; setInterval(() => { s[n].classList.remove("on"); n = (n + 1) % s.length; s[n].classList.add("on"); }, 900);`,
+  ),
+  "/logo-strip": page(
+    `<style>.vp { overflow: hidden; width: 600px } ul { display: flex; gap: 24px; width: max-content; margin: 0; padding: 0; list-style: none }</style>`,
+    `<h1>Page</h1><div class="vp"><ul>${[300, 500, 350, 420, 380, 450].map((w, i) => `<li><img alt="${"ABCDEF"[i]}" width="${w}" height="40" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></li>`).join("")}</ul></div>`,
+    `const u = document.querySelector("ul"); let x = 0; setInterval(() => { x = (x + 400) % 2400; u.style.transform = "translateX(" + -x + "px)"; }, 500);`,
+  ),
+  "/two-columns": released(
+    `#app { overflow-x: hidden } .row { display: flex } .c { width: 50% } .x { transform: translateX(100vw) } .x.in { transform: none }`,
+    `<div id="app"><div class="row"><div class="c"><p>Left copy</p></div><div class="c"><p class="x">Right copy slides in</p></div></div></div>`,
+  ),
+  "/section-by-width": released(
+    `.wrap { overflow-x: hidden } .x { transform: translateX(100%) } .x.in { transform: none }`,
+    `<div class="wrap"><section class="x"><h2>Smile brighter</h2></section><section><p>Family dentistry</p></section></div>`,
+  ),
   "/src-swap": page(
     "",
     `<h1>Page</h1><img alt="" width="300" height="200" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><iframe width="300" height="200" srcdoc="<p>map</p>"></iframe>`,
@@ -250,7 +271,9 @@ afterAll(async () => {
   await new Promise((resolve) => server?.close(resolve));
 });
 
-const run = (path: string) => checkNoJs(browser, `${base}${path}`);
+/** The check as the CLI runs it, with a 2.5 s steady window: every
+ *  slideshow fixture here goes through a full cycle within it. */
+const run = (path: string) => checkNoJs(browser, `${base}${path}`, undefined, 2500);
 const problems = async (path: string) => (await run(path)).findings.map((f) => f.problem);
 
 describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () => {
@@ -375,6 +398,8 @@ describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () 
     expect(await problems("/carousel")).toEqual([]);
     expect(await problems("/carousel-loop")).toEqual([]);
     expect(await problems("/carousel-active")).toEqual([]);
+    expect(await problems("/crossfade")).toEqual([]);
+    expect(await problems("/logo-strip")).toEqual([]);
     expect(await problems("/dates")).toEqual([]);
   });
 
@@ -383,6 +408,12 @@ describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () 
       `"Smile brighter" is hidden without JavaScript ${BOTH}`,
     ]);
     expect(await problems("/src-swap")).toEqual([]);
+    expect(await problems("/two-columns")).toEqual([
+      `"Right copy slides in" is hidden without JavaScript ${BOTH}`,
+    ]);
+    expect(await problems("/section-by-width")).toEqual([
+      `"Smile brighter" is hidden without JavaScript ${BOTH}`,
+    ]);
     expect(await problems("/wrapper-slide-in")).toEqual([
       `"Hero headline" is hidden without JavaScript ${BOTH}`,
     ]);
