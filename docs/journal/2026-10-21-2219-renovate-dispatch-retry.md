@@ -1,0 +1,7 @@
+# 2026-10-21 — renovate-dispatch retries each target once before counting it failed (#1660)
+
+Landed before tonight's nightlies. Since #1612, the fleet-security step "Trigger Renovate for sites with actionable vulnerabilities" reds on `failed>0`, and `dispatchRenovateAcross` counted any throw as a failure. One 5xx or secondary rate limit on one target would red the nightly and open "Nightly fleet security audit failing". It had not happened yet: the issue's seven nights all printed `failed=0`.
+
+Of the issue's three options, this takes the first, one retry per target. Red-on-two-nights needs a counter with somewhere to live, and accepting the flake leaves the tracking issue noisy. The retry reruns the whole per-target sequence (PR probe, default branch, dispatch) after a 5 s wait. A re-probe can therefore find that a Renovate PR opened in between and skip. The wait is injected (`deps.sleep`) so the tests stay instant. If a dispatch reached GitHub and then threw on the way back, the retry fires it again; a second Renovate run is a no-op, so that is the cheaper error. A real failure (no `renovate.yml`, a missing scope) fails both attempts, is reported with the second error, and reds the step exactly as before. The workflow is unchanged.
+
+Mutations: removing the retry reds 6 tests (3 if the first error is kept); letting a second failure read as success reds 4; dropping the wait before the retry reds 1.

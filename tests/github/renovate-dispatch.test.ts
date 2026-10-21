@@ -202,6 +202,7 @@ describe("dispatchRenovateAcross", () => {
       dispatch: async (repo) => {
         if (repo === "reddoorla/a") throw new Error("404: no renovate.yml");
       },
+      sleep: async () => {},
     });
     expect(result.dispatched).toEqual(["reddoorla/b"]);
     expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "404: no renovate.yml" }]);
@@ -214,6 +215,7 @@ describe("dispatchRenovateAcross", () => {
         throw new Error("403: token lacks actions:write");
       },
       dispatch: async () => {},
+      sleep: async () => {},
     });
     expect(result.dispatched).toEqual([]);
     expect(result.failed).toEqual([
@@ -230,9 +232,94 @@ describe("dispatchRenovateAcross", () => {
       dispatch: async () => {
         throw new Error("should not dispatch when the PR probe failed");
       },
+      sleep: async () => {},
     });
     expect(result.dispatched).toEqual([]);
     expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: PR query failed" }]);
+  });
+
+  // #1660: since #1612 the nightly reds on failed>0, so one transient 5xx or
+  // secondary rate limit must not count. Each target gets one retry.
+  describe("retries each target once before counting it failed (#1660)", () => {
+    /** A dep that throws `failures` times, then answers. */
+    function flaky<T>(failures: number, value: T, message = "502: Bad Gateway") {
+      let calls = 0;
+      const fn = async () => {
+        calls++;
+        if (calls <= failures) throw new Error(message);
+        return value;
+      };
+      return { fn, calls: () => calls };
+    }
+
+    it("one transient dispatch failure, then success → dispatched, failed=0", async () => {
+      const dispatch = flaky(1, undefined);
+      const sleeps: number[] = [];
+      const result = await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: dispatch.fn,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      expect(result.dispatched).toEqual(["reddoorla/a"]);
+      expect(result.failed).toEqual([]);
+      expect(formatRenovateDispatchSummary(result)).toBe(
+        "RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=0 failed=0",
+      );
+      expect(dispatch.calls()).toBe(2);
+      // It waits before the retry, so a secondary rate limit has time to clear.
+      expect(sleeps).toHaveLength(1);
+      expect(sleeps[0]).toBeGreaterThan(0);
+    });
+
+    it("one transient open-PR probe failure, then success → the retry still skips a healthy PR", async () => {
+      const probe = flaky(1, true);
+      const result = await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: probe.fn,
+        defaultBranch: async () => "main",
+        dispatch: async () => {
+          throw new Error("should not dispatch while a healthy Renovate PR is open");
+        },
+        sleep: async () => {},
+      });
+      expect(result.skipped).toEqual(["reddoorla/a"]);
+      expect(result.failed).toEqual([]);
+    });
+
+    it("two failures → failed=1 with the second error, and the rest still run", async () => {
+      let attempt = 0;
+      const result = await dispatchRenovateAcross(targets, {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: async (repo) => {
+          if (repo === "reddoorla/a") throw new Error(`502: attempt ${++attempt}`);
+        },
+        sleep: async () => {},
+      });
+      expect(result.dispatched).toEqual(["reddoorla/b"]);
+      expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: attempt 2" }]);
+      expect(attempt).toBe(2);
+      expect(formatRenovateDispatchSummary(result)).toBe(
+        "RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=0 failed=1",
+      );
+    });
+
+    it("never retries a target that succeeded first time", async () => {
+      const dispatch = flaky(0, undefined);
+      const sleeps: number[] = [];
+      await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: dispatch.fn,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      expect(dispatch.calls()).toBe(1);
+      expect(sleeps).toEqual([]);
+    });
   });
 });
 
