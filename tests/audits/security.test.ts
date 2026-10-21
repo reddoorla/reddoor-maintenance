@@ -8,6 +8,7 @@ import type { DependabotAlert } from "../../src/github/gh-rest.js";
 import {
   advisoriesFromResult,
   hasSecurityCounts,
+  isPartialSecurityResult,
   securityCountsFromResult,
 } from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
@@ -810,6 +811,40 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     );
     expect(hasSecurityCounts(result)).toBe(true);
     expect(securityCountsFromResult(result)).toEqual({ critical: 1, high: 0, moderate: 0, low: 0 });
+    // It saw no npm package, so the write may not lower the row's npm counts with it.
+    expect(isPartialSecurityResult(result)).toBe(true);
+  });
+
+  it("keeps a moderate-only Dependabot result too when the lockfile audit cannot run", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "moderate" }]),
+      spawn: fakeSpawn({}),
+    });
+    expect(securityCountsFromResult(result)).toEqual({ critical: 0, high: 0, moderate: 1, low: 0 });
+    expect(isPartialSecurityResult(result)).toBe(true);
+  });
+
+  it("still skips on ghost alerts alone when the lockfile audit cannot run: no live count to write", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: {
+        listAlerts: async () => [actionAlert],
+        manifestExists: async () => false,
+      },
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("skip");
+    expect(hasSecurityCounts(result)).toBe(false);
+  });
+
+  it("a complete merged run is not partial", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([actionAlert]),
+      spawn: fakeSpawn({ pnpm: { code: 0, stdout: cleanPnpm } }),
+    });
+    expect(isPartialSecurityResult(result)).toBe(false);
   });
 
   it("counts an aliased dependency as direct under the package it installs", async () => {

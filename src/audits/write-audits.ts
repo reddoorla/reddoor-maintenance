@@ -16,6 +16,7 @@ import { hasA11yCounts, a11yCountsFromResult } from "./a11y-fields.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-fields.js";
 import {
   hasSecurityCounts,
+  isPartialSecurityResult,
   securityCountsFromResult,
   advisoriesFromResult,
 } from "./security-fields.js";
@@ -136,11 +137,25 @@ export function planAuditWrite(args: {
 
   const sec = results.find((r) => r.audit === "security");
   if (sec && hasSecurityCounts(sec)) {
-    const counts = securityCountsFromResult(sec);
-    audits.security = counts;
+    let counts = securityCountsFromResult(sec);
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
-    audits.securityAdvisories = advisoriesFromResult(sec);
+    let advisories = advisoriesFromResult(sec);
+    // A partial run saw no npm package, so it cannot clear one: each count is floored at the
+    // stored one and the stored advisories stay beside the new ones (#1561).
+    if (isPartialSecurityResult(sec)) {
+      counts = {
+        critical: Math.max(counts.critical, target.securityVulnsCritical ?? 0),
+        high: Math.max(counts.high, target.securityVulnsHigh ?? 0),
+        moderate: Math.max(counts.moderate, target.securityVulnsModerate ?? 0),
+        low: Math.max(counts.low, target.securityVulnsLow ?? 0),
+      };
+      const seen = new Set(advisories.map((a) => `${a.module}\u0000${a.title}`));
+      for (const a of target.securityAdvisories ?? [])
+        if (!seen.has(`${a.module}\u0000${a.title}`)) advisories = [...advisories, a];
+    }
+    audits.security = counts;
+    audits.securityAdvisories = advisories;
     writes.push({ audit: "security", counts });
   }
 

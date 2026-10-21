@@ -200,6 +200,71 @@ describe("writeBackOneSite", () => {
     expect(calls[0]!.fields["Security advisories"]).toBe("[]");
   });
 
+  describe("a partial security run (the lockfile audit could not run, #1561)", () => {
+    const sharp = {
+      module: "sharp",
+      severity: "high" as const,
+      title: "librsvg",
+      cves: [],
+      url: null,
+    };
+    const checkout = {
+      module: "actions/checkout",
+      severity: "low" as const,
+      title: "leaks the token",
+      cves: [],
+      url: null,
+    };
+    const stored = row({ securityVulnsHigh: 1, securityAdvisories: [sharp] });
+    const run = (partial: boolean): AuditResult =>
+      ({
+        audit: "security",
+        site: "acme",
+        status: "warn",
+        summary: "Dependabot: 1 alert(s)",
+        details: {
+          counts: { low: 1, moderate: 0, high: 0, critical: 0 },
+          advisories: [checkout],
+          ...(partial ? { partial: true } : {}),
+        },
+      }) as unknown as AuditResult;
+
+    it("raises counts but never lowers them, and keeps the stored advisories", async () => {
+      const { mirror: mirrorHealth, calls } = recordingMirror();
+      await writeBackOneSite({
+        mirrorHealth,
+        websites: [stored],
+        slug: "acme",
+        results: [run(true)],
+      });
+      expect(calls[0]!.fields).toMatchObject({
+        "Security Vulns Critical": 0,
+        "Security Vulns High": 1,
+        "Security Vulns Moderate": 0,
+        "Security Vulns Low": 1,
+      });
+      const written = JSON.parse(calls[0]!.fields["Security advisories"] as string) as Array<{
+        module: string;
+      }>;
+      expect(written.map((a) => a.module).sort()).toEqual(["actions/checkout", "sharp"]);
+    });
+
+    it("a complete run still replaces the stored counts and advisories", async () => {
+      const { mirror: mirrorHealth, calls } = recordingMirror();
+      await writeBackOneSite({
+        mirrorHealth,
+        websites: [stored],
+        slug: "acme",
+        results: [run(false)],
+      });
+      expect(calls[0]!.fields).toMatchObject({ "Security Vulns High": 0, "Security Vulns Low": 1 });
+      const written = JSON.parse(calls[0]!.fields["Security advisories"] as string) as Array<{
+        module: string;
+      }>;
+      expect(written.map((a) => a.module)).toEqual(["actions/checkout"]);
+    });
+  });
+
   it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
     const { mirror: mirrorHealth, calls } = recordingMirror();
     await writeBackOneSite({

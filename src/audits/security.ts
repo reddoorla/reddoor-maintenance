@@ -441,13 +441,16 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
         // The lockfile audit could not run. Dependabot's live alerts are still real, so a skip
         // must not throw them away and leave the row's older counts standing (#1561). With none,
-        // its "0" only means it saw nothing, and writing it would read as clean: skip.
+        // its "0" only means it saw nothing, and writing it would read as clean: skip. With some,
+        // the result is partial: it saw no npm package, so the write may raise the row's counts
+        // but never lower them (`partial`, read by planAuditWrite).
         return hasLiveCounts(viaDependabot)
           ? {
               ...viaDependabot,
               summary:
                 `${viaDependabot.summary}; the lockfile audit could not run ` +
                 `(${viaLockfile.summary}), so this counts only what GitHub's dependency graph sees`,
+              details: { ...(viaDependabot.details as object), partial: true },
             }
           : viaLockfile;
       }
