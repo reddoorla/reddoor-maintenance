@@ -25,12 +25,12 @@
     "expect": "red"
   },
   {
-    "id": "M2-load-failure-kills",
+    "id": "M2-load-or-hook-failure-kills",
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "if (failed > 0)",
-        "replace": "if (failed > 0 || loadFailures.length)"
+        "find": "  if (notes.length) return { result: \"stillborn\", ...n, reason };",
+        "replace": "  if (notes.length) return { result: \"red\", ...n, reason };"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -41,7 +41,7 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "const pre = await vitest(s.tests, `unmutated-${n++}`);",
+        "find": "const pre = await vitest(s.tests, join(outDir, \"baseline\", `${n++}.json`));",
         "replace": "const pre = { result: \"survived\", n: n++ };"
       }
     ],
@@ -53,8 +53,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "const onSignal = (sig) => {\n    cleanupSync();",
-        "replace": "const onSignal = (sig) => {"
+        "find": "    stopping = true;\n    cleanupSync();\n    ctx.log(`mutate: stopped by",
+        "replace": "    stopping = true;\n    ctx.log(`mutate: stopped by"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -65,8 +65,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "  if (dirty.length)",
-        "replace": "  if (false)"
+        "find": "    if (dirty.length)",
+        "replace": "    if (false)"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -91,6 +91,102 @@
         "file": "scripts/mutate.mjs",
         "find": "out.set(e.file, cur.slice(0, at) + e.replace + cur.slice(at + e.find.length));",
         "replace": "out.set(e.file, cur.replace(e.find, e.replace));"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M8-all-skipped-survives",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (n.passed === 0)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M9-case-timeout-kills",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "m.startsWith(TIMEOUT_MARK)",
+        "replace": "m.startsWith(\"never\")"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M10-no-parse-check",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "        if (unparsed.length)",
+        "replace": "        if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M11-worktree-failure-not-refused",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (r.code !== 0)\n        throw new Refusal(\n          `git worktree add failed",
+        "replace": "      if (false)\n        throw new Refusal(\n          `git worktree add failed"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M12-in-place-dist-not-rebuilt",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "rebuildRootDist = existsSync(join(root, \"dist\")) && hasBuildScript(root);",
+        "replace": "rebuildRootDist = false;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M13-partial-results-dropped",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (e?.report?.results?.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M14-sighup-unhandled",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const SIGNAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };",
+        "replace": "const SIGNAL_EXIT = { SIGINT: 130, SIGTERM: 143 };"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M15-symlink-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (links.length)",
+        "replace": "    if (false)"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
