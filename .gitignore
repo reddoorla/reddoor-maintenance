@@ -60,3 +60,6 @@ scripts/model-bakeoff/tasks/seeded-review/cases.next/
 /cockpit/.netlify/
 # Netlify's build output at the repo root: the cockpit adapter's functions.
 /.netlify/
+# continuity.md section 6 decrypts the Turso backup here: restore/dump.sql is the whole fleet
+# database in plaintext, and this repo is public (#1558). tests/docs/restore-ignored.test.ts.
+/restore/

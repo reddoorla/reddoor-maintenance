@@ -507,6 +507,18 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    goes green. Note what that proves: the nightly reads the Actions secrets, so a green run
    confirms step 5 landed, not step 4.
 
+7. **Delete the plaintext dump.** `restore/dump.sql` is the whole fleet database, client leads
+   included, unencrypted. Once step 6 is green, from the repo root:
+
+   ```sh
+   rm restore/dump.sql
+   ```
+
+   `restore/` is git-ignored (`/restore/` in `.gitignore`, pinned by
+   `tests/docs/restore-ignored.test.ts`), so a `git add -A` cannot stage it in this public
+   repository, but the ignore only keeps it out of git: the file stays on the disk until you
+   remove it. `dump.sql.gpg` is encrypted and may stay.
+
 ### Two traps
 
 - **Never pipe a dump through `pnpm exec`.** It writes warnings to **stdout**, which lands
