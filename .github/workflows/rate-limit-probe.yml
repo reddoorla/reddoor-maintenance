@@ -1,0 +1,46 @@
+# One-off probe (2026-10-21): does Netlify enforce the dashboard's per-IP
+# `rateLimit` configs? Sends 80 paced requests from one runner IP to two
+# limited paths and prints every status. Runs only on this branch; never merged.
+name: rate-limit-probe
+
+on:
+  push:
+    branches: [claude/rate-limit-one-ip-probe]
+
+permissions: {}
+
+jobs:
+  burst:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Burst from one IP
+        shell: bash
+        run: |
+          set -u
+          ip() { curl -sS https://api.ipify.org; echo; }
+          # 80 requests spread over ~40 s: inside one 60 s window, and slow
+          # enough that Netlify's "up to 10 seconds" before blocking has passed
+          # well before the last request.
+          burst() {
+            local label=$1 url=$2 limit=$3
+            echo "=== $label  $url  (declared windowLimit $limit / 60 s)"
+            echo "egress IP before: $(ip)"
+            echo "start $(date -u +%H:%M:%S.%N)"
+            : > codes.txt
+            for i in $(seq 1 80); do
+              code=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+              printf '%s %02d %s\n' "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$i" "$code"
+              echo "$code" >> codes.txt
+              sleep 0.5
+            done
+            echo "end   $(date -u +%H:%M:%S.%N)"
+            echo "egress IP after: $(ip)"
+            echo "counts:"; sort codes.txt | uniq -c
+            echo "headers of one more request:"
+            curl -sS -D - -o /dev/null "$url" | grep -iv '^set-cookie'
+            echo
+          }
+          burst page https://reddoor-maintenance.netlify.app/fleet 60
+          echo "--- 65 s pause so the windows do not overlap"; sleep 65
+          burst api https://reddoor-maintenance.netlify.app/api/sites/probe/details 30
