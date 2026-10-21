@@ -1,20 +1,20 @@
-# 2026-10-21 — `/s/:slug` reads only its injected clock
+# 2026-10-21 — `/s/:slug`: a test that the page reads only its injected clock
 
-**Where it landed:** this PR (reddoorla/reddoor-maintenance, branch `claude/site-view-injected-clock`). I found it while building the hide-archived change to Sites: `main` went red today with no code change.
+**Where it landed:** this PR (reddoorla/reddoor-maintenance, branch `claude/site-view-injected-clock`). After the merge with `main`, it holds only a regression test.
 
-**What broke.** `cockpit/tests/site/site.ssr.test.ts` "submissions over the cap" failed on a branch that does not touch the site page. Its snapshot said `3mo ago` and the render said `4mo ago`. The fixture's submissions are dated June 2026, and today is 2026-10-21, four months on. `buildSiteView` takes a `now`, and the fixture pins it at 2026-06-15. But three labels ignored it and called `relativeTimeFromNow` with the wall clock:
+**What broke.** On 2026-10-21, `cockpit/tests/site/site.ssr.test.ts` "submissions over the cap" went red with no code change: its snapshot said `3mo ago`, the render said `4mo ago`. `buildSiteView` takes a `now`, but three labels read the wall clock instead:
 
-- the details row's last commit;
-- the "Last audited" line;
-- each submission row's time, through `buildSubmissionRowView`.
+- the last-commit detail;
+- "Last audited";
+- each submission row's time.
 
-So every snapshot that carries those labels has drifted with real days since the cutover. This was the first one to cross a month boundary. The rest would have followed.
+Their snapshots were written at real time, so they matched only as long as each label's bucket held.
 
-**What hid it.** The snapshots were written at real time, so they matched for as long as each label's bucket held: weeks for "Xw ago", a month for "Xmo ago".
+**Two sessions fixed it at once.** I found it while building the hide-archived change to Sites, and opened this PR with the fix. Before I edited, no `claude/*` or `fix/*` branch under a day old touched these files. The other session's fix landed in reddoorla/reddoor-maintenance#1592, merged at 9:45am PT. That PR's branch was named for its rate-limit journal, and the fix commit arrived on it after my check. #1592 makes the same three changes and rewrites the same snapshots. The fresh-branch check compares file paths at one moment, so a fix that lands on an unrelated branch afterwards slips past it.
 
-**The fix.** All three now take the view's `now`. `buildSubmissionRowView` gains a `now` parameter that defaults to the wall clock, because `/submissions` builds its rows with no clock of its own. Its snapshot test pins the system time with fake timers already; its DOM and action tests assert no time label. The 30 site snapshots were rewritten: 126 lines changed each way, and every changed line carries a relative time (a grep for changed lines without one finds 0).
+**What this PR keeps.** #1592 adds no test that stops a wall-clock read from coming back: a snapshot catches one only when a label crosses a bucket boundary, which is how this one hid. This PR adds a test that renders each case, moves the system clock to 2031, renders it again, and expects identical markup. In the merge I took `main`'s side for the source and the snapshots.
 
-**Measured.** A new test renders each case, moves the system clock to 2031, renders it again, and asks for identical markup. Mutations, each run and restored:
+**Measured.** Mutations, each run and restored:
 
 | Mutation                                   | Result      |
 | ------------------------------------------ | ----------- |
@@ -22,4 +22,12 @@ So every snapshot that carries those labels has drifted with real days since the
 | "Last audited" reads the wall clock        | 54 red      |
 | Submission rows read the wall clock        | 5 red       |
 
-**Review round 1 was clean**, with one minor and four nits. Two nits are folded in: the new test's name now says "in 2031" rather than "a year on", and this entry says which `/submissions` tests pin the clock. The minor is filed as #1603, since `fixtures.ts` is outside this PR: the fixture's submissions postdate its pinned `now`, so they all read "just now". The other nits needed no change: the clock loop covers `CASES` only, and the `afterEach` undoes the time-travel shim for tests that already run last.
+The first three runs came before the merge, against my own fix. After the merge I ran the third again, against `main`'s code, and got the same 5 red.
+
+**Review round 1 was clean**, with one minor and four nits.
+
+- **Folded in:** two nits. The test's name now says "in 2031". This entry now says which `/submissions` tests pin the clock: its snapshot test does, while its DOM and action tests assert no time label.
+- **Filed:** the minor, as #1603. The fixture's submissions postdate its pinned `now`, so they all read "just now".
+- **Left as they are:**
+  - the clock loop covers only `CASES`;
+  - the `afterEach` undoes the time-travel shim, but the tests it affects already run last.
