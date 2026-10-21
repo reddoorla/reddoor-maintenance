@@ -64,11 +64,14 @@ export function sampleOutline(): OutlineSample {
     // <details>, content-visibility:hidden), visibility:hidden, inert, or
     // inside aria-hidden="true".
     // A `display: contents` heading has no box of its own but stays in the
-    // tree; its parent in the flat tree answers for its rendering.
+    // tree; its nearest flat-tree ancestor with a box answers for its
+    // rendering (a wrapper or a <slot> can have no box either).
     const contents = getComputedStyle(el).display === "contents";
-    const box: Element | null = contents
-      ? (el.assignedSlot ?? el.parentElement ?? ((el.getRootNode() as ShadowRoot).host || null))
-      : el;
+    let box: Element | null = el;
+    while (box && getComputedStyle(box).display === "contents") {
+      box =
+        box.assignedSlot ?? box.parentElement ?? ((box.getRootNode() as ShadowRoot).host || null);
+    }
     if (!box?.checkVisibility({ visibilityProperty: !contents })) continue;
     if (contents && getComputedStyle(el).visibility !== "visible") continue;
     let hidden = false;

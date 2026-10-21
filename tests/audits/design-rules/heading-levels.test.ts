@@ -98,6 +98,10 @@ customElements.define("x-b", class extends HTMLElement { constructor() { super()
     [],
     `<h1 style="display:contents">Main</h1><h2 style="display:contents">Section</h2><h3>Detail</h3>`,
   ),
+  // display:contents all the way up: a wrapper, and a heading slotted
+  // through a <slot>, which has no box of its own.
+  "/contents-chain": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><div style="display:contents"><h1 style="display:contents">Main</h1></div><x-p><h2 style="display:contents">Slotted</h2></x-p><h3>Detail</h3></main>
+<script>customElements.define("x-p", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<div><slot></slot></div>"; } });</script></body></html>`,
   "/lazy-slice": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Top</h1><h2>Intro</h2><div style="height:3000px"></div><div id="s"></div></main>
 <script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.innerHTML = "<h4>Lazy</h4>"; o.disconnect(); } }).observe(document.getElementById("s"));</script></body></html>`,
   // The smallest skip: one level missing.
@@ -224,6 +228,9 @@ describe("design-rules R9 (heading levels), in a real browser", () => {
     const contents = await checkHeadingLevels(browser, `${base}/contents`);
     expect(contents.status, JSON.stringify(contents.findings)).toBe("pass");
     expect(contents.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
+    const chain = await checkHeadingLevels(browser, `${base}/contents-chain`);
+    expect(chain.status, JSON.stringify(chain.findings)).toBe("pass");
+    expect(chain.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
   });
 
   it("FAILS a skip in a slice that mounts when scrolled into view", async () => {
