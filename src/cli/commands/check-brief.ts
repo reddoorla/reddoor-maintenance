@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /**
  * `reddoor-maint check-brief <brief.md> [--cwd <dir>]` (P1-33 next-7, #1598).
@@ -26,6 +26,12 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  * timeout, an HTTP refusal, a control that did not pass) or NOT RUN (an [I] or
  * [laptop] line, or a command off the allowlist). The report never carries a
  * command's output, because it is pasted into public PR bodies.
+ *
+ * A line must not read a secret even one bit at a time (an exit code or a
+ * `prints` match is a bit), so paths stay inside --cwd and secret-shaped names
+ * are refused. Content committed to the repository is out of scope: whoever
+ * can read the PR can read the repository. The checkout's own git config is
+ * trusted; the allowlist guards against the brief's command, not the repo.
  */
 
 export type VerifyLine =
@@ -72,10 +78,12 @@ const TIMEOUT_MS = 30_000;
 // ── Parsing ─────────────────────────────────────────────────────────────────
 
 const SECTION_START = /^\*\*Verify first\.\*\*/;
-// The next bold lead-in ("**Start here.**", "**Start here:**") or a heading
-// ends the section.
-const SECTION_END = /^(?:\*\*[^*]+\*\*|#{1,6} )/;
-const FENCE = /^\s*(?:```|~~~)/;
+// The next bold lead-in ending in "." or ":" ("**Start here.**", "**Start
+// here:**") or a heading ends the section; a bold word inside a claim does not.
+const SECTION_END = /^(?:\*\*[^*]+[.:]\*\*|#{1,6} )/;
+// CommonMark fences: a run of 3+ backticks or tildes, closed only by a run of
+// the same character at least as long with nothing after it.
+const FENCE = /^\s*(`{3,}|~{3,})(.*)$/;
 const ITEM_START = /^\s*(?:[-*+]|\d+[.)])\s+/;
 // The claim is greedy, so a claim holding its own " — `x` " still ends at the
 // last dash before the command.
@@ -136,7 +144,9 @@ export function containsToken(hay: string, text: string): boolean {
   const first = WORD.test(text[0] as string);
   const last = WORD.test(text[text.length - 1] as string);
   for (let at = hay.indexOf(text); at !== -1; at = hay.indexOf(text, at + 1)) {
-    if (first && joins(hay, at - 1, -1)) continue;
+    // A leading "v" may stand before a version: "22.1.0" is a token of "v22.1.0".
+    const vPrefix = /\d/.test(text[0] as string) && hay[at - 1] === "v" && !joins(hay, at - 2, -1);
+    if (first && !vPrefix && joins(hay, at - 1, -1)) continue;
     if (last && joins(hay, at + text.length, 1)) continue;
     return true;
   }
@@ -161,10 +171,21 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   // block never opens a live section, and a heading-shaped comment in a fence
   // never ends one.
   let fenceOpenedAt = -1;
+  let fenceRun = "";
   let fencedSkipped = false;
   for (const [i, raw] of all.entries()) {
-    if (FENCE.test(raw)) {
-      fenceOpenedAt = fenceOpenedAt === -1 ? i : -1;
+    const fence = FENCE.exec(raw);
+    const run = fence?.[1] ?? "";
+    const opens = fence !== null && fenceOpenedAt === -1;
+    const closes =
+      fence !== null &&
+      fenceOpenedAt !== -1 &&
+      run[0] === fenceRun[0] &&
+      run.length >= fenceRun.length &&
+      (fence[2] ?? "").trim() === "";
+    if (opens || closes) {
+      fenceOpenedAt = opens ? i : -1;
+      fenceRun = opens ? run : "";
       if (inSection) sectionLines.push("");
       else outside.push(raw);
       continue;
@@ -190,6 +211,12 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   if (fencedSkipped) {
     warnings.push("a code block in Verify first is not read: put each claim on its own line");
   }
+  const strays = outside.filter((l) => LOOKS_RUNNABLE.test(l)).length;
+  if (sections > 0 && strays > 0) {
+    warnings.push(
+      `${strays} line(s) outside Verify first look like claims and were not run: move them into the section`,
+    );
+  }
   if (fenceOpenedAt !== -1) {
     warnings.push(
       `the code fence opened on line ${fenceOpenedAt + 1} never closes, so nothing after it was read`,
@@ -208,6 +235,10 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
     } else if (ITEM_START.test(raw)) {
       if (cur !== null) items.push(cur);
       cur = raw.replace(ITEM_START, "").trim();
+    } else if (cur !== null && LOOKS_RUNNABLE.test(cur) && LOOKS_RUNNABLE.test(raw)) {
+      // An unbulleted claim right under a complete one is a new claim, not a wrap.
+      items.push(cur);
+      cur = raw.trim();
     } else {
       cur = cur === null ? raw.trim() : `${cur} ${raw.trim()}`;
     }
@@ -414,7 +445,12 @@ const GIT_DANGEROUS = [
   "--contents",
   "--exclude-from",
   "--file",
+  "--untracked",
+  "--no-exclude-standard",
+  "--ignore-revs-file",
 ];
+// Short options of the same kind, per subcommand.
+const GIT_DANGEROUS_SHORTS: Record<string, string> = { grep: "Of", "ls-files": "X", blame: "S" };
 // Prepended to every git run: no index refresh under a lock (another session
 // may share the worktree), and no config-driven program the flags can switch
 // on (fsmonitor hook, pager, external diff, signature check). The checkout's
@@ -437,7 +473,25 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // a secret, which a line could otherwise test one guessed prefix at a time
 // through its exit code. Committed templates (`.env.example`) stay readable.
 const SENSITIVE_NAME =
-  /^(?:\.env(?!\.(?:example|sample|template)$)(?:\..*)?|\.netrc|\.npmrc|\.git-credentials|id_[a-z0-9]+|.*\.pem|.*\.key)$/i;
+  /^(?:\.git|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_[a-z0-9]+|.*\.pem|.*\.key)$/i;
+// The same names as rg exclusions, so a recursive search never opens them.
+const RG_EXCLUDES = [
+  ".env",
+  ".env.*",
+  "*.env",
+  ".envrc",
+  ".dev.vars",
+  ".pgpass",
+  ".netrc",
+  ".npmrc",
+  ".git-credentials",
+  "credentials",
+  "credentials.*",
+  "service-account*.json",
+  "id_*",
+  "*.pem",
+  "*.key",
+].flatMap((g) => ["-g", `!${g}`]);
 
 /** A file tool's grammar: the short flags it may take (bundled or alone), the
  *  long ones, the flags that take a value and what the value must look like,
@@ -545,13 +599,21 @@ function confined(path: string, cwd: string): string | null {
   return null;
 }
 
+/** The real path of `p`, or, when it does not exist yet, the real path of its
+ *  nearest existing ancestor with the rest appended (so a missing file under a
+ *  symlink that points outside still resolves outside). */
 function realOrSelf(p: string): string {
   try {
     return realpathSync(p);
   } catch {
-    return p;
+    const parent = dirname(p);
+    return parent === p ? p : join(realOrSelf(parent), basename(p));
   }
 }
+
+// A registry package name with an optional version or range: no `file:`,
+// `git+ssh:`, `github:` or URL spec, each of which leaves the registry.
+const NPM_SPEC = /^(?:@[\w.-]+\/)?[\w.-]+(?:@[\w.^~<>=*| -]+)?$/;
 
 export type Classified =
   { ok: true; argv: string[]; builtin?: "env-set" } | { ok: false; reason: string };
@@ -577,13 +639,30 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     // gh sends its token with the request: a full URL could aim it elsewhere.
     if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(path)) return refuse("gh api: a path, not a URL");
     if (!isReadOnlyApiCall(flags)) return refuse("gh api: only `--jq <expr>` may follow the path");
+    // gh's jq can read its own environment (`env`, `$ENV`), where GH_TOKEN lives.
+    for (let i = 1; i < flags.length; i += 2) {
+      const expr = flags[i] as string;
+      if (/[$]/.test(expr) || /\b(?:env|input|inputs|input_filename|debug|stderr)\b/.test(expr)) {
+        return refuse("gh api: --jq may not read the environment or input");
+      }
+    }
     return { ok: true, argv };
   }
   if (bin === "git") {
     if (!sub || !GIT_READ.has(sub)) return refuse(`git ${sub ?? ""}: not a read-only subcommand`);
-    const shorts = sub === "grep" ? "Of" : "";
+    const shorts = GIT_DANGEROUS_SHORTS[sub] ?? "";
     if (rest.some((a) => namesOption(a, GIT_DANGEROUS, shorts))) {
       return refuse("git: an option that writes, runs a program or reads outside the repo");
+    }
+    // Every operand, and every --opt=value, must stay inside --cwd: given a
+    // path outside the work tree, `git diff` switches to --no-index by itself.
+    for (const a of rest) {
+      const value = a.startsWith("-") ? (a.includes("=") ? a.slice(a.indexOf("=") + 1) : "") : a;
+      // `HEAD:src/x` names a blob in the repo, not a path; `../x:y` is still a path.
+      const path = /^[^/.~][^:]*:/.test(value) ? "" : value;
+      if (!path) continue;
+      const why = confined(path, cwd);
+      if (why) return refuse(`git: ${why}`);
     }
     // git confines pathspecs to the repo itself; a committed `.env` is still a secret.
     if (rest.some((a) => a.split(/[:/=]/).some((part) => SENSITIVE_NAME.test(part)))) {
@@ -628,6 +707,7 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
       const why = confined(p, cwd);
       if (why) return refuse(why);
     }
+    if (bin === "rg") return { ok: true, argv: ["rg", ...RG_EXCLUDES, ...argv.slice(1)] };
     return { ok: true, argv };
   }
   if (
@@ -639,7 +719,12 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
   }
   // `npm view <pkg>[@range] [field…]` and no option: `--registry` would send
   // the request, and `--userconfig` its auth, wherever the brief says.
-  if (bin === "npm" && sub === "view" && rest.length > 0 && !rest.some((a) => a.startsWith("-"))) {
+  if (
+    bin === "npm" &&
+    sub === "view" &&
+    NPM_SPEC.test(rest[0] ?? "") &&
+    !rest.some((a) => a.startsWith("-"))
+  ) {
     return { ok: true, argv };
   }
   return refuse(`${bin}: not an allowed read-only form`);
@@ -680,6 +765,8 @@ export function childEnv(bin: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv
   for (const k of bin === "gh" ? [...BASE_ENV, ...GH_ENV] : BASE_ENV) {
     if (env[k] !== undefined) out[k] = env[k];
   }
+  // A partial clone would otherwise fetch a missing blob over the network.
+  if (bin === "git") out.GIT_NO_LAZY_FETCH = "1";
   return out;
 }
 

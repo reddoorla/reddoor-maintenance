@@ -485,7 +485,7 @@ describe("check-brief round 1: allowlist holes", () => {
 
   it("a child gets a minimal env, and gh alone gets gh's token", () => {
     const env = { PATH: "/bin", HOME: "/h", GH_TOKEN: "t", MANTIS_PRISMIC: "secret-x" };
-    expect(childEnv("git", env)).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(childEnv("git", env)).toEqual({ PATH: "/bin", HOME: "/h", GIT_NO_LAZY_FETCH: "1" });
     expect(childEnv("gh", env)).toEqual({ PATH: "/bin", HOME: "/h", GH_TOKEN: "t" });
   });
 
@@ -836,5 +836,139 @@ describe("check-brief round 2: sections and fences", () => {
       "**Verify first.**\n- a — `ls` → exit 0\n**Verify first.** b — `ls` → exit 0\n",
     );
     expect(p.lines.map((l) => l.claim)).toEqual(["a", "b"]);
+  });
+});
+
+// ── Review round 3 (2026-10-21): each case below reproduced a defect first. ──
+
+describe("check-brief round 3: git, jq, npm and secret names", () => {
+  it.each([
+    // git diff switches to --no-index by itself for a path outside the tree.
+    "git diff /dev/null ../out/outside.txt",
+    "git diff --stat /dev/null /etc/hostname",
+    "git log -1 -- ../out",
+    "git diff ../out:x a",
+    // An ignored .env, with no secret name in the command.
+    "git grep -q --untracked --no-exclude-standard TOKEN=abc1",
+    "git grep --untracked TOKEN",
+    // Options that read a file.
+    "git ls-files -X /etc/hostname -o -i",
+    "git ls-files -oiX x",
+    "git blame --ignore-revs-file ../out/empty a.txt",
+    "git blame --ignore-revs-file=../out/empty a.txt",
+    "git blame -S revs a.txt",
+    // gh's jq reads its environment.
+    "gh api rate_limit --jq 'env | has(\"PATH\")'",
+    "gh api rate_limit --jq '$ENV.GH_TOKEN | startswith(\"ghp_a\")'",
+    "gh api rate_limit --jq 'input'",
+    // npm specs that leave the registry.
+    "npm view file:../x",
+    "npm view git+ssh://git@host/x.git",
+    "npm view github:u/r",
+    "npm view https://host/x.tgz",
+    // More secret names, and anything under .git.
+    "cat credentials.env",
+    "cat .envrc",
+    "cat prod.env",
+    "cat .dev.vars",
+    "cat .pgpass",
+    "cat service-account-prod.json",
+    "grep -q email .git/config",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, scratch).ok).toBe(false);
+  });
+
+  it.each([
+    "git log --oneline -3 origin/main",
+    "git show HEAD:src/cli/bin.ts",
+    "git diff main..HEAD -- src",
+    "git log --format=%h:%s -1",
+    "git grep -F 'impetus should come from a person'",
+    "gh api repos/o/r/pulls/12 --jq '.state'",
+    "gh api repos/o/r/pulls --jq '.[] | .number'",
+    "npm view react version",
+    "npm view @sveltejs/kit@^2 version",
+    "grep -c x src/util/credentials.ts",
+  ])("allows %s", (cmd) => {
+    expect(classifyCommand(cmd, scratch).ok).toBe(true);
+  });
+
+  it("rg runs with the secret names excluded, so recursion never opens them", () => {
+    const c = classifyCommand("rg -q KEY=xyz .", scratch);
+    expect(c.ok && c.argv.join(" ")).toContain("-g !*.key");
+    expect(c.ok && c.argv.slice(-2)).toEqual(["KEY=xyz", "."]);
+  });
+
+  it("rg's exclusions hold for real: an unignored deploy.key is not searched", async () => {
+    const dir = join(scratch, "rg-key");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "deploy.key"), "KEY=xyz\n");
+    writeFileSync(join(dir, "notes.txt"), "nothing\n");
+    // The brief lives outside the searched tree: it holds the text too.
+    const briefDir = join(scratch, "rg-key-brief");
+    mkdirSync(briefDir, { recursive: true });
+    const path = writeBrief(briefDir, ["- The key is findable — `rg -q KEY=xyz .` → exit 0"]);
+    const r = await runCheckBrief(path, { cwd: dir }, { env: { PATH: process.env.PATH } });
+    // rg exits 1 (no match) because deploy.key is excluded; 0 would be a leak.
+    expect(r.results.map((x) => x.status)).toEqual([
+      // COULD NOT RUN only where rg is not installed.
+      expect.stringMatching(/^(FAIL|COULD NOT RUN)$/),
+    ]);
+  });
+
+  it("a missing path under a symlink that points outside still resolves outside", () => {
+    const dir = join(scratch, "symlink-missing");
+    mkdirSync(dir, { recursive: true });
+    try {
+      symlinkSync(scratch, join(dir, "link"));
+    } catch {
+      // already there from an earlier run
+    }
+    expect(classifyCommand("cat link/not-there.txt", dir).ok).toBe(false);
+  });
+
+  it("git runs with lazy fetching off", () => {
+    expect(childEnv("git", {}).GIT_NO_LAZY_FETCH).toBe("1");
+  });
+});
+
+describe("check-brief round 3: parsing", () => {
+  it("a bold word inside the section does not end it", () => {
+    const p = parseBrief(
+      "**Verify first.**\n- A — `ls` → exit 0\n**Note** — `ls` → exit 0\n- B is here — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["A", "**Note**", "B is here"]);
+  });
+
+  it("claims stranded after a section end are warned on", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- A — `ls` → exit 0\n\n**On the laptop:**\n\n- The deploy hook is gone — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["A"]);
+    expect(p.warnings.join("\n")).toMatch(/1 line\(s\) outside Verify first look like claims/);
+  });
+
+  it("a three-backtick fence inside a four-backtick fence stays quoted", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- A — `ls` → exit 0\n\n````md\n```sh\n- inner — `ls` → exit 0\n```\n````\n\n- B — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["A", "B"]);
+  });
+
+  it("a ~~~ fence is closed only by ~~~ (surviving mutation M2)", () => {
+    const p = parseBrief("Intro\n\n~~~\n```js\n~~~\n\n**Verify first.**\n\n- A — `ls` → exit 0\n");
+    expect(p.lines.map((l) => l.claim)).toEqual(["A"]);
+    expect(p.warnings.join("\n")).not.toMatch(/never closes/);
+  });
+
+  it("a claim directly followed by a fence does not swallow the text after it (surviving mutation M6)", () => {
+    const p = parseBrief("**Verify first.**\n- A — `ls` → exit 0\n```\nquoted\n```\nstray words\n");
+    expect(p.lines.map((l) => l.claim)).toEqual(["A"]);
+  });
+
+  it("a version printed with a leading v matches one written without it", () => {
+    expect(containsToken("v22.1.0\n", "22.1.0")).toBe(true);
+    expect(containsToken("rev22.1.0\n", "22.1.0")).toBe(false);
+    expect(containsToken("v22.1.0\n", "1.0")).toBe(false);
   });
 });
