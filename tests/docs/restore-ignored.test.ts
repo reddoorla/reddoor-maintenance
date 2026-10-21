@@ -13,9 +13,8 @@ import { fileURLToPath } from "node:url";
  * matching rule to come from the repo's own `.gitignore`: a machine-wide ignore file on one
  * laptop would otherwise hide the line's removal there. If the rule becomes `/restore/*`, a later
  * `!/restore/dump.sql` re-includes the dump and `-v` still exits 0 for it, so a matching negation
- * counts as not ignored. The negative
- * control proves the check can say "not ignored" at all; its path has no extension, so a global
- * rule such as `*.sql` cannot match it.
+ * counts as not ignored. The negative control proves the check can say "not ignored" at all; its
+ * path has no extension, so a global rule such as `*.sql` cannot match it.
  */
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
