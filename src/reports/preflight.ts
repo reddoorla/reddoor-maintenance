@@ -3,7 +3,7 @@
 import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
-import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
+import { parseAddresses, isProbablyEmail } from "./send/addresses.js";
 import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 import { gatingHealth, isSendOverridden } from "./checklist.js";
