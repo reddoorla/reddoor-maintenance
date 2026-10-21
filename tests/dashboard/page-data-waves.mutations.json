@@ -52,7 +52,7 @@
   },
   {
     "id": "4a-oldest-applied-cockpit",
-    "why": "brief mutation 4, on /",
+    "why": "equivalent mutant: collectDeadLetterAlerts (src/alerts/digest-collectors.ts:536-541) reads oldestBySlug only for a slug whose count is >= 1, so an oldest entry without a count reaches no page. The guard stays as defence if the collector changes; brief mutation 4, on /",
     "edits": [
       {
         "file": "src/dashboard/page-data.ts",
@@ -65,11 +65,11 @@
       "tests/dashboard/page-data.test.ts",
       "tests/dashboard/site-alarm.test.ts"
     ],
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "4b-oldest-applied-site",
-    "why": "brief mutation 4, on /s/:slug",
+    "why": "equivalent mutant: collectDeadLetterAlerts (src/alerts/digest-collectors.ts:536-541) reads oldestBySlug only for a slug whose count is >= 1, so an oldest entry without a count reaches no page. The guard stays as defence if the collector changes; brief mutation 4, on /s/:slug",
     "edits": [
       {
         "file": "src/dashboard/site-alarm.ts",
@@ -82,7 +82,7 @@
       "tests/dashboard/page-data.test.ts",
       "tests/dashboard/site-alarm.test.ts"
     ],
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "5-reads-before-slug-check",
