@@ -31,7 +31,9 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // The page is tabbed once the network is idle. Stops are told apart by element
 // identity, so the tab order ends where it wraps. A stop at the viewport's edge
 // is measured on the part the screen shows; a visually hidden input (a
-// `peer sr-only` radio) is measured by its label, where its ring is drawn.
+// `peer sr-only` radio) is measured where its ring is drawn: its label, else
+// the next element, else its parent. A stop under another element is reported
+// once, as covered.
 // A page where no stop could be measured is unmeasured, never a pass.
 //
 // Not covered: a stop wholly outside the viewport after focus scrolled it, and
@@ -40,7 +42,10 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // the page tabs it); a ring drawn further than RING_PAD_PX from the box; a
 // focus that opens something inside the captured box (a menu), whose
 // change counts as the indicator, as does a change to the element's own
-// fill; and two stops with the same path, whose findings are merged.
+// fill; two stops with the same path, whose findings are merged; and the set
+// of stops on a page whose carousel autoplays or whose frames load late,
+// which can differ between runs (the verdict on beachfront held across runs;
+// one of its findings did not).
 
 /** CSS px of ground captured round the element: outline offset plus width,
  *  with room to spare. */
@@ -121,7 +126,15 @@ export function describeFocus(): {
   let box: Element = el;
   const own = el.getBoundingClientRect();
   const labels = (el as HTMLInputElement).labels;
-  if ((own.width <= 2 || own.height <= 2) && labels && labels.length > 0) box = labels[0]!;
+  // Hidden inputs draw their ring elsewhere: on their label, else (the `peer`
+  // pattern) on the next element, else on their parent.
+  if (own.width <= 2 || own.height <= 2) {
+    box =
+      (labels && labels.length > 0 ? labels[0] : null) ??
+      el.nextElementSibling ??
+      el.parentElement ??
+      el;
+  }
   const r = box.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
@@ -264,7 +277,12 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
   let measured = 0;
   for (const { width, stops: list } of runs) {
     for (const s of list) {
-      if (s.covered) add(width, s.target, `is under ${s.covered} when focused`);
+      if (s.covered) {
+        // Covered: the capture shows the cover, not the ring; one finding.
+        add(width, s.target, `is under ${s.covered} when focused`);
+        if (s.ring !== null) measured += 1;
+        continue;
+      }
       if (s.ring === null) {
         if (s.skipped === "frame") inFrames += 1;
         else offScreen += 1;

@@ -77,6 +77,17 @@ const PAGES: Record<string, string> = {
      .sr:focus-visible + label { outline: 3px solid #000; outline-offset: 2px; }`,
     `<main><section><input type="radio" name="r" id="r1" class="sr"><label for="r1">Weekly</label></section></main>`,
   ),
+  // a hidden checkbox with no <label>, its ring on the next element;
+  "/peer-sibling": page(
+    `.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); } .box { display: inline-block; padding: 8px; }
+     .sr:focus-visible + .box { outline: 3px solid #000; outline-offset: 2px; }`,
+    `<main><section><input type="checkbox" class="sr" aria-label="Weekly"><span class="box">Weekly</span></section></main>`,
+  ),
+  // a footer link under a fixed banner: covered, reported once;
+  "/under-banner": page(
+    `${RING_AFTER_23} .banner { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; background: #222; }`,
+    `<main><section style="height: 2000px"></section><section><a href="#x" id="foot">Privacy</a></section></main><div class="banner" id="banner"></div>`,
+  ),
   // a ring drawn 12px out from the box;
   "/offset": page(
     `a:focus-visible { outline: 3px solid #000; outline-offset: 12px; }`,
@@ -199,10 +210,17 @@ describe("design-rules R12 (focus ring), in a real browser", () => {
   });
 
   it("PASSES a ring a hidden radio's label draws, a ring 12px out, and a page under a loader that lifts", async () => {
-    for (const path of ["/peer-label", "/offset", "/loader"]) {
+    for (const path of ["/peer-label", "/peer-sibling", "/offset", "/loader"]) {
       const o = await checkFocusRing(browser, `${base}${path}`);
       expect(o.status, `${path}: ${JSON.stringify(o.findings)}`).toBe("pass");
     }
+  });
+
+  it("reports a stop under a fixed banner once, as covered", async () => {
+    const o = await checkFocusRing(browser, `${base}/under-banner`);
+    expect(o.findings.map((f) => f.problem.replace(/ \(at .*\)$/, ""))).toEqual([
+      "is under div#banner when focused",
+    ]);
   });
 
   it("is UNMEASURED, never a pass, when nothing takes focus or no stop can be measured", async () => {
