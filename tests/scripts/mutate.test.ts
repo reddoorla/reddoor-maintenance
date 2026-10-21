@@ -337,7 +337,7 @@ function fixture(value = "pass", { pnpm = false } = {}) {
   writeFileSync(join(dir, "src", "value.txt"), `${value}\n`);
   writeFileSync(join(dir, "src", "cli.mjs"), "console.log(1 + 1);\n");
   // A workflow-style body the tests would wrap in a function: node --check rejects it at HEAD.
-  writeFileSync(join(dir, "src", "body.js"), "const n = 1;\nreturn n * 2;\n");
+  writeFileSync(join(dir, "src", "body.mjs"), "const n = 1;\nreturn n * 2;\n");
   writeFileSync(join(dir, "src", "typed.ts"), "const x: number = 5;\nexport { x };\n");
   writeFileSync(join(dir, "src", "data.json"), '{ "a": 1 }\n');
   writeFileSync(join(dir, "src", "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
@@ -713,7 +713,7 @@ describe("mutate, against a real repo", () => {
     const p = sidecar(f.side, [
       edit("ts", "src/typed.ts", "= 5;", "= ;"),
       edit("json", "src/data.json", '"a": 1', '"a": '),
-      edit("body", "src/body.js", "n * 2", "n * 3", {
+      edit("body", "src/body.mjs", "n * 2", "n * 3", {
         expect: "survives",
         why: "nothing reads it",
       }),
