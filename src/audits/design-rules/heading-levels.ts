@@ -34,11 +34,15 @@ export function sampleOutline(): OutlineSample {
   const headings: OutlineHeading[] = [];
   const stack: Element[] = [document.documentElement];
   const order: Element[] = [];
-  // Document order, entering open shadow roots where they sit.
+  // Document order, entering open shadow roots where they sit, then the light
+  // children the shadow root slots.
   while (stack.length > 0) {
     const el = stack.pop()!;
     order.push(el);
-    const children = Array.from(el.shadowRoot ? el.shadowRoot.children : el.children);
+    const children = [
+      ...Array.from(el.shadowRoot ? el.shadowRoot.children : []),
+      ...Array.from(el.children),
+    ];
     for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
   }
   for (const el of order) {

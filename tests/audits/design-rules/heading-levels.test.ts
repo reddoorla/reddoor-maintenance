@@ -78,6 +78,10 @@ const PAGES: Record<string, string> = {
     ["h1", null, "We tell"],
   ]),
   // The smallest skip: one level missing.
+  // a card component: its own <h2> in its shadow root, and an <h4> slotted
+  // from the light DOM, a skip;
+  "/shadow": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Team</h1><x-card><h4>Slotted role</h4></x-card></main>
+<script>customElements.define("x-card", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<h2>Card</h2><slot></slot>"; } });</script></body></html>`,
   "/one-level-skip": outlinePage([
     ["h1", null, "Services"],
     ["h2", null, "Cleanings"],
@@ -179,6 +183,13 @@ describe("design-rules R9 (heading levels), in a real browser", () => {
       },
     ]);
     expect(await axeSays("/one-level-skip")).toBe("fail");
+  });
+
+  it("reads a shadow root's headings and the ones it slots", async () => {
+    const o = await checkHeadingLevels(browser, `${base}/shadow`);
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      'is level 4 after level 2 ("Card"), skipping level 3 (at 1440 and 390px)',
+    ]);
   });
 
   it("FAILS a skip only the phone layout has", async () => {
