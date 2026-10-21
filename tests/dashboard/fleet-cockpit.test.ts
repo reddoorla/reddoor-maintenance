@@ -1229,7 +1229,8 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     expect(broken.tier).toBe("attention");
     expect(broken.setup?.map((i) => i.signal)).toEqual(["search-console-no-property"]);
     expect(broken.watchReasons).toEqual([]);
-    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1, setup: 1 });
+    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    expect(m.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
     expect(feed[0]!.group).toBe("broken");

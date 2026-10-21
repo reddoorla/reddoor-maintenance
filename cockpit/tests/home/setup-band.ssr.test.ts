@@ -58,6 +58,19 @@ describe("/ — the Setup lane", () => {
     expect(lane).not.toContain("Clean");
   });
 
+  it("counts a broken site's gap too: Setup is not a tier", () => {
+    const broken = siteRow({
+      id: "recX",
+      name: "Broken",
+      url: "https://broken.example.com",
+      securityVulnsCritical: 2,
+      gitRepo: null,
+    });
+    const html = home([broken, CLEAN]);
+    expect(html).toContain('class="pill attention"'); // the site really is broken
+    expect(laneSummary(html)).toBe("🧰 Setup (1 site)");
+  });
+
   it("is absent when no site has a gap (the positive control)", () => {
     expect(laneSummary(home([CLEAN]))).toBeNull();
   });
@@ -123,5 +136,40 @@ describe("/s/:slug — the site's checklist", () => {
 
   it("a complete site shows no checklist", () => {
     expect(sitePage(CLEAN)).not.toContain("setup-gaps");
+  });
+});
+
+describe("the onboarding score never says complete beside an open gap", () => {
+  // Review round 1: the six-point onboarding score and the Setup checklist use
+  // different rules, so a site can score 6/6 with a roster gap open.
+  const GIT_ONLY = siteRow({
+    id: "recO",
+    name: "Only Git",
+    url: "https://o.example.com",
+    gitRepo: null,
+  });
+
+  it("on /s/:slug, a full score with a gap points at the checklist", () => {
+    const alarm = buildSiteAlarmContext(GIT_ONLY, [], BASE, NOW);
+    const html = renderPage(SitePage, {
+      data: { view: buildSiteView(GIT_ONLY, [], [], null, NOW, alarm) },
+    });
+    expect(html).toMatch(
+      /Setup 6\/6 — (<!--[^>]*-->)*<span class="setup-missing">1 roster gap open, below<\/span>/,
+    );
+    expect(html).not.toContain('class="setup-ok"');
+  });
+
+  it("on /s/:slug, a full score with no gap still says complete (the positive control)", () => {
+    const alarm = buildSiteAlarmContext(CLEAN, [], BASE, NOW);
+    const html = renderPage(SitePage, {
+      data: { view: buildSiteView(CLEAN, [], [], null, NOW, alarm) },
+    });
+    expect(html).toContain('<span class="setup-ok">complete</span>');
+  });
+
+  it("on a card, the setup tooltip names the open gap rather than complete", () => {
+    expect(home([GIT_ONLY])).toContain('title="1 roster gap open"');
+    expect(home([CLEAN])).toContain('title="Setup complete"');
   });
 });

@@ -446,6 +446,34 @@ describe("pm-cockpit --since", () => {
     expect(out).not.toContain("Healthy Co");
   });
 
+  it("lists a broken site's gap under Setup too, and orders Setup by name", () => {
+    const broken = site({
+      id: "recZB",
+      name: "Zulu Broken",
+      url: "https://zulu.example.com",
+      pScore: 60,
+      gitRepo: null,
+    });
+    const gap = site({
+      id: "recAG",
+      name: "Alpha Gap",
+      url: "https://alpha.example.com",
+      gitRepo: null,
+    });
+    const pm = buildPmCockpit(
+      inputs({
+        websites: [broken, gap],
+        prior: {
+          ...PRIOR,
+          "lighthouse:recZB:performance": { metric: 40, firstFlaggedAt: "2026-10-01" },
+        },
+      }),
+      NOW,
+    );
+    expect(pm.setup.map((e) => e.siteName)).toEqual(["Alpha Gap", "Zulu Broken"]);
+    expect(pm.needsYou.map((e) => e.siteName)).toEqual(["Zulu Broken"]);
+  });
+
   it("parses --since only as an ISO time with a zone", () => {
     expect(parseArgs(["--since", "2026-10-06T11:48:00Z"]).since).toBe("2026-10-06T11:48:00Z");
     expect(() => parseArgs(["--since", "2026-10-06"])).toThrow(/ISO/);

@@ -1866,7 +1866,7 @@ exports[`/ parity with renderCockpitHtml > setup: roster gaps only, so all clear
   "        <a class="url" href="https://acme.example.com/" rel="noopener" target="_blank">",
   "          "https://acme.example.com"",
   "        " "",
-  "        <span class="setup" title="Missing: GA4 property (or a \\"no analytics\\" opt-out)">",
+  "        <span class="setup" title="Missing: GA4 property (or a \\"no analytics\\" opt-out); 3 roster gaps open">",
   "          "Setup: "",
   "          <strong>",
   "            "5/6"",
