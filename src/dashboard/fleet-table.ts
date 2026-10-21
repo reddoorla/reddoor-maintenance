@@ -8,10 +8,10 @@
  *  status names.
  *
  *  RAW means `statusRaw`, the literal stored cell, NOT the canonical
- *  `status` (#539 Phase 4). This table must show what the cells hold: the
- *  canonical vocabulary merges `legacy` and `deprecated` into `archived`, which
- *  would render 12 fleet rows identically and offer a status FILTER whose
- *  options match no stored cell.
+ *  `status` (#539 Phase 4). This table must show what the cells hold. When it
+ *  was written the canonical vocabulary merged `legacy` and `deprecated` into
+ *  `archived`; that alias map is retired and the two are now equal, but the
+ *  split is kept (site-status.ts says why).
  *  Canonical values decide behaviour; anything displaying a Status cell uses
  *  the raw one.
  *
@@ -25,9 +25,10 @@ import { siteSlug } from "../fleet/site-row.js";
 import type { Status } from "../fleet/site-status.js";
 
 /** Statuses the default view leaves out (the operator, 2026-10-21: "they should
- *  only come up if I'm actively looking for them"). Matched on the CANONICAL
- *  status, so a raw `legacy` or `deprecated` cell, both canonical `archived`,
- *  is hidden with the rest. */
+ *  only come up if I'm actively looking for them"). Matched on `status`, which
+ *  since the alias map was retired equals the raw cell: a stored retired name
+ *  like `legacy` is NOT `archived`, but an unrecognized status that
+ *  site-status.ts surfaces as an anomaly, so it stays visible. */
 export const HIDDEN_BY_DEFAULT: ReadonlySet<Status> = new Set<Status>(["archived", "external"]);
 
 export const FLEET_SORT_KEYS = [

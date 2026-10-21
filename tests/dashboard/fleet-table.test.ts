@@ -128,11 +128,16 @@ describe("buildFleetTableModel — inclusion", () => {
 
 describe("buildFleetTableModel — the default view hides archived and external sites", () => {
   // The operator, 2026-10-21: "they should only come up if I'm actively
-  // looking for them". Hidden on the CANONICAL status, so raw `legacy` and
-  // `deprecated` cells go with `archived`.
+  // looking for them". Rows are built as production reads them: since the alias
+  // map was retired, `status` and `statusRaw` hold the same value.
   const sites = [
     makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
-    makeWebsiteRow({ id: "r2", name: "Bravo", status: "archived", statusRaw: "legacy" }),
+    makeWebsiteRow({
+      id: "r2",
+      name: "Bravo",
+      status: storedStatus("legacy"),
+      statusRaw: "legacy",
+    }),
     makeWebsiteRow({ id: "r3", name: "Charlie", status: "archived", statusRaw: "archived" }),
     makeWebsiteRow({ id: "r4", name: "Delta", status: "external", statusRaw: "external" }),
     makeWebsiteRow({ id: "r5", name: "Echo", status: null }),
@@ -141,11 +146,18 @@ describe("buildFleetTableModel — the default view hides archived and external 
   ];
   it("leaves out archived and external sites, and counts them", () => {
     const m = buildFleetTableModel(sites, DEFAULT_QUERY);
-    expect(m.rows.map((r) => r.name)).toEqual(["Alpha", "Echo", "Foxtrot", "Golf"]);
-    expect(m.hiddenCount).toBe(3);
+    expect(m.rows.map((r) => r.name)).toEqual(["Alpha", "Bravo", "Echo", "Foxtrot", "Golf"]);
+    expect(m.hiddenCount).toBe(2);
     expect(m.totalSites).toBe(7);
     // The filter still offers the hidden statuses, so they can be picked.
     expect(m.statuses).toEqual(expect.arrayContaining(["legacy", "archived", "external"]));
+  });
+  it("keeps a retired name like `legacy` visible: it is an unrecognized status, surfaced", () => {
+    // canonicalizeStatus is the identity now, so a stored `legacy` is not
+    // `archived`; site-status.ts surfaces it as an anomaly, and hiding it would
+    // bury exactly the row that needs attention.
+    const m = buildFleetTableModel(sites, DEFAULT_QUERY);
+    expect(m.rows.find((r) => r.name === "Bravo")?.status).toBe("legacy");
   });
   it("shows every site under ALL_STATUSES_FILTER, hiding none", () => {
     const m = buildFleetTableModel(sites, ALL_QUERY);
@@ -158,8 +170,8 @@ describe("buildFleetTableModel — the default view hides archived and external 
     expect(m.hiddenCount).toBe(0);
   });
   it("finds a hidden site by search", () => {
-    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, q: "bravo" });
-    expect(m.rows.map((r) => r.name)).toEqual(["Bravo"]);
+    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, q: "charlie" });
+    expect(m.rows.map((r) => r.name)).toEqual(["Charlie"]);
     expect(m.hiddenCount).toBe(0);
   });
   it("lets the data win when a stored status literally equals the sentinel", () => {

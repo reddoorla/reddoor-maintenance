@@ -32,7 +32,13 @@ function sites() {
       nextTestingAt: "2026-10-01",
       lastLighthouseAuditAt: "2026-08-20T18:00:00Z",
     }),
-    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived", statusRaw: "legacy" }),
+    // A retired name, read as production reads it: status equals the raw cell.
+    makeWebsiteRow({
+      id: "r2",
+      name: "Beachfront",
+      status: "legacy" as WebsiteRow["status"],
+      statusRaw: "legacy",
+    }),
     makeWebsiteRow({ id: "r3", name: "Untracked", status: null }),
   ];
 }
@@ -43,21 +49,23 @@ function render(query: Partial<FleetTableQuery> = {}, rows = sites()) {
 
 describe("renderFleetTableHtml — document + rows", () => {
   it("renders a full document with one row per site and a back link home", () => {
-    const html = render({ status: ALL_STATUSES_FILTER });
+    const html = render();
     expect(html).toContain("<!doctype html>");
     expect(html).toContain('href="/"'); // ← Fleet home, same as the submissions page
     // Since #672 step 3 a row also carries its signals for the chip filter.
     expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
     expect(html).toContain("3 of 3 sites");
+    // A retired name is an unrecognized status, surfaced rather than hidden.
     expect(html).not.toContain("archived or external hidden");
   });
   it("hides archived and external rows by default, says so, and links to them", () => {
     // The operator, 2026-10-21: they come up only when he is looking for them.
-    const html = render({ sort: "perf", dir: "desc", q: "" });
-    expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(2);
-    expect(html).not.toContain(">Beachfront</a>");
+    const rows = [...sites(), makeWebsiteRow({ id: "r4", name: "Seawall", status: "archived" })];
+    const html = render({ sort: "perf", dir: "desc", q: "" }, rows);
+    expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
+    expect(html).not.toContain(">Seawall</a>");
     expect(html).toMatch(
-      /2 of 3 sites\s*· 1 archived or external hidden · <a href="([^"]*)">Show all<\/a>/,
+      /3 of 4 sites\s*· 1 archived or external hidden · <a href="([^"]*)">Show all<\/a>/,
     );
     const href = /<a href="([^"]*)">Show all<\/a>/.exec(html)![1]!.replaceAll("&amp;", "&");
     // The link keeps the operator's sort.
@@ -69,11 +77,12 @@ describe("renderFleetTableHtml — document + rows", () => {
     expect(formOf(html)).toContain(`<option value="${ALL_STATUSES_FILTER}">All statuses</option>`);
   });
   it("marks 'All statuses' selected when it is in force, and shows the hidden rows", () => {
-    const html = render({ status: ALL_STATUSES_FILTER });
+    const rows = [...sites(), makeWebsiteRow({ id: "r4", name: "Seawall", status: "archived" })];
+    const html = render({ status: ALL_STATUSES_FILTER }, rows);
     expect(formOf(html)).toContain(
       `<option value="${ALL_STATUSES_FILTER}" selected="">All statuses</option>`,
     );
-    expect(html).toContain(">Beachfront</a>");
+    expect(html).toContain(">Seawall</a>");
   });
   it("links each site name to its detail page and its URL out", () => {
     const html = render();
@@ -297,6 +306,7 @@ describe("renderFleetTableHtml — escaping", () => {
     const html = renderFleetTableHtml({
       rows: [row],
       totalSites: 1,
+      hiddenCount: 0,
       statuses: [],
       query: DEFAULT_QUERY,
     });
