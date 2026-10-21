@@ -83,6 +83,42 @@ describe("PRISMIC_ACK_UPDATE_SQL — the documented ack, run against a migrated 
     }
   });
 
+  it("acks only the named site, and copies that site's own report", async () => {
+    // Two sites with different reports. Ack the second: the first must keep no
+    // ack, and the second must get its own report, not the first's (a subquery
+    // missing its site_id correlation would hand it the first row's).
+    const db = await seeded("DRIFT A");
+    try {
+      await mirrorSiteInsert(
+        db,
+        {
+          id: "rec2",
+          fields: {
+            Name: "Espada",
+            Status: "maintained",
+            "Prismic Models": "fail",
+            "Prismic Models Checked At": NOW.toISOString(),
+            "Prismic Models Drift": "DRIFT B",
+          },
+        },
+        NOW.toISOString(),
+      );
+      await db.executeQuery(CompiledQuery.raw(PRISMIC_ACK_UPDATE_SQL, [UNTIL, "Espada"]));
+      const rows = await listSites(db);
+      const reddoor = rows.find((r) => r.name === "Reddoor")!;
+      const espada = rows.find((r) => r.name === "Espada")!;
+      expect(reddoor.prismicAckUntil).toBeNull();
+      expect(reddoor.prismicAckDrift).toBeNull();
+      expect(espada.prismicAckUntil).toBe(UNTIL);
+      expect(espada.prismicAckDrift).toBe("DRIFT B");
+      expect(collectPrismicDriftAlerts(rows, "https://dash", NOW).map((i) => i.key)).toEqual([
+        "prismic-drift:rec1",
+      ]);
+    } finally {
+      await db.destroy();
+    }
+  });
+
   it("the continuity runbook carries the statement verbatim", async () => {
     const runbook = await readFile(
       fileURLToPath(new URL("../../docs/runbooks/continuity.md", import.meta.url)),
@@ -127,6 +163,19 @@ describe("prismicAckCovers — a report cut at the storage cap", () => {
       prismicAckDrift: stored(reviewed),
     });
     expect(prismicAckCovers(row, NOW)).toBe(true);
+  });
+
+  it("a notice that mentions sha256 without a 64-hex hash covers nothing either", () => {
+    const fake =
+      head.slice(0, 49_000) +
+      `\n…[truncated: this report is ${reviewed.length} characters (sha256 pending) and only the first 50000 are kept here.]`;
+    const row = makeWebsiteRow({
+      prismicModels: "fail",
+      prismicModelsDrift: fake,
+      prismicAckUntil: UNTIL,
+      prismicAckDrift: fake,
+    });
+    expect(prismicAckCovers(row, NOW)).toBe(false);
   });
 
   it("an ack of a cut report stored before the notice carried a hash covers nothing", () => {
