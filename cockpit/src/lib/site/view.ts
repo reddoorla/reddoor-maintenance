@@ -94,6 +94,10 @@ export type HistoryRow = {
   search: string;
   previewHref: string | null;
   action: HistoryAction;
+  /** Who approved it, for an approved report (#672 step 4): the signed-in
+   *  operator's email, or "dashboard" for an approval made before that or under
+   *  the shared-password fallback. */
+  approvedBy: string | null;
   /** Present when the row carries a commentary row beneath it; `editor` is null
    *  when the report type never renders commentary. */
   commentaryRow: { editor: CommentaryView | null } | null;
@@ -340,6 +344,7 @@ function historyRow(r: ReportRow, site: WebsiteRow): HistoryRow {
     search: r.searchFoundPage1 && r.searchPosition !== null ? `#${r.searchPosition}` : DASH,
     previewHref: r.renderedHtmlAttachment ? reportPreviewUrl(r.id) : null,
     action,
+    approvedBy: r.approvedToSend && r.approvedBy ? r.approvedBy : null,
     // Commentary stays editable for the WHOLE unsent window; a pending report
     // already carries its editor in the pending list.
     commentaryRow:

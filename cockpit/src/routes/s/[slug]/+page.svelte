@@ -191,6 +191,8 @@
                   confirmText={r.action.unapprove.confirm}
                 />{:else if r.action.kind === "sending"}<span class="muted sending"
                   >Send started {r.action.at}Z</span
+                >{/if}{#if r.approvedBy !== null}<span class="muted approved-by"
+                  >approved by {r.approvedBy}</span
                 >{/if}</td
             >
           </tr>

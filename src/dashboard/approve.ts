@@ -1,6 +1,8 @@
 import type { ReportRow } from "../reports/report-fields.js";
 
-/** Constant operator marker stamped into the audit trail (single operator). */
+/** The operator marker stamped into the audit trail when the caller has no
+ *  identity: the shared-password fallback signs in no one (#672 step 4). A
+ *  signed-in approval stamps the operator's email instead. */
 export const APPROVED_BY = "dashboard";
 
 export type ApproveResult =
@@ -49,7 +51,12 @@ export async function approveReport(
   deps: ApproveDeps,
   reportId: string,
   override?: { reason: string },
+  /** The signed-in operator's email, from the session, never the request body
+   *  (#672 step 4). Null under the shared-password fallback, which stamps
+   *  APPROVED_BY. */
+  approvedBy: string | null = null,
 ): Promise<ApproveResult> {
+  const by = approvedBy?.trim() || APPROVED_BY;
   const report = await deps.getReportById(reportId);
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
@@ -73,7 +80,7 @@ export async function approveReport(
     const blockers = await deps.sendBlockers(overridden);
     if (blockers.length > 0)
       return { status: "blocked", reportId, reason: "send-blocked", blockers };
-    if ((await deps.overrideReport(reportId, deps.now(), APPROVED_BY, reason)) === false)
+    if ((await deps.overrideReport(reportId, deps.now(), by, reason)) === false)
       return lostRace(deps, reportId);
     return { status: "overridden", reportId, reason };
   }
@@ -83,7 +90,7 @@ export async function approveReport(
   // scores) only schedules a red cron run — block with the reasons instead.
   const blockers = await deps.sendBlockers(report);
   if (blockers.length > 0) return { status: "blocked", reportId, reason: "send-blocked", blockers };
-  if ((await deps.approveReportRow(reportId, deps.now(), APPROVED_BY)) === false)
+  if ((await deps.approveReportRow(reportId, deps.now(), by)) === false)
     return lostRace(deps, reportId);
   return { status: "approved", reportId };
 }
