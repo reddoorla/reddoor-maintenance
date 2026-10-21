@@ -231,6 +231,42 @@ describe("sendApprovedReports", () => {
     expect(res).toEqual({ output: "No reports ready to send.", code: 0 });
   });
 
+  // #1613. The approved-but-invisible check is not only for an empty queue.
+  it("sends what it can and reds by name on an approved report missing from a non-empty queue", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      approvedUnqueued: async () => [
+        { id: "rec_report_hidden", reportId: "Acme Co — Testing — 2026-06" },
+      ],
+    });
+    expect(captured).toHaveLength(1);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toMatch(
+      /✗ Acme Co — Testing — 2026-06 — approved but not in the send queue/,
+    );
+    expect(res.output).not.toMatch(/✗ Acme Co — Maintenance/);
+    expect(res.code).toBe(1);
+  });
+
+  it("a failed read of the unqueued approvals reds the run but still sends the queue", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      approvedUnqueued: async () => {
+        throw new Error("SERVER_ERROR: HTTP 503");
+      },
+    });
+    expect(captured).toHaveLength(1);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("✗ could not check for approved reports outside the send queue");
+    expect(res.code).toBe(1);
+  });
+
   it("sends one report and stamps Sent at + Resend message ID through reportSentMirror", async () => {
     const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
