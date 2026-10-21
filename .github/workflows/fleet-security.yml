@@ -58,6 +58,7 @@ jobs:
           owner: reddoorla
 
       - name: Fleet security + deps audit + write-back
+        id: sweep
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
         # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
@@ -171,10 +172,12 @@ jobs:
       # and installation tokens die at 60 — see the first mint's comment.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token-late
-        # `!cancelled()`: a write-gate red in the audit step (#1605) must not stop
-        # Renovate dispatch or freeze the protection-gap issue. The same pattern as
-        # fleet-lighthouse's follow-up steps.
-        if: ${{ !cancelled() }}
+        # A write-gate red in the audit step (#1605) must not stop Renovate dispatch
+        # or freeze the protection-gap issue, so these run when the sweep RAN,
+        # green or red. Not after a failed checkout, install or build: the sweep
+        # was skipped then, `dist/` may not exist, and an audit that dies on a
+        # missing module would file a false coverage gap.
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         timeout-minutes: 5
         with:
           app-id: ${{ vars.RENOVATE_APP_ID }}
@@ -182,7 +185,7 @@ jobs:
           owner: reddoorla
 
       - name: Trigger Renovate for sites with actionable vulnerabilities
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         timeout-minutes: 10
         env:
           # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
@@ -215,7 +218,7 @@ jobs:
       # dedicated title is the signal; it auto-closes on the next clean pass.
       - name: Protection coverage audit (org-wide)
         id: protection
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         timeout-minutes: 15
         continue-on-error: true
         env:

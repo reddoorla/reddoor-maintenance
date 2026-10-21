@@ -9,7 +9,11 @@ import { functionHealthAudit } from "../../src/audits/function-health.js";
 import { formE2eAudit } from "../../src/audits/form-e2e.js";
 import { netlifyDeployAudit } from "../../src/audits/netlify-deploy.js";
 import { smokeAudit } from "../../src/audits/smoke.js";
-import { writeFleetAudits, fleetWriteGate } from "../../src/audits/write-audits.js";
+import {
+  writeFleetAudits,
+  fleetWriteGate,
+  formatFleetWriteSummary,
+} from "../../src/audits/write-audits.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import { recordingMirror } from "../_helpers/recording-mirror.js";
 import type { AuditResult, Site } from "../../src/types.js";
@@ -25,6 +29,8 @@ let dir: string;
 let noScript: string;
 let withScript: string;
 let corrupt: string;
+let noPackage: string;
+let dirPackage: string;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "na-marks-"));
@@ -32,6 +38,12 @@ beforeAll(() => {
   withScript = join(dir, "with-script");
   mkdirSync(noScript);
   mkdirSync(withScript);
+  noPackage = join(dir, "no-package");
+  mkdirSync(noPackage);
+  // A DIRECTORY named package.json: readFile fails with EISDIR, not ENOENT. (EACCES
+  // cannot be staged here: the container runs as root.)
+  dirPackage = join(dir, "dir-package");
+  mkdirSync(join(dirPackage, "package.json"), { recursive: true });
   corrupt = join(dir, "corrupt");
   mkdirSync(corrupt);
   writeFileSync(join(corrupt, "package.json"), '{\n<<<<<<< HEAD\n  "name": "c"\n');
@@ -56,7 +68,23 @@ const notApplicable: Array<[string, () => Promise<AuditResult>]> = [
   ["form-e2e, no deployed URL", () => formE2eAudit({ site: bare })],
   ["netlify-deploy, no Netlify id", () => netlifyDeployAudit({ site: deployed })],
   ["smoke, no test:smoke script", () => smokeAudit({ site: { name: "a", path: noScript } })],
+  ["smoke, no package.json at all", () => smokeAudit({ site: { name: "d", path: noPackage } })],
+  [
+    "form-e2e, no contact form (and still written)",
+    () =>
+      formE2eAudit({
+        site: deployed,
+        formRunner: { submit: async () => ({ formPresent: false }) },
+      }),
+  ],
 ];
+
+/** A spawn that records it was called: a broken package.json must never reach pnpm. */
+const spawned: string[] = [];
+const recordingSpawn = async (cmd: string) => {
+  spawned.push(cmd);
+  return { code: 1, stdout: "", stderr: "" };
+};
 
 /** Skips the site's configuration does not explain: the measurement broke. */
 const broken: Array<[string, () => Promise<AuditResult>]> = [
@@ -80,7 +108,23 @@ const broken: Array<[string, () => Promise<AuditResult>]> = [
   ],
   [
     "smoke, package.json unparseable (a merge-conflict marker)",
-    () => smokeAudit({ site: { name: "c", path: corrupt } }),
+    async () => {
+      spawned.length = 0;
+      const r = await smokeAudit({ site: { name: "c", path: corrupt }, spawn: recordingSpawn });
+      expect(r.summary).toMatch(/^smoke: package\.json unparseable/);
+      expect(spawned).toEqual([]);
+      return r;
+    },
+  ],
+  [
+    "smoke, package.json unreadable (EISDIR)",
+    async () => {
+      spawned.length = 0;
+      const r = await smokeAudit({ site: { name: "e", path: dirPackage }, spawn: recordingSpawn });
+      expect(r.summary).toMatch(/^smoke: package\.json unreadable/);
+      expect(spawned).toEqual([]);
+      return r;
+    },
   ],
   [
     "smoke, deps would not install",
@@ -97,6 +141,27 @@ describe("by-design skips carry notApplicable", () => {
     const r = await run();
     expect(r.status).toBe("skip");
     expect(r.notApplicable).toBe(true);
+  });
+
+  it("a no-form site is written and counted as not applicable for form-e2e", async () => {
+    const r = await formE2eAudit({
+      site: { ...deployed, name: "no-form" },
+      formRunner: { submit: async () => ({ formPresent: false }) },
+    });
+    const out = await writeFleetAudits({
+      websites: websiteRowsFrom([
+        { id: "rec1", fields: { Name: "no-form", Status: "maintenance" } },
+      ]),
+      results: [{ ...r, site: "no-form" }],
+      mirror: recordingMirror().mirror,
+      expectedSites: ["no-form"],
+    });
+    expect(out.written.map((w) => w.siteName)).toEqual(["no-form"]);
+    expect(out.notApplicableAudits).toEqual({ "form-e2e": ["no-form"] });
+    expect(fleetWriteGate(out)).toEqual({ red: false, reasons: [], warnings: [] });
+    expect(formatFleetWriteSummary(out)).toContain(
+      "\n· form-e2e not applicable by design on 1 site(s): no-form",
+    );
   });
 });
 
@@ -149,18 +214,28 @@ describe("through the write gate", () => {
  *  missing, no lockfile, the live runner off) would drop that site from its audit's
  *  denominator and could green a fleet-wide outage, so it must turn this red. */
 describe("the census of not-applicable marks", () => {
-  it("marks exactly the six by-design skips", () => {
+  it("marks exactly the seven by-design skips, and only ever with a literal true", () => {
     const audits = fileURLToPath(new URL("../../src/audits/", import.meta.url));
     const found: Record<string, number> = {};
+    const other: string[] = [];
     for (const f of readdirSync(audits, { recursive: true }) as string[]) {
-      if (!f.endsWith(".ts")) continue;
-      const n = (readFileSync(join(audits, f), "utf-8").match(/notApplicable: true/g) ?? []).length;
-      if (n > 0) found[f] = n;
+      // write-audits.ts reads the marks and keeps its own `notApplicable` list of sites;
+      // it produces no AuditResult.
+      if (!f.endsWith(".ts") || f === "write-audits.ts") continue;
+      const src = readFileSync(join(audits, f), "utf-8");
+      // Every property-position `notApplicable`: `notApplicable: x`, or the shorthand
+      // `{ notApplicable }` / `, notApplicable,`. Reads such as `r.notApplicable` do not match.
+      for (const m of src.matchAll(/(?<![.\w])notApplicable\b\s*(:\s*([^,\n}]+)|(?=[,}]))/g)) {
+        const value = m[2]?.trim();
+        if (value === "true") found[f] = (found[f] ?? 0) + 1;
+        else other.push(`${f}: ${m[0]}`);
+      }
     }
+    expect(other).toEqual([]);
     expect(found).toEqual({
       "browser.ts": 1,
       "domain.ts": 1,
-      "form-e2e.ts": 1,
+      "form-e2e.ts": 2,
       "function-health.ts": 1,
       "netlify-deploy.ts": 1,
       "smoke.ts": 1,

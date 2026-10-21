@@ -299,6 +299,10 @@ export type FleetWriteResult = {
    *  denominator for that audit's share in the gate, so a fleet where most sites have no
    *  `test:smoke` script cannot dilute four blind adopters into a green run. */
   applicableAudits?: Partial<Record<AuditName, string[]>>;
+  /** Per audit, the sites whose result said "not applicable here" by design (no deployed
+   *  URL, no form, no smoke suite), whether or not the site wrote other values. Printed so
+   *  a by-design skip is counted rather than merely absent from the denominators. */
+  notApplicableAudits?: Partial<Record<AuditName, string[]>>;
 };
 
 /** Did this sweep fail, for exit-code purposes (#612)?
@@ -423,6 +427,11 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
       .join("; ")}`;
   }
   if (na.length > 0) out += `\n· ${na.length} site(s) not applicable: ${na.join(", ")}`;
+  for (const [audit, sites] of Object.entries(result.notApplicableAudits ?? {})) {
+    if (sites && sites.length > 0) {
+      out += `\n· ${audit} not applicable by design on ${sites.length} site(s): ${sites.join(", ")}`;
+    }
+  }
   if (missing.length > 0) {
     out += `\n⚠ ${missing.length} site(s) on the roster never reached write-back: ${missing.join(", ")}`;
   }
@@ -477,6 +486,7 @@ export async function writeFleetAudits(args: {
   const notApplicable: string[] = [];
   const unmeasuredAudits: Partial<Record<AuditName, string[]>> = {};
   const applicableAudits: Partial<Record<AuditName, string[]>> = {};
+  const notApplicableAudits: Partial<Record<AuditName, string[]>> = {};
   const note = (into: Partial<Record<AuditName, string[]>>, audit: AuditName, slug: string) => {
     const list = (into[audit] ??= []);
     // Two roster rows can share a slug and pool into one group; count the slug once.
@@ -496,6 +506,7 @@ export async function writeFleetAudits(args: {
       if (PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true) {
         note(applicableAudits, r.audit, slug);
       }
+      if (r.notApplicable === true) note(notApplicableAudits, r.audit, slug);
     }
     const hasFields = !!summary.fields && Object.keys(summary.fields).length > 0;
     // Nothing to write is not a write (#1605). A site whose audits all said "not applicable"
@@ -547,6 +558,7 @@ export async function writeFleetAudits(args: {
     notApplicable,
     unmeasuredAudits,
     applicableAudits,
+    notApplicableAudits,
     ...(expectedSites !== undefined ? { missing } : {}),
     ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}),
   };

@@ -974,6 +974,23 @@ exit 1
     }
   });
 
+  // A failed checkout, install or build skips the sweep and leaves no `dist/`. The
+  // protection audit would then die on a missing module behind its `tee`, leave an
+  // empty protection.out, and the open step would file a false coverage gap.
+  it("fleet-security's follow-up steps do not run when the sweep itself never ran", () => {
+    for (const label of [
+      "id: app-token-late",
+      "Trigger Renovate for sites with actionable vulnerabilities",
+      "Protection coverage audit (org-wide)",
+    ]) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      const buildBroke = { ...MAIN_FAILED, outcomes: { sweep: "skipped" } };
+      expect(evaluate(s.if ?? "success()", buildBroke), label).toBe(false);
+      const sweepRed = { ...MAIN_FAILED, outcomes: { sweep: "failure" } };
+      expect(evaluate(s.if ?? "success()", sweepRed), label).toBe(true);
+    }
+  });
+
   it("the Renovate drought open and close conditions hold on a red run", () => {
     for (const [label, drought] of [
       ["Open/update the Renovate drought tracking issue", "yes"],

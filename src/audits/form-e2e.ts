@@ -474,6 +474,8 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         site: label,
         status: "skip",
         summary: "no contact form (n/a)",
+        // By design, and still written: the "no form" verdict and its stamp land.
+        notApplicable: true,
         details: {
           ok: null,
           formPresent: false,
