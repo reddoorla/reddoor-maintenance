@@ -599,6 +599,22 @@ describe("the asks, at round 5's edges", () => {
     expect(askLedger(asks, { start: START, end: END }).unparsed).toEqual([]);
   });
 
+  it("an ask moved into a subfolder leaves the ledger then, as a delete does", async () => {
+    const dir = bareHome("moved");
+    writeAsk(dir, "2026-10-13T00:10:00Z", "2026-10-13-0000-ask.md", "2026-10-13T00:00Z", "open");
+    mkdirSync(join(dir, "decisions", "archive"));
+    g(dir, ["mv", "decisions/2026-10-13-0000-ask.md", "decisions/archive/2026-10-13-0000-ask.md"]);
+    g(
+      dir,
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "mv"],
+      "2026-10-14T00:00:00Z",
+    );
+    const { asks } = await askTimelines(dir, "main");
+    expect(asks.map((x) => [x.file, x.events.map((e) => e.status)])).toEqual([
+      ["2026-10-13-0000-ask.md", ["open", "deleted"]],
+    ]);
+  });
+
   it("dates the first ask in PT, not UTC", async () => {
     const dir = bareHome("pt-date");
     // 03:00Z on 10-02 is 8pm PT on 10-01.
