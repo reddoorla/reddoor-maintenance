@@ -55,6 +55,8 @@ describe("missingLighthouseCategories", () => {
     expect(missingLighthouseCategories(lh("a", noLcp))).toEqual(["performance"]);
     expect(missingLighthouseCategories(lh("a", full))).toEqual([]);
     expect(missingLighthouseCategories(lh("a", {}))).toEqual([]);
+    // A NaN score is no score: lhci writes one for a category it could not compute.
+    expect(missingLighthouseCategories(lh("a", { ...full, seo: Number.NaN }))).toEqual(["seo"]);
   });
 });
 
