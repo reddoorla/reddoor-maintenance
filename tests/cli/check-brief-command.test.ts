@@ -972,3 +972,107 @@ describe("check-brief round 3: parsing", () => {
     expect(containsToken("v22.1.0\n", "1.0")).toBe(false);
   });
 });
+
+// ── Review round 4 (2026-10-21): each case below reproduced a defect first. ──
+
+describe("check-brief round 4: git never opens a secret-shaped path", () => {
+  // A tracked template filled in locally: uncommitted content, fake value.
+  function repoWithFilledTemplate(name: string): string {
+    const dir = join(scratch, name);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: dir });
+    git("init", "-q");
+    writeFileSync(join(dir, ".dev.vars"), "PLACEHOLDER=x\n");
+    writeFileSync(join(dir, "notes.txt"), "visible words\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(dir, ".dev.vars"), "PLACEHOLDER=fakevalue123\n");
+    return dir;
+  }
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+
+  it("git grep with no pathspec does not read the filled-in .dev.vars", async () => {
+    const dir = repoWithFilledTemplate("git-secret-grep");
+    const briefDir = join(scratch, "git-secret-grep-brief");
+    mkdirSync(briefDir, { recursive: true });
+    const path = writeBrief(briefDir, [
+      "- The guess matches — `git grep -q fakevalue1` → exit 0",
+      "- Control: visible text matches — `git grep -q visible` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: dir }, { env });
+    expect(r.results.map((x) => x.status)).toEqual(["FAIL", "PASS"]);
+  });
+
+  it("git diff -G with no pathspec does not read it either", async () => {
+    const dir = repoWithFilledTemplate("git-secret-diff");
+    const briefDir = join(scratch, "git-secret-diff-brief");
+    mkdirSync(briefDir, { recursive: true });
+    const path = writeBrief(briefDir, [
+      "- The change matches — `git diff -Gfakevalue1 --quiet` → exit 1",
+    ]);
+    const r = await runCheckBrief(path, { cwd: dir }, { env });
+    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
+  });
+
+  it("a grep path operand moves after -- and keeps working", () => {
+    const c = classifyCommand("git grep -c check-brief src", process.cwd());
+    expect(c.ok && c.argv.slice(c.argv.indexOf("grep") + 1, c.argv.indexOf("--") + 2)).toEqual([
+      "--no-textconv",
+      "-c",
+      "check-brief",
+      "--",
+      "src",
+    ]);
+  });
+
+  it.each([
+    "cat .yarnrc.yml",
+    "cat .pypirc",
+    "cat cert.p12",
+    "cat prod.tfvars",
+    "cat .docker/config.json",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, scratch).ok).toBe(false);
+  });
+});
+
+describe("check-brief round 4: parsing", () => {
+  it("a wrapped claim whose first line shows an example is not split (false PASS)", async () => {
+    const path = writeBrief(scratch, [
+      "- FOO_KEY is unset in the cloud, although `env-set FOO_KEY` → exit 0 held on",
+      "  the laptop before #12 — `env-set FOO_KEY` → exit 1",
+      "- Control: BAR_KEY is set — `env-set BAR_KEY` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN", "FAIL"]);
+  });
+
+  it("~ inside a word is plain text; at the start of a word it needs a shell", () => {
+    expect(classifyCommand("git diff HEAD~1 -- src", process.cwd()).ok).toBe(true);
+    expect(classifyCommand("git show HEAD~2:docs/x.md", process.cwd()).ok).toBe(true);
+    expect(classifyCommand("cat ~/x", process.cwd()).ok).toBe(false);
+  });
+
+  it("a fence closes only with the same character (~~~ is not closed by ```)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- A — `ls` → exit 0\n\n~~~\n```\n- B — `ls docs` → exit 0\n~~~\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["A"]);
+  });
+
+  it("a fence line with text after it does not close (```bash inside ```)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- A — `ls` → exit 0\n\n```\n```bash\n- B — `ls docs` → exit 0\n```\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["A"]);
+  });
+
+  it("a fenced example outside the section is not a stray claim", () => {
+    const p = parseBrief(
+      "Example:\n\n```\n- X — `git log -1` → exit 0\n```\n\n**Verify first.**\n\n- A — `ls` → exit 0\n",
+    );
+    expect(p.warnings.join("\n")).not.toMatch(/outside Verify first look like claims/);
+  });
+});

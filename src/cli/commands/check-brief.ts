@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -17,8 +17,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
  *
  * and runs each command, so the worker learns which facts hold before building
  * on them. An absence claim is followed by a line whose claim starts
- * "Control:", the positive control that shows the same command can say yes;
- * the absence line passes only when its control passes too.
+ * "Control:", the positive control that shows the same command can say yes:
+ * an absence that passes while its control does not is COULD NOT RUN, and an
+ * absence with no control line still runs but is warned on.
  *
  * Only an allowlist of read-only command forms runs, through `execFile` with no
  * shell, no stdin and a minimal environment. Each line gets PASS, FAIL, COULD
@@ -173,6 +174,9 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   let fenceOpenedAt = -1;
   let fenceRun = "";
   let fencedSkipped = false;
+  // Unfenced lines outside the section, for the stray-claim warning: an example
+  // quoted in a fence is not a stray claim.
+  const unfencedOutside: string[] = [];
   for (const [i, raw] of all.entries()) {
     const fence = FENCE.exec(raw);
     const run = fence?.[1] ?? "";
@@ -206,12 +210,15 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
     }
     if (inSection && SECTION_END.test(raw)) inSection = false;
     if (inSection) sectionLines.push(raw);
-    else outside.push(raw);
+    else {
+      outside.push(raw);
+      unfencedOutside.push(raw);
+    }
   }
   if (fencedSkipped) {
     warnings.push("a code block in Verify first is not read: put each claim on its own line");
   }
-  const strays = outside.filter((l) => LOOKS_RUNNABLE.test(l)).length;
+  const strays = unfencedOutside.filter((l) => LOOKS_RUNNABLE.test(l)).length;
   if (sections > 0 && strays > 0) {
     warnings.push(
       `${strays} line(s) outside Verify first look like claims and were not run: move them into the section`,
@@ -235,7 +242,7 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
     } else if (ITEM_START.test(raw)) {
       if (cur !== null) items.push(cur);
       cur = raw.replace(ITEM_START, "").trim();
-    } else if (cur !== null && LOOKS_RUNNABLE.test(cur) && LOOKS_RUNNABLE.test(raw)) {
+    } else if (cur !== null && LINE_FORM.test(cur) && LOOKS_RUNNABLE.test(raw)) {
       // An unbulleted claim right under a complete one is a new claim, not a wrap.
       items.push(cur);
       cur = raw.trim();
@@ -377,7 +384,8 @@ export function tokenize(
       if (j >= cmd.length) return { ok: false, reason: "unclosed quote" };
       word = (word ?? "") + buf;
       i = j + 1;
-    } else if ("|&;<>()`$*~\\".includes(c)) {
+    } else if ("|&;<>()`$*\\".includes(c) || (c === "~" && word === null)) {
+      // A shell expands ~ only at the start of a word; HEAD~1 is plain text.
       return { ok: false, reason: `needs a shell (${c})` };
     } else {
       word = (word ?? "") + c;
@@ -473,15 +481,20 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // a secret, which a line could otherwise test one guessed prefix at a time
 // through its exit code. Committed templates (`.env.example`) stay readable.
 const SENSITIVE_NAME =
-  /^(?:\.git|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_[a-z0-9]+|.*\.pem|.*\.key)$/i;
-// The same names as rg exclusions, so a recursive search never opens them.
-const RG_EXCLUDES = [
+  /^(?:\.git|\.docker|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.pypirc|\.htpasswd|\.yarnrc\.yml|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_[a-z0-9]+|.*\.(?:pem|key|p12|pfx|tfvars))$/i;
+// The same names as globs, so a recursive search (rg) or a git command with no
+// pathspec never opens them: a tracked template filled in locally is uncommitted
+// content, and `git grep -q <guess>` would read it.
+export const SECRET_GLOBS = [
   ".env",
   ".env.*",
   "*.env",
   ".envrc",
   ".dev.vars",
   ".pgpass",
+  ".pypirc",
+  ".htpasswd",
+  ".yarnrc.yml",
   ".netrc",
   ".npmrc",
   ".git-credentials",
@@ -491,7 +504,41 @@ const RG_EXCLUDES = [
   "id_*",
   "*.pem",
   "*.key",
-].flatMap((g) => ["-g", `!${g}`]);
+  "*.p12",
+  "*.pfx",
+  "*.tfvars",
+  ".docker",
+];
+const RG_EXCLUDES = SECRET_GLOBS.flatMap((g) => ["-g", `!${g}`]);
+const GIT_EXCLUDES = SECRET_GLOBS.flatMap((g) => [
+  `:(top,exclude,glob)**/${g}`,
+  `:(top,exclude,glob)**/${g}/**`,
+]);
+// The git subcommands that read working-tree or index content across the repo
+// when no pathspec narrows them.
+const GIT_PATHSPEC_READERS = new Set(["grep", "diff"]);
+
+/** Rebuild a `git grep`/`git diff` argv so every path comes after `--`, followed
+ *  by exclude pathspecs for each secret name. grep's first operand is its
+ *  pattern; any other operand naming an existing path moves after `--`. */
+function withSecretExcludes(sub: string, rest: string[], cwd: string): string[] {
+  const dd = rest.indexOf("--");
+  const before = dd === -1 ? rest : rest.slice(0, dd);
+  const paths = dd === -1 ? [] : rest.slice(dd + 1);
+  const keep: string[] = [];
+  let patternSeen = sub !== "grep" || before.some((a) => /^-e|^--regexp/.test(a));
+  for (const a of before) {
+    if (a.startsWith("-")) keep.push(a);
+    else if (!patternSeen) {
+      keep.push(a);
+      patternSeen = true;
+    } else if (existsSync(resolve(cwd, a))) paths.push(a);
+    else keep.push(a);
+  }
+  // With no pathspec, grep searches the cwd's subtree and diff the whole repo.
+  const scope = paths.length > 0 ? paths : [sub === "grep" ? "." : ":/"];
+  return [...keep, "--", ...scope, ...GIT_EXCLUDES];
+}
 
 /** A file tool's grammar: the short flags it may take (bundled or alone), the
  *  long ones, the flags that take a value and what the value must look like,
@@ -670,7 +717,8 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     }
     const extra = GIT_NO_TEXTCONV.has(sub) ? ["--no-textconv"] : [];
     if (sub === "log" || sub === "show" || sub === "diff") extra.push("--no-ext-diff");
-    return { ok: true, argv: ["git", ...GIT_GLOBALS, sub, ...extra, ...rest] };
+    const args = GIT_PATHSPEC_READERS.has(sub) ? withSecretExcludes(sub, rest, cwd) : rest;
+    return { ok: true, argv: ["git", ...GIT_GLOBALS, sub, ...extra, ...args] };
   }
   if (bin === "sed") {
     // Exactly `sed -n <a>[,<b>]p <file>…`: GNU sed reads options after the
