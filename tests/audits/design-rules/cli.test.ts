@@ -156,6 +156,7 @@ describe("design-rules CLI under tsx", () => {
       `const fns = {`,
       `  sampleReducedMotion: (await import("./src/audits/design-rules/reduced-motion.ts")).sampleReducedMotion,`,
       `  sampleVisibleText: (await import("./src/audits/design-rules/no-js.ts")).sampleVisibleText,`,
+      `  sampleOutline: (await import("./src/audits/design-rules/heading-levels.ts")).sampleOutline,`,
       `  revealBelowFold: (await import("./src/audits/util/reveal-below-fold.ts")).revealBelowFold,`,
       `};`,
       `console.log(JSON.stringify(Object.entries(fns).filter(([, f]) => String(f).includes("__name")).map(([n]) => n)));`,

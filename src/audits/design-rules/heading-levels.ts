@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 import type { Browser } from "@playwright/test";
+import { revealBelowFold } from "../util/reveal-below-fold.js";
 import { settle, withPage } from "./load.js";
 import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 
@@ -62,14 +63,25 @@ export function sampleOutline(): OutlineSample {
     // Out of the accessibility tree: not rendered (display:none, a closed
     // <details>, content-visibility:hidden), visibility:hidden, inert, or
     // inside aria-hidden="true".
-    if (!el.checkVisibility({ visibilityProperty: true })) continue;
+    // A `display: contents` heading has no box of its own but stays in the
+    // tree; its parent in the flat tree answers for its rendering.
+    const contents = getComputedStyle(el).display === "contents";
+    const box: Element | null = contents
+      ? (el.assignedSlot ?? el.parentElement ?? ((el.getRootNode() as ShadowRoot).host || null))
+      : el;
+    if (!box?.checkVisibility({ visibilityProperty: !contents })) continue;
+    if (contents && getComputedStyle(el).visibility !== "visible") continue;
     let hidden = false;
+    // Up the flat tree: a slotted element's ancestors are its slot's.
     for (let node: Element | null = el; node;) {
       if (node.getAttribute("aria-hidden") === "true" || node.hasAttribute("inert")) {
         hidden = true;
         break;
       }
-      node = node.parentElement ?? ((node.getRootNode() as ShadowRoot).host || null);
+      node =
+        node.assignedSlot ??
+        node.parentElement ??
+        ((node.getRootNode() as ShadowRoot).host || null);
     }
     if (hidden) continue;
     // aria-level read as axe reads it: its leading whole number ("4x" is 4),
@@ -177,6 +189,8 @@ export async function checkHeadingLevels(browser: Browser, url: string): Promise
     runs.push({
       width: viewport.width,
       outline: await withPage(browser, { viewport }, url, async (page) => {
+        // A slice that mounts when scrolled into view is part of the outline.
+        await page.evaluate(revealBelowFold);
         await settle(page);
         return page.evaluate(sampleOutline);
       }),

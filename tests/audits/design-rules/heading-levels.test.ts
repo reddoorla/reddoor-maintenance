@@ -88,6 +88,18 @@ const PAGES: Record<string, string> = {
   // first, so there is no skip; a light child no slot takes is not read.
   "/named-slot": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Top</h1><x-panel><h2 slot="a">Slot A</h2><h6>Unslotted</h6></x-panel></main>
 <script>customElements.define("x-panel", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<slot name="a"></slot><h3>After slot</h3>'; } });</script></body></html>`,
+  // Round 2's: aria-hidden and inert around a slot hide what it slots; a
+  // display:contents heading is still a heading; a slice that mounts below
+  // the fold is read.
+  "/hidden-slot": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>One</h1><x-a><h2>Hidden slotted</h2></x-a><x-b><h1>Inert slotted</h1></x-b><h2>Two</h2></main>
+<script>customElements.define("x-a", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<div aria-hidden="true"><slot></slot></div>'; } });
+customElements.define("x-b", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<div inert><slot></slot></div>"; } });</script></body></html>`,
+  "/contents": outlinePage(
+    [],
+    `<h1 style="display:contents">Main</h1><h2 style="display:contents">Section</h2><h3>Detail</h3>`,
+  ),
+  "/lazy-slice": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Top</h1><h2>Intro</h2><div style="height:3000px"></div><div id="s"></div></main>
+<script>new IntersectionObserver(([e], o) => { if (e.isIntersecting) { e.target.innerHTML = "<h4>Lazy</h4>"; o.disconnect(); } }).observe(document.getElementById("s"));</script></body></html>`,
   // The smallest skip: one level missing.
   "/one-level-skip": outlinePage([
     ["h1", null, "Services"],
@@ -203,6 +215,22 @@ describe("design-rules R9 (heading levels), in a real browser", () => {
     const o = await checkHeadingLevels(browser, `${base}/named-slot`);
     expect(o.status, JSON.stringify(o.findings)).toBe("pass");
     expect(o.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
+  });
+
+  it("leaves out what aria-hidden or inert hides through a slot, and reads a display:contents heading", async () => {
+    const hidden = await checkHeadingLevels(browser, `${base}/hidden-slot`);
+    expect(hidden.status, JSON.stringify(hidden.findings)).toBe("pass");
+    expect(hidden.note).toBe("headings in the outline: 2 at 1440px, 2 at 390px; 0 finding(s)");
+    const contents = await checkHeadingLevels(browser, `${base}/contents`);
+    expect(contents.status, JSON.stringify(contents.findings)).toBe("pass");
+    expect(contents.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
+  });
+
+  it("FAILS a skip in a slice that mounts when scrolled into view", async () => {
+    const o = await checkHeadingLevels(browser, `${base}/lazy-slice`);
+    expect(o.findings.map((f) => f.problem)).toEqual([
+      'is level 4 after level 2 ("Intro"), skipping level 3 (at 1440 and 390px)',
+    ]);
   });
 
   it("FAILS a skip only the phone layout has", async () => {
