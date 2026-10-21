@@ -363,8 +363,21 @@ describe("formatUnmeasuredSmokeSummary", () => {
       { audit: "smoke", site: "reddoor", summary: `${SMOKE_UNMEASURED_PREFIX} — budget` },
       { audit: "smoke", site: "beachfront-dentistry", summary: `${SMOKE_UNMEASURED_PREFIX} — x` },
     ]);
-    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=2 sites=reddoor,beachfront-dentistry");
-    expect(out).toContain("2 site(s) never measured");
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=2 sites=beachfront-dentistry,reddoor");
+    expect(out).toContain("2 site(s) never measured: beachfront-dentistry; reddoor");
+  });
+
+  it("lists sites sorted, whatever order they finished in (#1677)", () => {
+    // The pool returns results in completion order, which flips night to night.
+    const unmeasured = (site: string) => ({
+      audit: "smoke",
+      site,
+      summary: `${SMOKE_UNMEASURED_PREFIX} — x`,
+    });
+    const forward = formatUnmeasuredSmokeSummary([unmeasured("acme"), unmeasured("noinstall")]);
+    const reverse = formatUnmeasuredSmokeSummary([unmeasured("noinstall"), unmeasured("acme")]);
+    expect(reverse).toContain("FLEET_SMOKE_UNMEASURED count=2 sites=acme,noinstall");
+    expect(reverse).toBe(forward);
   });
 
   it("a result whose details carry no checkedAt is not a verdict, as the write-back reads it", () => {
