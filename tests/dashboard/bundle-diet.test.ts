@@ -19,7 +19,18 @@ import { dirname, join, relative, resolve } from "node:path";
 const ROOT = join(import.meta.dirname, "../..");
 
 const BANNED_FILES = ["src/reports/send/orchestrate.ts", "src/reports/render.ts"];
-const BANNED_PACKAGES = ["mjml", "@playwright/test", "playwright", "playwright-core", "resend"];
+// The walk checks a bare package name but does not follow it, so the package's
+// own entry is banned outright: `src/index.ts` exports `sendApprovedReports`.
+// It does not see dynamic `import()` or `import x = require()`; cockpit/src has
+// none.
+const BANNED_PACKAGES = [
+  "mjml",
+  "@playwright/test",
+  "playwright",
+  "playwright-core",
+  "resend",
+  "@reddoorla/maintenance",
+];
 
 function filesUnder(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
