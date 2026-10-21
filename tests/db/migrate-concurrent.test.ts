@@ -14,9 +14,10 @@ import { MIGRATIONS } from "../../src/db/migrations.js";
  * marker insert is the only thing left to race; the loser must read the
  * conflict as "applied by another client", not throw.
  *
- * The clients are separate connections to one `file:` database, as in
- * production, not one shared `:memory:` client: a shared client serialises the
- * calls and the race never happens.
+ * The clients are separate connections to one `file:` database in this
+ * process, not one shared `:memory:` client: a shared client serialises the
+ * calls and the race never happens. Separate OS processes on one local file can
+ * still hit SQLITE_BUSY at the DDL, before the marker; that is #1674.
  */
 
 const dirs: string[] = [];
@@ -31,7 +32,9 @@ function scratchUrl(): string {
 }
 
 /** A fully migrated database with the newest `ADD COLUMN` migration un-recorded
- *  and un-applied, so it is pending for every client that opens it next. */
+ *  and un-applied, so it is pending for every client that opens it next. The
+ *  `DROP COLUMN` fails loudly (not silently) if a later migration indexes that
+ *  column; pick another pending migration then. */
 async function dbWithLastAddColumnPending(url: string) {
   const pending = [...MIGRATIONS].reverse().find((m) => /ADD COLUMN/i.test(m.sql));
   if (!pending) throw new Error("no ADD COLUMN migration to leave pending");
@@ -63,20 +66,23 @@ describe("runMigrations with several clients at once (#1667)", () => {
       expect(rejected.map((r) => String((r as PromiseRejectedResult).reason))).toEqual([]);
 
       const check = createClient({ url });
-      const markers = await check.execute({
-        sql: "SELECT COUNT(*) AS n FROM _migrations WHERE id = ?",
-        args: [pending.id],
-      });
-      expect(Number(markers.rows[0]?.n)).toBe(1);
-      const cols = await check.execute(`PRAGMA table_info(${pending.table})`);
-      expect(cols.rows.filter((r) => String(r.name) === pending.column)).toHaveLength(1);
+      try {
+        const markers = await check.execute({
+          sql: "SELECT COUNT(*) AS n FROM _migrations WHERE id = ?",
+          args: [pending.id],
+        });
+        expect(Number(markers.rows[0]?.n)).toBe(1);
+        const cols = await check.execute(`PRAGMA table_info(${pending.table})`);
+        expect(cols.rows.filter((r) => String(r.name) === pending.column)).toHaveLength(1);
 
-      // Exactly one client recorded the marker, so exactly one reports it as run.
-      const reported = results
-        .filter((r): r is PromiseFulfilledResult<string[]> => r.status === "fulfilled")
-        .filter((r) => r.value.includes(pending.id));
-      expect(reported).toHaveLength(1);
-      check.close();
+        // Exactly one client recorded the marker, so exactly one reports it as run.
+        const reported = results
+          .filter((r): r is PromiseFulfilledResult<string[]> => r.status === "fulfilled")
+          .filter((r) => r.value.includes(pending.id));
+        expect(reported).toHaveLength(1);
+      } finally {
+        check.close();
+      }
     },
   );
 
