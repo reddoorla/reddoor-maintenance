@@ -279,35 +279,56 @@ describe("a drought opens its own issue", () => {
     expect(body).toContain("Run: ");
   });
 
-  it("an UNMEASURED repo opens it too: 'I could not measure this' is not 'this is fine'", async () => {
+  it("an UNMEASURED-only fleet opens nothing: only a drought alarms (the operator, 2026-10-21)", async () => {
     const s = await sweep([
       { name: "williamson-homes", window: NEVER },
       { name: "revogen", window: HEALTHY },
     ]);
     expect(s.output).toContain("RENOVATE_OUTCOME drought=0 delivering=1 unmeasured=1 ");
     const read = await runStep({ step: READ_STEP, sweep: s.output });
-    expect(read.outputs.drought).toBe("yes");
-    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
-    const create = r.calls.find((c) => c.sub === "create")!;
-    expect(create.flag("--title")).toBe("Renovate drought: williamson-homes");
-    expect(create.flag("--body")).toMatch(
-      /^WARN {4}reddoorla\/williamson-homes — renovate outcome UNMEASURED/m,
-    );
+    expect(read.outputs.drought).toBe("no");
   });
 
-  it("a repo whose probe threw counts as UNMEASURED, so its drought is never left off the line", async () => {
+  it("the fleet's known-good 2026-08-10 snapshot opens nothing", async () => {
+    // The PASS control pinned in tests/audits/renovate-outcome.test.ts.
+    const read = await runStep({
+      step: READ_STEP,
+      sweep: "RENOVATE_OUTCOME drought=0 delivering=20 unmeasured=6 threshold=21d\n",
+    });
+    expect(read.outputs.drought).toBe("no");
+  });
+
+  it("lists UNMEASURED repos beside a drought, in the body only, never in the title", async () => {
+    const s = await sweep([
+      { name: "espada", window: FROZEN },
+      { name: "williamson-homes", window: NEVER },
+    ]);
+    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
+    const create = r.calls.find((c) => c.sub === "create")!;
+    expect(create.flag("--title")).toBe("Renovate drought: espada");
+    const body = create.flag("--body")!;
+    const [dry, rest] = body.split("Not measured tonight");
+    expect(dry).toMatch(/^WARN {4}reddoorla\/espada — no feature update has LANDED/m);
+    expect(dry).not.toContain("williamson-homes");
+    expect(rest).toMatch(/^WARN {4}reddoorla\/williamson-homes — renovate outcome UNMEASURED/m);
+  });
+
+  it("a repo whose probe threw stays on the line as UNMEASURED, and still holds an issue that named it", async () => {
+    const issue: Issue = {
+      number: 950,
+      title: "Renovate drought: espada",
+      body: await openedBody([{ name: "espada", window: FROZEN }]),
+    };
     const s = await sweep([
       { name: "espada", window: FROZEN, probeThrows: true },
       { name: "revogen", window: HEALTHY },
     ]);
     expect(s.output).toMatch(/^GAP {5}reddoorla\/espada — probe failed: HTTP 502/m);
     expect(s.output).toContain("RENOVATE_OUTCOME drought=0 delivering=1 unmeasured=1 ");
-    const read = await runStep({ step: READ_STEP, sweep: s.output });
-    expect(read.outputs.drought).toBe("yes");
-    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
-    expect(r.calls.find((c) => c.sub === "create")!.flag("--title")).toBe(
-      "Renovate drought: espada",
-    );
+    expect(s.output).toMatch(/^WARN {4}reddoorla\/espada — renovate outcome UNMEASURED/m);
+    const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([issue]) });
+    expect(r.calls.filter((c) => c.sub === "close")).toEqual([]);
+    expect(r.out).toContain("did not see deliver: reddoorla/espada");
   });
 
   it("finds an existing issue titled exactly 'Renovate drought' and files no duplicate", async () => {
@@ -429,13 +450,6 @@ describe("the close step closes only on evidence", () => {
     expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950", "951"]);
   });
 
-  it("closes an issue that named an UNMEASURED repo once that repo delivers", async () => {
-    const issue = await droughtIssue(950, [{ name: "williamson-homes", window: NEVER }]);
-    const s = await sweep([{ name: "williamson-homes", window: HEALTHY }]);
-    const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([issue]) });
-    expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950"]);
-  });
-
   it("refuses when a repo the issue named was not measured tonight (went private)", async () => {
     const issue = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
     // espada-cms delivers: a prefix match on its DELIVER line must not
@@ -479,15 +493,18 @@ describe("the close step closes only on evidence", () => {
     expect(r.calls.filter((c) => c.sub === "close")).toEqual([]);
   });
 
-  it("closes nothing while another repo is still UNMEASURED, even when every named repo delivers", async () => {
-    const issue = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
+  it("closes while another repo is still UNMEASURED: unmeasured never holds the issue", async () => {
+    const issue = await droughtIssue(950, [
+      { name: "espada", window: FROZEN },
+      { name: "williamson-homes", window: NEVER },
+    ]);
     const s = await sweep([
       { name: "espada", window: HEALTHY },
       { name: "williamson-homes", window: NEVER },
     ]);
     expect(s.output).toContain("RENOVATE_OUTCOME drought=0 delivering=1 unmeasured=1 ");
     const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([issue]) });
-    expect(r.calls.filter((c) => c.sub === "close")).toEqual([]);
+    expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950"]);
   });
 
   it("leaves other titles alone", async () => {
