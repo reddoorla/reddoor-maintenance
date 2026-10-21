@@ -210,6 +210,23 @@ describe("forms-deadletter-replay — the gate FAILS on each thing it exists to 
     expect(r.log).not.toContain("PASS:");
   });
 
+  it("KNOWN-GOOD: a lead whose email was skipped (spam, no recipient) stays green", async () => {
+    const { formatReplayReport } = await import("../../src/forms/replay.js");
+    const report = formatReplayReport({
+      replayed: [
+        { id: "dl_sp", outcome: "accepted", submissionId: "sub_1", notifyStatus: "skipped" },
+      ],
+      rejected: [],
+      stillFailing: [],
+      unmarked: [],
+      unreadable: [],
+    });
+    expect(report.code).toBe(0);
+    const r = await runGate(report.output + "\n", report.code);
+    expect(r.code).toBe(0);
+    expect(r.log).toContain("PASS: replayed=1 rejected=0 notify_failed=0");
+  });
+
   it("reds on a lead replayed without its notification email", async () => {
     const r = await runGate(
       ["NOTIFY FAILED dl_g → accepted (sub_7)", marker({ replayed: 1, notifyFailed: 1 })].join(
@@ -364,26 +381,37 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
  * here with a stubbed `gh` that logs its calls and serves one issue's text.
  */
 describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#1615)", () => {
+  type Issue = { body: string; comments: string[] };
+
+  /** `gh` stubbed: `issue list` finds #42, `issue view` serves `issue` as the JSON
+   *  the real CLI would and applies the step's own `--jq` with real jq (or exits 1
+   *  when `viewFails`), and every call is logged. */
   async function runIssueStep(
     step: string,
-    opts: { replayOut?: string; issueText?: string },
+    opts: { replayOut?: string; issue?: Issue; viewFails?: boolean },
   ): Promise<{ code: number; log: string; calls: string }> {
     const dir = await mkdtemp(join(tmpdir(), "dl-replay-issue-"));
     try {
       const bin = join(dir, "bin");
       await mkdir(bin, { recursive: true });
       if (opts.replayOut !== undefined) await writeFile(join(dir, "replay.out"), opts.replayOut);
-      await writeFile(join(dir, "issue.txt"), opts.issueText ?? "");
-      // `list` finds issue 42; `view` serves its text; every call is logged.
+      const issue = opts.issue ?? { body: "", comments: [] };
+      await writeFile(
+        join(dir, "issue.json"),
+        JSON.stringify({ body: issue.body, comments: issue.comments.map((body) => ({ body })) }),
+      );
       await writeFile(
         join(bin, "gh"),
         [
-          "#!/bin/sh",
+          "#!/bin/bash",
           `printf '%s\\n' "$*" >> "${join(dir, "calls.txt")}"`,
-          'case "$1 $2" in',
-          '  "issue list") echo 42 ;;',
-          `  "issue view") cat "${join(dir, "issue.txt")}" ;;`,
-          "esac",
+          'if [ "$1 $2" = "issue list" ]; then echo 42; exit 0; fi',
+          'if [ "$1 $2" = "issue view" ]; then',
+          `  ${opts.viewFails ? "echo 'HTTP 502' >&2; exit 1" : ":"}`,
+          '  jqexpr=""; prev=""',
+          '  for a in "$@"; do [ "$prev" = "--jq" ] && jqexpr="$a"; prev="$a"; done',
+          `  jq -r "$jqexpr" "${join(dir, "issue.json")}"; exit $?`,
+          "fi",
           "exit 0",
         ].join("\n"),
         "utf-8",
@@ -433,20 +461,25 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
 
   it("KNOWN-GOOD: a green run closes an issue about an unmarked row", async () => {
     const r = await runIssueStep(CLOSE, {
-      issueText: "What this run found:\n\nUNMARKED dl_d: re-ingested as sub_9",
+      issue: { body: "What this run found:\n\nUNMARKED dl_d: re-ingested as sub_9", comments: [] },
     });
     expect(r.calls).toMatch(/issue close 42/);
   });
 
   it("a green run does NOT close an issue that names a REJECTED lead", async () => {
-    const r = await runIssueStep(CLOSE, { issueText: `What this run found:\n\n${REJECTED_LINE}` });
+    const r = await runIssueStep(CLOSE, {
+      issue: { body: `What this run found:\n\n${REJECTED_LINE}`, comments: [] },
+    });
     expect(r.calls).not.toMatch(/issue close/);
     expect(r.log).toContain("not closing #42");
   });
 
   it("a green run does NOT close a long-lived issue whose text passes the pipe buffer", async () => {
     const r = await runIssueStep(CLOSE, {
-      issueText: `${REJECTED_LINE}\n${"later failure comment\n".repeat(10_000)}`,
+      issue: {
+        body: REJECTED_LINE,
+        comments: Array.from({ length: 400 }, () => "later failure comment ".repeat(30)),
+      },
     });
     expect(r.calls).not.toMatch(/issue close/);
   });
@@ -462,9 +495,56 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
   });
 
   it("a green run does NOT close an issue whose COMMENT names a NOTIFY FAILED lead", async () => {
+    // The open step rewrites the body on every failure, so a lead named by an
+    // earlier run survives only in that run's comment.
     const r = await runIssueStep(CLOSE, {
-      issueText: "first failure body\nNOTIFY FAILED dl_g → accepted (sub_7)",
+      issue: {
+        body: "What this run found:\n\nUNMARKED dl_d: re-ingested as sub_9",
+        comments: ["What this run found:\n\n```\nNOTIFY FAILED dl_g → accepted (sub_7)\n```"],
+      },
+    });
+    expect(r.calls).toMatch(/issue view 42/);
+    expect(r.calls).not.toMatch(/issue close/);
+  });
+
+  it("an issue it cannot read stays open", async () => {
+    const r = await runIssueStep(CLOSE, {
+      issue: { body: "UNMARKED dl_d", comments: [] },
+      viewFails: true,
     });
     expect(r.calls).not.toMatch(/issue close/);
+    expect(r.log).toContain("stays open");
+  });
+
+  it("every defect line the REAL report prints reaches the issue, under the prefixes the steps grep", async () => {
+    const { formatReplayReport } = await import("../../src/forms/replay.js");
+    const report = formatReplayReport({
+      replayed: [
+        { id: "dl_ok", outcome: "accepted", submissionId: "sub_1", notifyStatus: "sent" },
+        { id: "dl_nf", outcome: "accepted", submissionId: "sub_2", notifyStatus: "failed" },
+      ],
+      rejected: [{ id: "dl_rj", outcome: "rejected:invalid-payload", errors: ["bad formType"] }],
+      stillFailing: [],
+      unmarked: [{ id: "dl_um", outcome: "accepted", submissionId: "sub_3", error: "turso 500" }],
+      unreadable: [
+        { id: "dl_ur", siteSlug: "acme", error: "payload is not JSON", receivedAt: "2026-10-21" },
+      ],
+    });
+    const open = await runIssueStep(OPEN, { replayOut: report.output });
+    for (const id of [
+      "REJECTED dl_rj",
+      "NOTIFY FAILED dl_nf",
+      "UNMARKED dl_um",
+      "UNREADABLE dl_ur",
+    ]) {
+      expect(open.calls).toContain(id);
+    }
+    expect(open.calls).not.toContain("dl_ok");
+
+    // …and the close step reads those same lines back as a reason to stay open.
+    const close = await runIssueStep(CLOSE, {
+      issue: { body: "", comments: [report.output] },
+    });
+    expect(close.calls).not.toMatch(/issue close/);
   });
 });
