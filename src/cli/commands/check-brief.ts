@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import { realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -29,12 +29,13 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
  * command's output, because it is pasted into public PR bodies.
  *
  * A line must not read a secret even one bit at a time (an exit code or a
- * `prints` match is a bit), so paths stay inside --cwd and secret-shaped names
- * are refused. Content committed to the repository is out of scope: whoever
+ * `prints` match is a bit), so paths stay inside --cwd, content tools read
+ * only files git tracks (secrets live in ignored files), and secret-shaped
+ * names are refused even when tracked. Content committed to the repository is out of scope: whoever
  * can read the PR can read the repository. The checkout's own git config is
  * trusted; the allowlist guards against the brief's command, not the repo.
  * git answers metadata questions only (see GIT_TOOLS); its content readers,
- * the stash and the reflog are refused. `git status` can still say that a
+ * the stash, the reflog and `:/` searches are refused. `git status` can still say that a
  * secret-shaped file was modified (one bit about state, not content).
  */
 
@@ -420,7 +421,8 @@ export function isReadOnlyApiCall(args: string[]): boolean {
 
 // A revision that reaches the stash, by name or through the reflog syntax:
 // stash commits and reflog entries hold uncommitted content.
-const GIT_STASH_REF = /stash|@\{/i;
+// `:/<regex>` searches every ref, the stash included (#1635 round 8).
+const GIT_STASH_REF = /stash|@\{|^:\//i;
 // Prepended to every git run: no index refresh under a lock (another session
 // may share the worktree), and no config-driven program the flags can switch
 // on (fsmonitor hook, pager, external diff, signature check). The checkout's
@@ -494,7 +496,8 @@ type FileTool = {
 };
 
 const FILE_TOOLS: Record<string, FileTool> = {
-  ls: { shorts: "1aAdFhlrSt", longs: [] },
+  // Names only: no -l (sizes) or -S (ordering by size).
+  ls: { shorts: "1aAdFr", longs: [] },
   cat: { shorts: "", longs: [] },
   head: { shorts: "", longs: [], valued: { n: /^-?\d+$/ }, digits: true },
   tail: { shorts: "", longs: [], valued: { n: /^\+?\d+$/ }, digits: true },
@@ -687,6 +690,44 @@ function confined(path: string, cwd: string): string | null {
   return null;
 }
 
+/** Whether a content tool may read `path`: it must pass {@link confined} and
+ *  be a file git tracks in --cwd's checkout. The secret-name list can never be
+ *  complete (#1635 round 8: `secrets/`, `ga-service-account.json`, `.aws/`), but
+ *  secrets live in ignored files, and an allowlist of tracked paths covers them
+ *  without naming them. A tracked file is committed content, out of scope,
+ *  except its working copy, which the name list still guards (a filled-in
+ *  `.dev.vars`). Checked on the resolved path, so a tracked symlink to an
+ *  ignored file is refused. */
+function trackedFile(path: string, cwd: string): string | null {
+  const why = confined(path, cwd);
+  if (why) return why;
+  const root = realOrSelf(cwd);
+  const real = realOrSelf(resolve(root, path));
+  let isDir = false;
+  try {
+    isDir = statSync(real).isDirectory();
+  } catch {
+    // A missing path: git says it is not tracked.
+  }
+  if (isDir) return `${path} is a directory; name a file git tracks`;
+  try {
+    execFileSync(
+      "git",
+      [
+        "--no-optional-locks",
+        "ls-files",
+        "--error-unmatch",
+        "--",
+        `:(literal)${relative(root, real)}`,
+      ],
+      { cwd: root, stdio: "ignore", env: childEnv("git", process.env) },
+    );
+  } catch {
+    return `${path} is not a file git tracks in --cwd`;
+  }
+  return null;
+}
+
 /** The real path of `p`, or, when it does not exist yet, the real path of its
  *  nearest existing ancestor with the rest appended (so a missing file under a
  *  symlink that points outside still resolves outside). */
@@ -738,11 +779,7 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     const parsed = parseFileArgs(`git ${sub}`, rest, grammar);
     if (!parsed.ok) return parsed;
     if (rest.some((a) => GIT_STASH_REF.test(a))) {
-      return refuse("git: the stash and the reflog hold uncommitted content");
-    }
-    // %G? and its kin make git run the signature program on a signed commit.
-    if (rest.some((a) => a.includes("%G"))) {
-      return refuse("git: %G placeholders run the signature program");
+      return refuse("git: the stash, the reflog and :/ searches reach uncommitted commits");
     }
     // Operands are revisions or paths; any that is a path must stay inside --cwd.
     for (const a of parsed.operands) {
@@ -769,14 +806,16 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
       return refuse("sed: only `sed -n <a>[,<b>]p <file>`");
     }
     for (const f of files) {
-      const why = confined(f, cwd);
+      const why = trackedFile(f, cwd);
       if (why) return refuse(why);
     }
     return { ok: true, argv };
   }
   if (bin === "test") {
-    if (argv.length !== 3 || !["-e", "-f", "-d", "-s"].includes(sub ?? "")) {
-      return refuse("test: only `test -e|-f|-d|-s <path>`");
+    // Existence, which absence claims need, on any path in --cwd; no -s,
+    // which says whether a file is empty.
+    if (argv.length !== 3 || !["-e", "-f", "-d"].includes(sub ?? "")) {
+      return refuse("test: only `test -e|-f|-d <path>`");
     }
     const why = confined(rest[0] as string, cwd);
     return why ? refuse(why) : { ok: true, argv };
@@ -787,19 +826,20 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     if (!parsed.ok) return parsed;
     const paths = tool.pattern ? parsed.operands.slice(1) : parsed.operands;
     if (tool.pattern && parsed.operands.length === 0) return refuse(`${bin}: no pattern`);
+    // ls lists names, which are in scope; every other tool reads content, so
+    // it names at least one file and each must be one git tracks.
+    if (bin !== "ls" && paths.length === 0) return refuse(`${bin}: name a file git tracks`);
     for (const p of paths) {
-      const why = confined(p, cwd);
+      const why = bin === "ls" ? confined(p, cwd) : trackedFile(p, cwd);
       if (why) return refuse(why);
     }
-    if (bin === "rg") {
-      // With no path, rg would read the (closed) stdin instead of the tree.
-      const where = paths.length === 0 ? ["."] : [];
-      return { ok: true, argv: ["rg", ...RG_EXCLUDES, ...argv.slice(1), ...where] };
-    }
+    if (bin === "rg") return { ok: true, argv: ["rg", ...RG_EXCLUDES, ...argv.slice(1)] };
     return { ok: true, argv };
   }
   if (
-    (bin === "node" || bin === "pnpm" || bin === "npm") &&
+    // Only node: pnpm --version in a checkout that pins another pnpm
+    // downloads and runs it (#1635 round 8), and npm is gone with npm view.
+    bin === "node" &&
     argv.length === 2 &&
     sub === "--version"
   ) {

@@ -61,6 +61,16 @@ function writeBrief(dir: string, verify: string[], rest = ""): string {
   return path;
 }
 
+/** Make `dir` a git checkout with everything in it committed: content tools
+ *  read only files git tracks. */
+function commitAll(dir: string): void {
+  const git = (...a: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: dir });
+  if (!existsSync(join(dir, ".git"))) git("init", "-q");
+  git("add", "-A");
+  git("commit", "-q", "--allow-empty", "-m", "fixture");
+}
+
 let scratch: string;
 beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), "check-brief-"));
@@ -77,6 +87,7 @@ describe("check-brief: the recommendation's fixtures", () => {
       fixture("p1-31-tree/contrast-unmeasured.ts.txt"),
       join(tree, "src/audits/util/contrast-unmeasured.ts"),
     );
+    commitAll(tree);
     // The real execFile: sed runs, no shell.
     const r = await runCheckBrief(fixture("p1-31.md"), { cwd: tree }, { env: {} });
     expect(r.results.map((x) => x.status)).toEqual(["PASS", "PASS", "NOT RUN"]);
@@ -88,6 +99,7 @@ describe("check-brief: the recommendation's fixtures", () => {
     const tree = join(scratch, "p1-31-moved");
     mkdirSync(join(tree, "src/audits/util"), { recursive: true });
     writeFileSync(join(tree, "src/audits/util/contrast-unmeasured.ts"), "// nothing here\n");
+    commitAll(tree);
     const r = await runCheckBrief(fixture("p1-31.md"), { cwd: tree }, { env: {} });
     expect(r.results.map((x) => x.status)).toEqual(["FAIL", "FAIL", "NOT RUN"]);
     expect(r.code).toBe(1);
@@ -180,11 +192,11 @@ describe("check-brief: the allowlist (mutation 1)", () => {
     "gh api repos/o/r/pulls/12",
     "gh api repos/o/r/pulls/12 --jq .state",
     "git log --oneline -3",
-    "rg -F 'impetus should come from a person'",
+    "rg -F 'impetus should come from a person' CLAUDE.md",
     "grep -c check-brief src/cli/bin.ts",
-    "rg -n foo src",
+    "rg -n foo src/cli/bin.ts",
     "ls src/cli/commands",
-    "sed -n 86,93p src/x.ts",
+    "sed -n 86,93p src/cli/bin.ts",
     "test -f src/cli/commands/check-brief.ts",
     "env-set MANTIS_PRISMIC",
     "node --version",
@@ -242,6 +254,7 @@ describe("check-brief: no shell (mutation 2)", () => {
     const path = writeBrief(dir, [
       "- The note is literal — `grep -c '$HOME; touch pwned' notes.txt` → exit 0, prints \"1\"",
     ]);
+    commitAll(dir);
     const r = await runCheckBrief(path, { cwd: dir }, { env: {} });
     expect(r.results.map((x) => x.status)).toEqual(["PASS"]);
     expect(existsSync(join(dir, "pwned"))).toBe(false);
@@ -449,7 +462,7 @@ describe("check-brief round 1: allowlist holes", () => {
   });
 
   it("still allows a grep pattern that merely says secret", () => {
-    expect(classifyCommand("rg -F 'secret scanning'").ok).toBe(true);
+    expect(classifyCommand("rg -F 'secret scanning' CLAUDE.md").ok).toBe(true);
   });
 
   it("runs git with no optional locks and no config-driven programs", () => {
@@ -715,10 +728,11 @@ describe("check-brief round 2: flag allowlists and confinement to --cwd", () => 
     "head -n 5 README.md",
     "head -5 README.md",
     "tail -n +3 README.md",
-    "rg -c foo",
-    "grep -cF foo -- -weird-name.txt",
+    "rg -c foo README.md",
+    "grep -cF foo -- README.md",
   ])("allows %s (a real brief would cite it)", (cmd) => {
-    expect(classifyCommand(cmd, scratch).ok).toBe(true);
+    // This checkout: every file named is one git tracks.
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(true);
   });
 
   it("a symlink inside --cwd that points outside is refused", () => {
@@ -732,7 +746,6 @@ describe("check-brief round 2: flag allowlists and confinement to --cwd", () => 
       // already there from an earlier run
     }
     expect(classifyCommand("cat inside.txt", dir).ok).toBe(false);
-    expect(classifyCommand("cat outside.txt", scratch).ok).toBe(true);
   });
 });
 
@@ -888,19 +901,19 @@ describe("check-brief round 3: git, jq, npm and secret names", () => {
 
     "git status --porcelain",
     "git describe --tags --always",
-    "rg -F 'impetus should come from a person'",
+    "rg -F 'impetus should come from a person' CLAUDE.md",
     "gh api repos/o/r/pulls/12 --jq '.state'",
     "gh api repos/o/r/pulls --jq '.[] | .number'",
 
     "grep -c x src/util/credentials.ts",
   ])("allows %s", (cmd) => {
-    expect(classifyCommand(cmd, scratch).ok).toBe(true);
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(true);
   });
 
   it("rg runs with the secret names excluded, so recursion never opens them", () => {
-    const c = classifyCommand("rg -q KEY=xyz .", scratch);
+    const c = classifyCommand("rg -q KEY=xyz README.md", process.cwd());
     expect(c.ok && c.argv.join(" ")).toContain("--iglob !*.key");
-    expect(c.ok && c.argv.slice(-2)).toEqual(["KEY=xyz", "."]);
+    expect(c.ok && c.argv.slice(-2)).toEqual(["KEY=xyz", "README.md"]);
   });
 
   it("rg's exclusions hold for real: an unignored deploy.key is not searched", async () => {
@@ -913,11 +926,8 @@ describe("check-brief round 3: git, jq, npm and secret names", () => {
     mkdirSync(briefDir, { recursive: true });
     const path = writeBrief(briefDir, ["- The key is findable — `rg -q KEY=xyz .` → exit 0"]);
     const r = await runCheckBrief(path, { cwd: dir }, { env: { PATH: process.env.PATH } });
-    // rg exits 1 (no match) because deploy.key is excluded; 0 would be a leak.
-    expect(r.results.map((x) => x.status)).toEqual([
-      // COULD NOT RUN only where rg is not installed.
-      expect.stringMatching(/^(FAIL|COULD NOT RUN)$/),
-    ]);
+    // A directory is never searched now: rg reads only files git tracks.
+    expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
   });
 
   it("a missing path under a symlink that points outside still resolves outside", () => {
@@ -1111,14 +1121,10 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
     expect(
       await verdicts(dir, [
         "- grep finds it — `git grep -q FAKEUPPER999` → exit 0",
-        "- rg finds it — `rg -q FAKEUPPER999 .` → exit 0",
-        "- Control: visible text — `rg -q visible .` → exit 0",
+        "- rg finds it — `rg -q FAKEUPPER999 cert.PEM` → exit 0",
+        "- Control: visible text — `rg -q visible notes.txt` → exit 0",
       ]),
-    ).toEqual([
-      "NOT RUN",
-      expect.stringMatching(/^(FAIL|COULD NOT RUN)$/),
-      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
-    ]);
+    ).toEqual(["NOT RUN", "NOT RUN", expect.stringMatching(/^(PASS|COULD NOT RUN)$/)]);
   });
 
   it("ordinary files whose names resemble secret names stay readable", async () => {
@@ -1134,22 +1140,16 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
       await verdicts(dir, [
         "- credentials.ts is searchable — `grep -c loadCredentials src/credentials.ts` → exit 0",
         "- the template is searchable — `grep -q RESEND_API_KEY .env.example` → exit 0",
-        "- id_token.ts is searchable — `rg -q idToken` → exit 0",
+        "- id_token.ts is searchable — `rg -q idToken id_token.ts` → exit 0",
         '- credentials.ts is modified — `git ls-files -m src/credentials.ts` → exit 0, prints "src/credentials.ts"',
       ]),
     ).toEqual(["PASS", "PASS", expect.stringMatching(/^(PASS|COULD NOT RUN)$/), "PASS"]);
   });
 
-  it("rg with no path searches the cwd, not the closed stdin", async () => {
-    const dir = join(scratch, "r5-rg-nopath");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "notes.txt"), "hello\n");
-    expect(await verdicts(dir, ["- hello is there — `rg -q hello` → exit 0"])).toEqual([
-      // COULD NOT RUN only where rg is not installed.
-      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
-    ]);
-    const c = classifyCommand("rg -q hello", dir);
-    expect(c.ok && c.argv.at(-1)).toBe(".");
+  it("rg with no path is refused: it names a file git tracks", () => {
+    const c = classifyCommand("rg -q hello", process.cwd());
+    expect(c.ok).toBe(false);
+    expect(!c.ok && c.reason).toMatch(/name a file git tracks/);
   });
 
   it("a git path operand is resolved against --cwd, not the process cwd", () => {
@@ -1191,6 +1191,7 @@ describe("check-brief: git answers metadata questions only", () => {
     const dir = join(scratch, "quoted-position");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "CLAUDE.md"), "produce a diff or raw output, not an inference\n");
+    commitAll(dir);
     const briefDir = join(scratch, "quoted-position-brief");
     mkdirSync(briefDir, { recursive: true });
     const r = await runCheckBrief(
@@ -1321,5 +1322,98 @@ describe("check-brief revival: no free-form input left", () => {
     ]);
     const r = await runCheckBrief(path, { cwd: process.cwd() }, { exec: noExec, env: {} });
     expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
+  });
+});
+
+// ── Tracked files only (the operator, 2026-10-21, round-eight answer) ──
+
+describe("check-brief: content tools read only files git tracks", () => {
+  function trackedRepo(name: string): string {
+    const dir = join(scratch, name);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, "src"), { recursive: true });
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: dir });
+    git("init", "-q");
+    writeFileSync(join(dir, ".gitignore"), "secrets/\nga-service-account.json\n.aws/\n");
+    writeFileSync(join(dir, "src/notes.txt"), "visible\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    // Ignored and untracked dummies: never readable, whatever their names.
+    mkdirSync(join(dir, "secrets"), { recursive: true });
+    writeFileSync(join(dir, "secrets/sa.json"), "DUMMY\n");
+    writeFileSync(join(dir, "ga-service-account.json"), '{"private_key":"DUMMY"}\n');
+    mkdirSync(join(dir, ".aws"), { recursive: true });
+    writeFileSync(join(dir, ".aws/config"), "DUMMY\n");
+    writeFileSync(join(dir, "application_default_credentials.json"), "DUMMY\n");
+    return dir;
+  }
+
+  it.each([
+    "cat secrets/sa.json",
+    "grep -q private_key ga-service-account.json",
+    "cat .aws/config",
+    "head -1 application_default_credentials.json",
+    "rg -l DUMMY",
+    "rg -l DUMMY .",
+    "rg -l DUMMY src",
+    "grep -c visible",
+    "wc -l src",
+    "sed -n 1p ga-service-account.json",
+    "test -s secrets/sa.json",
+    "ls -l",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, trackedRepo("tracked-refuse")).ok).toBe(false);
+  });
+
+  it.each([
+    "cat src/notes.txt",
+    "grep -c visible src/notes.txt",
+    "rg -F -q visible src/notes.txt",
+    "sed -n 1p src/notes.txt",
+    "wc -l src/notes.txt",
+    "test -f src/not-yet-created.ts",
+    "test -d src",
+    "ls src",
+  ])("allows %s", (cmd) => {
+    expect(classifyCommand(cmd, trackedRepo("tracked-allow")).ok).toBe(true);
+  });
+
+  it("a tracked symlink to an ignored file is refused", () => {
+    const dir = trackedRepo("tracked-symlink");
+    symlinkSync("../ga-service-account.json", join(dir, "src/link.json"));
+    execFileSync("git", ["add", "src/link.json"], { cwd: dir });
+    expect(classifyCommand("cat src/link.json", dir).ok).toBe(false);
+  });
+
+  it("a path is matched literally: an ignored file named like a glob is not tracked", () => {
+    const dir = trackedRepo("tracked-literal");
+    writeFileSync(join(dir, ".gitignore"), "secrets/\nga-service-account.json\n.aws/\nsrc/n\\*\n");
+    writeFileSync(join(dir, "src/n*"), "DUMMY\n");
+    expect(classifyCommand("cat 'src/n*'", dir).ok).toBe(false);
+  });
+
+  it("outside a git checkout, content tools refuse", () => {
+    const dir = join(scratch, "not-a-repo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "notes.txt"), "x\n");
+    expect(classifyCommand("cat notes.txt", dir).ok).toBe(false);
+  });
+
+  it.each([
+    "pnpm --version",
+    "npm --version",
+    "git log --name-status --format=%s ':/^untracked files on'",
+    "git rev-parse ':/^On main'",
+  ])("refuses %s (round 8)", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
+  });
+
+  it.each([
+    "node --version",
+    "git log -1 --date=format:%G-W%V --format=%ad",
+    "git log -1 --format=format:literal",
+  ])("allows %s (round 8)", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(true);
   });
 });
