@@ -67,6 +67,11 @@ export type OrchestrateOptions = {
   /** Drops the claim after Resend refused the send outright, so a report whose
    *  send keeps being refused can still be unapproved. */
   releaseSendClaim: (reportId: string) => Promise<void>;
+  /** #1613. Approved, unsent, unwithdrawn reports that are NOT draft-ready, so
+   *  the queue cannot see them. Each reds the run by name: before this, an empty
+   *  queue returned "No reports ready to send." with exit 0 whether or not an
+   *  approval existed. The CLI wires it; a test that omits it skips the check. */
+  approvedUnqueued?: () => Promise<Array<{ id: string; reportId: string }>>;
 };
 
 export async function sendApprovedReports(
@@ -75,13 +80,41 @@ export async function sendApprovedReports(
   const client = options.resend ?? defaultResendClient();
 
   const sendable = await options.sendable();
-  if (sendable.length === 0) return { output: "No reports ready to send.", code: 0 };
+  // #1613. What the queue cannot see. A failed read of it reds the run, but never
+  // stops the sends below: it is a check, and the queue is already read.
+  let invisibleLines: string[];
+  try {
+    invisibleLines = ((await options.approvedUnqueued?.()) ?? []).map(
+      (r) =>
+        `✗ ${r.reportId} — approved but not in the send queue (not draft-ready), so no run will ` +
+        `send it. A pending higher-tier draft for the site can hold it out. Unapprove it in the ` +
+        `site's report history to clear this, then re-draft it to send it.`,
+    );
+  } catch (e) {
+    invisibleLines = [
+      `✗ could not check for approved reports outside the send queue: ${(e as Error).message}`,
+    ];
+  }
+  if (sendable.length === 0) {
+    if (invisibleLines.length > 0) return { output: invisibleLines.join("\n"), code: 1 };
+    // #1613. An empty queue from a store that holds no sites is not a quiet day:
+    // it is an empty or wrong database, and every approval is somewhere else.
+    if ((await options.roster()).length === 0) {
+      return {
+        output:
+          "✗ The send queue is empty and the store holds no sites: this is an empty or wrong " +
+          "database (check TURSO_DATABASE_URL), not a day with nothing approved.",
+        code: 1,
+      };
+    }
+    return { output: "No reports ready to send.", code: 0 };
+  }
 
   const websites = await options.roster();
   const sites = new Map(websites.map((w) => [w.id, w]));
 
-  const lines: string[] = [];
-  let anyFailed = false;
+  const lines: string[] = [...invisibleLines];
+  let anyFailed = invisibleLines.length > 0;
   for (const report of sendable) {
     // P1-28: the queue's WHERE already drops a withdrawn row; this is the
     // backstop for any other `sendable` source.

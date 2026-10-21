@@ -68,7 +68,10 @@ function extraFields(raw: string | null): SubmissionDetail[] {
   }));
 }
 
-export function buildSubmissionRowView(s: SubmissionRow): SubmissionRowView {
+export function buildSubmissionRowView(
+  s: SubmissionRow,
+  now: Date = new Date(),
+): SubmissionRowView {
   const reasonTokens = spamReasonTokens(s.spamReason);
   const provenance =
     s.status === "spam_auto" && s.spamScore !== null && s.spamScore !== undefined
@@ -145,7 +148,7 @@ export function buildSubmissionRowView(s: SubmissionRow): SubmissionRowView {
     who: s.name || "(no name)",
     email: s.email || "",
     status: s.status,
-    when: s.submittedAt ? relativeTimeFromNow(s.submittedAt) : "—",
+    when: s.submittedAt ? relativeTimeFromNow(s.submittedAt, now) : "—",
     provenance,
     bounce,
     fanout: fanoutBad.length > 0 ? fanoutBad.join(" · ") : null,

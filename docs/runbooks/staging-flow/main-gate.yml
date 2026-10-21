@@ -17,6 +17,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
@@ -45,12 +46,21 @@ jobs:
             echo "::error::main-gate: every commit on $HEAD_REF must be authored by $BOT and committed and signed by GitHub (web-flow, verified). Not so: $(printf '%s' "$others" | tr '\n' ';')"
             exit 1
           fi
-          activity="$(gh api --paginate "repos/$REPO/activity?ref=refs/heads/$HEAD_REF" --jq '.[] | "\(.activity_type) \(.actor.login)"')"
-          pushers="$(printf '%s\n' "$activity" | awk '{ print $2 } $1 == "branch_creation" { exit }')"
-          if [ -z "$pushers" ]; then
-            echo "::error::main-gate: could not read who pushed to $HEAD_REF."
+          for wait in 2 4 8 16 30 -; do
+            activity="$(gh api --paginate "repos/$REPO/activity?ref=refs/heads/$HEAD_REF" --jq '.[] | "\(.activity_type) \(.actor.login) \(.after)"')"
+            newest="$(awk 'NR == 1 { print $3 }' <<< "$activity")"
+            created="$(awk '$1 == "branch_creation" { n++ } END { print n + 0 }' <<< "$activity")"
+            if { [ "$newest" = "$HEAD_SHA" ] && [ "$created" -gt 0 ]; } || [ "$wait" = - ]; then
+              break
+            fi
+            echo "main-gate: the activity feed on $HEAD_REF does not yet reach $HEAD_SHA from a branch_creation; reading it again in ${wait}s."
+            sleep "$wait"
+          done
+          if [ "$newest" != "$HEAD_SHA" ] || [ "$created" -eq 0 ]; then
+            echo "::error::main-gate: could not read who pushed to $HEAD_REF. The activity feed does not reach the head, $HEAD_SHA, from a branch_creation."
             exit 1
           fi
+          pushers="$(awk '{ print $2 } $1 == "branch_creation" { exit }' <<< "$activity")"
           strangers="$(printf '%s\n' "$pushers" | grep -vxF "$BOT" || true)"
           if [ -n "$strangers" ]; then
             echo "::error::main-gate: $HEAD_REF was also pushed to by: $(printf '%s' "$strangers" | sort -u | tr '\n' ' '). Commit metadata can be set by any writer; who pushed cannot."

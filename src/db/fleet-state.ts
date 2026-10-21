@@ -679,6 +679,29 @@ export async function listSendableReports(db: Db): Promise<ReportRow[]> {
   return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
+/** #1613. Reports the operator approved that the send queue cannot see:
+ *  approved, unsent and unwithdrawn, but not draft-ready. The approve write
+ *  requires `draft_ready = 1`, yet the drafting path can still clear it on an
+ *  approved row (announce's reuse path hands `queueDraft` a row that may be
+ *  approved, and a pending higher-tier draft for the site blocks it). Such a
+ *  report waits for a send no run will make. ONE query, the queue's own WHERE
+ *  with `draft_ready = 0`, so there is no second read to race an approval
+ *  landing between them. Same scan, same bound, as the queue. */
+export async function listApprovedUnqueuedReports(
+  db: Db,
+): Promise<Array<{ id: string; reportId: string }>> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(["id", "report_id"])
+    .where("approved_to_send", "=", 1)
+    .where("draft_ready", "=", 0)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => ({ id: r.id, reportId: r.report_id ?? r.id }));
+}
+
 /** Columns a report writer patches into Turso (same pattern as
  *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
  *  status, and — since #539 Phase 5 — the drafting path's queue flag and a
