@@ -58,6 +58,7 @@ jobs:
           owner: reddoorla
 
       - name: Fleet security + deps audit + write-back
+        id: sweep
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
         # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
@@ -116,6 +117,32 @@ jobs:
             echo "::warning::fleet security: $skipped"
           fi
 
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet security printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet security: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
           # Total write-back failure: nothing landed at all (creds/API/inventory). This
           # is the silent-green hazard — every site's "Security Updates" box would stay
           # unticked while the job reported success.
@@ -135,8 +162,8 @@ jobs:
       # flagged with critical/high vulns. Renovate's OSV vulnerability alerts bypass
       # the schedule, so the remediation PR opens now; GitHub platform auto-merge is
       # disabled fleet-wide, so Renovate merges it from inside its own run per the
-      # shared preset. Runs only when the sweep above succeeded (default step
-      # semantics) — though counts for any site the sweep failed/skipped to write are
+      # shared preset. Runs whenever the sweep above ran, a red sweep included
+      # (#1605), so counts for any site the sweep failed/skipped to write are
       # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
       # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the
       # security job — a missing token clean-skips, and a per-repo failure (no
@@ -145,12 +172,20 @@ jobs:
       # and installation tokens die at 60 — see the first mint's comment.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token-late
+        # A write-gate red in the audit step (#1605) must not stop Renovate dispatch
+        # or freeze the protection-gap issue, so these run when the sweep RAN,
+        # green or red. Not after a failed checkout, install or build: the sweep
+        # was skipped then, `dist/` may not exist, and an audit that dies on a
+        # missing module would file a false coverage gap.
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
+        timeout-minutes: 5
         with:
           app-id: ${{ vars.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           owner: reddoorla
 
       - name: Trigger Renovate for sites with actionable vulnerabilities
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
         timeout-minutes: 10
         env:
           # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
@@ -183,6 +218,8 @@ jobs:
       # dedicated title is the signal; it auto-closes on the next clean pass.
       - name: Protection coverage audit (org-wide)
         id: protection
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
+        timeout-minutes: 15
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
@@ -203,11 +240,22 @@ jobs:
       - name: Open/update the protection-gap tracking issue
         # main only: a branch run's finding is not main's to file (and a green PR-branch
         # dispatch of time-travel once closed #895 while main was still red).
-        if: steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main'
+        # `!cancelled()`: without a status function Actions prefixes `success() &&`,
+        # so a write-gate red in the audit step (#1605) would skip this and the
+        # close step below and freeze the issue on exactly the nights it is red.
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A token that never minted stops the audit before its `tee` creates
+          # protection.out. That is not a coverage gap, and before `!cancelled()`
+          # it skipped this step entirely; the run-failure issue speaks for it. A
+          # CLI that crashed still leaves the file, and still files.
+          if [ ! -e "${RUNNER_TEMP:-/tmp}/protection.out" ]; then
+            echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
+            exit 0
+          fi
           title="Fleet protection coverage gap"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
@@ -244,7 +292,7 @@ jobs:
 
       - name: Close the protection-gap issue on a clean sweep
         # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
-        if: steps.protection.outcome == 'success' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.protection.outcome == 'success' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -315,6 +363,10 @@ jobs:
       # must still print DELIVER before it closes.
       - name: Read the Renovate outcome
         id: renovate-outcome
+        # `!cancelled()` (#1605): a write-gate red in the audit step must not freeze
+        # the drought issue; the protection audit it reads runs on a red run too.
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         run: |
           out="${RUNNER_TEMP:-/tmp}/protection.out"
           summary=$(grep -E "^RENOVATE_OUTCOME drought=[0-9]+ delivering=[0-9]+ unmeasured=[0-9]+ " "$out" 2>/dev/null | tail -n1 || true)
@@ -340,7 +392,7 @@ jobs:
 
       - name: Open/update the Renovate drought tracking issue
         # main only, like every tracking issue here.
-        if: steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -402,7 +454,7 @@ jobs:
           fi
 
       - name: Close the Renovate drought issue once every repo delivers
-        if: steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main'
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

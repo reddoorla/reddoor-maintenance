@@ -77,6 +77,11 @@ export type AuditResult = {
   status: "pass" | "warn" | "fail" | "skip";
   summary: string;
   details?: unknown;
+  /** A skip by design: this audit has nothing to measure on this site (no deployed URL, no
+   *  `test:smoke` script, no Netlify id). Set only where the site's own configuration says so.
+   *  A skip without it (deps would not install, no lockfile was readable, a runner was
+   *  unavailable) is a measurement that failed, and the fleet write gate counts it (#1605). */
+  notApplicable?: true;
 };
 
 export type RecipeResult = {

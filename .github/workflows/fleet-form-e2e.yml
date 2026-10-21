@@ -160,12 +160,40 @@ jobs:
             echo "::warning::fleet form-e2e ingest budget thin — $thin"
           fi
 
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "$out" | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet form-e2e printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet form-e2e: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " "$out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet form-e2e: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
           # months, and this was the only fleet nightly without it.
           #
           # The mass-flake gate below is NOT a substitute, and the gap is narrow
-          # enough to have hidden here: `total` is `wrote + failed`, so wrote=0
+          # enough to have hidden here: `total` was `wrote + failed` (since #1605
+          # it also counts na= and missing= sites, and the write gate above reds
+          # an empty sweep first), so wrote=0
           # forces failed=total and `failed * 4 > total` fires — EXCEPT when
           # total is 0 too. A sweep that attempted nothing (empty inventory, a
           # fleet source that returned no rows, a filter that matched none) reads

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { prismicTokenEnvName } from "../../src/prismic/models/token.js";
 import { stepRunScript, stepEnv, workflowUses, workflowPath } from "./_helpers/workflow-source.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
+import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,8 +81,7 @@ async function runGate(opts: {
 /** A summary line exactly as `formatFleetWriteSummary` emits it. Built with the
  *  real formatter's shape rather than a hand-typed string, so a change to that
  *  contract breaks this file instead of silently un-arming the gate. */
-const summary = (wrote: number, failed: number): string =>
-  `FLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${wrote + failed}`;
+const summary = (wrote: number, failed: number): string => fleetWriteOutput(wrote, failed);
 
 describe("fleet-prismic-drift — the gate cannot go green having established nothing", () => {
   it("passes a real sweep that wrote every verdict", async () => {

@@ -118,14 +118,24 @@ export function summarizeSmokeFailure(stdout: string, stderr: string): string {
  * `package.json` at all) has simply not adopted the suite yet — treat both
  * the same as "can't tell", NOT as a failure. Read BEFORE spawning so a
  * not-yet-adopted site never pays a real `pnpm` invocation.
+ *
+ * A `package.json` that exists but cannot be read or parsed (a merge-conflict
+ * marker) is neither: the site may well have a suite, so it is a measurement
+ * that broke, never "not applicable" (#1605).
  */
-async function hasTestSmokeScript(sitePath: string): Promise<boolean> {
+async function smokeScriptState(sitePath: string): Promise<"yes" | "no" | string> {
+  let raw: string;
   try {
-    const raw = await readFile(join(sitePath, "package.json"), "utf-8");
+    raw = await readFile(join(sitePath, "package.json"), "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "no";
+    return `package.json unreadable — ${String(err)}`;
+  }
+  try {
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return typeof pkg.scripts?.["test:smoke"] === "string";
-  } catch {
-    return false;
+    return typeof pkg.scripts?.["test:smoke"] === "string" ? "yes" : "no";
+  } catch (err) {
+    return `package.json unparseable — ${String(err)}`;
   }
 }
 
@@ -164,13 +174,18 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   const now = ctx.now ?? new Date();
   const checkedAt = now.toISOString();
 
-  if (!(await hasTestSmokeScript(site.path))) {
+  const script = await smokeScriptState(site.path);
+  if (script === "no") {
     return {
       audit: "smoke",
       site: label,
       status: "skip",
       summary: "no test:smoke script",
+      notApplicable: true,
     };
+  }
+  if (script !== "yes") {
+    return { audit: "smoke", site: label, status: "skip", summary: `smoke: ${script}` };
   }
 
   // The nightly fleet producer runs against FRESH clones (cloneIfNeeded does a

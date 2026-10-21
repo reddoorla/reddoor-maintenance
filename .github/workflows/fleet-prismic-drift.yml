@@ -223,6 +223,22 @@ jobs:
             exit 1
           fi
 
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. Here it adds one
+          # thing the counts above cannot see: a verdict that recurs every night
+          # because its site has no Websites row, or several. The sweep's own checks
+          # run first because they name the Prismic cause. An absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "$out" | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet prismic drift printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " "$out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet prismic drift: /' || true
+            exit 1
+          fi
+
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible,
       # and auto-close it once the run goes green again. continue-on-error so the alert

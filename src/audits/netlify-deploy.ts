@@ -155,7 +155,8 @@ export function defaultNetlifyDeployDeps(
  *  - no `site.netlifyId` → skip ("no netlify id"); the site simply isn't on Netlify
  *    (or hasn't been wired up) so there's nothing to check.
  *  - no `NETLIFY_PAT` in the env → skip ("no NETLIFY_PAT"); the whole audit is
- *    unconfigured, which must not red every site.
+ *    unconfigured, which must not red any one site's row. It is NOT marked not
+ *    applicable, so the fleet write gate reds the sweep instead (#1605).
  *
  * Status mapping: `ready` → pass; a failed build (`error`/`failed`/`rejected`) →
  * fail (the "needs attention" status — it lands the site in the cockpit's attention
@@ -167,7 +168,13 @@ export async function netlifyDeployAudit(ctx: AuditContext): Promise<AuditResult
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.netlifyId) {
-    return { audit: "netlify-deploy", site: label, status: "skip", summary: "no netlify id" };
+    return {
+      audit: "netlify-deploy",
+      site: label,
+      status: "skip",
+      summary: "no netlify id",
+      notApplicable: true,
+    };
   }
   const token = process.env.NETLIFY_PAT;
   if (!token) {

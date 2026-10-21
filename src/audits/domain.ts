@@ -95,7 +95,13 @@ export async function domainAudit(ctx: AuditContext): Promise<AuditResult> {
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.deployedUrl) {
-    return { audit: "domain", site: label, status: "skip", summary: "no deployed URL" };
+    return {
+      audit: "domain",
+      site: label,
+      status: "skip",
+      summary: "no deployed URL",
+      notApplicable: true,
+    };
   }
   const now = ctx.now ?? new Date();
   const deps = ctx.domainDeps ?? defaultDomainDeps(now);

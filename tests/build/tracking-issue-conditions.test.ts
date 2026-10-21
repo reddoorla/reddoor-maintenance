@@ -345,6 +345,10 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
       "fleet-lighthouse.yml › Probe roster urls to Turso",
       "fleet-lighthouse.yml › Re-check Search Console no-property sites to Turso",
+      "fleet-security.yml › id: app-token-late",
+      "fleet-security.yml › Trigger Renovate for sites with actionable vulnerabilities",
+      "fleet-security.yml › Protection coverage audit (org-wide)",
+      "fleet-security.yml › Read the Renovate outcome",
     ]);
   });
 });
@@ -784,7 +788,8 @@ exit 1
   async function ghCalls(
     step: Found,
     env: Record<string, string>,
-    opts: { protectionOut?: string; configDriftOut?: string } = {},
+    /** `protectionOut: null` leaves protection.out absent; "" writes an empty one. */
+    opts: { protectionOut?: string | null; configDriftOut?: string } = {},
   ): Promise<string[][]> {
     const wf = await readFile(workflowPath(step.file), "utf-8");
     const script = stepRunScript(wf, step.label).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
@@ -792,8 +797,10 @@ exit 1
     await mkdir(join(dir, "bin"));
     await writeFile(join(dir, "bin", "gh"), GH, "utf-8");
     await chmod(join(dir, "bin", "gh"), 0o755);
-    const protectionOut = opts.protectionOut ?? PROTECTION_OUT;
-    if (protectionOut !== "") await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    const protectionOut = opts.protectionOut === undefined ? PROTECTION_OUT : opts.protectionOut;
+    if (protectionOut !== null) {
+      await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    }
     const configDriftOut = opts.configDriftOut ?? CONFIG_DRIFT_OUT;
     if (configDriftOut !== "") {
       await writeFile(join(dir, "config-drift.out"), configDriftOut, "utf-8");
@@ -896,10 +903,128 @@ exit 1
     const s = opens(all).find(
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
-    const got = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    // The audit ran and printed its summary, but no GAP line (a crash mid-sweep).
+    const got = await ghCalls(
+      s,
+      { GH_EXISTING: EXISTING },
+      { protectionOut: "PROTECTION_AUDIT gaps=0 covered=0 skipped=0 total=0\n" },
+    );
     expect(calls(got, "edit")).toEqual([]);
     expect(calls(got, "comment").map((c) => c[2])).toEqual([EXISTING]);
     expect(bodyArg(calls(got, "comment")[0]!)).toContain("see run output");
+  });
+
+  // #1605: the open step now runs on a red run too, so a token that never minted
+  // (the audit exits before its `tee` creates protection.out) must not be filed as
+  // a coverage gap. Before `!cancelled()` the red run skipped this step entirely.
+  it("protection-gap files nothing when the audit never produced output", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
+    )!;
+    const none = await ghCalls(s, {}, { protectionOut: null });
+    expect(calls(none, "create")).toEqual([]);
+    const existing = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: null });
+    expect(calls(existing, "comment")).toEqual([]);
+    expect(calls(existing, "edit")).toEqual([]);
+  });
+
+  // The guard keys on the file's ABSENCE: a CLI that crashed before printing a byte
+  // still leaves an empty file behind its `tee`, and that night still files.
+  it("protection-gap still files when the audit crashed with no output", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
+    )!;
+    const got = await ghCalls(s, {}, { protectionOut: "" });
+    expect(calls(got, "create")).toHaveLength(1);
+    expect(bodyArg(calls(got, "create")[0]!)).toContain("see run output");
+  });
+
+  it("protection-gap open and close conditions hold on a red run whose audit found a gap / none", () => {
+    const steps = all.filter(
+      (s) =>
+        s.file === "fleet-security.yml" &&
+        /protection-gap/.test(s.label) &&
+        /^(Open|Close)/.test(s.label),
+    );
+    expect(steps).toHaveLength(2);
+    for (const s of steps) {
+      const want = /^Open/.test(s.label) ? "failure" : "success";
+      expect(
+        evaluate(s.if ?? "success()", { ...MAIN_FAILED, outcomes: { protection: want } }),
+      ).toBe(true);
+      expect(
+        evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, outcomes: { protection: want } }),
+      ).toBe(false);
+    }
+  });
+
+  // #1605: a write-gate red in the audit step must not stop the steps behind it.
+  it("fleet-security's late token, Renovate dispatch, protection audit and drought read run on a red run, not a cancelled one", () => {
+    const labels = [
+      "id: app-token-late",
+      "Trigger Renovate for sites with actionable vulnerabilities",
+      "Protection coverage audit (org-wide)",
+      "Read the Renovate outcome",
+    ];
+    for (const label of labels) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      expect(s, label).toBeDefined();
+      expect(evaluate(s.if ?? "success()", MAIN_FAILED), label).toBe(true);
+      expect(evaluate(s.if ?? "success()", MAIN_CANCELLED), label).toBe(false);
+    }
+  });
+
+  // Every `steps.<id>` an `if:` reads must be the `id:` of an EARLIER step in the
+  // same job. The evaluator above takes whatever outcome a scenario names, so a
+  // renamed, removed or moved id would pass every case here while production reads
+  // `''`: fleet-security's follow-ups gated on `steps.sweep.outcome` would then skip
+  // every night with the run green (#1605 review round 5).
+  it("every step id an if: reads names an earlier step in the same job", () => {
+    const stepId = (s: Found) => /^\s*-?\s*id:\s*([\w-]+)\s*$/m.exec(s.source)?.[1];
+    const dangling: string[] = [];
+    let checked = 0;
+    for (const s of all) {
+      for (const m of (s.if ?? "").matchAll(/\bsteps\.([\w-]+)\./g)) {
+        checked++;
+        const job = all.filter((x) => x.file === s.file && x.job === s.job);
+        const earlier = job.slice(0, job.indexOf(s)).map(stepId);
+        if (!earlier.includes(m[1])) dangling.push(`${id(s)}: steps.${m[1]}`);
+      }
+    }
+    // Vacuity floor: fleet-security alone reads sweep, protection and renovate-outcome.
+    expect(checked).toBeGreaterThanOrEqual(8);
+    expect(dangling).toEqual([]);
+  });
+
+  // A failed checkout, install or build skips the sweep and leaves no `dist/`. The
+  // protection audit would then die on a missing module behind its `tee`, leave an
+  // empty protection.out, and the open step would file a false coverage gap.
+  it("fleet-security's follow-up steps do not run when the sweep itself never ran", () => {
+    for (const label of [
+      "id: app-token-late",
+      "Trigger Renovate for sites with actionable vulnerabilities",
+      "Protection coverage audit (org-wide)",
+    ]) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      const buildBroke = { ...MAIN_FAILED, outcomes: { sweep: "skipped" } };
+      expect(evaluate(s.if ?? "success()", buildBroke), label).toBe(false);
+      const sweepRed = { ...MAIN_FAILED, outcomes: { sweep: "failure" } };
+      expect(evaluate(s.if ?? "success()", sweepRed), label).toBe(true);
+    }
+  });
+
+  it("the Renovate drought open and close conditions hold on a red run", () => {
+    for (const [label, drought] of [
+      ["Open/update the Renovate drought tracking issue", "yes"],
+      ["Close the Renovate drought issue once every repo delivers", "no"],
+    ] as const) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      expect(s, label).toBeDefined();
+      expect(evaluate(s.if ?? "success()", { ...MAIN_FAILED, output: drought }), label).toBe(true);
+      expect(evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, output: drought }), label).toBe(
+        false,
+      );
+    }
   });
 
   it("Renovate drought keeps a body naming its repos when this run printed none, and still comments", async () => {

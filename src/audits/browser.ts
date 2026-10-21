@@ -631,7 +631,13 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.deployedUrl) {
-    return { audit: "browser", site: label, status: "skip", summary: "no deployed URL" };
+    return {
+      audit: "browser",
+      site: label,
+      status: "skip",
+      summary: "no deployed URL",
+      notApplicable: true,
+    };
   }
   const now = ctx.now ?? new Date();
   const discoverDeps = ctx.discoverDeps ?? defaultDiscoverDeps();

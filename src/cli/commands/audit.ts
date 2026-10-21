@@ -9,6 +9,7 @@ import {
   type SkippedSite,
 } from "../fleet/prepare-sites.js";
 import { isHttpUrl } from "../../util/url.js";
+import { siteLabel } from "../../util/site.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
@@ -303,6 +304,10 @@ export async function runAuditCommand(
 
   sites = applyDeployedUrl(sites, opts.url);
 
+  // Every site the run owes a result, counted BEFORE prep can drop any (#1605). The write
+  // gate checks its total against this, not against whatever survived to write-back.
+  const expectedSites = sites.map(siteLabel);
+
   let skippedPrep: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
@@ -329,9 +334,10 @@ export async function runAuditCommand(
 
   // "Did every site actually get measured?" — emitted for any fleet sweep that ran
   // `smoke`, independent of --write-back, because it is a statement about the
-  // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY:
-  // an unmeasured site still writes (it just writes nothing new), so the write gate
-  // counts it as a success. That gap is exactly what hid four nights of timeouts.
+  // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY.
+  // An unmeasured site used to count as written there, which is what hid four
+  // nights of timeouts; since #1605 the write gate files it as failed too, but this
+  // line still names the cause.
   if (opts.fleet !== undefined && which.includes("smoke") && !opts.json) {
     const { formatUnmeasuredSmokeSummary } = await import("../../audits/smoke.js");
     output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;
@@ -351,7 +357,7 @@ export async function runAuditCommand(
   let writeBackFailed = false;
   if (opts.writeBack !== undefined) {
     if (opts.fleet !== undefined) {
-      const wb = await runFleetWriteBack({ results, which });
+      const wb = await runFleetWriteBack({ results, which, expectedSites });
       if (wb.anyFailed) writeBackFailed = true;
       // Gate on !json: the write-summary is human text; appending it after the
       // results array would corrupt `--json` output (the other notices already
@@ -414,6 +420,8 @@ export async function runAuditCommand(
 export async function runFleetWriteBack(args: {
   results: AuditResult[];
   which: AuditName[];
+  /** The site labels resolved before prep (#1605); omitted, `missing` is not computed. */
+  expectedSites?: string[];
   deps?: {
     /** #646 step 4: the rows results are matched against. Defaults to Turso
      *  (`readFleetRoster`); tests inject. */
@@ -443,6 +451,7 @@ export async function runFleetWriteBack(args: {
     websites,
     results,
     ...(mirror ? { mirror } : {}),
+    ...(args.expectedSites ? { expectedSites: args.expectedSites } : {}),
   });
   // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
   // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.

@@ -606,7 +606,11 @@ async function firesOn(stepName: string, drought: string): Promise<boolean> {
   const wf = await readFile(workflowPath(WF), "utf-8");
   const step = workflowSteps(wf).find((s) => s.label === stepName);
   if (!step?.if) throw new Error(`no if: on ${stepName}`);
+  // A run that was not cancelled: the steps carry `!cancelled()` since #1605, so a
+  // write-gate red in the audit step does not freeze the drought issue.
   const js = step.if
+    .replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1")
+    .replace(/\bcancelled\(\)/g, "false")
     .replace(/steps\.renovate-outcome\.outputs\.drought/g, JSON.stringify(drought))
     .replace(/github\.ref/g, JSON.stringify("refs/heads/main"))
     .replace(/'([^']*)'/g, (_, v: string) => JSON.stringify(v))
