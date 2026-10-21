@@ -84,7 +84,12 @@ const writeSummary = (wrote: number, failed: number): string => fleetWriteOutput
 
 const unmeasuredSummary = (sites: string[]): string =>
   formatUnmeasuredSmokeSummary([
-    { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
+    {
+      audit: "smoke",
+      site: "caltex",
+      summary: "smoke: suite green",
+      details: { ok: "pass", checkedAt: "2026-10-21T06:43:00.000Z" },
+    },
     ...sites.map((s) => ({ audit: "smoke", site: s, summary: `${SMOKE_UNMEASURED_PREFIX} — x` })),
   ]);
 
