@@ -56,6 +56,43 @@ const PAGES: Record<string, string> = {
     `body { background: #fff } a:focus { outline: none; } a:focus-visible { background: #fbfbfb; }`,
     `<main><section><a href="#x" id="x">Book</a></section></main>`,
   ),
+  // Round 1's: an embed with two links of its own, then a link with no ring;
+  "/after-frame": page(
+    `a:focus-visible { outline: 3px solid #000; outline-offset: 2px; } a.bad:focus { outline: none; }`,
+    `<main><section><a href="#a" id="first">First</a><iframe title="map" width="300" height="120" srcdoc="<a href='#1'>one</a> <a href='#2'>two</a>"></iframe><a href="#b" class="bad">After the map</a></section></main>`,
+  ),
+  // two links whose six-part paths are the same, the second with no ring;
+  "/same-path": page(
+    `a:focus-visible { outline: 3px solid #000; outline-offset: 2px; } .two a:focus { outline: none; }`,
+    `<main>${["one", "two"].map((c) => `<section class="${c}"><div><div><div><ul><li><a href="#${c}">${c}</a></li></ul></div></div></div></section>`).join("")}</main>`,
+  ),
+  // a full-bleed link at the viewport's edge, with no ring;
+  "/edge": page(
+    `body { margin: 0 } a.full { display: block; margin: 0; padding: 20px; } a.full:focus { outline: none; }`,
+    `<a href="#x" class="full">Full-bleed banner</a>`,
+  ),
+  // a visually hidden radio whose ring its label draws (Tailwind peer sr-only);
+  "/peer-label": page(
+    `.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); } label { display: inline-block; padding: 8px; margin: 0 }
+     .sr:focus-visible + label { outline: 3px solid #000; outline-offset: 2px; }`,
+    `<main><section><input type="radio" name="r" id="r1" class="sr"><label for="r1">Weekly</label></section></main>`,
+  ),
+  // a ring drawn 12px out from the box;
+  "/offset": page(
+    `a:focus-visible { outline: 3px solid #000; outline-offset: 12px; }`,
+    `<main><section style="padding: 60px"><a href="#x">Book</a></section></main>`,
+  ),
+  // a loader over the page that lifts just after load;
+  "/loader": page(
+    `${RING_AFTER_23} #pre { position: fixed; inset: 0; background: #fff; }`,
+    `<main><section><a href="#x">Book</a></section></main><div id="pre"></div><script>addEventListener("load", () => setTimeout(() => document.getElementById("pre").remove(), 200));</script>`,
+  ),
+  // nothing to tab to.
+  "/no-stops": page("", `<main><p>Text only</p></main>`),
+  "/only-frame": page(
+    "",
+    `<main><iframe title="map" width="300" height="120" srcdoc="<a href='#1'>one</a>"></iframe></main>`,
+  ),
   // A ring an ancestor's overflow cuts off.
   "/clipped": page(
     `${RING_AFTER_23} .clip { overflow: hidden; padding: 0; }`,
@@ -141,6 +178,38 @@ describe("design-rules R12 (focus ring), in a real browser", () => {
     expect(tint.findings.map((f) => f.problem.replace(/ \(at .*\)$/, ""))).toEqual([
       "has no visible focus indicator",
     ]);
+  });
+
+  it("tabs past an embed and through links that share a path, and measures a stop at the viewport's edge", async () => {
+    const strip = (o: { findings: { target: string; problem: string }[] }) =>
+      o.findings.map((f) => `${f.target}: ${f.problem.replace(/ \(at .*\)$/, "")}`);
+    const frame = await checkFocusRing(browser, `${base}/after-frame`);
+    expect(strip(frame)).toEqual([
+      "body > main > section > a.bad:nth-of-type(2): has no visible focus indicator",
+    ]);
+    expect(frame.note).toMatch(/stop\(s\) inside frames not measured$/);
+    const same = await checkFocusRing(browser, `${base}/same-path`);
+    expect(same.findings.map((f) => f.problem.replace(/ \(at .*\)$/, ""))).toEqual([
+      "has no visible focus indicator",
+    ]);
+    const edge = await checkFocusRing(browser, `${base}/edge`);
+    expect(edge.findings.map((f) => f.problem.replace(/ \(at .*\)$/, ""))).toEqual([
+      "has no visible focus indicator",
+    ]);
+  });
+
+  it("PASSES a ring a hidden radio's label draws, a ring 12px out, and a page under a loader that lifts", async () => {
+    for (const path of ["/peer-label", "/offset", "/loader"]) {
+      const o = await checkFocusRing(browser, `${base}${path}`);
+      expect(o.status, `${path}: ${JSON.stringify(o.findings)}`).toBe("pass");
+    }
+  });
+
+  it("is UNMEASURED, never a pass, when nothing takes focus or no stop can be measured", async () => {
+    const o = await checkFocusRing(browser, `${base}/no-stops`);
+    expect(o.status).toBe("unmeasured");
+    const frame = await checkFocusRing(browser, `${base}/only-frame`);
+    expect(frame.status, frame.note).toBe("unmeasured");
   });
 
   it("FAILS a ring an ancestor's overflow cuts off", async () => {

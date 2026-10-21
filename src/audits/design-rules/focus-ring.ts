@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import type { Browser, Page } from "@playwright/test";
 import sharp from "sharp";
-import { withPage } from "./load.js";
+import { settle, withPage } from "./load.js";
 import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 
 // R12 in docs/design-review-rules-2026-09.md: keyboard focus is always
@@ -28,14 +28,23 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //     pinned bar (roalson's journal, 2026-09-21, "the pinned bar hid whatever
 //     the browser focused").
 //
-// Not covered: a stop outside the viewport after focus scrolled it (counted in
-// the note); `outline: none` in forced-colours mode; focus moved by script
-// (a trapped dialog is tabbed as the page tabs it); custom focus treatments
-// that change only the element's own fill are judged like any other change.
+// The page is tabbed once the network is idle. Stops are told apart by element
+// identity, so the tab order ends where it wraps. A stop at the viewport's edge
+// is measured on the part the screen shows; a visually hidden input (a
+// `peer sr-only` radio) is measured by its label, where its ring is drawn.
+// A page where no stop could be measured is unmeasured, never a pass.
+//
+// Not covered: a stop wholly outside the viewport after focus scrolled it, and
+// focus inside a frame (each counted in the note); `outline: none` in
+// forced-colours mode; focus moved by script (a trapped dialog is tabbed as
+// the page tabs it); a ring drawn further than RING_PAD_PX from the box; a
+// focus that opens something inside the captured box (a menu), whose
+// change counts as the indicator, as does a change to the element's own
+// fill; and two stops with the same path, whose findings are merged.
 
 /** CSS px of ground captured round the element: outline offset plus width,
  *  with room to spare. */
-export const RING_PAD_PX = 8;
+export const RING_PAD_PX = 16;
 /** At most this many tab stops per width. */
 export const STOP_CAP = 60;
 /** A channel sum below this is the same pixel (antialiasing, compression). */
@@ -87,18 +96,33 @@ export function measureRing(
 }
 
 /** The focused element, as the page sees it: its box, a path a reader can
- *  paste, whether keyboard focus styles apply, and whether something else
- *  covers its centre. Runs IN THE PAGE (self-contained, no named helpers). */
+ *  paste, whether something else covers its centre, whether this element
+ *  was focused before (the tab order has wrapped), and whether focus is
+ *  inside a frame (not measured). A visually hidden input (a Tailwind
+ *  `peer sr-only` radio) is measured by its label, where its ring is drawn.
+ *  Runs IN THE PAGE (self-contained, no named helpers). */
 export function describeFocus(): {
   target: string;
   rect: { x: number; y: number; width: number; height: number };
-  focusVisible: boolean;
   covered: string | null;
+  repeat: boolean;
+  inFrame: boolean;
 } | null {
   let el = document.activeElement;
   while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
   if (!el || el === document.body || el === document.documentElement) return null;
-  const r = el.getBoundingClientRect();
+  const w = window as unknown as { __designRulesR12Seen?: WeakSet<Element> };
+  w.__designRulesR12Seen ??= new WeakSet();
+  const inFrame = el.tagName === "IFRAME" || el.tagName === "FRAME";
+  // Focus moves inside a frame while the frame stays the active element, so
+  // a frame is never a repeat.
+  const repeat = !inFrame && w.__designRulesR12Seen.has(el);
+  w.__designRulesR12Seen.add(el);
+  let box: Element = el;
+  const own = el.getBoundingClientRect();
+  const labels = (el as HTMLInputElement).labels;
+  if ((own.width <= 2 || own.height <= 2) && labels && labels.length > 0) box = labels[0]!;
+  const r = box.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
   let hit: Element | null = document.elementFromPoint(cx, cy);
@@ -107,7 +131,15 @@ export function describeFocus(): {
     if (!inner || inner === hit) break;
     hit = inner;
   }
-  const covers = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit : null;
+  const covers =
+    hit &&
+    hit !== el &&
+    hit !== box &&
+    !box.contains(hit) &&
+    !hit.contains(box) &&
+    !el.contains(hit)
+      ? hit
+      : null;
   const paths: string[] = [];
   for (const start of [el, covers]) {
     const parts: string[] = [];
@@ -135,47 +167,62 @@ export function describeFocus(): {
   return {
     target: paths[0]!,
     rect: { x: r.left, y: r.top, width: r.width, height: r.height },
-    focusVisible: el.matches(":focus-visible"),
     covered: covers ? paths[1]! : null,
+    repeat,
+    inFrame,
   };
 }
 
 export type FocusStop = {
   target: string;
-  /** null: the stop was not measured (outside the viewport). */
+  /** null: the stop was not measured (see `skipped`). */
   ring: { changed: number; contrast: number; passes: boolean } | null;
   covered: string | null;
+  /** Why the ring was not measured: the element is wholly outside the
+   *  viewport, or focus is inside a frame. */
+  skipped?: "viewport" | "frame";
 };
 
 /** Tab through one page, measuring each stop. */
 async function tabThrough(page: Page): Promise<FocusStop[]> {
+  // A loader overlay or late hydration would cover the first stops: tab once
+  // the network is quiet and a frame has run.
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+  await settle(page);
   const stops: FocusStop[] = [];
-  const seen = new Set<string>();
   const viewport = page.viewportSize()!;
   for (let i = 0; i < STOP_CAP; i++) {
     await page.keyboard.press("Tab");
     const focus = await page.evaluate(describeFocus);
-    if (!focus) break;
-    if (seen.has(focus.target)) break;
-    seen.add(focus.target);
-    const { x, y, width, height } = focus.rect;
-    const clip = {
-      x: Math.floor(x - RING_PAD_PX),
-      y: Math.floor(y - RING_PAD_PX),
-      width: Math.ceil(width + 2 * RING_PAD_PX),
-      height: Math.ceil(height + 2 * RING_PAD_PX),
-    };
-    const inside =
-      clip.x >= 0 &&
-      clip.y >= 0 &&
-      clip.x + clip.width <= viewport.width &&
-      clip.y + clip.height <= viewport.height &&
-      width >= 1 &&
-      height >= 1;
-    if (!inside) {
-      stops.push({ target: focus.target, ring: null, covered: focus.covered });
+    if (!focus || focus.repeat) break;
+    if (focus.inFrame) {
+      // Focus is inside a frame, on an element this page cannot see; it
+      // stays there so the next Tab moves on through the frame and out.
+      stops.push({ target: focus.target, ring: null, covered: null, skipped: "frame" });
       continue;
     }
+    const { x, y, width, height } = focus.rect;
+    // The element's part inside the viewport, and the padded box round it
+    // clamped to the viewport: a full-bleed link at x = 0 is measured on the
+    // three sides the screen shows.
+    const seen = {
+      left: Math.max(0, x),
+      top: Math.max(0, y),
+      right: Math.min(viewport.width, x + width),
+      bottom: Math.min(viewport.height, y + height),
+    };
+    if (seen.right - seen.left < 1 || seen.bottom - seen.top < 1) {
+      stops.push({ target: focus.target, ring: null, covered: focus.covered, skipped: "viewport" });
+      continue;
+    }
+    const left = Math.max(0, Math.floor(x - RING_PAD_PX));
+    const top = Math.max(0, Math.floor(y - RING_PAD_PX));
+    const clip = {
+      x: left,
+      y: top,
+      width: Math.min(viewport.width, Math.ceil(x + width + RING_PAD_PX)) - left,
+      height: Math.min(viewport.height, Math.ceil(y + height + RING_PAD_PX)) - top,
+    };
     const on = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
     // Unfocused: drop focus and capture. The next Tab moves on from the
     // blurred element, which stays the sequential focus starting point.
@@ -183,7 +230,7 @@ async function tabThrough(page: Page): Promise<FocusStop[]> {
     const off = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
     const a = await sharp(on).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const b = await sharp(off).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const perimeter = 2 * (Math.round(width) + Math.round(height));
+    const perimeter = 2 * (Math.round(seen.right - seen.left) + Math.round(seen.bottom - seen.top));
     stops.push({
       target: focus.target,
       ring: measureRing(a.data, b.data, a.info.width, a.info.height, perimeter),
@@ -212,14 +259,18 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
     if (!f.widths.includes(width)) f.widths.push(width);
     seen.set(key, f);
   };
-  let unmeasured = 0;
+  let offScreen = 0;
+  let inFrames = 0;
+  let measured = 0;
   for (const { width, stops: list } of runs) {
     for (const s of list) {
       if (s.covered) add(width, s.target, `is under ${s.covered} when focused`);
       if (s.ring === null) {
-        unmeasured += 1;
+        if (s.skipped === "frame") inFrames += 1;
+        else offScreen += 1;
         continue;
       }
+      measured += 1;
       if (s.ring.changed === 0) add(width, s.target, "has no visible focus indicator");
       else if (!s.ring.passes) {
         add(
@@ -227,7 +278,7 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
           s.target,
           s.ring.contrast < 3
             ? `focus indicator reaches only ${pct(s.ring.contrast)}:1 against its ground (needs 3:1)`
-            : "focus indicator covers under half its perimeter (clipped)",
+            : "focus indicator covers under half its perimeter (clipped, or not a ring)",
         );
       }
     }
@@ -238,7 +289,12 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
   }));
   const note =
     `${runs.map((r) => `${r.stops.length} stops at ${r.width}px`).join(", ")}; ${findings.length} finding(s)` +
-    (unmeasured > 0 ? `; ${unmeasured} stop(s) outside the viewport not measured` : "");
+    (offScreen > 0 ? `; ${offScreen} stop(s) outside the viewport not measured` : "") +
+    (inFrames > 0 ? `; ${inFrames} stop(s) inside frames not measured` : "");
+  // Nothing measured and nothing found is not a pass: no ring was seen.
+  if (measured === 0 && findings.length === 0) {
+    return { ...base, status: "unmeasured", findings, note: `no stop could be measured: ${note}` };
+  }
   return { ...base, status: findings.length === 0 ? "pass" : "fail", findings, note };
 }
 
