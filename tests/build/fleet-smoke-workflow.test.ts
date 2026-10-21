@@ -84,7 +84,12 @@ const writeSummary = (wrote: number, failed: number): string => fleetWriteOutput
 
 const unmeasuredSummary = (sites: string[]): string =>
   formatUnmeasuredSmokeSummary([
-    { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
+    {
+      audit: "smoke",
+      site: "caltex",
+      summary: "smoke: suite green",
+      details: { ok: "pass", checkedAt: "2026-10-21T06:43:00.000Z" },
+    },
     ...sites.map((s) => ({ audit: "smoke", site: s, summary: `${SMOKE_UNMEASURED_PREFIX} — x` })),
   ]);
 
@@ -183,6 +188,14 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     expect(firstError(r.out)).toBe(
       "::error::fleet smoke: 2 site(s) never measured — reddoor,beachfront-dentistry",
     );
+  });
+
+  // #1611's own incident: ONE site, unmeasured, reds the nightly. The never-measured
+  // check has no tolerance, unlike the write gate's quarter.
+  it("FAILS on a single never-measured site", async () => {
+    const r = await runGate({ stdout: await realSweep(12, ["acme"]), exit: 1 });
+    expect(r.code).not.toBe(0);
+    expect(firstError(r.out)).toBe("::error::fleet smoke: 1 site(s) never measured — acme");
   });
 
   // Four of thirteen past the write gate's quarter: both checks would red, and the

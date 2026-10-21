@@ -4,6 +4,7 @@ import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn, isSpawnTimeout } from "./util/spawn.js";
 import { siteLabel } from "../util/site.js";
+import { hasSmokeResult } from "./smoke-fields.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
@@ -36,14 +37,26 @@ export const SMOKE_TIMEOUT_MS = 15 * 60_000;
  *  can drift out of sync. */
 export const SMOKE_UNMEASURED_PREFIX = "smoke: NOT MEASURED";
 
-/** True when a smoke audit never reached a verdict (timed out mid-suite).
+/** True when a smoke audit never reached a verdict.
  *
- *  Deliberately distinct from {@link hasSmokeResult}: an unmeasured run carries no
- *  `details`, so the write-back already preserves the prior verdict rather than
- *  recording a false fail. That is correct — and it is also why nothing surfaced it.
- *  This predicate is what makes it visible to CI. */
-export function isUnmeasuredSmoke(result: { audit: string; summary: string }): boolean {
-  return result.audit === "smoke" && result.summary.startsWith(SMOKE_UNMEASURED_PREFIX);
+ *  The negation of {@link hasSmokeResult}, the write-back's own test: an unmeasured
+ *  run carries no `details`, so the write-back preserves the prior verdict rather
+ *  than recording a false fail. That is correct — and it is also why nothing
+ *  surfaced it. This predicate is what makes it visible to CI.
+ *
+ *  Any smoke result without a verdict counts, not only the timeout's
+ *  `NOT MEASURED` prefix (#1611): a spawn that throws (`EACCES`) comes back from
+ *  `runOneAudit` as `smoke: unexpected error`, and an install that failed, as a
+ *  skip. The one exception is a site with no suite to run, marked not applicable. */
+export function isUnmeasuredSmoke(result: {
+  audit: string;
+  summary: string;
+  details?: unknown;
+  notApplicable?: true;
+}): boolean {
+  if (result.audit !== "smoke" || result.notApplicable === true) return false;
+  // The write-back's own test for a verdict, so this line and the write gate agree.
+  return !hasSmokeResult(result as AuditResult);
 }
 
 /** Render the "did every site actually get measured?" line for CI.
@@ -57,7 +70,13 @@ export function isUnmeasuredSmoke(result: { audit: string; summary: string }): b
  *
  *  Only `smoke` results are considered; other audits in the same pool are ignored. */
 export function formatUnmeasuredSmokeSummary(
-  results: ReadonlyArray<{ audit: string; site: string; summary: string }>,
+  results: ReadonlyArray<{
+    audit: string;
+    site: string;
+    summary: string;
+    details?: unknown;
+    notApplicable?: true;
+  }>,
 ): string {
   const unmeasured = results.filter(isUnmeasuredSmoke).map((r) => r.site);
   let out = "";
@@ -158,7 +177,8 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  * immune to a zombie-vite squatting 5173 (see free-port.ts).
  *
  * A site that hasn't adopted `test:smoke` yet (no script, or no package.json) →
- * skip (R3.2), same bucket as `pnpm` itself being unavailable. exit 0 → pass;
+ * skip (R3.2), marked not applicable; `pnpm` itself being unavailable is also a
+ * skip, but an unmeasured one (#1611), since the site has a suite. exit 0 → pass;
  * non-zero → fail (only reached once the suite is known to exist). A skip never
  * carries details, so the write-back preserves the prior verdict.
  *

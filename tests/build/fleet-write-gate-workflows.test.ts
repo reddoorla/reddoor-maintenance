@@ -146,6 +146,9 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     if (file === "fleet-prismic-drift.yml") {
       // Prismic keeps its own wrote=0 diagnostic first; the gate is the floor behind it.
       expect(r.out).toContain("::error::fleet prismic drift wrote 0 of 8 verdict(s)");
+    } else if (file === "fleet-smoke.yml") {
+      // Smoke names the cause first: no suite ran on any site (#1611).
+      expect(r.out).toContain("::error::fleet smoke: 8 site(s) never measured");
     } else {
       // The gate speaks first, naming what happened rather than blaming the Turso creds.
       expect(r.out).toContain(`::error::${label}: wrote 0 of 8 site(s)`);
