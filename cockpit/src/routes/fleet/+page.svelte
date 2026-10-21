@@ -76,7 +76,7 @@
   <div class="empty">No sites match these filters.</div>
 {:else}
   {#if filter !== "all" && shownCount === 0}
-    <div class="empty">No sites carry this signal.</div>
+    <div class="empty" role="status">No sites carry this signal.</div>
   {/if}
   <div class="fleet-table-wrap" style:display={shownCount === 0 ? "none" : undefined}>
     <table class="fleet">

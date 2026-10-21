@@ -4,8 +4,10 @@ import type { AfterNavigate } from "@sveltejs/kit";
 /**
  * `$app/navigation` for the cockpit's vitest projects, which run Svelte
  * without SvelteKit's plugin, so the real module (it needs `$app/paths` and
- * the client router) cannot load. `afterNavigate` registers the way SvelteKit's
- * does, on mount and gone on destroy, so a server render never registers it;
+ * the client router) cannot load. `afterNavigate` registers on mount and is
+ * gone on destroy, so a server render never registers it, as with SvelteKit's;
+ * unlike SvelteKit's, it does not fire once after mount (the "enter"
+ * navigation), so a test that needs that must call `navigate()` itself.
  * `navigate()` stands in for a client navigation finishing (vitest.config.ts
  * aliases the module here).
  */
