@@ -30,8 +30,9 @@ jobs:
             echo "egress IP before: $(ip)"
             echo "start $(date -u +%H:%M:%S.%N)"
             : > codes.txt
+            hdr="x-probe: 1"; if [ -n "${AUTH:-}" ]; then hdr="authorization: $AUTH"; fi
             for i in $(seq 1 ${N:-80}); do
-              code=$(curl -sS --path-as-is -o /dev/null -w '%{http_code}' "$url")
+              code=$(curl -sS --path-as-is -H "$hdr" -o /dev/null -w '%{http_code}' "$url")
               printf '%s %02d %s\n' "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$i" "$code"
               echo "$code" >> codes.txt
               sleep ${PAUSE:-0.5}
@@ -43,16 +44,9 @@ jobs:
             curl -sS -D - -o /dev/null "$url" | grep -iv '^set-cookie'
             echo
           }
-          # Run 4 (2026-10-21, PR #1645): the one-function shape on its deploy
-          # preview. One shared budget (120/60 s) on pages and /api/*, its own
-          # 30/60 s on /auth/*, and the dot-segment path the review asked about
-          # (does /_app/%2e%2e/fleet dodge the limit by its raw prefix?).
-          # Preview only; production is not touched.
+          # Run 5 (2026-10-21, PR #1645, review round 2): dot segments under a
+          # prefix the edge limit skips, with a wrong Basic password, so a 302
+          # every time and no 429 would be an unlimited password oracle.
+          # Expect 404 (never the gate) or a 429 near 120. Preview only.
           P=https://deploy-preview-1645--reddoor-maintenance.netlify.app
-          N=135 PAUSE=0.15 burst page "$P/fleet/__data.json" 120
-          echo "--- 65 s pause"; sleep 65
-          N=135 PAUSE=0.15 burst api "$P/api/sites/probe/details" 120
-          echo "--- 65 s pause"; sleep 65
-          N=45 PAUSE=0.3 burst auth "$P/auth/login" 30
-          echo "--- 65 s pause"; sleep 65
-          N=135 PAUSE=0.15 burst dotseg "$P/_app/%2e%2e/fleet" 120
+          AUTH="Basic eDp3cm9uZw==" N=135 PAUSE=0.15 burst formsdot "$P/api/forms/%2e%2e/%2e%2e/fleet" 120
