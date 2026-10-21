@@ -4,8 +4,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "/** How many times `find` occurs in `text`, without overlaps. */",
-        "replace": "/** How many times `find` occurs in `text`. */"
+        "find": " * At how many positions `find` occurs in `text`, overlaps included:",
+        "replace": " * At how many positions `find` occurs in `text`, overlapping or not:"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -53,8 +53,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "    stopping = true;\n    cleanupSync();\n    ctx.log(`mutate: stopped by",
-        "replace": "    stopping = true;\n    ctx.log(`mutate: stopped by"
+        "find": "    stopping = true;\n    cleanupSync();\n    if (results.length && rep) {",
+        "replace": "    stopping = true;\n    if (results.length && rep) {"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -161,8 +161,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "    if (e?.report?.results?.length)",
-        "replace": "    if (false)"
+        "find": "    if (r?.results?.length) {",
+        "replace": "    if (false) {"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
