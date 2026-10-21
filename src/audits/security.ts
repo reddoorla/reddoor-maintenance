@@ -31,6 +31,10 @@ type AdvisoryEntry = {
    *  cannot be read. "transitive" = no direct-dep fix vehicle, so the
    *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
   relationship?: "direct" | "transitive" | "inconclusive";
+  /** Whether the lockfile audit reported it, set by the merged and partial audits only. A partial
+   *  run (#1561) re-reads only Dependabot's side, so the write-back keeps a stored advisory the
+   *  lockfile audit found and replaces one Dependabot alone found. */
+  lockfile?: boolean;
 };
 
 /** An open alert filed against a manifest that is no longer on the default branch. GitHub's
@@ -452,13 +456,23 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
               summary:
                 `${viaDependabot.summary}; the lockfile audit could not run ` +
                 `(${viaLockfile.summary}), so this counts only what GitHub's dependency graph sees`,
-              details: { ...(viaDependabot.details as object), partial: true },
+              details: partialDetails(viaDependabot),
             }
           : viaLockfile;
       }
     }
   }
   return lockfileAudit(spawn, site.path, label, "prod");
+}
+
+/** A Dependabot result's details, marked partial, each advisory marked as not the lockfile's. */
+function partialDetails(result: AuditResult): object {
+  const details = result.details as { advisories: AdvisoryEntry[] };
+  return {
+    ...details,
+    advisories: details.advisories.map((a) => ({ ...a, lockfile: false })),
+    partial: true,
+  };
 }
 
 /** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
@@ -591,7 +605,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     advisories: AdvisoryEntry[];
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
-  const advisories = [...lock.advisories];
+  const advisories: AdvisoryEntry[] = lock.advisories.map((a) => ({ ...a, lockfile: true }));
   // pnpm's metadata, less each of its advisories that the merge moved to a higher severity, so
   // the max below does not count that advisory again at its old severity.
   const lockCounts: Counts = { ...lock.counts };
@@ -600,7 +614,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     // count once.
     const i = advisories.findIndex((m) => sameAdvisory(m, a));
     if (i === -1) {
-      advisories.push(a);
+      advisories.push({ ...a, lockfile: false });
       continue;
     }
     advisories[i] = combineAdvisories(advisories[i]!, a);

@@ -291,17 +291,38 @@ describe("writeBackOneSite", () => {
       };
     };
 
-    it("takes each severity's larger count, never their sum", async () => {
-      const { fields } = await write(
-        row({ securityVulnsCritical: 2, securityVulnsHigh: 3, securityVulnsModerate: 1 }),
-        partialRun({ critical: 1, high: 1, moderate: 0, low: 2 }, []),
+    it("drops a stored advisory Dependabot alone found, and its count, once it is gone", async () => {
+      const fixed = { ...checkout, severity: "critical" as const, lockfile: false };
+      const setupNode = { ...checkout, module: "actions/setup-node", title: "cache poisoning" };
+      const { fields, modules } = await write(
+        row({ securityVulnsCritical: 1, securityAdvisories: [fixed] }),
+        partialRun({ critical: 0, high: 0, moderate: 0, low: 1 }, [setupNode]),
       );
-      expect(fields).toMatchObject({
-        "Security Vulns Critical": 2,
-        "Security Vulns High": 3,
-        "Security Vulns Moderate": 1,
-        "Security Vulns Low": 2,
-      });
+      expect(modules).toEqual(["actions/setup-node"]);
+      expect(fields).toMatchObject({ "Security Vulns Critical": 0, "Security Vulns Low": 1 });
+    });
+
+    it("counts a re-rated Dependabot advisory once, at its new severity", async () => {
+      const was = {
+        ...checkout,
+        severity: "critical" as const,
+        cves: ["CVE-2026-2"],
+        lockfile: false,
+      };
+      const now = { ...was, severity: "high" as const };
+      const { fields } = await write(
+        row({ securityVulnsCritical: 1, securityAdvisories: [was] }),
+        partialRun({ critical: 0, high: 1, moderate: 0, low: 0 }, [now]),
+      );
+      expect(fields).toMatchObject({ "Security Vulns Critical": 0, "Security Vulns High": 1 });
+    });
+
+    it("keeps a stored count the capped list does not explain", async () => {
+      const { fields } = await write(
+        row({ securityVulnsHigh: 3, securityAdvisories: [{ ...sharp, lockfile: true }] }),
+        partialRun({ critical: 0, high: 0, moderate: 0, low: 1 }, [checkout]),
+      );
+      expect(fields).toMatchObject({ "Security Vulns High": 3, "Security Vulns Low": 1 });
     });
 
     it("counts a new advisory beside a stored one of the same severity", async () => {

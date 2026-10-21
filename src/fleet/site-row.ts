@@ -490,6 +490,10 @@ export type SecurityAdvisory = {
    *  lockfile-maintenance window. Omitted when GitHub reports "unknown" or for the
    *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
   relationship?: "direct" | "transitive";
+  /** Whether the lockfile audit (`pnpm audit`) reported it; written by the merged audit for a
+   *  lockfile the dependency graph cannot read. A partial run keeps a stored advisory unless this
+   *  is `false` (Dependabot alone found it, and re-reads it each run). Absent on older rows. */
+  lockfile?: boolean;
 };
 
 /** Critical first → low last; the persist cap and the dashboard list both lean on this. */
@@ -535,6 +539,7 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
     url: typeof e["url"] === "string" ? (e["url"] as string) : null,
     ...(scope ? { scope } : {}),
     ...(relationship ? { relationship } : {}),
+    ...(typeof e["lockfile"] === "boolean" ? { lockfile: e["lockfile"] as boolean } : {}),
   };
 }
 

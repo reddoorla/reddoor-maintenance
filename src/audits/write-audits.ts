@@ -143,22 +143,30 @@ export function planAuditWrite(args: {
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
     let advisories = advisoriesFromResult(sec);
-    // A partial run saw no npm package, so it cannot clear one: the stored advisories stay beside
-    // the new ones, and each count is floored at the stored one and at the merged list's own
-    // tally (#1561). Failing toward "fail" means one fixed since stays until a full run; the
-    // timestamp is left as stored (securityPartial), so the row reads stale, not freshly clean.
+    // A partial run (#1561) re-read only Dependabot's side, so it replaces that side alone: a
+    // stored advisory the lockfile audit found (or an older one, untagged) stays unless tonight's
+    // list names it, one Dependabot alone found is dropped, and so is its count. A stored count
+    // beyond the capped list has no known source, so it stays. The timestamp is left as stored
+    // (securityPartial), so the row reads stale, not freshly clean.
     const partial = isPartialSecurityResult(sec);
     if (partial) {
-      for (const a of target.securityAdvisories ?? [])
-        if (!advisories.some((b) => sameAdvisory(a, b))) advisories = [...advisories, a];
-      const listed = (s: SecurityAdvisory["severity"]): number =>
-        advisories.filter((a) => a.severity === s).length;
-      counts = {
-        critical: Math.max(counts.critical, target.securityVulnsCritical ?? 0, listed("critical")),
-        high: Math.max(counts.high, target.securityVulnsHigh ?? 0, listed("high")),
-        moderate: Math.max(counts.moderate, target.securityVulnsModerate ?? 0, listed("moderate")),
-        low: Math.max(counts.low, target.securityVulnsLow ?? 0, listed("low")),
+      const stored = target.securityAdvisories ?? [];
+      const kept = stored.filter(
+        (a) => a.lockfile !== false && !advisories.some((b) => sameAdvisory(a, b)),
+      );
+      const listed = (list: SecurityAdvisory[], s: SecurityAdvisory["severity"]): number =>
+        list.filter((a) => a.severity === s).length;
+      const storedCounts = {
+        critical: target.securityVulnsCritical ?? 0,
+        high: target.securityVulnsHigh ?? 0,
+        moderate: target.securityVulnsModerate ?? 0,
+        low: target.securityVulnsLow ?? 0,
       };
+      const next = { ...counts };
+      for (const s of ["critical", "high", "moderate", "low"] as const)
+        next[s] = counts[s] + listed(kept, s) + Math.max(0, storedCounts[s] - listed(stored, s));
+      counts = next;
+      advisories = [...advisories, ...kept];
     }
     audits.security = counts;
     audits.securityAdvisories = advisories;

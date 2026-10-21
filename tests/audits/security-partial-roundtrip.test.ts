@@ -30,6 +30,18 @@ const alert = (severity: DependabotAlert["severity"]): DependabotAlert => ({
   ghsaId: null,
 });
 
+async function partialRun(alerts: DependabotAlert[]) {
+  const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
+  writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+  return securityAudit({
+    site: { path: dir, gitRepo: "reddoorla/acme" },
+    dependabotDeps: { listAlerts: async () => alerts },
+    spawn: async (cmd) => {
+      throw new Error(`ENOENT: ${cmd}`);
+    },
+  });
+}
+
 async function siteAfterPartialRun(seed: Record<string, unknown>, severity: "moderate" | "low") {
   const db = await openDb({ url: ":memory:" });
   const now = new Date();
@@ -39,15 +51,7 @@ async function siteAfterPartialRun(seed: Record<string, unknown>, severity: "mod
     now.toISOString(),
   );
   const before = (await getSiteById(db, "recACME"))!;
-  const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
-  writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
-  const result = await securityAudit({
-    site: { path: dir, gitRepo: "reddoorla/acme" },
-    dependabotDeps: { listAlerts: async () => [alert(severity)] },
-    spawn: async (cmd) => {
-      throw new Error(`ENOENT: ${cmd}`);
-    },
-  });
+  const result = await partialRun([alert(severity)]);
   const { summary } = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
   await mirrorHealthFields(db, "recACME", summary.fields!);
   const site = (await getSiteById(db, "recACME"))!;
@@ -81,5 +85,79 @@ describe("a partial security run through the Turso row and the auto-tick (#1561)
     expect(site.securityVulnsLow).toBe(1);
     expect(site.lastSecurityAuditAt).toBe(stale);
     expect(evidence.result).toBe("unknown");
+  });
+
+  it("night after night, a Dependabot alert fixed since is not locked in", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await mirrorSiteInsert(
+      db,
+      { id: "recACME", fields: { Name: "Acme", Status: "maintained" } },
+      new Date().toISOString(),
+    );
+    const sweep = async (alerts: DependabotAlert[]) => {
+      const before = (await getSiteById(db, "recACME"))!;
+      const result = await partialRun(alerts);
+      const { summary } = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
+      await mirrorHealthFields(db, "recACME", summary.fields!);
+      return (await getSiteById(db, "recACME"))!;
+    };
+    const first = await sweep([alert("critical")]);
+    expect(first.securityVulnsCritical).toBe(1);
+    const setupNode = {
+      ...alert("low"),
+      package: "actions/setup-node",
+      summary: "cache poisoning",
+    };
+    const second = await sweep([setupNode]);
+    await db.destroy();
+    expect(second.securityVulnsCritical).toBe(0);
+    expect(second.securityVulnsLow).toBe(1);
+    expect(second.securityAdvisories!.map((a) => a.module)).toEqual(["actions/setup-node"]);
+  });
+
+  it("after a full merged run, a partial one keeps the lockfile's advisory and replaces Dependabot's", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await mirrorSiteInsert(
+      db,
+      { id: "recACME", fields: { Name: "Acme", Status: "maintained" } },
+      new Date().toISOString(),
+    );
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+    const pnpmOut = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      advisories: {
+        "1": { module_name: "sharp", severity: "high", title: "sharp : librsvg" },
+      },
+    });
+    const write = async (result: Awaited<ReturnType<typeof securityAudit>>) => {
+      const before = (await getSiteById(db, "recACME"))!;
+      const { summary } = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
+      await mirrorHealthFields(db, "recACME", summary.fields!);
+      return (await getSiteById(db, "recACME"))!;
+    };
+    const full = await write(
+      await securityAudit({
+        site: { path: dir, gitRepo: "reddoorla/acme" },
+        dependabotDeps: { listAlerts: async () => [alert("low")] },
+        spawn: async (cmd) => {
+          if (cmd !== "pnpm") throw new Error(`ENOENT: ${cmd}`);
+          return { code: 1, stdout: pnpmOut, stderr: "" };
+        },
+      }),
+    );
+    expect([full.securityVulnsHigh, full.securityVulnsLow]).toEqual([1, 1]);
+    const setupNode = {
+      ...alert("low"),
+      package: "actions/setup-node",
+      summary: "cache poisoning",
+    };
+    const after = await write(await partialRun([setupNode]));
+    await db.destroy();
+    expect([after.securityVulnsHigh, after.securityVulnsLow]).toEqual([1, 1]);
+    expect(after.securityAdvisories!.map((a) => a.module).sort()).toEqual([
+      "actions/setup-node",
+      "sharp",
+    ]);
   });
 });
