@@ -23,6 +23,7 @@ export interface Mutant {
   edits: Edit[];
   test: string[];
   build: boolean;
+  syntax: boolean;
   expect: "red" | "survives";
   why: string | undefined;
 }
@@ -48,6 +49,7 @@ export interface MutantResult {
   timeouts: number | undefined;
   reason: string;
   test: string[];
+  build: boolean;
   why: string | undefined;
   ok: boolean;
 }
@@ -58,6 +60,7 @@ export interface Report {
   command: string;
   sidecar: string;
   planned: number;
+  unparsed?: string[];
   results: MutantResult[];
 }
 
@@ -79,7 +82,6 @@ export function applyEdits(
 export function classifyRun(r: { timedOut?: boolean; report: unknown; code: number }): Classified;
 export function syntaxError(a: {
   file: string;
-  abs: string;
   text: string;
   root: string;
   run: Runner;

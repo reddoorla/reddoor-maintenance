@@ -270,7 +270,8 @@ const FAKE_VITEST = `
 import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const out = args.find((a) => a.startsWith("--outputFile=")).slice("--outputFile=".length);
-const files = args.filter((a) => a.startsWith("tests/"));
+const files = args.filter((a) => a !== "run" && !a.startsWith("--"))
+  .filter((a) => a !== process.env.MUTATE_FAKE_SKIP);
 // Like vitest's substring filter pulling in a second file.
 if (process.env.MUTATE_FAKE_ALSO) files.push(process.env.MUTATE_FAKE_ALSO);
 // Like the repo's vitest global setup, which rebuilds dist/ from whatever src/ holds.
@@ -337,6 +338,16 @@ function fixture(value = "pass", { pnpm = false } = {}) {
   writeFileSync(join(dir, "src", "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
   symlinkSync("value.txt", join(dir, "src", "link.txt"));
   writeFileSync(join(dir, "tests", "a.test.ts"), "// read by the fake vitest only\n");
+  writeFileSync(join(dir, "tests", "b.test.ts"), "// read by the fake vitest only\n");
+  mkdirSync(join(dir, "spec"));
+  writeFileSync(join(dir, "spec", "a.test.ts"), "// read by the fake vitest only\n");
+  mkdirSync(join(dir, "other", "tests"), { recursive: true });
+  writeFileSync(join(dir, "other", "tests", "a.test.ts"), "// read by the fake vitest only\n");
+  // A SvelteKit-style bracket path, beside a symlink its glob reading would match.
+  mkdirSync(join(dir, "src", "[slug]"));
+  writeFileSync(join(dir, "src", "[slug]", "a.txt"), "x\n");
+  mkdirSync(join(dir, "src", "s"));
+  symlinkSync("../value.txt", join(dir, "src", "s", "a.txt"));
   writeFileSync(join(dir, ".gitignore"), "node_modules/\ndist/\n");
   const build =
     "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').copyFileSync('src/value.txt','dist/value.txt')\"";
@@ -668,7 +679,7 @@ describe("mutate, against a real repo", () => {
     const p = sidecar(f.side, [toValue("m", "fail")]);
     await withEnv({ MUTATE_FAKE_ALSO: "sub/tests/a.test.ts", MUTATE_FAKE_LOG: f.log }, async () => {
       await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
-        /vitest also ran sub\/tests\/a\.test\.ts for tests\/a\.test\.ts/,
+        /substring filter, and tests\/a\.test\.ts also matches sub\/tests\/a\.test\.ts/,
       );
     });
     expect(logLines(f.log)).toHaveLength(1);
@@ -774,6 +785,117 @@ describe("mutate, against a real repo", () => {
     expect(stdout).toContain("| first | red | red |");
     expect(stdout).toContain("(stopped by SIGINT; results so far)");
     expect(stderr).toContain("mutate: [1/2] first: red");
+  });
+
+  it("refuses a named test file that vitest does not run", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      toValue("m", "fail", { test: ["tests/a.test.ts", "tests/b.test.ts"] }),
+    ]);
+    await withEnv({ MUTATE_FAKE_SKIP: "tests/b.test.ts" }, async () => {
+      await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+        /vitest did not run tests\/b\.test\.ts/,
+      );
+    });
+  });
+
+  it("refuses two mutants whose test paths overlap as filters", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      toValue("a", "fail"),
+      toValue("b", "fail", { test: "other/tests/a.test.ts" }),
+    ]);
+    await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /tests\/a\.test\.ts also matches other\/tests\/a\.test\.ts/,
+    );
+  });
+
+  it("matches vitest's real paths when the temp dir is reached through a symlink", async () => {
+    const f = fixture();
+    const real = mkdtempSync(join(tmpdir(), "mutate-real-"));
+    temps.push(real);
+    const link = join(f.side, "tmp-link");
+    symlinkSync(real, link);
+    const p = sidecar(f.side, [toValue("kill", "fail", { test: "spec/a.test.ts" })]);
+    const rep = await mutate(opts(p), { cwd: f.dir, tmpdir: link, ...quiet });
+    expect(rep.results[0]?.result).toBe("red");
+  });
+
+  it("refuses files git status cannot see, marked skip-worktree", async () => {
+    const f = fixture();
+    sh(f.dir, "git", ["update-index", "--skip-worktree", "src/cli.mjs"]);
+    writeFileSync(join(f.dir, "src", "cli.mjs"), "console.log(2);\n");
+    expect(status(f.dir)).toBe("");
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /skip-worktree or assume-unchanged: src\/cli\.mjs/,
+    );
+  });
+
+  it("reads each file at HEAD, and takes bracket paths literally", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      {
+        id: "bracket",
+        edits: [{ file: "src/[slug]/a.txt", find: "x", replace: "y" }],
+        test: "tests/a.test.ts",
+        expect: "survives",
+        why: "nothing reads it",
+      },
+    ]);
+    const rep = await mutate(opts(p), { cwd: f.dir, ...quiet });
+    expect(rep.results[0]?.result).toBe("survived");
+  });
+
+  it("removes a dist/ an in-place run created", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    await withEnv({ MUTATE_FAKE_COPY: "1" }, () =>
+      mutate(opts(p, { inPlace: true }), { cwd: f.dir, ...quiet }),
+    );
+    expect(existsSync(join(f.dir, "dist"))).toBe(false);
+  });
+
+  it("lets a mutant opt out of the syntax check", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      {
+        id: "unchecked",
+        edits: [{ file: "src/cli.mjs", find: "1 + 1);", replace: "1 + 1;" }],
+        test: "tests/a.test.ts",
+        syntax: false,
+        expect: "survives",
+        why: "nothing runs cli.mjs",
+      },
+    ]);
+    const rep = await mutate(opts(p), { cwd: f.dir, ...quiet });
+    expect(rep.results[0]?.result).toBe("survived");
+  });
+
+  it("--check accepts a dirty tree, flags a mutant that will not parse, and speaks JSON", () => {
+    const f = fixture();
+    writeFileSync(join(f.dir, "tests", "draft.mutations.json"), "[]");
+    const p = sidecar(f.side, [
+      toValue("kill", "fail"),
+      {
+        id: "syntax",
+        edits: [{ file: "src/cli.mjs", find: "1 + 1);", replace: "1 + 1;" }],
+        test: "tests/a.test.ts",
+        expect: "red",
+      },
+    ]);
+    const r = spawnSync(process.execPath, [SCRIPT, p, "--check"], {
+      cwd: f.dir,
+      encoding: "utf-8",
+    });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/^MUTATE_CHECK stillborn mutants=2 /);
+    expect(r.stdout).toContain("would not parse: syntax: src/cli.mjs (SyntaxError");
+    const j = spawnSync(process.execPath, [SCRIPT, p, "--check", "--json"], {
+      cwd: f.dir,
+      encoding: "utf-8",
+    });
+    expect(JSON.parse(j.stdout)).toMatchObject({ ok: false, planned: 2, mode: "check" });
   });
 
   it.each([
