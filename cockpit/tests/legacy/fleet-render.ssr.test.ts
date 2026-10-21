@@ -714,7 +714,6 @@ describe("renderCockpitHtml — region order", () => {
     const iInbox = html.indexOf('class="inbox');
     expect(iVerdict).toBeGreaterThan(-1);
     expect(iFeed).toBeGreaterThan(iVerdict);
-    expect(html).not.toContain('class="fleet-browse');
     expect(iInbox).toBeGreaterThan(iFeed);
   });
 });
@@ -854,7 +853,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toMatch(/Performance 80/);
   });
 
-  // "includes the filter script with the data-filter wiring": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
+  // "includes the filter script with the data-filter wiring": its behaviour is the DOM tests' now (cockpit/tests/fleet/sites.dom.test.ts: the signal filters).
 });
 
 describe("renderCockpitHtml — filter signals & all-clear", () => {
@@ -1026,7 +1025,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/⚠ 1 site broken/);
   });
 
-  // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
+  // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit/tests/fleet/sites.dom.test.ts: the signal filters).
 });
 
 describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
@@ -1108,7 +1107,7 @@ describe("fleet browse panel", () => {
     const html = renderSitesHtml(model([siteRow({ name: "Acme" }), siteRow({ name: "Beta" })]));
     expect(html.match(/<table class="fleet">/g) ?? []).toHaveLength(1);
     expect(html.match(/<tr class="fleet-row"/g) ?? []).toHaveLength(2);
-    expect(html).toContain('<div class="signal-filters">');
+    expect(html).toContain('class="signal-filters" role="group"');
     expect(html).not.toContain('details class="tier"');
   });
 

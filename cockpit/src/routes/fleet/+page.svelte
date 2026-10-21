@@ -50,7 +50,7 @@
   <button type="submit">Apply</button>
   <a class="muted" href="/fleet">Clear</a>
 </form>
-<div class="signal-filters">
+<div class="signal-filters" role="group" aria-label="Filter sites by signal">
   {#each s.filters as f (f)}<button
       type="button"
       data-filter={f}

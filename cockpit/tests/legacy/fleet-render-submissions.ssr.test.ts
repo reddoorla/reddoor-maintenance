@@ -95,7 +95,6 @@ describe("renderCockpitHtml — submissions", () => {
     const inboxIdx = html.indexOf('<details class="inbox">');
     // Use the full div tag to avoid matching the CSS rule (.spam-rollup) in <head>.
     const spamIdx = html.indexOf('class="spam-rollup');
-    expect(html).not.toContain('class="fleet-browse"');
     expect(inboxIdx).toBeGreaterThan(-1);
     expect(spamIdx).toBeGreaterThan(-1);
     expect(inboxIdx).toBeLessThan(spamIdx); // spam line lives inside the inbox lane

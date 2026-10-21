@@ -12,8 +12,9 @@ import { canonical, renderPage } from "../_helpers/parity.js";
  * Since the cutover (#582) the old renderer is gone. Each case's markup is
  * pinned by a snapshot written while parity with the old renderer held (commit
  * "freeze each page's canonical markup as a snapshot, verified by parity"), so
- * each snapshot is what the old page rendered. Keep these test names: the
- * snapshots are keyed on them.
+ * each snapshot was what the old page rendered. Since #672 step 3 they also
+ * carry the Health column and the signal chips, re-baselined after the merge.
+ * Keep these test names: the snapshots are keyed on them.
  */
 const BASE = "https://reddoor-maintenance.netlify.app";
 const NOW = new Date("2026-06-11T12:00:00Z");
