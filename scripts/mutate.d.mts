@@ -7,6 +7,7 @@ export interface Options {
   sidecar: string;
   only: string[] | undefined;
   inPlace: boolean;
+  check: boolean;
   timeoutMs: number;
   json: boolean;
 }
@@ -44,6 +45,7 @@ export interface MutantResult {
   failed: number | undefined;
   passed: number | undefined;
   skipped: number | undefined;
+  timeouts: number | undefined;
   reason: string;
   test: string[];
   why: string | undefined;
@@ -52,9 +54,10 @@ export interface MutantResult {
 
 export interface Report {
   sha: string;
-  mode: "worktree" | "in-place";
+  mode: "worktree" | "in-place" | "check";
   command: string;
   sidecar: string;
+  planned: number;
   results: MutantResult[];
 }
 
@@ -74,6 +77,13 @@ export function applyEdits(
   mutant: Pick<Mutant, "id" | "edits">,
 ): Map<string, string>;
 export function classifyRun(r: { timedOut?: boolean; report: unknown; code: number }): Classified;
+export function syntaxError(a: {
+  file: string;
+  abs: string;
+  text: string;
+  root: string;
+  run: Runner;
+}): Promise<string | null>;
 export function asExpected(expect: string, result: string): boolean;
 export function makeRunner(active?: Set<unknown>): Runner & { active: Set<unknown> };
 export function mutate(
@@ -84,6 +94,7 @@ export function mutate(
     log?: (s: string) => void;
     process?: Pick<NodeJS.Process, "on" | "off" | "exit">;
     tmpdir?: string;
+    writeOut?: (text: string) => void;
   },
 ): Promise<Report>;
 export function formatReport(rep: Report): string;

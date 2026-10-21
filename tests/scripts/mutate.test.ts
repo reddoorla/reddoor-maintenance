@@ -30,6 +30,9 @@ import {
 } from "../../scripts/mutate.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../../scripts/mutate.mjs", import.meta.url));
+const TYPESCRIPT = realpathSync(
+  fileURLToPath(new URL("../../node_modules/typescript", import.meta.url)),
+);
 
 const red = {
   id: "m1",
@@ -46,6 +49,7 @@ describe("parseArgs", () => {
       sidecar: "t.mutations.json",
       only: ["a", "b"],
       inPlace: true,
+      check: false,
       timeoutMs: 5,
       json: false,
     });
@@ -56,6 +60,7 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["a.json", "--fast"])).toThrow(/unknown argument/);
     expect(() => parseArgs(["a.json", "--timeout-ms", "0"])).toThrow(/positive/);
     expect(() => parseArgs(["a.json", "--only"])).toThrow(/needs a value/);
+    expect(() => parseArgs(["a.json", "--only", ","])).toThrow(/at least one mutant id/);
   });
 });
 
@@ -141,9 +146,16 @@ describe("applyEdits", () => {
     });
     expect(out.get("src/a.ts")).toContain("b = '$&$1'");
   });
-  it("counts without overlaps", () => {
-    expect(countMatches("aaaa", "aa")).toBe(2);
+  it("counts overlapping positions, so an overlapping find is ambiguous", () => {
+    expect(countMatches("aaaa", "aa")).toBe(3);
+    expect(countMatches("f(g(h()))", "))")).toBe(2);
     expect(countMatches("abc", "d")).toBe(0);
+    expect(() =>
+      applyEdits(new Map([["a", "f(g(h()))"]]), {
+        id: "m",
+        edits: [{ file: "a", find: "))", replace: ")" }],
+      }),
+    ).toThrow(/matches 2 times/);
   });
 });
 
@@ -196,7 +208,7 @@ describe("classifyRun", () => {
     ).toMatchObject({
       result: "stillborn",
       reason:
-        "failed before its cases ran (load error or hook): tests/a.test.ts: Cannot find module",
+        "file-level error (load error, or a beforeAll/afterAll hook): tests/a.test.ts: Cannot find module",
     });
   });
   it("calls a failing beforeAll stillborn and gives its message", () => {
@@ -221,7 +233,7 @@ describe("classifyRun", () => {
     });
     expect(c.result).toBe("red");
     expect(c.reason).toBe(
-      'failed: "f"; 1 case(s) timed out; failed before its cases ran (load error or hook): tests/b.test.ts: boom',
+      'failed: "f"; 1 case(s) timed out; file-level error (load error, or a beforeAll/afterAll hook): tests/b.test.ts: boom',
     );
   });
   it("calls a run where every case was skipped or todo stillborn, not survived", () => {
@@ -259,6 +271,8 @@ import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFil
 const args = process.argv.slice(2);
 const out = args.find((a) => a.startsWith("--outputFile=")).slice("--outputFile=".length);
 const files = args.filter((a) => a.startsWith("tests/"));
+// Like vitest's substring filter pulling in a second file.
+if (process.env.MUTATE_FAKE_ALSO) files.push(process.env.MUTATE_FAKE_ALSO);
 // Like the repo's vitest global setup, which rebuilds dist/ from whatever src/ holds.
 if (process.env.MUTATE_FAKE_COPY) {
   mkdirSync("dist", { recursive: true });
@@ -316,6 +330,11 @@ function fixture(value = "pass", { pnpm = false } = {}) {
   mkdirSync(join(dir, "tests"));
   writeFileSync(join(dir, "src", "value.txt"), `${value}\n`);
   writeFileSync(join(dir, "src", "cli.mjs"), "console.log(1 + 1);\n");
+  // A workflow-style body the tests would wrap in a function: node --check rejects it at HEAD.
+  writeFileSync(join(dir, "src", "body.js"), "const n = 1;\nreturn n * 2;\n");
+  writeFileSync(join(dir, "src", "typed.ts"), "const x: number = 5;\nexport { x };\n");
+  writeFileSync(join(dir, "src", "data.json"), '{ "a": 1 }\n');
+  writeFileSync(join(dir, "src", "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
   symlinkSync("value.txt", join(dir, "src", "link.txt"));
   writeFileSync(join(dir, "tests", "a.test.ts"), "// read by the fake vitest only\n");
   writeFileSync(join(dir, ".gitignore"), "node_modules/\ndist/\n");
@@ -339,6 +358,7 @@ function fixture(value = "pass", { pnpm = false } = {}) {
     const bin = join(dir, "node_modules", ".bin", "vitest");
     writeFileSync(bin, `#!/bin/sh\nexec node "$(dirname "$0")/../fake-vitest.mjs" "$@"\n`);
     chmodSync(bin, 0o755);
+    symlinkSync(TYPESCRIPT, join(dir, "node_modules", "typescript"));
   }
   sh(dir, "git", ["init", "-q", "-b", "main"]);
   sh(dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
@@ -366,6 +386,7 @@ const opts = (sidecarPath: string, extra: Partial<Options> = {}): Options => ({
   sidecar: sidecarPath,
   only: undefined,
   inPlace: false,
+  check: false,
   timeoutMs: 60_000,
   json: false,
   ...extra,
@@ -527,7 +548,7 @@ describe("mutate, against a real repo", () => {
     );
     expect(rep.results[0]).toMatchObject({
       result: "stillborn",
-      reason: "does not parse: src/cli.mjs",
+      reason: expect.stringMatching(/^does not parse: src\/cli\.mjs \(SyntaxError/),
       ok: false,
     });
     expect(logLines(f.log)).toHaveLength(1);
@@ -551,7 +572,7 @@ describe("mutate, against a real repo", () => {
     const table = formatReport(rep);
     expect(table).toContain("| lives | red | **survived** (unexpected) |");
     expect(table).toMatch(
-      /\| why-hidden \| survives \| \*\*stillborn\*\* \(unexpected\) \| 0 \/ 0 \| `tests\/a\.test\.ts` \| failed before its cases ran[^|]*Cannot find module — WHY TEXT \|/,
+      /\| why-hidden \| survives \| \*\*stillborn\*\* \(unexpected\) \| 0 \/ 0 \| `tests\/a\.test\.ts` \| file-level error[^|]*Cannot find module — WHY TEXT \|/,
     );
     expect(status(f.dir)).toBe("");
   });
@@ -614,16 +635,145 @@ describe("mutate, against a real repo", () => {
 
   it("prints the results so far and exits 3 when a mutant leaves a file behind", () => {
     const f = fixture();
-    const p = sidecar(f.side, [toValue("first", "fail"), toValue("messy", "litter")]);
+    const p = sidecar(f.side, [
+      toValue("first", "fail"),
+      toValue("messy", "litter"),
+      toValue("third", "fail"),
+    ]);
     const r = spawnSync(process.execPath, [SCRIPT, p], { cwd: f.dir, encoding: "utf-8" });
     expect(r.status).toBe(3);
     expect(r.stdout).toContain("| first | red | red |");
     expect(r.stdout).toContain("(stopped early; results so far)");
+    expect(r.stdout).not.toContain("| third |");
     expect(r.stderr).toMatch(
       /error: the tree is not clean after messy:\s+\?\? tests\/__litter\.txt/,
     );
     expect(status(f.dir)).toBe("");
     expect(worktrees(f.dir)).toBe(1);
+  });
+
+  it("refuses a sidecar that runs no mutant", async () => {
+    const f = fixture();
+    await expect(mutate(opts(sidecar(f.side, [])), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /names no mutants/,
+    );
+  });
+
+  it("refuses a test path that is a directory, or a filter that ran another file", async () => {
+    const f = fixture();
+    const dirTest = sidecar(f.side, [toValue("m", "fail", { test: "tests" })]);
+    await expect(mutate(opts(dirTest), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /no such test file: tests$/,
+    );
+    const p = sidecar(f.side, [toValue("m", "fail")]);
+    await withEnv({ MUTATE_FAKE_ALSO: "sub/tests/a.test.ts", MUTATE_FAKE_LOG: f.log }, async () => {
+      await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+        /vitest also ran sub\/tests\/a\.test\.ts for tests\/a\.test\.ts/,
+      );
+    });
+    expect(logLines(f.log)).toHaveLength(1);
+  });
+
+  it("refuses a file that is not UTF-8, which it could not restore byte for byte", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      { ...toValue("m", "fail"), edits: [{ file: "src/latin1.txt", find: "caf", replace: "cof" }] },
+    ]);
+    await expect(mutate(opts(p, { inPlace: true }), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /src\/latin1\.txt is not UTF-8 text/,
+    );
+    expect(status(f.dir)).toBe("");
+  });
+
+  it("checks TS and JSON syntax, and does not blame a mutant for a file broken at HEAD", async () => {
+    const f = fixture();
+    const edit = (id: string, file: string, find: string, replace: string, more = {}) => ({
+      id,
+      edits: [{ file, find, replace }],
+      test: "tests/a.test.ts",
+      expect: "red",
+      ...more,
+    });
+    const p = sidecar(f.side, [
+      edit("ts", "src/typed.ts", "= 5;", "= ;"),
+      edit("json", "src/data.json", '"a": 1', '"a": '),
+      edit("body", "src/body.js", "n * 2", "n * 3", {
+        expect: "survives",
+        why: "nothing reads it",
+      }),
+    ]);
+    const rep = await mutate(opts(p), { cwd: f.dir, ...quiet });
+    expect(rep.results.map((r) => [r.id, r.result])).toEqual([
+      ["ts", "stillborn"],
+      ["json", "stillborn"],
+      ["body", "survived"],
+    ]);
+    expect(rep.results[0]?.reason).toMatch(/^does not parse: src\/typed\.ts \(Expression expected/);
+    expect(rep.results[1]?.reason).toMatch(/^does not parse: src\/data\.json \(/);
+  });
+
+  it("validates without running anything under --check", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    await withEnv({ MUTATE_FAKE_LOG: f.log }, async () => {
+      const rep = await mutate(opts(p, { check: true }), { cwd: f.dir, ...quiet });
+      expect(rep).toMatchObject({ mode: "check", planned: 1, results: [] });
+    });
+    expect(existsSync(f.log)).toBe(false);
+    const r = spawnSync(process.execPath, [SCRIPT, p, "--check"], {
+      cwd: f.dir,
+      encoding: "utf-8",
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^MUTATE_CHECK ok mutants=1 sha=/);
+  });
+
+  it("does not fail a worktree run because the checkout was edited meanwhile", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const real = makeRunner();
+    const run = Object.assign(
+      (cmd: string, args: string[], o?: Parameters<typeof real>[2]) => {
+        if (cmd.endsWith("vitest")) writeFileSync(join(f.dir, "src", "value.txt"), "edited\n");
+        return real(cmd, args, o);
+      },
+      { active: real.active },
+    );
+    const rep = await mutate(opts(p), { cwd: f.dir, run, ...quiet });
+    expect(rep.results[0]?.result).toBe("red");
+  });
+
+  it("prints JSON, not the table, when a --json run stops on an error", () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("first", "fail"), toValue("messy", "litter")]);
+    const r = spawnSync(process.execPath, [SCRIPT, p, "--json"], { cwd: f.dir, encoding: "utf-8" });
+    expect(r.status).toBe(3);
+    const out = JSON.parse(r.stdout);
+    expect(out.results.map((x: { id: string }) => x.id)).toEqual(["first", "messy"]);
+    expect(out.error).toMatch(/not clean after messy/);
+  });
+
+  it("prints the results so far when stopped by a signal", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("first", "fail"), toValue("hang", "hang")]);
+    const child = spawn(process.execPath, [SCRIPT, p], {
+      cwd: f.dir,
+      env: { ...process.env, MUTATE_FAKE_MARKER: f.marker },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    child.stderr.on("data", (c) => (stderr += c));
+    const deadline = Date.now() + 30_000;
+    while (!existsSync(f.marker) && Date.now() < deadline)
+      await new Promise((r) => setTimeout(r, 50));
+    child.kill("SIGINT");
+    const code = await new Promise<number | null>((r) => child.on("close", r));
+    expect(code, stderr).toBe(130);
+    expect(stdout).toContain("| first | red | red |");
+    expect(stdout).toContain("(stopped by SIGINT; results so far)");
+    expect(stderr).toContain("mutate: [1/2] first: red");
   });
 
   it.each([

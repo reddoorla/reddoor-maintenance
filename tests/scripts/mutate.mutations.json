@@ -41,8 +41,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "const pre = await vitest(s.tests, join(outDir, \"baseline\", `${n++}.json`));",
-        "replace": "const pre = { result: \"survived\", n: n++ };"
+        "find": "const pre = await vitest(allTests, join(outDir, \"baseline.json\"));",
+        "replace": "const pre = { result: \"survived\", report: { testResults: [] } };"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -187,6 +187,126 @@
         "file": "scripts/mutate.mjs",
         "find": "    if (links.length)",
         "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M16-no-mutants-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (mutants.length === 0)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M17-overlaps-not-counted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "at = text.indexOf(find, at + 1)) n++;",
+        "replace": "at = text.indexOf(find, at + find.length)) n++;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M18-head-syntax-ignored",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!(await syntaxError({ file: f, abs: join(root, f), text: pristine.get(f), root, run })))\n        checkable.add(f);",
+        "replace": "      checkable.add(f);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M19-filter-extras-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (extra.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M20-non-utf8-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!Buffer.from(text, \"utf-8\").equals(bytes)) problems.push",
+        "replace": "      if (false) problems.push"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M21-json-error-prints-table",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (o.json) process.stdout.write(JSON.stringify({ ...r, error",
+        "replace": "      if (false) process.stdout.write(JSON.stringify({ ...r, error"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M22-worktree-checks-root",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const after = st.mode === \"in-place\" ? await dirtyLines(ctx, st.root) : [];",
+        "replace": "const after = await dirtyLines(ctx, st.root);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M23-signal-drops-results",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (results.length && rep) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M24-no-ts-check",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (TS_FILE.test(file)) {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M25-check-runs-anyway",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (o.check)\n      return {",
+        "replace": "    if (false)\n      return {"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",

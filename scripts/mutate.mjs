@@ -21,15 +21,19 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
 const USAGE =
-  "usage: node scripts/mutate.mjs <sidecar.json> [--only id,id] [--in-place] [--timeout-ms 600000] [--json]\n" +
+  "usage: node scripts/mutate.mjs <sidecar.json> [--only id,id] [--check] [--in-place] [--timeout-ms 600000] [--json]\n" +
+  "  --check validates the sidecar and every find against HEAD, then exits without running\n" +
   "exit: 0 all as expected, 1 a mutant not as expected, 2 refused, 3 error mid-run";
 
 export const DEFAULT_TIMEOUT_MS = 600_000;
@@ -39,6 +43,7 @@ export function parseArgs(argv) {
     sidecar: undefined,
     only: undefined,
     inPlace: false,
+    check: false,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     json: false,
   };
@@ -51,6 +56,7 @@ export function parseArgs(argv) {
         .map((s) => s.trim())
         .filter(Boolean);
     else if (a === "--in-place") o.inPlace = true;
+    else if (a === "--check") o.check = true;
     else if (a === "--json") o.json = true;
     else if (a === "--timeout-ms") {
       const v = Number(next());
@@ -61,6 +67,7 @@ export function parseArgs(argv) {
     else throw new Error(`one sidecar per run; got a second: ${a}`);
   }
   if (!o.sidecar) throw new Error("a sidecar path is required");
+  if (o.only && o.only.length === 0) throw new Error("--only needs at least one mutant id");
   return o;
 }
 
@@ -133,10 +140,13 @@ export function validateSidecar(raw) {
   return mutants;
 }
 
-/** How many times `find` occurs in `text`, without overlaps. */
+/**
+ * At how many positions `find` occurs in `text`, overlaps included: "))" is ambiguous in
+ * "f(g(h()))" even though it fits only once without overlapping.
+ */
 export function countMatches(text, find) {
   let n = 0;
-  for (let at = text.indexOf(find); at !== -1; at = text.indexOf(find, at + find.length)) n++;
+  for (let at = text.indexOf(find); at !== -1; at = text.indexOf(find, at + 1)) n++;
   return n;
 }
 
@@ -178,7 +188,8 @@ export const TIMEOUT_MARK = "Error: STACK_TRACE_ERROR";
  * Everything else is "stillborn", never a kill: a timeout (the run's or a case's), a file
  * that failed before its cases ran (a load error or a failing hook), a crash with no
  * report, or a run where no case passed or failed (all skipped). "survived" needs at least
- * one case that passed.
+ * one case that passed. A throw in beforeEach is vitest's own case failure, so it is red;
+ * a throw in beforeAll or afterAll fails the file, not a case, so it is stillborn.
  */
 export function classifyRun({ timedOut, report, code }) {
   if (timedOut) return { result: "stillborn", reason: "the run timed out" };
@@ -206,7 +217,9 @@ export function classifyRun({ timedOut, report, code }) {
   const notes = [];
   if (n.timeouts) notes.push(`${n.timeouts} case(s) timed out`);
   if (fileErrors.length)
-    notes.push(`failed before its cases ran (load error or hook): ${fileErrors.join("; ")}`);
+    notes.push(
+      `file-level error (load error, or a beforeAll/afterAll hook): ${fileErrors.join("; ")}`,
+    );
   if (n.failed > 0) {
     const shown = failedNames.slice(0, 3).map((t) => `"${t}"`);
     if (failedNames.length > 3) shown.push(`${failedNames.length - 3} more`);
@@ -225,9 +238,18 @@ function firstLine(m) {
   return isStr(m) ? m.split("\n")[0].slice(0, 200) : "";
 }
 
-function relativeName(name) {
-  const i = isStr(name) ? name.lastIndexOf("/tests/") : -1;
-  return i === -1 ? String(name) : name.slice(i + 1);
+/** The files a vitest report ran that are not among `tests`. */
+function ranOther(report, tests, root) {
+  return report.testResults
+    .map((f) => relativeName(f.name, root))
+    .filter((name) => !tests.includes(name));
+}
+
+function relativeName(name, root) {
+  if (!isStr(name)) return String(name);
+  if (root && name.startsWith(root + "/")) return name.slice(root.length + 1);
+  const i = name.lastIndexOf("/tests/");
+  return i === -1 ? name : name.slice(i + 1);
 }
 
 /** Whether an outcome is what the sidecar said it would be. */
@@ -311,6 +333,41 @@ export class Refusal extends Error {}
 
 const SIGNAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
 const JS_FILE = /\.(mjs|cjs|js)$/;
+const TS_FILE = /\.(ts|mts|cts|tsx)$/;
+
+/**
+ * A syntax error in `text`, or null. A test that spawns a mutated script sees its syntax
+ * error as a failed case, so a mutant that does not parse is stillborn before any test
+ * runs. JS goes through `node --check`, JSON through JSON.parse, and TS through the repo's
+ * own `typescript` (syntax only), when it resolves; `checked: false` says it did not.
+ * Neither catches a bad import in a spawned script, which still reads as a kill.
+ */
+export async function syntaxError({ file, abs, text, root, run }) {
+  if (file.endsWith(".json")) {
+    try {
+      JSON.parse(text);
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  }
+  if (JS_FILE.test(file)) {
+    const c = await run(process.execPath, ["--check", abs], { cwd: root, timeoutMs: 60_000 });
+    return c.code === 0 ? null : firstLine(c.stderr.split("\n").find((l) => /Error/.test(l)) ?? "");
+  }
+  if (TS_FILE.test(file)) {
+    let ts;
+    try {
+      ts = createRequire(join(root, "package.json"))("typescript");
+    } catch {
+      return null;
+    }
+    const out = ts.transpileModule(text, { fileName: file, reportDiagnostics: true });
+    const d = (out.diagnostics ?? [])[0];
+    return d ? ts.flattenDiagnosticMessageText(d.messageText, " ") : null;
+  }
+  return null;
+}
 
 /**
  * Runs the sidecar's mutants. Returns the report; throws a Refusal (exit 2) for anything
@@ -326,11 +383,13 @@ export async function mutate(o, deps = {}) {
   // State the signal handler needs, set up before anything is created, so a signal at any
   // point removes exactly what this run made and nothing else.
   const st = { tmp: undefined, work: undefined, root: undefined, mode: "worktree" };
+  const results = [];
+  let rep;
   const applied = new Map(); // file -> original text, while a mutant is on disk
   let rebuildRootDist = false;
   let stopping = false;
   const restoreSync = () => {
-    for (const [f, text] of applied) writeFileSync(join(st.work, f), text);
+    for (const [f, bytes] of applied) writeFileSync(join(st.work, f), bytes);
   };
   const cleanupSync = () => {
     for (const c of run.active ?? []) killGroup(c, "SIGKILL");
@@ -350,6 +409,12 @@ export async function mutate(o, deps = {}) {
     }
     stopping = true;
     cleanupSync();
+    if (results.length && rep) {
+      const partial = o.json
+        ? JSON.stringify({ ...rep, stopped: sig }, null, 2) + "\n"
+        : `${formatReport(rep)}\n(stopped by ${sig}; results so far)\n`;
+      (deps.writeOut ?? ((t) => writeSync(1, t)))(partial);
+    }
     ctx.log(`mutate: stopped by ${sig}; files restored`);
     proc.exit(SIGNAL_EXIT[sig]);
   };
@@ -358,8 +423,6 @@ export async function mutate(o, deps = {}) {
   );
   for (const [sig, h] of Object.entries(handlers)) proc.on(sig, h);
 
-  const results = [];
-  let rep;
   try {
     const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd, timeoutMs: 60_000 });
     if (top.code !== 0) throw new Refusal(`${cwd} is not inside a git repository`);
@@ -385,6 +448,8 @@ export async function mutate(o, deps = {}) {
       if (missing.length) throw new Refusal(`--only names no such mutant: ${missing.join(", ")}`);
       mutants = mutants.filter((m) => o.only.includes(m.id));
     }
+    if (mutants.length === 0)
+      throw new Refusal("the sidecar names no mutants, so nothing would run");
 
     const dirty = await dirtyLines(ctx, root);
     if (dirty.length)
@@ -404,15 +469,23 @@ export async function mutate(o, deps = {}) {
     if (links.length)
       throw new Refusal(`edits name symlinks, which would write through: ${links.join(", ")}`);
     const missingTests = [...new Set(mutants.flatMap((m) => m.test))].filter(
-      (t) => !existsSync(join(root, t)),
+      (t) => !existsSync(join(root, t)) || !statSync(join(root, t)).isFile(),
     );
     if (missingTests.length) throw new Refusal(`no such test file: ${missingTests.join(", ")}`);
     if (!existsSync(join(root, "node_modules", ".bin", "vitest")))
       throw new Refusal("node_modules/.bin/vitest is missing: run pnpm install first");
 
-    // Every find is checked against HEAD before anything runs.
-    const pristine = new Map(files.map((f) => [f, readFileSync(join(root, f), "utf-8")]));
+    // Every find is checked against HEAD before anything runs. Files are restored from
+    // their bytes, and a file whose bytes are not UTF-8 is refused, since editing it as
+    // text would change bytes the mutant never named.
+    const pristine = new Map();
     const problems = [];
+    for (const f of files) {
+      const bytes = readFileSync(join(root, f));
+      const text = bytes.toString("utf-8");
+      if (!Buffer.from(text, "utf-8").equals(bytes)) problems.push(`${f} is not UTF-8 text`);
+      pristine.set(f, text);
+    }
     for (const m of mutants) {
       try {
         applyEdits(pristine, m);
@@ -421,6 +494,21 @@ export async function mutate(o, deps = {}) {
       }
     }
     if (problems.length) throw new Refusal(problems.join("\n"));
+    // A file that already fails the syntax check at HEAD (a workflow body the tests wrap
+    // in a function, say) cannot blame the mutant, so it is not checked.
+    const checkable = new Set();
+    for (const f of files)
+      if (!(await syntaxError({ file: f, abs: join(root, f), text: pristine.get(f), root, run })))
+        checkable.add(f);
+    if (o.check)
+      return {
+        sha,
+        mode: "check",
+        command: "",
+        sidecar: o.sidecar,
+        planned: mutants.length,
+        results,
+      };
 
     st.tmp = mkdtempSync(join(deps.tmpdir ?? tmpdir(), "mutate-"));
     const outDir = join(st.tmp, "out");
@@ -476,7 +564,7 @@ export async function mutate(o, deps = {}) {
       } catch {
         report = null;
       }
-      return { ...classifyRun({ timedOut: r.timedOut, report, code: r.code }), run: r };
+      return { ...classifyRun({ timedOut: r.timedOut, report, code: r.code }), run: r, report };
     };
     const build = () => run("pnpm", ["run", "build"], { cwd: work, timeoutMs: o.timeoutMs });
     const clean = async (after) => {
@@ -486,55 +574,58 @@ export async function mutate(o, deps = {}) {
     };
 
     const outside = relative(root, sidecarPath).startsWith("..");
+    const shown = outside ? sidecarPath : relative(root, sidecarPath);
     const command = [
       "node scripts/mutate.mjs",
-      outside ? sidecarPath : relative(root, sidecarPath),
+      /\s/.test(shown) ? JSON.stringify(shown) : shown,
       ...(o.only ? ["--only", o.only.join(",")] : []),
       ...(o.inPlace ? ["--in-place"] : []),
       ...(o.timeoutMs !== DEFAULT_TIMEOUT_MS ? ["--timeout-ms", String(o.timeoutMs)] : []),
+      ...(o.json ? ["--json"] : []),
     ].join(" ");
-    rep = { sha, mode: st.mode, command, sidecar: relative(root, sidecarPath), results };
+    rep = {
+      sha,
+      mode: st.mode,
+      command,
+      sidecar: relative(root, sidecarPath),
+      planned: mutants.length,
+      results,
+    };
 
-    // Unmutated first: a test that fails on HEAD would make every mutant look red.
-    const sets = new Map();
-    for (const m of mutants) {
-      const key = m.test.join(" ");
-      const s = sets.get(key) ?? { tests: m.test, build: false };
-      s.build ||= m.build;
-      sets.set(key, s);
-    }
-    if ([...sets.values()].some((s) => s.build)) {
+    // Unmutated first, once over every named test file: a test that fails on HEAD would
+    // make every mutant look red.
+    const allTests = [...new Set(mutants.flatMap((m) => m.test))];
+    if (mutants.some((m) => m.build)) {
       const b = await build();
       if (b.code !== 0) throw new Refusal(`the unmutated build failed:\n${tail(b)}`);
     }
-    let n = 0;
-    for (const s of sets.values()) {
-      const pre = await vitest(s.tests, join(outDir, "baseline", `${n++}.json`));
-      if (pre.result !== "survived")
-        throw new Refusal(
-          `the unmutated run of ${s.tests.join(" ")} did not pass (${pre.result}${pre.failed ? `, ${pre.failed} failed` : ""}${pre.reason ? `, ${pre.reason}` : ""}), so no mutant can be judged:\n${tail(pre.run)}`,
-        );
-    }
+    const pre = await vitest(allTests, join(outDir, "baseline.json"));
+    if (pre.result !== "survived")
+      throw new Refusal(
+        `the unmutated run of ${allTests.join(" ")} did not pass (${pre.result}${pre.failed ? `, ${pre.failed} failed` : ""}${pre.reason ? `, ${pre.reason}` : ""}), so no mutant can be judged:\n${tail(pre.run)}`,
+      );
+    // vitest takes a path as a substring filter, so a named file can pull in others, and a
+    // kill would then be credited to a file the table does not name.
+    const extra = ranOther(pre.report, allTests, work);
+    if (extra.length)
+      throw new Refusal(
+        `vitest also ran ${extra.join(", ")} for ${allTests.join(" ")}: a test path is a filter there, so name a path no other file contains`,
+      );
     await clean("the unmutated run");
 
-    for (const m of mutants) {
-      const current = new Map(files.map((f) => [f, readFileSync(join(work, f), "utf-8")]));
-      const next = applyEdits(current, m);
+    for (const [i, m] of mutants.entries()) {
+      const next = applyEdits(pristine, m);
       let outcome;
       try {
         for (const [f, text] of next) {
-          applied.set(f, current.get(f));
+          applied.set(f, readFileSync(join(work, f)));
           writeFileSync(join(work, f), text);
         }
-        // A test that spawns a mutated script reports a syntax error as a failed case.
         const unparsed = [];
-        for (const f of next.keys())
-          if (JS_FILE.test(f)) {
-            const c = await run(process.execPath, ["--check", join(work, f)], {
-              cwd: work,
-              timeoutMs: 60_000,
-            });
-            if (c.code !== 0) unparsed.push(f);
+        for (const [f, text] of next)
+          if (checkable.has(f)) {
+            const err = await syntaxError({ file: f, abs: join(work, f), text, root: work, run });
+            if (err) unparsed.push(`${f} (${err})`);
           }
         if (unparsed.length)
           outcome = { result: "stillborn", reason: `does not parse: ${unparsed.join(", ")}` };
@@ -545,11 +636,14 @@ export async function mutate(o, deps = {}) {
               ? await vitest(m.test, join(outDir, "mutant", `${m.id}.json`))
               : { result: "stillborn", reason: `build failed (exit ${b.code})` };
         } else outcome = await vitest(m.test, join(outDir, "mutant", `${m.id}.json`));
+        const other = outcome.report ? ranOther(outcome.report, m.test, work) : [];
+        if (other.length)
+          outcome = { result: "stillborn", reason: `vitest also ran ${other.join(", ")}` };
       } finally {
         restoreSync();
       }
-      for (const [f, text] of applied)
-        if (readFileSync(join(work, f), "utf-8") !== text)
+      for (const [f, bytes] of applied)
+        if (!readFileSync(join(work, f)).equals(bytes))
           throw new Error(`${f} did not restore after ${m.id}`);
       applied.clear();
       results.push({
@@ -559,11 +653,13 @@ export async function mutate(o, deps = {}) {
         failed: outcome.failed,
         passed: outcome.passed,
         skipped: outcome.skipped,
+        timeouts: outcome.timeouts,
         reason: outcome.reason,
         test: m.test,
         why: m.why,
         ok: asExpected(m.expect, outcome.result),
       });
+      ctx.log(`mutate: [${i + 1}/${mutants.length}] ${m.id}: ${outcome.result}`);
       // dist/ is ignored, so the restore leaves the mutant's build in it; the next
       // mutant must not run against that.
       if (m.build) {
@@ -585,7 +681,8 @@ export async function mutate(o, deps = {}) {
     cleanupSync();
     for (const [sig, h] of Object.entries(handlers)) proc.off(sig, h);
   }
-  const after = await dirtyLines(ctx, st.root);
+  // A worktree run never writes to the checkout, which the user may edit meanwhile.
+  const after = st.mode === "in-place" ? await dirtyLines(ctx, st.root) : [];
   if (after.length) {
     const e = new Error(`the tree is not clean after the run:\n  ${after.join("\n  ")}`);
     e.report = rep;
@@ -622,7 +719,7 @@ export function formatReport(rep) {
     const counts =
       r.failed === undefined
         ? "–"
-        : `${r.failed} / ${r.failed + r.passed}${r.skipped ? ` (${r.skipped} skipped)` : ""}`;
+        : `${r.failed} / ${r.failed + r.passed + (r.timeouts ?? 0)}${r.timeouts ? ` (${r.timeouts} timed out)` : ""}${r.skipped ? ` (${r.skipped} skipped)` : ""}`;
     // An outcome that is not as expected shows why it happened first.
     const note = (r.ok ? [r.why, r.reason] : [r.reason, r.why]).filter(Boolean).join(" — ");
     out.push(
@@ -650,10 +747,21 @@ async function main() {
       process.exitCode = 2;
       return;
     }
-    if (e?.report?.results?.length)
-      process.stdout.write(`${formatReport(e.report)}\n(stopped early; results so far)\n`);
+    const r = e?.report;
+    if (r?.results?.length) {
+      const all = r.results.length === r.planned;
+      if (o.json) process.stdout.write(JSON.stringify({ ...r, error: e.message }, null, 2) + "\n");
+      else
+        process.stdout.write(
+          `${formatReport(r)}\n(${all ? "every mutant ran; the error came after" : "stopped early; results so far"})\n`,
+        );
+    }
     process.stderr.write(`mutate: error: ${e?.message ?? e}\n`);
     process.exitCode = 3;
+    return;
+  }
+  if (o.check) {
+    process.stdout.write(`MUTATE_CHECK ok mutants=${rep.planned} sha=${rep.sha.slice(0, 12)}\n`);
     return;
   }
   process.stdout.write(o.json ? JSON.stringify(rep, null, 2) + "\n" : formatReport(rep));
