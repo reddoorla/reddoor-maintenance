@@ -26,7 +26,7 @@ export type SearchConsoleRecheckDeps = {
 };
 
 /** A host no Search Console property can match. If the lookup reads anything
- *  but `no-property` for it, the instrument would clear real watches, so the
+ *  but `no-property` for it, the instrument would clear real Setup gaps, so the
  *  run writes nothing. */
 export const NO_PROPERTY_CONTROL_URL = "https://no-such-property-zz9q.invalid/";
 
@@ -60,9 +60,10 @@ export async function runSearchConsoleRecheckCommand(
       return readFleetRoster();
     })
   )();
-  // The cockpit's own condition for the watch (fleet-cockpit.ts): the re-check
-  // exists to clear that watch, so it skips what the cockpit does not count,
-  // an unstamped no-property row among them.
+  // The cockpit's own condition for the Setup gap "Search Console property not
+  // matched" (since #1580; it was a Watch chip before): the re-check exists to
+  // clear that gap, so it skips what the cockpit does not count, an unstamped
+  // no-property row among them.
   const targets = websites.filter(
     (w) =>
       w.status === "maintained" &&
