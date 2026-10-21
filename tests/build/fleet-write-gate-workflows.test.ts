@@ -32,11 +32,32 @@ const STEPS = [
     file: "fleet-lighthouse.yml",
     step: "Fleet Lighthouse + domain + browser audit + write-back",
     exit: 1,
+    label: "fleet Lighthouse",
   },
-  { file: "fleet-smoke.yml", step: "Fleet smoke suite + write-back", exit: 1 },
-  { file: "fleet-security.yml", step: "Fleet security + deps audit + write-back", exit: 1 },
-  { file: "fleet-form-e2e.yml", step: "Fleet form-e2e + write-back", exit: 1 },
-  { file: "fleet-prismic-drift.yml", step: "Sweep the fleet for Prismic model drift", exit: 0 },
+  {
+    file: "fleet-smoke.yml",
+    step: "Fleet smoke suite + write-back",
+    exit: 1,
+    label: "fleet smoke",
+  },
+  {
+    file: "fleet-security.yml",
+    step: "Fleet security + deps audit + write-back",
+    exit: 1,
+    label: "fleet security",
+  },
+  {
+    file: "fleet-form-e2e.yml",
+    step: "Fleet form-e2e + write-back",
+    exit: 1,
+    label: "fleet form-e2e",
+  },
+  {
+    file: "fleet-prismic-drift.yml",
+    step: "Sweep the fleet for Prismic model drift",
+    exit: 0,
+    label: "fleet prismic drift",
+  },
 ] as const;
 
 async function runStep(
@@ -101,7 +122,7 @@ async function cliOutput(args: {
   return `${formatUnmeasuredSmokeSummary(args.results)}\n\n${wb.summary}\n`;
 }
 
-describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit }) => {
+describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit, label }) => {
   it("known-good: eight sites measured and written stays green", async () => {
     const r = await runStep(
       file,
@@ -122,7 +143,25 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     }));
     const r = await runStep(file, step, await cliOutput({ results, expectedSites: SLUGS }), exit);
     expect(r.code).toBe(1);
-    expect(r.out).toContain("::error::");
+    if (file === "fleet-prismic-drift.yml") {
+      // Prismic keeps its own wrote=0 diagnostic first; the gate is the floor behind it.
+      expect(r.out).toContain("::error::fleet prismic drift wrote 0 of 8 verdict(s)");
+    } else {
+      // The gate speaks first, naming what happened rather than blaming the Turso creds.
+      expect(r.out).toContain(`::error::${label}: wrote 0 of 8 site(s)`);
+      expect(r.out).not.toContain("check the Turso creds");
+    }
+  });
+
+  it("one of eight resolved sites missing: green, with the warning annotation naming it", async () => {
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({ results: SLUGS.slice(0, 7).map(smokeMeasured), expectedSites: SLUGS }),
+      exit,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(`::warning::${label}: 1 of 8 site(s) never reached write-back: site-7`);
   });
 
   it("six of eight resolved sites never reached write-back: red", async () => {
@@ -133,7 +172,7 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
       exit,
     );
     expect(r.code).toBe(1);
-    expect(r.out).toContain("6 of 8 site(s) not written or missing (>25%)");
+    expect(r.out).toContain(`::error::${label}: 6 of 8 site(s) not written or missing (>25%)`);
   });
 
   it("one site of eight with no site_health row: red, where `failed*4 > total` alone stays green", async () => {
@@ -144,7 +183,7 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
       exit,
     );
     expect(r.code).toBe(1);
-    expect(r.out).toContain("1 site(s) with no row to write to: site-5");
+    expect(r.out).toContain(`::error::${label}: 1 site(s) with no row to write to: site-5`);
   });
 
   it("an output with the summary but no verdict line is red", async () => {

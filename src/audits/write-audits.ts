@@ -295,6 +295,10 @@ export type FleetWriteResult = {
   /** Per audit, the sites where it measured nothing and did not say it was not applicable.
    *  A site can be written (lighthouse landed) while its browser audit measured nothing. */
   unmeasuredAudits?: Partial<Record<AuditName, string[]>>;
+  /** Per audit, the sites it applied to: requested and not marked not applicable. The
+   *  denominator for that audit's share in the gate, so a fleet where most sites have no
+   *  `test:smoke` script cannot dilute four blind adopters into a green run. */
+  applicableAudits?: Partial<Record<AuditName, string[]>>;
 };
 
 /** Did this sweep fail, for exit-code purposes (#612)?
@@ -329,15 +333,16 @@ function fleetWriteTotal(result: FleetWriteResult): number {
   );
 }
 
-/** A failure that recurs every night until someone changes a row: no `site_health` row, or
- *  no site row for the slug at all. The 25% tolerance exists for flakes, and one of these
- *  would otherwise warn forever while the job stays green (#1605). */
+/** A failure that recurs every night until someone changes a row: no `site_health` row, no
+ *  site row for the slug, or (the Prismic sweep) several rows for it. The 25% tolerance
+ *  exists for flakes, and one of these would otherwise warn forever while the job stays
+ *  green (#1605). A per-site miss that only history could call permanent (one site's
+ *  lockfile never readable) stays a warning: a single run cannot tell it from a flake. */
+const PERMANENT_FAILURE =
+  /^(no site_health row matched$|no Websites row matched|\d+ Websites rows match )/i;
+
 function permanentFailures(result: FleetWriteResult): string[] {
-  return result.failed
-    .filter(
-      (f) => f.error === "no site_health row matched" || /^no Websites row matched/i.test(f.error),
-    )
-    .map((f) => f.slug);
+  return result.failed.filter((f) => PERMANENT_FAILURE.test(f.error)).map((f) => f.slug);
 }
 
 export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
@@ -346,9 +351,11 @@ export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string
  *  The CLI's exit code cannot carry it: a site whose audit reports `fail` exits 1 by design,
  *  so every workflow runs the CLI under `|| true` and reads this verdict instead (#1605).
  *
- *  Red when nothing was written, when failed plus missing sites pass a quarter of the
- *  fleet, when any failure is permanent, or when one audit measured nothing on more than a
- *  quarter of the fleet. Anything below those lines is a warning, never silence. */
+ *  Red when nothing was written, when failed plus missing sites pass a quarter of the sites
+ *  that had anything to measure, when any failure is permanent, or when one audit measured
+ *  nothing on more than a quarter of the sites it applied to. Not-applicable sites are in
+ *  `total` but in neither denominator. Anything below those lines is a warning, never
+ *  silence. */
 export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   const wrote = result.written.length;
   const failed = result.failed.length;
@@ -358,14 +365,15 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   const warnings: string[] = [];
 
   if (wrote === 0) reasons.push(`wrote 0 of ${total} site(s)`);
+  const owed = total - (result.notApplicable?.length ?? 0);
   const short = failed + missing.length;
-  if (short * 4 > total) {
-    reasons.push(`${short} of ${total} site(s) not written or missing (>25%)`);
+  if (short * 4 > owed) {
+    reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);
   } else {
-    if (failed > 0) warnings.push(`${failed} of ${total} site(s) not written`);
+    if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written`);
     if (missing.length > 0) {
       warnings.push(
-        `${missing.length} of ${total} site(s) never reached write-back: ${missing.join(", ")}`,
+        `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(", ")}`,
       );
     }
   }
@@ -375,8 +383,9 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   }
   for (const [audit, sites] of Object.entries(result.unmeasuredAudits ?? {})) {
     if (!sites || sites.length === 0) continue;
-    const line = `${audit} measured nothing on ${sites.length} of ${total} site(s): ${sites.join(", ")}`;
-    if (sites.length * 4 > total) reasons.push(`${line} (>25%)`);
+    const of = result.applicableAudits?.[audit as AuditName]?.length ?? total;
+    const line = `${audit} measured nothing on ${sites.length} of ${of} site(s): ${sites.join(", ")}`;
+    if (sites.length * 4 > of) reasons.push(`${line} (>25%)`);
     else warnings.push(line);
   }
   return { red: reasons.length > 0, reasons, warnings };
@@ -459,6 +468,12 @@ export async function writeFleetAudits(args: {
   let mirrorMissed = 0;
   const notApplicable: string[] = [];
   const unmeasuredAudits: Partial<Record<AuditName, string[]>> = {};
+  const applicableAudits: Partial<Record<AuditName, string[]>> = {};
+  const note = (into: Partial<Record<AuditName, string[]>>, audit: AuditName, slug: string) => {
+    const list = (into[audit] ??= []);
+    // Two roster rows can share a slug and pool into one group; count the slug once.
+    if (!list.includes(slug)) list.push(slug);
+  };
   for (const [slug, siteResults] of bySlug) {
     let plan: AuditWritePlan;
     try {
@@ -468,7 +483,12 @@ export async function writeFleetAudits(args: {
       continue;
     }
     const { summary } = plan;
-    for (const u of plan.unmeasured) (unmeasuredAudits[u.audit] ??= []).push(slug);
+    for (const u of plan.unmeasured) note(unmeasuredAudits, u.audit, slug);
+    for (const r of siteResults) {
+      if (PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true) {
+        note(applicableAudits, r.audit, slug);
+      }
+    }
     const hasFields = !!summary.fields && Object.keys(summary.fields).length > 0;
     // Nothing to write is not a write (#1605). A site whose audits all said "not applicable"
     // is counted as such; one whose audits measured nothing is a failure, named by what each
@@ -518,6 +538,7 @@ export async function writeFleetAudits(args: {
     events,
     notApplicable,
     unmeasuredAudits,
+    applicableAudits,
     ...(expectedSites !== undefined ? { missing } : {}),
     ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}),
   };

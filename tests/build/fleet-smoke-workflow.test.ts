@@ -148,6 +148,6 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
       exit: 1,
     });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("wrote 0 of 13");
+    expect(r.out).toContain("::error::fleet smoke: wrote 0 of 13 site(s)");
   });
 });

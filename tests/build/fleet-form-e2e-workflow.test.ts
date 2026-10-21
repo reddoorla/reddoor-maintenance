@@ -152,8 +152,7 @@ describe("fleet-form-e2e — the gate cannot go green having probed nothing", ()
   it("FAILS when the sweep wrote nothing because it attempted nothing", async () => {
     const r = await runGate({ stdout: `${writeSummary(0, 0)}\n`, exit: 0 });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("::error::");
-    expect(r.out).toContain("wrote 0 of 0");
+    expect(r.out).toContain("::error::fleet form-e2e: wrote 0 of 0 site(s)");
   });
 
   // The other zero-write shape. It is ALREADY red today, but via the mass-flake
@@ -163,16 +162,19 @@ describe("fleet-form-e2e — the gate cannot go green having probed nothing", ()
   it("FAILS with the zero-write diagnosis, not 'mass flake', when every write failed", async () => {
     const r = await runGate({ stdout: `${writeSummary(0, 13)}\n`, exit: 1 });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("wrote 0 of 13");
+    // The write gate (#1605) speaks first, and its first reason is the zero write.
+    expect(r.out).toContain("::error::fleet form-e2e: wrote 0 of 13 site(s)");
   });
 
   // (c) The SECOND `exit 1` the original survey of this workflow missed. Adding
-  // a zero-write gate must not disarm the one that already exists.
+  // a zero-write gate must not disarm the one that already exists. Since #1605
+  // the write gate carries the same >25% rule and reds first.
   it("still FAILS when more than 25% of attempted sites failed to write", async () => {
     const r = await runGate({ stdout: `${writeSummary(9, 4)}\n`, exit: 1 });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("::error::");
-    expect(r.out).toContain("4/13 site(s) failed to write (>25%)");
+    expect(r.out).toContain(
+      "::error::fleet form-e2e: 4 of 13 site(s) not written or missing (>25%)",
+    );
   });
 
   // (d) COVERAGE, reported not enforced. These five rows are written and green;

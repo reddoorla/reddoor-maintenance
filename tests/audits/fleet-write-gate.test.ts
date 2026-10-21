@@ -311,3 +311,158 @@ describe("the verdict line's contract", () => {
     expect(fleetWriteGate({ written: [], failed: [] }).reasons).toEqual(["wrote 0 of 0 site(s)"]);
   });
 });
+
+describe("review round 1: the denominators count only sites with something to measure", () => {
+  it("four blind adopters among thirteen sites with no smoke script is red, not diluted", async () => {
+    // 18 sites: 1 measured, 4 whose deps would not install, 13 that have not adopted
+    // `test:smoke`. Four of the five measurable sites are blind.
+    const { result, out } = await sweep({
+      n: 18,
+      expected: 18,
+      results: (s, i) =>
+        i === 0
+          ? [measured("smoke", s)]
+          : i <= 4
+            ? [blind("smoke", s, "smoke: pnpm install failed (exit 1) — deps unavailable")]
+            : [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }],
+    });
+    expect(out).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=4 total=18");
+    expect(fleetWriteGate(result).reasons).toContain(
+      "4 of 5 site(s) not written or missing (>25%)",
+    );
+  });
+
+  it("an audit is judged against the sites it applied to: netlify blind on 2 of its 2", async () => {
+    const { result } = await sweep({
+      n: 8,
+      expected: 8,
+      results: (s, i) => [
+        measured("lighthouse", s),
+        i < 6
+          ? { ...blind("netlify-deploy", s, "no netlify id"), notApplicable: true }
+          : blind("netlify-deploy", s, "no NETLIFY_PAT"),
+      ],
+    });
+    expect(fleetWriteGate(result).reasons).toContain(
+      "netlify-deploy measured nothing on 2 of 2 site(s): site-6, site-7 (>25%)",
+    );
+  });
+
+  it("exactly a quarter is a warning, not red: 2 of 8 sites short", async () => {
+    const { result } = await sweep({ n: 6, expected: 8, results: (s) => [measured("smoke", s)] });
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(false);
+    expect(gate.warnings).toContain("2 of 8 site(s) never reached write-back: site-6, site-7");
+  });
+
+  it("exactly a quarter is a warning, not red: one audit blind on 1 of 4 sites", async () => {
+    const { result } = await sweep({
+      n: 4,
+      expected: 4,
+      results: (s, i) => [
+        measured("lighthouse", s),
+        i === 0
+          ? blind("domain", s, "domain: unexpected error — ENOTFOUND", "fail")
+          : measured("domain", s),
+      ],
+    });
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(false);
+    expect(gate.warnings).toEqual(["domain measured nothing on 1 of 4 site(s): site-0"]);
+  });
+});
+
+describe("review round 1: every persisted audit is watched", () => {
+  it.each([
+    "a11y",
+    "deps",
+    "security",
+    "domain",
+    "browser",
+    "netlify-deploy",
+    "function-health",
+    "smoke",
+    "form-e2e",
+  ] as const)(
+    "%s measuring nothing on every site, beside a lighthouse that landed, is red",
+    async (audit) => {
+      const { result } = await sweep({
+        n: 4,
+        expected: 4,
+        results: (s) => [
+          measured("lighthouse", s),
+          blind(audit, s, `${audit}: unexpected error — boom`, "fail"),
+        ],
+      });
+      expect(result.written).toHaveLength(4);
+      expect(fleetWriteGate(result).reasons).toContain(
+        `${audit} measured nothing on 4 of 4 site(s): site-0, site-1, site-2, site-3 (>25%)`,
+      );
+    },
+  );
+
+  it("a site whose lighthouse missed and whose other audit does not apply is failed, not n/a", async () => {
+    const { result } = await sweep({
+      n: 4,
+      expected: 4,
+      results: (s, i) => [
+        i === 0
+          ? {
+              audit: "lighthouse",
+              site: s,
+              status: "fail",
+              summary: "lighthouse: no scores",
+              details: { summary: {} },
+            }
+          : measured("lighthouse", s),
+        { ...blind("browser", s, "no deployed URL"), notApplicable: true },
+      ],
+    });
+    expect(result.notApplicable).toEqual([]);
+    expect(result.failed.map((f) => f.slug)).toEqual(["site-0"]);
+    expect(result.failed[0]!.error).toMatch(/^Lighthouse audit produced no scores/);
+  });
+});
+
+describe("review round 1: the real paths, not hand-built results", () => {
+  it("a result whose slug has no site row reds the gate through planAuditWrite's own throw", async () => {
+    const { websites } = fleet(8);
+    const results = [...fleet(8).slugs, "ghost-site"].map((s) => measured("smoke", s));
+    const result = await writeFleetAudits({ websites, results, mirror: recordingMirror().mirror });
+    const out = formatFleetWriteSummary(result);
+    expect(out).toContain("\nFLEET_WRITE_GATE verdict=red");
+    expect(out).toContain(
+      "\nFLEET_WRITE_GATE_REASON 1 site(s) with no row to write to: ghost-site",
+    );
+  });
+
+  it("the Prismic sweep's ambiguous match is as permanent as no match", () => {
+    const result: FleetWriteResult = {
+      written: Array.from({ length: 9 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+      failed: [
+        { slug: "twin", error: '2 Websites rows match "Twin" (Twin, Twin) — refusing to guess' },
+      ],
+    };
+    expect(fleetWriteGate(result).reasons).toEqual(["1 site(s) with no row to write to: twin"]);
+  });
+
+  it("a slug listed twice in the roster is missing once, and an audit miss counts it once", async () => {
+    const { websites } = fleet(4);
+    const twin = websiteRowsFrom([
+      { id: "recTwin", fields: { Name: "site-0", Status: "maintenance" } },
+    ]);
+    const result = await writeFleetAudits({
+      websites: [...websites, ...twin],
+      results: [
+        measured("lighthouse", "site-0"),
+        blind("browser", "site-0", "browser: unexpected error — boom", "fail"),
+        blind("browser", "site-0", "browser: unexpected error — boom", "fail"),
+        ...["site-1", "site-2"].flatMap((s) => [measured("lighthouse", s), measured("browser", s)]),
+      ],
+      mirror: recordingMirror().mirror,
+      expectedSites: ["site-0", "site-1", "site-2", "site-3", "site-3"],
+    });
+    expect(result.missing).toEqual(["site-3"]);
+    expect(result.unmeasuredAudits?.browser).toEqual(["site-0"]);
+  });
+});

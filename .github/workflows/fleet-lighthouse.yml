@@ -104,6 +104,29 @@ jobs:
             echo "::warning::fleet Lighthouse: $skipped"
           fi
 
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet Lighthouse: /' || true
+            exit 1
+          fi
+
           # Total write-back failure: nothing landed at all (creds/API/inventory).
           if [ "$wrote" -eq 0 ]; then
             echo "::error::fleet Lighthouse wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
@@ -114,26 +137,6 @@ jobs:
           # known-flaky site stays green-with-warning; a real outage reds.
           if [ $((failed * 4)) -gt "$total" ]; then
             echo "::error::fleet Lighthouse: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
-            exit 1
-          fi
-
-          # The write gate's own verdict (#1605), computed by fleetWriteGate in
-          # write-audits.ts so five workflows cannot drift apart. It reds on what the
-          # counts above cannot see: a site that measured nothing (deps would not
-          # install, no lockfile), a site the run resolved that never reached
-          # write-back, a failure that recurs every night (no row to write to), and
-          # one audit that measured nothing across more than a quarter of the fleet.
-          # The CLI's exit code cannot carry this (a failing audit exits 1 by design,
-          # hence `|| true` above), so the verdict line is the contract, and an
-          # absent line is red.
-          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
-          if [ -z "$gate" ]; then
-            echo "::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
-            exit 1
-          fi
-          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true
-          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
-            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet Lighthouse: /' || true
             exit 1
           fi
 

@@ -342,6 +342,9 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-lighthouse.yml › Sweep GitHub signals to Turso",
       "fleet-lighthouse.yml › Probe roster urls to Turso",
       "fleet-lighthouse.yml › Re-check Search Console no-property sites to Turso",
+      "fleet-security.yml › id: app-token-late",
+      "fleet-security.yml › Trigger Renovate for sites with actionable vulnerabilities",
+      "fleet-security.yml › Protection coverage audit (org-wide)",
     ]);
   });
 });
