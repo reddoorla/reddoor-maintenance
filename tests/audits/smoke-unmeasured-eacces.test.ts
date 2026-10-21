@@ -19,8 +19,10 @@ vi.mock("../../src/audits/util/spawn.js", async (orig) => {
   const real = await orig<typeof import("../../src/audits/util/spawn.js")>();
   return {
     ...real,
-    defaultSpawn: async (_cmd: string, args: readonly string[]) => {
-      if (args[0] === "test:smoke") {
+    defaultSpawn: async (_cmd: string, args: readonly string[], opts?: { cwd?: string }) => {
+      // Only acme's suite throws; any other site's suite passes, so a sweep can hold
+      // one measured site beside the unmeasured one.
+      if (args[0] === "test:smoke" && opts?.cwd?.includes("smoke-eacces-acme")) {
         throw Object.assign(new Error("spawn pnpm EACCES"), { code: "EACCES", errno: -13 });
       }
       return { code: 0, stdout: "", stderr: "" };
@@ -34,15 +36,15 @@ const { formatUnmeasuredSmokeSummary, isUnmeasuredSmoke } =
   await import("../../src/audits/smoke.js");
 const { stepRunScript, workflowPath } = await import("../build/_helpers/workflow-source.js");
 
-async function siteWithSuite(): Promise<{ name: string; path: string }> {
-  const dir = await mkdtemp(join(tmpdir(), "smoke-eacces-"));
+async function siteWithSuite(name = "acme"): Promise<{ name: string; path: string }> {
+  const dir = await mkdtemp(join(tmpdir(), `smoke-eacces-${name}-`));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   await writeFile(
     join(dir, "package.json"),
     JSON.stringify({ name: "acme", scripts: { "test:smoke": "playwright test" } }),
   );
   await mkdir(join(dir, "node_modules")); // installed: the suite spawn is what throws
-  return { name: "acme", path: dir };
+  return { name, path: dir };
 }
 
 describe("#1611: a smoke spawn that throws EACCES is unmeasured", () => {
@@ -58,20 +60,21 @@ describe("#1611: a smoke spawn that throws EACCES is unmeasured", () => {
   });
 
   it("the CLI's own output reds fleet-smoke.yml's never-measured check, naming the site", async () => {
-    // Through runAuditCommand, the entry point the nightly runs: a JSON fleet of one
-    // site whose suite spawn throws EACCES. No write-back, so no store is needed; the
+    // Through runAuditCommand, the entry point the nightly runs: a JSON fleet of two
+    // sites: one whose suite spawn throws EACCES, one whose suite passes. No write-back, so no store is needed; the
     // unmeasured line prints for any fleet sweep that ran smoke.
-    const site = await siteWithSuite();
+    const sites = [await siteWithSuite("acme"), await siteWithSuite("healthy")];
     const dir = await mkdtemp(join(tmpdir(), "smoke-eacces-wf-"));
     onTestFinished(() => rm(dir, { recursive: true, force: true }));
-    await writeFile(join(dir, "fleet.json"), JSON.stringify([site]));
+    await writeFile(join(dir, "fleet.json"), JSON.stringify(sites));
     const { output } = await runAuditCommand(undefined, {
       fleet: join(dir, "fleet.json"),
       only: "smoke",
       workdir: join(dir, "work"),
       cwd: dir,
     });
-    expect(output).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=acme");
+    // The healthy site's suite ran and carries a verdict; only acme is unmeasured.
+    expect(output).toMatch(/^FLEET_SMOKE_UNMEASURED count=1 sites=acme$/m);
 
     const step = stepRunScript(
       await readFile(workflowPath("fleet-smoke.yml"), "utf-8"),
