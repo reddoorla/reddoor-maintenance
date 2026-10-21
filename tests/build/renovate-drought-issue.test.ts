@@ -10,7 +10,7 @@ import {
 } from "../../src/cli/commands/protection-audit.js";
 import type { RenovateMergeWindow } from "../../src/github/gh.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
-import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,7 +61,13 @@ const HEALTHY: RenovateMergeWindow = {
 /** A repo that has never merged a feature update: UNMEASURED, never a drought. */
 const NEVER: RenovateMergeWindow = { merges: [], truncated: false };
 
-type Repo = { name: string; window: RenovateMergeWindow; visibility?: string };
+type Repo = {
+  name: string;
+  window: RenovateMergeWindow;
+  visibility?: string;
+  /** The posture probe throws for this repo before its merge window is read. */
+  probeThrows?: boolean;
+};
 
 /** A REAL `protection-audit` run over repos whose posture is clean, so the only
  *  thing that varies between fixtures is the Renovate merge window. */
@@ -79,7 +85,12 @@ async function sweep(repos: Repo[]): Promise<{ output: string; code: number }> {
     listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
     getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
     workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: daysAgo(0) }),
-    dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
+    dependencyDashboard: async (repo) => {
+      if (repos.some((r) => r.probeThrows && `reddoorla/${r.name}` === repo)) {
+        throw new Error("HTTP 502");
+      }
+      return { present: true, blockedBranches: [], unknownSections: [] };
+    },
     openSecretAlerts: async () => 0,
     renovateMergeWindow: async (repo) => byName.get(repo) ?? NEVER,
     repoTextFile: async () => null,
@@ -244,6 +255,9 @@ describe("a drought opens its own issue", () => {
     expect(s.code).toBe(0);
     expect(s.output).toContain("PROTECTION_AUDIT gaps=0 ");
     expect(s.output).toContain("RENOVATE_OUTCOME drought=1 delivering=1 unmeasured=0 ");
+    // Only the repo that delivered says so; the dry one never prints DELIVER.
+    expect(s.output).toMatch(/^DELIVER reddoorla\/revogen — /m);
+    expect(s.output).not.toMatch(/^DELIVER reddoorla\/espada/m);
     const r = await runStep({ step: READ_STEP, sweep: s.output });
     expect(r.code).toBe(0);
     expect(r.outputs.drought).toBe("yes");
@@ -261,6 +275,7 @@ describe("a drought opens its own issue", () => {
     const body = creates[0]!.flag("--body")!;
     expect(body).toMatch(/^WARN {4}reddoorla\/espada — no feature update has LANDED in 34d/m);
     expect(body).not.toContain("revogen");
+    expect(body).toContain("`RENOVATE_OUTCOME drought=1 delivering=1 unmeasured=0 threshold=21d`");
     expect(body).toContain("Run: ");
   });
 
@@ -278,6 +293,29 @@ describe("a drought opens its own issue", () => {
     expect(create.flag("--body")).toMatch(
       /^WARN {4}reddoorla\/williamson-homes — renovate outcome UNMEASURED/m,
     );
+  });
+
+  it("a repo whose probe threw counts as UNMEASURED, so its drought is never left off the line", async () => {
+    const s = await sweep([
+      { name: "espada", window: FROZEN, probeThrows: true },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    expect(s.output).toMatch(/^GAP {5}reddoorla\/espada — probe failed: HTTP 502/m);
+    expect(s.output).toContain("RENOVATE_OUTCOME drought=0 delivering=1 unmeasured=1 ");
+    const read = await runStep({ step: READ_STEP, sweep: s.output });
+    expect(read.outputs.drought).toBe("yes");
+    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
+    expect(r.calls.find((c) => c.sub === "create")!.flag("--title")).toBe(
+      "Renovate drought: espada",
+    );
+  });
+
+  it("finds an existing issue titled exactly 'Renovate drought' and files no duplicate", async () => {
+    const s = await sweep([{ name: "espada", window: FROZEN }]);
+    const bare: Issue = { number: 950, title: "Renovate drought", body: "see run output" };
+    const r = await runStep({ step: OPEN_STEP, sweep: s.output, corpus: corpus([bare]) });
+    expect(r.calls.filter((c) => c.sub === "create")).toEqual([]);
+    expect(r.calls.find((c) => c.sub === "edit")?.args[0]).toBe("950");
   });
 
   it("updates the existing issue past the first page: retitles it to tonight's repos, rewrites the body, comments", async () => {
@@ -311,6 +349,19 @@ describe("a drought opens its own issue", () => {
     expect(title).toMatch(/^Renovate drought: a-fairly-long-client-site-1, /);
     const shown = title.replace(/ \(\+\d+ more\)$/, "").split(", ").length;
     expect(title).toMatch(new RegExp(` \\(\\+${25 - shown} more\\)$`));
+  });
+
+  it("lists names in the audit's order and stops at the first that does not fit", async () => {
+    const repos = [
+      { name: "alpha", window: FROZEN },
+      { name: "b".repeat(170), window: FROZEN },
+      { name: "gamma", window: FROZEN },
+    ];
+    const s = await sweep(repos);
+    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
+    expect(r.calls.find((c) => c.sub === "create")!.flag("--title")).toBe(
+      "Renovate drought: alpha (+2 more)",
+    );
   });
 
   it("an output with no drought line keeps the existing body and only comments", async () => {
@@ -367,6 +418,17 @@ describe("the close step closes only on evidence", () => {
     expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950"]);
   });
 
+  it("closes every open drought issue whose named repos all deliver, not just the first", async () => {
+    const a = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
+    const b = await droughtIssue(951, [{ name: "revogen", window: FROZEN }]);
+    const s = await sweep([
+      { name: "espada", window: HEALTHY },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([a, b]) });
+    expect(r.calls.filter((c) => c.sub === "close").map((c) => c.args[0])).toEqual(["950", "951"]);
+  });
+
   it("closes an issue that named an UNMEASURED repo once that repo delivers", async () => {
     const issue = await droughtIssue(950, [{ name: "williamson-homes", window: NEVER }]);
     const s = await sweep([{ name: "williamson-homes", window: HEALTHY }]);
@@ -376,8 +438,11 @@ describe("the close step closes only on evidence", () => {
 
   it("refuses when a repo the issue named was not measured tonight (went private)", async () => {
     const issue = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
+    // espada-cms delivers: a prefix match on its DELIVER line must not
+    // vouch for espada.
     const s = await sweep([
       { name: "revogen", window: HEALTHY },
+      { name: "espada-cms", window: HEALTHY },
       { name: "espada", window: HEALTHY, visibility: "private" },
     ]);
     expect(s.output).toContain("RENOVATE_OUTCOME drought=0 ");
@@ -437,8 +502,36 @@ describe("the close step closes only on evidence", () => {
   });
 });
 
+/** A step's real `if:`, evaluated for one value of the read step's output on
+ *  main. Only `==`, `!=`, `&&`, `||` and quoted strings appear in these. */
+async function firesOn(stepName: string, drought: string): Promise<boolean> {
+  const wf = await readFile(workflowPath(WF), "utf-8");
+  const step = workflowSteps(wf).find((s) => s.label === stepName);
+  if (!step?.if) throw new Error(`no if: on ${stepName}`);
+  const js = step.if
+    .replace(/steps\.renovate-outcome\.outputs\.drought/g, JSON.stringify(drought))
+    .replace(/github\.ref/g, JSON.stringify("refs/heads/main"))
+    .replace(/'([^']*)'/g, (_, v: string) => JSON.stringify(v))
+    .replace(/==/g, "===")
+    .replace(/!===/g, "!==");
+  if (!/^[\s"\w/=!&|()-]+$/.test(js)) throw new Error(`cannot evaluate: ${js}`);
+  return Function(`return (${js});`)() as boolean;
+}
+
 describe("the read step without an outcome line", () => {
-  it("says drought=unknown, so neither the open nor the close step runs", async () => {
+  it("only drought=yes fires the open step, and only drought=no fires the close step", async () => {
+    for (const [value, open, close] of [
+      ["yes", true, false],
+      ["no", false, true],
+      ["unknown", false, false],
+      ["", false, false],
+    ] as const) {
+      expect([value, await firesOn(OPEN_STEP, value)]).toEqual([value, open]);
+      expect([value, await firesOn(CLOSE_STEP, value)]).toEqual([value, close]);
+    }
+  });
+
+  it("says drought=unknown and warns", async () => {
     const r = await runStep({
       step: READ_STEP,
       sweep: "protection-audit skipped: no GH_TOKEN (fleet read) configured.\n",

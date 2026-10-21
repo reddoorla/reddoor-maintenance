@@ -5,6 +5,7 @@ import {
   renovateOutcomeSummary,
   rulesetBypassSummary,
   type ProtectionCoverageDeps,
+  type RenovateOutcome,
 } from "../../audits/protection-coverage.js";
 import {
   collectPackageManagerPins,
@@ -80,20 +81,34 @@ export async function runProtectionAuditCommand(
   // close list, and `PROTECTION_AUDIT gaps=0 ` to decide a clean sweep — none
   // of which these lines match, so the tracking-issue plumbing is untouched by
   // construction rather than by promise.
-  const measured = rows.map((r) => r.renovateOutcome).filter((o) => o !== undefined);
-  for (const r of rows) {
-    const line = r.renovateOutcome && renovateOutcomeLine(r.renovateOutcome);
-    if (line) lines.push(`WARN    ${r.repo} — ${line}`);
+  // A row the sweep judged but whose probe threw before the merge window was
+  // read carries no outcome. It is UNMEASURED, never left out (#1606): left
+  // out, a repo whose probe fails keeps its drought off the fleet line, and an
+  // empty line reads as "every repo delivers". SKIPPED rows without an outcome
+  // (private, archived) are outside the sweep and stay out.
+  const outcomeOf = (r: (typeof rows)[number]): RenovateOutcome | undefined =>
+    r.renovateOutcome ??
+    (r.status === "skipped"
+      ? undefined
+      : {
+          state: "unmeasured",
+          reason:
+            "the sweep could not read this repo, so its Renovate merges were not read (see its GAP line)",
+        });
+  const outcomes = rows.map((r) => ({ repo: r.repo, outcome: outcomeOf(r) }));
+  const measured = outcomes.map((o) => o.outcome).filter((o) => o !== undefined);
+  for (const { repo, outcome } of outcomes) {
+    const line = outcome && renovateOutcomeLine(outcome);
+    if (line) lines.push(`WARN    ${repo} — ${line}`);
   }
   // A delivering repo gets its own line too (#1606). fleet-security closes the
   // Renovate drought issue only when every repo the issue named prints one: a
-  // repo that went unmeasured tonight (private, archived, its probe threw)
-  // prints neither WARN nor DELIVER, and "not seen" must not read as "fixed".
-  for (const r of rows) {
-    const o = r.renovateOutcome;
+  // repo that left the sweep tonight (private, archived) prints neither WARN
+  // nor DELIVER, and "not seen" must not read as "fixed".
+  for (const { repo, outcome: o } of outcomes) {
     if (o?.state !== "delivering") continue;
     lines.push(
-      `DELIVER ${r.repo} — a feature update landed ${o.days}d ago ` +
+      `DELIVER ${repo} — a feature update landed ${o.days}d ago ` +
         `(${o.lastBranch} merged ${o.lastMergedAt.slice(0, 10)}; warns past ${RENOVATE_DROUGHT_WARN_DAYS}d)`,
     );
   }
