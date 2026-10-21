@@ -67,7 +67,10 @@ const PAGES: Record<string, string> = {
       ["h2", null, "Current"],
     ],
     `<h4 style="display:none">Mobile title</h4><h5 aria-hidden="true">Decoration</h5>
-     <h5 role="presentation">Eyebrow</h5><div role="heading">Section</div><h3>Detail</h3>`,
+     <h5 role="presentation">Eyebrow</h5><h5 role="none">Kicker</h5><h5 role="tab">Tab</h5>
+     <h5 hidden>Template</h5><h5 style="visibility:hidden">Spacer</h5><div inert><h5>Closed menu</h5></div>
+     <details><summary>FAQ</summary><h4>Question</h4></details><section style="content-visibility:hidden"><h4>Deferred</h4></section>
+     <div role="heading">Section</div><h3>Detail</h3>`,
   ),
   // reddoor-website's home: one visible <h1> per opening slide, five in all.
   "/five-h1": outlinePage([
@@ -77,11 +80,15 @@ const PAGES: Record<string, string> = {
     ["h1", null, "compelling design"],
     ["h1", null, "We tell"],
   ]),
-  // The smallest skip: one level missing.
-  // a card component: its own <h2> in its shadow root, and an <h4> slotted
-  // from the light DOM, a skip;
+  // A card component: its own <h2> in its shadow root, and an <h4> slotted
+  // from the light DOM, a skip.
   "/shadow": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Team</h1><x-card><h4>Slotted role</h4></x-card></main>
 <script>customElements.define("x-card", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<h2>Card</h2><slot></slot>"; } });</script></body></html>`,
+  // A named slot ahead of the shadow root's own <h3>: the slotted <h2> reads
+  // first, so there is no skip; a light child no slot takes is not read.
+  "/named-slot": `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>R9</title></head><body><main><h1>Top</h1><x-panel><h2 slot="a">Slot A</h2><h6>Unslotted</h6></x-panel></main>
+<script>customElements.define("x-panel", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<slot name="a"></slot><h3>After slot</h3>'; } });</script></body></html>`,
+  // The smallest skip: one level missing.
   "/one-level-skip": outlinePage([
     ["h1", null, "Services"],
     ["h2", null, "Cleanings"],
@@ -190,6 +197,12 @@ describe("design-rules R9 (heading levels), in a real browser", () => {
     expect(o.findings.map((f) => f.problem)).toEqual([
       'is level 4 after level 2 ("Card"), skipping level 3 (at 1440 and 390px)',
     ]);
+  });
+
+  it("reads a slotted heading where its slot sits, and not one no slot takes", async () => {
+    const o = await checkHeadingLevels(browser, `${base}/named-slot`);
+    expect(o.status, JSON.stringify(o.findings)).toBe("pass");
+    expect(o.note).toBe("headings in the outline: 3 at 1440px, 3 at 390px; 0 finding(s)");
   });
 
   it("FAILS a skip only the phone layout has", async () => {

@@ -11,15 +11,20 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //
 // The outline is the one assistive technology reads, at 1440×900 and 390×844
 // (a phone layout can swap headings): every `h1`–`h6` and `[role=heading]`
-// in document order, open shadow roots included, that is not hidden from it
-// (display:none, visibility:hidden, `hidden`, inside aria-hidden="true") and
-// has not had its semantics removed (`role="presentation"` or `"none"`). The
-// level is a valid `aria-level` if there is one, else the tag's (2 for a bare
-// role=heading, the ARIA default). A level skips when it is more than one
-// deeper than the heading before it; going back up is never a skip.
+// in reading order (open shadow roots in place of their host's children,
+// slotted elements where their slot sits) that is in the accessibility tree:
+// rendered (not display:none, not in a closed <details>, not under
+// content-visibility:hidden), not visibility:hidden, not inert, and not inside
+// aria-hidden="true". A heading tag with another role (presentation, none,
+// tab) is not a heading. The level is `aria-level` when it reads as 1 or more
+// (its leading whole number, as axe reads it), else the tag's (2 for a bare
+// role=heading, the ARIA default).
+// A level skips when it is more than one deeper than the heading before it;
+// going back up is never a skip.
 //
 // Not covered: part (b), that a heading whose level changed keeps its visual
-// size, which needs two builds; and empty headings, which are R15's.
+// size, which needs two builds; empty headings, which are R15's; and headings
+// inside iframes and closed shadow roots.
 
 export type OutlineHeading = { target: string; level: number; text: string };
 
@@ -34,38 +39,43 @@ export function sampleOutline(): OutlineSample {
   const headings: OutlineHeading[] = [];
   const stack: Element[] = [document.documentElement];
   const order: Element[] = [];
-  // Document order, entering open shadow roots where they sit, then the light
-  // children the shadow root slots.
+  // Reading order: a shadow host's shadow root in place of its children, and a
+  // <slot> in place of what it slots, where the slot sits. A light child no
+  // slot takes is not rendered, and is not read.
   while (stack.length > 0) {
     const el = stack.pop()!;
     order.push(el);
-    const children = [
-      ...Array.from(el.shadowRoot ? el.shadowRoot.children : []),
-      ...Array.from(el.children),
-    ];
+    const assigned = el instanceof HTMLSlotElement ? el.assignedElements({ flatten: true }) : [];
+    const children = el.shadowRoot
+      ? Array.from(el.shadowRoot.children)
+      : assigned.length > 0
+        ? assigned
+        : Array.from(el.children);
     for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
   }
   for (const el of order) {
     const tag = /^H([1-6])$/.exec(el.tagName);
     const role = (el.getAttribute("role") ?? "").trim().toLowerCase();
-    if (role === "presentation" || role === "none") continue;
-    if (!tag && role !== "heading") continue;
+    // A heading tag with another role (presentation, none, tab, button) is
+    // not a heading to assistive technology.
+    if (tag ? role !== "" && role !== "heading" : role !== "heading") continue;
+    // Out of the accessibility tree: not rendered (display:none, a closed
+    // <details>, content-visibility:hidden), visibility:hidden, inert, or
+    // inside aria-hidden="true".
+    if (!el.checkVisibility({ visibilityProperty: true })) continue;
     let hidden = false;
     for (let node: Element | null = el; node;) {
-      const style = getComputedStyle(node);
-      if (
-        style.display === "none" ||
-        node.hasAttribute("hidden") ||
-        node.getAttribute("aria-hidden") === "true"
-      ) {
+      if (node.getAttribute("aria-hidden") === "true" || node.hasAttribute("inert")) {
         hidden = true;
         break;
       }
       node = node.parentElement ?? ((node.getRootNode() as ShadowRoot).host || null);
     }
-    if (hidden || getComputedStyle(el).visibility !== "visible") continue;
+    if (hidden) continue;
+    // aria-level read as axe reads it: its leading whole number ("4x" is 4),
+    // used when it is 1 or more.
     const aria = Number.parseInt(el.getAttribute("aria-level") ?? "", 10);
-    const level = Number.isInteger(aria) && aria >= 1 ? aria : tag ? Number(tag[1]) : 2;
+    const level = aria >= 1 ? aria : tag ? Number(tag[1]) : 2;
     const parts: string[] = [];
     let node: Element | null = el;
     while (node && parts.length < 6) {
