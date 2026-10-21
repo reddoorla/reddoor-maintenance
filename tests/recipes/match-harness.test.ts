@@ -2128,6 +2128,70 @@ describe("the /dev/match route imports `dev` from the site's kit major (#1566)",
     expect(again.notes ?? "").not.toMatch(/cannot read/);
   });
 
+  it("writes `$app/env` on a kit major above 3", async () => {
+    const { route } = await installOnKit("^4.0.0");
+    expect(route).toBe(shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+  });
+
+  /** The note, as ONE entry: the CLI joins notes with "; ". */
+  const kitNote = (notes: string | undefined) =>
+    (notes ?? "").split("; ").find((n) => n.includes("cannot read"));
+  /** Run the recipe on a `catalog:` site whose route is `body`. */
+  async function unreadableWith(body: string) {
+    const cwd = await siteOnKit("catalog:");
+    await seed(cwd, ROUTE_SERVER, body);
+    const result = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    return { cwd, result, route: await read(cwd, ROUTE_SERVER) };
+  }
+
+  it("the unreadable-spec note is one note, and quotes the spec", async () => {
+    const { result } = await installOnKit("catalog:");
+    const note = kitNote(result.notes);
+    expect(note).toContain('"catalog:"');
+    expect(note).toMatch(/\$app\/env by hand$/);
+  });
+
+  it("on an unreadable spec, a route the user switched to `$app/env` as told is left alone, unflagged", async () => {
+    const { cwd } = await installOnKit("catalog:");
+    const kit3 = shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT);
+    await seed(cwd, ROUTE_SERVER, kit3);
+    const again = await matchHarness(
+      { path: cwd },
+      { ref: "https://ref.test" },
+      { spawn: noopSpawn },
+    );
+    expect(await read(cwd, ROUTE_SERVER)).toBe(kit3);
+    expect(again.notes ?? "").not.toContain(ROUTE_SERVER);
+  });
+
+  it("on an unreadable spec, the kit 3 render of a previous body upgrades to the current kit 3 render", async () => {
+    const prev = MATCH_HARNESS_PREVIOUS[ROUTE_SERVER]![0]!;
+    const { result, route } = await unreadableWith(prev.replace(KIT2_IMPORT, KIT3_IMPORT));
+    expect(route).toBe(shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+    expect(result.notes).toContain(`${ROUTE_SERVER} upgraded from a previous version`);
+    expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
+    expect(kitNote(result.notes)).toBeUndefined();
+  });
+
+  it("on an unreadable spec, a previous kit 2 body upgrades to kit 2, with the note", async () => {
+    const { result, route } = await unreadableWith(MATCH_HARNESS_PREVIOUS[ROUTE_SERVER]![0]!);
+    expect(route).toBe(shippedRoute());
+    expect(result.notes).toContain(`${ROUTE_SERVER} upgraded from a previous version`);
+    expect(kitNote(result.notes)).toBeDefined();
+  });
+
+  it("on an unreadable spec, a hand-edited route is flagged, with no kit note", async () => {
+    const edited = shippedRoute() + "// the site's own line\n";
+    const { result, route } = await unreadableWith(edited);
+    expect(route).toBe(edited);
+    expect(result.notes).toContain(`${ROUTE_SERVER} differs from the shipped template`);
+    expect(kitNote(result.notes)).toBeUndefined();
+  });
+
   it("the kit 3 route still refuses outside dev and serves in dev", async () => {
     const { cwd } = await installOnKit("^3.0.0");
     const off = await loadDevMatch(cwd, { dev: false, uid: "home", sitePages: ONE_PAGE });

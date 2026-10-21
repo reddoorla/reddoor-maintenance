@@ -1,4 +1,4 @@
-import { mkdir, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
@@ -76,6 +76,26 @@ export function renderForKit(
   if (!template.includes(KIT2_DEV_IMPORT))
     throw new Error(`${rel}: the template no longer carries \`${KIT2_DEV_IMPORT}\` (#1566)`);
   return template.replace(KIT2_DEV_IMPORT, KIT3_DEV_IMPORT);
+}
+
+/** The kit 3 render of each shipped body that carries the kit 2 import. */
+function kit3Renders(rel: string, bodies: readonly string[]): string[] {
+  return bodies.filter((b) => b.includes(KIT2_DEV_IMPORT)).map((b) => renderForKit(rel, b, 3));
+}
+
+/** The `@sveltejs/kit` spec package.json declares, verbatim, looked up as
+ *  readKitMajor looks it up. Only for quoting in a note: readKitMajor is what
+ *  interprets it. */
+async function readKitSpec(cwd: string): Promise<string | null> {
+  try {
+    const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return pkg.devDependencies?.["@sveltejs/kit"] ?? pkg.dependencies?.["@sveltejs/kit"] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** CRLF and trailing whitespace are the only differences a site's formatter is
@@ -332,13 +352,7 @@ export async function matchHarness(
         const previousHere =
           template === f.template
             ? previous
-            : [
-                ...previous,
-                ...previous
-                  .filter((p) => p.includes(KIT2_DEV_IMPORT))
-                  .map((p) => renderForKit(f.rel, p, kitMajor)),
-                f.template,
-              ];
+            : [...previous, ...kit3Renders(f.rel, previous), f.template];
         if (f.rel === HARNESS_JSON_RELATIVE) {
           // Patch the PARSED object, never the text. The seed is pretty-printed
           // two-space JSON, so `matrix` renders as a four-line exploded array
@@ -351,6 +365,19 @@ export async function matchHarness(
           template = JSON.stringify(seed, null, 2) + "\n";
         }
         const existing = await readTextIfExists(target);
+        if (kitMajor === "unreadable" && f.rel === MATCH_ROUTE_SERVER_RELATIVE) {
+          // The major is unknown, so the import name the site already has is
+          // the best evidence of it. A route in a kit 3 render of a body this
+          // recipe shipped (what the note below tells the user to make) is
+          // ours: kept when current, upgraded in the same render when not.
+          // Anything else takes the kit 2 path.
+          const kit3 = renderForKit(f.rel, f.template, 3);
+          const kit3Action = planFileWrite(existing, kit3, f.owner, kit3Renders(f.rel, previous));
+          if (kit3Action === "skip" || kit3Action === "replace") {
+            plans.push({ f, template: kit3, existing, action: kit3Action });
+            continue;
+          }
+        }
         plans.push({
           f,
           template,
@@ -397,12 +424,14 @@ export async function matchHarness(
       const routePlan = plans.find((p) => p.f.rel === MATCH_ROUTE_SERVER_RELATIVE);
       if (
         kitMajor === "unreadable" &&
-        (routePlan?.action === "write" || routePlan?.action === "replace")
+        (routePlan?.action === "write" || routePlan?.action === "replace") &&
+        routePlan.template.includes(KIT2_DEV_IMPORT)
       )
+        // No "; " inside: the CLI joins notes with it.
         notes.push(
-          `package.json declares @sveltejs/kit with a spec match-harness cannot read, so ` +
-            `${MATCH_ROUTE_SERVER_RELATIVE} imports \`dev\` from $app/environment (kit 2); on ` +
-            `SvelteKit 3 change it to $app/env by hand`,
+          `package.json declares @sveltejs/kit as ${JSON.stringify(await readKitSpec(cwd))}, ` +
+            `a spec match-harness cannot read, so ${MATCH_ROUTE_SERVER_RELATIVE} imports ` +
+            `\`dev\` from $app/environment (kit 2) — on SvelteKit 3 change it to $app/env by hand`,
         );
 
       // PASS 2 — write.
