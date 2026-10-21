@@ -496,7 +496,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     expect(html).toContain('class="verdict ok"');
     // The operator can see the EXACT string that would mute this gap.
     expect(html).toMatch(
-      /<ul class="setup-gaps"[^>]*>\s*<li[^>]*>\s*☐ on \*\.netlify\.app \(no custom domain\) · accept: "no custom domain"/,
+      /<ul class="setup-gaps"[^>]*>\s*<li[^>]*>\s*<span aria-hidden="true">☐<\/span> on \*\.netlify\.app \(no custom domain\) · accept: "no custom domain"/,
     );
   });
 

@@ -51,7 +51,7 @@
 {#if v.setup}
   <details class="setup-lane">
     <summary>🧰 Setup ({v.setup.count} site{v.setup.count === 1 ? "" : "s"})</summary>
-    {#each v.setup.rows as row (row.href)}
+    {#each v.setup.rows as row, i (i)}
       <div class="setup-row">
         <a href={row.href}><strong>{row.name}</strong></a>
         <SetupChecklist gaps={row.gaps} />

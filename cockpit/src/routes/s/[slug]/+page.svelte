@@ -45,9 +45,13 @@
     Lighthouse failing audits: <code>{v.failingAudits}</code>
   </div>{/if}
 <div class="setup-line">
-  Setup {v.setup.score}/{v.setup.total} — {#if v.setup.missing.length === 0}<span class="setup-ok"
-      >complete</span
-    >{:else}<span class="setup-missing">Missing: {v.setup.missing.join(", ")}</span>{/if}
+  Setup {v.setup.score}/{v.setup.total} — {#if v.setup.missing.length === 0 && v.setupGaps.length === 0}<span
+      class="setup-ok">complete</span
+    >{:else if v.setup.missing.length > 0}<span class="setup-missing"
+      >Missing: {v.setup.missing.join(", ")}</span
+    >{:else}<span class="setup-missing"
+      >{v.setupGaps.length} roster gap{v.setupGaps.length === 1 ? "" : "s"} open, below</span
+    >{/if}
 </div>
 <SetupChecklist gaps={v.setupGaps} />
 {#if v.alarm}

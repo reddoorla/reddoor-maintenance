@@ -827,6 +827,27 @@ describe("buildCockpitModel", () => {
       expect(buildCockpitView(due, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
         ["Gone Co", `${BASE}/s/gone-co`],
       ]);
+      // Only a dead letter links: another kind on no card, carrying a url, is not
+      // known to have a page behind it (an "(unlinked site)" preflight, say).
+      const other = {
+        ...due,
+        cardless: [
+          ...due.cardless!,
+          {
+            key: "preflight:x",
+            kind: "preflight" as const,
+            siteName: "(unlinked site)",
+            title: "preflight failed",
+            url: `${BASE}/s/unlinked`,
+            severity: "warning" as const,
+            metric: 1,
+          },
+        ],
+      };
+      expect(buildCockpitView(other, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
+        ["Gone Co", `${BASE}/s/gone-co`],
+        ["(unlinked site)", null],
+      ]);
     });
 
     it("holds a dead letter on any site without a card, not only an archived one", () => {
@@ -1208,7 +1229,8 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     expect(broken.tier).toBe("attention");
     expect(broken.setup?.map((i) => i.signal)).toEqual(["search-console-no-property"]);
     expect(broken.watchReasons).toEqual([]);
-    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1, setup: 1 });
+    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    expect(m.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
     expect(feed[0]!.group).toBe("broken");

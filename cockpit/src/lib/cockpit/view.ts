@@ -351,7 +351,9 @@ function cardView(c: SiteCard, index: number, now: Date): CardView {
     name: site.name,
     siteHref: safeUrl(site.url),
     visibleUrl: site.url,
-    setupTitle: missing.length === 0 ? "Setup complete" : `Missing: ${missing.join(", ")}`,
+    // "Complete" only when no roster gap is open either: the card's Setup
+    // checklist lists those, and the two must never disagree (#672 step 2).
+    setupTitle: setupTitle(missing, (c.setup ?? []).length),
     setupScore: `${onboarding.score}/${onboarding.total}`,
     audited: relativeTimeFromNow(site.lastLighthouseAuditAt, now),
     perf: score(site.pScore),
@@ -378,6 +380,13 @@ function cardView(c: SiteCard, index: number, now: Date): CardView {
     setupGaps: setupGaps(c),
     submissions: submissionsBadge(c),
   };
+}
+
+function setupTitle(missing: string[], gaps: number): string {
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push(`Missing: ${missing.join(", ")}`);
+  if (gaps > 0) parts.push(`${gaps} roster gap${gaps === 1 ? "" : "s"} open`);
+  return parts.length === 0 ? "Setup complete" : parts.join("; ");
 }
 
 function setupGaps(c: SiteCard): SetupGapView[] {

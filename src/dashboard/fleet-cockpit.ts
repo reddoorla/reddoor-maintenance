@@ -249,7 +249,7 @@ export function assignTier(
       reason: "GA4 property not recorded (reports carry no analytics)",
     });
   }
-  // #943: a watch only when a draft's lookup ran and matched no property. A blank
+  // #943: a Setup gap only when a draft's lookup ran and matched no property. A blank
   // record is not evidence either way, and a soft-fail is unknown, not a finding.
   if (
     site.status === "maintained" &&
@@ -274,7 +274,7 @@ export function assignTier(
   // blocks on checklist items nothing will ever measure (29 Navy, 2026-09-17;
   // beachfront-dentistry, 2026-09-29). Only `maintained`: `hosted-only` is
   // report-eligible but no sweep covers it and the cockpit shows no card for it,
-  // so filling these cells would not get it measured. Watch, not an attention
+  // so filling these cells would not get it measured. A Setup gap (#672 step 2), not an attention
   // item, because "not on Netlify" is a legitimate state the operator must be
   // able to accept. The Netlify keys deliberately avoid the no-custom-domain
   // keys ("netlify", "on netlify", …), which would otherwise mute both at once.
@@ -353,7 +353,8 @@ export function assignTier(
   // watchAcceptKeys and acceptedReasons are Watch-card content (the Needs-you feed,
   // the verdict and the chips all read them), so they stay empty here. Only the
   // un-accepted watch TAGS ride along, so the card still answers the watch filter
-  // chips (`no-analytics`, `stale`, …) it belongs under. Before #941 this was an
+  // chips (`stale`, `url-unresolved`, …) it belongs under. Its Setup gaps ride
+  // along too, in `setup`. Before #941 this was an
   // early return with no tags, and every such chip undercounted exactly the sites
   // that were also broken.
   if (broken)
@@ -452,10 +453,6 @@ export type CockpitSummary = {
    *  conditions. A piercing alarm (piercesPreLaunchMute) re-tiers such a site to
    *  attention, so it counts there instead — muted never means "hidden if broken". */
   preLaunch: number;
-  /** Sites with at least one un-accepted roster gap, whatever their tier (#672
-   *  step 2). Never part of attention, watch or healthy: those count tiers.
-   *  Optional for back-compat with hand-built summaries. */
-  setup?: number;
   criticalHighVulns: number;
   lighthouseBelowFloor: number;
   deliveryFailures: number;
@@ -988,7 +985,6 @@ export function buildCockpitModel(
     watch: cards.filter((c) => c.tier === "watch").length,
     healthy: cards.filter((c) => c.tier === "healthy").length,
     preLaunch: cards.filter((c) => c.tier === "pre-launch").length,
-    setup: cards.filter((c) => (c.setup ?? []).length > 0).length,
     criticalHighVulns: tagged.filter((i) => i.kind === "vuln").reduce((s, i) => s + i.metric, 0),
     lighthouseBelowFloor: tagged.filter((i) => i.kind === "lighthouse").length,
     deliveryFailures: tagged.filter((i) => i.kind === "delivery").length,

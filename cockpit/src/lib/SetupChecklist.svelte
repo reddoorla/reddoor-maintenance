@@ -11,7 +11,8 @@
   <ul class="setup-gaps" aria-label="Setup">
     {#each gaps as g (g.acceptKey)}
       <li title="Fill this in, or add the accept text to the site's Accepted Watch Conditions">
-        ☐ {g.reason} · accept: "{g.acceptKey}"
+        <span aria-hidden="true">☐</span>
+        {g.reason} · accept: "{g.acceptKey}"
       </li>
     {/each}
   </ul>

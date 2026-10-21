@@ -223,7 +223,7 @@ describe("roster identity reaches the operator's surfaces (#889)", () => {
     expect(byName.get("Good Site")!.setup).toEqual([]);
     expect(byName.get("Beachfront Dentistry")!.tier).toBe("healthy");
     expect(byName.get("Beachfront Dentistry")!.setup).toEqual([NETLIFY_ITEM]);
-    expect(model.summary.setup).toBe(1);
+    expect(model.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     expect(model.summary.watch).toBe(0);
     expect(model.summary.healthy).toBe(2);
     expect(buildNeedsYouFeed(model)).toEqual([]);
