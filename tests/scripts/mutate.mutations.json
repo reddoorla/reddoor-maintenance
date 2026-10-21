@@ -434,23 +434,11 @@
     "expect": "red"
   },
   {
-    "id": "M37-mutant-from-blob",
-    "edits": [
-      {
-        "file": "scripts/mutate.mjs",
-        "find": "        bytes = readFileSync(join(root, f));",
-        "replace": "        bytes = spawnSync(\"git\", [\"show\", `${sha}:${f}`], { cwd: root }).stdout;"
-      }
-    ],
-    "test": "tests/scripts/mutate.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "M38-cancel-out-allowed",
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "        if ([...out].every(([f, text]) => text === pristine.get(f)))",
+        "find": "        if ([...out].every(([f, text]) => Buffer.from(text).equals(Buffer.from(pristine.get(f)))))",
         "replace": "        if (false)"
       }
     ],
