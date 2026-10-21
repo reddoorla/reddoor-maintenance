@@ -1,0 +1,48 @@
+## Worker brief — P1-31: `contrast-unmeasured`'s remedy for Tailwind `black/<alpha>`
+
+**Item.** P1-31 · no issue yet (open one) · 🟢 GREEN · effort S
+Tailwind v4's `black/<n>` compiles to `color-mix(in oklab, #000 N%, transparent)`,
+which lightningcss 1.33 folds to `oklab(0% none none/.N)`. The gate's remedy
+says "write 0 for none in the oklab() token", but no such token exists in the
+site's source. The real fix is defining black as `oklab(0 0 0)`
+(reddoor-website#260, byte-identical render).
+
+**Verify first.** `sed -n 86,93p src/audits/util/contrast-unmeasured.ts`
+Expect: `unparseableColourRemedy` at line 86, and the `none` branch at 89–90
+returning `write 0 for "none" in the ${token}` [M, 2026-10-06 11:57Z].
+
+**Start here.**
+
+- `src/audits/util/contrast-unmeasured.ts:86` — `unparseableColourRemedy`
+- `tests/audits/a11y.test.ts:32`, `:1938`, `:1963` — where it is imported and pinned
+- reddoor-website#260 — the per-site fix to name in the remedy
+
+**Done when.** A colour of the shape `oklab(0% none none / α)` gets a remedy
+naming Tailwind's `black/<n>` and the `oklab(0 0 0)` definition; every other
+`none` colour keeps today's remedy; both are pinned by tests. The fleet list
+of sites using `black/<n>` with sRGB black (starter and starter-blux first)
+is written into the issue. Per-repo fixes are separate PRs, not this one.
+
+**Mutations I will run** (each must turn a test red):
+
+1. Drop the new branch (today's behaviour).
+2. Match any `oklab(... none ...)`, not only lightness 0 with two `none`s.
+3. Match `oklch(0% none none)` as well.
+4. Lose the alpha (match only the opaque form).
+
+**Stop conditions** (beyond AUTONOMY.md's six):
+
+- No fleet sweep. Listing the sites is reading; fixing them is per-repo PRs.
+- Two dirty review rounds → "Operator decisions", landed on `main` as a
+  docs-only PR, not a third round.
+
+**Landing.**
+
+1. `git fetch` the fresh `claude/*` and `fix/*` branches (`CLAUDE.md` →
+   Concurrent sessions); if one under a day old touches these files, stop.
+2. Open and claim the issue. Worktree from `origin/main`. Red test first.
+3. `pnpm lint`, `pnpm typecheck`, the changed tests, a changeset, a review,
+   the mutations table in the PR body.
+4. Move P1-31 to BACKLOG's Done section in the same PR.
+5. `node scripts/land-prs.mjs <pr>` from a worktree detached at `origin/main`.
+6. Journal entry in `docs/workJournal.md`, landed before the session ends.

@@ -46,6 +46,11 @@ describe("cli: list commands", () => {
     expect(out).toMatch(/reddoor-maint/);
   });
 
+  it("--help lists the check-brief command", () => {
+    const out = runCli(["--help"]);
+    expect(out).toMatch(/^\s*check-brief <brief>/m);
+  });
+
   it("--help lists the video command", () => {
     const out = runCli(["--help"]);
     expect(out).toMatch(/^\s*video <input>/m);

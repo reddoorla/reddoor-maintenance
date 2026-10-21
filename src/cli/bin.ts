@@ -861,6 +861,19 @@ cli
 
 cli
   .command(
+    "check-brief <brief>",
+    "Run a worker brief's Verify-first claims (read-only commands, no shell) and print PASS/FAIL per line.",
+  )
+  .action(async (brief: string, opts: { cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/check-brief.js")).runCheckBrief(brief, { cwd: opts.cwd }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
     "github-signals",
     "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write each site's row.",
   )
