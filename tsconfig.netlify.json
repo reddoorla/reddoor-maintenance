@@ -17,6 +17,6 @@
   // The handlers import deep src/ paths; the base `include` already covers src,
   // but a project that only lists the .mts entrypoints still pulls in every
   // src module they reference transitively. List both so tsc has full context.
-  "include": ["netlify/functions/**/*.mts", "src/**/*"],
+  "include": ["netlify/functions/**/*.mts", "netlify/edge-functions/**/*.ts", "src/**/*"],
   "exclude": ["dist", "node_modules", "tests/fixtures"]
 }

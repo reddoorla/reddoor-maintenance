@@ -17,7 +17,9 @@ import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
 import { siteSlug } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
+// The cockpit page renders `buildCockpitView`; the old string renderer went at
+// the cutover (#582), and the lane's markup is pinned in cockpit/tests/home.
+import { buildCockpitView } from "../../cockpit/src/lib/cockpit/view.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 
@@ -774,7 +776,7 @@ describe("buildCockpitModel", () => {
         );
       const held = archived("2026-06-11T00:01:00.000Z");
       expect(held.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", true]]);
-      expect(renderCockpitHtml(held, "op@example.com")).not.toContain("Not on any site card");
+      expect(buildCockpitView(held, NOW).cardless).toEqual([]);
       // Beside an unknown slug that is due, the lane counts only the due one.
       const mixed = buildCockpitModel(
         [site({ id: "a", name: "Espada" }), site({ id: "z", name: "Gone Co", status: "archived" })],
@@ -793,17 +795,37 @@ describe("buildCockpitModel", () => {
         ]),
         new Map([["gone-co", "2026-06-11T00:01:00.000Z"]]),
       );
-      const lane = renderCockpitHtml(mixed, "op@example.com");
-      expect(lane).toContain("Not on any site card (1)");
+      const lane = buildCockpitView(mixed, NOW).cardless;
       // A slug no site owns is never linked: it has no page.
-      expect(lane).toContain("<strong>(unknown site: ghost-co)</strong>");
+      expect(lane.map((i) => [i.siteName, i.href])).toEqual([["(unknown site: ghost-co)", null]]);
       const due = archived("2026-06-11T00:00:00.000Z");
       expect(due.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", undefined]]);
       expect(due.cardless![0]!.title).not.toMatch(/NO fleet site/);
-      const html = renderCockpitHtml(due, "op@example.com");
-      expect(html).toContain("Not on any site card (1)");
       // An archived site still has its page (getSiteBySlug ignores status).
-      expect(html).toContain(`<a href="${BASE}/s/gone-co">Gone Co</a>`);
+      expect(buildCockpitView(due, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
+        ["Gone Co", `${BASE}/s/gone-co`],
+      ]);
+      // Only a dead letter links: another kind on no card, carrying a url, is not
+      // known to have a page behind it (an "(unlinked site)" preflight, say).
+      const other = {
+        ...due,
+        cardless: [
+          ...due.cardless!,
+          {
+            key: "preflight:x",
+            kind: "preflight" as const,
+            siteName: "(unlinked site)",
+            title: "preflight failed",
+            url: `${BASE}/s/unlinked`,
+            severity: "warning" as const,
+            metric: 1,
+          },
+        ],
+      };
+      expect(buildCockpitView(other, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
+        ["Gone Co", `${BASE}/s/gone-co`],
+        ["(unlinked site)", null],
+      ]);
     });
 
     it("holds a dead letter on any site without a card, not only an archived one", () => {

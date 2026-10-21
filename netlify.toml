@@ -4,23 +4,28 @@
 # svix) — moved there so fleet sites don't inherit them. Netlify's default install
 # includes devDependencies (which is why this deploys today); NODE_ENV=production
 # would prune them and every function would fail to bundle with an unresolved module.
+# The cockpit's own build (svelte, vite, the SvelteKit adapter) is devDependencies
+# too, for the same reason.
+#
+# The build is the SvelteKit cockpit (#582): `/`, `/fleet`, `/s/:slug`,
+# `/submissions` and `/audits`. Its adapter writes one function per page to
+# `.netlify/functions-internal` (from `svelte.config.js` at the repo root, which
+# is why the config lives there) and the browser assets to `publish`. Every
+# `/api/*`, `/auth/*` and other endpoint stays a function in `functions`.
 [build]
-  command = "echo 'no build — functions only'"
+  command = "pnpm cockpit:build"
+  publish = "cockpit/build"
   functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
 
-# /s/:slug → site-dashboard function path is registered on the function
-# itself via `export const config = { path: [...] }` in
-# netlify/functions/site-dashboard.mts. A [[redirects]] rewrite with
-# status=200 passes the ORIGINAL request URL to the function rather than
-# the rewritten one, so query-string substitution (`slug=:slug`) never
-# reached the handler — every request fell through to the health check.
-#
-# The same convention covers every routed endpoint — each declares its own
-# `config.path` rather than a [[redirects]] rule here, so ctx.params is
-# populated:
+# Every routed endpoint declares its own `config.path` on the function rather
+# than a [[redirects]] rule here. A [[redirects]] rewrite with status=200 passes
+# the ORIGINAL request URL to the function rather than the rewritten one, so
+# query-string substitution never reached the handler (the old /s/:slug page
+# function fell through to its health check that way). With `config.path`,
+# ctx.params is populated:
 #   /api/reports/:id/approve      → approve-report.mts
 #   /api/reports/:id/withdraw     → withdraw-report.mts
 #   /api/reports/:id/unapprove    → unapprove-report.mts

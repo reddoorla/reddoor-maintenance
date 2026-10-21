@@ -4,7 +4,9 @@ import { writeDigestState } from "../../src/db/digest-state.js";
 import { loadSiteAlarmContext } from "../../src/dashboard/site-alarm.js";
 import { createDeadLetter } from "../../src/db/deadletter.js";
 import { sql } from "kysely";
-import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
+// The site page renders `buildSiteView`; the old string renderer went at the
+// cutover (#582), and the alarm's markup is pinned in cockpit/tests/site.
+import { buildSiteView } from "../../cockpit/src/lib/site/view.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-10-05T12:00:00Z");
@@ -71,9 +73,11 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     const alarm = (await loadClean())!;
     expect(alarm.tier).toBe("healthy");
     expect(alarm.items.map((i) => [i.key, i.waiting])).toEqual([["deadletter:acme", true]]);
-    const html = renderSiteDashboardHtml(clean, [], [], null, NOW, alarm);
-    expect(html).toMatch(/chip waiting[^>]*>waiting: 1 lead dead-lettered 3 h ago/);
-    expect(html).not.toContain("Needs attention");
+    const view = buildSiteView(clean, [], [], null, NOW, alarm).alarm!;
+    expect(view.chips.map((c) => [c.cls, c.text])).toEqual([
+      ["chip waiting", expect.stringMatching(/^waiting: 1 lead dead-lettered 3 h ago/)],
+    ]);
+    expect(view.label).not.toBe("Needs attention");
   });
 
   it("a failed oldest-row read holds nothing: the page keeps its alarm", async () => {

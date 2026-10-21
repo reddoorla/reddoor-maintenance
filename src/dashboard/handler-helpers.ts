@@ -1,7 +1,7 @@
 /**
- * Small pure helpers extracted from the Netlify dashboard handlers
- * (fleet-homepage.mts, site-dashboard.mts) so their non-glue logic is
- * unit-testable without booting a Netlify function.
+ * Small pure helpers shared by the Netlify dashboard handlers and the SvelteKit
+ * cockpit (#582), so their non-glue logic is unit-testable without booting a
+ * Netlify function.
  */
 
 const DEFAULT_DASHBOARD_BASE_URL = "https://reddoor-maintenance.netlify.app";
@@ -13,18 +13,6 @@ const DEFAULT_DASHBOARD_BASE_URL = "https://reddoor-maintenance.netlify.app";
  */
 export function resolveDashboardBaseUrl(raw: string | undefined): string {
   return (raw?.trim() || DEFAULT_DASHBOARD_BASE_URL).replace(/\/$/, "");
-}
-
-/**
- * Resolve the requested site slug from the path param (Netlify
- * `ctx.params.slug`) or, lacking it, the `?slug=` query param. Null when
- * neither is present (→ the handler's presence-only health check).
- */
-export function resolveSlug(
-  paramSlug: string | undefined,
-  querySlug: string | null,
-): string | null {
-  return paramSlug ?? querySlug ?? null;
 }
 
 /**

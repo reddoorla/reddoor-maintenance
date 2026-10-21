@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import Page from "../../src/routes/s/[slug]/+page.svelte";
-import { renderSiteDashboardHtml } from "../../../src/dashboard/render.js";
 import { buildSiteView } from "../../src/lib/site/view.js";
-import { canonical, bodyOf, renderPage } from "../_helpers/parity.js";
+import { canonical, renderPage } from "../_helpers/parity.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { CASES, input, pending, type SiteInput } from "./fixtures.js";
 
@@ -11,43 +10,22 @@ import { CASES, input, pending, type SiteInput } from "./fixtures.js";
  * line for line in canonical form. Dropped on purpose, because the shell now
  * provides them: the old page's own auth fragment and its "← Fleet home" link.
  */
-const OLD_ONLY = ["a.home", 'div[style^="float:right"]'];
-
-/** The old page with its one intended difference: the site-details controls
- *  and the commentary textareas are server-rendered disabled until their save
- *  handlers attach (review round 2), so an edit before hydration is never lost
- *  without a ✓/✗. A `data-detail-field` or `data-commentary-for` attribute
- *  marks exactly those controls. */
-const withDisabledEditors = (html: string) =>
-  html.replace(/ (data-detail-field|data-commentary-for)="/g, ' disabled $1="');
-
-function both(i: SiteInput) {
-  const before = canonical(
-    withDisabledEditors(
-      bodyOf(
-        renderSiteDashboardHtml(
-          i.site,
-          i.reports,
-          i.submissions,
-          i.spam,
-          i.now,
-          i.alarm,
-          "op@x.com",
-        ),
-      ),
-    ),
-    OLD_ONLY,
-  );
+/**
+ * Since the cutover (#582) the old renderer is gone. Each case's markup is
+ * pinned by a snapshot written while parity with the old renderer held (commit
+ * "freeze each page's canonical markup as a snapshot, verified by parity"), so
+ * each snapshot is what the old page rendered. Keep these test names: the
+ * snapshots are keyed on them.
+ */
+function rendered(i: SiteInput): string[] {
   const view = buildSiteView(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm);
-  const after = canonical(renderPage(Page, { data: { view } }));
-  return { before, after };
+  return canonical(renderPage(Page, { data: { view } }));
 }
 
 describe("/s/:slug parity with renderSiteDashboardHtml", () => {
   for (const [name, i] of CASES) {
     it(name, () => {
-      const { before, after } = both(i);
-      expect(after).toEqual(before);
+      expect(rendered(i)).toMatchSnapshot();
     });
   }
 
@@ -61,8 +39,7 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
     "2026-06-15T17:20:00.000Z",
   ]) {
     it(`send-timing line at ${iso}`, () => {
-      const { before, after } = both(input({ now: new Date(iso), reports: [pending()] }));
-      expect(after).toEqual(before);
+      expect(rendered(input({ now: new Date(iso), reports: [pending()] }))).toMatchSnapshot();
     });
   }
 
@@ -113,22 +90,6 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
         submissionId: null,
       }),
     ];
-    const { before, after } = both(input({ submissions: rows }));
-    expect(after).toEqual(before);
-  });
-
-  it("the instrument sees a one-character difference", () => {
-    const i = input({ reports: [pending()] });
-    const before = canonical(
-      withDisabledEditors(
-        bodyOf(renderSiteDashboardHtml(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm)),
-      ),
-      OLD_ONLY,
-    );
-    const view = buildSiteView(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm);
-    const after = canonical(
-      renderPage(Page, { data: { view } }).replace("Don't send", "Dont send"),
-    );
-    expect(after).not.toEqual(before);
+    expect(rendered(input({ submissions: rows }))).toMatchSnapshot();
   });
 });

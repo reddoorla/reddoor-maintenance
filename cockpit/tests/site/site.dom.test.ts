@@ -5,7 +5,10 @@ import { buildSiteView, type SiteView } from "../../src/lib/site/view.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { gatingFields } from "../../../src/reports/checklist.js";
 import { input, pending, reportRow, cleanEvidence, siteRow, type SiteInput } from "./fixtures.js";
-import { withdrawConfirmText, UNAPPROVE_CONFIRM_TEXT } from "../../../src/dashboard/render.js";
+import {
+  withdrawConfirmText,
+  UNAPPROVE_CONFIRM_TEXT,
+} from "../../../src/dashboard/report-confirm.js";
 
 /**
  * /s/:slug's actions, executed (#582). Each test mounts the real page component

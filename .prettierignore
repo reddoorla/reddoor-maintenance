@@ -31,3 +31,4 @@ scripts/model-bakeoff/tasks/seeded-review/cases/
 cockpit/.svelte-kit/
 cockpit/build/
 cockpit/.netlify/
+.netlify/

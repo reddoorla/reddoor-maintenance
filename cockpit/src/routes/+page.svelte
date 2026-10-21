@@ -74,14 +74,17 @@
   </details>
 {/if}
 
-<!-- #786: attention items that belong to no site card. No /s/<slug> link: the
-     whole point is that the site does not exist. -->
+<!-- #786: attention items that belong to no site card. A dead letter for a
+     site with no card links its page; a slug that resolves to no site has no
+     page, so it gets no link (OD 87, #1575). -->
 {#if v.cardless.length > 0}
   <details class="cardless">
     <summary>⚠ Not on any site card ({v.cardless.length})</summary>
     {#each v.cardless as item, i (i)}
       <div class="approve-row">
-        <strong>{item.siteName}</strong> <span class="muted">{item.title}</span>
+        <strong
+          >{#if item.href}<a href={item.href}>{item.siteName}</a>{:else}{item.siteName}{/if}</strong
+        > <span class="muted">{item.title}</span>
       </div>
     {/each}
   </details>

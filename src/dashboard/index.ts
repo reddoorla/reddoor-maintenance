@@ -1,5 +1,3 @@
-export { renderSiteDashboardHtml } from "./render.js";
-export { renderCockpitHtml } from "./fleet-render.js";
 export { verifyBasicAuth } from "./basic-auth.js";
 export { requireOperator, denialResponse, readAuthConfig, pathWithQuery } from "./auth/require.js";
 export type {
@@ -9,7 +7,7 @@ export type {
   AuthRequestLike,
   Wants,
 } from "./auth/require.js";
-export { renderLoginPageHtml, renderAuthChrome, loginErrorMessage } from "./auth/render.js";
+export { renderLoginPageHtml, loginErrorMessage } from "./auth/render.js";
 export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
 export { withdrawReport } from "./withdraw.js";
@@ -44,8 +42,6 @@ export {
 export { setReportCommentary, COMMENTARY_MAX_LEN } from "./report-commentary.js";
 export type { ReportCommentaryDeps, ReportCommentaryResult } from "./report-commentary.js";
 export type { SiteDetailDeps, SiteDetailResult } from "./site-details.js";
-export { renderSubmissionsPageHtml } from "./submissions-page-render.js";
-export { renderFleetTableHtml } from "./fleet-table-render.js";
 export { parseFleetTableQuery, buildFleetTableModel, FLEET_SORT_KEYS } from "./fleet-table.js";
 export type {
   FleetTableModel,
@@ -60,8 +56,6 @@ export type {
   ParsedQuery,
   RawFilter,
 } from "./submissions-page.js";
-export { renderProspectAuditsPageHtml } from "./prospect-audits-render.js";
-export type { ProspectAuditsPageModel } from "./prospect-audits-render.js";
 export {
   triggerProspectAudit,
   respondToProspectAuditTrigger,

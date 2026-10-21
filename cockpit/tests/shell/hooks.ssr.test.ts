@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { RequestEvent } from "@sveltejs/kit";
-import { handle } from "../../src/hooks.server.js";
+import { handle, NOT_COCKPIT_PREFIXES } from "../../src/hooks.server.js";
+import { config as edgeRateLimit } from "../../../netlify/edge-functions/cockpit-rate-limit.js";
 import { mintSession, SESSION_COOKIE } from "../../../src/dashboard/auth/session.js";
 import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 
@@ -12,9 +13,16 @@ import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 const ORIGINAL_ENV = { ...process.env };
 const SECRET = "test-session-secret-0123456789abcdef";
 
-function event(headers: Record<string, string> = {}, path = "/fleet?sort=perf", method = "GET") {
+function event(
+  headers: Record<string, string> = {},
+  path = "/fleet?sort=perf",
+  method = "GET",
+  // SvelteKit's `event.url`: for a data request, the page's URL without `/__data.json`.
+  url = `https://cockpit.example${path}`,
+) {
   return {
     request: new Request(`https://cockpit.example${path}`, { headers, method }),
+    url: new URL(url),
     locals: {} as App.Locals,
   } as unknown as RequestEvent;
 }
@@ -99,5 +107,54 @@ describe("the cockpit auth hook", () => {
     );
     const { resolve } = await run(ev);
     expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it("answers 404 before the gate under the prefixes no cockpit page owns, whatever the password", async () => {
+    for (const path of [
+      "/api/nope",
+      "/auth/nope",
+      "/r/a/b",
+      "/_app/remote/x",
+      "/.netlify/x",
+      // Other spellings of the same prefixes, in case the edge router normalises
+      // a path before testing its exclusions (review round 3).
+      "/%61pi/nope",
+      "/API/nope",
+      "//api/nope",
+      "/api",
+      "/api%2Fnope",
+      "/%2Fapi/nope",
+    ]) {
+      for (const pw of ["s3cret", "wrong"]) {
+        // `event.url` as SvelteKit rewrites it for its own requests: not the raw path.
+        const { res, resolve } = await run(
+          event(authHeader(pw), path, "GET", "https://cockpit.example/fleet"),
+        );
+        expect([path, pw, res.status]).toEqual([path, pw, 404]);
+        expect(resolve).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it("still gates a page path beside those prefixes (the positive control)", async () => {
+    const { res } = await run(event(authHeader("wrong"), "/rate"));
+    expect(res.status).toBe(302);
+  });
+
+  it("returns a signed-out data request to the page, not to its JSON", async () => {
+    const { res } = await run(
+      event({}, "/fleet/__data.json?sort=perf", "GET", "https://cockpit.example/fleet?sort=perf"),
+    );
+    expect(res.headers.get("location")).toBe(
+      `/auth/login?returnTo=${encodeURIComponent("/fleet?sort=perf")}`,
+    );
+  });
+
+  it("refuses exactly the prefixes the edge rate limit leaves unlimited", () => {
+    // An excluded path no function owns still reaches the cockpit through its
+    // catch-all. Unlimited, it must never reach the password check.
+    expect(edgeRateLimit.excludedPath.map((p) => p.replace(/\*$/, ""))).toEqual([
+      ...NOT_COCKPIT_PREFIXES,
+    ]);
   });
 });
