@@ -349,11 +349,15 @@ async function fetchDeadLetterCounts(): Promise<{
  *  as "the whole fleet degraded overnight" in the operator's inbox. A thrown
  *  error is the honest outcome. */
 async function readDigestStateFromDb(): Promise<DigestSnapshot> {
-  const [{ openDb, readDbConfig }, { readDigestState }] = await Promise.all([
+  const [{ openDb, readDbConfig }, { readDigestStateChecked }] = await Promise.all([
     import("../db/client.js"),
     import("../db/digest-state.js"),
   ]);
-  return readDigestState(await openDb(readDbConfig()));
+  const read = await readDigestStateChecked(await openDb(readDbConfig()));
+  // #1613. A corrupt snapshot reads as `{}` by design (digest-state.ts), which
+  // badges every item NEW. This line is what says why; the workflow warns on it.
+  console.log(`DIGEST_STATE_READ snapshot=${read.state}`);
+  return read.value;
 }
 
 /** Bridge the injectable seam (returns void) onto the three-state contract the
@@ -369,12 +373,13 @@ async function writeRollupOnce(
   return writeCockpitRollupToDb(now);
 }
 
-async function readSendLogFromDb(): Promise<DigestSendLog> {
-  const [{ openDb, readDbConfig }, { readDigestSendLog }] = await Promise.all([
+async function readSendLogFromDb(): Promise<{ log: DigestSendLog; read: SendLogRead }> {
+  const [{ openDb, readDbConfig }, { readDigestSendLogChecked }] = await Promise.all([
     import("../db/client.js"),
     import("../db/digest-state.js"),
   ]);
-  return readDigestSendLog(await openDb(readDbConfig()));
+  const r = await readDigestSendLogChecked(await openDb(readDbConfig()));
+  return { log: r.value, read: r.state };
 }
 
 async function writeSendLogToDb(log: DigestSendLog): Promise<void> {
@@ -385,12 +390,21 @@ async function writeSendLogToDb(log: DigestSendLog): Promise<void> {
   await writeDigestSendLog(await openDb(readDbConfig()), log);
 }
 
-async function readSendLogSafely(options: DigestRunOptions): Promise<DigestSendLog> {
+/** #1613. How the send log read went, printed as `read=` on the
+ *  DIGEST_SEND_LOG line. `corrupt` and `failed` both make this run read "never
+ *  sent", so it re-sends as `first` (the nag the log exists to stop); the
+ *  workflow reds on either. An injected reader (tests) reports `ok`. */
+type SendLogRead = "ok" | "absent" | "corrupt" | "failed";
+
+async function readSendLogSafely(
+  options: DigestRunOptions,
+): Promise<{ log: DigestSendLog; read: SendLogRead }> {
   try {
-    return await (options.sendLog?.read ?? readSendLogFromDb)();
+    if (options.sendLog) return { log: await options.sendLog.read(), read: "ok" };
+    return await readSendLogFromDb();
   } catch (e) {
     console.warn(`⚠ digest send log unavailable, sending: ${(e as Error).message}`);
-    return EMPTY_SEND_LOG;
+    return { log: EMPTY_SEND_LOG, read: "failed" };
   }
 }
 
@@ -398,6 +412,7 @@ async function writeSendLogSafely(
   options: DigestRunOptions,
   log: DigestSendLog,
   decision: string,
+  read: SendLogRead,
 ): Promise<void> {
   let ok = 0;
   try {
@@ -406,7 +421,7 @@ async function writeSendLogSafely(
   } catch (e) {
     console.warn(`⚠ digest send log write failed: ${(e as Error).message}`);
   }
-  console.log(`DIGEST_SEND_LOG write=${ok} decision=${decision}`);
+  console.log(`DIGEST_SEND_LOG write=${ok} decision=${decision} read=${read}`);
 }
 
 /** The write half of {@link readDigestStateFromDb}, same lazy-import rule. */
@@ -765,7 +780,7 @@ export async function runDigest(
         return since ? { ...it, ageDays: daysBetween(since, dayKey) } : it;
       });
 
-    const sendLog = await readSendLogSafely(options);
+    const { log: sendLog, read: sendLogRead } = await readSendLogSafely(options);
     const readySince = nextReadySince(readyKeys, sendLog.readySince, dayKey);
     readyForYourYes.forEach((it, i) => {
       const since = readySince[readyKeys[i]!];
@@ -796,6 +811,7 @@ export async function runDigest(
         options,
         { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey, false), readySince },
         "empty",
+        sendLogRead,
       );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
@@ -809,6 +825,7 @@ export async function runDigest(
         options,
         { ...sendLog, sent: nextSent(sendLog.sent, digestLines, dayKey, false), readySince },
         decision.reason,
+        sendLogRead,
       );
       const last = sendLog.sentOn ?? "never";
       return {
@@ -881,6 +898,7 @@ export async function runDigest(
       options,
       { sentOn: dayKey, sent: nextSent(sendLog.sent, digestLines, dayKey, true), readySince },
       decision.reason,
+      sendLogRead,
     );
     return {
       output: `Digest sent (${decision.reason}) to ${to.join(", ")} (${result.messageId})`,
