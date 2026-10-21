@@ -124,7 +124,7 @@ export async function loadCockpitSnapshot(
     recentEvents,
     deadLetters,
     deadLetterOldest,
-    submissions: submissions === null ? null : submissions.rows.map(cutFreeText),
+    submissions: submissions === null ? null : boundLeadText(submissions.rows),
     rawSubmissionEnums: submissions?.raw ?? new Map(),
     screenOuts,
     audits,
@@ -134,13 +134,25 @@ export async function loadCockpitSnapshot(
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");
 
-/** The longest any one free-text field of a lead may be in the snapshot. Visitors
- *  write these, through every client site's public form, and nothing at ingest
- *  bounds them; the snapshot rides in every cockpit page, so one oversized post
- *  must not be able to push every page past the function's response limit. The
- *  longest real message on 2026-10-21 was 7,924 characters (681 rows), so no real
- *  lead is cut. */
+/** How much lead text the snapshot may carry, as the bytes SvelteKit's serialiser
+ *  writes for it (`textCost`). Visitors write these fields, through every client
+ *  site's public form, nothing at ingest bounds them, and the snapshot rides in
+ *  every cockpit page, so a few crafted posts must not be able to push every page
+ *  past the function's response limit (6 MB).
+ *
+ *  - One field: at most `SNAPSHOT_FIELD_MAX`. The longest real message on
+ *    2026-10-21 was 7,924 characters (681 rows).
+ *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, newest lead first. Every lead
+ *    past it keeps its row (so every count and status still holds) but its text is
+ *    one constant marker, which the serialiser writes once however many rows hold
+ *    it. All 681 rows' text came to about 0.2 MB on 2026-10-21.
+ *
+ *  Neither has cut a real lead yet; when one does, the marker says so, and the
+ *  whole lead is still in Turso. */
 export const SNAPSHOT_FIELD_MAX = 20_000;
+export const SNAPSHOT_TEXT_BUDGET = 1_500_000;
+export const TEXT_PAST_BUDGET =
+  "[cut by the cockpit: too much lead text to send; the whole lead is in Turso]";
 
 const FREE_TEXT = [
   "name",
@@ -153,18 +165,57 @@ const FREE_TEXT = [
   "spamReason",
   "bounceMessage",
 ] as const satisfies readonly (keyof SubmissionRow)[];
+export const SNAPSHOT_FREE_TEXT: readonly string[] = FREE_TEXT;
 
-function cutFreeText(row: SubmissionRow): SubmissionRow {
-  let out = row;
-  for (const field of FREE_TEXT) {
-    const value = row[field];
-    if (typeof value !== "string" || value.length <= SNAPSHOT_FIELD_MAX) continue;
-    if (out === row) out = { ...row };
-    const more = value.length - SNAPSHOT_FIELD_MAX;
-    (out as Record<string, unknown>)[field] =
-      `${value.slice(0, SNAPSHOT_FIELD_MAX)} … [${more} more characters cut by the cockpit; the whole lead is in Turso]`;
+/** What one character costs once serialised (devalue, then UTF-8): `<`, the
+ *  control characters and the line separators are written as `\uXXXX`, a quote or
+ *  backslash is escaped, and anything past ASCII takes up to four bytes. */
+function charCost(code: number): number {
+  if (code === 0x3c || code < 0x20 || code === 0x2028 || code === 0x2029) return 6;
+  if (code === 0x22 || code === 0x5c) return 2;
+  return code > 0x7f ? 4 : 1;
+}
+
+/** `value` cut to at most `max` serialised bytes, and what that cost. */
+function cutTo(value: string, max: number): { text: string; cost: number; cut: boolean } {
+  let cost = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = charCost(value.charCodeAt(i));
+    if (cost + c > max) return { text: value.slice(0, i), cost, cut: true };
+    cost += c;
   }
-  return out;
+  return { text: value, cost, cut: false };
+}
+
+/** Apply both bounds to the rows, newest first (the order they are read in). */
+function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
+  let spent = 0;
+  return rows.map((row) => {
+    let out = row;
+    const set = (field: string, value: string) => {
+      if (out === row) out = { ...row };
+      (out as Record<string, unknown>)[field] = value;
+    };
+    if (spent > SNAPSHOT_TEXT_BUDGET) {
+      for (const field of FREE_TEXT) {
+        if (typeof row[field] === "string" && row[field] !== "") set(field, TEXT_PAST_BUDGET);
+      }
+      return out;
+    }
+    for (const field of FREE_TEXT) {
+      const value = row[field];
+      if (typeof value !== "string") continue;
+      const { text, cost, cut } = cutTo(value, SNAPSHOT_FIELD_MAX);
+      spent += cost;
+      if (cut) {
+        set(
+          field,
+          `${text} … [${value.length - text.length} more characters cut by the cockpit; the whole lead is in Turso]`,
+        );
+      }
+    }
+    return out;
+  });
 }
 
 /** What a set Mailchimp key reads as in the snapshot. */

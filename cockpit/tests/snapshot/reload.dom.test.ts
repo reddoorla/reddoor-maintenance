@@ -117,6 +117,13 @@ describe("the layout measures the clock offset once per snapshot", () => {
       expect(first).toBe(-5_000);
       vi.setSystemTime(new Date("2026-10-20T13:00:05.000Z"));
       expect(run("/fleet").clockOffsetMs).toBe(first);
+      // A new snapshot (a refresh) is measured afresh.
+      const fresh = { ...data, snapshot: snapshot({ takenAt: "2026-10-20T13:00:02.000Z" }) };
+      const again = (load as unknown as (e: unknown) => { clockOffsetMs: number })({
+        data: fresh,
+        url: new URL("https://x/"),
+      });
+      expect(again.clockOffsetMs).toBe(-3_000);
     } finally {
       vi.useRealTimers();
     }

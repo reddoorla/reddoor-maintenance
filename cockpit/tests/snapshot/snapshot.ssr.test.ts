@@ -5,7 +5,14 @@ import { join, relative } from "node:path";
 import { createClient, type Client, type InStatement, type ResultSet } from "@libsql/client";
 import { batchingReadClient, kyselyOverClient, openDb, type Db } from "../../../src/db/client.js";
 import { runMigrations } from "../../../src/db/migrate.js";
-import { loadCockpitSnapshot, SNAPSHOT_FIELD_MAX } from "../../../src/dashboard/snapshot.js";
+import {
+  loadCockpitSnapshot,
+  SNAPSHOT_FIELD_MAX,
+  SNAPSHOT_FREE_TEXT,
+  SNAPSHOT_TEXT_BUDGET,
+  TEXT_PAST_BUDGET,
+} from "../../../src/dashboard/snapshot.js";
+import { createRequire } from "node:module";
 import {
   SnapshotGap,
   auditsFromSnapshot,
@@ -163,8 +170,11 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
   it("a failing read fails only itself: the batch is retried statement by statement", async () => {
     const c = await countingClient((sql) => sql.includes('from "fleet_events"'));
     const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
-    expect(c.batches).toHaveLength(1);
-    expect(c.executes.some((q) => q.includes('from "fleet_events"'))).toBe(true);
+    // The batch, then each statement as a read batch of its own.
+    expect(c.batches[0]?.length).toBeGreaterThanOrEqual(11);
+    expect(c.batches.slice(1).every((b) => b.length === 1)).toBe(true);
+    expect(c.batches.slice(1).length).toBe(c.batches[0]?.length);
+    expect(c.executes).toEqual([]);
     expect(s.recentEvents).toEqual([]);
     expect(s.gaps).toEqual(["events"]);
     expect(s.sites).toHaveLength(1);
@@ -182,47 +192,112 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(auditsFromSnapshot(s)).toEqual([]);
   });
 
+  it("a failing slug read with the sites read fine still leaves no sites (both or neither)", async () => {
+    const c = await countingClient((sql) => sql.startsWith('select "id", "slug" from "sites"'));
+    const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
+    expect(c.batches.slice(1).some((b) => b[0]?.startsWith('select "id", "slug"'))).toBe(true);
+    expect(s.sites).toBeNull();
+    expect(s.gaps).toEqual(["sites"]);
+  });
+
   it("refuses anything but a read, before it is queued", async () => {
     const c = await countingClient();
     const client = batchingReadClient(c.client);
-    await expect(client.execute("delete from sites")).rejects.toThrow(/only reads/);
+    for (const write of [
+      "delete from sites",
+      "insert into sites select * from sites",
+      "WITH z AS (SELECT 1) DELETE FROM sites",
+      "with z as (select 1) update sites set name = 'x'",
+      " select 1; drop table sites",
+    ]) {
+      await expect(client.execute(write), write).rejects.toThrow(/only reads/);
+    }
     await expect(client.execute({ sql: " SELECT 1", args: [] })).resolves.toBeDefined();
     expect(c.batches).toEqual([[" SELECT 1"]]);
   });
 
-  it("cuts a visitor's oversized field, and leaves a real-sized lead whole", async () => {
+  it("cuts every free-text field a visitor oversized, and leaves a real-sized lead whole", async () => {
     const db = await openDb({ url });
     const huge = "x".repeat(1_000_000);
     const real = "y".repeat(7_924); // the longest real message, 2026-10-21
-    for (const [id, message] of [
-      ["big", huge],
-      ["real", real],
-    ] as const) {
-      await db
+    const column: Record<string, string> = {
+      name: "name",
+      email: "email",
+      phone: "phone",
+      message: "message",
+      extraFields: "extra_fields",
+      sourceUrl: "source_url",
+      utm: "utm",
+      spamReason: "spam_reason",
+      bounceMessage: "bounce_message",
+    };
+    expect(Object.keys(column).sort()).toEqual([...SNAPSHOT_FREE_TEXT].sort());
+    const row = (id: string, text: string, at: string) =>
+      db
         .insertInto("submissions")
         .values({
           id,
           site_id: "recA",
           form_type: "contact",
-          name: "Pat",
-          email: "pat@example.com",
-          message,
-          extra_fields: id === "big" ? huge : null,
           status: "spam_auto",
           notify_status: "skipped",
-          submitted_at: "2026-10-19T10:00:00.000Z",
+          submitted_at: at,
+          ...Object.fromEntries(Object.values(column).map((c) => [c, text])),
+        } as never)
+        .execute();
+    await row("big", huge, "2026-10-19T10:00:00.000Z");
+    await row("real", real, "2026-10-19T11:00:00.000Z");
+    const s = await loadCockpitSnapshot(db, NOW, "https://dash.example");
+    await db.destroy();
+    const byId = new Map((s.submissions ?? []).map((r) => [r.id, r]));
+    for (const field of SNAPSHOT_FREE_TEXT) {
+      const get = (id: string) => (byId.get(id) as Record<string, unknown> | undefined)?.[field];
+      expect(get("real"), field).toBe(real);
+      const big = String(get("big"));
+      expect(big.length, field).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
+      expect(big.startsWith("x".repeat(SNAPSHOT_FIELD_MAX)), field).toBe(true);
+      expect(big, field).toContain("980000 more characters cut by the cockpit");
+    }
+  });
+
+  it("bounds the whole snapshot however many crafted leads arrive", async () => {
+    // The shape round 2 of the review found: every free-text field full of `<`,
+    // which the serialiser writes as six bytes, each field distinct so nothing is
+    // deduplicated, on many rows.
+    const db = await openDb({ url });
+    for (let i = 0; i < 60; i++) {
+      await db
+        .insertInto("submissions")
+        .values({
+          id: `atk${i}`,
+          site_id: "recA",
+          form_type: "contact",
+          status: "spam_auto",
+          notify_status: "skipped",
+          submitted_at: new Date(NOW.getTime() - i * 60_000).toISOString(),
+          name: `${i}${"<".repeat(30_000)}`,
+          email: `${i}e${"<".repeat(30_000)}@x.example`,
+          phone: `${i}p${"<".repeat(30_000)}`,
+          message: `${i}m${"<".repeat(30_000)}`,
+          extra_fields: `${i}x${"<".repeat(30_000)}`,
+          source_url: `${i}s${"<".repeat(30_000)}`,
+          utm: `${i}u${"<".repeat(30_000)}`,
         } as never)
         .execute();
     }
     const s = await loadCockpitSnapshot(db, NOW, "https://dash.example");
     await db.destroy();
-    const byId = new Map((s.submissions ?? []).map((r) => [r.id, r]));
-    expect(byId.get("real")?.message).toBe(real);
-    const big = byId.get("big");
-    expect(big?.message?.length).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
-    expect(big?.message?.startsWith("x".repeat(SNAPSHOT_FIELD_MAX))).toBe(true);
-    expect(big?.message).toContain("980000 more characters cut by the cockpit");
-    expect(big?.extraFields?.length).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
+    const devalue = (await import(
+      createRequire(createRequire(import.meta.url).resolve("@sveltejs/kit/package.json")).resolve(
+        "devalue",
+      )
+    )) as { stringify(v: unknown): string };
+    const bytes = Buffer.byteLength(devalue.stringify(s));
+    expect(bytes).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
+    // Every row is still there, so every count holds; the oldest carry the marker.
+    expect(s.submissions).toHaveLength(60);
+    expect(s.submissions?.at(-1)?.message).toBe(TEXT_PAST_BUDGET);
+    expect(s.submissions?.[0]?.message?.startsWith("0m<")).toBe(true);
   });
 
   it("refuses a transaction, so no write can ride the read batch", async () => {

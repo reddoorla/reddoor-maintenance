@@ -103,6 +103,11 @@ export type OpenDbOptions = {
   batchReads?: boolean;
 };
 
+/** Words only a write uses. A read that held one in a string literal would be
+ *  refused too; the cockpit's reads are Kysely's, with every value a parameter. */
+const WRITE_WORDS =
+  /\b(insert|update|delete|replace|upsert|create|drop|alter|attach|detach|pragma|vacuum|reindex)\b/i;
+
 /** A libSQL client whose `execute` queues statements and sends each turn's queue as one
  *  read batch (`OpenDbOptions.batchReads`). Kysely's libSQL driver calls nothing but
  *  `execute` outside a transaction, and a transaction is refused here. Exported so a
@@ -124,18 +129,25 @@ export function batchingReadClient(client: Client): Client {
         "read",
       );
     } catch {
-      // One failing statement fails the whole batch; settle each on its own instead.
-      await Promise.all(run.map((p) => client.execute(p.stmt).then(p.resolve, p.reject)));
+      // One failing statement fails the whole batch; settle each on its own instead,
+      // each as a read batch of one, so the store still refuses a write. The
+      // reads are then no longer one consistent snapshot of the store: a page
+      // built from them may mix instants a few milliseconds apart.
+      await Promise.all(
+        run.map((p) =>
+          client.batch([p.stmt], "read").then((r) => p.resolve(r[0] as ResultSet), p.reject),
+        ),
+      );
       return;
     }
     run.forEach((p, i) => p.resolve(results[i] as ResultSet));
   };
   const execute = (stmt: InStatement): Promise<ResultSet> =>
     new Promise((resolve, reject) => {
-      // Reads only, refused here rather than by the batch: a failed batch re-runs
-      // each statement on its own, outside the read transaction.
+      // Reads only, refused here as well as by the read batch: a statement that
+      // starts as a read (`WITH … DELETE`) or names a write anywhere is refused.
       const text = typeof stmt === "string" ? stmt : stmt.sql;
-      if (!/^\s*(select|with)\b/i.test(text)) {
+      if (!/^\s*(select|with)\b/i.test(text) || WRITE_WORDS.test(text)) {
         reject(new Error(`batchReads: only reads may run here, not: ${text.slice(0, 40)}`));
         return;
       }
