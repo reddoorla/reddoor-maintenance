@@ -26,7 +26,12 @@ is the pilot, and every step below was first done there.
       a writer can have GitHub create and sign a commit whose author is the
       bot (`PUT contents` with an author override). The log is read only
       back to the latest `branch_creation`, because Renovate reuses branch
-      names;
+      names. The log lags: on 2026-10-21 it still listed nothing for a
+      branch 22 to 24 seconds after Renovate created it, and a log that
+      lags can also be partly filled. So the log is trusted only once its
+      newest entry is the PR's head commit and it lists a
+      `branch_creation`; it is read again for about a minute until it
+      does, and this check fails if it never does;
     - every commit is authored by the bot, committed by `web-flow` and
       verified by GitHub, which is how Renovate's API commits look;
     - the PR changes only `package.json`, `pnpm-lock.yaml`,

@@ -170,7 +170,12 @@ describe("replayDeadLetters", () => {
     const healed = await replayDeadLetters(db, replayDeps(db));
 
     expect(healed.replayed).toEqual([
-      { id: expect.stringMatching(/^dl_/), outcome: "accepted", submissionId: expect.any(String) },
+      {
+        id: expect.stringMatching(/^dl_/),
+        outcome: "accepted",
+        submissionId: expect.any(String),
+        notifyStatus: "sent",
+      },
     ]);
     expect(await listUnreplayedDeadLetters(db)).toEqual([]);
   });
