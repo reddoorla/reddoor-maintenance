@@ -165,9 +165,13 @@ jobs:
       # shared preset. Runs whenever the sweep above ran, a red sweep included
       # (#1605), so counts for any site the sweep failed/skipped to write are
       # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
-      # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the
-      # security job — a missing token clean-skips, and a per-repo failure (no
-      # renovate.yml / token lacks actions:write) is a warning, not a red.
+      # no-op, and a repo with an already-open Renovate PR is skipped. It goes red
+      # (#1612) when it printed no summary (a crash, or the CLI's no-token skip:
+      # either way nothing was dispatched) and when any repo failed to dispatch
+      # (no renovate.yml, or the token lacks actions:write). Before #1612 both were
+      # a log line or a warning, so a flagged site's Renovate run could silently
+      # never happen. The red job opens the nightly-failure issue below; the steps
+      # after this one still run, as they key on the sweep, not on this step.
       # Re-mint for the late steps: the audit above can run up to 45 minutes
       # and installation tokens die at 60 — see the first mint's comment.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -190,18 +194,26 @@ jobs:
         env:
           # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
           # and post-flip the factory throws without Turso creds. This step's
-          # `|| true` masks the exit code by design, so a creds gap here isn't a
-          # red run — it's Renovate silently never dispatching again.
+          # `|| true` masks the exit code, so a creds gap reads as a crash: the
+          # missing summary line below is what turns it red (#1612).
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
-          node dist/cli/bin.js renovate-dispatch --fleet | tee /tmp/dispatch.out || true
-          summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ skipped=[0-9]+ failed=[0-9]+" /tmp/dispatch.out | tail -n1 || true)
-          echo "renovate-dispatch: ${summary:-<no summary — see output above>}"
-          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2 || true)
-          if [ -n "$failed" ] && [ "$failed" -gt 0 ]; then
-            echo "::warning::renovate-dispatch: $failed repo(s) failed to dispatch (check the reddoor-renovate App's Actions:write permission / renovate.yml present)."
+          # The CLI exits 0 on a partial failure by design; the summary line is the
+          # contract, and an absent one is red.
+          out="${RUNNER_TEMP:-/tmp}/dispatch.out"
+          node dist/cli/bin.js renovate-dispatch --fleet | tee "$out" || true
+          summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ skipped=[0-9]+ failed=[0-9]+" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::renovate-dispatch printed no summary — it crashed or skipped, so no site flagged with critical/high vulns got a Renovate run tonight (see output above)."
+            exit 1
+          fi
+          echo "renovate-dispatch: $summary"
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::renovate-dispatch: $failed repo(s) failed to dispatch (check the reddoor-renovate App's Actions:write permission / renovate.yml present)."
+            exit 1
           fi
 
       # Org-wide protection coverage: every PUBLIC repo must carry a sound branch
@@ -216,6 +228,8 @@ jobs:
       # job: a red here would fire the generic "Nightly fleet security audit
       # failing" issue below and misdirect triage at the vuln sweep. The
       # dedicated title is the signal; it auto-closes on the next clean pass.
+      # The one exception is a sweep that verified no repo (UNMEASURED, #1612):
+      # that is not a posture gap, so the step after the open step reds the run.
       - name: Protection coverage audit (org-wide)
         id: protection
         if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
@@ -256,6 +270,13 @@ jobs:
             echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
             exit 0
           fi
+          # A sweep that verified no repo (#1612) is not a gap either: an issue
+          # filed on it would carry no GAP line, and the close step below could
+          # never close it. The step after this one turns the run red instead.
+          if grep -qE "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out"; then
+            echo "::warning::protection-audit verified no repo; not filing a coverage gap."
+            exit 0
+          fi
           title="Fleet protection coverage gap"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
@@ -288,6 +309,19 @@ jobs:
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
+          fi
+
+      # A protection sweep that verified no repo (#1612: an org listing of
+      # `200 []` read `gaps=0 total=0`, green) is unmeasured, not clean. It is
+      # not a posture gap, so it reds the run instead, and the nightly-failure
+      # issue below speaks for it and closes on the next green run.
+      - name: Fail the run when the protection sweep verified no repo
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' }}
+        timeout-minutes: 2
+        run: |
+          if grep -E "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out" 2>/dev/null; then
+            echo "::error::protection-audit verified no repo: the org listing gave none, so tonight's posture is unmeasured, not clean."
+            exit 1
           fi
 
       - name: Close the protection-gap issue on a clean sweep
@@ -508,7 +542,7 @@ jobs:
         run: |
           title="Nightly fleet security audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The nightly **fleet-security** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The nightly **fleet-security** run failed. Read which step went red: the audit and write-back (the vuln sweep), Renovate dispatch (no summary, or a repo failed to dispatch), or a protection sweep that verified no repo.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then

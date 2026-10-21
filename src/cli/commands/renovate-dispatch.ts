@@ -23,7 +23,8 @@ import {
  *
  * Always exits 0: a missing token is a clean skip; a partial dispatch failure
  * (a repo without `renovate.yml`, or a token lacking `actions:write`) is reported
- * in the summary for the workflow to annotate, never failing the security sweep.
+ * in the summary. The workflow step reds on that summary instead (#1612): on
+ * failed>0, and on a run that printed none (a crash, or the no-token skip).
  */
 export async function runRenovateDispatchCommand(opts: {
   fleet?: boolean | undefined;
