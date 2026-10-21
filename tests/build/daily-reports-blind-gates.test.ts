@@ -97,6 +97,9 @@ beforeEach(async () => {
   vi.stubEnv("TURSO_DATABASE_URL", url);
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
   vi.stubEnv("OPERATOR_EMAIL", "tucker@reddoorla.com");
+  // Belt and braces: the module mock above is what stops a send, and an empty
+  // key makes any path around it fail instead of reaching Resend.
+  vi.stubEnv("RESEND_API_KEY", "");
   resend.sent = [];
 });
 
@@ -133,13 +136,19 @@ async function seedSites(n: number): Promise<void> {
   await d.destroy();
 }
 
-async function insertReport(fields: { draft_ready: number; approved_to_send: number }) {
+async function insertReport(fields: {
+  draft_ready: number;
+  approved_to_send: number;
+  id?: string;
+  sent_at?: string | null;
+  withdrawn_at?: string | null;
+}) {
   const d = await db();
   await d
     .insertInto("reports")
     .values({
-      id: "recREPORT",
-      report_id: "Site 0 — Maintenance — 2026-10-21",
+      id: fields.id ?? "recREPORT",
+      report_id: `Site 0 — Maintenance — ${fields.id ?? "2026-10-21"}`,
       site_id: "recSITE0",
       report_type: "Maintenance",
       period: "2026-10",
@@ -150,6 +159,7 @@ async function insertReport(fields: { draft_ready: number; approved_to_send: num
       sent_at: null,
       approved_at: "2026-10-21T15:00:00.000Z",
       ...fields,
+      id: fields.id ?? "recREPORT",
     })
     .execute();
   await d.destroy();
@@ -208,6 +218,25 @@ describe("#1613 (1) the send gate", () => {
     await d.destroy();
   });
 
+  it("KNOWN-GOOD: approved reports already sent, or withdrawn, are not outside the queue", async () => {
+    await seedSites(1);
+    await insertReport({
+      id: "recSENT",
+      draft_ready: 0,
+      approved_to_send: 1,
+      sent_at: "2026-10-20T16:07:30.000Z",
+    });
+    await insertReport({
+      id: "recWITHDRAWN",
+      draft_ready: 0,
+      approved_to_send: 1,
+      withdrawn_at: "2026-10-20T12:00:00.000Z",
+    });
+    const { cli, step } = await sendThroughGate();
+    expect(cli).toEqual({ output: "No reports ready to send.", code: 0 });
+    expect(step.code).toBe(0);
+  });
+
   it("reds when the store holds no sites at all — an empty or wrong database", async () => {
     const { cli, step } = await sendThroughGate();
     expect(cli.output).toMatch(/no sites/i);
@@ -227,7 +256,7 @@ const DRAFT_GOOD = [
 ].join("\n");
 
 /** The real `writeNextDueDates`, its console line captured, through the draft gate. */
-async function nextDueThroughGate(mirror: (siteId: string) => Promise<boolean>) {
+async function nextDueThroughGate(mirror: "real" | ((siteId: string) => Promise<boolean>)) {
   const { writeNextDueDates } = await import("../../src/cli/commands/report.js");
   const { listSites } = await import("../../src/db/fleet-state.js");
   const lines: string[] = [];
@@ -237,9 +266,14 @@ async function nextDueThroughGate(mirror: (siteId: string) => Promise<boolean>) 
   const d = await db();
   const sites = await listSites(d);
   await d.destroy();
-  await writeNextDueDates(sites, [], new Date("2026-10-21T07:13:00Z"), async (siteId) =>
-    mirror(siteId),
-  );
+  const { makeScheduleMirror } = await import("../../src/audits/health-mirror.js");
+  const scheduleMirror =
+    mirror === "real"
+      ? await makeScheduleMirror(async () =>
+          (await import("../../src/db/client.js")).openDb({ url }),
+        )
+      : async (siteId: string) => mirror(siteId);
+  await writeNextDueDates(sites, [], new Date("2026-10-21T07:13:00Z"), scheduleMirror);
   vi.restoreAllMocks();
   const out = [...lines, "No reports due."].join("\n");
   return { out, step: await runStep(DRAFT, out + "\n", 0, DRAFT_ENV) };
@@ -253,8 +287,16 @@ describe("#1613 (2) the draft step reads NEXT_DUE_WRITE", () => {
   });
 
   it("KNOWN-GOOD: a real write that lands is green", async () => {
-    const { out, step } = await nextDueThroughGate(async () => true);
-    expect(out).toMatch(/NEXT_DUE_WRITE wrote=1 .*mirror_failed=0/);
+    const { out, step } = await nextDueThroughGate("real");
+    expect(out).toMatch(/NEXT_DUE_WRITE wrote=1 .*mirror_failed=0 mirror_missed=0/);
+    const d = await db();
+    const row = await d
+      .selectFrom("site_schedule")
+      .select("next_maintenance_at")
+      .where("site_id", "=", "recSITE0")
+      .executeTakeFirstOrThrow();
+    await d.destroy();
+    expect(row.next_maintenance_at).toMatch(/^2026-1[01]-\d\d$/);
     expect(step.code).toBe(0);
   });
 
@@ -274,6 +316,12 @@ describe("#1613 (2) the draft step reads NEXT_DUE_WRITE", () => {
     expect(step.code).toBe(1);
   });
 
+  it("reds when the draft CLI fails after a clean NEXT_DUE_WRITE line", async () => {
+    const r = await runStep(DRAFT, DRAFT_GOOD + "\n", 1, DRAFT_ENV);
+    expect(r.code).toBe(1);
+    expect(r.log).not.toContain("PASS:");
+  });
+
   it("reds when no NEXT_DUE_WRITE line was printed", async () => {
     const r = await runStep(DRAFT, "No reports due.\n", 0, DRAFT_ENV);
     expect(r.code).toBe(1);
@@ -288,6 +336,7 @@ describe("#1613 (2) the draft step reads NEXT_DUE_WRITE", () => {
       DRAFT_ENV,
     );
     expect(r.code).toBe(1);
+    expect(r.log).toContain("no Turso credentials reached the site_schedule writes");
   });
 
   it("reds on a line with no mirror counters — a reworded marker cannot pass by omission", async () => {
@@ -353,8 +402,12 @@ async function digestThroughGate() {
   const lines: string[] = [];
   vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(String(l)));
   vi.spyOn(console, "warn").mockImplementation((l: string) => void lines.push(String(l)));
-  const cli = await runReportCommand(undefined, { digest: true });
-  vi.restoreAllMocks();
+  let cli: { output: string; code: number };
+  try {
+    cli = await runReportCommand(undefined, { digest: true });
+  } finally {
+    vi.restoreAllMocks();
+  }
   const out = [...lines, cli.output].join("\n");
   return { out, cli, step: await runStep(DIGEST, out + "\n", cli.code, DIGEST_ENV) };
 }
@@ -376,6 +429,7 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     await seedDigestFleet();
     const r = await digestThroughGate();
     expect(r.out).toMatch(/read=absent/);
+    expect(r.out).toContain("DIGEST_STATE_READ snapshot=absent");
     expect(r.step.code).toBe(0);
   });
 
@@ -397,6 +451,37 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     expect(day2.out).toContain("DIGEST_STATE_READ snapshot=corrupt");
     expect(day2.step.code).toBe(0);
     expect(day2.step.log).toMatch(/::warning::.*snapshot/);
+  });
+
+  it("a send-log read that throws prints read=failed, and the gate reds", async () => {
+    await seedDigestFleet();
+    const { runDigest } = await import("../../src/reports/digest.js");
+    const { listSites, listAllReports } = await import("../../src/db/fleet-state.js");
+    const d = await db();
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((l: string) => void lines.push(String(l)));
+    vi.spyOn(console, "warn").mockImplementation((l: string) => void lines.push(String(l)));
+    try {
+      const cli = await runDigest({
+        baseUrl: "https://reddoor-maintenance.netlify.app",
+        roster: () => listSites(d),
+        allReports: () => listAllReports(d),
+        sendLog: {
+          read: async () => {
+            throw new Error("SERVER_ERROR: HTTP 503");
+          },
+          write: async () => undefined,
+        },
+      });
+      lines.push(cli.output);
+    } finally {
+      vi.restoreAllMocks();
+      await d.destroy();
+    }
+    const out = lines.join("\n");
+    expect(out).toMatch(/DIGEST_SEND_LOG write=1 decision=first read=failed/);
+    const step = await runStep(DIGEST, out + "\n", 0, DIGEST_ENV);
+    expect(step.code).toBe(1);
   });
 
   it("reds on a send-log line with no read= field — an older CLI cannot pass by omission", async () => {
