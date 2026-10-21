@@ -63,7 +63,7 @@ jobs:
 
           # `db replay-deadletters` exits 1 whenever anything is still OWED, and
           # "owed" is not the same as "broken" — so the exit code is captured,
-          # not obeyed. See the gate below for which of the four counters is a
+          # not obeyed. See the gate below for which of the six counters is a
           # failure and which is a standing condition.
           set +e
           node dist/cli/bin.js db replay-deadletters > "$out/replay.out" 2>&1
@@ -82,10 +82,12 @@ jobs:
           fi
 
           n_replayed=$(printf '%s\n' "$line" | sed -nE 's/.* replayed=([0-9]+).*/\1/p')
+          n_rejected=$(printf '%s\n' "$line" | sed -nE 's/.* rejected=([0-9]+).*/\1/p')
+          n_notify_failed=$(printf '%s\n' "$line" | sed -nE 's/.* notify_failed=([0-9]+).*/\1/p')
           n_still_failing=$(printf '%s\n' "$line" | sed -nE 's/.* still_failing=([0-9]+).*/\1/p')
           n_unmarked=$(printf '%s\n' "$line" | sed -nE 's/.* unmarked=([0-9]+).*/\1/p')
           n_unreadable=$(printf '%s\n' "$line" | sed -nE 's/.* unreadable=([0-9]+).*/\1/p')
-          if [ -z "$n_replayed" ] || [ -z "$n_still_failing" ] || [ -z "$n_unmarked" ] || [ -z "$n_unreadable" ]; then
+          if [ -z "$n_replayed" ] || [ -z "$n_rejected" ] || [ -z "$n_notify_failed" ] || [ -z "$n_still_failing" ] || [ -z "$n_unmarked" ] || [ -z "$n_unreadable" ]; then
             echo "::error::deadletter replay: marker is missing a counter (an older CLI, or a renamed field): $line"
             exit 1
           fi
@@ -103,6 +105,21 @@ jobs:
             exit 1
           fi
 
+          # #1615. Two more DEFECTS, both counted in `replayed=` before it:
+          #   rejected      = the store refused the lead on replay (a formType
+          #                   retired since it arrived). The row is marked
+          #                   terminal, so it leaves the queue and the depth
+          #                   alarm, with no submission behind it. Red once, on
+          #                   the run that drops it: the next run cannot see it,
+          #                   so the tracking issue names the row and stays open.
+          #   notify_failed = the lead was placed, but its email did not send
+          #                   (RESEND_API_KEY missing or refused). It sits in
+          #                   the inbox and nobody has been told.
+          if [ "$n_rejected" -gt 0 ] || [ "$n_notify_failed" -gt 0 ]; then
+            echo "::error::deadletter replay: rejected=$n_rejected notify_failed=$n_notify_failed — see the REJECTED/NOTIFY FAILED lines above. A rejected lead is in no inbox (its payload is still in submission_deadletter); an un-notified one is waiting unseen in the inbox."
+            exit 1
+          fi
+
           # STANDING CONDITION — not red. `still_failing` is a row whose site does
           # not resolve yet: it waits for `ensure-site <slug>`, or for a decision
           # recorded with `--abandon`. It already has an alarm — the `deadletter`
@@ -114,7 +131,7 @@ jobs:
           if [ "$n_still_failing" -gt 0 ]; then
             echo "::warning::deadletter replay: $n_still_failing row(s) still queued — see the cockpit's deadletter item for the slug(s). Not a run failure."
           fi
-          echo "PASS: replayed=$n_replayed still_failing=$n_still_failing unmarked=$n_unmarked unreadable=$n_unreadable"
+          echo "PASS: replayed=$n_replayed rejected=$n_rejected notify_failed=$n_notify_failed still_failing=$n_still_failing unmarked=$n_unmarked unreadable=$n_unreadable"
 
       # Same alarm plumbing as every other nightly here: a red run is otherwise
       # only GitHub's best-effort email to the last pusher. continue-on-error so
@@ -131,11 +148,24 @@ jobs:
         run: |
           title="Form dead-letter replay failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The scheduled **forms-deadletter-replay** run failed.\n\nThis is NOT the ordinary "rows are queued" condition — that is a warning and stays green. It means the replay could not complete, or it found a row that was re-ingested without its terminal mark (the next run would duplicate that lead), or a row whose stored payload will not decode.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The scheduled **forms-deadletter-replay** run failed.\n\nThis is NOT the ordinary "rows are queued" condition — that is a warning and stays green. It means the replay could not complete, or it found a row that was re-ingested without its terminal mark (the next run would duplicate that lead), a row whose stored payload will not decode, a lead the store rejected on replay (it is now in no inbox; its payload is still in the submission_deadletter row), or a lead placed without its notification email.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run, unless it names a REJECTED or NOTIFY FAILED lead._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
             body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          # #1615. Name the rows here, not only in the run log. A REJECTED or NOTIFY
+          # FAILED row is marked terminal, so the next run is green and never sees
+          # it again: this issue is what has to carry it, and the close step below
+          # leaves an issue that names one open for a person.
+          all_defects=$(grep -aE '^(REJECTED|NOTIFY FAILED|UNMARKED|UNREADABLE) ' "${RUNNER_TEMP:-/tmp}/replay.out" 2>/dev/null || true)
+          defects=$(head -50 <<<"$all_defects")
+          n_defects=$(grep -c . <<<"$all_defects" || true)
+          if [ "${n_defects:-0}" -gt 50 ]; then
+            defects=$(printf '%s\n(%s more; see the run log)' "$defects" "$((n_defects - 50))")
+          fi
+          if [ -n "$all_defects" ]; then
+            body=$(printf '%s\n\nWhat this run found:\n\n```\n%s\n```\n\nA REJECTED or NOTIFY FAILED lead is not recovered by a later run, so a green run does not close this issue while it names one. Deal with each lead, then close it by hand.' "$body" "$defects")
           fi
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
@@ -163,5 +193,20 @@ jobs:
           for n in $(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            # #1615. A green run recovers a still-queued or unmarked row, never a
+            # lead that was rejected or placed un-emailed: those rows are terminal
+            # and this run cannot see them. An issue naming one stays open for a
+            # person. Unreadable issue → left open too: closing is the risky side.
+            seen=$(gh issue view "$n" --json body,comments --jq '([.body] + [.comments[].body]) | join("\n")') || {
+              echo "::warning::could not read #$n, so it stays open"
+              continue
+            }
+            # A here-string, not `printf | grep -q`: under pipefail a large $seen
+            # makes printf die of SIGPIPE when grep -q exits early, and the `if`
+            # would read that as "no match" and close the issue.
+            if grep -qE '^(REJECTED|NOTIFY FAILED) ' <<<"$seen"; then
+              echo "not closing #$n: it names a REJECTED or NOTIFY FAILED lead, which a green run does not recover. Close it by hand once each lead is dealt with."
+              continue
+            fi
             gh issue close "$n" --comment "Recovered — the dead-letter replay is green again." && echo "closed #$n"
           done
