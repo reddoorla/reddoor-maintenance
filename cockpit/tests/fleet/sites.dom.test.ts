@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import Page from "../../src/routes/fleet/+page.svelte";
 import { buildSitesView } from "../../src/lib/cockpit/view.js";
-import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
+import {
+  ALL_STATUSES_FILTER,
+  buildFleetTableModel,
+  parseFleetTableQuery,
+} from "../../../src/dashboard/fleet-table.js";
 import { cases, NOW } from "../home/fixtures.js";
 
 /**
@@ -89,7 +93,8 @@ describe("Sites — the signal filters", () => {
     const data = {
       model: buildFleetTableModel(
         [...model.cards.map((c) => c.site), archived],
-        parseFleetTableQuery(new URLSearchParams()),
+        // "All statuses": the default view hides archived sites (2026-10-21).
+        parseFleetTableQuery(new URLSearchParams({ status: ALL_STATUSES_FILTER })),
       ),
       sites: buildSitesView(model, NOW),
     };

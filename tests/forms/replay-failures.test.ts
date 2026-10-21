@@ -197,3 +197,22 @@ describe("replayDeadLetters — an undecodable payload (MED-10c)", () => {
     expect(result.unreadable.map((r) => r.id)).toEqual([id]);
   });
 });
+
+describe("replayDeadLetters — the notify outcome it reports (#1615)", () => {
+  it("strips a `defer` dep, so the outcome is the real send and never `deferred`", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await createDeadLetter(db, lead(1));
+    const deferred: Array<Promise<unknown>> = [];
+    const deps = {
+      ...replayDeps(db, {
+        notify: vi.fn().mockResolvedValue({ status: "failed", messageId: null }),
+      }),
+      defer: (work: Promise<unknown>) => void deferred.push(work),
+    } as Omit<IngestDeps, "deadLetter">;
+
+    const result = await replayDeadLetters(db, deps);
+
+    expect(deferred).toEqual([]);
+    expect(result.replayed.map((r) => r.notifyStatus)).toEqual(["failed"]);
+  });
+});

@@ -26,16 +26,28 @@ export const DIGEST_STATE_ID = "default";
  * run, never the whole send.
  */
 export async function readDigestState(db: Db): Promise<DigestSnapshot> {
+  return (await readDigestStateChecked(db)).value;
+}
+
+/** What a singleton read found: a row (`ok`), no row yet (`absent`), or a row
+ *  that would not decode (`corrupt`). #1613: the fallbacks above and below read
+ *  the last two the same way on purpose, and that is right for the value. It
+ *  is wrong for the record: a corrupt row has to be SAID, or the digest's
+ *  "everything is NEW" and "never sent" look like a real first run. */
+export type DigestRead<T> = { value: T; state: "ok" | "absent" | "corrupt" };
+
+/** {@link readDigestState}, and whether the row was there and decoded. */
+export async function readDigestStateChecked(db: Db): Promise<DigestRead<DigestSnapshot>> {
   const row = await db
     .selectFrom("digest_state")
     .select("snapshot")
     .where("id", "=", DIGEST_STATE_ID)
     .executeTakeFirst();
-  if (!row) return {};
+  if (!row) return { value: {}, state: "absent" };
   try {
-    return JSON.parse(row.snapshot) as DigestSnapshot;
+    return { value: JSON.parse(row.snapshot) as DigestSnapshot, state: "ok" };
   } catch {
-    return {};
+    return { value: {}, state: "corrupt" };
   }
 }
 
@@ -185,17 +197,33 @@ export async function writeCockpitRollup(db: Db, rollup: CockpitRollup): Promise
 export const DIGEST_SEND_LOG_ID = "digest_send_log";
 
 export async function readDigestSendLog(db: Db): Promise<DigestSendLog> {
+  return (await readDigestSendLogChecked(db)).value;
+}
+
+/** {@link readDigestSendLog}, and whether the row was there and decoded. */
+export async function readDigestSendLogChecked(db: Db): Promise<DigestRead<DigestSendLog>> {
   const row = await db
     .selectFrom("digest_state")
     .select("snapshot")
     .where("id", "=", DIGEST_SEND_LOG_ID)
     .executeTakeFirst();
-  if (!row) return EMPTY_SEND_LOG;
+  if (!row) return { value: EMPTY_SEND_LOG, state: "absent" };
+  let raw: unknown;
   try {
-    return coerceSendLog(JSON.parse(row.snapshot));
+    raw = JSON.parse(row.snapshot);
   } catch {
-    return EMPTY_SEND_LOG;
+    return { value: EMPTY_SEND_LOG, state: "corrupt" };
   }
+  // Valid JSON of the wrong shape (null, an array, a renamed field) decodes to
+  // "never sent" just as truncated JSON does, so it is corrupt too.
+  const shaped =
+    typeof raw === "object" &&
+    raw !== null &&
+    !Array.isArray(raw) &&
+    ["sentOn", "sent", "readySince"].some((k) => k in raw);
+  return shaped
+    ? { value: coerceSendLog(raw), state: "ok" }
+    : { value: EMPTY_SEND_LOG, state: "corrupt" };
 }
 
 export async function writeDigestSendLog(
