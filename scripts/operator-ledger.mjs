@@ -182,7 +182,10 @@ export async function askTimelines(home, rev, run = realRunner) {
     const slug = (p) => p.slice(ASK_ID_PREFIX);
     // One ask under two names, sharing the ask time or the slug
     // (a rename that corrects the time keeps the slug; one that renames the slug keeps the time).
-    const sameAsk = (p1, p2) => id(p1) === id(p2) || slug(p1) === slug(p2);
+    // Both names must sit in decisions/ itself: an ask moved into a folder named after it
+    // shares its time prefix, and linking it there would lose it from every week.
+    const top = (p) => !p.slice(DECISIONS_DIR.length + 1).includes("/");
+    const sameAsk = (p1, p2) => top(p1) && top(p2) && (id(p1) === id(p2) || slug(p1) === slug(p2));
     const changes = lines
       .map((l) => l.split("\t"))
       .filter(([st, p1]) => st && p1)
