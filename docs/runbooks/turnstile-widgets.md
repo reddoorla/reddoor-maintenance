@@ -102,10 +102,10 @@ so they are corrected here rather than quietly edited away.
 Cloudflare's always-pass test sitekey … it exercises the form, never the real
 widget". Read the code: `CF_TEST_SITEKEY` (`src/audits/form-e2e.ts:12`) reaches
 exactly one expression — `` const tokenValue = `testmode-${testSitekey}` ``
-(`:954`) — which is injected at `:971` as the **value** of a hidden
+(`:955`) — which is injected at `:972` as the **value** of a hidden
 `cf-turnstile-response` input. Nothing writes `data-sitekey`, nothing calls
 `page.route` or `addInitScript`. **The site's real widget renders with its real
-key on every nightly run**, which the code's own comment at `:1040–1042` already
+key on every nightly run**, which the code's own comment at `:1041–1043` already
 knew: "the Turnstile widget inserts its OWN input with that name while it
 renders (an erroring widget included)".
 
