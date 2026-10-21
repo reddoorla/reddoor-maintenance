@@ -33,6 +33,9 @@ type AdvisoryEntry = {
    *  Dependabot alert. Persisted so a later night can tell the two sources apart (#1561, whose
    *  partial-night write waits on pnpm's own counts being stored too). */
   lockfile?: boolean;
+  /** How many of pnpm's findings (installed versions) the advisory has, when more than one:
+   *  its metadata count includes each. Absent means one. Never persisted. */
+  findings?: number;
 };
 
 /** An open alert filed against a manifest that is no longer on the default branch. GitHub's
@@ -54,6 +57,8 @@ type PnpmAuditJson = {
       cves?: string[];
       url?: string;
       github_advisory_id?: string;
+      /** One per installed version of the module; `metadata.vulnerabilities` counts these. */
+      findings?: unknown[];
     }
   >;
 };
@@ -103,6 +108,11 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
       ...(a.cves ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
       ...(ghsa ? { ghsa } : {}),
+      // pnpm's metadata counts each finding (one per installed version), so leaving this
+      // advisory out takes that many off its severity (#1659 review round 1).
+      ...(Array.isArray(a.findings) && a.findings.length > 1
+        ? { findings: a.findings.length }
+        : {}),
     });
   }
   return out;
@@ -532,16 +542,19 @@ async function crossCheckDependabot(
     };
   }
   if (!hasLiveCounts(viaLockfile)) return viaDependabot;
+  const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
   console.error(
     `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
-      `${viaLockfile.summary} — adding pnpm audit to Dependabot`,
+      `${viaLockfile.summary}${leftOut ? ` (${leftOut} dismissed in Dependabot left out)` : ""}` +
+      ` — adding pnpm audit to Dependabot`,
   );
   const merged = mergeAudits(viaLockfile, viaDependabot);
-  const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
   return leftOut
     ? {
         ...merged,
-        summary: `${merged.summary}; ${leftOut} advisory dismissed in Dependabot left out`,
+        summary:
+          `${merged.summary}; ${leftOut} ${leftOut === 1 ? "advisory" : "advisories"} ` +
+          `dismissed in Dependabot left out`,
       }
     : merged;
 }
@@ -565,12 +578,24 @@ async function dismissedAlerts(
   }
 }
 
+/** A dismissal that speaks for the root lockfile: filed on it, on the root `package.json`, or on
+ *  no manifest GitHub named. */
+function dismissedOnRoot(a: DependabotAlert): boolean {
+  return (
+    a.manifestPath === null ||
+    a.manifestPath === "package.json" ||
+    ROOT_LOCKFILES.includes(a.manifestPath)
+  );
+}
+
 /** The lockfile audit's result without the advisories a dismissed Dependabot alert names (same
  *  package, same GHSA or CVE), and without their counts (#1659). `dismissedLeftOut` carries how
  *  many, for the merged summary, so a dismissal is never silent. */
 function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]): AuditResult {
   const lock = viaLockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
-  const gone = dismissed.map((a): AdvisoryEntry => ({
+  // Dependabot dismisses per manifest, and this audit reads the root lockfile: a dismissal filed
+  // on another manifest says nothing about it (#1659 review round 1).
+  const gone = dismissed.filter(dismissedOnRoot).map((a): AdvisoryEntry => ({
     module: a.package,
     severity: ghSeverityToApp(a.severity),
     title: a.summary,
@@ -579,18 +604,16 @@ function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]
   }));
   // Only by id: titles differ between the two sources, and a title match is no proof.
   const isDismissed = (a: AdvisoryEntry) =>
-    gone.some((d) => (d.ghsa || d.cves?.length) && sameAdvisory(a, d));
+    gone.some(
+      (d) => (d.ghsa || d.cves?.length) && (a.ghsa || a.cves?.length) && sameAdvisory(a, d),
+    );
   const left = lock.advisories.filter((a) => !isDismissed(a));
   const dropped = lock.advisories.length - left.length;
   if (dropped === 0) return viaLockfile;
   const counts: Counts = { ...lock.counts };
   for (const a of lock.advisories)
-    if (isDismissed(a)) counts[a.severity] = Math.max(0, counts[a.severity] - 1);
-  return {
-    ...viaLockfile,
-    status: classify(counts),
-    details: { counts, advisories: left, dismissedLeftOut: dropped },
-  };
+    if (isDismissed(a)) counts[a.severity] = Math.max(0, counts[a.severity] - (a.findings ?? 1));
+  return { ...viaLockfile, details: { counts, advisories: left, dismissedLeftOut: dropped } };
 }
 
 /** True when the repo root holds a lockfile the lockfile audit can read. */
