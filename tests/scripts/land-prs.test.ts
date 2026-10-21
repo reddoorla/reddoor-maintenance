@@ -2031,17 +2031,24 @@ describe("land-prs: test changes", () => {
       expect(testChangeFlags([f])).toEqual([
         { file: T, reasons: ["test file renamed to docs/old-thing.txt, which is not a test"] },
       ]);
+      // Round 4: a move between test paths is flagged too, because the runner's include may
+      // not collect the new path; naming it costs one line.
       const moved = file("tests/b/thing.test.ts", "renamed", undefined, { previous_filename: T });
-      expect(testChangeFlags([moved])).toEqual([]);
+      expect(testChangeFlags([moved])).toEqual([
+        {
+          file: T,
+          reasons: ["test file renamed to tests/b/thing.test.ts: say the runner still collects it"],
+        },
+      ]);
     });
 
-    it("a test file whose patch GitHub left out is flagged; an unchanged rename or a non-test file is not", () => {
+    it("a test file whose patch GitHub left out is flagged; an unchanged one (a mode change) or a non-test file is not", () => {
       expect(testChangeFlags([file(T, "modified", undefined, { changes: 12_000 })])).toEqual([
         { file: T, reasons: ["GitHub left out the patch (12000 changed lines): read the diff"] },
       ]);
       expect(
         testChangeFlags([
-          file("tests/b/thing.test.ts", "renamed", undefined, { previous_filename: T }),
+          file(T, "modified", undefined, { changes: 0 }),
           file("src/huge.ts", "modified", undefined, { changes: 12_000 }),
         ]),
       ).toEqual([]);
@@ -2333,12 +2340,105 @@ describe("land-prs: test changes", () => {
       for (const body of [
         "Test changes:\n\n| file | why |\n|---|---|\n| tests/a.test.ts | renamed title |\n",
         "**Test changes:**\n\n`tests/a.test.ts`: title only\n",
+        "Test changes: one file.\n\n| tests/a.test.ts | renamed title |\n",
+        "Test changes: one file.\n\n`tests/a.test.ts`: title only\n",
       ]) {
         expect(unnamedTestChanges(flags, body), body).toEqual([]);
       }
       expect(unnamedTestChanges(flags, "Test changes: foo./tests/a.test.ts")).toEqual([
         "tests/a.test.ts",
       ]);
+    });
+  });
+
+  describe("round-4 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+    const A_TEST = testChangeFlags([file("tests/a.test.ts", "removed")]);
+    const names = (body: string) => unnamedTestChanges(A_TEST, body);
+
+    it("every rename of a test is flagged: the runner's include may not collect the new path", () => {
+      const f = file("scripts/land-prs.test.ts", "renamed", undefined, {
+        previous_filename: "tests/scripts/land-prs.test.ts",
+      });
+      expect(testChangeFlags([f])).toEqual([
+        {
+          file: "tests/scripts/land-prs.test.ts",
+          reasons: [
+            "test file renamed to scripts/land-prs.test.ts: say the runner still collects it",
+          ],
+        },
+      ]);
+    });
+
+    it("a section names the file wherever a reader sees it in the section", () => {
+      for (const body of [
+        "Test changes:\n\ntests/a.test.ts: the count is now 4 because the fixture gained a row.",
+        "**Test changes:**\n\nThe assertion in tests/a.test.ts now expects 4.",
+        "## Test changes\n\n### tests/a.test.ts\nThe count is now 4.",
+        "## Test changes\n\n- tests/a.test.ts: the count is now 4.\n---\nRelated: #12",
+        "Test changes:\ntests/a.test.ts: retitled the case\n---\nCloses #12",
+        "```pnpm test``` passes locally.\n\nTest changes: tests/a.test.ts, the count is now 4.",
+        "Test changes: [the assertion](https://github.com/o/r/blob/claude/x/tests/a.test.ts#L3) is 4.",
+        "Test changes:\n\n\n- tests/a.test.ts: dup",
+      ]) {
+        expect(names(body), body).toEqual([]);
+      }
+    });
+
+    it("text a reader does not see does not name it", () => {
+      for (const body of [
+        "Refactor.\n\nTest changes:\n[//]: # (tests/a.test.ts)\n",
+        "Test changes:\n[a]: tests/a.test.ts",
+        "Uses ```x``` now.\n```x```\n<!--\n```\nTest changes: tests/a.test.ts\n-->\n",
+        "Test changes: none\n\n## Other\ntests/a.test.ts",
+      ]) {
+        expect(names(body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("whitespace inside a string is part of the assertion", () => {
+      expect(
+        one('@@ -1 +1 @@\n-  expect(s).toBe("a  b");\n+  expect(s).toBe("a b");'),
+      ).toHaveLength(1);
+    });
+
+    it("a skip by bracket access is a skip; RxJS skip(1) and a query's .skip(10) are not", () => {
+      expect(added('it["skip"]("x", () => {')).toHaveLength(1);
+      expect(added("source$.pipe(skip(1), take(1));")).toEqual([]);
+      expect(added("await db.find().skip(10).limit(5);")).toEqual([]);
+    });
+
+    it("assertion names are exact, generics may hold function types, a lone quote does not hide a call", () => {
+      expect(removed("const want = expectedFor(input);")).toEqual([]);
+      expect(removed("expectTypeOf<() => void>().toBeFunction();")).toHaveLength(1);
+      expect(removed("assertType<(x: number) => string>(fn);")).toHaveLength(1);
+      expect(
+        removed('render(<p>Don\'t</p>); expect(screen.getByText("x")).toBeTruthy();'),
+      ).toHaveLength(1);
+    });
+
+    it("an escaped quote stays in its string, and an unclosed /* hides the rest of the line", () => {
+      expect(added('it("says \\"skip (\\" here", () => {});')).toEqual([]);
+      expect(added('/* TODO: it.skip("a") once fixed')).toEqual([]);
+    });
+
+    it("a line too long to scan is flagged unless it comes back unchanged", () => {
+      const long = `const fixture = "${"x".repeat(2_500)}";`;
+      expect(added(long)[0]?.reasons).toEqual([
+        `a changed line of ${long.length} characters, too long to scan: read it`,
+      ]);
+      expect(one(`@@ -1 +1 @@\n-${long}\n+  ${long}`)).toEqual([]);
+    });
+
+    it("no body or line makes a scan slow", () => {
+      const start = Date.now();
+      testChangesSection(`test changes${"*".repeat(65_500)}x`);
+      testChangesSection("`".repeat(65_536));
+      testChangesSection(`Test changes:\n${"<!--".repeat(16_000)}`);
+      added("it.".repeat(20_000));
+      expect(Date.now() - start).toBeLessThan(1_000);
     });
   });
 

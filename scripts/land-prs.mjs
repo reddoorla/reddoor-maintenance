@@ -726,25 +726,42 @@ const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 // A call, not a word, tested on a line's code (see `codeOf`) with its generics taken out
 // (see `withoutGenerics`): `expect(`, `expect.soft(`, `expectTypeOf(`, `assert(`,
 // `assert.equal(`, `assertEquals(`, `assertType(`, `expect (x)`. Strings are blanked first,
-// so a test title "as users expect (no 404)" is not one; nor is a bare "assertions".
-const ASSERTION = /\b(expect|assert)\w*(\s*\.\s*\w+)*\s*\(/;
-// A skip: a modifier on the test API, called or not (`it.skip(`, `describe.skip.each(…)`,
-// `cond ? it.skip : it`, Playwright's `test.fixme(` and `test.fail(`); a CALLED or chained
-// modifier on anything (`ctx.skip()`, `this.skip()`, a `test.extend` alias's `.skip(`);
-// a bare `skip(` from the test context; or `xit`, `xtest`, `xdescribe`. A property that is
-// only read (`store.todo`, `summary.fails`) is not.
+// so a test title "as users expect (no 404)" is not one; nor is `expectedFor(` or a bare
+// "assertions".
+const ASSERTION = /\b(expect|expectTypeOf|assert|assertType|assert[A-Z]\w*)(\s*\.\s*\w+)*\s*\(/;
+// A skip, tested on a line's code:
+// - a modifier on the test API, called or not: `it.skip(`, `describe.skip.each(…)`,
+//   `cond ? it.skip : it`, Playwright's `test.fixme(` and `test.fail(`;
+// - a modifier called or chained on the test context or a test alias: `ctx.skip()`,
+//   `this.skip()`, `myTest.skip(`, `itLive.skip.each(`, `test.extend({…}).skip(`, or a
+//   chain split across lines (`.skip(` opening a line);
+// - a bare `skip(` statement from the test context (`({ skip }) => { skip(); }`);
+// - `xit`, `xtest`, `xdescribe`.
+// A property that is only read (`store.todo`, `summary.fails`), RxJS's `skip(1)` inside a
+// pipe and a query builder's `.skip(10)` are not.
 const SKIP_WORDS = "skipIf|skip|todo|fails|fixme";
 const SKIP = new RegExp(
   [
     `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+)*\\s*\\.\\s*(${SKIP_WORDS}|fail)\\b`,
-    `\\.\\s*(${SKIP_WORDS})\\s*(\\(|\\.\\s*(each|for|concurrent|sequential|only|skip|todo)\\b)`,
-    `(^|[^\\w.$])(skip(If)?\\s*\\(|x(it|test|describe)\\s*[.(])`,
+    `\\b(this|ctx|context|t|task|\\w*[tT]est\\w*|\\w*[dD]escribe\\w*|it[A-Z]\\w*|\\w*It)\\s*\\.\\s*(${SKIP_WORDS})\\s*(\\(|\\.\\s*(each|for|concurrent|sequential|only|skip|todo)\\b)`,
+    `\\.\\s*extend\\s*\\([^)]*\\)\\s*\\.\\s*(${SKIP_WORDS})\\b`,
+    `^\\.\\s*(${SKIP_WORDS})\\s*\\(`,
+    `(^|[{;]|=>)\\s*(await\\s+)?skip(If)?\\s*\\(`,
+    `(^|[^\\w.$])x(it|test|describe)\\s*[.(]`,
   ].join("|"),
 );
+// The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
+// line's code has its strings blanked.
+const SKIP_BRACKET = new RegExp(
+  `\\b(it|test|describe|suite|bench|this|ctx|context|t)\\s*\\[\\s*(["'\`])(${SKIP_WORDS}|fail)\\2\\s*\\]`,
+);
+// A changed line longer than this is not scanned (no regex here can then be made slow):
+// unless it is added back unchanged, it is flagged for a reader instead.
+const MAX_LINE = 2_000;
 const MAX_FILES_PAGES = 30; // GitHub lists at most 3000 files on a pull request.
 
-/** Whether `path` is a test: under a tests/, test/, __tests__/ or e2e/ directory, or named
- *  `*.test.*` / `*.spec.*` with a JS or TS extension. */
+/** Whether `path` is a test: under a root tests/, test/ or e2e/ directory (or a package's),
+ *  under any __tests__/, or named `*.test.*` / `*.spec.*` with a JS or TS extension. */
 export function isTestFile(path) {
   const p = String(path ?? "");
   return TEST_DIR.test(p) || TEST_NAME.test(p);
@@ -761,13 +778,15 @@ function patchLines(patch) {
   return { removed, added };
 }
 
-/** The code on a trimmed line: string contents blanked (`"*\/15 * * * *"` and
- *  `"https://…"` are data, not comment markers), `//` and `/* … *\/` comments dropped, so
+/** The code on a trimmed line, as `{ code, open }`: string contents blanked (`"*\/15 * * *"`
+ *  and `"https://…"` are data, not comment markers), `//` and `/* … *\/` comments dropped, so
  *  `/* flaky *\/ it.skip(…)` is code and `// it.skip(…)` is not. A JSDoc continuation
  *  (`* expect(x)…`) is a comment. A stray `*\/` outside a string is kept as code: guessing
- *  that the line began inside a comment would let `it.skip(…); *\/` pass. One pass, linear. */
+ *  that the line began inside a comment would let `it.skip(…); *\/` pass. `open` is true
+ *  when a quote never closed (an apostrophe in JSX text, a quote in a regex literal), and
+ *  then everything after it was blanked. One pass, linear. */
 function codeOf(line) {
-  if (/^\*(?!\/)/.test(line)) return "";
+  if (/^\*(?!\/)/.test(line)) return { code: "", open: false };
   let out = "";
   let quote = "";
   for (let i = 0; i < line.length; i++) {
@@ -791,20 +810,51 @@ function codeOf(line) {
       i = end + 1;
     } else out += c;
   }
-  return out.trim();
+  return { code: out.trim(), open: quote !== "" };
+}
+
+/** Whether `re` finds a call on the line: on its code, and also on the raw line when a
+ *  quote never closed, because then the code may have lost a real call (a flag is cheap;
+ *  a missed one is the failure this exists for). */
+function hasCall(line, re, prepare = (s) => s) {
+  const { code, open } = codeOf(line);
+  return re.test(prepare(code)) || (open && re.test(prepare(line)));
 }
 
 /** `code` with type arguments taken out, innermost first, three levels deep: `expect<Array<
- *  number>>(` → `expect(`. Each pass is one linear regex scan, so no line can make it slow. */
+ *  number>>(` and `expectTypeOf<() => void>(` → `expect(`. Each pass is one linear scan. */
 function withoutGenerics(code) {
   let s = code;
-  for (let i = 0; i < 3; i++) s = s.replace(/<[^<>()]*>/g, "");
+  for (let i = 0; i < 3; i++) s = s.replace(/<(?:=>|=(?!>)|[^<>()=]|\([^()]*\))*>/g, "");
   return s;
 }
 
-/** A line as re-add matching compares it: whitespace runs collapsed and a trailing `;`
- *  dropped, so adding a semicolon or re-indenting is not a removal. */
-const lineKey = (t) => t.replace(/\s+/g, " ").replace(/;$/, "");
+/** A line as re-add matching compares it: whitespace runs outside strings collapsed and a
+ *  trailing `;` dropped, so adding a semicolon or re-indenting is not a removal, while
+ *  `toBe("a  b")` → `toBe("a b")` still is. */
+function lineKey(t) {
+  let out = "";
+  let quote = "";
+  let space = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (quote) {
+      out += c;
+      if (c === "\\" && i + 1 < t.length) out += t[++i];
+      else if (c === quote) quote = "";
+      continue;
+    }
+    if (/\s/.test(c)) {
+      space = true;
+      continue;
+    }
+    if (space && out) out += " ";
+    space = false;
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    out += c;
+  }
+  return out.replace(/;$/, "");
+}
 
 /** How many times each line occurs: a removed line is matched by one added copy, so
  *  removing an assertion twice and adding it back once still loses one. */
@@ -820,27 +870,28 @@ function takeOne(counts, line) {
   return true;
 }
 
-/** Why a rename takes a test out of the runner, or "" when it does not: a test renamed to a
- *  path that is not a test, or from a `*.test.ts` name to one that is not (`a.test.ts.off`
- *  under `tests/` is still under tests/, and no runner collects it). */
+/** Why a renamed test is flagged, or "" when `before` was not a test. Every rename of a test
+ *  is: to a path that is not a test, to a name no `*.test.ts` glob collects, or to a test
+ *  path that the runner's own include may still not collect (this repo's vitest reads only
+ *  `tests/**\/*.test.ts`), which nothing here can see. */
 function renamedAway(before, after) {
   if (!isTestFile(before)) return "";
   if (!isTestFile(after)) return `test file renamed to ${after}, which is not a test`;
   if (TEST_NAME.test(before) && !TEST_NAME.test(after)) {
     return `test file renamed to ${after}, which is not named as a test`;
   }
-  return "";
+  return `test file renamed to ${after}: say the runner still collects it`;
 }
 
 /** `GET pulls/N/files` → the flagged test files, `[{ file, reasons }]`, in the API's order.
  *
- *  Flagged: a test file deleted, or renamed out of the runner (see `renamedAway`); a removed
- *  line holding an `expect(` or `assert…(` call that is not added back, re-indented or moved,
- *  as many times as it was removed, in the same file (so `toBe(3)` → `toBe(4)` is flagged, a
- *  moved assertion is not); an added `.skip`, `.skipIf`, `.todo`, `.fails`, `xit` or
- *  `xdescribe` on the test API that was not there before; and a changed test file whose
- *  patch GitHub left out (it does for a large diff), because nothing here can read it.
- *  Only a line's code counts: a commented-out call is neither (see `codeOf`). */
+ *  Flagged: a test file deleted or renamed (see `renamedAway`); a removed line holding an
+ *  assertion call (see `ASSERTION`) that is not added back, re-indented or moved, as many
+ *  times as it was removed, in the same file (so `toBe(3)` → `toBe(4)` is flagged, a moved
+ *  assertion is not); an added skip (see `SKIP`) that was not there before; a changed line
+ *  too long to scan; and a changed test file whose patch GitHub left out (it does for a
+ *  large diff), because nothing here can read it. Only a line's code counts: a
+ *  commented-out call is neither (see `codeOf`). */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -869,12 +920,21 @@ export function testChangeFlags(files) {
     const addedLeft = lineCounts(added.map(lineKey));
     const removedLeft = lineCounts(removed.map(lineKey));
     const reasons = [];
+    const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
-      if (!ASSERTION.test(withoutGenerics(codeOf(t)))) continue;
+      if (t.length > MAX_LINE) {
+        if (!takeOne(addedLeft, lineKey(t))) reasons.push(tooLong(t));
+        continue;
+      }
+      if (!hasCall(t, ASSERTION, withoutGenerics)) continue;
       if (!takeOne(addedLeft, lineKey(t))) reasons.push(`removed assertion not re-added: ${t}`);
     }
     for (const t of added) {
-      if (!SKIP.test(codeOf(t))) continue;
+      if (t.length > MAX_LINE) {
+        if (!takeOne(removedLeft, lineKey(t))) reasons.push(tooLong(t));
+        continue;
+      }
+      if (!hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
       if (!takeOne(removedLeft, lineKey(t))) reasons.push(`added skip: ${t}`);
     }
     if (reasons.length > 0) out.push({ file: name, reasons });
@@ -882,36 +942,63 @@ export function testChangeFlags(files) {
   return out;
 }
 
-const HEADING = /^\s{0,3}#{1,6}\s/;
-const SETEXT_UNDERLINE = /^\s{0,3}(=+|-+)\s*$/;
+const ATX = /^\s{0,3}(#{1,6})\s/;
+const UNDERLINE = /^\s{0,3}(=+|-+)\s*$/;
 // A line that carries on a label's section past a blank line: a list item, an indented
 // line, a table row, a quote or a line opening with inline code.
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S|^\s*[|>`]/;
 
-/** The PR body without what a reader does not see as prose: fenced code blocks (closed only
- *  by a fence of the same character, at least as long), then HTML comments (a PR template's
- *  `<!-- Test changes: … -->` would otherwise satisfy every PR). An unclosed `<!--` hides the
- *  rest of the body only where GitHub would, at the start of a line. */
+/** The PR body as a reader sees it, line by line: HTML comments taken out (a PR template's
+ *  `<!-- Test changes: … -->` would otherwise satisfy every PR), an unclosed `<!--` at a
+ *  line's start hiding the rest (as GitHub does), fenced code blocks dropped (a backtick
+ *  fence's info string has no backtick, so ```` ```x``` ```` is inline code; a fence closes
+ *  only on a run of its own character at least as long), and link reference definitions
+ *  (`[//]: # (…)`, the markdown comment idiom) dropped. Linear. */
 function visibleBody(body) {
-  return String(body ?? "")
-    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))/gm, "")
+  const out = [];
+  let fence = null;
+  for (const line of String(body ?? "")
     .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/^ {0,3}<!--[\s\S]*/m, "");
+    .split(/\r?\n/)) {
+    if (fence) {
+      const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      continue;
+    }
+    const open = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/.exec(line);
+    if (open) {
+      fence = open[1] ?? open[2];
+      continue;
+    }
+    if (/^ {0,3}<!--/.test(line)) break;
+    if (/^ {0,3}\[[^\]]+\]:[ \t]/.test(line)) continue;
+    out.push(line);
+  }
+  return out;
 }
 
-/** The PR body's `Test changes:` sections, joined, or `null` when it has none. One starts at
- *  a heading "Test changes" (`#` or underlined) or a line labelled "Test changes:" (bold,
- *  quoted or as a list item are all fine). A heading's section runs to the next heading; a
- *  label's ends there too, or at a blank line followed by anything but a list item, so
- *  "Test changes: none" does not swallow the paragraphs below it. */
+/** The PR body's `Test changes:` sections, joined, or `null` when it has none.
+ *
+ *  One starts at a heading "Test changes" (`#` or underlined) or at a line labelled
+ *  "Test changes:" (bold, quoted or as a list item are all fine). A heading's section runs
+ *  to the next heading of its level or higher, so `### tests/a.test.ts` subheadings stay in
+ *  it. A label's ends at any heading, or at a blank line followed by anything but a list
+ *  item, so "Test changes: none" does not swallow the paragraphs below it; a label with
+ *  nothing after its colon takes the paragraph that follows. A `---` after a list item is a
+ *  rule, not a heading underline. Linear. */
 export function testChangesSection(body) {
-  const lines = visibleBody(body).split(/\r?\n/);
-  const named = (l) => /^[\s#*_]*test changes\b[*_]*\s*:?[*_]*\s*$/i.test(l);
-  const isAtx = (i) => HEADING.test(lines[i]) && /^[\s#*_]*test changes\b/i.test(lines[i]);
-  const isSetext = (i) => named(lines[i]) && SETEXT_UNDERLINE.test(lines[i + 1] ?? "");
-  const isLabel = (i) =>
-    /^test changes[*_]*\s*:/i.test(lines[i].replace(/^(\s|>|[-*+_]|\d+[.)])+/, ""));
-  const isHeadingAt = (i) => HEADING.test(lines[i]) || SETEXT_UNDERLINE.test(lines[i + 1] ?? "");
+  const lines = visibleBody(body);
+  const atxLevel = (l) => ATX.exec(l)?.[1].length ?? 0;
+  // The level of the setext heading whose text is line i (it starts a paragraph and is
+  // underlined), else 0.
+  const setextLevel = (i) => {
+    const u = UNDERLINE.exec(lines[i + 1] ?? "");
+    const l = lines[i];
+    if (!u || l.trim() === "" || LIST_ITEM.test(l) || atxLevel(l) || UNDERLINE.test(l)) return 0;
+    if (i > 0 && lines[i - 1].trim() !== "") return 0;
+    return u[1][0] === "=" ? 1 : 2;
+  };
+  const headingLevel = (i) => atxLevel(lines[i]) || setextLevel(i);
   // The next non-blank line after each index, found in one backward pass.
   const nextText = new Array(lines.length + 1).fill(undefined);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -919,17 +1006,28 @@ export function testChangesSection(body) {
   }
   const sections = [];
   for (let start = 0; start < lines.length; start++) {
-    const heading = isAtx(start) || isSetext(start);
-    if (!heading && !isLabel(start)) continue;
-    const out = [lines[start]];
-    let i = start + (isSetext(start) ? 2 : 1);
+    const first = lines[start];
+    const atx = /^[\s#*_]*test changes\b/i.test(first) ? atxLevel(first) : 0;
+    const setext = !atx && /^[\s*_]*test changes\b[\s*_:]*$/i.test(first) ? setextLevel(start) : 0;
+    const level = atx || setext;
+    const label = level
+      ? null
+      : /^test changes[*_]*\s*:(.*)$/i.exec(first.replace(/^(\s|>|[-*+_]|\d+[.)])+/, ""));
+    if (!level && !label) continue;
+    const bareLabel = label !== null && label[1].replace(/[\s*_]/g, "") === "";
+    const out = [first];
+    let seen = false;
+    let i = start + (setext ? 2 : 1);
     for (; i < lines.length; i++) {
       const l = lines[i];
-      if (l.trim() !== "" && isHeadingAt(i) && !SETEXT_UNDERLINE.test(l)) break;
-      if (!heading && l.trim() === "") {
+      const h = l.trim() === "" ? 0 : headingLevel(i);
+      if (h && (!level || h <= level)) break;
+      if (!level && l.trim() === "") {
         const next = nextText[i + 1];
-        if (next === undefined || !LIST_ITEM.test(next)) break;
+        if (next === undefined) break;
+        if (!LIST_ITEM.test(next) && !(bareLabel && !seen)) break;
       }
+      if (l.trim() !== "") seen = true;
       out.push(l);
     }
     sections.push(out.join("\n"));
@@ -941,19 +1039,23 @@ export function testChangesSection(body) {
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // What may come right before a named path: nothing, a non-path character, `./`, or a GitHub
-// `/blob/<ref>/` or `/tree/<ref>/` link to it.
-const NAME_BEFORE = "(?:^|[^\\w./-]|(?<![\\w.])\\./|/(?:blob|tree)/[^\\s/]+/)";
+// `/blob/<ref>/` or `/tree/<ref>/` link to it (a ref may have slashes: `claude/x`).
+const NAME_BEFORE = "(?:^|[^\\w./-]|(?<![\\w.])\\./|/(?:blob|tree)/\\S+?/)";
 
-/** The flagged files the PR body's `Test changes:` sections do not name. A name is the
- *  whole path: `tests/a.test.tsx` does not name `tests/a.test.ts`. */
-export function unnamedTestChanges(flags, body) {
-  if (flags.length === 0) return [];
-  const section = testChangesSection(body) ?? "";
+/** The flagged files that `section` (the joined `Test changes` sections) does not name. */
+function unnamedIn(flags, section) {
   return flags
     .map((f) => f.file)
     .filter(
       (file) => !new RegExp(`${NAME_BEFORE}${escapeRe(file)}(?![\\w/-]|\\.\\w)`).test(section),
     );
+}
+
+/** The flagged files the PR body's `Test changes:` sections do not name. A name is the
+ *  whole path: `tests/a.test.tsx` does not name `tests/a.test.ts`. */
+export function unnamedTestChanges(flags, body) {
+  if (flags.length === 0) return [];
+  return unnamedIn(flags, testChangesSection(body) ?? "");
 }
 
 /** Every file the PR changed. GitHub lists at most 3000; a PR with more cannot be checked,
@@ -983,11 +1085,12 @@ async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
       for (const why of f.reasons) ctx.log(`LAND #${n} test change: ${f.file}: ${why}`);
     }
   }
-  const missing = unnamedTestChanges(flags, pr.body);
+  const section = flags.length > 0 ? testChangesSection(pr.body) : null;
+  const missing = flags.length > 0 ? unnamedIn(flags, section ?? "") : [];
   if (missing.length > 0) {
     const count = `${missing.length} flagged test file${missing.length === 1 ? " is" : "s are"} not named in the PR body`;
     const fix =
-      testChangesSection(pr.body) === null
+      section === null
         ? `add a "Test changes:" line or heading to the PR body naming ${missing.join(", ")}, each with why its test changed, then land again`
         : `the "Test changes:" section does not name ${missing.join(", ")}; add each, with why its test changed, then land again`;
     throw new Stop(`${count}: ${fix}${at}`);
