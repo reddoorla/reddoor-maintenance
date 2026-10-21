@@ -22,7 +22,7 @@ import {
   advisoriesFromResult,
 } from "./security-fields.js";
 import { sameAdvisory } from "./security.js";
-import type { SecurityAdvisory } from "../fleet/site-row.js";
+import { SEVERITY_RANK, type SecurityAdvisory } from "../fleet/site-row.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-fields.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-fields.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-fields.js";
@@ -155,6 +155,16 @@ export function planAuditWrite(args: {
       const kept = stored.filter(
         (a) => a.lockfile !== false && !advisories.some((b) => sameAdvisory(a, b)),
       );
+      // One of tonight's the lockfile audit also reported stays the lockfile's: the louder
+      // severity (as mergeAudits' combineAdvisories keeps it) and `lockfile: true`, so neither a
+      // lower Dependabot rating nor a later night without it can clear what pnpm saw.
+      const tonight = advisories.map((b): SecurityAdvisory => {
+        const a = stored.find((x) => x.lockfile !== false && sameAdvisory(x, b));
+        if (!a) return b;
+        const severity =
+          SEVERITY_RANK[a.severity] < SEVERITY_RANK[b.severity] ? a.severity : b.severity;
+        return { ...b, severity, lockfile: true };
+      });
       const listed = (list: SecurityAdvisory[], s: SecurityAdvisory["severity"]): number =>
         list.filter((a) => a.severity === s).length;
       const storedCounts = {
@@ -173,11 +183,11 @@ export function planAuditWrite(args: {
       const next = { ...counts };
       for (const s of ["critical", "high", "moderate", "low"] as const)
         next[s] =
-          counts[s] +
+          listed(tonight, s) +
           listed(kept, s) +
           Math.max(0, storedCounts[s] - listed(stored, s) - (capped ? unnamed(s) : 0));
       counts = next;
-      advisories = [...advisories, ...kept];
+      advisories = [...tonight, ...kept];
     }
     audits.security = counts;
     audits.securityAdvisories = advisories;

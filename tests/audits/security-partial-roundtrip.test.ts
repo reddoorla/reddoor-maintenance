@@ -240,4 +240,38 @@ describe("a partial security run through the Turso row and the auto-tick (#1561)
     expect(partial.securityVulnsHigh).toBe(1);
     expect(partial.securityAdvisories).toHaveLength(1);
   });
+
+  it("two partial nights do not lose an advisory the lockfile audit found when Dependabot drops it", async () => {
+    const pkg1Alert = pkg1({ ghsaId: "GHSA-aaaa-bbbb-1001", cves: [] });
+    const { db, write } = await freshDb();
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+    const pnpmOut = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      advisories: {
+        "1": {
+          module_name: "pkg1",
+          severity: "high",
+          title: "pnpm words it",
+          cves: [],
+          github_advisory_id: "GHSA-aaaa-bbbb-1001",
+        },
+      },
+    });
+    await write(
+      await securityAudit({
+        site: { path: dir, gitRepo: "reddoorla/acme" },
+        dependabotDeps: { listAlerts: async () => [pkg1Alert, alert("low")] },
+        spawn: async (cmd) => {
+          if (cmd !== "pnpm") throw new Error(`ENOENT: ${cmd}`);
+          return { code: 1, stdout: pnpmOut, stderr: "" };
+        },
+      }),
+    );
+    const highs = [];
+    highs.push((await write(await partialRun([pkg1Alert, alert("low")]))).securityVulnsHigh);
+    highs.push((await write(await partialRun([alert("low")]))).securityVulnsHigh);
+    await db.destroy();
+    expect(highs).toEqual([1, 1]);
+  });
 });
