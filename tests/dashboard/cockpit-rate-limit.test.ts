@@ -24,18 +24,26 @@ function pagePaths(dir = ROUTES, prefix = ""): string[] {
   });
 }
 
+/** Functions that declare no `path` and answer only on
+ *  /.netlify/functions/<name>: two scheduled clocks and the Resend webhook. */
+const PATHLESS = ["nightly-clock", "nightly-send-clock", "resend-webhook"];
+
 /** Every path another Netlify function declares, as a concrete path
- *  (`:token` → `x`). */
+ *  (`:token` → `x`). A function this parse reads no path from must be one of
+ *  PATHLESS, so a spelling it cannot read fails here rather than passing. */
 function functionPaths(): string[] {
   const dir = join(ROOT, "netlify/functions");
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".mts"))
+    .filter((f) => /\.m?[jt]s$/.test(f))
     .flatMap((f) => {
+      const name = f.replace(/\.m?[jt]s$/, "");
       const src = readFileSync(join(dir, f), "utf8");
-      const block = /export const config[^;]*?\bpath:\s*(\[[^\]]*\]|"[^"]*")/s.exec(src);
-      const paths = [...(block?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? "");
-      // A function with no path still answers on /.netlify/functions/<name>.
-      return [...paths, `/.netlify/functions/${f.replace(/\.mts$/, "")}`];
+      const config = src.slice(src.indexOf("export const config"));
+      const value = /\bpath:\s*(\[[^\]]*\]|"[^"]*"|'[^']*'|`[^`]*`)/.exec(config)?.[1] ?? "";
+      const paths = [...value.matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1] ?? "");
+      if (paths.length === 0 && !PATHLESS.includes(name))
+        throw new Error(`no path read from netlify/functions/${f}`);
+      return [...paths, `/.netlify/functions/${name}`];
     })
     .map((p) => p.replace(/:[^/]+/g, "x"));
 }
