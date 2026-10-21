@@ -100,6 +100,22 @@ const PAGES: Record<string, string> = {
     `${RING_AFTER_23} #pre { position: fixed; inset: 0; background: #fff; }`,
     `<main><section><a href="#x">Book</a></section></main><div id="pre"></div><script>addEventListener("load", () => setTimeout(() => document.getElementById("pre").remove(), 200));</script>`,
   ),
+  // a loader that lifts a second after the network goes quiet (reddoorla.com's
+  // home page, 3 runs in 17 in review round 4);
+  "/late-loader": page(
+    `${RING_AFTER_23} #pre { position: fixed; inset: 0; background: #fff; }`,
+    `<main><section><a href="#x">Book</a> <a href="#y">Call</a></section></main><div id="pre"></div><script>addEventListener("load", () => setTimeout(() => document.getElementById("pre").remove(), 1500));</script>`,
+  ),
+  // a ringless link far down a page that scrolls smoothly, by CSS and by a
+  // script's own smooth scroll on focus: measured where it lands;
+  "/smooth": page(
+    `${RING_AFTER_23} html { scroll-behavior: smooth; } .bad:focus-visible { outline: none; } .sp { height: 2500px; }`,
+    `<main><section><a href="#a">Top</a></section><div class="sp"></div><section><a href="#b" class="bad" id="far">Far</a></section><div class="sp"></div></main>`,
+  ),
+  "/scripted-scroll": page(
+    `${RING_AFTER_23} .bad:focus-visible { outline: none; } .sp { height: 2500px; }`,
+    `<main><section><a href="#a">Top</a></section><div class="sp"></div><section><a href="#b" class="bad" id="far">Far</a></section><div class="sp"></div></main><script>document.getElementById("far").addEventListener("focus", (e) => scrollTo({ top: e.target.offsetTop - 80, behavior: "smooth" }));</script>`,
+  ),
   // nothing to tab to.
   "/no-stops": page("", `<main><p>Text only</p></main>`),
   "/only-frame": page(
@@ -215,6 +231,21 @@ describe("design-rules R12 (focus ring), in a real browser", () => {
     for (const path of ["/peer-label", "/peer-sibling", "/offset", "/loader"]) {
       const o = await checkFocusRing(browser, `${base}${path}`);
       expect(o.status, `${path}: ${JSON.stringify(o.findings)}`).toBe("pass");
+    }
+  });
+
+  it("waits out a loader that lifts late", async () => {
+    const o = await checkFocusRing(browser, `${base}/late-loader`);
+    expect(o.status, JSON.stringify(o.findings)).toBe("pass");
+  });
+
+  it("FAILS a ringless link that focus scrolls to smoothly, by CSS or by script", async () => {
+    for (const path of ["/smooth", "/scripted-scroll"]) {
+      const o = await checkFocusRing(browser, `${base}${path}`);
+      expect(
+        o.findings.map((f) => `${f.target}: ${f.problem.replace(/ \(at .*\)$/, "")}`),
+        `${path}: ${o.note}`,
+      ).toEqual(["a#far: has no visible focus indicator"]);
     }
   });
 

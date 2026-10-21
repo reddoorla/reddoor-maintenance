@@ -28,12 +28,15 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //     pinned bar (roalson's journal, 2026-09-21, "the pinned bar hid whatever
 //     the browser focused").
 //
-// The page is tabbed once the network is idle. Stops are told apart by element
-// identity, so the tab order ends where it wraps. A stop at the viewport's edge
-// is measured on the part the screen shows; a visually hidden input (a
-// `peer sr-only` radio) is measured where its ring is drawn: its label, else
-// the next element, else its parent. A stop under another element is reported
-// once, as covered.
+// The page is tabbed once the network is idle, and each stop is measured once
+// its scroll has come to rest (a smooth scroll, by CSS or by script). Stops are
+// told apart by element identity, so the tab order ends where it wraps. A
+// stop at the viewport's edge is measured on the part the screen shows; a
+// visually hidden input (a `peer sr-only` radio) is measured where its ring is
+// drawn: its label, else the next element that is not hidden too, else its
+// parent. A stop under another element is looked at again for up to
+// COVER_WAIT_MS, so a loader that lifts late is not a pinned bar, and is
+// reported once, as covered.
 // A page where no stop could be measured is unmeasured, never a pass.
 //
 // Not covered: a stop wholly outside the viewport after focus scrolled it, and
@@ -45,7 +48,8 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // fill; two stops with the same path, whose findings are merged; and the set
 // of stops on a page whose carousel autoplays or whose frames load late,
 // which can differ between runs (the verdict on beachfront held across runs;
-// one of its findings did not).
+// one of its findings did not; on reddoorla.com a footer link read as having
+// no indicator in 2 runs of 10).
 
 /** CSS px of ground captured round the element: outline offset plus width,
  *  with room to spare. */
@@ -54,6 +58,8 @@ export const RING_PAD_PX = 16;
 export const STOP_CAP = 60;
 /** A channel sum below this is the same pixel (antialiasing, compression). */
 const SAME_PIXEL = 24;
+/** How long a covered stop is watched for its cover to leave. */
+export const COVER_WAIT_MS = 3_000;
 
 /** WCAG relative luminance of an sRGB pixel. */
 function luminance(r: number, g: number, b: number): number {
@@ -105,7 +111,8 @@ export function measureRing(
  *  was focused before (the tab order has wrapped), and whether focus is
  *  inside a frame (not measured). A visually hidden input (a Tailwind
  *  `peer sr-only` radio) is measured where its ring is drawn: its label,
- *  else the next element not hidden too, else its parent. Runs IN THE PAGE (self-contained, no named helpers). */
+ *  else the next element not hidden too, else its parent.
+ *  Runs IN THE PAGE (self-contained, no named helpers). */
 export function describeFocus(): {
   target: string;
   rect: { x: number; y: number; width: number; height: number };
@@ -199,6 +206,21 @@ export type FocusStop = {
   skipped?: "viewport" | "frame";
 };
 
+/** Resolves once the page and the focused element have held still for three
+ *  frames (a smooth scroll has ended), or after about a second.
+ *  Runs IN THE PAGE (self-contained, no named helpers). */
+export async function scrollRest(): Promise<void> {
+  let last = "";
+  let still = 0;
+  for (let frame = 0; frame < 60 && still < 3; frame++) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const r = document.activeElement?.getBoundingClientRect();
+    const now = `${scrollX},${scrollY},${r?.left},${r?.top}`;
+    still = now === last ? still + 1 : 0;
+    last = now;
+  }
+}
+
 /** Tab through one page, measuring each stop. */
 async function tabThrough(page: Page): Promise<FocusStop[]> {
   // A loader overlay or late hydration would cover the first stops: tab once
@@ -209,8 +231,17 @@ async function tabThrough(page: Page): Promise<FocusStop[]> {
   const viewport = page.viewportSize()!;
   for (let i = 0; i < STOP_CAP; i++) {
     await page.keyboard.press("Tab");
-    const focus = await page.evaluate(describeFocus);
+    await page.evaluate(scrollRest);
+    let focus = await page.evaluate(describeFocus);
     if (!focus || focus.repeat) break;
+    // A cover that leaves (a loader lifting) is not a pinned bar. The stop
+    // is already seen, so a second look reads as a repeat; only its cover
+    // is read.
+    for (let waited = 0; focus?.covered && waited < COVER_WAIT_MS; waited += 250) {
+      await page.waitForTimeout(250);
+      focus = await page.evaluate(describeFocus);
+    }
+    if (!focus) break;
     if (focus.inFrame) {
       // Focus is inside a frame, on an element this page cannot see; it
       // stays there so the next Tab moves on through the frame and out.

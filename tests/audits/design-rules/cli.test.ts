@@ -158,6 +158,7 @@ describe("design-rules CLI under tsx", () => {
       `  sampleReducedMotion: (await import("./src/audits/design-rules/reduced-motion.ts")).sampleReducedMotion,`,
       `  sampleOutline: (await import("./src/audits/design-rules/heading-levels.ts")).sampleOutline,`,
       `  describeFocus: (await import("./src/audits/design-rules/focus-ring.ts")).describeFocus,`,
+      `  scrollRest: (await import("./src/audits/design-rules/focus-ring.ts")).scrollRest,`,
       `  revealBelowFold: (await import("./src/audits/util/reveal-below-fold.ts")).revealBelowFold,`,
       `};`,
       `console.log(JSON.stringify(Object.entries(fns).filter(([, f]) => String(f).includes("__name")).map(([n]) => n)));`,
