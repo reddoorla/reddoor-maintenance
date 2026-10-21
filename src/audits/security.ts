@@ -29,6 +29,10 @@ type AdvisoryEntry = {
    *  cannot be read. "transitive" = no direct-dep fix vehicle, so the
    *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
   relationship?: "direct" | "transitive" | "inconclusive";
+  /** Whether the lockfile audit reported it: true from mergeAudits' pnpm side, false on every
+   *  Dependabot alert. Persisted so a later night can tell the two sources apart (#1561, whose
+   *  partial-night write waits on pnpm's own counts being stored too). */
+  lockfile?: boolean;
 };
 
 /** An open alert filed against a manifest that is no longer on the default branch. GitHub's
@@ -305,6 +309,7 @@ async function dependabotAudit(
       ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
       ...(a.relationship ? { relationship: a.relationship } : {}),
+      lockfile: false,
     };
     // A ghost: the manifest GitHub filed this against is gone from the tree. Nothing can
     // fix it (erp-industrial #55, data-dynamiq #41 sat red for five days on exactly this),
@@ -438,13 +443,30 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         // Every scope, not --prod: Dependabot counts dev-scope alerts too, and this audit stands
         // in for what Dependabot cannot see (#1408).
         const viaLockfile = await lockfileAudit(spawn, site.path, label, "all");
-        return viaLockfile.status === "skip"
-          ? viaLockfile
-          : mergeAudits(viaLockfile, viaDependabot);
+        if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
+        // The lockfile audit could not run. Dependabot's live alerts are real, but on this path
+        // they are only part of the tree, and the row does not keep pnpm's own counts to merge
+        // them with; writing them alone lowered npm counts or ticked Security Updates "pass"
+        // (#1561, eight review rounds). So the skip stands and writes nothing, and its summary
+        // names what Dependabot sees, so the run log does not hide a live alert.
+        return hasLiveCounts(viaDependabot)
+          ? {
+              ...viaLockfile,
+              summary:
+                `${viaLockfile.summary}; not written, as without the lockfile audit it is only ` +
+                `part of the tree: ${viaDependabot.summary}`,
+            }
+          : viaLockfile;
       }
     }
   }
   return lockfileAudit(spawn, site.path, label, "prod");
+}
+
+/** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
+function hasLiveCounts(result: AuditResult): boolean {
+  const counts = (result.details as { counts?: Record<string, number> } | undefined)?.counts;
+  return !!counts && Object.values(counts).some((n) => n > 0);
 }
 
 /** The lockfile audit: `pnpm audit`, else `npm audit`, else skip (which writes no counts).
@@ -570,7 +592,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     advisories: AdvisoryEntry[];
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
-  const advisories = [...lock.advisories];
+  const advisories: AdvisoryEntry[] = lock.advisories.map((a) => ({ ...a, lockfile: true }));
   // pnpm's metadata, less each of its advisories that the merge moved to a higher severity, so
   // the max below does not count that advisory again at its old severity.
   const lockCounts: Counts = { ...lock.counts };

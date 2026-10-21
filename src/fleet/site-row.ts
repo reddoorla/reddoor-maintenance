@@ -490,6 +490,14 @@ export type SecurityAdvisory = {
    *  lockfile-maintenance window. Omitted when GitHub reports "unknown" or for the
    *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
   relationship?: "direct" | "transitive";
+  /** Who reported it: `true` for the pnpm side of a merged audit (a lockfile the dependency
+   *  graph cannot read), `false` for every Dependabot alert. Absent on older rows and on the
+   *  stand-alone `pnpm audit`/`npm audit` path, which is lockfile-sourced too. Not read yet:
+   *  #1654 is to use it for a night the lockfile audit cannot run. */
+  lockfile?: boolean;
+  /** The GitHub advisory id (GHSA-…), when the source named one: what a later run matches this
+   *  stored entry on first, since the two sources word titles differently (#1409, #1561). */
+  ghsa?: string;
 };
 
 /** Critical first → low last; the persist cap and the dashboard list both lean on this. */
@@ -535,6 +543,8 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
     url: typeof e["url"] === "string" ? (e["url"] as string) : null,
     ...(scope ? { scope } : {}),
     ...(relationship ? { relationship } : {}),
+    ...(typeof e["lockfile"] === "boolean" ? { lockfile: e["lockfile"] as boolean } : {}),
+    ...(typeof e["ghsa"] === "string" && e["ghsa"] ? { ghsa: e["ghsa"] as string } : {}),
   };
 }
 
