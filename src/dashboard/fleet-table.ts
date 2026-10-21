@@ -1,16 +1,17 @@
 /** The fleet table.
  *
- *  A sortable/filterable inventory of EVERY fleet site. Unlike the cockpit
- *  (isDashboardVisible = {maintained, launching}), NOTHING here is
- *  status-filtered by default: archived/legacy/null-status rows all render,
- *  and the status is carried RAW — this module never remaps or invents status
- *  names.
+ *  A sortable/filterable inventory of every fleet site. By default it hides
+ *  the sites nobody is working on, archived and external ones (the operator,
+ *  2026-10-21): they appear when the operator picks their status, picks "all
+ *  statuses", or searches for them by name. Every other status, null included,
+ *  renders, and the status is carried RAW: this module never remaps or invents
+ *  status names.
  *
  *  RAW means `statusRaw`, the literal stored cell, NOT the canonical
- *  `status` (#539 Phase 4). This table must show what the cells hold: the
- *  canonical vocabulary merges `legacy` and `deprecated` into `archived`, which
- *  would render 12 fleet rows identically and offer a status FILTER whose
- *  options match no stored cell.
+ *  `status` (#539 Phase 4). This table must show what the cells hold. When it
+ *  was written the canonical vocabulary merged `legacy` and `deprecated` into
+ *  `archived`; that alias map is retired and the two are now equal, but the
+ *  split is kept (site-status.ts says why).
  *  Canonical values decide behaviour; anything displaying a Status cell uses
  *  the raw one.
  *
@@ -21,6 +22,14 @@
  */
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { siteSlug } from "../fleet/site-row.js";
+import type { Status } from "../fleet/site-status.js";
+
+/** Statuses the default view leaves out (the operator, 2026-10-21: "they should
+ *  only come up if I'm actively looking for them"). Matched on `status`, which
+ *  since the alias map was retired equals the raw cell: a stored retired name
+ *  like `legacy` is NOT `archived`, but an unrecognized status that
+ *  site-status.ts surfaces as an anomaly, so it stays visible. */
+export const HIDDEN_BY_DEFAULT: ReadonlySet<Status> = new Set<Status>(["archived", "external"]);
 
 export const FLEET_SORT_KEYS = [
   "name",
@@ -46,6 +55,15 @@ export type FleetSortKey = (typeof FLEET_SORT_KEYS)[number];
  *  never become unreachable because of a UI affordance. */
 export const NO_STATUS_FILTER = "__none__";
 
+/** Status-filter sentinel for "every status", the hidden ones included. The same
+ *  data-wins rule as NO_STATUS_FILTER applies (`allStatusesFilterActive`). */
+export const ALL_STATUSES_FILTER = "__all__";
+
+/** True when `status` should mean "every status" rather than an exact match. */
+export function allStatusesFilterActive(status: string, statuses: readonly string[]): boolean {
+  return status === ALL_STATUSES_FILTER && !statuses.includes(ALL_STATUSES_FILTER);
+}
+
 /** True when `status` should mean "no status set" rather than an exact match —
  *  i.e. the sentinel is in force AND no stored status shadows it. */
 export function noStatusFilterActive(status: string, statuses: readonly string[]): boolean {
@@ -55,7 +73,8 @@ export function noStatusFilterActive(status: string, statuses: readonly string[]
 export type FleetTableQuery = {
   sort: FleetSortKey;
   dir: "asc" | "desc";
-  /** Exact raw status to filter to ("" = all sites, nulls included), or
+  /** Exact raw status to filter to; "" = every site but HIDDEN_BY_DEFAULT
+   *  (nulls included), `ALL_STATUSES_FILTER` = every site, or
    *  `NO_STATUS_FILTER` for the null-status rows. */
   status: string;
   /** Case-insensitive substring matched against site name AND slug ("" = all). */
@@ -83,6 +102,9 @@ export type FleetTableModel = {
   rows: FleetTableRow[];
   /** Pre-filter fleet size, so the header can say "N of M sites". */
   totalSites: number;
+  /** Sites the default view left out because their status is in
+   *  HIDDEN_BY_DEFAULT; 0 whenever the operator is looking for them. */
+  hiddenCount: number;
   /** Distinct raw statuses present in the fleet (a-z) — the filter options.
    *  Derived from DATA, not from the code Status union, so a non-canonical
    *  value like "legacy" is filterable without this module naming statuses. */
@@ -181,9 +203,18 @@ export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery
   });
 
   const noStatus = noStatusFilterActive(query.status, statuses);
+  const allStatuses = allStatusesFilterActive(query.status, statuses);
   const qLower = query.q.toLowerCase();
+  // Archived and external sites show only when the operator is looking for
+  // them: a status picked (theirs, or every status) or a search typed.
+  const hideQuiet = query.status === "" && qLower === "";
+  let hiddenCount = 0;
   const filtered = sites.filter((s) => {
-    if (query.status !== "") {
+    if (hideQuiet && s.status !== null && HIDDEN_BY_DEFAULT.has(s.status)) {
+      hiddenCount++;
+      return false;
+    }
+    if (query.status !== "" && !allStatuses) {
       if (noStatus) {
         if (rawStatus(s) !== null) return false;
       } else if (rawStatus(s) !== query.status) return false;
@@ -212,5 +243,5 @@ export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
-  return { rows: sorted.map(toRow), totalSites: sites.length, statuses, query };
+  return { rows: sorted.map(toRow), totalSites: sites.length, hiddenCount, statuses, query };
 }

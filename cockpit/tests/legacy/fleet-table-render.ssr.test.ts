@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { renderFleetTableHtml } from "./render.js";
-import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
+import {
+  ALL_STATUSES_FILTER,
+  buildFleetTableModel,
+  NO_STATUS_FILTER,
+} from "../../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery, FleetTableRow } from "../../../src/dashboard/fleet-table.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
@@ -28,7 +32,13 @@ function sites() {
       nextTestingAt: "2026-10-01",
       lastLighthouseAuditAt: "2026-08-20T18:00:00Z",
     }),
-    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived", statusRaw: "legacy" }),
+    // A retired name, read as production reads it: status equals the raw cell.
+    makeWebsiteRow({
+      id: "r2",
+      name: "Beachfront",
+      status: "legacy" as WebsiteRow["status"],
+      statusRaw: "legacy",
+    }),
     makeWebsiteRow({ id: "r3", name: "Untracked", status: null }),
   ];
 }
@@ -45,6 +55,34 @@ describe("renderFleetTableHtml — document + rows", () => {
     // Since #672 step 3 a row also carries its signals for the chip filter.
     expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
     expect(html).toContain("3 of 3 sites");
+    // A retired name is an unrecognized status, surfaced rather than hidden.
+    expect(html).not.toContain("archived or external hidden");
+  });
+  it("hides archived and external rows by default, says so, and links to them", () => {
+    // The operator, 2026-10-21: they come up only when he is looking for them.
+    const rows = [...sites(), makeWebsiteRow({ id: "r4", name: "Seawall", status: "archived" })];
+    const html = render({ sort: "perf", dir: "desc", q: "" }, rows);
+    expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
+    expect(html).not.toContain(">Seawall</a>");
+    expect(html).toMatch(
+      /3 of 4 sites\s*· 1 archived or external hidden · <a href="([^"]*)">Show all<\/a>/,
+    );
+    const href = /<a href="([^"]*)">Show all<\/a>/.exec(html)![1]!.replaceAll("&amp;", "&");
+    // The link keeps the operator's sort.
+    expect(href).toBe(`/fleet?sort=perf&dir=desc&status=${ALL_STATUSES_FILTER}`);
+    // The default option says what it hides; "All statuses" is the way back.
+    expect(formOf(html)).toMatch(
+      /<option value="">Current \(archived &amp; external hidden\)<\/option>/,
+    );
+    expect(formOf(html)).toContain(`<option value="${ALL_STATUSES_FILTER}">All statuses</option>`);
+  });
+  it("marks 'All statuses' selected when it is in force, and shows the hidden rows", () => {
+    const rows = [...sites(), makeWebsiteRow({ id: "r4", name: "Seawall", status: "archived" })];
+    const html = render({ status: ALL_STATUSES_FILTER }, rows);
+    expect(formOf(html)).toContain(
+      `<option value="${ALL_STATUSES_FILTER}" selected="">All statuses</option>`,
+    );
+    expect(html).toContain(">Seawall</a>");
   });
   it("links each site name to its detail page and its URL out", () => {
     const html = render();
@@ -54,7 +92,7 @@ describe("renderFleetTableHtml — document + rows", () => {
     expect(html).toContain('href="https://acme.example.com/"');
   });
   it("renders the RAW status value IN ITS CELL, and a dash for null status", () => {
-    const html = render();
+    const html = render({ status: ALL_STATUSES_FILTER });
     // `toContain("legacy")` is satisfied by the filter <option> alone — the
     // whole status COLUMN could render blank and still pass. Pin the cell.
     expect(html).toMatch(/<td>legacy<\/td>/); // raw value, no remap
@@ -268,6 +306,7 @@ describe("renderFleetTableHtml — escaping", () => {
     const html = renderFleetTableHtml({
       rows: [row],
       totalSites: 1,
+      hiddenCount: 0,
       statuses: [],
       query: DEFAULT_QUERY,
     });
