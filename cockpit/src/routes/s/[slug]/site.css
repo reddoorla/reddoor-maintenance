@@ -560,4 +560,6 @@ button.trigger-renovate:disabled {
 .approved-by {
   display: block;
   font-size: 0.8rem;
+  /* An email has no break opportunity; let it wrap rather than widen the table. */
+  overflow-wrap: anywhere;
 }

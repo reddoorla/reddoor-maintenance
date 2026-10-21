@@ -23,3 +23,5 @@
 Mutation 9's red test sends an override with a body naming `mallory@evil.example` under `approvedBy` and `email`, signed in as `op@example.com`. The stamp must be `op@example.com`. A store-level test approves and overrides through the real endpoint with a minted session and reads `approved_by` and `override_by` back from Turso.
 
 **Left as it was, deliberately.** Unapprove and withdraw still stamp `"dashboard"` in `unapproved_by` and `withdrawn_by`. The brief's step 4 names approvals only, and those writes take no identity today. Giving them the session email is the same three-line change if the operator wants it.
+
+**Review round 1 was clean**, with one minor and three nits. The minor is folded in: a long email in "approved by" now wraps rather than widening the reports table. Two nits are product wording, filed as #1584: older approvals read "approved by dashboard", and unapprove and withdraw still stamp `"dashboard"`.
