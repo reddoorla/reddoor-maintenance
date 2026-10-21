@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import { advisoriesFromResult } from "../../src/audits/security-fields.js";
+import {
+  advisoriesFromResult,
+  hasSecurityCounts,
+  securityCountsFromResult,
+} from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 function fakeSpawn(
@@ -790,6 +794,22 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       spawn: fakeSpawn({}),
     });
     expect(result.status).toBe("skip");
+  });
+
+  it("keeps Dependabot's live alerts, with a note, when the lockfile audit cannot run (#1561)", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "critical" }]),
+      spawn: fakeSpawn({}),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe(
+      "Dependabot: 1 alert(s) (1C/0H/0M/0L); the lockfile audit could not run " +
+        "(cannot run audit — pnpm: not installed; npm: not installed), so this counts only " +
+        "what GitHub's dependency graph sees",
+    );
+    expect(hasSecurityCounts(result)).toBe(true);
+    expect(securityCountsFromResult(result)).toEqual({ critical: 1, high: 0, moderate: 0, low: 0 });
   });
 
   it("counts an aliased dependency as direct under the package it installs", async () => {

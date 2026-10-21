@@ -438,13 +438,28 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         // Every scope, not --prod: Dependabot counts dev-scope alerts too, and this audit stands
         // in for what Dependabot cannot see (#1408).
         const viaLockfile = await lockfileAudit(spawn, site.path, label, "all");
-        return viaLockfile.status === "skip"
-          ? viaLockfile
-          : mergeAudits(viaLockfile, viaDependabot);
+        if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
+        // The lockfile audit could not run. Dependabot's live alerts are still real, so a skip
+        // must not throw them away and leave the row's older counts standing (#1561). With none,
+        // its "0" only means it saw nothing, and writing it would read as clean: skip.
+        return hasLiveCounts(viaDependabot)
+          ? {
+              ...viaDependabot,
+              summary:
+                `${viaDependabot.summary}; the lockfile audit could not run ` +
+                `(${viaLockfile.summary}), so this counts only what GitHub's dependency graph sees`,
+            }
+          : viaLockfile;
       }
     }
   }
   return lockfileAudit(spawn, site.path, label, "prod");
+}
+
+/** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
+function hasLiveCounts(result: AuditResult): boolean {
+  const counts = (result.details as { counts?: Record<string, number> } | undefined)?.counts;
+  return !!counts && Object.values(counts).some((n) => n > 0);
 }
 
 /** The lockfile audit: `pnpm audit`, else `npm audit`, else skip (which writes no counts).
