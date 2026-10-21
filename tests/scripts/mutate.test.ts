@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  syntaxError,
   parseArgs,
   validateSidecar,
   countMatches,
@@ -280,7 +281,11 @@ if (process.env.MUTATE_FAKE_COPY) {
   copyFileSync("src/value.txt", "dist/value.txt");
 }
 const from = process.env.MUTATE_FAKE_READ || "src/value.txt";
-const value = existsSync(from) ? readFileSync(from, "utf-8").trim() : "missing";
+let value = existsSync(from) ? readFileSync(from, "utf-8").trim() : "missing";
+// A test that checks src/crlf.txt keeps its CRLF line endings.
+if (process.env.MUTATE_FAKE_CRLF && !readFileSync("src/crlf.txt", "utf-8").includes("\\r\\n")) value = "fail";
+// tests/b.test.ts passes only when tests/a.test.ts runs beside it (shared state).
+if (process.env.MUTATE_FAKE_PAIR && files.includes("tests/b.test.ts") && !files.includes("tests/a.test.ts")) value = "fail";
 const link = lstatSync("node_modules").isSymbolicLink() ? "link" : "dir";
 if (process.env.MUTATE_FAKE_LOG) appendFileSync(process.env.MUTATE_FAKE_LOG, process.cwd() + " " + value + " " + link + "\\n");
 const kase = (status) => ({ status, fullName: "case " + status, failureMessages: status === "failed" ? ["AssertionError: no"] : [] });
@@ -679,7 +684,7 @@ describe("mutate, against a real repo", () => {
     const p = sidecar(f.side, [toValue("m", "fail")]);
     await withEnv({ MUTATE_FAKE_ALSO: "sub/tests/a.test.ts", MUTATE_FAKE_LOG: f.log }, async () => {
       await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
-        /substring filter, and tests\/a\.test\.ts also matches sub\/tests\/a\.test\.ts/,
+        /substring filter, ignoring case, and tests\/a\.test\.ts also matches sub\/tests\/a\.test\.ts/,
       );
     });
     expect(logLines(f.log)).toHaveLength(1);
@@ -896,6 +901,125 @@ describe("mutate, against a real repo", () => {
       encoding: "utf-8",
     });
     expect(JSON.parse(j.stdout)).toMatchObject({ ok: false, planned: 2, mode: "check" });
+  });
+
+  it("runs the unmutated baseline for each test list, catching a test that only passes beside another", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      toValue("both", "fail", { test: ["tests/a.test.ts", "tests/b.test.ts"] }),
+      toValue("alone", "fail", { test: "tests/b.test.ts" }),
+    ]);
+    await withEnv({ MUTATE_FAKE_PAIR: "1" }, async () => {
+      await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+        /the unmutated run of tests\/b\.test\.ts did not pass/,
+      );
+    });
+  });
+
+  it("refuses a test path vitest would widen to a file differing only in case", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("m", "fail")]);
+    await withEnv({ MUTATE_FAKE_ALSO: "tests/A.test.ts" }, async () => {
+      await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+        /tests\/a\.test\.ts also matches tests\/A\.test\.ts/,
+      );
+    });
+  });
+
+  it("mutates the bytes a checkout holds, so CRLF line endings stay CRLF", async () => {
+    const f = fixture();
+    writeFileSync(join(f.dir, ".gitattributes"), "src/crlf.txt text eol=crlf\n");
+    writeFileSync(join(f.dir, "src", "crlf.txt"), "a = 1\nb = 2\n");
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "crlf"]);
+    rmSync(join(f.dir, "src", "crlf.txt"));
+    sh(f.dir, "git", ["checkout", "--", "src/crlf.txt"]);
+    expect(readFileSync(join(f.dir, "src", "crlf.txt"), "utf-8")).toBe("a = 1\r\nb = 2\r\n");
+    const p = sidecar(f.side, [
+      {
+        id: "b",
+        edits: [{ file: "src/crlf.txt", find: "b = 2", replace: "b = 3" }],
+        test: "tests/a.test.ts",
+        expect: "survives",
+        why: "nothing reads b",
+      },
+    ]);
+    for (const inPlace of [false, true]) {
+      const rep = await withEnv({ MUTATE_FAKE_CRLF: "1" }, () =>
+        mutate(opts(p, { inPlace }), { cwd: f.dir, ...quiet }),
+      );
+      expect(rep.results[0]?.result).toBe("survived");
+    }
+    expect(readFileSync(join(f.dir, "src", "crlf.txt"), "utf-8")).toBe("a = 1\r\nb = 2\r\n");
+  });
+
+  it("refuses a mutant whose edits cancel out", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [
+      {
+        id: "noop",
+        edits: [
+          { file: "src/value.txt", find: "pass", replace: "fail" },
+          { file: "src/value.txt", find: "fail", replace: "pass" },
+        ],
+        test: "tests/a.test.ts",
+        expect: "survives",
+        why: "x",
+      },
+    ]);
+    await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /noop: its edits cancel out/,
+    );
+  });
+
+  it("removes the worktree when a signal lands during git worktree add", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const handlers: Record<string, () => void> = {};
+    const fakeProc = {
+      on: (sig: string, h: () => void) => (handlers[sig] = h),
+      off: () => {},
+      exit: (code: number) => {
+        throw new Error(`exit ${code}`);
+      },
+    };
+    const real = makeRunner();
+    const run = Object.assign(
+      async (cmd: string, args: string[], o?: Parameters<typeof real>[2]) => {
+        const r = await real(cmd, args, o);
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") handlers.SIGINT?.();
+        return r;
+      },
+      { active: real.active },
+    );
+    await expect(
+      mutate(opts(p), {
+        cwd: f.dir,
+        run,
+        process: fakeProc as never,
+        ...quiet,
+      }),
+    ).rejects.toThrow(/exit 130/);
+    expect(worktrees(f.dir)).toBe(1);
+  });
+
+  it("refuses ids that differ only in case", () => {
+    expect(() => validateSidecar([red, { ...red, id: "M1" }])).toThrow(/duplicate id/);
+  });
+
+  it("checks a .js file as the module type its package.json gives it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mutate-js-"));
+    temps.push(dir);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    mkdirSync(join(dir, "cjs"));
+    writeFileSync(join(dir, "cjs", "package.json"), JSON.stringify({ type: "commonjs" }));
+    const run = makeRunner();
+    const esm = "export const a = 1;\n";
+    expect(await syntaxError({ file: "a.js", text: esm, root: dir, run })).toBeNull();
+    expect(await syntaxError({ file: "cjs/b.js", text: esm, root: dir, run })).toMatch(
+      /SyntaxError/,
+    );
+    expect(await syntaxError({ file: "cjs/c.js", text: "return 1;\n", root: dir, run })).toBeNull();
   });
 
   it.each([

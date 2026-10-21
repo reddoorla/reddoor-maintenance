@@ -100,8 +100,9 @@ export function validateSidecar(raw) {
     for (const k of Object.keys(m)) if (!known.has(k)) problems.push(`${at}: unknown key "${k}"`);
     if (!isStr(m.id) || !/^[\w.-]+$/.test(m.id))
       problems.push(`${at}: id must be a non-empty string of letters, digits, _ . -`);
-    else if (seen.has(m.id)) problems.push(`${at}: duplicate id`);
-    else seen.add(m.id);
+    // Ids name report files, and a case-insensitive filesystem would merge "A" and "a".
+    else if (seen.has(m.id.toLowerCase())) problems.push(`${at}: duplicate id`);
+    else seen.add(m.id.toLowerCase());
     if (!Array.isArray(m.edits) || m.edits.length === 0)
       problems.push(`${at}: edits must be a non-empty array`);
     const edits = (Array.isArray(m.edits) ? m.edits : []).map((e, j) => {
@@ -421,7 +422,8 @@ export async function mutate(o, deps = {}) {
     for (const c of run.active ?? []) killGroup(c, "SIGKILL");
     if (st.work) restoreSync();
     if (st.mode === "worktree" && st.work && st.work !== st.root)
-      spawnSync("git", ["worktree", "remove", "--force", st.work], { cwd: st.root });
+      // Twice --force: git locks a worktree while `worktree add` is still creating it.
+      spawnSync("git", ["worktree", "remove", "--force", "--force", st.work], { cwd: st.root });
     if (st.mode === "in-place" && rebuildRootDist) {
       const b = spawnSync("pnpm", ["run", "build"], { cwd: st.root, stdio: "ignore" });
       if (b.status !== 0) ctx.log("mutate: WARNING: the rebuild of dist/ after the run failed");
@@ -517,22 +519,37 @@ export async function mutate(o, deps = {}) {
     if (!existsSync(join(root, "node_modules", ".bin", "vitest")))
       throw new Refusal("node_modules/.bin/vitest is missing: run pnpm install first");
 
-    // Every find is checked against HEAD before anything runs. Files are restored from
-    // their bytes, and a file whose bytes are not UTF-8 is refused, since editing it as
-    // text would change bytes the mutant never named.
+    // Every find is checked before anything runs, against the bytes a checkout of HEAD
+    // holds: git's eol, ident and encoding attributes make those differ from the blob, and
+    // a mutant built from the blob would rewrite every line ending, not just its edit. A
+    // file on disk that is not HEAD's (after git's own filters) is refused; --check, which
+    // allows a dirty tree, reads the blob. A file that is not UTF-8 is refused too, since
+    // editing it as text would change bytes the mutant never named.
     const pristine = new Map();
     const problems = [];
     for (const f of files) {
-      const show = spawnSync("git", ["show", `${sha}:${f}`], { cwd: root, maxBuffer: 1 << 30 });
-      if (show.status !== 0) throw new Refusal(`cannot read ${f} at HEAD: ${show.stderr}`);
-      const bytes = show.stdout;
+      let bytes;
+      if (o.check) {
+        const show = spawnSync("git", ["show", `${sha}:${f}`], { cwd: root, maxBuffer: 1 << 30 });
+        if (show.status !== 0) throw new Refusal(`cannot read ${f} at HEAD: ${show.stderr}`);
+        bytes = show.stdout;
+      } else {
+        bytes = readFileSync(join(root, f));
+        const blob = (await git(ctx, root, ["rev-parse", `${sha}:${f}`])).trim();
+        const disk = (
+          await git(ctx, root, ["hash-object", `--path=${f}`, "--", join(root, f)])
+        ).trim();
+        if (blob !== disk) problems.push(`${f} on disk is not HEAD's, after git's filters`);
+      }
       const text = bytes.toString("utf-8");
       if (!Buffer.from(text, "utf-8").equals(bytes)) problems.push(`${f} is not UTF-8 text`);
       pristine.set(f, text);
     }
     for (const m of mutants) {
       try {
-        applyEdits(pristine, m);
+        const out = applyEdits(pristine, m);
+        if ([...out].every(([f, text]) => text === pristine.get(f)))
+          problems.push(`mutant ${m.id}: its edits cancel out, leaving every file as it was`);
       } catch (e) {
         problems.push(e.message);
       }
@@ -580,6 +597,7 @@ export async function mutate(o, deps = {}) {
       removeRootDist = !hadDist;
     } else {
       const wt = join(st.tmp, "wt");
+      st.work = wt; // before the add, so a signal during it removes what it registered
       const r = await run("git", ["worktree", "add", "--detach", wt, sha], {
         cwd: root,
         timeoutMs: 120_000,
@@ -588,7 +606,13 @@ export async function mutate(o, deps = {}) {
         throw new Refusal(
           `git worktree add failed (${r.stderr.trim()}); rerun with --in-place to edit this checkout and restore it, knowing a SIGKILL mid-run would leave a mutant in it`,
         );
-      st.work = wt;
+      const differs = files.filter(
+        (f) => !readFileSync(join(wt, f)).equals(readFileSync(join(root, f))),
+      );
+      if (differs.length)
+        throw new Refusal(
+          `a fresh checkout of HEAD writes ${differs.join(", ")} differently from this one (eol or filter settings changed since it was checked out?)`,
+        );
       if (existsSync(join(root, "pnpm-lock.yaml"))) {
         // pnpm refuses to run scripts (vitest's global setup runs `pnpm build`) over a
         // node_modules linked from elsewhere, so the worktree installs from the store.
@@ -649,36 +673,41 @@ export async function mutate(o, deps = {}) {
       results,
     };
 
-    // Unmutated first, once over every named test file: a test that fails on HEAD would
-    // make every mutant look red.
-    const allTests = [...new Set(mutants.flatMap((m) => m.test))];
+    // Unmutated first, once for each distinct list of test files a mutant runs, since a
+    // file can pass beside another and fail alone: a test that fails on HEAD would make
+    // every mutant look red.
     if (mutants.some((m) => m.build)) {
       const b = await build();
       if (b.code !== 0) throw new Refusal(`the unmutated build failed:\n${tail(b)}`);
     }
-    const pre = await vitest(allTests, join(outDir, "baseline.json"));
-    if (pre.result !== "survived")
-      throw new Refusal(
-        `the unmutated run of ${allTests.join(" ")} did not pass (${pre.result}${pre.failed ? `, ${pre.failed} failed` : ""}${pre.reason ? `, ${pre.reason}` : ""}), so no mutant can be judged:\n${tail(pre.run)}`,
-      );
-    // Every named file must have run, or the table would list a test that never saw the
-    // mutant. And vitest takes a path as a substring filter, so a named file can pull in
-    // others, and a kill would then be credited to a file the table does not name.
-    const ran = ranFiles(pre.report, work);
-    const notRun = allTests.filter((t) => !ran.includes(t));
-    if (notRun.length)
-      throw new Refusal(
-        `vitest did not run ${notRun.join(", ")}: outside its include pattern, or missing from a checkout of HEAD`,
-      );
-    const widened = allTests.flatMap((t) => {
-      const also = ran.filter((n) => n !== t && n.includes(t));
-      return also.length ? [`${t} also matches ${also.join(", ")}`] : [];
-    });
-    // Any file vitest ran beyond the named ones matched one of them as a substring.
-    if (widened.length)
-      throw new Refusal(
-        `vitest takes a test path as a substring filter, and ${widened.join("; ")}: name paths no other file contains`,
-      );
+    const sets = [...new Map(mutants.map((m) => [[...m.test].sort().join("\0"), m.test])).values()];
+    for (const [n, tests] of sets.entries()) {
+      const pre = await vitest(tests, join(outDir, "baseline", `${n}.json`));
+      if (pre.result !== "survived")
+        throw new Refusal(
+          `the unmutated run of ${tests.join(" ")} did not pass (${pre.result}${pre.failed ? `, ${pre.failed} failed` : ""}${pre.reason ? `, ${pre.reason}` : ""}), so no mutant can be judged:\n${tail(pre.run)}`,
+        );
+      // Every named file must have run, or the table would list a test that never saw the
+      // mutant. And vitest takes a path as a substring filter, ignoring case, so a named
+      // file can pull in others, and a kill would be credited to a file the table does not
+      // name.
+      const ran = ranFiles(pre.report, work);
+      const notRun = tests.filter((t) => !ran.includes(t));
+      if (notRun.length)
+        throw new Refusal(
+          `vitest did not run ${notRun.join(", ")}: outside its include pattern, or missing from a checkout of HEAD`,
+        );
+      const extra = ran.filter((r) => !tests.includes(r));
+      const known = [...new Set([...sets.flat(), ...ran])];
+      const widened = tests.flatMap((t) => {
+        const also = known.filter((x) => x !== t && x.toLowerCase().includes(t.toLowerCase()));
+        return also.length ? [`${t} also matches ${also.join(", ")}`] : [];
+      });
+      if (widened.length || extra.length)
+        throw new Refusal(
+          `vitest takes a test path as a substring filter, ignoring case, and ${[...widened, ...(extra.length ? [`it also ran ${extra.join(", ")}`] : [])].join("; ")}: name paths no other file contains`,
+        );
+    }
     await clean("the unmutated run");
 
     for (const [i, m] of mutants.entries()) {
@@ -811,7 +840,7 @@ export function formatReport(rep) {
     // An outcome that is not as expected shows why it happened first.
     const note = (r.ok ? [r.why, r.reason] : [r.reason, r.why]).filter(Boolean).join(" — ");
     out.push(
-      `| ${r.id} | ${r.expect} | ${res} | ${counts} | ${r.test.map((t) => `\`${t}\``).join(", ")} | ${note.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`,
+      `| ${r.id} | ${r.expect} | ${res} | ${counts} | ${r.test.map((t) => `\`${t.replace(/\|/g, "\\|")}\``).join(", ")} | ${note.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`,
     );
   }
   return out.join("\n") + "\n";
@@ -831,6 +860,7 @@ async function main() {
     rep = await mutate(o);
   } catch (e) {
     if (e instanceof Refusal) {
+      if (o.json) process.stdout.write(JSON.stringify({ refused: e.message }, null, 2) + "\n");
       process.stderr.write(`mutate: refused: ${e.message}\n`);
       process.exitCode = 2;
       return;
