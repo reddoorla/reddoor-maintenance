@@ -265,7 +265,7 @@ export function requireOperator(
   return { ok: false, denial: unauthenticated(opts.wants, pathWithQuery(req.url)) };
 }
 
-/** Turn a denial into the Response a Netlify handler returns. */
+/** Turn a denial into the Response an endpoint handler returns. */
 export function denialResponse(denial: OperatorDenial): Response {
   return new Response(denial.body, {
     status: denial.status,

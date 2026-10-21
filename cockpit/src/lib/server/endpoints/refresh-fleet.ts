@@ -1,22 +1,18 @@
-import type { Context, Config } from "@netlify/functions";
+import type { Context } from "@netlify/functions";
 import {
   requireOperator,
   denialResponse,
   refreshFleetState,
   summarizeFleetRunStatus,
   FLEET_REFRESH_WORKFLOWS,
-} from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { makeGitHubRest } from "../../src/github/gh-rest.js";
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { makeGitHubRest } from "../../../../../src/github/gh-rest.js";
 
 // Fleet-level refresh: dispatch the nightly state sweeps on demand. No slug — it
 // targets the CENTRAL repo (where fleet-security.yml / fleet-lighthouse.yml live),
-// not a per-site repo. Path-routed on the function like the other endpoints.
-export const config: Config = {
-  path: ["/api/fleet/refresh", "/api/fleet/refresh/status", "/.netlify/functions/refresh-fleet"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
+// not a per-site repo. Serves /api/fleet/refresh and its /status poll.
 
 // The repo whose Actions run the fleet sweeps. Defaults to the dashboard's own
 // repo; GITHUB_REPOSITORY (Actions' "owner/repo" var) overrides so a fork/rename

@@ -1,10 +1,10 @@
-import type { Context, Config } from "@netlify/functions";
-import { openDb, readDbConfig } from "../../src/db/client.js";
+import type { Context } from "@netlify/functions";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
 import {
   listRecentProspectAudits,
   releaseProspectAuditReservation,
   reserveProspectAudit,
-} from "../../src/db/prospect-audits.js";
+} from "../../../../../src/db/prospect-audits.js";
 import {
   requireOperator,
   denialResponse,
@@ -14,19 +14,15 @@ import {
   prospectAuditRecipientsLabel,
   makeWorkflowDispatchDispatcher,
   DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE,
-} from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
 // This endpoint dispatches a `workflow_dispatch` in a PRIVATE repo, never this
 // one — reddoor-maintenance's own Actions logs are world-readable, and a
 // prospect URL landing there would publish the sales pipeline. The target repo
 // is therefore always read from env (PROSPECT_AUDIT_DISPATCH_REPO), never
 // hardcoded — see prospect-audit-trigger.ts for the injectable dispatcher.
-export const config: Config = {
-  path: ["/api/prospect-audit/run", "/.netlify/functions/prospect-audit-run"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -36,7 +32,7 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
 }
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  // GET health check — presence-only, mirrors trigger-renovate.mts.
+  // GET health check — presence-only, mirrors trigger-renovate.ts.
   //
   // Behind the operator gate since the #612 review. It leaks no VALUES, but it
   // told an anonymous caller whether the shared-password fallback is live —

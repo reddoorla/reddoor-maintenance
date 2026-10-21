@@ -20,7 +20,7 @@ import {
   releaseSendClaim,
 } from "../../../src/db/fleet-state.js";
 import { storeHeaderImage, loadHeaderImage } from "../../../src/db/header-images.js";
-import unapproveReportHandler from "../../../netlify/functions/unapprove-report.mjs";
+import unapproveReportHandler from "../../../cockpit/src/lib/server/endpoints/unapprove-report.js";
 import { sendApprovedReports } from "../../../src/reports/send/orchestrate.js";
 import type { ResendClient, ResendSendInput } from "../../../src/reports/send/resend.js";
 import { captureClient } from "../../_helpers/resend-client.js";

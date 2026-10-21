@@ -22,8 +22,8 @@ import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
 import { defaultResendClient, type ResendClient } from "../../src/reports/send/resend.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
-// Public, token-gated ingest. Path-routed on the function (same reason as
-// approve-report.mts: a netlify.toml rewrite would hide ctx.params).
+// Public, token-gated ingest. Path-routed on the function (a netlify.toml
+// rewrite would hide ctx.params).
 //
 // RATE LIMITING — measured 2026-08-26, after three consecutive reviews flagged
 // this and none recorded a number.

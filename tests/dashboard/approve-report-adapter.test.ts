@@ -5,7 +5,7 @@ vi.mock("../../src/dashboard/approve.js", async (orig) => {
   return { ...real, approveReport: vi.fn() };
 });
 import { approveReport } from "../../src/dashboard/approve.js";
-import approveReportFn from "../../netlify/functions/approve-report.mjs";
+import approveReportFn from "../../cockpit/src/lib/server/endpoints/approve-report.js";
 import { mintSession, SESSION_COOKIE } from "../../src/dashboard/auth/session.js";
 
 const approveMock = vi.mocked(approveReport);

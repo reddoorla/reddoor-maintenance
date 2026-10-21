@@ -10,7 +10,7 @@ export type WithdrawResult =
     }
   | { status: "not-found"; reportId: string };
 
-/** Injected IO, the same shape as ApproveDeps: the `.mts` adapter binds Turso,
+/** Injected IO, the same shape as ApproveDeps: the endpoint handler binds Turso,
  *  tests bind fakes. */
 export type WithdrawDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;

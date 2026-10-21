@@ -18,7 +18,7 @@ import { join } from "node:path";
  * the REAL handler as well as in tests/dashboard/site-details.test.ts.
  */
 
-import siteDetailsHandler from "../../netlify/functions/site-details.mjs";
+import siteDetailsHandler from "../../cockpit/src/lib/server/endpoints/site-details.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { CLEAR_SECRET } from "../../src/dashboard/site-details.js";
 import { sql } from "kysely";

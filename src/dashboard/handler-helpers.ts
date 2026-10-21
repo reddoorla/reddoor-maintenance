@@ -1,7 +1,7 @@
 /**
- * Small pure helpers shared by the Netlify dashboard handlers and the SvelteKit
- * cockpit (#582), so their non-glue logic is unit-testable without booting a
- * Netlify function.
+ * Small pure helpers shared by the dashboard's endpoint handlers and pages (the
+ * SvelteKit cockpit, #582) and its remaining Netlify functions, so their
+ * non-glue logic is unit-testable without booting either.
  */
 
 const DEFAULT_DASHBOARD_BASE_URL = "https://reddoor-maintenance.netlify.app";

@@ -23,8 +23,8 @@ export type ApproveResult =
   | { status: "not-found"; reportId: string };
 
 /**
- * Injected IO. The handler is pure w.r.t. these: the `.mts` adapter binds them
- * to Turso, tests bind fakes. `now` is injected so the audit
+ * Injected IO. The handler is pure w.r.t. these: the endpoint handler
+ * (cockpit/src/lib/server/endpoints/approve-report.ts) binds them to Turso, tests bind fakes. `now` is injected so the audit
  * timestamp is deterministic under test (matches the report-HTML/render split).
  */
 export type ApproveDeps = {
@@ -35,8 +35,8 @@ export type ApproveDeps = {
   /** Raw writer for the logged override: stamps Send override + reason/by/at + Approved to send. */
   overrideReport: (id: string, at: Date, by: string, reason: string) => Promise<boolean | void>;
   now: () => Date;
-  /** Send-blocking problems for this report (empty = clear to approve). The .mts
-   *  adapter binds approveBlockers() over the live Websites row; tests bind fakes.
+  /** Send-blocking problems for this report (empty = clear to approve). The endpoint
+   *  handler binds approveBlockers() over the live Websites row; tests bind fakes.
    *  This closes the vacuous gate on Launch/Announcement (no checklist) and stops
    *  ANY type being approved into a send that is already known to throw. */
   sendBlockers: (report: ReportRow) => Promise<string[]>;
