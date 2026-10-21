@@ -55,22 +55,60 @@ function ensureMigrated(url: string, client: Client): Promise<void> {
  *  the same database the queries see. The same code serves Turso (libsql:// url + token), a
  *  self-hosted sqld, a local file: url, and :memory: for tests — host portability is a
  *  connection-string swap. */
-export async function openDb(cfg: DbConfig): Promise<Db> {
+export async function openDb(cfg: DbConfig, opts: OpenDbOptions = {}): Promise<Db> {
   // Lazy-load the libSQL/kysely stack: these live in devDependencies (consuming fleet
   // sites do not install them), and tsup externalizes them, so a TOP-LEVEL import here
   // would make every entry that transitively reaches this module — notably the `audit`
   // CLI entry via fleet-events-writer — eager-require packages the consumer lacks
   // (crashing `reddoor-maint audit` on fleet sites). Importing them only inside openDb
-  // keeps the module graph dependency-free until an actual DB connection is opened.
-  const [{ createClient }, { Kysely }, { LibsqlDialect }] = await Promise.all([
-    import("@libsql/client"),
-    import("kysely"),
-    import("@libsql/kysely-libsql"),
-  ]);
+  // (and kyselyOverClient) keeps the module graph dependency-free until an actual DB
+  // connection is opened.
+  const { createClient } = await import("@libsql/client");
   const clientConfig: LibsqlConfig = cfg.authToken
     ? { url: cfg.url, authToken: cfg.authToken }
     : { url: cfg.url };
   const client: Client = createClient(clientConfig);
   await ensureMigrated(cfg.url, client);
-  return new Kysely<Database>({ dialect: new LibsqlDialect({ client }) });
+  return kyselyOverClient(client, opts);
+}
+
+export type OpenDbOptions = {
+  /** Let queries issued at the same time run at the same time. Off by default.
+   *
+   *  `@libsql/kysely-libsql` reports Kysely's `SqliteAdapter`, whose
+   *  `supportsMultipleConnections` is false, so Kysely (0.29) puts a mutex around every
+   *  query and a `Promise.all` of reads runs one round trip after another. The client
+   *  itself sends concurrent requests (20 at once by default). Measured 2026-10-21 against
+   *  production Turso: `/s/:slug`'s six reads took ~415 ms with the mutex and ~120 ms
+   *  without.
+   *
+   *  Only the cockpit's page reads ask for it (`cockpit/src/lib/server/db.ts`). The mutex
+   *  matters only for queries one caller has in flight at once, so lifting it is safe
+   *  where those are reads; it stays on everywhere else because a writer may rely on the
+   *  order. A transaction on a local `file:`/`:memory:` client hands that client's
+   *  connection away (see `site-create.ts`), so never open one on a concurrent `Db`. */
+  concurrentReads?: boolean;
+};
+
+/** The Kysely over one libSQL client, as `openDb` builds it. Exported so a test can put
+ *  a fake client under it and see the mutex directly. */
+export async function kyselyOverClient(client: Client, opts: OpenDbOptions = {}): Promise<Db> {
+  const [{ Kysely, SqliteAdapter }, { LibsqlDialect }] = await Promise.all([
+    import("kysely"),
+    import("@libsql/kysely-libsql"),
+  ]);
+  if (!opts.concurrentReads) {
+    return new Kysely<Database>({ dialect: new LibsqlDialect({ client }) });
+  }
+  class ConcurrentAdapter extends SqliteAdapter {
+    override get supportsMultipleConnections(): boolean {
+      return true;
+    }
+  }
+  class ConcurrentLibsqlDialect extends LibsqlDialect {
+    override createAdapter() {
+      return new ConcurrentAdapter();
+    }
+  }
+  return new Kysely<Database>({ dialect: new ConcurrentLibsqlDialect({ client }) });
 }
