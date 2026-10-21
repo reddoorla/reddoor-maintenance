@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * `reddoor-maint check-brief <brief.md> [--cwd <dir>]` (P1-33 next-7, #1598).
@@ -71,8 +72,9 @@ const TIMEOUT_MS = 30_000;
 // ── Parsing ─────────────────────────────────────────────────────────────────
 
 const SECTION_START = /^\*\*Verify first\.\*\*/;
-// The next bold lead-in ("**Start here.**") or a heading ends the section.
-const SECTION_END = /^(?:\*\*[A-Z][^*]*\.\*\*|#{1,6} )/;
+// The next bold lead-in ("**Start here.**", "**Start here:**") or a heading
+// ends the section.
+const SECTION_END = /^(?:\*\*[^*]+\*\*|#{1,6} )/;
 const FENCE = /^\s*(?:```|~~~)/;
 const ITEM_START = /^\s*(?:[-*+]|\d+[.)])\s+/;
 // The claim is greedy, so a claim holding its own " — `x` " still ends at the
@@ -115,6 +117,17 @@ function identifiersIn(text: string): { kind: string; token: string }[] {
 
 const WORD = /\w/;
 
+/** Whether the character at `i` continues a token in direction `dir`: a word
+ *  character, or a dot followed by one (so "1.0" is not a token of "v22.1.0",
+ *  while "0." ending a sentence still lets "0" stand). */
+function joins(hay: string, i: number, dir: 1 | -1): boolean {
+  const c = hay[i];
+  if (c === undefined) return false;
+  if (WORD.test(c)) return true;
+  const beyond = hay[i + dir];
+  return c === "." && beyond !== undefined && WORD.test(beyond);
+}
+
 /** Whether `text` occurs in `hay` as a whole token: where the text starts or
  *  ends with a word character, the character beyond it must not be one. So
  *  "0" is not found in "10", nor `MANTIS_PRISMIC` in `MANTIS_PRISMIC_X`. */
@@ -123,10 +136,8 @@ export function containsToken(hay: string, text: string): boolean {
   const first = WORD.test(text[0] as string);
   const last = WORD.test(text[text.length - 1] as string);
   for (let at = hay.indexOf(text); at !== -1; at = hay.indexOf(text, at + 1)) {
-    const before = hay[at - 1];
-    const after = hay[at + text.length];
-    if (first && before !== undefined && WORD.test(before)) continue;
-    if (last && after !== undefined && WORD.test(after)) continue;
+    if (first && joins(hay, at - 1, -1)) continue;
+    if (last && joins(hay, at + text.length, 1)) continue;
     return true;
   }
   return false;
@@ -146,27 +157,30 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   const outside: string[] = [];
   let sections = 0;
   let inSection = false;
-  let inFence = false;
+  // Fences are tracked over the whole brief, so a template quoted in a code
+  // block never opens a live section, and a heading-shaped comment in a fence
+  // never ends one.
+  let fenceOpenedAt = -1;
   let fencedSkipped = false;
-  for (const raw of all) {
+  for (const [i, raw] of all.entries()) {
+    if (FENCE.test(raw)) {
+      fenceOpenedAt = fenceOpenedAt === -1 ? i : -1;
+      if (inSection) sectionLines.push("");
+      else outside.push(raw);
+      continue;
+    }
+    if (fenceOpenedAt !== -1) {
+      // A claim in a fence is not a line: say so rather than drop it quietly.
+      if (inSection && raw.trim() !== "") fencedSkipped = true;
+      if (!inSection) outside.push(raw);
+      continue;
+    }
     if (SECTION_START.test(raw)) {
       sections++;
       inSection = true;
-      inFence = false;
       sectionLines.push(null);
       // Text on the lead-in line itself ("**Verify first.** `cmd`") is part of the section.
       sectionLines.push(raw.replace(SECTION_START, ""));
-      continue;
-    }
-    if (inSection && FENCE.test(raw)) {
-      inFence = !inFence;
-      sectionLines.push("");
-      continue;
-    }
-    if (inSection && inFence) {
-      // A heading-shaped comment in a fence must not end the section, and a
-      // claim in a fence is not a line: say so rather than drop it quietly.
-      if (raw.trim() !== "") fencedSkipped = true;
       continue;
     }
     if (inSection && SECTION_END.test(raw)) inSection = false;
@@ -175,6 +189,11 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   }
   if (fencedSkipped) {
     warnings.push("a code block in Verify first is not read: put each claim on its own line");
+  }
+  if (fenceOpenedAt !== -1) {
+    warnings.push(
+      `the code fence opened on line ${fenceOpenedAt + 1} never closes, so nothing after it was read`,
+    );
   }
 
   // Items: a bullet or number starts one, an indented or unbulleted line
@@ -380,19 +399,26 @@ const GIT_READ = new Set([
   "describe",
   "blame",
 ]);
-// Options that make a read-only git subcommand write a file, run a program, or
-// reach out with a program of the caller's choosing.
+// Options that make a read-only git subcommand write a file, run a program,
+// or read outside the repository (`--no-index`, `--contents`, `--file`).
 const GIT_DANGEROUS = [
   "--output",
   "--open-files-in-pager",
   "--ext-diff",
   "--textconv",
+  "--filters",
+  "--show-signature",
   "--upload-pack",
   "--exec",
+  "--no-index",
+  "--contents",
+  "--exclude-from",
+  "--file",
 ];
 // Prepended to every git run: no index refresh under a lock (another session
-// may share the worktree), and no config-driven program (fsmonitor hook,
-// pager, external diff).
+// may share the worktree), and no config-driven program the flags can switch
+// on (fsmonitor hook, pager, external diff, signature check). The checkout's
+// own config is trusted; what this guards against is the brief's command.
 const GIT_GLOBALS = [
   "--no-optional-locks",
   "-c",
@@ -401,26 +427,142 @@ const GIT_GLOBALS = [
   "core.pager=cat",
   "-c",
   "diff.external=",
+  "-c",
+  "log.showSignature=false",
 ];
 // textconv drivers are named in .gitattributes and run from config.
 const GIT_NO_TEXTCONV = new Set(["log", "show", "diff", "grep", "blame"]);
-const READ_ONLY_FILES = new Set(["ls", "cat", "head", "tail", "wc", "grep", "test"]);
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// A brief's line could otherwise test one guessed prefix at a time against a
-// secret through `prints`: PASS or FAIL is a bit, and the report is public.
-const SENSITIVE_PATH =
-  /^\/(?:proc|dev|sys)(?:\/|$)|(?:^|[/:])(?:\.env(?:\.[^/]*)?|[^/]*credentials[^/]*|[^/]*secret[^/]*|\.netrc|\.npmrc|\.git-credentials|id_[a-z0-9]+|[^/]*\.pem|[^/]*\.key)$/i;
+// Paths are confined to --cwd; inside it, these names are the ones that hold
+// a secret, which a line could otherwise test one guessed prefix at a time
+// through its exit code. Committed templates (`.env.example`) stay readable.
+const SENSITIVE_NAME =
+  /^(?:\.env(?!\.(?:example|sample|template)$)(?:\..*)?|\.netrc|\.npmrc|\.git-credentials|id_[a-z0-9]+|.*\.pem|.*\.key)$/i;
+
+/** A file tool's grammar: the short flags it may take (bundled or alone), the
+ *  long ones, the flags that take a value and what the value must look like,
+ *  and whether its first operand is a pattern rather than a path. Anything else
+ *  is refused: an allowlist, because each denylist round found a new option
+ *  that runs a program (`rg --hostname-bin`) or reads elsewhere. */
+type FileTool = {
+  shorts: string;
+  longs: string[];
+  valued?: Record<string, RegExp>;
+  digits?: boolean;
+  pattern?: boolean;
+};
+
+const FILE_TOOLS: Record<string, FileTool> = {
+  ls: { shorts: "1aAdFhlrSt", longs: [] },
+  cat: { shorts: "", longs: [] },
+  head: { shorts: "", longs: [], valued: { n: /^-?\d+$/ }, digits: true },
+  tail: { shorts: "", longs: [], valued: { n: /^\+?\d+$/ }, digits: true },
+  wc: { shorts: "lwcm", longs: [] },
+  // No -r/-R: recursion would walk into a `.env` the name check never sees.
+  grep: {
+    shorts: "cnilLvwxqsFEHhoI",
+    longs: [
+      "--count",
+      "--line-number",
+      "--ignore-case",
+      "--files-with-matches",
+      "--files-without-match",
+      "--invert-match",
+      "--word-regexp",
+      "--line-regexp",
+      "--quiet",
+      "--silent",
+      "--fixed-strings",
+      "--extended-regexp",
+    ],
+    pattern: true,
+  },
+  // rg skips hidden and ignored files by default, which keeps `.env` out of a
+  // recursive search; so no -u, --hidden, --no-ignore or -L.
+  rg: {
+    shorts: "cnilvwxqFHoS",
+    longs: [
+      "--count",
+      "--fixed-strings",
+      "--files-with-matches",
+      "--line-number",
+      "--ignore-case",
+      "--word-regexp",
+    ],
+    pattern: true,
+  },
+};
+
+/** Split a file tool's arguments by its grammar, or say what it refuses. */
+function parseFileArgs(
+  bin: string,
+  args: string[],
+  tool: FileTool,
+): { ok: true; operands: string[] } | { ok: false; reason: string } {
+  const operands: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    if (a === "--") {
+      operands.push(...args.slice(i + 1));
+      break;
+    }
+    if (a.startsWith("--")) {
+      if (!tool.longs.includes(a))
+        return { ok: false, reason: `${bin}: option ${a} is not allowed` };
+      continue;
+    }
+    if (a.startsWith("-") && a.length > 1) {
+      if (tool.digits && /^-\d+$/.test(a)) continue;
+      const flag = a[1] as string;
+      const valueRe = tool.valued?.[flag];
+      if (valueRe) {
+        const value = a.length > 2 ? a.slice(2) : args[++i];
+        if (value === undefined || !valueRe.test(value)) {
+          return { ok: false, reason: `${bin}: -${flag} takes a number` };
+        }
+        continue;
+      }
+      if ([...a.slice(1)].some((ch) => !tool.shorts.includes(ch))) {
+        return { ok: false, reason: `${bin}: option ${a} is not allowed` };
+      }
+      continue;
+    }
+    operands.push(a);
+  }
+  return { ok: true, operands };
+}
+
+/** Whether a path, resolved against `cwd` and through any symlink, stays
+ *  inside `cwd` and is not a secret-shaped file. */
+function confined(path: string, cwd: string): string | null {
+  const root = realOrSelf(cwd);
+  const abs = realOrSelf(resolve(root, path));
+  const rel = relative(root, abs);
+  if (rel.startsWith("..") || isAbsolute(rel)) return `${path} is outside --cwd`;
+  if (rel.split(sep).some((part) => SENSITIVE_NAME.test(part))) {
+    return `${path} may hold a secret`;
+  }
+  return null;
+}
+
+function realOrSelf(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 export type Classified =
   { ok: true; argv: string[]; builtin?: "env-set" } | { ok: false; reason: string };
 
-/** Decide whether a Verify-first command may run, and with what argv. An
- *  allowlist: a form nobody listed is refused, however harmless it looks. */
-export function classifyCommand(cmd: string): Classified {
+/** Decide whether a Verify-first command may run in `cwd`, and with what argv.
+ *  An allowlist: a form nobody listed is refused, however harmless it looks. */
+export function classifyCommand(cmd: string, cwd: string = process.cwd()): Classified {
   const t = tokenize(cmd);
   if (!t.ok) return t;
   const argv = t.argv;
-  const [bin, sub, ...rest] = argv;
+  const [bin, sub, ...rest] = argv as [string, ...string[]];
   const refuse = (reason: string): Classified => ({ ok: false, reason });
 
   if (bin === "env-set") {
@@ -432,19 +574,20 @@ export function classifyCommand(cmd: string): Classified {
     if (sub !== "api") return refuse("gh: only `gh api` is allowed");
     const [path, ...flags] = rest;
     if (!path || path.startsWith("-")) return refuse("gh api: the path comes first");
+    // gh sends its token with the request: a full URL could aim it elsewhere.
+    if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(path)) return refuse("gh api: a path, not a URL");
     if (!isReadOnlyApiCall(flags)) return refuse("gh api: only `--jq <expr>` may follow the path");
     return { ok: true, argv };
   }
-  // Only path-shaped arguments: a grep pattern such as 'secret scanning' is not a path.
-  const pathy = (a: string) => /[/.]/.test(a);
-  if (argv.slice(1).some((a) => pathy(a) && SENSITIVE_PATH.test(a.split("=").pop() as string))) {
-    return refuse("a path that may hold a secret");
-  }
   if (bin === "git") {
     if (!sub || !GIT_READ.has(sub)) return refuse(`git ${sub ?? ""}: not a read-only subcommand`);
-    const shorts = sub === "grep" ? "O" : "";
+    const shorts = sub === "grep" ? "Of" : "";
     if (rest.some((a) => namesOption(a, GIT_DANGEROUS, shorts))) {
-      return refuse("git: an option that writes or runs a program");
+      return refuse("git: an option that writes, runs a program or reads outside the repo");
+    }
+    // git confines pathspecs to the repo itself; a committed `.env` is still a secret.
+    if (rest.some((a) => a.split(/[:/=]/).some((part) => SENSITIVE_NAME.test(part)))) {
+      return refuse("git: a path that may hold a secret");
     }
     const extra = GIT_NO_TEXTCONV.has(sub) ? ["--no-textconv"] : [];
     if (sub === "log" || sub === "show" || sub === "diff") extra.push("--no-ext-diff");
@@ -462,21 +605,31 @@ export function classifyCommand(cmd: string): Classified {
     ) {
       return refuse("sed: only `sed -n <a>[,<b>]p <file>`");
     }
-    return { ok: true, argv };
-  }
-  if (bin === "rg") {
-    if (argv.slice(1).some((a) => namesOption(a, ["--pre", "--pre-glob", "--search-zip"], "z"))) {
-      return refuse("rg: an option that runs a program");
+    for (const f of files) {
+      const why = confined(f, cwd);
+      if (why) return refuse(why);
     }
     return { ok: true, argv };
   }
-  if (bin === "tail" && argv.slice(1).some((a) => namesOption(a, ["--follow", "--retry"], "fF"))) {
-    return refuse("tail: follow never ends");
+  if (bin === "test") {
+    if (argv.length !== 3 || !["-e", "-f", "-d", "-s"].includes(sub ?? "")) {
+      return refuse("test: only `test -e|-f|-d|-s <path>`");
+    }
+    const why = confined(rest[0] as string, cwd);
+    return why ? refuse(why) : { ok: true, argv };
   }
-  if (bin === "wc" && argv.slice(1).some((a) => namesOption(a, ["--files0-from"]))) {
-    return refuse("wc: --files0-from reads a list of paths");
+  const tool = FILE_TOOLS[bin];
+  if (tool) {
+    const parsed = parseFileArgs(bin, argv.slice(1), tool);
+    if (!parsed.ok) return parsed;
+    const paths = tool.pattern ? parsed.operands.slice(1) : parsed.operands;
+    if (tool.pattern && parsed.operands.length === 0) return refuse(`${bin}: no pattern`);
+    for (const p of paths) {
+      const why = confined(p, cwd);
+      if (why) return refuse(why);
+    }
+    return { ok: true, argv };
   }
-  if (bin && READ_ONLY_FILES.has(bin)) return { ok: true, argv };
   if (
     (bin === "node" || bin === "pnpm" || bin === "npm") &&
     argv.length === 2 &&
@@ -484,7 +637,11 @@ export function classifyCommand(cmd: string): Classified {
   ) {
     return { ok: true, argv };
   }
-  if (bin === "npm" && sub === "view") return { ok: true, argv };
+  // `npm view <pkg>[@range] [field…]` and no option: `--registry` would send
+  // the request, and `--userconfig` its auth, wherever the brief says.
+  if (bin === "npm" && sub === "view" && rest.length > 0 && !rest.some((a) => a.startsWith("-"))) {
+    return { ok: true, argv };
+  }
   return refuse(`${bin}: not an allowed read-only form`);
 }
 
@@ -581,7 +738,7 @@ async function runLine(line: VerifyLine, cwd: string, deps: CheckBriefDeps): Pro
   if (line.kind === "laptop" || line.laptop) {
     return { ...base, status: "NOT RUN", why: "[laptop]: runs only on the laptop" };
   }
-  const c = classifyCommand(line.command);
+  const c = classifyCommand(line.command, cwd);
   if (!c.ok) return { ...base, status: "NOT RUN", why: c.reason };
 
   let result: ExecResult;
@@ -597,7 +754,10 @@ async function runLine(line: VerifyLine, cwd: string, deps: CheckBriefDeps): Pro
     }
     if (result.code === null)
       return { ...base, status: "COULD NOT RUN", why: `${file} did not run` };
-    const refused = result.code !== 0 ? refusedBy(result.stderr) : null;
+    // Only the networked tools: a local tool's stderr can echo a file name
+    // such as `E403-notes.md`, which is not a refusal.
+    const networked = file === "gh" || file === "npm";
+    const refused = networked && result.code !== 0 ? refusedBy(result.stderr) : null;
     if (refused) return { ...base, status: "COULD NOT RUN", why: `${file} ${refused}` };
   }
 
@@ -657,7 +817,8 @@ export async function runCheckBrief(
 
   // An absence that passed is only as good as its control: a control that did
   // not pass shows nothing about whether the command could have said yes.
-  for (const [i, line] of lines.entries()) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] as VerifyLine;
     const r = results[i];
     const next = lines[i + 1];
     const control = results[i + 1];
