@@ -29,7 +29,8 @@ import { parseFleetTableQuery, buildFleetTableModel } from "./fleet-table.js";
 import type { FleetTableModel } from "./fleet-table.js";
 import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
 import type { SubmissionsPageModel } from "./submissions-page.js";
-import { loadSiteAlarmContext } from "./site-alarm.js";
+import { readSiteAlarmInputs, buildSiteAlarm } from "./site-alarm.js";
+import { orElse } from "./or-else.js";
 
 /**
  * What each operator page reads, one function per page, so the Netlify
@@ -40,33 +41,58 @@ import { loadSiteAlarmContext } from "./site-alarm.js";
  * Every loader takes an open client and throws on a core-read failure, which the
  * caller turns into a 502. The defensive reads inside degrade to "absent", as
  * the functions always did.
+ *
+ * The reads that depend on nothing but the request run together, so a load costs
+ * one Turso round trip per step of its longest chain, not one per query
+ * (tests/dashboard/page-data-waves.test.ts pins the waves). That needs a `Db`
+ * opened with `concurrentReads`, as the cockpit's `withDb` does; on any other
+ * `Db` Kysely runs them one at a time and the result is the same, only slower.
  */
 
-/** `/`: the fleet cockpit. */
+/** `/`: the fleet cockpit. One wave: every read below depends only on `now`. */
 export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Promise<CockpitModel> {
-  // Fetch the three inputs once. reports + digest are each defensive so one
-  // hiccup can't blank the page; sites is the cockpit's core data, so a
-  // failure there can't degrade to an empty (misleading "0 sites") page —
-  // instead the whole load throws, for a clean retry-able 502.
-  const websites = await listSites(db);
-  let reports: Awaited<ReturnType<typeof listAllReports>> = [];
-  try {
-    reports = await listAllReports(db);
-  } catch {
+  // sites is the cockpit's core data, so a failure there can't degrade to an
+  // empty (misleading "0 sites") page — instead the whole load throws, for a
+  // clean retry-able 502. Every other read is defensive so one hiccup can't
+  // blank the page.
+  const [
+    websites,
+    reports,
+    prior,
+    newSubmissions,
+    rollup,
+    recentEvents,
+    autoFilteredCount,
+    deadLetters,
+    deadLetterOldestRead,
+  ] = await Promise.all([
+    listSites(db),
     // approve strip + delivery signals simply absent — triage still renders
-  }
-  let prior: Awaited<ReturnType<typeof readDigestState>> = {};
-  try {
-    prior = await readDigestState(db);
-  } catch {
+    orElse(() => listAllReports(db), []),
     // everything badges as not-NEW (the {} initial); never crashes the page
-  }
-  let newSubmissions: Awaited<ReturnType<typeof listNewSubmissions>> = [];
-  try {
-    newSubmissions = await listNewSubmissions(db);
-  } catch {
+    orElse(() => readDigestState(db), {}),
     // submissions strip simply absent — triage still renders
-  }
+    orElse(() => listNewSubmissions(db), []),
+    // strip simply absent — never blank the cockpit (see the roll-up note below)
+    orElse(() => readCockpitRollup(db), null),
+    // Recently lane simply absent — the cockpit still renders.
+    orElse(() => {
+      const sinceIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      return listFleetEvents(db, { sinceIso, limit: 20 });
+    }, []),
+    // affordance simply absent — never blank the cockpit
+    orElse(() => countAutoSpamSince(db, screenOutsSince(now, 7)), 0),
+    // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
+    // Defensive like every other libSQL read here: a blip drops the signal, it
+    // never blanks the cockpit.
+    orElse<ReadonlyMap<string, number>>(() => countUnreplayedDeadLettersBySlug(db), new Map()),
+    // OD 87: the hold's clock. A blip leaves it empty, and then nothing is held
+    // (every dead letter alarms). Read in the same wave as the count, and used
+    // only when the count found dead letters, as when it was read after it.
+    orElse<ReadonlyMap<string, string>>(() => oldestUnreplayedDeadLetterBySlug(db), new Map()),
+  ]);
+  const deadLetterOldest: ReadonlyMap<string, string> =
+    deadLetters.size > 0 ? deadLetterOldestRead : new Map();
   // Both of the fleet-wide "since a window" numbers now come from ONE row read
   // by primary key, computed by the nightly digest (MED-16). They used to be
   // recomputed on every page load — aggregates over the whole `submissions`
@@ -77,28 +103,8 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
   // one yet, which the cockpit renders as ABSENT rather than as zeros: every
   // one of these numbers has a legitimate zero, so a confident 0 for an
   // unmeasured window is a lie the strip cannot walk back.
-  let rollup: Awaited<ReturnType<typeof readCockpitRollup>> = null;
-  try {
-    rollup = await readCockpitRollup(db);
-  } catch {
-    // strip simply absent — never blank the cockpit
-  }
   const spamTotals =
     rollup !== null ? { ...rollup.spamTotals, computedAt: rollup.computedAt } : null;
-  let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
-  try {
-    const sinceIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    recentEvents = await listFleetEvents(db, { sinceIso, limit: 20 });
-  } catch {
-    // Recently lane simply absent — the cockpit still renders.
-  }
-  let autoFilteredCount = 0;
-  try {
-    const since = screenOutsSince(now, 7);
-    autoFilteredCount = await countAutoSpamSince(db, since);
-  } catch {
-    // affordance simply absent — never blank the cockpit
-  }
   // #783: the roll-up's per-site value is a {total, permanent} breakdown now.
   // `readCockpitRollup` normalizes an older numeric payload into it, so this
   // stays a plain Object.entries and the cockpit keeps rendering after a
@@ -106,24 +112,6 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
   const notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(
     Object.entries(rollup?.notifyBounces ?? {}),
   );
-  // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
-  // Defensive like every other libSQL read here: a blip drops the signal, it
-  // never blanks the cockpit.
-  let deadLetters: ReadonlyMap<string, number> = new Map();
-  try {
-    deadLetters = await countUnreplayedDeadLettersBySlug(db);
-  } catch {
-    // alarm simply absent — never blank the cockpit
-  }
-  // OD 87: the hold's clock. A blip leaves it empty, and then nothing is held.
-  let deadLetterOldest: ReadonlyMap<string, string> = new Map();
-  if (deadLetters.size > 0) {
-    try {
-      deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
-    } catch {
-      // nothing held — every dead letter alarms
-    }
-  }
   return buildCockpitModel(
     websites,
     reports,
@@ -161,29 +149,17 @@ export type SiteDashboardData = {
 };
 
 /** `/s/:slug`. Null when no site has the slug, which the caller answers 404:
- *  only a THROWN Turso failure becomes a 502. */
+ *  only a THROWN Turso failure becomes a 502. Two waves: the site, then
+ *  everything else, which needs only its id and the slug. */
 export async function loadSiteDashboard(
   db: Db,
   slug: string,
   now: Date,
   baseUrl: string,
 ): Promise<SiteDashboardData | null> {
+  // First and alone: an unknown slug costs exactly this one query.
   const site = await getSiteBySlug(db, slug);
   if (!site) return null;
-
-  // The FULL report set goes to the renderer. The "recent 6" history-table
-  // slice is canonical inside the renderer. Pre-slicing here would hide an OLD
-  // pending report from the approve list + its button while the fleet banner
-  // (which counts ALL reports) still shows it, leaving an unapprovable report
-  // and a banner/page disagreement.
-  const reports = await listReportsForSite(db, site.id);
-
-  let submissions: SubmissionRow[] = [];
-  try {
-    submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
-  } catch {
-    // submissions section simply absent — the rest of the page still renders
-  }
 
   // MED-11 (2026-09-02). Every read below is scoped to THIS site. All three
   // used to call the fleet-wide variant and then throw away every row but one:
@@ -195,16 +171,27 @@ export async function loadSiteDashboard(
   // The fleet-wide functions are not gone: the nightly digest and the fleet
   // cockpit genuinely render every site and still use them. What changed is
   // that the ONE-site page no longer pays the fleet's price.
-  let spamTotals: ScreenOutTotals | null = null;
-  try {
-    const since = screenOutsSince(now, 30);
-    spamTotals = await screenOutTotalsForSite(db, site.id, since);
-  } catch {
+  const [reports, submissions, spamTotals, alarmInputs] = await Promise.all([
+    // The FULL report set goes to the renderer. The "recent 6" history-table
+    // slice is canonical inside the renderer. Pre-slicing here would hide an OLD
+    // pending report from the approve list + its button while the fleet banner
+    // (which counts ALL reports) still shows it, leaving an unapprovable report
+    // and a banner/page disagreement. Not defensive: a failure here throws.
+    listReportsForSite(db, site.id),
+    // submissions section simply absent — the rest of the page still renders
+    orElse<SubmissionRow[]>(() => listSubmissionsForSite(db, { id: site.id, name: site.name }), []),
     // panel simply absent — never blank the page
-  }
+    orElse<ScreenOutTotals | null>(
+      () => screenOutTotalsForSite(db, site.id, screenOutsSince(now, 30)),
+      null,
+    ),
+    // The alarm's reads need only the site and the slug; its verdict needs the
+    // reports too, so it is built below.
+    readSiteAlarmInputs(db, site, slug, now),
+  ]);
 
-  // Cockpit alarm verdict for the header chip strip (see loadSiteAlarmContext).
-  const alarm = await loadSiteAlarmContext(db, site, slug, reports, baseUrl, now);
+  // Cockpit alarm verdict for the header chip strip.
+  const alarm = buildSiteAlarm(site, reports, baseUrl, now, alarmInputs);
 
   return { site, reports, submissions, spamTotals, alarm };
 }
