@@ -64,6 +64,17 @@ describe("isCsrfAllowed", () => {
     ).toBe(false);
   });
 
+  it("rejects an opaque Origin (`null`): a cross-site signal, not an absent one", () => {
+    expect(isCsrfAllowed(req({ origin: "null", host: "dash.reddoor.test" }))).toBe(false);
+    expect(isCsrfAllowed(req({ origin: "NULL ", host: "dash.reddoor.test" }))).toBe(false);
+    // The Referer cannot vouch for it either.
+    expect(
+      isCsrfAllowed(
+        req({ origin: "null", referer: "https://dash.reddoor.test/x", host: "dash.reddoor.test" }),
+      ),
+    ).toBe(false);
+  });
+
   it("allows a request with no cross-site signal at all (legacy/non-browser client)", () => {
     expect(isCsrfAllowed(req({ host: "dash.reddoor.test" }))).toBe(true);
   });

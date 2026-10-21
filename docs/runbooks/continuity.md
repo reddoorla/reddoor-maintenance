@@ -127,7 +127,7 @@ empty, nothing needs you.
 **Almost everything — and the reason is a feature, not an accident: no client-facing report can
 go out without a human approval.** Two independent gates:
 
-- `netlify/functions/approve-report.mts:78` — `requireOperator(req, { wants: "json" })`. Every
+- `cockpit/src/lib/server/endpoints/approve-report.ts:73` — `requireOperator(req, { wants: "json" })`. Every
   approval runs through one Basic-auth credential, checked before any store read, behind a
   CSRF check. No credential, no approval.
 - `src/reports/send/orchestrate.ts:234–254` — `sendOne` **throws** rather than send when the health

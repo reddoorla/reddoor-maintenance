@@ -16,7 +16,7 @@ vi.mock("../../../src/dashboard/auth/google.js", async (orig) => {
 import { exchangeCodeForTokens, fetchVerifiedEmail } from "../../../src/dashboard/auth/google.js";
 import { mintOAuthState, STATE_COOKIE } from "../../../src/dashboard/auth/oauth-state.js";
 import { SESSION_COOKIE, verifySession } from "../../../src/dashboard/auth/session.js";
-import authFn from "../../../netlify/functions/auth.mjs";
+import authFn from "../../../cockpit/src/lib/server/endpoints/auth.js";
 
 const exchangeMock = vi.mocked(exchangeCodeForTokens);
 const emailMock = vi.mocked(fetchVerifiedEmail);

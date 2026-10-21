@@ -65,12 +65,12 @@ describe("isReportId — what the report routes accept", () => {
 });
 
 describe("the three report routes validate with it (#646 step 4)", () => {
-  const ROUTES = ["report-preview.mts", "report-rerender.mts", "report-commentary.mts"];
+  const ROUTES = ["report-preview.ts", "report-rerender.ts", "report-commentary.ts"];
 
   for (const route of ROUTES) {
-    it(`netlify/functions/${route} uses isReportId and no longer hard-codes the rec-only regex`, () => {
+    it(`cockpit/src/lib/server/endpoints/${route} uses isReportId and no longer hard-codes the rec-only regex`, () => {
       const src = readFileSync(
-        fileURLToPath(new URL(`../../netlify/functions/${route}`, import.meta.url)),
+        fileURLToPath(new URL(`../../cockpit/src/lib/server/endpoints/${route}`, import.meta.url)),
         "utf-8",
       );
       expect(src).toContain("isReportId(id)");

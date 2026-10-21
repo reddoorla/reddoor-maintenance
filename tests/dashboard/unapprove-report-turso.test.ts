@@ -25,8 +25,8 @@ vi.mock("../../src/db/fleet-state.js", async (importOriginal) => {
   };
 });
 
-import unapproveReportHandler from "../../netlify/functions/unapprove-report.mjs";
-import approveReportHandler from "../../netlify/functions/approve-report.mjs";
+import unapproveReportHandler from "../../cockpit/src/lib/server/endpoints/unapprove-report.js";
+import approveReportHandler from "../../cockpit/src/lib/server/endpoints/approve-report.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { getReportById, storeLighthouseScores } from "../../src/db/fleet-state.js";
 import { isPendingApproval } from "../../src/reports/report-row.js";
