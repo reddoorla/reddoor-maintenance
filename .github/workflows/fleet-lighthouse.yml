@@ -117,6 +117,26 @@ jobs:
             exit 1
           fi
 
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # The CLI's exit code cannot carry this (a failing audit exits 1 by design,
+          # hence `|| true` above), so the verdict line is the contract, and an
+          # absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet Lighthouse: /' || true
+            exit 1
+          fi
+
       # M4 slice 2a: sweep three GitHub-sourced signals (Renovate-failing-CI count,
       # default-branch CI state, last-commit date) per repo-backed site into Turso
       # so the cockpit reads them with zero request-path GitHub calls. `if: !cancelled()`

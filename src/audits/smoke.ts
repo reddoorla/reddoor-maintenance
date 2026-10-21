@@ -170,6 +170,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       site: label,
       status: "skip",
       summary: "no test:smoke script",
+      notApplicable: true,
     };
   }
 

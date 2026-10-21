@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { formatUnmeasuredSmokeSummary, SMOKE_UNMEASURED_PREFIX } from "../../src/audits/smoke.js";
 import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,8 +77,7 @@ async function runGate(opts: {
 
 /** Summary lines built by the REAL formatters, not hand-typed. A change to either
  *  contract breaks this file instead of silently un-arming the gate. */
-const writeSummary = (wrote: number, failed: number): string =>
-  `FLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${wrote + failed}`;
+const writeSummary = (wrote: number, failed: number): string => fleetWriteOutput(wrote, failed);
 
 const unmeasuredSummary = (sites: string[]): string =>
   formatUnmeasuredSmokeSummary([

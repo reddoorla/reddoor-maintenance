@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { FORM_E2E_TESTMODE_UNDECLARED_SUMMARY } from "../../src/audits/form-e2e.js";
 import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
+import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -96,8 +97,7 @@ async function runGate(opts: {
  *  Honouring that invariant is load-bearing here: it is precisely because
  *  `wrote=0` forces `failed=total` that the mass-flake gate accidentally covers
  *  every zero-write case EXCEPT `total=0`. */
-const writeSummary = (wrote: number, failed: number): string =>
-  `FLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${wrote + failed}`;
+const writeSummary = (wrote: number, failed: number): string => fleetWriteOutput(wrote, failed);
 
 /** One site's block as `formatTable` in src/cli/commands/audit.ts renders it:
  *  `audit` padded to 12, `status` padded to 5, the site, then the summary on the

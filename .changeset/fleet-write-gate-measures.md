@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": patch
+---
+
+The fleet write-back no longer counts a site whose audits wrote nothing as written (#1605). A site whose every audit says it does not apply (no deployed URL, no `test:smoke` script, no Netlify id) is counted as `na`; one whose audits measured nothing (deps would not install, no readable lockfile, a runner that threw) is filed under `failed`, named by what each audit said. `audit --fleet --write-back` checks `total` against the sites it resolved before prep and lists any that never reached write-back as `missing`. The summary line appends `na=N missing=M`, and a new `FLEET_WRITE_GATE verdict=red|green` line, with `FLEET_WRITE_GATE_REASON` and `FLEET_WRITE_GATE_WARNING` lines, carries the verdict the five fleet nightlies now red on: nothing written, more than a quarter of sites failed or missing, any site with no row to write to, or one audit measuring nothing on more than a quarter of the fleet. `AuditResult` gains an optional `notApplicable: true`.

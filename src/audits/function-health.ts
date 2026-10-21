@@ -122,7 +122,13 @@ export async function functionHealthAudit(ctx: AuditContext): Promise<AuditResul
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.deployedUrl) {
-    return { audit: "function-health", site: label, status: "skip", summary: "no deployed URL" };
+    return {
+      audit: "function-health",
+      site: label,
+      status: "skip",
+      summary: "no deployed URL",
+      notApplicable: true,
+    };
   }
   const now = ctx.now ?? new Date();
   const deps = ctx.functionHealthDeps ?? defaultFunctionHealthDeps(now);

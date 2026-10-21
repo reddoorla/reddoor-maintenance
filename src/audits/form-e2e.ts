@@ -421,7 +421,13 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.deployedUrl) {
-    return { audit: "form-e2e", site: label, status: "skip", summary: "no deployed URL" };
+    return {
+      audit: "form-e2e",
+      site: label,
+      status: "skip",
+      summary: "no deployed URL",
+      notApplicable: true,
+    };
   }
   if (!ctx.formRunner && !liveRunnerEnabled()) {
     return {

@@ -167,7 +167,13 @@ export async function netlifyDeployAudit(ctx: AuditContext): Promise<AuditResult
   const { site } = ctx;
   const label = siteLabel(site);
   if (!site.netlifyId) {
-    return { audit: "netlify-deploy", site: label, status: "skip", summary: "no netlify id" };
+    return {
+      audit: "netlify-deploy",
+      site: label,
+      status: "skip",
+      summary: "no netlify id",
+      notApplicable: true,
+    };
   }
   const token = process.env.NETLIFY_PAT;
   if (!token) {

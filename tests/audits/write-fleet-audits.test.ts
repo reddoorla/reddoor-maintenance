@@ -274,12 +274,14 @@ describe("the Turso mirror", () => {
     );
   });
 
-  it("does NOT call the mirror for a written site whose FieldSet is empty (empty-payload guard)", async () => {
+  it("does NOT call the mirror for a site whose FieldSet is empty, and does not count it written (#1605)", async () => {
     const calls: string[] = [];
     const out = await writeFleetAudits({
       websites: websiteRowsFrom(websites),
-      // lint persists nothing: the site lands in `written` with an
-      // EMPTY FieldSet. Mirroring {} would count a mirror that wrote nothing.
+      // lint persists nothing, so the FieldSet is EMPTY. Mirroring {} would count a
+      // mirror that wrote nothing, and counting the site `written` would let a run
+      // that wrote nothing read as one that wrote everything (#1605). lint has no
+      // column to fill, so the site is not applicable rather than failed.
       results: [
         { audit: "lint", site: "acme-co", status: "pass", summary: "", details: {} } as AuditResult,
       ],
@@ -288,7 +290,8 @@ describe("the Turso mirror", () => {
         return true;
       },
     });
-    expect(out.written).toHaveLength(1);
+    expect(out.written).toHaveLength(0);
+    expect(out.notApplicable).toEqual(["acme-co"]);
     expect(calls).toEqual([]);
     expect(out.mirrored).toBe(0);
     expect(out.mirrorFailed).toBe(0);

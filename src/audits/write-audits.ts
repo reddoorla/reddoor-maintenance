@@ -1,4 +1,4 @@
-import type { AuditResult } from "../types.js";
+import type { AuditName, AuditResult } from "../types.js";
 import type { HealthMirror } from "./health-mirror.js";
 import {
   type AuditFieldInputs,
@@ -80,7 +80,26 @@ type WriteSummary = {
 export type AuditWritePlan = {
   summary: WriteSummary;
   lighthouseMiss: Error | null;
+  /** Requested audits that store a value but produced none this run and did not say they
+   *  were not applicable (#1605): an install that failed, an unreadable lockfile, a runner
+   *  that threw. Lighthouse is left out when `lighthouseMiss` already files the site. */
+  unmeasured: Array<{ audit: AuditName; summary: string }>;
 };
+
+/** The audits whose results land in `site_health`. An audit outside this set (lint) has
+ *  nothing to write, so producing nothing is not a miss. */
+const PERSISTED_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>([
+  "lighthouse",
+  "a11y",
+  "deps",
+  "security",
+  "domain",
+  "browser",
+  "netlify-deploy",
+  "function-health",
+  "smoke",
+  "form-e2e",
+]);
 
 export function planAuditWrite(args: {
   websites: WebsiteRow[];
@@ -221,9 +240,21 @@ export function planAuditWrite(args: {
     );
   }
 
+  const wroteAudits = new Set(writes.map((w) => w.audit));
+  const unmeasured = results
+    .filter(
+      (r) =>
+        PERSISTED_AUDITS.has(r.audit) &&
+        !wroteAudits.has(r.audit as WriteSummary["writes"][number]["audit"]) &&
+        r.notApplicable !== true &&
+        !(r.audit === "lighthouse" && lighthouseMiss),
+    )
+    .map((r) => ({ audit: r.audit, summary: r.summary }));
+
   return {
     summary: { siteName: target.name, writes, events, siteId: target.id, fields },
     lighthouseMiss,
+    unmeasured,
   };
 }
 
@@ -254,6 +285,16 @@ export type FleetWriteResult = {
    *  `failed`. */
   mirrorMissed?: number;
   events?: FleetEvent[];
+  /** Sites every one of whose audits said "not applicable here" (#1605): neither written nor
+   *  failed, and counted in `total` so a skip by design is visible rather than absent. */
+  notApplicable?: string[];
+  /** Sites the run resolved before prep that reached write-back with no result at all:
+   *  dropped at prep, or lost between audit and write (#1605). Present only when the caller
+   *  passed `expectedSites`. */
+  missing?: string[];
+  /** Per audit, the sites where it measured nothing and did not say it was not applicable.
+   *  A site can be written (lighthouse landed) while its browser audit measured nothing. */
+  unmeasuredAudits?: Partial<Record<AuditName, string[]>>;
 };
 
 /** Did this sweep fail, for exit-code purposes (#612)?
@@ -276,21 +317,97 @@ export function tursoWriteFailed(result: FleetWriteResult): boolean {
   return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
 }
 
+/** `total` counts every site the run owed a write: written, failed, not applicable, and
+ *  missing from write-back altogether. It used to be `wrote + failed`, the run's own count
+ *  of itself, so a roster cut short or eight sites dropped at prep read as complete. */
+function fleetWriteTotal(result: FleetWriteResult): number {
+  return (
+    result.written.length +
+    result.failed.length +
+    (result.notApplicable?.length ?? 0) +
+    (result.missing?.length ?? 0)
+  );
+}
+
+/** A failure that recurs every night until someone changes a row: no `site_health` row, or
+ *  no site row for the slug at all. The 25% tolerance exists for flakes, and one of these
+ *  would otherwise warn forever while the job stays green (#1605). */
+function permanentFailures(result: FleetWriteResult): string[] {
+  return result.failed
+    .filter(
+      (f) => f.error === "no site_health row matched" || /^no Websites row matched/i.test(f.error),
+    )
+    .map((f) => f.slug);
+}
+
+export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
+
+/** The write gate's verdict, computed here rather than in five copies of workflow bash.
+ *  The CLI's exit code cannot carry it: a site whose audit reports `fail` exits 1 by design,
+ *  so every workflow runs the CLI under `|| true` and reads this verdict instead (#1605).
+ *
+ *  Red when nothing was written, when failed plus missing sites pass a quarter of the
+ *  fleet, when any failure is permanent, or when one audit measured nothing on more than a
+ *  quarter of the fleet. Anything below those lines is a warning, never silence. */
+export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
+  const wrote = result.written.length;
+  const failed = result.failed.length;
+  const missing = result.missing ?? [];
+  const total = fleetWriteTotal(result);
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+
+  if (wrote === 0) reasons.push(`wrote 0 of ${total} site(s)`);
+  const short = failed + missing.length;
+  if (short * 4 > total) {
+    reasons.push(`${short} of ${total} site(s) not written or missing (>25%)`);
+  } else {
+    if (failed > 0) warnings.push(`${failed} of ${total} site(s) not written`);
+    if (missing.length > 0) {
+      warnings.push(
+        `${missing.length} of ${total} site(s) never reached write-back: ${missing.join(", ")}`,
+      );
+    }
+  }
+  const permanent = permanentFailures(result);
+  if (permanent.length > 0) {
+    reasons.push(`${permanent.length} site(s) with no row to write to: ${permanent.join(", ")}`);
+  }
+  for (const [audit, sites] of Object.entries(result.unmeasuredAudits ?? {})) {
+    if (!sites || sites.length === 0) continue;
+    const line = `${audit} measured nothing on ${sites.length} of ${total} site(s): ${sites.join(", ")}`;
+    if (sites.length * 4 > total) reasons.push(`${line} (>25%)`);
+    else warnings.push(line);
+  }
+  return { red: reasons.length > 0, reasons, warnings };
+}
+
 /** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
  *  lines, it emits a single deterministic, machine-parseable line —
  *  `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` — that the nightly workflow
  *  greps to decide pass/fail. Keying CI on this line (not the prose, and not a
  *  "wrote ≥ 1" heuristic) lets the gate tolerate a single known flake while
- *  still reding on a total or mass write-back failure. */
+ *  still reding on a total or mass write-back failure.
+ *
+ *  Then the gate's own verdict: `FLEET_WRITE_GATE verdict=red|green`, one
+ *  `FLEET_WRITE_GATE_REASON` line per reason it is red and one
+ *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. Every fleet workflow
+ *  reds on `verdict=red`, and on the line being absent. */
 export function formatFleetWriteSummary(result: FleetWriteResult): string {
   const wrote = result.written.length;
   const failed = result.failed.length;
-  const total = wrote + failed;
+  const na = result.notApplicable ?? [];
+  const missing = result.missing ?? [];
+  const total = fleetWriteTotal(result);
   let out = `→ wrote ${wrote} site(s)`;
   if (failed > 0) {
     out += `\n⚠ ${failed} site(s) not written: ${result.failed
       .map((f) => `${f.slug} (${f.error})`)
       .join("; ")}`;
+  }
+  if (na.length > 0) out += `\n· ${na.length} site(s) not applicable: ${na.join(", ")}`;
+  if (missing.length > 0) {
+    out += `\n⚠ ${missing.length} site(s) on the roster never reached write-back: ${missing.join(", ")}`;
   }
   out += `\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;
   // Mirror counts APPEND so the fleet workflows' `grep -oE "FLEET_WRITE_SUMMARY
@@ -299,6 +416,11 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
     out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;
     out += ` mirror_missed=${result.mirrorMissed ?? 0}`;
   }
+  out += ` na=${na.length} missing=${missing.length}`;
+  const gate = fleetWriteGate(result);
+  out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
+  for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${r}`;
+  for (const w of gate.warnings) out += `\nFLEET_WRITE_GATE_WARNING ${w}`;
   return out;
 }
 
@@ -315,8 +437,12 @@ export async function writeFleetAudits(args: {
   /** The Turso write (#539 Phase 3). A failure is counted and files the site
    *  under `failed`, never thrown. Absent → every site with a FieldSet fails. */
   mirror?: HealthMirror;
+  /** Every site label the run resolved before prep (#1605). A label with no result here
+   *  is filed under `missing`, so `total` is checked against the roster rather than
+   *  derived from whatever reached this function. */
+  expectedSites?: string[];
 }): Promise<FleetWriteResult> {
-  const { websites, results, mirror } = args;
+  const { websites, results, mirror, expectedSites } = args;
 
   const bySlug = new Map<string, AuditResult[]>();
   for (const r of results) {
@@ -331,6 +457,8 @@ export async function writeFleetAudits(args: {
   let mirrored = 0;
   let mirrorFailed = 0;
   let mirrorMissed = 0;
+  const notApplicable: string[] = [];
+  const unmeasuredAudits: Partial<Record<AuditName, string[]>> = {};
   for (const [slug, siteResults] of bySlug) {
     let plan: AuditWritePlan;
     try {
@@ -340,7 +468,23 @@ export async function writeFleetAudits(args: {
       continue;
     }
     const { summary } = plan;
-    if (summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+    for (const u of plan.unmeasured) (unmeasuredAudits[u.audit] ??= []).push(slug);
+    const hasFields = !!summary.fields && Object.keys(summary.fields).length > 0;
+    // Nothing to write is not a write (#1605). A site whose audits all said "not applicable"
+    // is counted as such; one whose audits measured nothing is a failure, named by what each
+    // audit said, and never `written` with its row still serving last month's verdict.
+    if (!hasFields && !plan.lighthouseMiss) {
+      if (plan.unmeasured.length === 0) {
+        notApplicable.push(slug);
+      } else {
+        failed.push({
+          slug,
+          error: `nothing measured: ${plan.unmeasured.map((u) => `${u.audit}: ${u.summary}`).join("; ")}`,
+        });
+      }
+      continue;
+    }
+    if (summary.siteId && summary.fields && hasFields) {
       if (!mirror) {
         failed.push({ slug, error: "no Turso store configured" });
         continue;
@@ -366,5 +510,15 @@ export async function writeFleetAudits(args: {
     }
     written.push(summary);
   }
-  return { written, failed, events, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
+  const missing =
+    expectedSites !== undefined ? [...new Set(expectedSites)].filter((s) => !bySlug.has(s)) : [];
+  return {
+    written,
+    failed,
+    events,
+    notApplicable,
+    unmeasuredAudits,
+    ...(expectedSites !== undefined ? { missing } : {}),
+    ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}),
+  };
 }
