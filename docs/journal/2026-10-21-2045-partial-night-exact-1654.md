@@ -35,3 +35,15 @@ Landed in: this PR (`claude/1654-pnpm-own-view`). Follows #1612 (#1661) in the s
 - Mine: no view stored, writing Dependabot alone over audited counts, merging a truncated view, and a never-audited row writing nothing.
 
 **Belief corrected on contact.** A property test can pass on the code it is meant to replace, whenever "write nothing" happens to equal the right answer. Running the tests on the old code first is what showed it.
+
+**Five review rounds; the first four were dirty, each with a reproduced wrong output.** Each corrected a belief about what "the same as a full night" takes:
+
+- **R1:** the stored result went stale. It was written only on merged nights, so a newer clean full night left it standing, and a later partial night brought back an advisory pnpm had dropped. R1 also found that a written partial night hid a pnpm outage from the write gate, and that a property with one fixed pnpm answer per case could never show staleness. Now every full night sets or clears the stored result, a written partial night is still unmeasured, and the harness varies pnpm's answer between nights.
+- **R2:** on #1612's cross-check, a full night with a clean pnpm answer writes Dependabot unmerged, while a partial night merged it. So two alerts on one advisory counted 2 against 1. The partial night now follows the full night's rule.
+- **R3:** pnpm's `cves: []` was spread over Dependabot's CVE in the full night's merge, but dropped by the rebuild. pnpm's CVE list now rides only when non-empty.
+- **R4:** the stored result carried each advisory's relationship, which a full night works out from tonight's `package.json`. A package that had become a direct dependency stayed "transitive" on a partial night, which mutes the auto-fix escalation. The stored result now keeps no relationship, and both nights apply tonight's.
+- **R5:** clean. Its two test gaps are #1683. Its nit is folded: the cell holds npm's result where pnpm is missing.
+
+**Migration order.** The #1608 worker landed `0047` first (#1678). Ids are an applied set, so `0046` applies after it. A scratch database migrated by `main` to `0047` then took `0046` from this branch, with unchanged counts.
+
+The issue's property says a partial night reads "exactly as a full night would". Each round found one more input a full night reads tonight and the stored result had frozen: whether it merged, an empty CVE list, the `package.json`. The property test only became evidence once its harness could vary each of those between nights.
