@@ -134,18 +134,21 @@ export async function loadCockpitSnapshot(
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");
 
-/** How much lead text the snapshot may carry, as the bytes SvelteKit's serialiser
- *  writes for it (`textCost`). Visitors write these fields, through every client
- *  site's public form, nothing at ingest bounds them, and the snapshot rides in
- *  every cockpit page, so a few crafted posts must not be able to push every page
- *  past the function's response limit (6 MB).
+/** How much lead text the snapshot may carry. Visitors write these fields, through
+ *  every client site's public form, nothing at ingest bounds them, and the snapshot
+ *  rides in every cockpit page, so a few crafted posts must not be able to push
+ *  every page past the function's response limit (6 MB).
  *
- *  - One field: at most `SNAPSHOT_FIELD_MAX`. The longest real message on
- *    2026-10-21 was 7,924 characters (681 rows).
- *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, newest lead first. Every lead
- *    past it keeps its row (so every count and status still holds) but its text is
- *    one constant marker, which the serialiser writes once however many rows hold
- *    it. All 681 rows' text came to about 0.2 MB on 2026-10-21.
+ *  - One field: at most `SNAPSHOT_FIELD_MAX` characters. The longest real message
+ *    on 2026-10-21 was 7,924 characters (681 rows).
+ *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, counted as the bytes SvelteKit's
+ *    serialiser writes (`charCost`), newest lead first. A lead past it keeps its
+ *    row, its status, its reasons and the first 80 characters of its name, email
+ *    and phone, so every count, status and reason filter holds and a search by
+ *    sender still finds it; its message and other text become one constant
+ *    marker, which the serialiser writes once however many rows hold it. A search
+ *    for words in an older lead's message misses it while the budget is spent.
+ *    All 681 rows' text came to about 0.2 MB on 2026-10-21.
  *
  *  Neither has cut a real lead yet; when one does, the marker says so, and the
  *  whole lead is still in Turso. */
@@ -177,15 +180,26 @@ function charCost(code: number): number {
 }
 
 /** `value` cut to at most `max` serialised bytes, and what that cost. */
+/** `value` cut to at most `max` characters, never between the halves of a
+ *  surrogate pair, and what the kept part costs serialised. */
 function cutTo(value: string, max: number): { text: string; cost: number; cut: boolean } {
-  let cost = 0;
-  for (let i = 0; i < value.length; i++) {
-    const c = charCost(value.charCodeAt(i));
-    if (cost + c > max) return { text: value.slice(0, i), cost, cut: true };
-    cost += c;
+  let end = Math.min(value.length, max);
+  if (end < value.length) {
+    const code = value.charCodeAt(end - 1);
+    if (code >= 0xd800 && code <= 0xdbff) end--;
   }
-  return { text: value, cost, cut: false };
+  const text = value.slice(0, end);
+  let cost = 0;
+  for (let i = 0; i < text.length; i++) cost += charCost(text.charCodeAt(i));
+  return { text, cost, cut: end < value.length };
 }
+
+/** The fields a row past the budget keeps a short prefix of, so a search by who
+ *  wrote still finds a real lead (real ones are far shorter), and the most of them
+ *  it keeps. `spamReason` is the classifier's tokens, not a visitor's text: it is
+ *  never budgeted, so the reason filters and facets hold. */
+const KEPT_PAST_BUDGET = ["name", "email", "phone"] as const;
+const PREFIX_PAST_BUDGET = 80;
 
 /** Apply both bounds to the rows, newest first (the order they are read in). */
 function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
@@ -196,17 +210,22 @@ function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
       if (out === row) out = { ...row };
       (out as Record<string, unknown>)[field] = value;
     };
-    if (spent > SNAPSHOT_TEXT_BUDGET) {
-      for (const field of FREE_TEXT) {
-        if (typeof row[field] === "string" && row[field] !== "") set(field, TEXT_PAST_BUDGET);
-      }
-      return out;
-    }
+    const past = spent > SNAPSHOT_TEXT_BUDGET;
     for (const field of FREE_TEXT) {
       const value = row[field];
-      if (typeof value !== "string") continue;
+      if (typeof value !== "string" || value === "") continue;
+      const budgeted = field !== "spamReason";
+      if (past && budgeted) {
+        if ((KEPT_PAST_BUDGET as readonly string[]).includes(field)) {
+          const { text, cut } = cutTo(value, PREFIX_PAST_BUDGET);
+          if (cut) set(field, `${text}…`);
+        } else {
+          set(field, TEXT_PAST_BUDGET);
+        }
+        continue;
+      }
       const { text, cost, cut } = cutTo(value, SNAPSHOT_FIELD_MAX);
-      spent += cost;
+      if (budgeted) spent += cost;
       if (cut) {
         set(
           field,

@@ -13,6 +13,7 @@ import {
   TEXT_PAST_BUDGET,
 } from "../../../src/dashboard/snapshot.js";
 import { createRequire } from "node:module";
+import { loadSubmissionsPage } from "../../../src/dashboard/page-data.js";
 import {
   SnapshotGap,
   auditsFromSnapshot,
@@ -219,7 +220,9 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
   it("cuts every free-text field a visitor oversized, and leaves a real-sized lead whole", async () => {
     const db = await openDb({ url });
     const huge = "x".repeat(1_000_000);
-    const real = "y".repeat(7_924); // the longest real message, 2026-10-21
+    // The longest real message on 2026-10-21 was 7,924 characters; a real one in
+    // another script, or with many lines, costs more to serialise but is not cut.
+    const real = "y".repeat(7_924) + "é".repeat(6_000) + "\n".repeat(4_000);
     const column: Record<string, string> = {
       name: "name",
       email: "email",
@@ -263,41 +266,81 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
   it("bounds the whole snapshot however many crafted leads arrive", async () => {
     // The shape round 2 of the review found: every free-text field full of `<`,
     // which the serialiser writes as six bytes, each field distinct so nothing is
-    // deduplicated, on many rows.
+    // deduplicated, on many rows. Behind them, two real leads from before.
     const db = await openDb({ url });
-    for (let i = 0; i < 60; i++) {
-      await db
+    const lead = (id: string, at: Date, over: Record<string, unknown>) =>
+      db
         .insertInto("submissions")
         .values({
-          id: `atk${i}`,
+          id,
           site_id: "recA",
           form_type: "contact",
           status: "spam_auto",
           notify_status: "skipped",
-          submitted_at: new Date(NOW.getTime() - i * 60_000).toISOString(),
-          name: `${i}${"<".repeat(30_000)}`,
-          email: `${i}e${"<".repeat(30_000)}@x.example`,
-          phone: `${i}p${"<".repeat(30_000)}`,
-          message: `${i}m${"<".repeat(30_000)}`,
-          extra_fields: `${i}x${"<".repeat(30_000)}`,
-          source_url: `${i}s${"<".repeat(30_000)}`,
-          utm: `${i}u${"<".repeat(30_000)}`,
+          submitted_at: at.toISOString(),
+          name: "",
+          email: "",
+          ...over,
         } as never)
         .execute();
+    await lead("alice", new Date(NOW.getTime() - 86_400_000), {
+      name: "Alice Real",
+      email: "alice@example.com",
+      message: "Please quote the kitchen remodel",
+      spam_reason: "honeypot",
+    });
+    for (let i = 0; i < 60; i++) {
+      const junk = (tag: string) => `${i}${tag}${"<".repeat(30_000)}`;
+      await lead(`atk${i}`, new Date(NOW.getTime() - i * 60_000), {
+        name: junk("n"),
+        email: `${junk("e")}@x.example`,
+        phone: junk("p"),
+        message: junk("m"),
+        extra_fields: junk("x"),
+        source_url: junk("s"),
+        utm: junk("u"),
+        spam_reason: "links",
+      });
     }
     const s = await loadCockpitSnapshot(db, NOW, "https://dash.example");
-    await db.destroy();
     const devalue = (await import(
       createRequire(createRequire(import.meta.url).resolve("@sveltejs/kit/package.json")).resolve(
         "devalue",
       )
     )) as { stringify(v: unknown): string };
-    const bytes = Buffer.byteLength(devalue.stringify(s));
-    expect(bytes).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
-    // Every row is still there, so every count holds; the oldest carry the marker.
-    expect(s.submissions).toHaveLength(60);
-    expect(s.submissions?.at(-1)?.message).toBe(TEXT_PAST_BUDGET);
-    expect(s.submissions?.[0]?.message?.startsWith("0m<")).toBe(true);
+    expect(Buffer.byteLength(devalue.stringify(s))).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
+    // Every row is still there; the oldest crafted ones and the real lead behind
+    // them carry the marker for their message.
+    expect(s.submissions).toHaveLength(61);
+    expect(s.submissions?.find((r) => r.id === "alice")?.message).toBe(TEXT_PAST_BUDGET);
+    // What still holds: every count, status and reason, and a search by sender.
+    for (const q of [
+      "status=spam_auto",
+      "status=spam_auto&reason=honeypot",
+      "status=spam_auto&reason=links",
+      "q=alice",
+      "q=alice%40example.com",
+    ]) {
+      const loaded = await loadSubmissionsPage(db, new URLSearchParams(q));
+      const derived = submissionsPageFromSnapshot(s, new URLSearchParams(q));
+      if (loaded.kind !== "ok" || derived.kind !== "ok") throw new Error(q);
+      expect(derived.model.total, q).toBe(loaded.model.total);
+      expect(
+        derived.model.rows.map((r) => r.id),
+        q,
+      ).toEqual(loaded.model.rows.map((r) => r.id));
+      expect([...derived.model.facetReasons].sort(), q).toEqual(
+        [...loaded.model.facetReasons].sort(),
+      );
+    }
+    // The one thing that does not: a search for words in that older lead's
+    // message, while the budget is spent (operator decision, see the PR).
+    const words = new URLSearchParams("q=kitchen");
+    const loaded = await loadSubmissionsPage(db, words);
+    const derived = submissionsPageFromSnapshot(s, words);
+    await db.destroy();
+    expect(loaded.kind === "ok" && loaded.model.total).toBe(1);
+    expect(derived.kind === "ok" && derived.model.total).toBe(0);
   });
 
   it("refuses a transaction, so no write can ride the read batch", async () => {

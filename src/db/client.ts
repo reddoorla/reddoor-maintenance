@@ -130,7 +130,8 @@ export function batchingReadClient(client: Client): Client {
       );
     } catch {
       // One failing statement fails the whole batch; settle each on its own instead,
-      // each as a read batch of one, so the store still refuses a write. The
+      // each as a read batch of one, which Turso runs read-only (a local file:
+      // client does not; the guard in `execute` is what holds there). The
       // reads are then no longer one consistent snapshot of the store: a page
       // built from them may mix instants a few milliseconds apart.
       await Promise.all(
