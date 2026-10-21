@@ -466,18 +466,12 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         // in for what Dependabot cannot see (#1408).
         const viaLockfile = await lockfileAudit(spawn, site.path, label, "all");
         if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
-        // The lockfile audit could not run. Dependabot's live alerts are real, but on this path
-        // they are only part of the tree, and the row does not keep pnpm's own counts to merge
-        // them with; writing them alone lowered npm counts or ticked Security Updates "pass"
-        // (#1561, eight review rounds). So the skip stands and writes nothing, and its summary
-        // names what Dependabot sees, so the run log does not hide a live alert.
+        // The lockfile audit could not run. Dependabot's alerts are only part of the tree here,
+        // so they are written only merged with pnpm's own last result, which the row stores
+        // (#1654): `planAuditWrite` runs the same mergeAudits a full night does. With no live
+        // alert there is nothing new to write, and the skip stands.
         return hasLiveCounts(viaDependabot)
-          ? {
-              ...viaLockfile,
-              summary:
-                `${viaLockfile.summary}; not written, as without the lockfile audit it is only ` +
-                `part of the tree: ${viaDependabot.summary}`,
-            }
+          ? partialResult(viaDependabot, viaLockfile)
           : viaLockfile;
       }
     }
@@ -495,9 +489,9 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
  *  before #1612: it is the one that knows which alerts an operator dismissed.
  *  - The lockfile audit finds a live advisory: both stand, merged as on the hidden-lockfile path.
  *  - It finds none, or the repo has no lockfile to check: Dependabot's answer stands.
- *  - It cannot run: the skip stands and writes nothing, as on the hidden-lockfile path. Writing
- *    Dependabot's answer alone would clear a lockfile advisory a good night wrote, and reset the
- *    auto-fix counter, every night the registry flakes. */
+ *  - It cannot run: a partial night, as on the hidden-lockfile path (#1654). Writing Dependabot's
+ *    answer alone would clear a lockfile advisory a good night wrote, and reset the auto-fix
+ *    counter, every night the registry flakes. */
 async function crossCheckDependabot(
   spawn: NonNullable<AuditContext["spawn"]>,
   dir: string,
@@ -507,14 +501,7 @@ async function crossCheckDependabot(
   if (!(await hasRootLockfile(dir))) return viaDependabot;
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
   const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
-  if (viaLockfile.status === "skip") {
-    return {
-      ...viaLockfile,
-      summary:
-        `${viaLockfile.summary}; not written, as Dependabot's answer could not be checked ` +
-        `against the lockfile: ${viaDependabot.summary}`,
-    };
-  }
+  if (viaLockfile.status === "skip") return partialResult(viaDependabot, viaLockfile);
   if (!hasLiveCounts(viaLockfile)) return viaDependabot;
   console.error(
     `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
@@ -534,6 +521,51 @@ async function hasRootLockfile(dir: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** A night the lockfile audit was needed but could not run (#1654). Dependabot's result,
+ *  marked `partial`: `planAuditWrite` merges it with pnpm's own result from the last full night
+ *  (`mergeWithStoredLockfileAudit`), exactly as that night merged, and leaves the audit time as
+ *  stored. With no stored result to merge with, it writes nothing, unless the row was never
+ *  audited (there is nothing to lower) and Dependabot has a live alert. */
+function partialResult(viaDependabot: AuditResult, viaLockfile: AuditResult): AuditResult {
+  // The caveat qualifies the live count, so it goes before any ghost clause (#1641).
+  const [live, ...rest] = viaDependabot.summary.split("; ");
+  const caveat =
+    `partial: the lockfile audit could not run (${viaLockfile.summary}), so this merges ` +
+    `with pnpm's last stored audit, or is not written when none is stored`;
+  return {
+    ...viaDependabot,
+    summary: [live, caveat, ...rest].join("; "),
+    details: { ...(viaDependabot.details as object), partial: true },
+  };
+}
+
+/** pnpm's own result on a full merged night, before the merge lifted any severity (#1654).
+ *  Stored on the row, so a night the lockfile audit cannot run can rebuild it. */
+export type LockfileAuditView = { counts: Counts; advisories: AdvisoryEntry[] };
+
+/** A partial night's result merged with pnpm's stored result, by the same mergeAudits a full
+ *  night runs, so the two read the same on the same alerts (#1654). */
+export function mergeWithStoredLockfileAudit(
+  partial: AuditResult,
+  stored: LockfileAuditView,
+): AuditResult {
+  const merged = mergeAudits(
+    {
+      audit: "security",
+      site: partial.site,
+      status: "skip",
+      summary: "pnpm audit (stored):",
+      details: {
+        counts: { ...stored.counts },
+        advisories: stored.advisories.map((a) => ({ ...a })),
+      },
+    },
+    partial,
+  );
+  const { lockfileAudit: _stored, ...details } = merged.details as Record<string, unknown>;
+  return { ...merged, details: { ...details, partial: true } };
 }
 
 /** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
@@ -665,6 +697,11 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     advisories: AdvisoryEntry[];
     ghostAdvisories?: GhostAdvisoryEntry[];
   };
+  // pnpm's own result, as it reported it, for a later night it cannot run (#1654).
+  const lockfileAudit: LockfileAuditView = {
+    counts: { ...lock.counts },
+    advisories: lock.advisories.map(({ lockfile: _l, ...a }) => a),
+  };
   const advisories: AdvisoryEntry[] = lock.advisories.map((a) => ({ ...a, lockfile: true }));
   // pnpm's metadata, less each of its advisories that the merge moved to a higher severity, so
   // the max below does not count that advisory again at its old severity.
@@ -703,7 +740,11 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     site: lockfile.site,
     status,
     summary: ghosts.length > 0 ? `${summary}; ${ghostClause(ghosts)}` : summary,
-    details:
-      ghosts.length > 0 ? { counts, advisories, ghostAdvisories: ghosts } : { counts, advisories },
+    details: {
+      counts,
+      advisories,
+      ...(ghosts.length > 0 ? { ghostAdvisories: ghosts } : {}),
+      lockfileAudit,
+    },
   };
 }

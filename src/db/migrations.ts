@@ -652,4 +652,11 @@ export const MIGRATIONS: Migration[] = [
     id: "0045_drop_deadletter_slug_unreplayed_index",
     sql: `DROP INDEX IF EXISTS idx_deadletter_slug_unreplayed;`,
   },
+  {
+    // #1654: pnpm's own security result on the last full merged night (JSON: its
+    // per-severity counts and advisories before any merge lifted a severity), so a
+    // night `pnpm audit` cannot run merges with it exactly. NULL until such a night.
+    id: "0046_site_health_security_lockfile_audit",
+    sql: `ALTER TABLE site_health ADD COLUMN security_lockfile_audit TEXT;`,
+  },
 ];

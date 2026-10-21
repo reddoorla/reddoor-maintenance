@@ -47,6 +47,7 @@ import { toSearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import {
   parseNotifyRouting,
   parseSecurityAdvisories,
+  parseSecurityLockfileAudit,
   toFrequency,
   toPrismicModelsVerdict,
   toVerdict,
@@ -128,6 +129,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     securityAutoFixAttempts: num(r.auto_fix_attempts),
     lastSecurityAuditAt: str(r.security_audit_at),
     securityAdvisories: parseSecurityAdvisories(r.security_advisories),
+    securityLockfileAudit: parseSecurityLockfileAudit(r.security_lockfile_audit),
     certDaysRemaining: num(r.cert_days_remaining),
     domainCheckedAt: str(r.domain_checked_at),
     netlifyId: trimToNull(r.netlify_id),

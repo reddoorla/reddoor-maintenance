@@ -152,6 +152,8 @@ export interface SiteHealthTable {
   vulns_low: number | null;
   security_audit_at: string | null;
   security_advisories: string | null;
+  /** #1654 (migration 0046): pnpm's own security result on the last full merged night, JSON. */
+  security_lockfile_audit: string | null;
   auto_fix_attempts: number | null;
   analytics_soft_fail_at: string | null;
   cert_days_remaining: number | null;

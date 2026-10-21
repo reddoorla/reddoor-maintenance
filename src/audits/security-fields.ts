@@ -1,10 +1,39 @@
 import type { AuditResult } from "../types.js";
-import { normalizeSecurityAdvisory, type SecurityAdvisory } from "../fleet/site-row.js";
+import {
+  MAX_STORED_LOCKFILE_ADVISORIES,
+  normalizeSecurityAdvisory,
+  type SecurityAdvisory,
+  type SecurityLockfileAudit,
+} from "../fleet/site-row.js";
 
 type SecurityDetails = {
   counts: { low: number; moderate: number; high: number; critical: number };
   advisories?: unknown;
+  partial?: boolean;
+  lockfileAudit?: { counts: SecurityDetails["counts"]; advisories: unknown[] };
 };
+
+/** True when the result is Dependabot's alone, from a night the lockfile audit was needed but
+ *  could not run (#1654): `planAuditWrite` merges it with the stored lockfile result. */
+export function isPartialSecurityResult(result: AuditResult): boolean {
+  return (result.details as SecurityDetails | undefined)?.partial === true;
+}
+
+/** pnpm's own result on a full merged night, ready to store (#1654), or undefined on any other
+ *  night. Past `MAX_STORED_LOCKFILE_ADVISORIES` the list is cut and marked `truncated`. */
+export function lockfileAuditFromResult(result: AuditResult): SecurityLockfileAudit | undefined {
+  const view = (result.details as SecurityDetails | undefined)?.lockfileAudit;
+  if (!view) return undefined;
+  const advisories = view.advisories
+    .map(normalizeSecurityAdvisory)
+    .filter((a): a is SecurityAdvisory => a !== null);
+  const c = view.counts;
+  return {
+    counts: { critical: c.critical, high: c.high, moderate: c.moderate, low: c.low },
+    advisories: advisories.slice(0, MAX_STORED_LOCKFILE_ADVISORIES),
+    truncated: advisories.length > MAX_STORED_LOCKFILE_ADVISORIES,
+  };
+}
 
 /** True when a security AuditResult carries a counts object. Skipped runs
  *  (no pnpm + no npm) have no details and return false. */

@@ -16,9 +16,12 @@ import { hasA11yCounts, a11yCountsFromResult } from "./a11y-fields.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-fields.js";
 import {
   hasSecurityCounts,
+  isPartialSecurityResult,
+  lockfileAuditFromResult,
   securityCountsFromResult,
   advisoriesFromResult,
 } from "./security-fields.js";
+import { mergeWithStoredLockfileAudit } from "./security.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-fields.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-fields.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-fields.js";
@@ -154,12 +157,17 @@ export function planAuditWrite(args: {
   }
 
   const sec = results.find((r) => r.audit === "security");
-  if (sec && hasSecurityCounts(sec)) {
-    const counts = securityCountsFromResult(sec);
+  // A partial night (#1654) becomes the full night it stands for, or nothing.
+  const secToWrite = sec && hasSecurityCounts(sec) ? securityResultToWrite(sec, target) : null;
+  if (secToWrite) {
+    const counts = securityCountsFromResult(secToWrite);
     audits.security = counts;
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
-    audits.securityAdvisories = advisoriesFromResult(sec);
+    audits.securityAdvisories = advisoriesFromResult(secToWrite);
+    if (isPartialSecurityResult(secToWrite)) audits.securityPartial = true;
+    const lockfileAudit = lockfileAuditFromResult(secToWrite);
+    if (lockfileAudit) audits.securityLockfileAudit = lockfileAudit;
     writes.push({ audit: "security", counts });
   }
 
@@ -256,6 +264,39 @@ export function planAuditWrite(args: {
     lighthouseMiss,
     unmeasured,
   };
+}
+
+/** The security result to write for a site, or null to write none (#1654). A full night is
+ *  written as it is. A partial night (the lockfile audit was needed but could not run) is merged
+ *  with pnpm's own result from the last full night, by the same mergeAudits that night ran, so
+ *  it reads as a full night would on tonight's alerts. With no stored result to merge with it
+ *  writes nothing, as before #1654, except on a never-audited row, where there is nothing to
+ *  lower and tonight's live alerts are the only known ones. */
+function securityResultToWrite(sec: AuditResult, target: WebsiteRow): AuditResult | null {
+  if (!isPartialSecurityResult(sec)) return sec;
+  const stored = target.securityLockfileAudit;
+  if (stored && !stored.truncated) {
+    return mergeWithStoredLockfileAudit(sec, {
+      counts: stored.counts,
+      advisories: stored.advisories.map((a) => ({
+        module: a.module,
+        severity: a.severity,
+        title: a.title,
+        ...(a.cves.length > 0 ? { cves: a.cves } : {}),
+        ...(a.url ? { url: a.url } : {}),
+        ...(a.ghsa ? { ghsa: a.ghsa } : {}),
+        ...(a.scope ? { scope: a.scope } : {}),
+        ...(a.relationship ? { relationship: a.relationship } : {}),
+      })),
+    });
+  }
+  const neverAudited =
+    target.securityVulnsCritical === null &&
+    target.securityVulnsHigh === null &&
+    target.securityVulnsModerate === null &&
+    target.securityVulnsLow === null;
+  const live = Object.values(securityCountsFromResult(sec)).some((n) => n > 0);
+  return neverAudited && live ? sec : null;
 }
 
 export async function writeBackOneSite(args: {
