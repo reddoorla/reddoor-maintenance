@@ -192,6 +192,38 @@ describe("fleet-form-e2e — the gate cannot go green having probed nothing", ()
     expect(r.out).toContain("::warning::");
   });
 
+  // #1610: /health drops forms.testMode on every site (a starter regression). Every
+  // site self-skips and is still written, so nothing else reds; this run probed
+  // nothing end to end and must.
+  it("FAILS when every site self-skipped and none was probed", async () => {
+    const all = [...SIX_COVERED, ...FIVE_UNCOVERED];
+    const r = await runGate({ stdout: `${selfSkips(all)}\n${writeSummary(11, 0)}\n`, exit: 0 });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E probed=0");
+    expect(r.out).toContain(
+      "::error::fleet form-e2e probed no site end to end: 11 of 11 self-skipped",
+    );
+  });
+
+  it("one probed site among self-skips is the rollout warning, not red", async () => {
+    const r = await runGate({
+      stdout: `${probed(["espada"])}\n${selfSkips(FIVE_UNCOVERED)}\n${writeSummary(6, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E probed=1");
+  });
+
+  it("a probe that ran and failed (warn) counts as probed", async () => {
+    const warn = resultBlock("warn", "espada", "form-e2e: synthetic submission failed — POST 500");
+    const r = await runGate({
+      stdout: `${warn}\n${selfSkips(FIVE_UNCOVERED)}\n${writeSummary(6, 0)}\n`,
+      exit: 1,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E probed=1");
+  });
+
   // Emitted on EVERY run, zero included — for the same reason
   // FLEET_SMOKE_UNMEASURED is. A marker that only prints when non-zero cannot
   // tell "nobody self-skipped" from "the counter stopped matching".

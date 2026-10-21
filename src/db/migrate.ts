@@ -16,7 +16,8 @@ function isAlreadyAppliedError(err: unknown): boolean {
  *  tracking applied ids in `_migrations`. Idempotent: ids already present are
  *  skipped, the DDL uses IF NOT EXISTS where it can, and an already-applied
  *  `ADD COLUMN` (recognized by its error) is swallowed so the marker is still
- *  recorded. Returns the ids applied this run. Runs on every openDb() — cheap
+ *  recorded, and a marker another client recorded first is not an error.
+ *  Returns the ids this client recorded. Runs on every openDb() — cheap
  *  (one indexed SELECT) and the gate every fresh Turso database needs before its
  *  first write. */
 export async function runMigrations(client: Client): Promise<string[]> {
@@ -36,11 +37,18 @@ export async function runMigrations(client: Client): Promise<string[]> {
       // never boot-loop. Any other error propagates unchanged.
       if (!isAlreadyAppliedError(err)) throw err;
     }
-    await client.execute({
-      sql: "INSERT INTO _migrations (id, applied_at) VALUES (?, ?)",
+    // Several clients can run a pending migration at once (nightlies starting
+    // together, a function cold-starting beside them; #1667). The DDL above is
+    // idempotent, so between clients in one process the marker is the only race
+    // (across processes on one local file, SQLITE_BUSY can come first: #1674).
+    // The loser's insert hits the primary key, which means "another client
+    // recorded it". `ON CONFLICT(id)` ignores that one conflict only; any other
+    // insert failure still throws.
+    const marked = await client.execute({
+      sql: "INSERT INTO _migrations (id, applied_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
       args: [m.id, new Date().toISOString()],
     });
-    ran.push(m.id);
+    if (marked.rowsAffected > 0) ran.push(m.id);
   }
   return ran;
 }
