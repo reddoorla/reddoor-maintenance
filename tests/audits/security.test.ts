@@ -795,13 +795,14 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
   });
 
-  it("skips, writing no counts, when the lockfile audit cannot run", async () => {
+  it("is a partial night, with no live alert too, when the lockfile audit cannot run (#1654)", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: fakeDependabot([]),
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe("Dependabot: 0 alerts; " + PARTIAL_CAVEAT);
   });
 
   // #1654: the write merges it with pnpm's stored result (tests/audits/security-partial-night.test.ts).
@@ -846,7 +847,7 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     );
   });
 
-  it("adds no note for ghost alerts alone: nothing live to name", async () => {
+  it("with ghost alerts alone, the caveat still precedes the ghost advice (#1654)", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: {
@@ -855,8 +856,12 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       },
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
-    expect(result.summary).toBe("cannot run audit — pnpm: not installed; npm: not installed");
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe(
+      "Dependabot: 0 live alert(s); " +
+        PARTIAL_CAVEAT +
+        "; 1 alert(s) on a manifest GitHub no longer tracks (.github/workflows/ci.yml) — dismiss as inaccurate",
+    );
   });
 
   it("tags Dependabot's own advisories as not the lockfile audit's, on its stand-alone path too", async () => {

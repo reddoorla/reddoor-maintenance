@@ -26,6 +26,7 @@ Landed in: this PR (`claude/1654-pnpm-own-view`). Follows #1612 (#1661) in the s
 - The new checkout then applied 0046 and wrote the same counts and advisories. It also stored pnpm's view (`2H/1M` metadata, sharp and devalue at high) and stamped the audit time.
 - A partial night after it wrote the same counts, kept the audit time, and left the stored view alone.
 - On the fleet: every one of the 15 hidden-lockfile sites runs `pnpm audit` in CI, so the first nightly stores a view for each, and their counts do not change.
+- Sites on #1612's cross-check path (erp-industrials last night) store pnpm's answer on every night it runs, a clean answer included; a site where Dependabot reads the root lockfile (29-navy, if its alerts sit there) stores none, since pnpm does not run there.
 - Until a site has had that first full night, its cell is NULL and a partial night writes nothing, exactly as before. The harm #1654 names ends site by site, on each one's first full night.
 
 **Mutations: eight, all red.**

@@ -110,6 +110,8 @@ function view(r: WebsiteRow) {
     advisories: (r.securityAdvisories ?? [])
       .map((a) => `${a.module}:${a.severity}:${a.relationship ?? "-"}:${a.scope ?? "-"}`)
       .sort(),
+    // Everything a consumer reads, in stored order: title, url, ghsa, cves, tags (review round 1).
+    stored: JSON.stringify(r.securityAdvisories),
   };
 }
 
@@ -460,6 +462,37 @@ describe("the write gate still sees a partial night (#1654 review round 1)", () 
     const plan = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
     expect(plan.summary.writes.map((w) => w.audit)).toEqual(["security"]);
     expect(plan.unmeasured.map((u) => u.audit)).toEqual(["security"]);
+  });
+});
+
+// Review round 1, lens 3.
+describe("more partial nights (#1654 review round 1)", () => {
+  it("hidden lockfile: every Dependabot alert closed since the full night drops out", async () => {
+    const low = alert({ package: "z", severity: "low", ghsaId: "GHSA-zzzz-zzzz-0003" });
+    const [v] = await expectPartialNightsReadAsFull([full([low]), partial([])], {
+      advisories: [sharpHigh],
+    });
+    expect(v!.counts).toEqual([0, 1, 0, 0]);
+  });
+
+  it("a never-audited row with no live alert writes nothing: an unaudited lockfile never reads clean", async () => {
+    const [row] = await run([partial([])], { advisories: [] }, { lockfile: ONE_DOCUMENT });
+    expect(view(row!).counts).toEqual([null, null, null, null]);
+  });
+
+  it("more pnpm advisories than the cell keeps: stored truncated, and a partial night writes nothing", async () => {
+    const many = Array.from({ length: 201 }, (_, i) => ({
+      module_name: `pkg${i}`,
+      severity: "low",
+      title: `t${i}`,
+      url: `https://github.com/advisories/GHSA-mmmm-mmmm-${String(i).padStart(4, "0")}`,
+    }));
+    const rows = await run([full([]), partial([alert({ severity: "high" })])], {
+      advisories: many,
+    });
+    expect(rows[0]!.securityLockfileAudit!.truncated).toBe(true);
+    expect(rows[0]!.securityLockfileAudit!.advisories).toHaveLength(200);
+    expect(view(rows[1]!)).toEqual(view(rows[0]!));
   });
 });
 

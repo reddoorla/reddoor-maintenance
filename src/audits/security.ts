@@ -468,11 +468,9 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
         // The lockfile audit could not run. Dependabot's alerts are only part of the tree here,
         // so they are written only merged with pnpm's own last result, which the row stores
-        // (#1654): `planAuditWrite` runs the same mergeAudits a full night does. With no live
-        // alert there is nothing new to write, and the skip stands.
-        return hasLiveCounts(viaDependabot)
-          ? partialResult(viaDependabot, viaLockfile)
-          : viaLockfile;
+        // (#1654): `planAuditWrite` runs the same mergeAudits a full night does. That holds with
+        // no live alert too: a Dependabot alert closed since the last full night must drop out.
+        return partialResult(viaDependabot, viaLockfile);
       }
     }
   }
