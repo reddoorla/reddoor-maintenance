@@ -316,7 +316,13 @@ export function parseBrief(md: string): { lines: VerifyLine[]; warnings: string[
   }
 
   const section = sectionLines.filter((l) => l !== null).join("\n");
-  const prose = outside.join("\n").replace(/<!--[\s\S]*?-->/g, "");
+  // Strip comments until the text stops changing: one pass leaves the comment
+  // that `<!<!---->-- … -->` was hiding.
+  let prose = outside.join("\n");
+  for (let prev = ""; prev !== prose;) {
+    prev = prose;
+    prose = prose.replace(/<!--[\s\S]*?-->/g, "");
+  }
 
   const uncovered = new Map<string, Set<string>>();
   for (const { kind, token } of identifiersIn(prose)) {
@@ -481,7 +487,7 @@ type FileTool = {
   shorts: string;
   longs: string[];
   valued?: Record<string, RegExp>;
-  /** Long options that take a value, as `--opt=value` or `--opt value`. */
+  /** Long options that take a value, only as `--opt=value`. */
   valuedLongs?: Record<string, RegExp>;
   digits?: boolean;
   pattern?: boolean;
@@ -633,13 +639,14 @@ function parseFileArgs(
       break;
     }
     if (a.startsWith("--")) {
+      // A value only ever comes attached, `--opt=value`. git reads a bare
+      // `--pretty` as a flag, so a value taken from the next word would reach
+      // git as an option of its own (#1635 round 6: `--pretty --output=x`).
       const eq = a.indexOf("=");
-      const name = eq === -1 ? a : a.slice(0, eq);
-      const valueRe = tool.valuedLongs?.[name];
+      const valueRe = eq === -1 ? undefined : tool.valuedLongs?.[a.slice(0, eq)];
       if (valueRe) {
-        const value = eq === -1 ? args[++i] : a.slice(eq + 1);
-        if (value === undefined || !valueRe.test(value)) {
-          return { ok: false, reason: `${bin}: ${name} takes a different value` };
+        if (!valueRe.test(a.slice(eq + 1))) {
+          return { ok: false, reason: `${bin}: ${a.slice(0, eq)} takes a different value` };
         }
         continue;
       }
@@ -737,6 +744,10 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     if (!parsed.ok) return parsed;
     if (rest.some((a) => GIT_STASH_REF.test(a))) {
       return refuse("git: the stash and the reflog hold uncommitted content");
+    }
+    // %G? and its kin make git run the signature program on a signed commit.
+    if (rest.some((a) => a.includes("%G"))) {
+      return refuse("git: %G placeholders run the signature program");
     }
     // Operands are revisions or paths; any that is a path must stay inside --cwd.
     for (const a of parsed.operands) {
@@ -948,7 +959,8 @@ async function runLine(line: VerifyLine, cwd: string, deps: CheckBriefDeps): Pro
 }
 
 function cell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\s+/g, " ");
+  // Backslashes first, so a claim's own `\|` cannot unescape the pipe.
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
 
 /** Check a brief. The brief path resolves against the process's cwd; the

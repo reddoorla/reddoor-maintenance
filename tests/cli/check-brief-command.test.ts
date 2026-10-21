@@ -1203,3 +1203,66 @@ describe("check-brief: git answers metadata questions only", () => {
     ]);
   });
 });
+
+// ── Review round 6 (2026-10-21, the extra round the operator allowed) ──
+
+describe("check-brief round 6: no option consumes the next word", () => {
+  it.each([
+    // A bare --pretty is a flag to git; the next word became an option.
+    "git log -1 --pretty --output=/tmp/x",
+    "git log --pretty --all --pretty -p",
+    "git log -1 --format %H",
+    "git describe --abbrev 7",
+    "git status --untracked-files no",
+    // %G runs the signature program.
+    "git log -1 --format=%G?",
+    "git log -1 --pretty=format:%GS",
+    // A stash ref as an option's value.
+    "git for-each-ref --contains=stash",
+    "git for-each-ref --points-at=refs/stash",
+    // A path with a colon is still a path (surviving mutation M3).
+    "git ls-files ../x:y",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
+  });
+
+  it.each([
+    "git rev-parse --short HEAD",
+    "git rev-parse --short=8 HEAD",
+    "git for-each-ref --count=1 refs/heads",
+    "git describe --abbrev=7 --always",
+    "git status --untracked-files=no",
+    "git log --format=%H -1",
+  ])("allows %s (surviving mutation M4 for the =N forms)", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(true);
+  });
+
+  it("the --pretty smuggle writes nothing, end to end", async () => {
+    const out = join(scratch, "r6-pwned.txt");
+    rmSync(out, { force: true });
+    const briefDir = join(scratch, "r6-brief");
+    mkdirSync(briefDir, { recursive: true });
+    const r = await runCheckBrief(
+      writeBrief(briefDir, [`- It logs — \`git log -1 --pretty --output=${out}\` → exit 0`]),
+      { cwd: process.cwd() },
+      { env: { PATH: process.env.PATH, HOME: process.env.HOME } },
+    );
+    expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
+    expect(existsSync(out)).toBe(false);
+  });
+});
+
+describe("check-brief round 6: CodeQL", () => {
+  it("a claim holding \\| keeps the report table intact", async () => {
+    const path = writeBrief(scratch, ["- a\\|b — `env-set A_KEY` → exit 1"]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: {} });
+    expect(r.output).toContain("| 1 | PASS | a\\\\\\|b |");
+  });
+
+  it("comments nested to survive one pass are still stripped", () => {
+    const p = parseBrief(
+      "**Item.** <!<!---->-- HIDDEN_TOKEN -->\n\n**Verify first.**\n\n- a — `ls` → exit 0\n",
+    );
+    expect(p.warnings.join("\n")).not.toContain("HIDDEN_TOKEN");
+  });
+});
