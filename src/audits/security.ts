@@ -622,7 +622,6 @@ function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]
     ...(a.cves.length > 0 ? { cves: a.cves } : {}),
     ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
   }));
-  // Only by id: titles differ between the two sources, and a title match is no proof.
   // Only by an id both sides carry: a GHSA on both, or a CVE on both. Otherwise sameAdvisory
   // falls back to the title, and titles are no proof (#1659 review round 3).
   const isDismissed = (a: AdvisoryEntry) =>
