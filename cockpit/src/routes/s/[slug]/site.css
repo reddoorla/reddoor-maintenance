@@ -556,3 +556,10 @@ button.trigger-renovate:disabled {
     color: #ff8a80;
   }
 }
+/* Who approved a report (#672 step 4), beside its actions. */
+.approved-by {
+  display: block;
+  font-size: 0.8rem;
+  /* An email has no break opportunity; let it wrap rather than widen the table. */
+  overflow-wrap: anywhere;
+}

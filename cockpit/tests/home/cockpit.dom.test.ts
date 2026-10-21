@@ -3,14 +3,16 @@ import { mount, unmount, flushSync } from "svelte";
 import Page from "../../src/routes/+page.svelte";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { RF_KEY, RF_CONFIRM } from "../../src/lib/cockpit/fleet-refresh.js";
-import { cases, handModel, card, siteRow, item, NOW } from "./fixtures.js";
+import { cases, NOW } from "./fixtures.js";
 
 /**
  * `/`, ported (#582): the page's behaviour, run in a DOM. Each test mounts the
  * real page with data that crossed the server/browser boundary, clicks, and
  * asserts the `fetch` calls and what the page then shows: the ↻ Audit fleet
- * follower (dispatch, poll, finish, fail, 401, resume, ceiling), the browse
- * panel's filter chips, and Trigger Renovate.
+ * follower (dispatch, poll, finish, fail, 401, resume, ceiling). The browse
+ * panel's filter chips moved to Sites with its cards (cockpit/tests/fleet/
+ * sites.dom.test.ts), and Trigger Renovate lives on /s/:slug (site.dom), since
+ * #672 step 3.
  */
 
 type FetchReply = { status?: number; ok?: boolean; json?: unknown } | Error;
@@ -321,90 +323,5 @@ describe("↻ Audit fleet", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem(RF_KEY)).toBeNull();
     expect(button().disabled).toBe(false);
-  });
-});
-
-describe("browse panel filters", () => {
-  const cardsShown = () =>
-    [...target.querySelectorAll<HTMLElement>(".fleet-browse .cards .card")]
-      .filter((c) => c.style.display !== "none")
-      .map((c) => c.querySelector("a.site")!.textContent);
-  const chip = (f: string) =>
-    target.querySelector<HTMLButtonElement>(`.fleet-browse .filters button[data-filter="${f}"]`)!;
-
-  it("shows only the cards carrying the chosen signal, and all again on 'all'", () => {
-    render();
-    expect(cardsShown()).toHaveLength(4);
-    chip("vulns").click();
-    flushSync();
-    expect(cardsShown()).toEqual([expect.stringContaining("<script>")]);
-    expect(chip("vulns").getAttribute("aria-pressed")).toBe("true");
-    expect(chip("all").getAttribute("aria-pressed")).toBe("false");
-    chip("lighthouse").click();
-    flushSync();
-    expect(cardsShown()).toEqual(["Beta"]);
-    chip("auto-fix-failed").click();
-    flushSync();
-    expect(cardsShown()).toHaveLength(1);
-    chip("url-unresolved").click();
-    flushSync();
-    expect(cardsShown()).toEqual([]);
-    chip("all").click();
-    flushSync();
-    expect(cardsShown()).toHaveLength(4);
-    expect(
-      [...target.querySelectorAll(".fleet-browse .filters button")].filter(
-        (b) => b.getAttribute("aria-pressed") === "true",
-      ),
-    ).toHaveLength(1);
-  });
-});
-
-describe("Trigger Renovate", () => {
-  const model = () =>
-    handModel({
-      cards: [
-        card({
-          site: siteRow({ name: "Acme Co", gitRepo: "reddoorla/acme" }),
-          tier: "attention",
-          items: [item()],
-        }),
-      ],
-    });
-  const trigger = () => target.querySelector<HTMLButtonElement>("button.trigger-renovate")!;
-
-  it("dispatches to the site's endpoint and says so", async () => {
-    replies.push({ status: 202 });
-    render(model());
-    trigger().click();
-    flushSync();
-    expect(trigger().textContent).toBe("Dispatching…");
-    expect(trigger().disabled).toBe(true);
-    await settle();
-    expect(fetchMock.mock.calls).toEqual([
-      ["/api/sites/acme-co/trigger-renovate", { method: "POST" }],
-    ]);
-    expect(trigger().textContent).toBe("Dispatched ✓");
-    expect(trigger().disabled).toBe(true);
-  });
-
-  it("says Failed and lets the operator retry on a refusal or a throw", async () => {
-    replies.push({ status: 500, ok: false });
-    render(model());
-    trigger().click();
-    await settle();
-    expect(trigger().textContent).toBe("Failed");
-    expect(trigger().disabled).toBe(false);
-    replies.push(new Error("offline"));
-    trigger().click();
-    await settle();
-    expect(trigger().textContent).toBe("Failed");
-    expect(trigger().disabled).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("is offered only on repo-backed sites", () => {
-    render(handModel({ cards: [card({ site: siteRow({ gitRepo: null }) })] }));
-    expect(target.querySelector("button.trigger-renovate")).toBeNull();
   });
 });
