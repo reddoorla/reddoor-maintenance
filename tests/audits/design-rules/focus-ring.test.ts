@@ -116,6 +116,17 @@ const PAGES: Record<string, string> = {
     `${RING_AFTER_23} .bad:focus-visible { outline: none; } .sp { height: 2500px; }`,
     `<main><section><a href="#a">Top</a></section><div class="sp"></div><section><a href="#b" class="bad" id="far">Far</a></section><div class="sp"></div></main><script>document.getElementById("far").addEventListener("focus", (e) => scrollTo({ top: e.target.offsetTop - 80, behavior: "smooth" }));</script>`,
   ),
+  // round 5: a ringless link a script scrolls to over 2.5 s, longer than
+  // scrollRest waits, alone on its page; and a ringless link a script moves
+  // every frame (a ticker) beside a still one with no ring either;
+  "/slow-scroll": page(
+    `.bad:focus-visible { outline: none; } .sp { height: 2500px; }`,
+    `<main><div class="sp"></div><section><a href="#b" class="bad" id="far">Far</a></section><div class="sp"></div></main><script>addEventListener("focusin", (e) => { const to = e.target.getBoundingClientRect().top + scrollY - 200; const from = scrollY; const t0 = performance.now(); requestAnimationFrame(function step(now) { const k = Math.min(1, (now - t0) / 2500); scrollTo(0, from + (to - from) * k); if (k < 1) requestAnimationFrame(step); }); });</script>`,
+  ),
+  "/ticker": page(
+    `a:focus-visible { outline: none; } #m { position: absolute; top: 100px; left: 0; }`,
+    `<main><section><a href="#a" id="still">Still</a></section><div id="m"><a href="#b">Moving</a></div></main><script>let x = 0; requestAnimationFrame(function step() { x = (x + 2) % 600; document.getElementById("m").style.left = x + "px"; requestAnimationFrame(step); });</script>`,
+  ),
   // nothing to tab to.
   "/no-stops": page("", `<main><p>Text only</p></main>`),
   "/only-frame": page(
@@ -247,6 +258,18 @@ describe("design-rules R12 (focus ring), in a real browser", () => {
         `${path}: ${o.note}`,
       ).toEqual(["a#far: has no visible focus indicator"]);
     }
+  });
+
+  it("never judges a stop that is still moving: a long scripted scroll, a ticker", async () => {
+    const slow = await checkFocusRing(browser, `${base}/slow-scroll`);
+    expect(slow.status, slow.note).toBe("unmeasured");
+    expect(slow.note).toMatch(/stop\(s\) still moving not measured$/);
+    const ticker = await checkFocusRing(browser, `${base}/ticker`);
+    expect(
+      ticker.findings.map((f) => `${f.target}: ${f.problem.replace(/ \(at .*\)$/, "")}`),
+      ticker.note,
+    ).toEqual(["a#still: has no visible focus indicator"]);
+    expect(ticker.note).toMatch(/stop\(s\) still moving not measured$/);
   });
 
   it("reports a stop under a fixed banner once, as covered", async () => {

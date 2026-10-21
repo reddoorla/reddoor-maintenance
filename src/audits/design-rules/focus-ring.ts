@@ -39,17 +39,18 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // reported once, as covered.
 // A page where no stop could be measured is unmeasured, never a pass.
 //
-// Not covered: a stop wholly outside the viewport after focus scrolled it, and
-// focus inside a frame (each counted in the note); `outline: none` in
-// forced-colours mode; focus moved by script (a trapped dialog is tabbed as
-// the page tabs it); a ring drawn further than RING_PAD_PX from the box; a
-// focus that opens something inside the captured box (a menu), whose
-// change counts as the indicator, as does a change to the element's own
-// fill; two stops with the same path, whose findings are merged; and the set
-// of stops on a page whose carousel autoplays or whose frames load late,
-// which can differ between runs (the verdict on beachfront held across runs;
-// one of its findings did not; on reddoorla.com a seventh finding came and
-// went, in 2 runs of 10).
+// Not covered: a stop wholly outside the viewport after focus scrolled it,
+// focus inside a frame, and a stop still moving after scrollRest (two focused
+// captures differ: a long scripted scroll, a ticker), each counted in the note;
+// `outline: none` in forced-colours mode; focus moved by script (a trapped
+// dialog is tabbed as the page tabs it); a ring drawn further than RING_PAD_PX
+// from the box; a focus that opens something inside the captured box (a menu),
+// whose change counts as the indicator, as does a change to the element's own
+// fill; two stops with the same path, whose findings are merged; and the set of
+// stops on a page whose carousel autoplays or whose frames load late, which can
+// differ between runs (the verdict on beachfront held across runs; one of its
+// findings did not; on reddoorla.com a seventh finding came and went, in 2 runs
+// of 10).
 
 /** CSS px of ground captured round the element: outline offset plus width,
  *  with room to spare. */
@@ -202,8 +203,9 @@ export type FocusStop = {
   ring: { changed: number; contrast: number; passes: boolean } | null;
   covered: string | null;
   /** Why the ring was not measured: the element is wholly outside the
-   *  viewport, or focus is inside a frame. */
-  skipped?: "viewport" | "frame";
+   *  viewport, focus is inside a frame, or the stop was still moving (two
+   *  focused captures differ). */
+  skipped?: "viewport" | "frame" | "moving";
 };
 
 /** Resolves once the page and the focused element have held still for three
@@ -271,11 +273,20 @@ async function tabThrough(page: Page): Promise<FocusStop[]> {
       height: Math.min(viewport.height, Math.ceil(y + height + RING_PAD_PX)) - top,
     };
     const on = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
+    const a = await sharp(on).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    // Still moving (a scroll a script drives for longer than scrollRest
+    // waits, a ticker): two focused captures differ, and a blurred one
+    // would differ everywhere, which reads as a strong ring. Not judged.
+    const again = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
+    const a2 = await sharp(again).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (measureRing(a.data, a2.data, a.info.width, a.info.height, 0).changed > 0) {
+      stops.push({ target: focus.target, ring: null, covered: focus.covered, skipped: "moving" });
+      continue;
+    }
     // Unfocused: drop focus and capture. The next Tab moves on from the
     // blurred element, which stays the sequential focus starting point.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const off = await page.screenshot({ clip, animations: "disabled", caret: "hide" });
-    const a = await sharp(on).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const b = await sharp(off).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const perimeter = 2 * (Math.round(seen.right - seen.left) + Math.round(seen.bottom - seen.top));
     stops.push({
@@ -308,6 +319,7 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
   };
   let offScreen = 0;
   let inFrames = 0;
+  let moving = 0;
   let measured = 0;
   for (const { width, stops: list } of runs) {
     for (const s of list) {
@@ -318,6 +330,7 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
       }
       if (s.ring === null) {
         if (s.skipped === "frame") inFrames += 1;
+        else if (s.skipped === "moving") moving += 1;
         else offScreen += 1;
         continue;
       }
@@ -341,7 +354,8 @@ export function summarizeFocusRing(url: string, runs: FocusRun[]): RuleOutcome {
   const note =
     `${runs.map((r) => `${r.stops.length} stops at ${r.width}px`).join(", ")}; ${findings.length} finding(s)` +
     (offScreen > 0 ? `; ${offScreen} stop(s) outside the viewport not measured` : "") +
-    (inFrames > 0 ? `; ${inFrames} stop(s) inside frames not measured` : "");
+    (inFrames > 0 ? `; ${inFrames} stop(s) inside frames not measured` : "") +
+    (moving > 0 ? `; ${moving} stop(s) still moving not measured` : "");
   // Nothing measured and nothing found is not a pass: no ring was seen.
   if (measured === 0 && findings.length === 0) {
     return { ...base, status: "unmeasured", findings, note: `no stop could be measured: ${note}` };
