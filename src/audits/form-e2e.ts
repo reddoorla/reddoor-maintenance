@@ -630,6 +630,10 @@ export const SYNTHESIZE_REQUIRED_EXPR = `
  *  never reached), so the probe waits past this before submitting. */
 const FILL_SETTLE_MS = 1200;
 const PAGE_TIMEOUT_MS = 30_000;
+/** How long, once the status region shows, to wait for the action POST's response
+ *  before trusting the banner (#1610). The banner normally follows the response, so
+ *  this is slack for a page that shows its region before the reply arrives. */
+const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
 
 /** The slice of a Playwright page the route probe needs. Declared structurally so
@@ -726,6 +730,29 @@ export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
   }
 }
 
+/** True when a POST body carries the probe's `testMode` marker, so the response read is
+ *  the form's own action and not a same-site beacon or a pre-submit call that happened
+ *  to answer first (#1610 review). Multipart, URL-encoded and JSON bodies all spell the
+ *  field name. A body Playwright cannot read stays a candidate rather than be missed. */
+export function carriesProbeMarker(postData: string | null): boolean {
+  return postData === null || postData.includes("testMode");
+}
+
+/** The failure a SvelteKit form action reports inside an HTTP 200: an enhanced
+ *  submission answers `fail(502)` as `{"type":"failure","status":502,…}`, so the
+ *  status line alone reads as success. Kit sends `"type":"error"` with a 4xx/5xx,
+ *  which the status line already catches; a non-kit 2xx body saying so is read the
+ *  same way. Returns the status the body names, or null for any other body. */
+export function actionFailureStatus(body: string): number | null {
+  try {
+    const parsed = JSON.parse(body) as { type?: unknown; status?: unknown };
+    if (parsed.type !== "failure" && parsed.type !== "error") return null;
+    return typeof parsed.status === "number" ? parsed.status : 500;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether a POST landed on the SITE's own host (the form action, or the apex/www
  * twin it redirects to) rather than a third party. PURE. The runner's failure
@@ -767,6 +794,9 @@ export type NoBannerEvidence = {
   hydrationMismatch: boolean;
   refilled: boolean;
   hydrationUnconfirmed?: boolean;
+  /** The `role="status"` region became visible, but the action POST failed
+   *  (#1610): a site that renders its error in the same region as its thanks. */
+  bannerShown?: boolean;
 };
 
 /** Compose the failure detail line. PURE — the line must say WHY nothing
@@ -775,7 +805,7 @@ export type NoBannerEvidence = {
 export function noBannerDetail(e: NoBannerEvidence): string {
   const bits: string[] = [
     e.post
-      ? `POST ${e.post.status}${e.post.status >= 400 && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
+      ? `POST ${e.post.status}${(e.post.status >= 400 || e.bannerShown) && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
       : "no same-site POST: the submission never left the page",
   ];
   if (e.alertText?.trim()) bits.push(`alert: ${e.alertText.trim().slice(0, 80)}`);
@@ -791,7 +821,10 @@ export function noBannerDetail(e: NoBannerEvidence): string {
       "fields were wiped and re-filled once" +
         (e.hydrationUnconfirmed ? HYDRATION_UNCONFIRMED_NOTE : ""),
     );
-  return `no success banner after submit — ${bits.join("; ")}`;
+  const head = e.bannerShown
+    ? "the status region showed, but the submission failed"
+    : "no success banner after submit";
+  return `${head} — ${bits.join("; ")}`;
 }
 
 /**
@@ -807,6 +840,8 @@ export async function defaultFormRunner(
     /** Test-only: the pause after the fills (default FILL_SETTLE_MS). A local
      *  fixture has no bot-timing screen to beat. */
     settleMs?: number;
+    /** Once the status region shows, how long to wait for the action POST (#1610). */
+    postSettleMs?: number;
     /** Test-only: the cap on the action POST, the submit click and the success
      *  banner (default PAGE_TIMEOUT_MS), so a fixture that must fail does not
      *  wait out 30 s to do it. */
@@ -816,6 +851,7 @@ export async function defaultFormRunner(
   const { chromium } = await import("@playwright/test");
   const hydrationTimeoutMs = opts.hydrationTimeoutMs ?? HYDRATION_TIMEOUT_MS;
   const settleMs = opts.settleMs ?? FILL_SETTLE_MS;
+  const postSettleMs = opts.postSettleMs ?? POST_SETTLE_MS;
   const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
   return {
     async submit({ baseUrl, testSitekey }) {
@@ -1077,7 +1113,10 @@ export async function defaultFormRunner(
         let postElapsedMs: number | undefined;
         const postResponse = page
           .waitForResponse(
-            (r) => r.request().method() === "POST" && isSameSitePost(r.url(), baseUrl),
+            (r) =>
+              r.request().method() === "POST" &&
+              isSameSitePost(r.url(), baseUrl) &&
+              carriesProbeMarker(r.request().postData()),
             {
               timeout: submitTimeoutMs,
             },
@@ -1104,7 +1143,28 @@ export async function defaultFormRunner(
           .then(() => true)
           .catch(() => false);
         const elapsedMs = Date.now() - startedAt;
-        if (ok)
+        // The banner alone is not the verdict (#1610): a site can render its error
+        // text into the same `role="status"` region as its thanks, and a POST that
+        // came back 500 then read as a pass. Once the region shows, give the
+        // action POST a moment to answer, and a 4xx/5xx is a failure.
+        let settleTimer: ReturnType<typeof setTimeout> | undefined;
+        const settledPost = ok
+          ? await Promise.race([
+              postResponse,
+              new Promise<null>((r) => {
+                settleTimer = setTimeout(() => r(null), postSettleMs);
+              }),
+            ])
+          : null;
+        clearTimeout(settleTimer);
+        // A SvelteKit action's failure arrives as a 200 whose JSON says so.
+        const bodyFailure =
+          settledPost !== null && settledPost.status() < 400
+            ? actionFailureStatus(await settledPost.text().catch(() => ""))
+            : null;
+        const bannerLied =
+          settledPost !== null && (settledPost.status() >= 400 || bodyFailure !== null);
+        if (ok && !bannerLied)
           return {
             formPresent: true,
             success: true,
@@ -1145,7 +1205,7 @@ export async function defaultFormRunner(
         const post = actionResp
           ? {
               status: actionResp.status(),
-              ...(actionResp.status() >= 400
+              ...(actionResp.status() >= 400 || bodyFailure !== null
                 ? { bodyBit: (await actionResp.text().catch(() => "")).slice(0, 80) }
                 : {}),
             }
@@ -1164,6 +1224,7 @@ export async function defaultFormRunner(
             hydrationMismatch,
             refilled,
             hydrationUnconfirmed,
+            ...(bannerLied ? { bannerShown: true } : {}),
           }),
           turnstile: turnstileSeen(),
           formsHealth,
