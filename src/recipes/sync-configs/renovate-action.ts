@@ -163,9 +163,15 @@ function ifValue(lines: string[], at: number): string | null {
 }
 
 /**
- * The `if:` conditions that can stop Renovate running (#1607): the one on the job
- * that holds the `renovatebot/github-action` step, and the one on each step of
- * that job that uses a {@link KNOWN_PINNED_ACTIONS} action.
+ * The constant-false `if:` conditions that leave Renovate unable to run (#1607),
+ * or `[]` when it can run.
+ *
+ * Renovate runs if SOME `renovatebot/github-action` step can: its job's own
+ * `if:` and its step's own `if:` are not constant-false, and for each other
+ * {@link KNOWN_PINNED_ACTIONS} action, some step of that job using it is not
+ * either. So a site's own disabled extra job, or a disabled second copy of a
+ * required step beside the working one, is not a gap. (A required action with
+ * no step at all is `pinGap`'s to report.)
  *
  * A false gap is the expensive mistake here: any gap makes `sync-configs` heal the
  * file by overwriting it and `self-updating` open a PR, so a site's own guard, job
@@ -173,15 +179,18 @@ function ifValue(lines: string[], at: number): string | null {
  * the job's own keys or a required step's own keys. A block-scalar body, an
  * `env:`/`with:` map, another job and a site's own step all sit at other columns
  * or outside those ranges, so none can match. What it does not read (a quoted
- * `"if":` key, a flow mapping) is a miss, which leaves today's blind spot, never
- * an overwrite. Callers must pass comment-stripped text.
+ * `"if":` key, a flow mapping, an expression such as `false && x`) is a miss,
+ * which leaves today's blind spot, never an overwrite. Callers must pass
+ * comment-stripped text.
  */
-function gatingConditions(contents: string): string[] {
+function renovateDisabledBy(contents: string): string[] {
   const lines = contents.split(/\r?\n/);
-  const usesAt = (slugs: string[], from: number, to: number) => {
-    const res = slugs.map((s) => new RegExp(`^[ \\t]*(?:-[ \\t]+)?uses:\\s*${escapeRegExp(s)}@`));
+  const usesRe = (slug: string) =>
+    new RegExp(`^[ \\t]*(?:-[ \\t]+)?uses:\\s*${escapeRegExp(slug)}@`);
+  const usesAt = (slug: string, from: number, to: number) => {
+    const re = usesRe(slug);
     const out: number[] = [];
-    for (let i = from; i < to; i++) if (res.some((re) => re.test(lines[i]!))) out.push(i);
+    for (let i = from; i < to; i++) if (re.test(lines[i]!)) out.push(i);
     return out;
   };
   /** The step holding line `at`: its `-` line, the column of its keys, its end. */
@@ -192,24 +201,21 @@ function gatingConditions(contents: string): string[] {
     if (first < 0) return null;
     return { first, col, end: childEnd(lines, first, indentOf(lines[first]!)) };
   };
-  const ifsAt = (from: number, to: number, col: number) => {
+  /** Constant-false `if:` values among lines `[from, to)` at key column `col`. */
+  const falseIfs = (from: number, to: number, col: number) => {
     const out: string[] = [];
     for (let i = from; i < to; i++) {
-      if (isBlank(lines[i]!) || keyColumn(lines[i]!) !== col) continue;
+      const l = lines[i]!;
+      if (isBlank(l) || keyColumn(l) !== col) continue;
       const v = ifValue(lines, i);
-      if (v !== null) out.push(v);
+      if (v !== null && isConstantFalse(v)) out.push(v);
     }
     return out;
   };
-
-  const found: string[] = [];
-  for (const at of usesAt(["renovatebot/github-action"], 0, lines.length)) {
-    const step = stepOf(at);
-    if (!step) continue;
-    // `steps:` is the nearest line above the step at a shallower indent; the
-    // job's own keys share its column, and the job key sits above that.
-    const dash = indentOf(lines[step.first]!);
-    let stepsLine = step.first - 1;
+  /** The job holding a step that starts at line `first`. */
+  const jobOf = (first: number) => {
+    const dash = indentOf(lines[first]!);
+    let stepsLine = first - 1;
     // Skip the steps above it: their bodies are deeper, their `-` lines level.
     while (
       stepsLine >= 0 &&
@@ -218,30 +224,42 @@ function gatingConditions(contents: string): string[] {
         (isItemStart(lines[stepsLine]!) && indentOf(lines[stepsLine]!) === dash))
     )
       stepsLine--;
-    if (stepsLine < 0 || !/^[ \t]*steps:[ \t]*$/.test(lines[stepsLine]!)) continue;
-    const jobCol = indentOf(lines[stepsLine]!);
-    let jobLine = stepsLine - 1;
-    while (jobLine >= 0 && (isBlank(lines[jobLine]!) || indentOf(lines[jobLine]!) >= jobCol))
-      jobLine--;
-    if (jobLine < 0) continue;
-    const jobEnd = childEnd(lines, jobLine, indentOf(lines[jobLine]!));
-    // The job's own `if:`: a line at the job-key column that is not a step item.
-    for (let i = jobLine + 1; i < jobEnd; i++) {
-      const l = lines[i]!;
-      if (isBlank(l) || isItemStart(l) || indentOf(l) !== jobCol) continue;
-      const v = ifValue(lines, i);
-      if (v !== null) found.push(v);
+    if (stepsLine < 0 || !/^[ \t]*steps:[ \t]*(?:#.*)?$/.test(lines[stepsLine]!)) return null;
+    const col = indentOf(lines[stepsLine]!);
+    let line = stepsLine - 1;
+    while (line >= 0 && (isBlank(lines[line]!) || indentOf(lines[line]!) >= col)) line--;
+    if (line < 0) return null;
+    return { line, col, end: childEnd(lines, line, indentOf(lines[line]!)) };
+  };
+  /** The disabling conditions of one step, or null when it can run. */
+  const stepDisabledBy = (at: number): string[] | null => {
+    const st = stepOf(at);
+    if (!st) return null;
+    const f = falseIfs(st.first, st.end, st.col);
+    return f.length > 0 ? f : null;
+  };
+
+  const anchors = usesAt("renovatebot/github-action", 0, lines.length);
+  const reasons: string[] = [];
+  for (const at of anchors) {
+    const st = stepOf(at);
+    const job = st ? jobOf(st.first) : null;
+    if (!st || !job) return []; // a shape this cannot read: never call it disabled
+    // The job's own `if:`: a step's `- ` line never has its key at this column.
+    const blocked: string[] = [...falseIfs(job.line + 1, job.end, job.col)];
+    const own = stepDisabledBy(at);
+    if (own) blocked.push(...own);
+    for (const slug of KNOWN_PINNED_ACTIONS) {
+      if (slug === "renovatebot/github-action") continue;
+      const uses = usesAt(slug, job.line + 1, job.end);
+      if (uses.length === 0) continue;
+      const each = uses.map(stepDisabledBy);
+      if (each.every((d) => d !== null)) blocked.push(...each.flatMap((d) => d!));
     }
-    // Each required step's own `if:` within this job.
-    const seen = new Set<number>();
-    for (const u of usesAt(KNOWN_PINNED_ACTIONS, jobLine + 1, jobEnd)) {
-      const st = stepOf(u);
-      if (!st || seen.has(st.first)) continue;
-      seen.add(st.first);
-      found.push(...ifsAt(st.first, st.end, st.col));
-    }
+    if (blocked.length === 0) return []; // this one can run, so Renovate runs
+    reasons.push(...blocked);
   }
-  return found;
+  return [...new Set(reasons.map((r) => r.trim()))];
 }
 
 /** Is this `if:` value a constant that can never be true (#1607)? `false`,
@@ -348,12 +366,11 @@ export function renovateActionGaps(contents: string): string[] {
   // Every string above can be present on a job that never runs: `if: false` on
   // the renovate job leaves pins, auth and cron intact and Renovate silent, and
   // the sweep read it CLEAN (#1607).
-  for (const cond of gatingConditions(withoutComments)) {
-    if (isConstantFalse(cond)) {
-      gaps.push(
-        `if: ${cond.trim()} means the renovate job, or a step it needs, can never run — Renovate is disabled while every other line still reads compliant`,
-      );
-    }
+  const disabledBy = renovateDisabledBy(withoutComments);
+  if (disabledBy.length > 0) {
+    gaps.push(
+      `if: ${disabledBy.join(" / if: ")} means the renovate job, or a step it needs, can never run — Renovate is disabled while every other line still reads compliant`,
+    );
   }
 
   return gaps;

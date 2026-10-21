@@ -282,6 +282,75 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     ).toBe(true);
   });
 
+  // Review round 3: a gap means Renovate cannot run at all. A second copy of a
+  // required step, or a second renovate job, that is disabled leaves the
+  // working one running.
+  const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+  const RENOVATE_USES = /( *)- (?:name: [^\n]*\n *)?uses: renovatebot\/github-action@[^\n]*\n/;
+
+  it("a disabled extra checkout beside the working one is not a gap", () => {
+    noGap(
+      CANONICAL.replace(
+        "    steps:\n",
+        `    steps:\n      - uses: ${CHECKOUT}\n        if: false\n        with:\n          repository: reddoorla/shared-config\n`,
+      ),
+    );
+  });
+
+  it("a disabled second renovatebot step beside the working one is not a gap", () => {
+    const m = RENOVATE_USES.exec(CANONICAL);
+    expect(m).not.toBeNull();
+    const dup = m![0].replace(/(uses: [^\n]*\n)/, `$1${m![1]}  if: false\n`);
+    noGap(CANONICAL.replace(m![0], m![0] + dup)); // after the working one
+    noGap(CANONICAL.replace(m![0], dup + m![0])); // and before it
+  });
+
+  it("a disabled second renovate job beside the working one is not a gap", () => {
+    const at = CANONICAL.indexOf("  renovate:\n");
+    const job = CANONICAL.slice(at);
+    const old = job.replace(
+      "  renovate:\n    runs-on",
+      "  renovate-old:\n    if: false\n    runs-on",
+    );
+    noGap(CANONICAL.trimEnd() + "\n" + old); // after the working job
+    noGap(CANONICAL.slice(0, at) + old.trimEnd() + "\n" + job); // and before it
+  });
+
+  it("disabling every checkout IS a gap", () => {
+    const both = CANONICAL.replace(
+      "    steps:\n",
+      `    steps:\n      - uses: ${CHECKOUT}\n        if: false\n`,
+    ).replace(
+      /(- uses: actions\/checkout@[^\n]*\n)(?![ ]+if: false)/,
+      `$1        if: \${{ false }}\n`,
+    );
+    expect(both.match(/if: (false|\$\{\{ false \}\})/g)?.length).toBe(2);
+    expect(renovateActionGaps(both).some((g) => g.includes("can never run"))).toBe(true);
+  });
+
+  it("a trailing comment on steps: does not hide a job's if: false", () => {
+    const yml = withJobIf("false").replace(/\n {4}steps:\n/, "\n    steps: # the steps\n");
+    expect(yml).toContain("steps: # the steps");
+    expect(renovateActionGaps(yml).some((g) => g.includes("can never run"))).toBe(true);
+  });
+
+  it("in a compact steps: sequence, a site's own - if: false step is not a gap", () => {
+    const i = CANONICAL.indexOf("    steps:\n") + "    steps:\n".length;
+    const compact =
+      CANONICAL.slice(0, i) +
+      CANONICAL.slice(i)
+        .split("\n")
+        .map((l) => (l.startsWith("  ") ? l.slice(2) : l))
+        .join("\n");
+    expect(renovateActionGaps(compact)).toEqual([]);
+    noGap(compact.replace("    steps:\n", "    steps:\n    - if: false\n      run: echo hi\n"));
+    expect(
+      renovateActionGaps(compact.replace("  renovate:\n", "  renovate:\n    if: false\n")).some(
+        (g) => g.includes("can never run"),
+      ),
+    ).toBe(true);
+  });
+
   it("a commented-out if: false is not a gap", () => {
     const commented = CANONICAL.replace(
       JOB,
