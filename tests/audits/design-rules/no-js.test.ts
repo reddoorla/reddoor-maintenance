@@ -174,6 +174,12 @@ const PAGES: Record<string, string> = {
     `<h1>Page</h1><div class="vp"><div class="track">${[1, 2, 3, 4].map((n) => `<div class="slide"><p>Testimonial ${n}</p></div>`).join("")}</div></div>`,
     `const t = document.querySelector(".track"); let n = 0; const go = () => { n = (n + 1) % 4; t.style.transform = "translateX(" + -300 * n + "px)"; }; go(); setInterval(go, 700);`,
   ),
+  // the plain carousel again, its first slide served with a state class;
+  "/carousel-active": page(
+    `<style>.vp { overflow: hidden; width: 300px } .track { display: flex; transition: none } .slide { flex: 0 0 300px }</style>`,
+    `<h1>Page</h1><div class="vp"><div class="track">${[1, 2, 3, 4].map((n) => `<div class="slide${n === 1 ? " is-active" : ""}"><p>Testimonial ${n}</p></div>`).join("")}</div></div>`,
+    `const t = document.querySelector(".track"); let n = 0; const go = () => { n = (n + 1) % 4; t.style.transform = "translateX(" + -300 * n + "px)"; }; go(); setInterval(go, 700);`,
+  ),
   "/carousel-loop": page(
     `<style>.vp { overflow: hidden; width: 300px } .track { display: flex; transition: none } .slide { flex: 0 0 300px }</style>`,
     `<h1>Page</h1><div class="vp"><div class="track">${[1, 2, 3, 4].map((n) => `<div class="slide"><p>Testimonial ${n}</p></div>`).join("")}</div></div>`,
@@ -198,11 +204,19 @@ const PAGES: Record<string, string> = {
     `const i = document.querySelector("img"); i.src = i.dataset.src;`,
   ),
   // Round 3's: a hero line masked in an overflow-hidden section beside a
-  // visible eyebrow of the same tag, which is not a slide (a false pass), and a blur-up image and an embed whose
-  // source script rewrites (false fails);
+  // visible eyebrow of the same tag and a different class, which is not a
+  // slide (a false pass), and a blur-up image and an embed whose source
+  // script rewrites (false fails)
   "/mask-beside-copy": released(
     `section { overflow: hidden; padding: 40px } .x { display: block; transform: translateY(300px) } .x.in { transform: none }`,
     `<section><p>Welcome to our practice</p><p class="x">Smile brighter</p></section>`,
+  ),
+  // Round 4's: a hero headline slid in from off-canvas inside a page wrapper
+  // that clips sideways scroll, above a second classless section (a false
+  // pass);
+  "/wrapper-slide-in": released(
+    `#app { overflow-x: hidden } .x { transform: translateX(-120vw) } .x.in { transform: none }`,
+    `<div id="app"><section><div><h2 class="x">Hero headline</h2></div></section><section><p>About our practice</p></section></div>`,
   ),
   "/src-swap": page(
     "",
@@ -360,6 +374,7 @@ describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () 
   it("PASSES an autoplay carousel at whatever slide it is sampled on, and a date or hours script rewrites", async () => {
     expect(await problems("/carousel")).toEqual([]);
     expect(await problems("/carousel-loop")).toEqual([]);
+    expect(await problems("/carousel-active")).toEqual([]);
     expect(await problems("/dates")).toEqual([]);
   });
 
@@ -368,6 +383,9 @@ describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () 
       `"Smile brighter" is hidden without JavaScript ${BOTH}`,
     ]);
     expect(await problems("/src-swap")).toEqual([]);
+    expect(await problems("/wrapper-slide-in")).toEqual([
+      `"Hero headline" is hidden without JavaScript ${BOTH}`,
+    ]);
   });
 
   it("FAILS an embed only script mounts, and an image whose source only script sets", async () => {

@@ -41,9 +41,9 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // script updates (a year), unless the served value is zero (a count-up); a date
 // or time script rewrites ("January 5, 2026" to "9 months ago", hours to "Open
 // now"), unless the served value is a zero; a slide clipped out of its box
-// while a sibling slide of the same tag and class shows content without
-// JavaScript (a carousel's later slide, which an autoplay timer can bring on
-// screen at any sample); and, on a page with no <main>, layers that are fixed
+// while a sibling slide beside it (same tag, same width, a width apart)
+// shows content without JavaScript (a carousel's later slide, which an
+// autoplay timer can bring on screen at any sample); and, on a page with no <main>, layers that are fixed
 // or dialogs (a consent banner), since the whole <body> is read there.
 //
 // Both renders run at 1440×900 and at 390×844, and open shadow roots are read
@@ -55,8 +55,10 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // and closed shadow roots; a count-up that ships a non-zero start ("12" to
 // "1,200"), which reads as a year; a carousel that cannot be advanced without
 // JavaScript (its later slides are not judged); a reveal clipped among
-// same-tag, same-class siblings, which reads as a slide; and copy a script
-// renders more than SETTLE_MIN_MS after load and after the samples agree.
+// same-tag, same-width siblings in a row (a card row), which reads as a slide; an image or
+// embed only script mounts, without alt or title, beside a served one without
+// either (both read `image ""`); and copy a script renders more than
+// SETTLE_MIN_MS after load and after the samples agree.
 
 /** How long the JS render waits after revealing before it samples: a late
  *  script (a review widget, a layout decided on a timer) has run by then. */
@@ -300,9 +302,11 @@ export function sampleVisibleText(): TextSample {
     else if (item.kind === "cover") cover = target;
     else {
       const clip = item.clip;
-      // Parked: a slide, one of a run of same-tag, same-class siblings inside
-      // the clipping box, where another of them shows content. A reveal
-      // clipped beside other copy (an eyebrow, a button) is not parked.
+      // Parked: a slide, one of a row of siblings of one tag and one width,
+      // side by side (a full width apart) inside the clipping box, where another
+      // of them shows content. Classes are not evidence (a server renders
+      // `is-active` on the first slide; page sections have none); layout
+      // is. A reveal clipped beside or below other copy is not parked.
       let parked = false;
       for (
         let n: Element | null = item.el;
@@ -312,13 +316,11 @@ export function sampleVisibleText(): TextSample {
         const parent: Element | null = n.parentElement;
         if (!parent || !clip.contains(parent)) break;
         for (const sib of Array.from(parent.children)) {
-          if (
-            sib === n ||
-            sib.tagName !== n.tagName ||
-            sib.getAttribute("class") !== n.getAttribute("class")
-          ) {
-            continue;
-          }
+          if (sib === n || sib.tagName !== n.tagName) continue;
+          const a = n.getBoundingClientRect();
+          const b = sib.getBoundingClientRect();
+          const row = Math.abs(a.width - b.width) <= 1 && Math.abs(a.left - b.left) >= a.width - 1;
+          if (!row) continue;
           if (pending.some((o) => o.kind === "item" && o.visible && sib.contains(o.el))) {
             parked = true;
             break;
@@ -353,7 +355,7 @@ const DATE_OR_TIME =
   /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\.?\s+\d|\d\s+(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b|\d{1,2}:\d{2}|\b\d{1,2}\s?(am|pm)\b|\b\d+\s+\w+\s+ago\b/i;
 
 /** One width's pair of renders. */
-export type NoJsPair = { width: number; withJs: TextSample; withoutJs: TextSample };
+type NoJsPair = { width: number; withJs: TextSample; withoutJs: TextSample };
 
 /**
  * R4's verdict from each width's two renders. PURE. Each thing visible with
