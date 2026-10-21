@@ -43,9 +43,7 @@ jobs:
             curl -sS -D - -o /dev/null "$url" | grep -iv '^set-cookie'
             echo
           }
-          # Run 2: the two lowest-sorted functions whose GET is harmless. If
-          # Netlify keeps only the Pro plan's 5 code-based rules, these are
-          # the likeliest survivors (approve-report sorts first).
-          burst approve https://reddoor-maintenance.netlify.app/api/reports/probe/approve 30
-          echo "--- 65 s pause so the windows do not overlap"; sleep 65
-          burst auth https://reddoor-maintenance.netlify.app/auth/login 30
+          # Run 3 (2026-10-21, PR #1642): the cap test. The deploy preview of
+          # #1642 has no function rateLimit, so the edge rule (60/60 s) is the
+          # site's only rule. Preview only; production is not touched.
+          N=90 burst preview https://deploy-preview-1642--reddoor-maintenance.netlify.app/fleet/__data.json 60
