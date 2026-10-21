@@ -110,7 +110,7 @@ tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-co
 worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
 score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
 accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:183`, `:376–378`).
+(`fleet-cockpit.ts:204`, `:414–416`).
 
 **The "Needs you" feed** is real and is the thing to read first
 (`src/dashboard/fleet-cockpit.ts:487–510`, rendered as the cockpit's `needs-you` section,
