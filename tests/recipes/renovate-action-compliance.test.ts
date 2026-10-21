@@ -141,6 +141,61 @@ describe("renovateActionGaps", () => {
   });
 });
 
+describe("renovateActionGaps — a job or step that can never run (#1607)", () => {
+  const JOB = "  renovate:\n    runs-on: ubuntu-latest\n";
+  const withJobIf = (cond: string) =>
+    CANONICAL.replace(JOB, `  renovate:\n    if: ${cond}\n    runs-on: ubuntu-latest\n`);
+
+  it("the job anchor exists in the template (else every case below is vacuous)", () => {
+    expect(CANONICAL).toContain(JOB);
+  });
+
+  // The sweep's input: cron, pins and App auth intact, `if: false` on the job.
+  // Every string the check looks for is present, and Renovate never runs.
+  for (const cond of [
+    "false",
+    "${{ false }}",
+    "'false'",
+    '"false"',
+    "0",
+    "${{ 0 }}",
+    "''",
+    "${{ '' }}",
+    "null",
+  ]) {
+    it(`if: ${cond} on the renovate job yields a gap`, () => {
+      const gaps = renovateActionGaps(withJobIf(cond));
+      expect(gaps.some((g) => g.includes("can never run"))).toBe(true);
+    });
+  }
+
+  it("a constant-false if: on a step yields a gap too", () => {
+    const disabled = CANONICAL.replace(
+      "        id: app-token\n",
+      "        id: app-token\n        if: ${{ false }}\n",
+    );
+    expect(disabled).not.toBe(CANONICAL);
+    expect(renovateActionGaps(disabled).some((g) => g.includes("can never run"))).toBe(true);
+  });
+
+  it("a real condition is not called a gap: only a constant that can never be true is", () => {
+    // Sites may legitimately guard a job; this check owns "it cannot run", not
+    // "it has a condition".
+    expect(renovateActionGaps(withJobIf("github.repository_owner == 'reddoorla'"))).toEqual([]);
+    expect(renovateActionGaps(withJobIf("${{ !cancelled() }}"))).toEqual([]);
+    expect(renovateActionGaps(withJobIf("true"))).toEqual([]);
+    expect(renovateActionGaps(withJobIf("falsey_input == 'x'"))).toEqual([]);
+  });
+
+  it("a commented-out if: false is not a gap", () => {
+    const commented = CANONICAL.replace(
+      JOB,
+      "  renovate:\n    # if: false\n    runs-on: ubuntu-latest\n",
+    );
+    expect(renovateActionGaps(commented)).toEqual([]);
+  });
+});
+
 describe("withRenovatePinsFrom", () => {
   it("carries the site's newer digest forward for all three actions, preserving the version comment", () => {
     const current = CANONICAL.replace(

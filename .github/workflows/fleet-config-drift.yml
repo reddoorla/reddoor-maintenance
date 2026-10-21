@@ -124,6 +124,7 @@ jobs:
           fi
 
       - name: Open/update the config-drift tracking issue
+        id: file_drift
         if: steps.drift.outputs.drifted == 'yes' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
@@ -145,7 +146,10 @@ jobs:
             else
               echo "::warning::this run printed no DRIFT line; keeping the body of #$existing so a clean sweep can still close it"
             fi
-            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+            # The finding is already on an open issue, so a missed comment is not a
+            # lost week: this step fails only when no issue could be created (#1607).
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing" \
+              || echo "::warning::could not comment on #$existing; the issue is still open"
           else
             gh issue create --title "$title" --body "$body"
           fi
@@ -220,3 +224,15 @@ jobs:
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered. The weekly config drift sweep is green again." && echo "closed #$n"
           done
+
+      # Drift found and no issue to carry it: the open step's `continue-on-error`
+      # kept the run green and the finding appeared nowhere for a week (#1607).
+      # Last, so the outage pair above has already read `failure()` as false and
+      # files no false "sweep failing" issue; the run is red, naming the drift.
+      - name: Fail when found drift could not be filed
+        if: steps.file_drift.outcome == 'failure' && github.ref == 'refs/heads/main'
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          echo "::error::the sweep found config drift and could not file the \"Fleet config drift\" issue, so the finding is only in this run's log:"
+          grep -E "^(DRIFT|SKIPPED|SYNC_CONFIGS_DRIFT) " "$out" 2>/dev/null || echo "(the sweep output is missing)"
+          exit 1

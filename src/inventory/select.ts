@@ -1,5 +1,11 @@
 import type { Site } from "../types.js";
-import { siteSlug, ACTIVE_STATUSES, isPreLaunch, type WebsiteRow } from "../fleet/site-row.js";
+import {
+  siteSlug,
+  ACTIVE_STATUSES,
+  isPreLaunch,
+  isUnrecognizedStatus,
+  type WebsiteRow,
+} from "../fleet/site-row.js";
 import { isHttpUrl } from "../util/url.js";
 import { analyticsOptedOut } from "../fleet/opt-outs.js";
 
@@ -76,6 +82,18 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       if (analyticsOptedOut(w)) site.analyticsOptedOut = true;
       return [site];
     });
+}
+
+/**
+ * The rows `selectFleetSites` drops ONLY because their Status is not in the
+ * vocabulary: a retired name like `maintenance` (a restored backup, a scripted
+ * write), a typo, stray whitespace. The selection is right not to sweep them, as
+ * it cannot know what they mean; but a sweep that drops them silently reads a
+ * shrinking roster as a clean fleet (#1607). A row with no `url` is left out, as
+ * the selection would leave it out whatever its Status.
+ */
+export function rowsWithUnrecognizedStatus(websites: readonly WebsiteRow[]): WebsiteRow[] {
+  return websites.filter((w) => w.url.length > 0 && isUnrecognizedStatus(w.status));
 }
 
 /** The workdir every store-backed provider needs: sites carry a local path, and

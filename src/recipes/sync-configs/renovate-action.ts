@@ -128,6 +128,24 @@ const APP_AUTH_MARKERS = [
   "steps.app-token.outputs.token",
 ];
 
+/** An `if:` on a job or step, anchored like `USES_LINE_RE`. The value runs to
+ *  the end of the line, less a trailing `# comment`. */
+const IF_LINE_RE = /^[ \t]*(?:- )?if:[ \t]*(.*?)(?:[ \t]+#[^\r\n]*)?[ \t]*$/gm;
+
+/** Is this `if:` value a constant that can never be true (#1607)? `false`,
+ *  `0`, `''` and `null`, bare, quoted or inside `${{ }}`, are falsy in Actions
+ *  expressions. Anything that reads a context is a real condition, and is the
+ *  site's own business: this check owns "the job cannot run", not "the job has
+ *  a condition" (the template has none, but a site may guard its own). */
+function isConstantFalse(raw: string): boolean {
+  const unquote = (v: string) => v.replace(/^(['"])(.*)\1$/, "$2").trim();
+  let v = unquote(raw.trim());
+  const expr = v.match(/^\$\{\{\s*(.*?)\s*\}\}$/);
+  if (expr) v = expr[1]!.trim();
+  v = v === "''" || v === '""' ? "" : unquote(v);
+  return ["", "false", "0", "null"].includes(v);
+}
+
 /** Gaps in a site's `.github/workflows/renovate.yml`. Empty = compliant,
  *  leave it alone — see the module doc comment above for why this is
  *  compliance-checked rather than byte-matched. */
@@ -208,6 +226,17 @@ export function renovateActionGaps(contents: string): string[] {
   const hasContentsRead = /^[ \t]*contents:\s*["']?read["']?[ \t]*$/m.test(withoutComments);
   if (!hasPermissionsKey || !hasContentsRead) {
     gaps.push("permissions: does not grant contents: read");
+  }
+
+  // Every string above can be present on a job that never runs: `if: false` on
+  // the renovate job leaves pins, auth and cron intact and Renovate silent, and
+  // the sweep read it CLEAN (#1607).
+  for (const m of withoutComments.matchAll(IF_LINE_RE)) {
+    if (isConstantFalse(m[1]!)) {
+      gaps.push(
+        `if: ${m[1]!.trim()} means a job or step here can never run — Renovate is disabled while every other line still reads compliant`,
+      );
+    }
   }
 
   return gaps;
