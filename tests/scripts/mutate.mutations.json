@@ -508,8 +508,7 @@
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
-    "expect": "survives",
-    "why": "A second layer: git status and the skip-worktree refusal already stop a checkout whose bytes differ from HEAD's, and a fresh worktree that writes differently is refused on its own."
+    "expect": "red"
   },
   {
     "id": "M44-ill-formed-unicode-accepted",
@@ -530,6 +529,18 @@
         "file": "scripts/mutate.mjs",
         "find": "return text.replace(/\\\\/g, \"\\\\\\\\\").replace(/\\|/g, \"\\\\|\")",
         "replace": "return text.replace(/\\|/g, \"\\\\|\")"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M46-json-usage-error-as-text",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (process.argv.includes(\"--json\"))\n      process.stdout.write(JSON.stringify({ refused: e.message }, null, 2) + \"\\n\");\n    process.stderr.write(`mutate: ${e.message}\\n${USAGE}\\n`);",
+        "replace": "    process.stderr.write(`mutate: ${e.message}\\n${USAGE}\\n`);"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",

@@ -1008,6 +1008,24 @@ describe("mutate, against a real repo", () => {
     ).toThrow(/replace is not well-formed Unicode/);
   });
 
+  it("refuses an in-place run when the checkout's bytes are not what HEAD writes now", async () => {
+    const f = fixture();
+    sh(f.dir, "git", ["config", "core.autocrlf", "true"]);
+    expect(status(f.dir)).toBe("");
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    await expect(mutate(opts(p, { inPlace: true }), { cwd: f.dir, ...quiet })).rejects.toThrow(
+      /src\/value\.txt on disk is not what a checkout of HEAD writes/,
+    );
+    expect(status(f.dir)).toBe("");
+  });
+
+  it("prints a usage error as JSON under --json", () => {
+    const f = fixture();
+    const r = spawnSync(process.execPath, [SCRIPT, "--json"], { cwd: f.dir, encoding: "utf-8" });
+    expect(r.status).toBe(2);
+    expect(JSON.parse(r.stdout)).toEqual({ refused: "a sidecar path is required" });
+  });
+
   it("refuses a mutant whose edits cancel out", async () => {
     const f = fixture();
     const p = sidecar(f.side, [

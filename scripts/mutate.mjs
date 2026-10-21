@@ -535,11 +535,14 @@ export async function mutate(o, deps = {}) {
       const show = spawnSync("git", ["cat-file", "--filters", `${sha}:${f}`], {
         cwd: root,
         maxBuffer: 1 << 30,
+        timeout: 120_000, // a smudge filter runs here, and could hang
       });
       if (show.status !== 0) throw new Refusal(`cannot read ${f} at HEAD: ${show.stderr}`);
       const bytes = show.stdout;
       if (!o.check && !readFileSync(join(root, f)).equals(bytes))
-        problems.push(`${f} on disk is not what a checkout of HEAD writes`);
+        problems.push(
+          `${f} on disk is not what a checkout of HEAD writes (eol or filter settings changed since it was checked out?)`,
+        );
       const text = bytes.toString("utf-8");
       if (!Buffer.from(text, "utf-8").equals(bytes)) problems.push(`${f} is not UTF-8 text`);
       pristine.set(f, text);
