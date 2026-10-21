@@ -5,11 +5,26 @@ import {
   type DeadLetterRow,
   type UnreadableDeadLetterRow,
 } from "../db/deadletter.js";
-import { ingestSubmission, type IngestDeps } from "./ingest.js";
+import { ingestSubmission, type IngestDeps, type IngestResult } from "./ingest.js";
+
+type NotifyOutcome = Extract<IngestResult, { status: "accepted" }>["notifyStatus"];
 
 export type ReplayResult = {
-  /** Terminal outcomes this run: the row will never be picked up again. */
-  replayed: Array<{ id: string; outcome: string; submissionId: string | null }>;
+  /** Leads placed this run: a submission exists and the row is marked terminal.
+   *  `notifyStatus` is the lead's notification email (#1615): `failed` means the
+   *  lead is in the inbox but nobody was told, which is a gate failure. */
+  replayed: Array<{
+    id: string;
+    outcome: string;
+    submissionId: string | null;
+    notifyStatus: NotifyOutcome;
+  }>;
+  /** #1615. Rows the store REFUSED on replay (`rejected:<reason>`), e.g. a
+   *  `formType` retired since the lead arrived. Terminal like `replayed`, so the
+   *  row leaves the queue, but no submission exists: the lead is gone from
+   *  every surface but this run's output. Counted apart from `replayed` for
+   *  exactly that reason. */
+  rejected: Array<{ id: string; outcome: string; errors: string[] }>;
   /** Rows whose lookup threw AGAIN — left unreplayed for the next run. */
   stillFailing: Array<{ id: string; error: string }>;
   /** MED-10(b). Rows that DID re-ingest — a real submission exists for them —
@@ -51,6 +66,7 @@ export async function replayDeadLetters(
   const queue = await readUnreplayedDeadLetters(db);
   const result: ReplayResult = {
     replayed: [],
+    rejected: [],
     stillFailing: [],
     unmarked: [],
     unreadable: [...queue.unreadable],
@@ -68,11 +84,18 @@ export async function replayDeadLetters(
       result.stillFailing.push({ id: row.id, error: `replay threw: ${String(err)}` });
       continue;
     }
-    if (outcome.terminal) {
+    if (outcome.terminal && outcome.rejectedErrors !== undefined) {
+      result.rejected.push({
+        id: row.id,
+        outcome: outcome.outcome,
+        errors: outcome.rejectedErrors,
+      });
+    } else if (outcome.terminal) {
       result.replayed.push({
         id: row.id,
         outcome: outcome.outcome,
         submissionId: outcome.submissionId,
+        notifyStatus: outcome.notifyStatus ?? "skipped",
       });
     } else if (outcome.unmarked) {
       result.unmarked.push({
@@ -86,6 +109,61 @@ export async function replayDeadLetters(
     }
   }
   return result;
+}
+
+/**
+ * The `db replay-deadletters` output and exit code. The last line,
+ * `DEADLETTER_REPLAY …`, is the marker forms-deadletter-replay.yml gates on.
+ *
+ * MED-10. `still_failing` is a STANDING condition (a slug awaiting
+ * `ensure-site`, or a dead one awaiting `--abandon`) and already has an alarm,
+ * the `deadletter` attention item. Every other non-zero bucket is a DEFECT
+ * with no alarm but this output (and, for the workflow, its tracking issue): `unmarked` and `unreadable` (MED-10), and
+ * since #1615 `rejected` (the lead left the queue with no submission) and
+ * `notify_failed` (the lead was placed but nobody was emailed). Before #1615
+ * both of those were counted in `replayed=`, so the gate read them as success.
+ */
+export function formatReplayReport(result: ReplayResult): { output: string; code: number } {
+  const notifyFailed = result.replayed.filter((r) => r.notifyStatus === "failed");
+  const lines = [
+    ...result.replayed.map(
+      (r) => `replayed ${r.id} → ${r.outcome}${r.submissionId ? ` (${r.submissionId})` : ""}`,
+    ),
+    ...result.rejected.map(
+      (r) =>
+        `REJECTED ${r.id} → ${r.outcome}: ${r.errors.join("; ")}. The row is marked replayed ` +
+        `but NO submission exists, so this lead is in no inbox. Its payload is still in ` +
+        `submission_deadletter row ${r.id}: read it there and pass it to the client by hand.`,
+    ),
+    ...notifyFailed.map(
+      (r) =>
+        `NOTIFY FAILED ${r.id} → ${r.outcome} (${r.submissionId ?? "no submission"}): the lead ` +
+        `is stored, but its notification email did not send. Nobody has been told about it: ` +
+        `open it in the cockpit's submissions and tell the client.`,
+    ),
+    ...result.stillFailing.map((r) => `still failing ${r.id}: ${r.error}`),
+    ...result.unmarked.map(
+      (r) =>
+        `UNMARKED ${r.id}: re-ingested as ${r.submissionId ?? "(no submission)"} → ${r.outcome}, ` +
+        `but the terminal mark could NOT be written (${r.error}). The row is still queued, so ` +
+        `replaying again before it is reconciled will mint a DUPLICATE of this lead.`,
+    ),
+    ...result.unreadable.map(
+      (r) =>
+        `UNREADABLE ${r.id} (site '${r.siteSlug}', received ${r.receivedAt}): ${r.error}. ` +
+        `The row is untouched — repair the stored JSON, or retire it with ` +
+        `\`db replay-deadletters --abandon ${r.id} --reason "…"\`.`,
+    ),
+    `DEADLETTER_REPLAY replayed=${result.replayed.length} rejected=${result.rejected.length} notify_failed=${notifyFailed.length} still_failing=${result.stillFailing.length} unmarked=${result.unmarked.length} unreadable=${result.unreadable.length}`,
+  ];
+  const owed =
+    result.rejected.length +
+      notifyFailed.length +
+      result.stillFailing.length +
+      result.unmarked.length +
+      result.unreadable.length >
+    0;
+  return { output: lines.join("\n"), code: owed ? 1 : 0 };
 }
 
 /**
@@ -112,17 +190,24 @@ async function markTerminal(
   outcome: string,
   submissionId: string | null,
   now: Date,
+  detail: { notifyStatus?: NotifyOutcome; rejectedErrors?: string[] } = {},
 ): Promise<ReplayOutcome> {
   try {
     await markDeadLetterReplayed(db, row.id, outcome, submissionId, now);
   } catch (err) {
     return { terminal: false, unmarked: true, outcome, submissionId, error: String(err) };
   }
-  return { terminal: true, outcome, submissionId };
+  return { terminal: true, outcome, submissionId, ...detail };
 }
 
 type ReplayOutcome =
-  | { terminal: true; outcome: string; submissionId: string | null }
+  | {
+      terminal: true;
+      outcome: string;
+      submissionId: string | null;
+      notifyStatus?: NotifyOutcome;
+      rejectedErrors?: string[];
+    }
   | { terminal: false; unmarked?: false; error: string }
   | {
       terminal: false;
@@ -138,9 +223,12 @@ async function replayOne(
   row: DeadLetterRow,
 ): Promise<ReplayOutcome> {
   // Strip deadLetter defensively even though the type forbids it — a structurally
-  // wider object passed through `as` must not re-arm the duplicate loop.
-  const { deadLetter: _stripped, ...safeDeps } = deps as IngestDeps;
+  // wider object passed through `as` must not re-arm the duplicate loop. #1615:
+  // strip `defer` too. A deferred tail answers `notifyStatus: "deferred"`, and
+  // the notify_failed count needs the real outcome.
+  const { deadLetter: _stripped, defer: _deferred, ...safeDeps } = deps as IngestDeps;
   void _stripped;
+  void _deferred;
   let res;
   try {
     res = await ingestSubmission(safeDeps, row.siteSlug, row.payload, row.turnstile);
@@ -149,7 +237,9 @@ async function replayOne(
   }
   const now = deps.now();
   if (res.status === "accepted") {
-    return markTerminal(db, row, "accepted", res.submissionId, now);
+    return markTerminal(db, row, "accepted", res.submissionId, now, {
+      notifyStatus: res.notifyStatus,
+    });
   }
   // #645. `unknown-site` is NO LONGER terminal. It used to be, on the reasoning
   // that a slug the store rejects "can never improve" — true while nothing could
@@ -166,5 +256,7 @@ async function replayOne(
   if (res.status === "unknown-site") {
     return { terminal: false, error: `unknown-site: no fleet row for '${row.siteSlug}'` };
   }
-  return markTerminal(db, row, `rejected:${res.reason}`, null, now);
+  return markTerminal(db, row, `rejected:${res.reason}`, null, now, {
+    rejectedErrors: res.errors,
+  });
 }

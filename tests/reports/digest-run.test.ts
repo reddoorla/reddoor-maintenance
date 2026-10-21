@@ -1329,9 +1329,9 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
       .filter((l) => l.startsWith("DIGEST_SEND_LOG"));
     log.mockRestore();
     expect(lines).toEqual([
-      "DIGEST_SEND_LOG write=1 decision=first",
-      "DIGEST_SEND_LOG write=1 decision=unchanged",
-      "DIGEST_SEND_LOG write=0 decision=unchanged",
+      "DIGEST_SEND_LOG write=1 decision=first read=ok",
+      "DIGEST_SEND_LOG write=1 decision=unchanged read=ok",
+      "DIGEST_SEND_LOG write=0 decision=unchanged read=ok",
     ]);
   });
 });

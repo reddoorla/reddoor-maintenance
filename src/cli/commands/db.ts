@@ -58,8 +58,9 @@ export async function runDbCommand(
 
   // Re-run every lead that dead-lettered during a site-lookup outage (#539
   // Phase 0) through the normal ingest pipeline. Exit 1 while any row is STILL
-  // owed — still failing, re-ingested but unmarked (MED-10b), or undecodable
-  // (MED-10c). The operator should not read the run as "all leads landed".
+  // owed — still failing, re-ingested but unmarked (MED-10b), undecodable
+  // (MED-10c), rejected on replay or placed without its email (#1615). The
+  // operator should not read the run as "all leads landed".
   // Zero rows is a clean 0: nothing owed.
   if (action === "replay-deadletters") {
     const { readDbConfig, openDb } = await import("../../db/client.js");
@@ -109,7 +110,7 @@ export async function runDbCommand(
     const { forwardNewsletterToWebhook } = await import("../../forms/webhook.js");
     const { addMailchimpMember, mailchimpTagsFor } = await import("../../forms/mailchimp.js");
     const { defaultResendClient } = await import("../../reports/send/resend.js");
-    const { replayDeadLetters } = await import("../../forms/replay.js");
+    const { replayDeadLetters, formatReplayReport } = await import("../../forms/replay.js");
 
     // Same degradation as the ingest handler: an unconfigured Resend key means
     // replayed leads land un-emailed (notify=failed) rather than blocking replay.
@@ -156,32 +157,7 @@ export async function runDbCommand(
       stampFanout: (id, fanoutStatus) => stampFanout(db, id, fanoutStatus),
     });
 
-    // MED-10. Four buckets, three of them non-zero-is-not-nothing. `still_failing`
-    // is a STANDING condition (a slug awaiting `ensure-site`, or a dead one
-    // awaiting `--abandon`) and already has an alarm — the `deadletter` attention
-    // item. `unmarked` and `unreadable` are DEFECTS with no other surface at all:
-    // this output is the only place either is ever named.
-    const lines = [
-      ...result.replayed.map(
-        (r) => `replayed ${r.id} → ${r.outcome}${r.submissionId ? ` (${r.submissionId})` : ""}`,
-      ),
-      ...result.stillFailing.map((r) => `still failing ${r.id}: ${r.error}`),
-      ...result.unmarked.map(
-        (r) =>
-          `UNMARKED ${r.id}: re-ingested as ${r.submissionId ?? "(no submission)"} → ${r.outcome}, ` +
-          `but the terminal mark could NOT be written (${r.error}). The row is still queued, so ` +
-          `replaying again before it is reconciled will mint a DUPLICATE of this lead.`,
-      ),
-      ...result.unreadable.map(
-        (r) =>
-          `UNREADABLE ${r.id} (site '${r.siteSlug}', received ${r.receivedAt}): ${r.error}. ` +
-          `The row is untouched — repair the stored JSON, or retire it with ` +
-          `\`db replay-deadletters --abandon ${r.id} --reason "…"\`.`,
-      ),
-      `DEADLETTER_REPLAY replayed=${result.replayed.length} still_failing=${result.stillFailing.length} unmarked=${result.unmarked.length} unreadable=${result.unreadable.length}`,
-    ];
-    const owed = result.stillFailing.length + result.unmarked.length + result.unreadable.length > 0;
-    return { output: lines.join("\n"), code: owed ? 1 : 0 };
+    return formatReplayReport(result);
   }
 
   // Phase 1.5 of #539: platform-auth-free SQL dump to stdout-adjacent output.
