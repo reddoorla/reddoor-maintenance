@@ -86,8 +86,9 @@ export type RenovateDispatchDeps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-/** How long a failed target waits before its one retry: long enough for a
- *  secondary rate limit or a 5xx blip to clear, short beside the step's 10 min. */
+/** How long a failed target waits before its one retry: enough for a 5xx blip
+ *  to pass, short beside the step's 10 min. Not enough for a GitHub secondary
+ *  rate limit, which asks for a minute or more; such a target still fails. */
 export const RENOVATE_DISPATCH_RETRY_DELAY_MS = 5_000;
 
 export type RenovateDispatchResult = {
@@ -111,8 +112,8 @@ export type RenovateDispatchResult = {
  * the security sweep) must not be able to fail the sweep over a dispatch hiccup.
  *
  * Each target is retried once, from the PR probe on, before it counts as failed
- * (#1660): the workflow reds on failed>0 (#1612), so one transient 5xx or
- * secondary rate limit must not red the nightly. A real failure (no
+ * (#1660): the workflow reds on failed>0 (#1612), so one transient 5xx must not
+ * red the nightly. A real failure (no
  * `renovate.yml`, a missing scope) fails both attempts and still reds. A dispatch
  * that reached GitHub but threw on the way back can fire twice; a second
  * Renovate run is an idempotent no-op.
@@ -136,8 +137,8 @@ export async function dispatchRenovateAcross(
     try {
       outcome = await attempt(t.repo);
     } catch {
-      await sleep(RENOVATE_DISPATCH_RETRY_DELAY_MS);
       try {
+        await sleep(RENOVATE_DISPATCH_RETRY_DELAY_MS);
         outcome = await attempt(t.repo);
       } catch (e) {
         failed.push({ repo: t.repo, error: e instanceof Error ? e.message : String(e) });

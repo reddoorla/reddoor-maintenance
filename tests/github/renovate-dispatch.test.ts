@@ -5,6 +5,7 @@ import {
   formatRenovateDispatchSummary,
   hasHealthyRenovatePr,
   RENOVATE_WORKFLOW_FILE,
+  RENOVATE_DISPATCH_RETRY_DELAY_MS,
   computeAutoFixAttemptUpdates,
   applyAutoFixAttemptUpdates,
   formatAutoFixAttemptsSummary,
@@ -238,8 +239,8 @@ describe("dispatchRenovateAcross", () => {
     expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: PR query failed" }]);
   });
 
-  // #1660: since #1612 the nightly reds on failed>0, so one transient 5xx or
-  // secondary rate limit must not count. Each target gets one retry.
+  // #1660: since #1612 the nightly reds on failed>0, so one transient 5xx must
+  // not count. Each target gets one retry.
   describe("retries each target once before counting it failed (#1660)", () => {
     /** A dep that throws `failures` times, then answers. */
     function flaky<T>(failures: number, value: T, message = "502: Bad Gateway") {
@@ -269,9 +270,8 @@ describe("dispatchRenovateAcross", () => {
         "RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=0 failed=0",
       );
       expect(dispatch.calls()).toBe(2);
-      // It waits before the retry, so a secondary rate limit has time to clear.
-      expect(sleeps).toHaveLength(1);
-      expect(sleeps[0]).toBeGreaterThan(0);
+      // It waits before the retry, so a 5xx blip has time to pass.
+      expect(sleeps).toEqual([RENOVATE_DISPATCH_RETRY_DELAY_MS]);
     });
 
     it("one transient open-PR probe failure, then success → the retry still skips a healthy PR", async () => {
