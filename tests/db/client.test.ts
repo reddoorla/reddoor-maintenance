@@ -81,6 +81,7 @@ describe("openDb", () => {
       "0044_deadletter_slug_received_index",
       "0045_drop_deadletter_slug_unreplayed_index",
       "0046_site_health_security_lockfile_audit",
+      "0047_sites_prismic_ack_drift",
     ]);
     await db.destroy();
   });
