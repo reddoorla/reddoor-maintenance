@@ -68,6 +68,15 @@ jobs:
       - name: Install the browser the Tier 4 abort harness drives
         run: pnpm exec playwright install --with-deps chromium
 
+      # The cockpit tests load cockpit/.svelte-kit/tsconfig.json, which only `svelte-kit
+      # sync` writes. ci.yml and release.yml get it from `pnpm typecheck` (cockpit:check);
+      # this job ran the suite alone, so all 35 cockpit files failed to load and the run
+      # was blind to the cockpit's clock bugs (#1616). Its own step, from the repo root
+      # (svelte.config.js is there), so a sync break files the outside-the-suite issue.
+      # tests/ci-gate.test.ts asserts every workflow that runs the suite syncs first.
+      - name: Generate the cockpit's SvelteKit files
+        run: pnpm exec svelte-kit sync
+
       # tests/time-travel-guard.test.ts asserts the clock actually moved, so a shim that
       # silently fails to apply turns this job RED instead of reporting a hollow green.
       # That check is the whole reason this job can be trusted — do not skip the suite's
@@ -112,7 +121,7 @@ jobs:
         run: |
           title="Time-travel run failing outside the suite"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The weekly **time-travel** run went red, but **not in the suite step** (its outcome: `%s`; `skipped` means an earlier step broke first). So this is **not** a wall-clock finding and says nothing about the tests: checkout, `pnpm install --frozen-lockfile` or the Playwright browser install failed or hung. Fix the environment or the lockfile, then re-run the workflow; the suite itself was never judged.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "${SUITE_OUTCOME:-unknown}" "$run_url")
+          body=$(printf 'The weekly **time-travel** run went red, but **not in the suite step** (its outcome: `%s`; `skipped` means an earlier step broke first). So this is **not** a wall-clock finding and says nothing about the tests: checkout, `pnpm install --frozen-lockfile`, the Playwright browser install or the cockpit `svelte-kit sync` failed or hung. Fix the environment or the lockfile, then re-run the workflow; the suite itself was never judged.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "${SUITE_OUTCOME:-unknown}" "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
