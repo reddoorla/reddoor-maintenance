@@ -180,10 +180,9 @@ export async function askTimelines(home, rev, run = realRunner) {
     const at = Date.parse(iso);
     const id = (p) => p.slice(0, ASK_ID_PREFIX);
     const slug = (p) => p.slice(ASK_ID_PREFIX);
-    const top = (p) => !p.slice(DECISIONS_DIR.length + 1).includes("/");
-    // One ask under two names: both in decisions/ itself, sharing the ask time or the slug
+    // One ask under two names, sharing the ask time or the slug
     // (a rename that corrects the time keeps the slug; one that renames the slug keeps the time).
-    const sameAsk = (p1, p2) => top(p1) && top(p2) && (id(p1) === id(p2) || slug(p1) === slug(p2));
+    const sameAsk = (p1, p2) => id(p1) === id(p2) || slug(p1) === slug(p2);
     const changes = lines
       .map((l) => l.split("\t"))
       .filter(([st, p1]) => st && p1)
