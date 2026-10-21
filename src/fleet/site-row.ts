@@ -490,9 +490,10 @@ export type SecurityAdvisory = {
    *  lockfile-maintenance window. Omitted when GitHub reports "unknown" or for the
    *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
   relationship?: "direct" | "transitive";
-  /** Whether the lockfile audit (`pnpm audit`) reported it; written by the merged audit for a
-   *  lockfile the dependency graph cannot read. A partial run keeps a stored advisory unless this
-   *  is `false` (Dependabot alone found it, and re-reads it each run). Absent on older rows. */
+  /** Who reported it: `true` for the pnpm side of a merged audit (a lockfile the dependency
+   *  graph cannot read), `false` for every Dependabot alert. Absent on older rows and on the
+   *  stand-alone `pnpm audit`/`npm audit` path, which is lockfile-sourced too. Not read yet:
+   *  #1654 is to use it for a night the lockfile audit cannot run. */
   lockfile?: boolean;
   /** The GitHub advisory id (GHSA-…), when the source named one: what a later run matches this
    *  stored entry on first, since the two sources word titles differently (#1409, #1561). */

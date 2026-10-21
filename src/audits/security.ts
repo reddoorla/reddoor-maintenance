@@ -453,8 +453,8 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
           ? {
               ...viaLockfile,
               summary:
-                `${viaLockfile.summary}; not written: ${viaDependabot.summary}, which without ` +
-                `the lockfile audit is only part of the tree`,
+                `${viaLockfile.summary}; not written, as without the lockfile audit it is only ` +
+                `part of the tree: ${viaDependabot.summary}`,
             }
           : viaLockfile;
       }

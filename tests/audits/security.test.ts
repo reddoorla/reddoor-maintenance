@@ -800,9 +800,8 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     });
     expect(result.status).toBe("skip");
     expect(result.summary).toBe(
-      "cannot run audit — pnpm: not installed; npm: not installed; not written: " +
-        "Dependabot: 1 alert(s) (1C/0H/0M/0L), which without the lockfile audit is only part " +
-        "of the tree",
+      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
+        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (1C/0H/0M/0L)",
     );
     // A skip writes no counts: the row keeps what the last full run wrote.
     expect(hasSecurityCounts(result)).toBe(false);
@@ -815,7 +814,30 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       spawn: fakeSpawn({}),
     });
     expect(result.status).toBe("skip");
-    expect(result.summary).toContain("not written: Dependabot: 1 alert(s) (0C/0H/1M/0L)");
+    expect(result.summary).toMatch(
+      /part of the tree: Dependabot: 1 alert\(s\) \(0C\/0H\/1M\/0L\)$/,
+    );
+  });
+
+  it("with live and ghost alerts, the caveat qualifies the live count, not the ghost advice", async () => {
+    const ghost: DependabotAlert = {
+      ...actionAlert,
+      package: "nanoid",
+      manifestPath: "package-lock.json",
+    };
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: {
+        listAlerts: async () => [actionAlert, ghost],
+        manifestExists: async (_repo, path) => path !== "package-lock.json",
+      },
+      spawn: fakeSpawn({}),
+    });
+    expect(result.summary).toBe(
+      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
+        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (0C/1H/0M/0L); " +
+        "1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+    );
   });
 
   it("adds no note for ghost alerts alone: nothing live to name", async () => {
