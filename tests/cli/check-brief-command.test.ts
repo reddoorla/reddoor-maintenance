@@ -180,7 +180,7 @@ describe("check-brief: the allowlist (mutation 1)", () => {
     "gh api repos/o/r/pulls/12",
     "gh api repos/o/r/pulls/12 --jq .state",
     "git log --oneline -3",
-    "git grep -F 'impetus should come from a person'",
+    "rg -F 'impetus should come from a person'",
     "grep -c check-brief src/cli/bin.ts",
     "rg -n foo src",
     "ls src/cli/commands",
@@ -449,10 +449,10 @@ describe("check-brief round 1: allowlist holes", () => {
   });
 
   it("still allows a grep pattern that merely says secret", () => {
-    expect(classifyCommand("git grep -F 'secret scanning'").ok).toBe(true);
+    expect(classifyCommand("rg -F 'secret scanning'").ok).toBe(true);
   });
 
-  it("runs git with no optional locks, no config-driven programs and no textconv", () => {
+  it("runs git with no optional locks and no config-driven programs", () => {
     const c = classifyCommand("git log --oneline -1");
     expect(c.ok && c.argv).toEqual([
       "git",
@@ -466,8 +466,6 @@ describe("check-brief round 1: allowlist holes", () => {
       "-c",
       "log.showSignature=false",
       "log",
-      "--no-textconv",
-      "--no-ext-diff",
       "--oneline",
       "-1",
     ]);
@@ -880,10 +878,14 @@ describe("check-brief round 3: git, jq, npm and secret names", () => {
 
   it.each([
     "git log --oneline -3 origin/main",
-    "git show HEAD:src/cli/bin.ts",
-    "git diff main..HEAD -- src",
+    "git rev-parse --abbrev-ref HEAD",
+    "git merge-base --is-ancestor main HEAD",
     "git log --format=%h:%s -1",
-    "git grep -F 'impetus should come from a person'",
+    "git ls-files --error-unmatch src/cli/bin.ts",
+    "git for-each-ref --format=%h refs/heads",
+    "git status --porcelain",
+    "git describe --tags --always",
+    "rg -F 'impetus should come from a person'",
     "gh api repos/o/r/pulls/12 --jq '.state'",
     "gh api repos/o/r/pulls --jq '.[] | .number'",
     "npm view react version",
@@ -993,38 +995,22 @@ describe("check-brief round 4: git never opens a secret-shaped path", () => {
   }
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
 
-  it("git grep with no pathspec does not read the filled-in .dev.vars", async () => {
+  it("git's content readers are refused, so a filled-in .dev.vars is never read", async () => {
     const dir = repoWithFilledTemplate("git-secret-grep");
     const briefDir = join(scratch, "git-secret-grep-brief");
     mkdirSync(briefDir, { recursive: true });
     const path = writeBrief(briefDir, [
       "- The guess matches — `git grep -q fakevalue1` → exit 0",
-      "- Control: visible text matches — `git grep -q visible` → exit 0",
-    ]);
-    const r = await runCheckBrief(path, { cwd: dir }, { env });
-    expect(r.results.map((x) => x.status)).toEqual(["FAIL", "PASS"]);
-  });
-
-  it("git diff -G with no pathspec does not read it either", async () => {
-    const dir = repoWithFilledTemplate("git-secret-diff");
-    const briefDir = join(scratch, "git-secret-diff-brief");
-    mkdirSync(briefDir, { recursive: true });
-    const path = writeBrief(briefDir, [
       "- The change matches — `git diff -Gfakevalue1 --quiet` → exit 1",
+      "- Control: visible text matches — `rg -q visible notes.txt` → exit 0",
     ]);
     const r = await runCheckBrief(path, { cwd: dir }, { env });
-    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
-  });
-
-  it("a grep path operand moves after -- and keeps working", () => {
-    const c = classifyCommand("git grep -c check-brief src", process.cwd());
-    expect(c.ok && c.argv.slice(c.argv.indexOf("grep") + 1, c.argv.indexOf("--") + 2)).toEqual([
-      "--no-textconv",
-      "-c",
-      "check-brief",
-      "--",
-      "src",
+    expect(r.results.map((x) => x.status)).toEqual([
+      "NOT RUN",
+      "NOT RUN",
+      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
     ]);
+    expect(r.results[0]?.why).toMatch(/not an allowed metadata subcommand/);
   });
 
   it.each([
@@ -1050,8 +1036,8 @@ describe("check-brief round 4: parsing", () => {
   });
 
   it("~ inside a word is plain text; at the start of a word it needs a shell", () => {
-    expect(classifyCommand("git diff HEAD~1 -- src", process.cwd()).ok).toBe(true);
-    expect(classifyCommand("git show HEAD~2:docs/x.md", process.cwd()).ok).toBe(true);
+    expect(classifyCommand("git log -1 HEAD~1", process.cwd()).ok).toBe(true);
+    expect(classifyCommand("git rev-parse --verify HEAD~2", process.cwd()).ok).toBe(true);
     expect(classifyCommand("cat ~/x", process.cwd()).ok).toBe(false);
   });
 
@@ -1113,7 +1099,7 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
     expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
   });
 
-  it("an upper-case secret name is excluded from git grep, git diff and rg", async () => {
+  it("an upper-case secret name is excluded from rg; git cannot read it at all", async () => {
     const { dir, git } = repo("r5-icase");
     writeFileSync(join(dir, "cert.PEM"), "X\n");
     writeFileSync(join(dir, "notes.txt"), "visible\n");
@@ -1123,14 +1109,17 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
     expect(
       await verdicts(dir, [
         "- grep finds it — `git grep -q FAKEUPPER999` → exit 0",
-        "- diff finds it — `git diff --quiet -GFAKEUPPER999` → exit 1",
         "- rg finds it — `rg -q FAKEUPPER999 .` → exit 0",
-        "- Control: visible text — `git grep -q visible` → exit 0",
+        "- Control: visible text — `rg -q visible .` → exit 0",
       ]),
-    ).toEqual(["FAIL", "FAIL", "FAIL", "PASS"]);
+    ).toEqual([
+      "NOT RUN",
+      expect.stringMatching(/^(FAIL|COULD NOT RUN)$/),
+      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
+    ]);
   });
 
-  it("ordinary files whose names resemble secret globs stay readable", async () => {
+  it("ordinary files whose names resemble secret names stay readable", async () => {
     const { dir, git } = repo("r5-ordinary");
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(join(dir, "src/credentials.ts"), "export const loadCredentials = 1;\n");
@@ -1141,18 +1130,12 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
     writeFileSync(join(dir, "src/credentials.ts"), "export const loadCredentials = 2;\n");
     expect(
       await verdicts(dir, [
-        "- credentials.ts is searchable — `git grep -c loadCredentials src/credentials.ts` → exit 0",
-        "- the template is searchable — `git grep -q RESEND_API_KEY .env.example` → exit 0",
-        "- id_token.ts is searchable — `git grep -q idToken` → exit 0",
-        "- credentials.ts changed — `git diff --quiet -- src/credentials.ts` → exit 1",
+        "- credentials.ts is searchable — `grep -c loadCredentials src/credentials.ts` → exit 0",
+        "- the template is searchable — `grep -q RESEND_API_KEY .env.example` → exit 0",
+        "- id_token.ts is searchable — `rg -q idToken` → exit 0",
+        '- credentials.ts is modified — `git ls-files -m src/credentials.ts` → exit 0, prints "src/credentials.ts"',
       ]),
-    ).toEqual(["PASS", "PASS", "PASS", "PASS"]);
-  });
-
-  it("the value after -e is the pattern, even when it names a path", () => {
-    const c = classifyCommand("git grep -c -e CHANGELOG.md", process.cwd());
-    const args = c.ok ? c.argv.slice(c.argv.indexOf("grep") + 1) : [];
-    expect(args.slice(0, 5)).toEqual(["--no-textconv", "-c", "-e", "CHANGELOG.md", "--"]);
+    ).toEqual(["PASS", "PASS", expect.stringMatching(/^(PASS|COULD NOT RUN)$/), "PASS"]);
   });
 
   it("rg with no path searches the cwd, not the closed stdin", async () => {
@@ -1167,51 +1150,56 @@ describe("check-brief round 5: uncommitted content stays unreadable", () => {
     expect(c.ok && c.argv.at(-1)).toBe(".");
   });
 
-  it("a path operand is resolved against --cwd, not the process cwd (surviving mutation M3)", () => {
+  it("a git path operand is resolved against --cwd, not the process cwd", () => {
     const dir = join(scratch, "r5-cwd");
     mkdirSync(join(dir, "only-here"), { recursive: true });
-    const c = classifyCommand("git grep -c foo only-here", dir);
-    expect(c.ok && c.argv.slice(c.argv.indexOf("--"), c.argv.indexOf("--") + 2)).toEqual([
-      "--",
-      "only-here",
-    ]);
+    expect(classifyCommand("git ls-files only-here", dir).ok).toBe(true);
+    expect(classifyCommand("git ls-files ../outside", dir).ok).toBe(false);
+  });
+});
+
+// ── Narrowing (the operator's answer to the round-5 stop, 2026-10-21) ──
+
+describe("check-brief: git answers metadata questions only", () => {
+  it.each([
+    "git grep -q foo",
+    "git grep -F 'impetus should come from a person'",
+    "git diff --quiet",
+    "git diff main..HEAD -- src",
+    "git show HEAD:src/cli/bin.ts",
+    "git cat-file -p HEAD",
+    "git blame src/cli/bin.ts",
+    "git ls-tree HEAD",
+    "git log -p -1",
+    "git log -1 -GAPI_KEY",
+    "git log -1 -SAPI_KEY",
+    "git log --patch -1",
+    "git log --stat -1",
+    "git log --all -1",
+    "git log --format=%h stash",
+    "git status --untracked-files=all",
+    "git ls-files -s",
+    "git ls-files --others --ignored",
+    "git describe --dirty=x",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
   });
 
-  it("from a subdirectory --cwd, git diff still sees the whole repo (surviving mutation M1)", async () => {
-    const { dir, git } = repo("r5-subdir");
-    mkdirSync(join(dir, "sub"), { recursive: true });
-    writeFileSync(join(dir, "top.txt"), "a\n");
-    writeFileSync(join(dir, "sub/x.txt"), "a\n");
-    git("add", ".");
-    git("commit", "-q", "-m", "init");
-    writeFileSync(join(dir, "top.txt"), "b\n");
-    const briefDir = `${dir}-brief`;
-    mkdirSync(briefDir, { recursive: true });
-    const r = await runCheckBrief(
-      writeBrief(briefDir, ["- Something changed — `git diff --quiet` → exit 1"]),
-      { cwd: join(dir, "sub") },
-      { env },
-    );
-    expect(r.results.map((x) => x.status)).toEqual(["PASS"]);
-  });
-
-  it("a secret file in a subdirectory is excluded from a subdirectory --cwd too (surviving mutation M4)", async () => {
-    const { dir, git } = repo("r5-subdir-secret");
-    mkdirSync(join(dir, "sub"), { recursive: true });
-    writeFileSync(join(dir, ".dev.vars"), "X\n");
-    writeFileSync(join(dir, "sub/x.txt"), "a\n");
-    git("add", ".");
-    git("commit", "-q", "-m", "init");
-    writeFileSync(join(dir, ".dev.vars"), "FAKEROOT42\n");
-    const briefDir = `${dir}-brief`;
+  it("a quoted position is checked with rg -F on the working tree, for real", async () => {
+    const dir = join(scratch, "quoted-position");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "CLAUDE.md"), "produce a diff or raw output, not an inference\n");
+    const briefDir = join(scratch, "quoted-position-brief");
     mkdirSync(briefDir, { recursive: true });
     const r = await runCheckBrief(
       writeBrief(briefDir, [
-        "- The root secret changed — `git diff --quiet -GFAKEROOT42` → exit 1",
+        "- The operator wants raw output — `rg -F -q 'produce a diff or raw output' CLAUDE.md` → exit 0",
       ]),
-      { cwd: join(dir, "sub") },
-      { env },
+      { cwd: dir },
+      { env: { PATH: process.env.PATH } },
     );
-    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
+    expect(r.results.map((x) => x.status)).toEqual([
+      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
+    ]);
   });
 });

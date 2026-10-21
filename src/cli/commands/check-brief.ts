@@ -1,5 +1,5 @@
-import { execFile, execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -33,9 +33,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
  * are refused. Content committed to the repository is out of scope: whoever
  * can read the PR can read the repository. The checkout's own git config is
  * trusted; the allowlist guards against the brief's command, not the repo.
- * The stash and the reflog are uncommitted content and are refused. `git
- * status` can still say that a secret-shaped file was modified (one bit about
- * state, not content).
+ * git answers metadata questions only (see GIT_TOOLS); its content readers,
+ * the stash and the reflog are refused. `git status` can still say that a
+ * secret-shaped file was modified (one bit about state, not content).
  */
 
 export type VerifyLine =
@@ -412,78 +412,9 @@ export function isReadOnlyApiCall(args: string[]): boolean {
   return true;
 }
 
-/** Whether `arg` names one of `longs` or a prefix of it (GNU tools and git both
- *  take an unambiguous prefix: `--outp` is `--output`), or carries one of
- *  `shorts` anywhere in a bundle of short flags (`-iO` holds `-O`). */
-function namesOption(arg: string, longs: string[], shorts = ""): boolean {
-  if (arg.startsWith("--")) {
-    const name = arg.split("=")[0] as string;
-    return name.length >= 3 && longs.some((l) => l.startsWith(name));
-  }
-  if (arg.startsWith("-") && arg.length > 1) {
-    return [...arg.slice(1)].some((ch) => shorts.includes(ch));
-  }
-  return false;
-}
-
-const GIT_READ = new Set([
-  "log",
-  "show",
-  "grep",
-  "ls-files",
-  "ls-tree",
-  "rev-parse",
-  "cat-file",
-  "diff",
-  "status",
-  "for-each-ref",
-  "merge-base",
-  "describe",
-  "blame",
-]);
-// Options that make a read-only git subcommand write a file, run a program,
-// or read outside the repository (`--no-index`, `--contents`, `--file`).
-const GIT_DANGEROUS = [
-  "--output",
-  "--open-files-in-pager",
-  "--ext-diff",
-  "--textconv",
-  "--filters",
-  "--show-signature",
-  "--upload-pack",
-  "--exec",
-  "--no-index",
-  "--contents",
-  "--exclude-from",
-  "--file",
-  "--untracked",
-  "--no-exclude-standard",
-  "--ignore-revs-file",
-  // Stash commits and reflog entries hold uncommitted content; so does every
-  // object in the store (`--batch-all-objects`), and `--stage` prints the
-  // staged blob ids. None of that is "committed to the repository".
-  "--all",
-  "--glob",
-  "--reflog",
-  "--walk-reflogs",
-  "--indexed-objects",
-  "--alternate-refs",
-  "--batch",
-  "--batch-check",
-  "--batch-command",
-  "--batch-all-objects",
-  "--stage",
-];
-// A revision that reaches the stash, by name or through the reflog syntax.
+// A revision that reaches the stash, by name or through the reflog syntax:
+// stash commits and reflog entries hold uncommitted content.
 const GIT_STASH_REF = /stash|@\{/i;
-// Short options of the same kind, per subcommand.
-const GIT_DANGEROUS_SHORTS: Record<string, string> = {
-  grep: "Of",
-  "ls-files": "Xs",
-  blame: "S",
-  log: "g",
-  show: "g",
-};
 // Prepended to every git run: no index refresh under a lock (another session
 // may share the worktree), and no config-driven program the flags can switch
 // on (fsmonitor hook, pager, external diff, signature check). The checkout's
@@ -499,17 +430,13 @@ const GIT_GLOBALS = [
   "-c",
   "log.showSignature=false",
 ];
-// textconv drivers are named in .gitattributes and run from config.
-const GIT_NO_TEXTCONV = new Set(["log", "show", "diff", "grep", "blame"]);
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Paths are confined to --cwd; inside it, these names are the ones that hold
 // a secret, which a line could otherwise test one guessed prefix at a time
 // through its exit code. Committed templates (`.env.example`) stay readable.
 const SENSITIVE_NAME =
   /^(?:\.git|\.docker|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.pypirc|\.htpasswd|\.yarnrc\.yml|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|.*\.(?:pem|key|p12|pfx|tfvars))$/i;
-// The same names as globs, so a recursive search (rg) or a git command with no
-// pathspec never opens them: a tracked template filled in locally is uncommitted
-// content, and `git grep -q <guess>` would read it.
+// The same names as globs, so a recursive rg search never opens them.
 export const SECRET_GLOBS = [
   ".env",
   ".env.*",
@@ -545,69 +472,6 @@ export const SECRET_GLOBS = [
 // --iglob: SENSITIVE_NAME ignores case, so `cert.PEM` is a secret too.
 const RG_EXCLUDES = SECRET_GLOBS.flatMap((g) => ["--iglob", `!${g}`]);
 
-/** Exclude pathspecs for git: the checkout's own tracked paths that
- *  SENSITIVE_NAME matches (any segment, any case), each as a literal path from
- *  the top. Read from the index, so it is exact: `src/credentials.ts` and
- *  `.env.example` stay in, `cert.PEM` and a staged `.dev.vars` stay out. */
-function gitSecretExcludes(cwd: string): string[] {
-  let listed: string;
-  try {
-    listed = execFileSync(
-      "git", // `:/`: the whole repo, even when --cwd is a subdirectory.
-      ["--no-optional-locks", "ls-files", "-z", "--full-name", "--", ":/"],
-      {
-        cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        env: childEnv("git", process.env),
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
-  } catch {
-    return [];
-  }
-  return listed
-    .split("\0")
-    .filter((f) => f && f.split("/").some((part) => SENSITIVE_NAME.test(part)))
-    .map((f) => `:(top,exclude,literal)${f}`);
-}
-// The git subcommands that read working-tree or index content across the repo
-// when no pathspec narrows them.
-const GIT_PATHSPEC_READERS = new Set(["grep", "diff"]);
-
-/** Rebuild a `git grep`/`git diff` argv so every path comes after `--`, followed
- *  by exclude pathspecs for each secret name. grep's first operand is its
- *  pattern; any other operand naming an existing path moves after `--`. */
-function withSecretExcludes(sub: string, rest: string[], cwd: string): string[] {
-  const dd = rest.indexOf("--");
-  const before = dd === -1 ? rest : rest.slice(0, dd);
-  const paths = dd === -1 ? [] : rest.slice(dd + 1);
-  const keep: string[] = [];
-  let patternSeen = sub !== "grep" || before.some((a) => /^-e|^--regexp/.test(a));
-  for (let i = 0; i < before.length; i++) {
-    const a = before[i] as string;
-    // The value of -e (and of grep's numeric options) is never a path.
-    if (
-      /^(?:-e|--regexp|-[ABCm]|--max-depth|--max-count|--context|--after-context|--before-context)$/.test(
-        a,
-      )
-    ) {
-      keep.push(a);
-      if (i + 1 < before.length) keep.push(before[++i] as string);
-      continue;
-    }
-    if (a.startsWith("-")) keep.push(a);
-    else if (!patternSeen) {
-      keep.push(a);
-      patternSeen = true;
-    } else if (existsSync(resolve(cwd, a))) paths.push(a);
-    else keep.push(a);
-  }
-  // With no pathspec, grep searches the cwd's subtree and diff the whole repo.
-  const scope = paths.length > 0 ? paths : [sub === "grep" ? "." : ":/"];
-  return [...keep, "--", ...scope, ...gitSecretExcludes(cwd)];
-}
-
 /** A file tool's grammar: the short flags it may take (bundled or alone), the
  *  long ones, the flags that take a value and what the value must look like,
  *  and whether its first operand is a pattern rather than a path. Anything else
@@ -617,6 +481,8 @@ type FileTool = {
   shorts: string;
   longs: string[];
   valued?: Record<string, RegExp>;
+  /** Long options that take a value, as `--opt=value` or `--opt value`. */
+  valuedLongs?: Record<string, RegExp>;
   digits?: boolean;
   pattern?: boolean;
 };
@@ -662,6 +528,97 @@ const FILE_TOOLS: Record<string, FileTool> = {
   },
 };
 
+const ANY = /^[\s\S]*$/;
+const COUNT = /^\d+$/;
+
+/** git keeps only subcommands that answer metadata questions: does this commit,
+ *  branch, tag or tracked file exist, what is HEAD, what changed in name. The
+ *  content readers (`grep`, `diff`, `show`, `cat-file`, `blame`, `log -p`) are
+ *  gone: rounds 3 to 5 of #1635's review each found a new route through them to
+ *  uncommitted content (the operator chose this narrowing, 2026-10-21). A
+ *  quoted position is checked with `rg -F` or `grep -F` on the working tree,
+ *  which are confined to --cwd with secret names excluded. */
+const GIT_TOOLS: Record<string, FileTool> = {
+  log: {
+    shorts: "",
+    longs: [
+      "--oneline",
+      "--first-parent",
+      "--merges",
+      "--no-merges",
+      "--reverse",
+      "--name-only",
+      "--name-status",
+      "--decorate",
+      "--no-decorate",
+    ],
+    valued: { n: COUNT },
+    digits: true,
+    valuedLongs: {
+      "--format": ANY,
+      "--pretty": ANY,
+      "--max-count": COUNT,
+      "--since": ANY,
+      "--until": ANY,
+      "--after": ANY,
+      "--before": ANY,
+      "--author": ANY,
+      "--committer": ANY,
+      "--grep": ANY,
+      "--date": ANY,
+    },
+  },
+  "rev-parse": {
+    shorts: "q",
+    longs: [
+      "--abbrev-ref",
+      "--verify",
+      "--short",
+      "--show-toplevel",
+      "--is-inside-work-tree",
+      "--symbolic-full-name",
+      "--quiet",
+    ],
+    valuedLongs: { "--short": COUNT },
+  },
+  "ls-files": {
+    shorts: "cdmo",
+    longs: [
+      "--cached",
+      "--deleted",
+      "--modified",
+      "--others",
+      "--exclude-standard",
+      "--error-unmatch",
+      "--full-name",
+    ],
+  },
+  "for-each-ref": {
+    shorts: "",
+    longs: [],
+    valuedLongs: {
+      "--format": ANY,
+      "--sort": ANY,
+      "--count": COUNT,
+      "--contains": ANY,
+      "--merged": ANY,
+      "--no-merged": ANY,
+      "--points-at": ANY,
+    },
+  },
+  "merge-base": { shorts: "", longs: ["--is-ancestor"] },
+  describe: {
+    shorts: "",
+    longs: ["--tags", "--always", "--exact-match", "--long"],
+    valuedLongs: { "--abbrev": COUNT, "--match": ANY, "--exclude": ANY },
+  },
+  status: {
+    shorts: "sb",
+    longs: ["--porcelain", "--short", "--branch"],
+    valuedLongs: { "--untracked-files": /^(?:no|normal)$/ },
+  },
+};
+
 /** Split a file tool's arguments by its grammar, or say what it refuses. */
 function parseFileArgs(
   bin: string,
@@ -676,6 +633,16 @@ function parseFileArgs(
       break;
     }
     if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const name = eq === -1 ? a : a.slice(0, eq);
+      const valueRe = tool.valuedLongs?.[name];
+      if (valueRe) {
+        const value = eq === -1 ? args[++i] : a.slice(eq + 1);
+        if (value === undefined || !valueRe.test(value)) {
+          return { ok: false, reason: `${bin}: ${name} takes a different value` };
+        }
+        continue;
+      }
       if (!tool.longs.includes(a))
         return { ok: false, reason: `${bin}: option ${a} is not allowed` };
       continue;
@@ -764,32 +731,24 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     return { ok: true, argv };
   }
   if (bin === "git") {
-    if (!sub || !GIT_READ.has(sub)) return refuse(`git ${sub ?? ""}: not a read-only subcommand`);
-    const shorts = GIT_DANGEROUS_SHORTS[sub] ?? "";
-    if (rest.some((a) => namesOption(a, GIT_DANGEROUS, shorts))) {
-      return refuse("git: an option that writes, runs a program or reads outside the repo");
-    }
-    if (rest.some((a) => !a.startsWith("--") && GIT_STASH_REF.test(a))) {
+    const grammar = sub ? GIT_TOOLS[sub] : undefined;
+    if (!sub || !grammar) return refuse(`git ${sub ?? ""}: not an allowed metadata subcommand`);
+    const parsed = parseFileArgs(`git ${sub}`, rest, grammar);
+    if (!parsed.ok) return parsed;
+    if (rest.some((a) => GIT_STASH_REF.test(a))) {
       return refuse("git: the stash and the reflog hold uncommitted content");
     }
-    // Every operand, and every --opt=value, must stay inside --cwd: given a
-    // path outside the work tree, `git diff` switches to --no-index by itself.
-    for (const a of rest) {
-      const value = a.startsWith("-") ? (a.includes("=") ? a.slice(a.indexOf("=") + 1) : "") : a;
+    // Operands are revisions or paths; any that is a path must stay inside --cwd.
+    for (const a of parsed.operands) {
       // `HEAD:src/x` names a blob in the repo, not a path; `../x:y` is still a path.
-      const path = /^[^/.~][^:]*:/.test(value) ? "" : value;
-      if (!path) continue;
-      const why = confined(path, cwd);
+      if (/^[^/.~][^:]*:/.test(a)) continue;
+      const why = confined(a, cwd);
       if (why) return refuse(`git: ${why}`);
     }
-    // git confines pathspecs to the repo itself; a committed `.env` is still a secret.
     if (rest.some((a) => a.split(/[:/=]/).some((part) => SENSITIVE_NAME.test(part)))) {
       return refuse("git: a path that may hold a secret");
     }
-    const extra = GIT_NO_TEXTCONV.has(sub) ? ["--no-textconv"] : [];
-    if (sub === "log" || sub === "show" || sub === "diff") extra.push("--no-ext-diff");
-    const args = GIT_PATHSPEC_READERS.has(sub) ? withSecretExcludes(sub, rest, cwd) : rest;
-    return { ok: true, argv: ["git", ...GIT_GLOBALS, sub, ...extra, ...args] };
+    return { ok: true, argv: ["git", ...GIT_GLOBALS, sub, ...rest] };
   }
   if (bin === "sed") {
     // Exactly `sed -n <a>[,<b>]p <file>…`: GNU sed reads options after the
