@@ -14,9 +14,9 @@ import {
   gatingFields,
   isHealthGateClear,
 } from "../../../../src/reports/checklist.js";
-import { rendersCommentary } from "../../../../src/reports/render.js";
+import { rendersCommentary } from "../../../../src/reports/template-for.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
-import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/orchestrate.js";
+import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
 import {
   SITE_STATUS_OPTIONS,
