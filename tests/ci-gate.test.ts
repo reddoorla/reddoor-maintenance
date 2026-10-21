@@ -48,7 +48,9 @@ describe("the CI workflow and `pnpm verify` are one gate", () => {
 
   it("verify covers every gate, including the ones a local run tends to skip", () => {
     const steps = verifySteps();
-    for (const gate of ["pnpm typecheck", "pnpm test:dist"]) {
+    // cockpit:build is the dashboard site's production bundle, which netlify.toml builds;
+    // without it here only a deploy preview would catch a bundle-time break (#1577).
+    for (const gate of ["pnpm typecheck", "pnpm test:dist", "pnpm cockpit:build"]) {
       expect(steps).toContain(gate);
     }
   });
@@ -128,6 +130,63 @@ describe("a workflow that runs the suite checks out the tags the suite reads", (
         );
       })
       .map(({ f }) => f);
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * Every workflow that runs the suite must generate the cockpit's SvelteKit files first.
+ *
+ * The cockpit tests load `cockpit/.svelte-kit/tsconfig.json`, which only `svelte-kit sync`
+ * writes, and only from the repo root (svelte.config.js sits there and sets `outDir`).
+ * ci.yml and release.yml get it from `pnpm typecheck` → `cockpit:check`; time-travel.yml
+ * ran `pnpm test` alone, so once the cockpit suite landed (#1568) every one of its 35
+ * files failed to load and the weekly run would have gone red blaming the wall clock
+ * (#1616) — and stayed blind to the cockpit's own clock bugs until then.
+ */
+describe("a workflow that runs the suite syncs the cockpit before it", () => {
+  type Step = { name?: string; run?: string; "working-directory"?: string };
+  // Any line of the step, so a `run: |` block is policed too; not `test:dist`, which
+  // smokes the built package and loads no cockpit test.
+  const SUITE = /^\s*pnpm (test|test:coverage)(?=\s|$)/m;
+  // `pnpm typecheck` reaches `cockpit:check`, whose first command is the sync.
+  const SYNC = /^\s*pnpm (exec svelte-kit sync|typecheck|cockpit:check)\s*$/;
+
+  function suiteJobs(): { where: string; steps: Step[]; at: number }[] {
+    const dir = resolve(root, ".github/workflows");
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".yml"))
+      .flatMap((f) => {
+        const doc = yaml.load(readFileSync(resolve(dir, f), "utf-8")) as {
+          jobs?: Record<string, { steps?: Step[] }>;
+        };
+        return Object.entries(doc.jobs ?? {}).map(([job, j]) => {
+          const steps = j.steps ?? [];
+          return {
+            where: `${f}:${job}`,
+            steps,
+            at: steps.findIndex((s) => SUITE.test(s.run ?? "")),
+          };
+        });
+      })
+      .filter(({ at }) => at >= 0);
+  }
+
+  it("finds the jobs it is meant to police", () => {
+    expect(suiteJobs().map(({ where }) => where.split(":")[0])).toEqual(
+      expect.arrayContaining(["ci.yml", "release.yml", "time-travel.yml"]),
+    );
+  });
+
+  it("holds for every such job, from the repo root", () => {
+    const offenders = suiteJobs()
+      .filter(
+        ({ steps, at }) =>
+          !steps
+            .slice(0, at)
+            .some((s) => SYNC.test(s.run ?? "") && s["working-directory"] === undefined),
+      )
+      .map(({ where }) => where);
     expect(offenders).toEqual([]);
   });
 });
