@@ -1,4 +1,5 @@
 import { availableParallelism } from "node:os";
+import { fileURLToPath } from "node:url";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { coverageConfigDefaults, defineConfig } from "vitest/config";
 
@@ -15,6 +16,14 @@ export function maxWorkersFor(env: NodeJS.ProcessEnv): number | undefined {
 
 const workers = maxWorkersFor(process.env);
 
+// The cockpit's projects run Svelte without SvelteKit's plugin, so `$app/*`
+// resolves to test stand-ins (#1589).
+const appAlias = {
+  "$app/navigation": fileURLToPath(
+    new URL("./cockpit/tests/_helpers/app-navigation.ts", import.meta.url),
+  ),
+};
+
 export default defineConfig({
   test: {
     // The cockpit (#582) gets two projects of its own, so its Svelte compile
@@ -28,12 +37,13 @@ export default defineConfig({
       {
         extends: true,
         plugins: [svelte({ configFile: false })],
+        resolve: { alias: appAlias },
         test: { name: "cockpit-ssr", include: ["cockpit/tests/**/*.ssr.test.ts"] },
       },
       {
         extends: true,
         plugins: [svelte({ configFile: false })],
-        resolve: { conditions: ["browser"] },
+        resolve: { conditions: ["browser"], alias: appAlias },
         test: {
           name: "cockpit-dom",
           include: ["cockpit/tests/**/*.dom.test.ts"],

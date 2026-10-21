@@ -8,6 +8,7 @@ import {
   parseFleetTableQuery,
 } from "../../../src/dashboard/fleet-table.js";
 import { cases, NOW } from "../home/fixtures.js";
+import { navigate } from "../_helpers/app-navigation.js";
 
 /**
  * Sites (`/fleet`) with the browse panel merged in (#672 step 3), run in a DOM:
@@ -104,5 +105,49 @@ describe("Sites — the signal filters", () => {
     chip("vulns").click();
     flushSync();
     expect(rowsShown()).not.toContain("Zed Archived");
+  });
+});
+
+describe("Sites — what the signal filters say (#1589)", () => {
+  const meta = () => target.querySelector(".meta")!.textContent!.replace(/\s+/g, " ").trim();
+  const empty = () =>
+    [...target.querySelectorAll<HTMLElement>(".empty")].map((e) => e.textContent!.trim());
+
+  it("counts the rows a chip leaves shown, and only while a chip is on", () => {
+    render();
+    expect(meta()).toBe("4 of 4 sites");
+    chip("vulns").click();
+    flushSync();
+    expect(rowsShown()).toHaveLength(1);
+    expect(meta()).toBe("4 of 4 sites · 1 shown");
+    chip("all").click();
+    flushSync();
+    expect(meta()).toBe("4 of 4 sites");
+  });
+
+  it("says so when a chip hides every row", () => {
+    render();
+    expect(empty()).toEqual([]);
+    chip("url-unresolved").click();
+    flushSync();
+    expect(rowsShown()).toEqual([]);
+    expect(empty()).toEqual(["No sites carry this signal."]);
+    chip("vulns").click();
+    flushSync();
+    expect(empty()).toEqual([]);
+  });
+
+  it("drops the chip when a navigation (the GET form, Clear) lands on the page", () => {
+    render();
+    chip("vulns").click();
+    flushSync();
+    expect(rowsShown()).toHaveLength(1);
+    // SvelteKit keeps this component across client navigations, so only an
+    // explicit reset puts the chip back to "all".
+    navigate("/fleet?q=a");
+    flushSync();
+    expect(rowsShown()).toHaveLength(4);
+    expect(chip("all").getAttribute("aria-pressed")).toBe("true");
+    expect(chip("vulns").getAttribute("aria-pressed")).toBe("false");
   });
 });
