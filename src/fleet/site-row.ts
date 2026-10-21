@@ -491,7 +491,7 @@ export type SecurityAdvisory = {
    *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
   relationship?: "direct" | "transitive";
   /** Who reported it: `true` for the pnpm side of a merged audit (a lockfile the dependency
-   *  graph cannot read), `false` for every Dependabot alert. Absent on older rows and on the
+   *  graph cannot read, or an empty Dependabot answer the lockfile audit contradicted, #1612), `false` for every Dependabot alert. Absent on older rows and on the
    *  stand-alone `pnpm audit`/`npm audit` path, which is lockfile-sourced too. Not read yet:
    *  #1654 is to use it for a night the lockfile audit cannot run. */
   lockfile?: boolean;

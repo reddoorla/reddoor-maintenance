@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
@@ -270,21 +270,17 @@ function ghSeverityToApp(s: string): Severity {
   return "low";
 }
 
-/** The manifests an npm alert is filed against. A live alert on one of them shows the dependency
- *  graph read the npm tree; one on a workflow file or the pnpm binary does not (#1612). */
-const NPM_MANIFESTS = new Set([
-  "pnpm-lock.yaml",
-  "package.json",
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-]);
+/** The root lockfiles the lockfile audit reads. A live alert filed against one of them, at the
+ *  repo root, shows the dependency graph read the tree that audit would read (#1612). An alert on
+ *  a workflow file, the pnpm binary, a nested folder's lockfile or a `package.json` does not: the
+ *  graph falls back to `package.json` when it cannot parse a lockfile. */
+const ROOT_LOCKFILES = ["pnpm-lock.yaml", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock"];
 
 /** Build a security AuditResult from GitHub Dependabot alerts, or null if the fetch failed so
  *  the caller falls back to `pnpm audit`. ALL open alerts count toward the severity tallies —
  *  the cockpit's auto-patching (amber) vs Renovate-exhausted (red) bands decide urgency, so the
  *  prod/dev scope is carried on each advisory for display only, not used to weight the counts.
- *  `readsNpmTree` is whether any live alert sits on an npm manifest. */
+ *  `readsNpmTree` is whether any live alert sits on a root lockfile. */
 async function dependabotAudit(
   deps: DependabotDeps,
   repo: string,
@@ -332,8 +328,7 @@ async function dependabotAudit(
     }
     counts[severity] += 1;
     advisories.push(entry);
-    const manifest = a.manifestPath?.split("/").pop();
-    if (manifest && NPM_MANIFESTS.has(manifest)) readsNpmTree = true;
+    if (a.manifestPath && ROOT_LOCKFILES.includes(a.manifestPath)) readsNpmTree = true;
   }
 
   const liveStatus = classify(counts);
@@ -486,30 +481,55 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   return lockfileAudit(spawn, site.path, label, "prod");
 }
 
-/** Dependabot reports no live alert on an npm manifest, on a lockfile its dependency graph can
+/** Dependabot reports no live alert on a root lockfile, on a lockfile its dependency graph can
  *  read. The graph can stop reading a lockfile for reasons other than the multi-document one
  *  above, and that answer looks the same either way, so it is checked against the lockfile audit
  *  before it is believed (#1612: `200 []` beside a lockfile pinning minimist 1.2.0 read
- *  "Dependabot: 0 alerts"). An alert on a workflow file or the pnpm binary says nothing about the
- *  npm tree, so it does not stop the check. When the lockfile audit finds a live advisory, both
- *  stand, merged as on the hidden-lockfile path. When it finds none, or cannot run, Dependabot's
- *  answer stands. A live alert on an npm manifest shows the graph reads the tree, and there
- *  Dependabot stays the source on its own, as before #1612: it is the one that knows which
- *  alerts an operator dismissed. */
+ *  "Dependabot: 0 alerts"). An alert elsewhere (a workflow file, the pnpm binary, a nested
+ *  folder) says nothing about that lockfile, so it does not stop the check. A live alert on a
+ *  root lockfile shows the graph reads it, and there Dependabot stays the source on its own, as
+ *  before #1612: it is the one that knows which alerts an operator dismissed.
+ *  - The lockfile audit finds a live advisory: both stand, merged as on the hidden-lockfile path.
+ *  - It finds none, or the repo has no lockfile to check: Dependabot's answer stands.
+ *  - It cannot run: the skip stands and writes nothing, as on the hidden-lockfile path. Writing
+ *    Dependabot's answer alone would clear a lockfile advisory a good night wrote, and reset the
+ *    auto-fix counter, every night the registry flakes. */
 async function crossCheckDependabot(
   spawn: NonNullable<AuditContext["spawn"]>,
   dir: string,
   label: string,
   viaDependabot: AuditResult,
 ): Promise<AuditResult> {
+  if (!(await hasRootLockfile(dir))) return viaDependabot;
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
   const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
-  if (viaLockfile.status === "skip" || !hasLiveCounts(viaLockfile)) return viaDependabot;
+  if (viaLockfile.status === "skip") {
+    return {
+      ...viaLockfile,
+      summary:
+        `${viaLockfile.summary}; not written, as Dependabot's answer could not be checked ` +
+        `against the lockfile: ${viaDependabot.summary}`,
+    };
+  }
+  if (!hasLiveCounts(viaLockfile)) return viaDependabot;
   console.error(
-    `[security] ${label}: Dependabot reports no live alert, but ${viaLockfile.summary} — ` +
-      `adding pnpm audit to Dependabot`,
+    `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
+      `${viaLockfile.summary} — adding pnpm audit to Dependabot`,
   );
   return mergeAudits(viaLockfile, viaDependabot);
+}
+
+/** True when the repo root holds a lockfile the lockfile audit can read. */
+async function hasRootLockfile(dir: string): Promise<boolean> {
+  for (const name of ROOT_LOCKFILES) {
+    try {
+      await access(join(dir, name));
+      return true;
+    } catch {
+      // Not this one.
+    }
+  }
+  return false;
 }
 
 /** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
