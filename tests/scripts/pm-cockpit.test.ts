@@ -349,7 +349,9 @@ describe("pm-cockpit — a cardless item's flags and rows (#1570, #1571)", () =>
       .map((l) => l.split(" · ")[0]!);
 
   it("a Watch row that takes a dead letter escalated inside the window turns NEW", () => {
-    const out = formatPmCockpit(buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-05T00:00:00Z"));
+    const out = formatPmCockpit(
+      buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-05T00:00:00Z"),
+    );
     expect(out).toContain("- NEW Typo Co · broken · /s/typo-co");
   });
 
