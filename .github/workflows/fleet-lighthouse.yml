@@ -53,8 +53,9 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # netlify-deploy probes each site's latest production deploy via the Netlify
-          # API by site id. Without this the audit self-skips ("no NETLIFY_PAT") and
-          # never reds an unrelated site — so it degrades safely if the secret is absent.
+          # API by site id. Without this the audit skips ("no NETLIFY_PAT") without
+          # touching any site's row, and since #1605 the write gate reds the run:
+          # netlify-deploy measured nothing on every site it applied to.
           NETLIFY_PAT: ${{ secrets.NETLIFY_PAT }}
         run: |
           set -o pipefail

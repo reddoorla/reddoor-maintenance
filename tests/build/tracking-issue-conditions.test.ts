@@ -778,7 +778,8 @@ exit 1
   async function ghCalls(
     step: Found,
     env: Record<string, string>,
-    opts: { protectionOut?: string; configDriftOut?: string } = {},
+    /** `protectionOut: null` leaves protection.out absent; "" writes an empty one. */
+    opts: { protectionOut?: string | null; configDriftOut?: string } = {},
   ): Promise<string[][]> {
     const wf = await readFile(workflowPath(step.file), "utf-8");
     const script = stepRunScript(wf, step.label).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
@@ -786,8 +787,10 @@ exit 1
     await mkdir(join(dir, "bin"));
     await writeFile(join(dir, "bin", "gh"), GH, "utf-8");
     await chmod(join(dir, "bin", "gh"), 0o755);
-    const protectionOut = opts.protectionOut ?? PROTECTION_OUT;
-    if (protectionOut !== "") await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    const protectionOut = opts.protectionOut === undefined ? PROTECTION_OUT : opts.protectionOut;
+    if (protectionOut !== null) {
+      await writeFile(join(dir, "protection.out"), protectionOut, "utf-8");
+    }
     const configDriftOut = opts.configDriftOut ?? CONFIG_DRIFT_OUT;
     if (configDriftOut !== "") {
       await writeFile(join(dir, "config-drift.out"), configDriftOut, "utf-8");
@@ -908,14 +911,25 @@ exit 1
     const s = opens(all).find(
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
-    const none = await ghCalls(s, {}, { protectionOut: "" });
+    const none = await ghCalls(s, {}, { protectionOut: null });
     expect(calls(none, "create")).toEqual([]);
-    const existing = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: "" });
+    const existing = await ghCalls(s, { GH_EXISTING: EXISTING }, { protectionOut: null });
     expect(calls(existing, "comment")).toEqual([]);
     expect(calls(existing, "edit")).toEqual([]);
   });
 
-  it("protection-gap open and close both still run on a red run whose audit found a gap / none", () => {
+  // The guard keys on the file's ABSENCE: a CLI that crashed before printing a byte
+  // still leaves an empty file behind its `tee`, and that night still files.
+  it("protection-gap still files when the audit crashed with no output", async () => {
+    const s = opens(all).find(
+      (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
+    )!;
+    const got = await ghCalls(s, {}, { protectionOut: "" });
+    expect(calls(got, "create")).toHaveLength(1);
+    expect(bodyArg(calls(got, "create")[0]!)).toContain("see run output");
+  });
+
+  it("protection-gap open and close conditions hold on a red run whose audit found a gap / none", () => {
     const steps = all.filter(
       (s) =>
         s.file === "fleet-security.yml" &&
@@ -931,6 +945,21 @@ exit 1
       expect(
         evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, outcomes: { protection: want } }),
       ).toBe(false);
+    }
+  });
+
+  // #1605: a write-gate red in the audit step must not stop the steps behind it.
+  it("fleet-security's late token, Renovate dispatch and protection audit run on a red run, not a cancelled one", () => {
+    const labels = [
+      "id: app-token-late",
+      "Trigger Renovate for sites with actionable vulnerabilities",
+      "Protection coverage audit (org-wide)",
+    ];
+    for (const label of labels) {
+      const s = all.find((x) => x.file === "fleet-security.yml" && x.label === label)!;
+      expect(s, label).toBeDefined();
+      expect(evaluate(s.if ?? "success()", MAIN_FAILED), label).toBe(true);
+      expect(evaluate(s.if ?? "success()", MAIN_CANCELLED), label).toBe(false);
     }
   });
 

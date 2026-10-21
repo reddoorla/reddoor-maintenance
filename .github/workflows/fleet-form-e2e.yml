@@ -191,7 +191,9 @@ jobs:
           # months, and this was the only fleet nightly without it.
           #
           # The mass-flake gate below is NOT a substitute, and the gap is narrow
-          # enough to have hidden here: `total` is `wrote + failed`, so wrote=0
+          # enough to have hidden here: `total` was `wrote + failed` (since #1605
+          # it also counts na= and missing= sites, and the write gate above reds
+          # an empty sweep first), so wrote=0
           # forces failed=total and `failed * 4 > total` fires — EXCEPT when
           # total is 0 too. A sweep that attempted nothing (empty inventory, a
           # fleet source that returned no rows, a filter that matched none) reads

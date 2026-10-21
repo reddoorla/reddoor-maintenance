@@ -334,9 +334,10 @@ export async function runAuditCommand(
 
   // "Did every site actually get measured?" — emitted for any fleet sweep that ran
   // `smoke`, independent of --write-back, because it is a statement about the
-  // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY:
-  // an unmeasured site still writes (it just writes nothing new), so the write gate
-  // counts it as a success. That gap is exactly what hid four nights of timeouts.
+  // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY.
+  // An unmeasured site used to count as written there, which is what hid four
+  // nights of timeouts; since #1605 the write gate files it as failed too, but this
+  // line still names the cause.
   if (opts.fleet !== undefined && which.includes("smoke") && !opts.json) {
     const { formatUnmeasuredSmokeSummary } = await import("../../audits/smoke.js");
     output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;

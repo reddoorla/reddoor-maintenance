@@ -91,9 +91,17 @@ const unmeasuredSummary = (sites: string[]): string =>
 /** The CLI's output after the table for a sweep where `measured` sites ran their suite
  *  and each of `timedOut` exceeded its budget, through the real smoke summary and the
  *  real `runFleetWriteBack`. */
-async function realSweep(measured: number, timedOut: string[]): Promise<string> {
+async function realSweep(measured: number, timedOut: string[], na = 0): Promise<string> {
   const ok = Array.from({ length: measured }, (_, i) => `site-${i}`);
+  const noSuite = Array.from({ length: na }, (_, i) => `no-suite-${i}`);
   const results: AuditResult[] = [
+    ...noSuite.map((site) => ({
+      audit: "smoke" as const,
+      site,
+      status: "skip" as const,
+      summary: "no test:smoke script",
+      notApplicable: true as const,
+    })),
     ...ok.map((site) => ({
       audit: "smoke" as const,
       site,
@@ -108,7 +116,7 @@ async function realSweep(measured: number, timedOut: string[]): Promise<string> 
       summary: `${SMOKE_UNMEASURED_PREFIX} — suite exceeded its 10-minute budget`,
     })),
   ];
-  const sites = [...ok, ...timedOut];
+  const sites = [...ok, ...timedOut, ...noSuite];
   const wb = await runFleetWriteBack({
     results,
     which: ["smoke"],
@@ -136,7 +144,9 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::error::");
-    expect(r.out).toContain("all 13 site(s) with a smoke suite measured (0 without one)");
+    expect(r.out).toContain(
+      "fleet smoke: 13 site(s) measured and written, 0 without a smoke suite",
+    );
   });
 
   // A failing suite is a finding ABOUT THE SITE, recorded on its row. Reddening
@@ -151,6 +161,12 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::error::");
+  });
+
+  it("says what was measured when some sites have no smoke suite", async () => {
+    const r = await runGate({ stdout: await realSweep(9, [], 4), exit: 1 });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("fleet smoke: 9 site(s) measured and written, 4 without a smoke suite");
   });
 
   // THE REGRESSION THIS CHANGE EXISTS FOR. Before #1605 an unmeasured site still

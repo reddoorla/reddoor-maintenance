@@ -161,9 +161,10 @@ jobs:
             exit 1
           fi
 
-          # `total` counts not-applicable sites (no `test:smoke` script) since #1605.
+          # A green gate can still carry warnings (one site whose deps would not
+          # install), so say what was measured rather than claim all of it.
           na=$(grep -oE "FLEET_WRITE_SUMMARY .* na=[0-9]+" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 | grep -oE " na=[0-9]+" | cut -d= -f2 || true)
-          echo "fleet smoke: all $((total - ${na:-0})) site(s) with a smoke suite measured (${na:-0} without one)"
+          echo "fleet smoke: $wrote site(s) measured and written, ${na:-0} without a smoke suite"
 
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible,

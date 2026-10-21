@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { domainAudit } from "../../src/audits/domain.js";
@@ -23,6 +24,7 @@ import type { AuditResult, Site } from "../../src/types.js";
 let dir: string;
 let noScript: string;
 let withScript: string;
+let corrupt: string;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "na-marks-"));
@@ -30,6 +32,9 @@ beforeAll(() => {
   withScript = join(dir, "with-script");
   mkdirSync(noScript);
   mkdirSync(withScript);
+  corrupt = join(dir, "corrupt");
+  mkdirSync(corrupt);
+  writeFileSync(join(corrupt, "package.json"), '{\n<<<<<<< HEAD\n  "name": "c"\n');
   writeFileSync(join(noScript, "package.json"), JSON.stringify({ name: "a", scripts: {} }));
   writeFileSync(
     join(withScript, "package.json"),
@@ -72,6 +77,10 @@ const broken: Array<[string, () => Promise<AuditResult>]> = [
           fetchHealth: async () => ({ present: false }),
         },
       }),
+  ],
+  [
+    "smoke, package.json unparseable (a merge-conflict marker)",
+    () => smokeAudit({ site: { name: "c", path: corrupt } }),
   ],
   [
     "smoke, deps would not install",
@@ -132,5 +141,29 @@ describe("through the write gate", () => {
     expect(out.written).toEqual([]);
     expect(out.notApplicable).toEqual([]);
     expect(fleetWriteGate(out).red).toBe(true);
+  });
+});
+
+/** Every `notApplicable: true` in the audits, by file. A new by-design skip is added
+ *  here on purpose; a mark on a skip that means "the measurement broke" (pnpm or npx
+ *  missing, no lockfile, the live runner off) would drop that site from its audit's
+ *  denominator and could green a fleet-wide outage, so it must turn this red. */
+describe("the census of not-applicable marks", () => {
+  it("marks exactly the six by-design skips", () => {
+    const audits = fileURLToPath(new URL("../../src/audits/", import.meta.url));
+    const found: Record<string, number> = {};
+    for (const f of readdirSync(audits, { recursive: true }) as string[]) {
+      if (!f.endsWith(".ts")) continue;
+      const n = (readFileSync(join(audits, f), "utf-8").match(/notApplicable: true/g) ?? []).length;
+      if (n > 0) found[f] = n;
+    }
+    expect(found).toEqual({
+      "browser.ts": 1,
+      "domain.ts": 1,
+      "form-e2e.ts": 1,
+      "function-health.ts": 1,
+      "netlify-deploy.ts": 1,
+      "smoke.ts": 1,
+    });
   });
 });
