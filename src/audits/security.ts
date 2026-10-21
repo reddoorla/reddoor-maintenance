@@ -100,7 +100,7 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
       module: a.module_name ?? "unknown",
       severity: normalizeSeverity(a.severity),
       title: a.title ?? "(no title)",
-      ...(a.cves ? { cves: a.cves } : {}),
+      ...(a.cves?.length ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
       ...(ghsa ? { ghsa } : {}),
     });

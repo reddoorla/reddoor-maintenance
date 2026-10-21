@@ -496,6 +496,58 @@ describe("cross-check with a clean stored answer (#1654 review round 2)", () => 
   });
 });
 
+// Review round 3: pnpm reports `cves: []`, which a full night's merge spread over Dependabot's
+// CVE, while the stored view dropped the empty array, so a partial night kept the CVE (and, for
+// an alert with no GHSA, matched by it where the full night did not).
+describe("pnpm's empty CVE list (#1654 review round 3)", () => {
+  const sharpNoCve = { ...sharpHigh, cves: [] as string[] };
+  const withCve = sharpAlert({ cves: ["CVE-2026-0001"] });
+  const noGhsa = sharpAlert({
+    ghsaId: null,
+    cves: ["CVE-2026-0001"],
+    summary: "other words",
+    manifestPath: "b/package.json",
+  });
+
+  it("hidden lockfile: the stored advisory list matches the full night's", async () => {
+    await expectPartialNightsReadAsFull([full([withCve]), partialPlus([withCve])], {
+      advisories: [sharpNoCve],
+    });
+  });
+
+  it("cross-check: the same", async () => {
+    await expectPartialNightsReadAsFull(
+      [full([withCve]), partialPlus([withCve])],
+      { advisories: [sharpNoCve] },
+      { lockfile: ONE_DOCUMENT },
+    );
+  });
+
+  it("an alert with no GHSA counts the same on both nights", async () => {
+    await expectPartialNightsReadAsFull([full([withCve, noGhsa]), partialPlus([withCve, noGhsa])], {
+      advisories: [sharpNoCve],
+    });
+  });
+
+  it("cross-check: a stored answer with an info advisory and no counts is written as a clean one", async () => {
+    const info = {
+      module_name: "x",
+      severity: "info",
+      title: "informational",
+      url: "https://github.com/advisories/GHSA-iiii-iiii-0001",
+    };
+    const lodash = (manifestPath: string) =>
+      alert({ package: "lodash", ghsaId: "GHSA-aaaa-bbbb-cccc", manifestPath });
+    const alerts = [lodash("apps/a/package.json"), lodash("apps/b/package.json")];
+    const [v] = await expectPartialNightsReadAsFull(
+      [full(alerts), partialPlus(alerts)],
+      { advisories: [info], metadata: { low: 0 } },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(v!.counts).toEqual([0, 2, 0, 1]);
+  });
+});
+
 // Review round 1, lens 3.
 describe("more partial nights (#1654 review round 1)", () => {
   it("hidden lockfile: every Dependabot alert closed since the full night drops out", async () => {
