@@ -431,7 +431,7 @@ export async function matchHarness(
         notes.push(
           `package.json declares @sveltejs/kit as ${JSON.stringify(await readKitSpec(cwd))}, ` +
             `a spec match-harness cannot read, so ${MATCH_ROUTE_SERVER_RELATIVE} imports ` +
-            `\`dev\` from $app/environment (kit 2) — on SvelteKit 3 change it to $app/env by hand`,
+            `\`dev\` from $app/environment (kit 2) — on SvelteKit 3 change that line by hand to exactly ${KIT3_DEV_IMPORT}`,
         );
 
       // PASS 2 — write.

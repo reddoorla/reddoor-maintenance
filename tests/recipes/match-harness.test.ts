@@ -2152,7 +2152,7 @@ describe("the /dev/match route imports `dev` from the site's kit major (#1566)",
     const { result } = await installOnKit("catalog:");
     const note = kitNote(result.notes);
     expect(note).toContain('"catalog:"');
-    expect(note).toMatch(/\$app\/env by hand$/);
+    expect(note).toMatch(/by hand to exactly import \{ dev \} from "\$app\/env";$/);
   });
 
   it("on an unreadable spec, a route the user switched to `$app/env` as told is left alone, unflagged", async () => {
