@@ -191,6 +191,23 @@ describe("collectPrismicDriftAlerts — an ack mutes only the finding it names (
     }
   });
 
+  it("a blank ack does not cover a blank report either", () => {
+    // Two empty identities are equal; an ack that recorded nothing still covers
+    // nothing, whatever tonight's cell holds.
+    const items = collectPrismicDriftAlerts(
+      [
+        drifting({
+          prismicModelsDrift: "  ",
+          prismicAckUntil: daysFromNow(7),
+          prismicAckDrift: "",
+        }),
+      ],
+      DASH,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+  });
+
   it("ignores line endings and surrounding blank space when matching", () => {
     // A hand-run UPDATE through a Windows client, or a copy with a trailing
     // newline, is the same finding.
