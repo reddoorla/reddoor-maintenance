@@ -10,9 +10,9 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //
 //   - WITH JavaScript, under reduced motion, once the network is idle, after
 //     revealBelowFold has scrolled the page and let every reveal settle,
-//     SETTLE_MIN_MS later, and once two samples SETTLE_GAP_MS apart agree
-//     (a script that decides the layout late, beachfront's `isMobile`, has
-//     then run): the page as designed.
+//     SETTLE_MIN_MS later, and once two samples SETTLE_GAP_MS apart agree (a
+//     script that decides the layout late, beachfront's `isMobile`, has then
+//     run): the page as designed.
 //   - WITHOUT JavaScript, and with NO reduced-motion preference. A reveal's
 //     hidden state often sits behind `prefers-reduced-motion: no-preference`
 //     (the starters' `[data-reveal]`), so a no-JS render under `reduce` would
@@ -23,48 +23,48 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 //
 // Every text visible with JavaScript must be visible without it, and so must
 // every image (with a source to show), video, iframe, SVG, `aria-label` and
-// `[data-reveal]`. That catches a
-// reveal stranded at opacity 0 (vida #51: the hero's only <h1> inside a
-// `.reveal` that only script un-hides), a count-up that ships its start value
-// (vida #52: "0+", "0 people"), copy only a script renders, and a full-screen
-// cover (a preloader) that only script removes. Visible means a box of at
-// least 2×2 px, not `visibility: hidden`, an opacity (own times ancestors') of
-// at least 0.1, text that is not transparent, and a box not clipped away by an
-// ancestor that clips (overflow, clip-path) nor pushed off the page.
+// `[data-reveal]`. That catches a reveal stranded at opacity 0 (vida #51: the
+// hero's only <h1> inside a `.reveal` that only script un-hides), a count-up
+// that ships its start value (vida #52: "0+", "0 people"), copy only a script
+// renders, and a full-screen cover (a preloader) that only script removes.
+// Visible means a box of at least 2×2 px, not `visibility: hidden`, an opacity
+// (own times ancestors') of at least 0.1, text that is not transparent, and a
+// box not clipped away by an ancestor that clips (overflow, clip-path) nor
+// pushed off the page.
 //
 // Elements pair by place (a class-free path, since script adds classes, and
-// which occurrence of it), then by text: a text that script splits into
-// words, or copies into a marquee, is still matched, and an element script
-// inserts ahead of its siblings does not shift them into findings (a text
-// served at a place that script moved elsewhere was moved, not replaced). Not
-// failures: copy in a container that also holds a `<noscript>` alternative; a
-// number script updates (a year), unless the served value is zero (a
-// count-up); a date or time script rewrites ("January 5, 2026" to "9 months
-// ago", hours to "Open now"); an element clipped out of a box that shows
-// other content without JavaScript (a carousel's later slide, which an
-// autoplay timer can bring on screen at any sample); and, on a page with no
-// <main>, layers that are fixed or dialogs (a consent banner), since the whole
-// <body> is read there.
+// which occurrence of it), then by text: a text that script splits into words,
+// or copies into a marquee, is still matched, and an element script inserts
+// ahead of its siblings does not shift them into findings (a text served at a
+// place that script moved elsewhere was moved, not replaced). Not failures:
+// copy in a container that also holds a `<noscript>` alternative; a number
+// script updates (a year), unless the served value is zero (a count-up); a date
+// or time script rewrites ("January 5, 2026" to "9 months ago", hours to "Open
+// now"), unless the served value is a zero; a slide clipped out of its box
+// while a sibling slide of the same tag and class shows content without
+// JavaScript (a carousel's later slide, which an autoplay timer can bring on
+// screen at any sample); and, on a page with no <main>, layers that are fixed
+// or dialogs (a consent banner), since the whole <body> is read there.
 //
-// Both renders run at 1440×900 and at 390×844, and open shadow roots are
-// read with the page, slotted light children included.
+// Both renders run at 1440×900 and at 390×844, and open shadow roots are read
+// with the page, slotted light children included.
 //
 // Not covered: a control that is visible and dead before the bundle arrives
 // (roalson #47), the other half of R4, which needs the bundle blocked with
 // script on; text outside <main> on a page that has one; text inside iframes
 // and closed shadow roots; a count-up that ships a non-zero start ("12" to
 // "1,200"), which reads as a year; a carousel that cannot be advanced without
-// JavaScript (its later slides are not judged); content masked inside a box
-// that also shows other content; and copy a script renders more than
-// SETTLE_MIN_MS after load and after the samples agree.
+// JavaScript (its later slides are not judged); a reveal clipped among
+// same-tag, same-class siblings, which reads as a slide; and copy a script
+// renders more than SETTLE_MIN_MS after load and after the samples agree.
 
 /** How long the JS render waits after revealing before it samples: a late
  *  script (a review widget, a layout decided on a timer) has run by then. */
-export const SETTLE_MIN_MS = 2000;
+const SETTLE_MIN_MS = 2000;
 /** The gap between the JS render's samples, until two agree. */
-export const SETTLE_GAP_MS = 500;
+const SETTLE_GAP_MS = 500;
 /** Samples the JS render takes at most before it reads the last one. */
-export const SETTLE_TRIES = 8;
+const SETTLE_TRIES = 8;
 
 export type TextItem = {
   /** The path shown to a reader. */
@@ -171,9 +171,10 @@ export function sampleVisibleText(): TextSample {
     if (!ownText) {
       const label = el.getAttribute("aria-label");
       if (el instanceof HTMLImageElement) {
-        text = `image "${el.alt || el.getAttribute("src") || ""}"`;
+        // Named by its alt, never its source: a blur-up script swaps the source.
+        text = `image "${el.alt}"`;
       } else if (el instanceof HTMLIFrameElement) {
-        text = `iframe "${el.title || el.getAttribute("src") || ""}"`;
+        text = `iframe "${el.title}"`;
       } else if (el instanceof HTMLVideoElement) {
         text = `video ${el.getAttribute("src") ?? ""}`.trim();
       } else if (label) text = `"${label}"`;
@@ -225,25 +226,17 @@ export function sampleVisibleText(): TextSample {
       !el.getAttribute("src") &&
       !el.getAttribute("srcset") &&
       !el.parentElement?.querySelector("source[srcset]");
-    const visible =
-      !unsourced &&
-      rect.width >= 2 &&
-      rect.height >= 2 &&
-      style.visibility === "visible" &&
-      opacity >= 0.1 &&
-      !clipped &&
-      !offPage &&
-      !transparent;
-    // Visible but for the clipping box (a slide past the page's edge is past
-    // it because the box clips it).
-    const otherwise =
+    // Visible but for clipping: a slide past the page's edge is past it
+    // because its box clips it.
+    const shows =
       !unsourced &&
       rect.width >= 2 &&
       rect.height >= 2 &&
       style.visibility === "visible" &&
       opacity >= 0.1 &&
       !transparent;
-    pending.push({ el, kind: "item", text, visible, clip: clipped && otherwise ? clip : null });
+    const visible = shows && !clipped && !offPage;
+    pending.push({ el, kind: "item", text, visible, clip: clipped && shows ? clip : null });
   }
   // A full-screen cover at the viewport's centre: a fixed layer of 90% or more.
   for (
@@ -307,11 +300,31 @@ export function sampleVisibleText(): TextSample {
     else if (item.kind === "cover") cover = target;
     else {
       const clip = item.clip;
-      const parked =
-        !!clip &&
-        pending.some(
-          (o) => o.kind === "item" && o.visible && o.el !== item.el && clip.contains(o.el),
-        );
+      // Parked: a slide, one of a run of same-tag, same-class siblings inside
+      // the clipping box, where another of them shows content. A reveal
+      // clipped beside other copy (an eyebrow, a button) is not parked.
+      let parked = false;
+      for (
+        let n: Element | null = item.el;
+        clip && n && n !== clip && !parked;
+        n = n.parentElement
+      ) {
+        const parent: Element | null = n.parentElement;
+        if (!parent || !clip.contains(parent)) break;
+        for (const sib of Array.from(parent.children)) {
+          if (
+            sib === n ||
+            sib.tagName !== n.tagName ||
+            sib.getAttribute("class") !== n.getAttribute("class")
+          ) {
+            continue;
+          }
+          if (pending.some((o) => o.kind === "item" && o.visible && sib.contains(o.el))) {
+            parked = true;
+            break;
+          }
+        }
+      }
       items.push({
         target,
         key,
@@ -334,10 +347,10 @@ const quote = (text: string): string => `"${text.length > 60 ? `${text.slice(0, 
 
 /** A value only digits and separators make up: a year, a date, a total. */
 const NUMBER = /^[\d\s.,:/–-]+$/;
-/** A date or a time, written out: a month beside a number, a clock time, a
- *  relative date ("3 days ago", "today"). */
+/** A date or a time, written out: a month name beside a number, a clock
+ *  time, a relative date ("3 days ago"). */
 const DATE_OR_TIME =
-  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|\d\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\d{1,2}:\d{2}|\b\d{1,2}\s?(am|pm)\b|\b\d+\s+\w+\s+ago\b|\b(today|yesterday|tomorrow)\b/i;
+  /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\.?\s+\d|\d\s+(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b|\d{1,2}:\d{2}|\b\d{1,2}\s?(am|pm)\b|\b\d+\s+\w+\s+ago\b/i;
 
 /** One width's pair of renders. */
 export type NoJsPair = { width: number; withJs: TextSample; withoutJs: TextSample };
@@ -416,7 +429,9 @@ export function summarizeNoJs(url: string, pairs: NoJsPair[]): RuleOutcome {
       // inserted ahead of its siblings), not replaced: judged by text below.
       if (there && there.visible && !shownWithJs.has(there.text)) {
         const year = NUMBER.test(i.text) && NUMBER.test(there.text) && /[1-9]/.test(there.text);
-        const dateOrTime = DATE_OR_TIME.test(i.text) && DATE_OR_TIME.test(there.text);
+        // Both dates or times, the served one not a zero (a count-up's start).
+        const dateOrTime =
+          DATE_OR_TIME.test(i.text) && DATE_OR_TIME.test(there.text) && /[1-9]/.test(there.text);
         if (!year && !dateOrTime) {
           add(
             width,
@@ -458,7 +473,7 @@ export function summarizeNoJs(url: string, pairs: NoJsPair[]): RuleOutcome {
   };
 }
 
-export const NO_JS_VIEWPORTS = [
+const NO_JS_VIEWPORTS = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ] as const;

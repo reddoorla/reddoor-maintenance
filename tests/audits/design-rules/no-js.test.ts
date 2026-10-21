@@ -197,6 +197,18 @@ const PAGES: Record<string, string> = {
     `<h1>Page</h1><img alt="Hero photo" width="600" height="400" data-src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">`,
     `const i = document.querySelector("img"); i.src = i.dataset.src;`,
   ),
+  // Round 3's: a hero line masked in an overflow-hidden section beside a
+  // visible eyebrow of the same tag, which is not a slide (a false pass), and a blur-up image and an embed whose
+  // source script rewrites (false fails);
+  "/mask-beside-copy": released(
+    `section { overflow: hidden; padding: 40px } .x { display: block; transform: translateY(300px) } .x.in { transform: none }`,
+    `<section><p>Welcome to our practice</p><p class="x">Smile brighter</p></section>`,
+  ),
+  "/src-swap": page(
+    "",
+    `<h1>Page</h1><img alt="" width="300" height="200" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><iframe width="300" height="200" srcdoc="<p>map</p>"></iframe>`,
+    `document.querySelector("img").src = "data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs="; document.querySelector("iframe").srcdoc = "<p>map, decorated</p>";`,
+  ),
   "/year": page(
     "",
     `<h1>Page</h1><p>© <span id="y">2024</span> Studio</p>`,
@@ -351,6 +363,13 @@ describe.concurrent("design-rules R4 (no-JS visibility), in a real browser", () 
     expect(await problems("/dates")).toEqual([]);
   });
 
+  it("FAILS a heading masked beside visible copy, and PASSES a source script rewrites", async () => {
+    expect(await problems("/mask-beside-copy")).toEqual([
+      `"Smile brighter" is hidden without JavaScript ${BOTH}`,
+    ]);
+    expect(await problems("/src-swap")).toEqual([]);
+  });
+
   it("FAILS an embed only script mounts, and an image whose source only script sets", async () => {
     expect(await problems("/embed")).toEqual([
       `"iframe "Promo video"" is not rendered without JavaScript ${BOTH}`,
@@ -424,6 +443,25 @@ describe("summarizeNoJs", () => {
     expect(o.findings).toEqual([
       { target: "a", problem: 'reads "0" without JavaScript, "1,200" with it (at 1440px)' },
     ]);
+  });
+
+  it("reports a zeroed stat whose label starts like a month, copy that only mentions today, and a countdown served at zero", () => {
+    const o = summarizeNoJs(
+      "u",
+      at(
+        [
+          item("1,200 novels", true, "a"),
+          item("Reviews loaded today", true, "b"),
+          item("Sale ends in 12:30", true, "c"),
+        ],
+        [
+          item("0 novels", true, "a"),
+          item("Call today for a quote", true, "b"),
+          item("Sale ends in 00:00", true, "c"),
+        ],
+      ),
+    );
+    expect(o.findings.map((f) => f.target)).toEqual(["a", "b", "c"]);
   });
 
   it("reports text whose place holds other, invisible text as not rendered", () => {
