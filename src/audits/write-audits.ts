@@ -4,6 +4,7 @@ import {
   type AuditFieldInputs,
   type WebsiteRow,
   auditFields,
+  MAX_PERSISTED_ADVISORIES,
   siteSlug,
   type FieldSet,
 } from "../fleet/site-fields.js";
@@ -162,9 +163,19 @@ export function planAuditWrite(args: {
         moderate: target.securityVulnsModerate ?? 0,
         low: target.securityVulnsLow ?? 0,
       };
+      // At the cap, the unlisted part can be tonight's own alerts the list had no room for, so
+      // each of tonight's the stored list does not name is taken out of it; else every partial
+      // night would add the overflow again.
+      const capped = stored.length >= MAX_PERSISTED_ADVISORIES;
+      const unnamed = (s: SecurityAdvisory["severity"]): number =>
+        advisories.filter((b) => b.severity === s && !stored.some((a) => sameAdvisory(a, b)))
+          .length;
       const next = { ...counts };
       for (const s of ["critical", "high", "moderate", "low"] as const)
-        next[s] = counts[s] + listed(kept, s) + Math.max(0, storedCounts[s] - listed(stored, s));
+        next[s] =
+          counts[s] +
+          listed(kept, s) +
+          Math.max(0, storedCounts[s] - listed(stored, s) - (capped ? unnamed(s) : 0));
       counts = next;
       advisories = [...advisories, ...kept];
     }

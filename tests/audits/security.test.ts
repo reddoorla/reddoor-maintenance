@@ -838,6 +838,16 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     expect(hasSecurityCounts(result)).toBe(false);
   });
 
+  it("tags Dependabot's own advisories as not the lockfile audit's, on its stand-alone path too", async () => {
+    const result = await securityAudit({
+      site: { path: clone({ "pnpm-lock.yaml": pnpm11Lockfile }), gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([actionAlert]),
+      spawn: fakeSpawn({}),
+    });
+    const details = result.details as { advisories: Array<{ lockfile?: boolean }> };
+    expect(details.advisories.map((a) => a.lockfile)).toEqual([false]);
+  });
+
   it("a complete merged run is not partial", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },

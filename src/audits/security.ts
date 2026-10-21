@@ -311,6 +311,7 @@ async function dependabotAudit(
       ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
       ...(a.relationship ? { relationship: a.relationship } : {}),
+      lockfile: false,
     };
     // A ghost: the manifest GitHub filed this against is gone from the tree. Nothing can
     // fix it (erp-industrial #55, data-dynamiq #41 sat red for five days on exactly this),
@@ -456,23 +457,13 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
               summary:
                 `${viaDependabot.summary}; the lockfile audit could not run ` +
                 `(${viaLockfile.summary}), so this counts only what GitHub's dependency graph sees`,
-              details: partialDetails(viaDependabot),
+              details: { ...(viaDependabot.details as object), partial: true },
             }
           : viaLockfile;
       }
     }
   }
   return lockfileAudit(spawn, site.path, label, "prod");
-}
-
-/** A Dependabot result's details, marked partial, each advisory marked as not the lockfile's. */
-function partialDetails(result: AuditResult): object {
-  const details = result.details as { advisories: AdvisoryEntry[] };
-  return {
-    ...details,
-    advisories: details.advisories.map((a) => ({ ...a, lockfile: false })),
-    partial: true,
-  };
 }
 
 /** True when a Dependabot result tallies at least one live alert (ghosts do not count). */
@@ -614,7 +605,7 @@ function mergeAudits(lockfile: AuditResult, dependabot: AuditResult): AuditResul
     // count once.
     const i = advisories.findIndex((m) => sameAdvisory(m, a));
     if (i === -1) {
-      advisories.push({ ...a, lockfile: false });
+      advisories.push(a);
       continue;
     }
     advisories[i] = combineAdvisories(advisories[i]!, a);

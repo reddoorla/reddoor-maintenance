@@ -494,6 +494,9 @@ export type SecurityAdvisory = {
    *  lockfile the dependency graph cannot read. A partial run keeps a stored advisory unless this
    *  is `false` (Dependabot alone found it, and re-reads it each run). Absent on older rows. */
   lockfile?: boolean;
+  /** The GitHub advisory id (GHSA-…), when the source named one: what a later run matches this
+   *  stored entry on first, since the two sources word titles differently (#1409, #1561). */
+  ghsa?: string;
 };
 
 /** Critical first → low last; the persist cap and the dashboard list both lean on this. */
@@ -540,6 +543,7 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
     ...(scope ? { scope } : {}),
     ...(relationship ? { relationship } : {}),
     ...(typeof e["lockfile"] === "boolean" ? { lockfile: e["lockfile"] as boolean } : {}),
+    ...(typeof e["ghsa"] === "string" && e["ghsa"] ? { ghsa: e["ghsa"] as string } : {}),
   };
 }
 

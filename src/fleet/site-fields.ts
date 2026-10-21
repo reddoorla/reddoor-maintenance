@@ -288,7 +288,7 @@ function depsFields(counts: DepsCounts): FieldSet {
 }
 
 /** Cap persisted advisories so the JSON field can't blow up on a badly-neglected site. */
-const MAX_PERSISTED_ADVISORIES = 25;
+export const MAX_PERSISTED_ADVISORIES = 25;
 
 function securityAdvisoryFields(advisories: SecurityAdvisory[]): FieldSet {
   const capped = [...advisories]

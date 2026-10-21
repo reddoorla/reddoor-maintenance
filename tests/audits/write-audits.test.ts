@@ -317,6 +317,17 @@ describe("writeBackOneSite", () => {
       expect(fields).toMatchObject({ "Security Vulns Critical": 0, "Security Vulns High": 1 });
     });
 
+    it("below the cap, keeps pnpm's unlisted count beside a new Dependabot alert", async () => {
+      // pnpm's metadata said high 3 with one advisory in detail; tonight Dependabot finds a high
+      // the row has never seen. Neither explains the other two, so they stay.
+      const devalue = { ...sharp, module: "devalue", title: "prototype pollution" };
+      const { fields } = await write(
+        row({ securityVulnsHigh: 3, securityAdvisories: [{ ...sharp, lockfile: true }] }),
+        partialRun({ critical: 0, high: 1, moderate: 0, low: 0 }, [devalue]),
+      );
+      expect(fields["Security Vulns High"]).toBe(4);
+    });
+
     it("keeps a stored count the capped list does not explain", async () => {
       const { fields } = await write(
         row({ securityVulnsHigh: 3, securityAdvisories: [{ ...sharp, lockfile: true }] }),

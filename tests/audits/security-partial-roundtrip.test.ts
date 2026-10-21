@@ -160,4 +160,84 @@ describe("a partial security run through the Turso row and the auto-tick (#1561)
       "sharp",
     ]);
   });
+
+  async function freshDb() {
+    const db = await openDb({ url: ":memory:" });
+    await mirrorSiteInsert(
+      db,
+      { id: "recACME", fields: { Name: "Acme", Status: "maintained" } },
+      new Date().toISOString(),
+    );
+    const write = async (result: Awaited<ReturnType<typeof securityAudit>>) => {
+      const before = (await getSiteById(db, "recACME"))!;
+      const { summary } = planAuditWrite({ websites: [before], slug: "acme", results: [result] });
+      await mirrorHealthFields(db, "recACME", summary.fields!);
+      return (await getSiteById(db, "recACME"))!;
+    };
+    return { db, write };
+  }
+
+  it("more live alerts than the persisted list holds: the count stays put night after night", async () => {
+    const { db, write } = await freshDb();
+    const alerts = Array.from({ length: 30 }, (_, i) => ({
+      ...alert("low"),
+      package: `pkg${i}`,
+      summary: `advisory ${i}`,
+      ghsaId: `GHSA-aaaa-bbbb-${1000 + i}`,
+    }));
+    const nights = [];
+    for (let n = 0; n < 3; n++)
+      nights.push((await write(await partialRun(alerts))).securityVulnsLow);
+    await db.destroy();
+    expect(nights).toEqual([30, 30, 30]);
+  });
+
+  async function mergedThenPartial(
+    pnpmAdvisory: Record<string, unknown>,
+    dependabot: DependabotAlert,
+  ) {
+    const { db, write } = await freshDb();
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+    const pnpmOut = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 } },
+      advisories: { "1": pnpmAdvisory },
+    });
+    const merged = await write(
+      await securityAudit({
+        site: { path: dir, gitRepo: "reddoorla/acme" },
+        dependabotDeps: { listAlerts: async () => [dependabot] },
+        spawn: async (cmd) => {
+          if (cmd !== "pnpm") throw new Error(`ENOENT: ${cmd}`);
+          return { code: 1, stdout: pnpmOut, stderr: "" };
+        },
+      }),
+    );
+    const partial = await write(await partialRun([dependabot]));
+    await db.destroy();
+    return { merged, partial };
+  }
+  const pkg1 = (over: Partial<DependabotAlert>): DependabotAlert => ({
+    ...alert("high"),
+    package: "pkg1",
+    summary: "GitHub words it",
+    manifestPath: "pnpm-lock.yaml",
+    ...over,
+  });
+
+  it("an advisory both sources name by GHSA alone, under different titles, counts once on a partial night", async () => {
+    const { merged, partial } = await mergedThenPartial(
+      {
+        module_name: "pkg1",
+        severity: "high",
+        title: "pnpm words it",
+        cves: [],
+        github_advisory_id: "GHSA-aaaa-bbbb-1001",
+      },
+      pkg1({ ghsaId: "GHSA-aaaa-bbbb-1001", cves: [] }),
+    );
+    expect(merged.securityVulnsHigh).toBe(1);
+    expect(partial.securityVulnsHigh).toBe(1);
+    expect(partial.securityAdvisories).toHaveLength(1);
+  });
 });
