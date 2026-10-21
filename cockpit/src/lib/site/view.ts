@@ -28,7 +28,7 @@ import {
   withdrawConfirmText,
   UNAPPROVE_CONFIRM_TEXT,
 } from "../../../../src/dashboard/report-confirm.js";
-import type { SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
+import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 
 /**
@@ -572,7 +572,13 @@ export function buildSiteView(
     audited: site.lastLighthouseAuditAt ? relativeTimeFromNow(site.lastLighthouseAuditAt) : null,
     failingAudits: site.lighthouseFailingAudits ? site.lighthouseFailingAudits : null,
     setup: { score, total: setupTotal, missing: missingOnboarding(site, now) },
-    setupGaps: (siteAlarm?.setup ?? []).map((g) => ({ reason: g.reason, acceptKey: g.acceptKey })),
+    // The gaps come from the row alone, so they survive an alarm read that
+    // failed (siteAlarm null); otherwise the score would say "complete" over a
+    // gap the page simply could not show (review round 2).
+    setupGaps: (siteAlarm?.setup ?? assignTier(site, [], now).setup).map((g) => ({
+      reason: g.reason,
+      acceptKey: g.acceptKey,
+    })),
     alarm: alarm(siteAlarm),
     pending: reports.filter(isPendingApproval).map((r) => pendingView(r, site, now)),
     scores: allScoresNull

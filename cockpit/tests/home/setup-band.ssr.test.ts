@@ -45,7 +45,9 @@ const laneSummary = (html: string): string | null =>
 function cardGaps(html: string, name: string): string[] {
   const card = html.split('<article class="card"').find((c) => c.includes(`>${name}</a>`));
   if (!card) throw new Error(`no card for ${name}`);
-  return [...card.matchAll(/<li[^>]*>\s*☐ ([^<]*?)\s*<\/li>/g)].map((m) => m[1]!);
+  return [
+    ...card.matchAll(/<li[^>]*>\s*<span aria-hidden="true">☐<\/span> ([^<]*?)\s*<\/li>/g),
+  ].map((m) => m[1]!);
 }
 
 describe("/ — the Setup lane", () => {
@@ -171,5 +173,30 @@ describe("the onboarding score never says complete beside an open gap", () => {
   it("on a card, the setup tooltip names the open gap rather than complete", () => {
     expect(home([GIT_ONLY])).toContain('title="1 roster gap open"');
     expect(home([CLEAN])).toContain('title="Setup complete"');
+  });
+
+  it("on /s/:slug, the gaps still show when the site's alarm data failed to load", () => {
+    // page-data passes a null alarm when building it threw; the gaps come from the row.
+    const html = renderPage(SitePage, {
+      data: { view: buildSiteView(GIT_ONLY, [], [], null, NOW, null) },
+    });
+    expect(html).toContain("Git repo not recorded");
+    expect(html).not.toContain('class="setup-ok"');
+  });
+
+  it("on /s/:slug, missing onboarding items stay on the line with gaps below", () => {
+    const both = siteRow({
+      id: "recM",
+      name: "Both Kinds",
+      url: "https://m.example.com",
+      ga4PropertyId: null,
+      gitRepo: null,
+    });
+    const alarm = buildSiteAlarmContext(both, [], BASE, NOW);
+    const html = renderPage(SitePage, {
+      data: { view: buildSiteView(both, [], [], null, NOW, alarm) },
+    });
+    expect(html).toMatch(/<span class="setup-missing">Missing: GA4 property/);
+    expect(html).toContain("Git repo not recorded");
   });
 });
