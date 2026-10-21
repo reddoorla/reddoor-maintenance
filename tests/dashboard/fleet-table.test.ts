@@ -4,6 +4,7 @@ import {
   buildFleetTableModel,
   FLEET_SORT_KEYS,
   NO_STATUS_FILTER,
+  ALL_STATUSES_FILTER,
 } from "../../src/dashboard/fleet-table.js";
 import type { FleetSortKey } from "../../src/dashboard/fleet-table.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
@@ -68,11 +69,14 @@ describe("parseFleetTableQuery", () => {
 });
 
 const DEFAULT_QUERY = { sort: "name", dir: "asc", status: "", q: "" } as const;
+/** Every status, archived and external included: the query for tests about
+ *  inclusion and order rather than the default view. */
+const ALL_QUERY = { ...DEFAULT_QUERY, status: ALL_STATUSES_FILTER } as const;
 
 describe("buildFleetTableModel — inclusion", () => {
-  it("includes EVERY site — maintained, legacy, deprecated, and null-status rows", () => {
-    // This table is the whole fleet: nothing may be status-filtered out by
-    // default, unlike the cockpit's isDashboardVisible.
+  it("includes EVERY site under 'all statuses' — maintained, legacy, deprecated, and null-status rows", () => {
+    // This table is the whole fleet once the operator asks for it: the default
+    // view's hiding (below) is the only status filtering it does unasked.
     const sites = [
       makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
       makeWebsiteRow({ id: "r2", name: "Bravo", status: "archived", statusRaw: "legacy" }),
@@ -80,7 +84,7 @@ describe("buildFleetTableModel — inclusion", () => {
       makeWebsiteRow({ id: "r4", name: "Delta", status: null }),
       makeWebsiteRow({ id: "r5", name: "Echo", status: "building" }),
     ];
-    const m = buildFleetTableModel(sites, DEFAULT_QUERY);
+    const m = buildFleetTableModel(sites, ALL_QUERY);
     expect(m.rows).toHaveLength(5);
     expect(m.totalSites).toBe(5);
     expect(m.rows.map((r) => r.name)).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo"]);
@@ -119,6 +123,64 @@ describe("buildFleetTableModel — inclusion", () => {
       DEFAULT_QUERY,
     );
     expect(m.rows[0]!.slug).toBe("erp-industrials");
+  });
+});
+
+describe("buildFleetTableModel — the default view hides archived and external sites", () => {
+  // The operator, 2026-10-21: "they should only come up if I'm actively
+  // looking for them". Rows are built as production reads them: since the alias
+  // map was retired, `status` and `statusRaw` hold the same value.
+  const sites = [
+    makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
+    makeWebsiteRow({
+      id: "r2",
+      name: "Bravo",
+      status: storedStatus("legacy"),
+      statusRaw: "legacy",
+    }),
+    makeWebsiteRow({ id: "r3", name: "Charlie", status: "archived", statusRaw: "archived" }),
+    makeWebsiteRow({ id: "r4", name: "Delta", status: "external", statusRaw: "external" }),
+    makeWebsiteRow({ id: "r5", name: "Echo", status: null }),
+    makeWebsiteRow({ id: "r6", name: "Foxtrot", status: "building" }),
+    makeWebsiteRow({ id: "r7", name: "Golf", status: "hosted-only", statusRaw: "hosted-only" }),
+  ];
+  it("leaves out archived and external sites, and counts them", () => {
+    const m = buildFleetTableModel(sites, DEFAULT_QUERY);
+    expect(m.rows.map((r) => r.name)).toEqual(["Alpha", "Bravo", "Echo", "Foxtrot", "Golf"]);
+    expect(m.hiddenCount).toBe(2);
+    expect(m.totalSites).toBe(7);
+    // The filter still offers the hidden statuses, so they can be picked.
+    expect(m.statuses).toEqual(expect.arrayContaining(["legacy", "archived", "external"]));
+  });
+  it("keeps a retired name like `legacy` visible: it is an unrecognized status, surfaced", () => {
+    // canonicalizeStatus is the identity now, so a stored `legacy` is not
+    // `archived`; site-status.ts surfaces it as an anomaly, and hiding it would
+    // bury exactly the row that needs attention.
+    const m = buildFleetTableModel(sites, DEFAULT_QUERY);
+    expect(m.rows.find((r) => r.name === "Bravo")?.status).toBe("legacy");
+  });
+  it("shows every site under ALL_STATUSES_FILTER, hiding none", () => {
+    const m = buildFleetTableModel(sites, ALL_QUERY);
+    expect(m.rows).toHaveLength(7);
+    expect(m.hiddenCount).toBe(0);
+  });
+  it("shows a hidden status when the operator picks it", () => {
+    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: "external" });
+    expect(m.rows.map((r) => r.name)).toEqual(["Delta"]);
+    expect(m.hiddenCount).toBe(0);
+  });
+  it("finds a hidden site by search", () => {
+    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, q: "charlie" });
+    expect(m.rows.map((r) => r.name)).toEqual(["Charlie"]);
+    expect(m.hiddenCount).toBe(0);
+  });
+  it("lets the data win when a stored status literally equals the sentinel", () => {
+    const colliding = [
+      makeWebsiteRow({ id: "r1", name: "Alpha", status: storedStatus(ALL_STATUSES_FILTER) }),
+      makeWebsiteRow({ id: "r2", name: "Bravo", status: "maintained" }),
+    ];
+    const m = buildFleetTableModel(colliding, { ...DEFAULT_QUERY, status: ALL_STATUSES_FILTER });
+    expect(m.rows.map((r) => r.name)).toEqual(["Alpha"]);
   });
 });
 
@@ -263,7 +325,7 @@ describe("buildFleetTableModel — sorting", () => {
       makeWebsiteRow({ id: "r2", name: "Bravo", status: null }),
       makeWebsiteRow({ id: "r3", name: "Charlie", status: "archived", statusRaw: "legacy" }),
     ];
-    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, sort: "status" });
+    const m = buildFleetTableModel(sites, { ...ALL_QUERY, sort: "status" });
     expect(m.rows.map((r) => r.name)).toEqual(["Charlie", "Alpha", "Bravo"]);
   });
   it("sorts null STRING and DATE values last in DESC too, not just null numbers", () => {
@@ -285,7 +347,7 @@ describe("buildFleetTableModel — sorting", () => {
       makeWebsiteRow({ id: "r5", name: "Echo", status: storedStatus("archived") }),
     ];
     const st = buildFleetTableModel(byStatus, {
-      ...DEFAULT_QUERY,
+      ...ALL_QUERY,
       sort: "status",
       dir: "desc",
     });
@@ -398,9 +460,9 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
   };
   for (const key of FLEET_SORT_KEYS) {
     it(`sorts on the ${key} column in both directions`, () => {
-      const asc = buildFleetTableModel(sites, { ...DEFAULT_QUERY, sort: key });
+      const asc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key });
       expect(asc.rows.map((r) => r.name)).toEqual(EXPECTED_ASC[key]);
-      const desc = buildFleetTableModel(sites, { ...DEFAULT_QUERY, sort: key, dir: "desc" });
+      const desc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key, dir: "desc" });
       // No nulls and no ties in this fixture, so desc is the exact reverse.
       expect(desc.rows.map((r) => r.name)).toEqual([...EXPECTED_ASC[key]].reverse());
     });
