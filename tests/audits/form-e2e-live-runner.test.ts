@@ -341,6 +341,17 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     expect((r.details as { ok?: string }).ok).toBe("fail");
   });
 
+  it("a 4xx counts too: a 422 the page reports in the status region fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 422,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toContain("POST 422");
+  });
+
   it("control: a 200 POST with the thanks banner still passes", async () => {
     const out = await submit({
       health: DECLARED,
