@@ -618,7 +618,7 @@ export function buildSiteView(
         ? null
         : {
             total: visible.length,
-            shown: shown.map((r) => buildSubmissionRowView(r, now)),
+            shown: shown.map((s) => buildSubmissionRowView(s, now)),
             viewAllHref: `/submissions?site=${slug}`,
           },
   };
