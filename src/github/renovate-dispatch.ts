@@ -81,7 +81,15 @@ export type RenovateDispatchDeps = {
   hasHealthyOpenRenovatePr: (repo: string) => Promise<boolean>;
   defaultBranch: (repo: string) => Promise<string>;
   dispatch: (repo: string, workflow: string, ref: string) => Promise<void>;
+  /** Waits before a target's retry. Defaults to a real timer; tests inject a
+   *  no-op. */
+  sleep?: (ms: number) => Promise<void>;
 };
+
+/** How long a failed target waits before its one retry: enough for a 5xx blip
+ *  to pass, short beside the step's 10 min. Not enough for a GitHub secondary
+ *  rate limit, which asks for a minute or more; such a target still fails. */
+export const RENOVATE_DISPATCH_RETRY_DELAY_MS = 5_000;
 
 export type RenovateDispatchResult = {
   dispatched: string[];
@@ -102,6 +110,13 @@ export type RenovateDispatchResult = {
  * dispatch/PR-check is refused (the token's `actions:write` scope), is recorded in
  * `failed` and the rest still run. Never throws — the caller (a follow-up step on
  * the security sweep) must not be able to fail the sweep over a dispatch hiccup.
+ *
+ * Each target is retried once, from the PR probe on, before it counts as failed
+ * (#1660): the workflow reds on failed>0 (#1612), so one transient 5xx must not
+ * red the nightly. A real failure (no
+ * `renovate.yml`, a missing scope) fails both attempts and still reds. A dispatch
+ * that reached GitHub but threw on the way back can fire twice; a second
+ * Renovate run is an idempotent no-op.
  */
 export async function dispatchRenovateAcross(
   targets: RenovateDispatchTarget[],
@@ -110,18 +125,27 @@ export async function dispatchRenovateAcross(
   const dispatched: string[] = [];
   const skipped: string[] = [];
   const failed: { repo: string; error: string }[] = [];
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const attempt = async (repo: string): Promise<"dispatched" | "skipped"> => {
+    if (await deps.hasHealthyOpenRenovatePr(repo)) return "skipped";
+    const ref = await deps.defaultBranch(repo);
+    await deps.dispatch(repo, RENOVATE_WORKFLOW_FILE, ref);
+    return "dispatched";
+  };
   for (const t of targets) {
+    let outcome: "dispatched" | "skipped";
     try {
-      if (await deps.hasHealthyOpenRenovatePr(t.repo)) {
-        skipped.push(t.repo);
+      outcome = await attempt(t.repo);
+    } catch {
+      try {
+        await sleep(RENOVATE_DISPATCH_RETRY_DELAY_MS);
+        outcome = await attempt(t.repo);
+      } catch (e) {
+        failed.push({ repo: t.repo, error: e instanceof Error ? e.message : String(e) });
         continue;
       }
-      const ref = await deps.defaultBranch(t.repo);
-      await deps.dispatch(t.repo, RENOVATE_WORKFLOW_FILE, ref);
-      dispatched.push(t.repo);
-    } catch (e) {
-      failed.push({ repo: t.repo, error: e instanceof Error ? e.message : String(e) });
     }
+    (outcome === "skipped" ? skipped : dispatched).push(t.repo);
   }
   return { dispatched, skipped, failed };
 }
