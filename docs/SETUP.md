@@ -173,7 +173,7 @@ What makes the site show up where:
 
 ## Phase 5 — Deploy the dashboard (Netlify)
 
-The cockpit, the per-site pages and their editors, the approve endpoint, the forms endpoint and the Resend webhook are Netlify Functions in `netlify/functions/`. Connect this repo to a Netlify site and set these **site environment variables** (Site settings → Environment):
+The cockpit (its pages, the approve and other dashboard endpoints, and sign-in) is one SvelteKit function built from `cockpit/`; the forms endpoint, the Resend webhook, the prospect report and the clocks are Netlify Functions in `netlify/functions/`. Connect this repo to a Netlify site and set these **site environment variables** (Site settings → Environment):
 
 | Netlify env var         | Value                             | Used by                                                             |
 | ----------------------- | --------------------------------- | ------------------------------------------------------------------- |

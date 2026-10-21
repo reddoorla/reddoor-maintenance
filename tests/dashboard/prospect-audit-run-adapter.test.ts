@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Shared in-memory Turso instance across openDb() calls within one test — see
 // the identical workaround (and its rationale) in prospect-report.test.ts /
@@ -53,7 +55,7 @@ import {
   claimProspectAuditReservation,
   createProspectAudit,
 } from "../../src/db/prospect-audits.js";
-import prospectAuditRun, { config } from "../../netlify/functions/prospect-audit-run.mjs";
+import prospectAuditRun from "../../cockpit/src/lib/server/endpoints/prospect-audit-run.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -400,8 +402,11 @@ describe("prospect-audit-run adapter — health check + routing", () => {
     expect(await res.text()).not.toContain("DASHBOARD_PASSWORD");
   });
 
-  it("claims /api/prospect-audit/run as well as the raw function path", () => {
-    expect(config.path).toContain("/api/prospect-audit/run");
-    expect(config.path).toContain("/.netlify/functions/prospect-audit-run");
+  it("is served at /api/prospect-audit/run by a cockpit route", () => {
+    const route = readFileSync(
+      join(import.meta.dirname, "../../cockpit/src/routes/api/prospect-audit/run/+server.ts"),
+      "utf8",
+    );
+    expect(route).toContain('lib/server/endpoints/prospect-audit-run.js"');
   });
 });
