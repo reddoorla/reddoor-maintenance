@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, relative, resolve, sep } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, it, expect } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from "vitest";
 import * as task from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
 import {
   armOutput,
@@ -315,7 +315,9 @@ describe("pnpm-update scoring", () => {
       "$ svelte-check\n48 ERRORS\n[ELIFECYCLE] Command failed with exit code 1.\n",
     );
     // the exit file is written after the log, as `; echo $? >` does, both after the lockfile
-    const ago = (ms: number) => new Date(Date.now() - ms);
+    // PROOF BRANCH ONLY (#1616): the fs stamps the exit file with the real clock, so the
+    // mtimes it is compared against must come from the real clock too, not the faked one.
+    const ago = (ms: number) => new Date(vi.getRealSystemTime() - ms);
     utimesSync(join(w, "repo", "pnpm-lock.yaml"), ago(2000), ago(2000));
     utimesSync(join(w, "logs", "check.log"), ago(1000), ago(1000));
     writeFileSync(join(w, "logs", "check.exit"), "0\n");
