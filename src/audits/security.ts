@@ -270,15 +270,26 @@ function ghSeverityToApp(s: string): Severity {
   return "low";
 }
 
+/** The manifests an npm alert is filed against. A live alert on one of them shows the dependency
+ *  graph read the npm tree; one on a workflow file or the pnpm binary does not (#1612). */
+const NPM_MANIFESTS = new Set([
+  "pnpm-lock.yaml",
+  "package.json",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "yarn.lock",
+]);
+
 /** Build a security AuditResult from GitHub Dependabot alerts, or null if the fetch failed so
  *  the caller falls back to `pnpm audit`. ALL open alerts count toward the severity tallies —
  *  the cockpit's auto-patching (amber) vs Renovate-exhausted (red) bands decide urgency, so the
- *  prod/dev scope is carried on each advisory for display only, not used to weight the counts. */
+ *  prod/dev scope is carried on each advisory for display only, not used to weight the counts.
+ *  `readsNpmTree` is whether any live alert sits on an npm manifest. */
 async function dependabotAudit(
   deps: DependabotDeps,
   repo: string,
   label: string,
-): Promise<AuditResult | null> {
+): Promise<{ result: AuditResult; readsNpmTree: boolean } | null> {
   let alerts: DependabotAlert[];
   try {
     alerts = await deps.listAlerts(repo);
@@ -298,6 +309,7 @@ async function dependabotAudit(
   const counts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
   const advisories: AdvisoryEntry[] = [];
   const ghostAdvisories: GhostAdvisoryEntry[] = [];
+  let readsNpmTree = false;
   for (const a of alerts) {
     const severity = ghSeverityToApp(a.severity);
     const entry: AdvisoryEntry = {
@@ -320,6 +332,8 @@ async function dependabotAudit(
     }
     counts[severity] += 1;
     advisories.push(entry);
+    const manifest = a.manifestPath?.split("/").pop();
+    if (manifest && NPM_MANIFESTS.has(manifest)) readsNpmTree = true;
   }
 
   const liveStatus = classify(counts);
@@ -333,11 +347,14 @@ async function dependabotAudit(
 
   if (ghostAdvisories.length === 0) {
     return {
-      audit: "security",
-      site: label,
-      status: liveStatus,
-      summary: liveSummary,
-      details: { counts, advisories },
+      result: {
+        audit: "security",
+        site: label,
+        status: liveStatus,
+        summary: liveSummary,
+        details: { counts, advisories },
+      },
+      readsNpmTree,
     };
   }
 
@@ -347,11 +364,14 @@ async function dependabotAudit(
   const status = liveStatus === "pass" ? "warn" : liveStatus;
   const summary = `${liveSummary}; ${ghostClause(ghostAdvisories)}`;
   return {
-    audit: "security",
-    site: label,
-    status,
-    summary,
-    details: { counts, advisories, ghostAdvisories },
+    result: {
+      audit: "security",
+      site: label,
+      status,
+      summary,
+      details: { counts, advisories, ghostAdvisories },
+    },
+    readsNpmTree,
   };
 }
 
@@ -432,10 +452,11 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   if (site.gitRepo) {
     const dependabot = ctx.dependabotDeps ?? defaultDependabotDeps();
     if (dependabot) {
-      const viaDependabot = await dependabotAudit(dependabot, site.gitRepo, label);
+      const fromDependabot = await dependabotAudit(dependabot, site.gitRepo, label);
+      const viaDependabot = fromDependabot?.result;
       if (viaDependabot && !(await lockfileHiddenFromDependencyGraph(site.path))) {
-        if (hasLiveCounts(viaDependabot)) return viaDependabot;
-        return crossCheckEmptyDependabot(spawn, site.path, label, viaDependabot);
+        if (fromDependabot.readsNpmTree) return viaDependabot;
+        return crossCheckDependabot(spawn, site.path, label, viaDependabot);
       }
       if (viaDependabot) {
         console.error(
@@ -465,13 +486,17 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   return lockfileAudit(spawn, site.path, label, "prod");
 }
 
-/** Dependabot reports no live alert on a lockfile its dependency graph can read. The graph can
- *  stop reading a lockfile for reasons other than the multi-document one above, and an empty
- *  answer looks the same either way, so it is checked against the lockfile audit before it is
- *  believed (#1612: `200 []` beside a lockfile pinning minimist 1.2.0 read "Dependabot: 0
- *  alerts"). When the lockfile audit finds a live advisory, both stand, merged as on the
- *  hidden-lockfile path. When it finds none, or cannot run, Dependabot's answer stands. */
-async function crossCheckEmptyDependabot(
+/** Dependabot reports no live alert on an npm manifest, on a lockfile its dependency graph can
+ *  read. The graph can stop reading a lockfile for reasons other than the multi-document one
+ *  above, and that answer looks the same either way, so it is checked against the lockfile audit
+ *  before it is believed (#1612: `200 []` beside a lockfile pinning minimist 1.2.0 read
+ *  "Dependabot: 0 alerts"). An alert on a workflow file or the pnpm binary says nothing about the
+ *  npm tree, so it does not stop the check. When the lockfile audit finds a live advisory, both
+ *  stand, merged as on the hidden-lockfile path. When it finds none, or cannot run, Dependabot's
+ *  answer stands. A live alert on an npm manifest shows the graph reads the tree, and there
+ *  Dependabot stays the source on its own, as before #1612: it is the one that knows which
+ *  alerts an operator dismissed. */
+async function crossCheckDependabot(
   spawn: NonNullable<AuditContext["spawn"]>,
   dir: string,
   label: string,

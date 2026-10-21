@@ -33,6 +33,8 @@ const WF = "fleet-security.yml";
 const DISPATCH_STEP = "Trigger Renovate for sites with actionable vulnerabilities";
 const PROTECTION_STEP = "Protection coverage audit (org-wide)";
 const CLOSE_STEP = "Close the protection-gap issue on a clean sweep";
+const OPEN_STEP = "Open/update the protection-gap tracking issue";
+const UNMEASURED_STEP = "Fail the run when the protection sweep verified no repo";
 
 async function runStep(opts: {
   step: string;
@@ -120,14 +122,14 @@ describe("fleet-security: renovate-dispatch has a red path (#1612)", () => {
     const r = await runStep({
       step: DISPATCH_STEP,
       cliOutput: [
-        "FAILED                        reddoorla/espada (critical=0 high=8) — espada",
+        "FAILED                       reddoorla/espada (critical=0 high=8) — Espada",
         "  ↳ reddoorla/espada: HTTP 403",
-        "RENOVATE_DISPATCH_SUMMARY dispatched=3 skipped=10 failed=2",
+        "RENOVATE_DISPATCH_SUMMARY dispatched=3 skipped=11 failed=1",
       ].join("\n"),
       cliCode: 0,
     });
     expect(r.code).not.toBe(0);
-    expect(r.out).toMatch(/^::error::renovate-dispatch: 2 repo\(s\) failed to dispatch/m);
+    expect(r.out).toMatch(/^::error::renovate-dispatch: 1 repo\(s\) failed to dispatch/m);
   });
 });
 
@@ -176,6 +178,48 @@ describe("fleet-security: protection-audit refuses an empty org listing (#1612)"
     });
     expect(r.code).toBe(0);
     expect(r.out).toContain("no verified clean sweep in the output — not closing anything");
+  });
+
+  // Review round 1: before this, the open step filed "Fleet protection coverage gap" on an
+  // UNMEASURED sweep with "see run output" and no GAP line, which the close step never closes.
+  it("the open step files no posture issue on that output (its gh would fail if called)", async () => {
+    const real = await runProtectionAuditCommand({ org: "reddoorla" }, deps([]));
+    const r = await runStep({
+      step: OPEN_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": real.output },
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("gh-called");
+    expect(r.out).toContain("protection-audit verified no repo; not filing a coverage gap.");
+  });
+
+  it("instead the run goes red, so the nightly-failure issue carries it", async () => {
+    const real = await runProtectionAuditCommand({ org: "reddoorla" }, deps([]));
+    const r = await runStep({
+      step: UNMEASURED_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": real.output },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^::error::protection-audit verified no repo/m);
+  });
+
+  it("a sweep with real gaps leaves that step green: the gap issue speaks for it", async () => {
+    const gappy: ProtectionAuditDeps = { ...deps(["espada"]), listRepoRulesets: async () => [] };
+    const real = await runProtectionAuditCommand({ org: "reddoorla" }, gappy);
+    expect(real.code).toBe(1);
+    expect(real.output).toContain("PROTECTION_AUDIT gaps=1 covered=0 skipped=0 total=1");
+    expect(real.output).not.toContain("PROTECTION_AUDIT_UNMEASURED");
+    const r = await runStep({
+      step: UNMEASURED_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": real.output },
+    });
+    expect(r.code).toBe(0);
   });
 
   it("a clean one-repo sweep still passes the step (control)", async () => {

@@ -1536,7 +1536,9 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
     ]);
   });
 
-  it("reads the same counts as the Dependabot-403 fallback on the same lockfile (control)", async () => {
+  // The fake pnpm answers the same for --prod and every scope, so this pins only that the two
+  // paths read one pnpm answer alike; the scope itself is pinned by the next test.
+  it("reads the same counts as the Dependabot-403 fallback on the same pnpm answer", async () => {
     const fallback = await securityAudit({
       site: site(),
       dependabotDeps: fakeDependabot(new Error("GitHub GET dependabot/alerts failed (403)")),
@@ -1579,15 +1581,66 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
     expect(result.summary).toBe("Dependabot: 0 alerts");
   });
 
-  it("never runs the lockfile audit when Dependabot reports a live alert", async () => {
-    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+  it("warns on a moderate-only lockfile, as the 403 fallback does, not 'Dependabot: 0 alerts'", async () => {
+    const moderateOnly = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 0 } },
+      advisories: {
+        "2": {
+          module_name: "minimist",
+          severity: "moderate",
+          title: "Prototype Pollution in minimist",
+          url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+        },
+      },
+    });
     const result = await securityAudit({
       site: site(),
-      dependabotDeps: fakeDependabot([{ ...ghost, manifestPath: "pnpm-lock.yaml" }]),
+      dependabotDeps: fakeDependabot([]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: moderateOnly } }),
+    });
+    expect(result.status).toBe("warn");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 1 vulnerabilities (0C/0H/1M/0L)");
+  });
+
+  it("never runs the lockfile audit when Dependabot reports a live alert on an npm manifest", async () => {
+    for (const manifestPath of ["pnpm-lock.yaml", "apps/web/package.json", "package-lock.json"]) {
+      const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: fakeDependabot([{ ...ghost, manifestPath }]),
+        spawn,
+      });
+      expect(calls).toEqual([]);
+      expect(result.summary).toBe("Dependabot: 1 alert(s) (0C/1H/0M/0L)");
+    }
+  });
+
+  // Review round 1: a live alert on a workflow file says nothing about the npm tree. Before this,
+  // one Actions low switched the check off and the lockfile's critical stayed hidden.
+  it("still cross-checks when Dependabot's only live alert is on a workflow file", async () => {
+    const actions: DependabotAlert = {
+      ...ghost,
+      package: "actions/download-artifact",
+      severity: "low",
+      manifestPath: ".github/workflows/ci.yml",
+    };
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([actions]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 3 vulnerabilities (1C/0H/1M/1L)");
+  });
+
+  it("still cross-checks when the live alert names no manifest", async () => {
+    const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
+    await securityAudit({
+      site: site(),
+      dependabotDeps: fakeDependabot([{ ...ghost, manifestPath: null }]),
       spawn,
     });
-    expect(calls).toEqual([]);
-    expect(result.summary).toBe("Dependabot: 1 alert(s) (0C/1H/0M/0L)");
+    expect(calls).toHaveLength(1);
   });
 
   it("cross-checks ghost alerts alone too: they are not live, and keep their own clause", async () => {

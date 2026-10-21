@@ -268,6 +268,13 @@ jobs:
             echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
             exit 0
           fi
+          # A sweep that verified no repo (#1612) is not a gap either: an issue
+          # filed on it would carry no GAP line, and the close step below could
+          # never close it. The step after this one turns the run red instead.
+          if grep -qE "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out"; then
+            echo "::warning::protection-audit verified no repo; not filing a coverage gap."
+            exit 0
+          fi
           title="Fleet protection coverage gap"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
@@ -300,6 +307,19 @@ jobs:
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
             gh issue create --title "$title" --body "$body"
+          fi
+
+      # A protection sweep that verified no repo (#1612: an org listing of
+      # `200 []` read `gaps=0 total=0`, green) is unmeasured, not clean. It is
+      # not a posture gap, so it reds the run instead, and the nightly-failure
+      # issue below speaks for it and closes on the next green run.
+      - name: Fail the run when the protection sweep verified no repo
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' }}
+        timeout-minutes: 2
+        run: |
+          if grep -E "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out" 2>/dev/null; then
+            echo "::error::protection-audit verified no repo: the org listing gave none, so tonight's posture is unmeasured, not clean."
+            exit 1
           fi
 
       - name: Close the protection-gap issue on a clean sweep
@@ -520,7 +540,7 @@ jobs:
         run: |
           title="Nightly fleet security audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The nightly **fleet-security** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The nightly **fleet-security** run failed. Read which step went red: the audit and write-back (the vuln sweep), Renovate dispatch (no summary, or a repo failed to dispatch), or a protection sweep that verified no repo.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
