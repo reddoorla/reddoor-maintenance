@@ -342,7 +342,7 @@ describe("pm-cockpit — a cardless item's flags and rows (#1570, #1571)", () =>
     withdrawnAt: null,
     deliveryStatus: "pending",
   } as ReportRow;
-  const needsYouNames = (out: string): string[] =>
+  const listedNames = (out: string): string[] =>
     out
       .split("\n")
       .filter((l) => l.startsWith("- "))
@@ -353,11 +353,16 @@ describe("pm-cockpit — a cardless item's flags and rows (#1570, #1571)", () =>
       buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-05T00:00:00Z"),
     );
     expect(out).toContain("- NEW Typo Co · broken · /s/typo-co");
+    // It escalated 2026-10-06, so a window from 10-07 does not make it new.
+    const later = formatPmCockpit(
+      buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-07T00:00:00Z"),
+    );
+    expect(later).toContain("- Typo Co · broken · /s/typo-co");
   });
 
   it("a Watch row that takes a dead letter sorts as critical, ahead of a non-critical broken row", () => {
     const out = formatPmCockpit(buildPmCockpit(inputs(typoDeadLetter), NOW));
-    expect(needsYouNames(out)).toEqual(["- Typo Co", "- Broken Co"]);
+    expect(listedNames(out)).toEqual(["- Typo Co", "- Broken Co"]);
   });
 
   it("a standalone cardless dead letter is NEW inside the window, and sorts as critical", () => {
@@ -373,7 +378,19 @@ describe("pm-cockpit — a cardless item's flags and rows (#1570, #1571)", () =>
         "2026-10-05T00:00:00Z",
       ),
     );
-    expect(needsYouNames(out)).toEqual(["- NEW Zed Co", "- Broken Co"]);
+    expect(listedNames(out)).toEqual(["- NEW Zed Co", "- Broken Co"]);
+    const later = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, zed],
+          deadLetters: new Map([["zed-co", 1]]),
+          deadLetterOldest: new Map([["zed-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+        "2026-10-07T00:00:00Z",
+      ),
+    );
+    expect(listedNames(later)).toEqual(["- Zed Co", "- Broken Co"]);
   });
 
   it("two cardless items with no site page keep a row each", () => {
