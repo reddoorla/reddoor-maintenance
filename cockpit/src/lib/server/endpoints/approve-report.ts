@@ -1,28 +1,23 @@
-import type { Context, Config } from "@netlify/functions";
-import { approveReport, requireOperator, denialResponse } from "../../src/dashboard/index.js";
+import type { Context } from "@netlify/functions";
+import {
+  approveReport,
+  requireOperator,
+  denialResponse,
+} from "../../../../../src/dashboard/index.js";
 
-import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorWrite } from "../../src/db/mirror-write.js";
-import { patchReportIfOpen, getReportById, getSiteById } from "../../src/db/fleet-state.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { approveBlockers, formatBlockers } from "../../../../../src/reports/preflight.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { mirrorWrite } from "../../../../../src/db/mirror-write.js";
+import {
+  patchReportIfOpen,
+  getReportById,
+  getSiteById,
+} from "../../../../../src/db/fleet-state.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
-// Path-route the customer-facing /api/reports/:id/approve on the function
-// itself (same reason as site-dashboard.mts: a netlify.toml [[redirects]] 200
-// rewrite hands the function the ORIGINAL request URL, not the rewritten one —
-// so ctx.params would be empty for every request). With function-level path
-// routing the record id arrives in ctx.params.id.
-export const config: Config = {
-  path: ["/api/reports/:id/approve", "/.netlify/functions/approve-report"],
-  // Tighter than the read-only dashboards (fleet-homepage is 60/min): this is a
-  // state-changing POST behind ambient Basic-auth creds, so cap it harder.
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
-};
+// The handler behind POST /api/reports/:id/approve (cockpit/src/routes/api/…/+server.ts).
+// The record id arrives in ctx.params.id.
 
 function plainText(
   body: string,

@@ -10,7 +10,7 @@ import {
 } from "../db/prospect-audits.js";
 
 /**
- * Trigger logic for `POST /api/prospect-audit/run` (netlify/functions/prospect-audit-run.mts).
+ * Trigger logic for `POST /api/prospect-audit/run` (cockpit/src/lib/server/endpoints/prospect-audit-run.ts).
  * Kept here, deps-injected and framework-free, so it's unit-testable without
  * booting the Netlify handler — same split as trigger-renovate.ts.
  *

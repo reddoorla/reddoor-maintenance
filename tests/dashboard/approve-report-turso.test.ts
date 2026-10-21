@@ -18,7 +18,7 @@ import { join } from "node:path";
  * asserted here too.
  */
 
-import approveReportHandler from "../../netlify/functions/approve-report.mjs";
+import approveReportHandler from "../../cockpit/src/lib/server/endpoints/approve-report.js";
 import { mintSession, SESSION_COOKIE } from "../../src/dashboard/auth/session.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { gatingFields } from "../../src/reports/checklist.js";

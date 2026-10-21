@@ -1,20 +1,12 @@
-import type { Context, Config } from "@netlify/functions";
-import { requireOperator, denialResponse } from "../../src/dashboard/index.js";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { getReportHtml } from "../../src/db/fleet-state.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { isReportId } from "../../src/fleet/report-id.js";
+import type { Context } from "@netlify/functions";
+import { requireOperator, denialResponse } from "../../../../../src/dashboard/index.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { getReportHtml } from "../../../../../src/db/fleet-state.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { isReportId } from "../../../../../src/fleet/report-id.js";
 
 // Serve a report's rendered body straight from Turso (reports.rendered_html),
-// behind the same operator Basic auth as every other dashboard page.
-export const config: Config = {
-  path: ["/api/reports/:id/preview"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 120,
-    aggregateBy: ["ip"],
-  },
-};
+// behind the same operator auth as every other dashboard page.
 
 function plainText(body: string, status: number, headers: Record<string, string> = {}): Response {
   return new Response(body, {
