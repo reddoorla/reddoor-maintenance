@@ -1,4 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { buildSitesView } from "../../src/lib/cockpit/view.js";
+import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
+
+const BASE = "https://reddoor-maintenance.netlify.app";
+const NOW = new Date("2026-06-11T12:00:00Z");
 import Page from "../../src/routes/fleet/+page.svelte";
 import { buildFleetTableModel, NO_STATUS_FILTER } from "../../../src/dashboard/fleet-table.js";
 import type { FleetTableQuery } from "../../../src/dashboard/fleet-table.js";
@@ -53,7 +58,12 @@ describe("/fleet parity with renderFleetTableHtml", () => {
   for (const [name, query, rows] of CASES) {
     it(name, () => {
       const model = buildFleetTableModel(rows, { ...DEFAULT_QUERY, ...query });
-      const after = canonical(renderPage(Page, { data: { model } }));
+      // Each row's health, from the cockpit model of the same rows (#672 step 3).
+      const sitesView = buildSitesView(
+        buildCockpitModel(rows, [], {}, BASE, NOW, [], null, [], 0, new Map(), new Map()),
+        NOW,
+      );
+      const after = canonical(renderPage(Page, { data: { model, sites: sitesView } }));
       expect(after).toMatchSnapshot();
     });
   }

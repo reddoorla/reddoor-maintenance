@@ -42,7 +42,8 @@ describe("renderFleetTableHtml — document + rows", () => {
     const html = render();
     expect(html).toContain("<!doctype html>");
     expect(html).toContain('href="/"'); // ← Fleet home, same as the submissions page
-    expect((html.match(/<tr class="fleet-row">/g) ?? []).length).toBe(3);
+    // Since #672 step 3 a row also carries its signals for the chip filter.
+    expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
     expect(html).toContain("3 of 3 sites");
   });
   it("links each site name to its detail page and its URL out", () => {

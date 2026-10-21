@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml } from "./render.js";
+import { renderCockpitHtml, renderSitesHtml } from "./render.js";
 import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
 import type { FleetEvent } from "../../../src/db/fleet-events.js";
 
@@ -9,7 +9,7 @@ function modelWith(events: FleetEvent[]) {
 
 describe("renderRecentlyLane (via renderCockpitHtml)", () => {
   it("renders a collapsed details.recently with a count and per-type icons", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       modelWith([
         {
           id: "pr_automerged:reddoorla/caltex#14",
@@ -41,7 +41,7 @@ describe("renderRecentlyLane (via renderCockpitHtml)", () => {
   });
 
   it("links a site-scoped non-PR event to /s/<slug>", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       modelWith([
         {
           id: "vuln_cleared:recC:2026-06-25",

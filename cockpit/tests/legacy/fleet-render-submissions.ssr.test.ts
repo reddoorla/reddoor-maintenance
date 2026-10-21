@@ -88,16 +88,16 @@ describe("renderCockpitHtml — submissions", () => {
     expect(html).toContain('href="/s/acme"');
   });
 
-  it("orders the fleet browse panel before the inbox lane (submissions + spam)", () => {
+  // #672 step 3: the browse panel moved to Sites, so only the inbox's own order
+  // is left to pin on `/`.
+  it("keeps the spam line inside the inbox lane (submissions + spam)", () => {
     const html = renderCockpitHtml(oneSubmissionModel());
-    const fleetIdx = html.indexOf('<details class="fleet-browse">');
     const inboxIdx = html.indexOf('<details class="inbox">');
     // Use the full div tag to avoid matching the CSS rule (.spam-rollup) in <head>.
     const spamIdx = html.indexOf('class="spam-rollup');
-    expect(fleetIdx).toBeGreaterThan(-1);
+    expect(html).not.toContain('class="fleet-browse"');
     expect(inboxIdx).toBeGreaterThan(-1);
     expect(spamIdx).toBeGreaterThan(-1);
-    expect(fleetIdx).toBeLessThan(inboxIdx); // fleet panel comes before the inbox lane
     expect(inboxIdx).toBeLessThan(spamIdx); // spam line lives inside the inbox lane
   });
 
