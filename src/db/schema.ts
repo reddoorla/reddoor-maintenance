@@ -120,6 +120,7 @@ export interface SitesTable {
   require_turnstile: number;
   accepted_watch_conditions: string | null;
   prismic_ack_until: string | null;
+  prismic_ack_drift: string | null;
   launched_at: string | null;
   header_image: Uint8Array | null;
   header_image_filename: string | null;

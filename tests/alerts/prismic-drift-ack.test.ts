@@ -41,22 +41,21 @@ const drifting = (over: Partial<WebsiteRow> = {}): WebsiteRow =>
  * a dead token is a different problem with a different fix) and never mutes the
  * staleness escalation (a verdict nobody has re-established is not a verdict).
  */
+/** An ack as the operator sets it: an expiry, plus the finding it covers, copied
+ *  from the drift cell in the same UPDATE. */
+const acked = (until: string, drift = "CHANGED  slice accordion"): Partial<WebsiteRow> => ({
+  prismicAckUntil: until,
+  prismicAckDrift: drift,
+});
+
 describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", () => {
   it("mutes a fail while the ack is live", () => {
-    const items = collectPrismicDriftAlerts(
-      [drifting({ prismicAckUntil: daysFromNow(7) })],
-      DASH,
-      NOW,
-    );
+    const items = collectPrismicDriftAlerts([drifting(acked(daysFromNow(7)))], DASH, NOW);
     expect(items).toEqual([]);
   });
 
   it("raises it again the moment the ack expires", () => {
-    const items = collectPrismicDriftAlerts(
-      [drifting({ prismicAckUntil: daysFromNow(-1) })],
-      DASH,
-      NOW,
-    );
+    const items = collectPrismicDriftAlerts([drifting(acked(daysFromNow(-1)))], DASH, NOW);
     expect(items).toHaveLength(1);
     expect(items[0]!.key).toBe("prismic-drift:rec1");
   });
@@ -64,11 +63,7 @@ describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", (
   it("treats an ack that expires exactly now as expired", () => {
     // The boundary belongs to the alarm, not the ack. An ack "until 09:00" has
     // nothing left to say at 09:00.
-    const items = collectPrismicDriftAlerts(
-      [drifting({ prismicAckUntil: NOW.toISOString() })],
-      DASH,
-      NOW,
-    );
+    const items = collectPrismicDriftAlerts([drifting(acked(NOW.toISOString()))], DASH, NOW);
     expect(items).toHaveLength(1);
   });
 
@@ -76,11 +71,7 @@ describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", (
     // A typo'd cell must not mute a real finding. `Date.parse` yields NaN and every
     // comparison against NaN is false, but that is a property of the implementation,
     // not a decision — assert the decision.
-    const items = collectPrismicDriftAlerts(
-      [drifting({ prismicAckUntil: "next tuesday-ish" })],
-      DASH,
-      NOW,
-    );
+    const items = collectPrismicDriftAlerts([drifting(acked("next tuesday-ish"))], DASH, NOW);
     expect(items).toHaveLength(1);
   });
 
@@ -97,7 +88,7 @@ describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", (
         drifting({
           prismicModels: "unknown",
           prismicModelsDrift: "401 from the Custom Types API",
-          prismicAckUntil: daysFromNow(7),
+          ...acked(daysFromNow(7), "401 from the Custom Types API"),
         }),
       ],
       DASH,
@@ -115,7 +106,7 @@ describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", (
       [
         drifting({
           prismicModelsCheckedAt: daysFromNow(-30),
-          prismicAckUntil: daysFromNow(7),
+          ...acked(daysFromNow(7)),
         }),
       ],
       DASH,
@@ -128,12 +119,123 @@ describe("collectPrismicDriftAlerts — an acknowledged, expected divergence", (
   it("mutes only the acked site, not its neighbours", () => {
     const items = collectPrismicDriftAlerts(
       [
-        drifting({ prismicAckUntil: daysFromNow(7) }),
+        drifting(acked(daysFromNow(7))),
         drifting({ id: "rec2", name: "Espada", prismicAckUntil: null }),
       ],
       DASH,
       NOW,
     );
     expect(items.map((i) => i.key)).toEqual(["prismic-drift:rec2"]);
+  });
+});
+
+/**
+ * THE ACK NAMES WHAT IT ACKS (#1608).
+ *
+ * The operator reviews one finding and accepts it. Until #1608 the mute keyed on
+ * the date alone, so ANY later `fail` on that site was swallowed until the ack
+ * expired — a field dropped from a different model, tonight, would reach no
+ * digest for months. The ack now carries the drift report it covers
+ * (`prismic_ack_drift`, copied from `prismic_models_drift` when the ack is set),
+ * and it mutes only while tonight's report is that same report.
+ */
+describe("collectPrismicDriftAlerts — an ack mutes only the finding it names (#1608)", () => {
+  const REVIEWED = "REMOTE-ONLY  custom type press_release";
+  const TONIGHT =
+    "REMOTE-ONLY  custom type press_release\nCHANGED  custom type page: field `hero_image` removed";
+
+  it("surfaces a new finding on an acked site, the sweep's own shape", () => {
+    // Input from the issue: acked through 2026-12-31 for a reviewed remote-only
+    // model; tonight a field is dropped from a different model on the same site.
+    const items = collectPrismicDriftAlerts(
+      [drifting({ prismicModelsDrift: TONIGHT, ...acked("2026-12-31T00:00:00.000Z", REVIEWED) })],
+      DASH,
+      NOW,
+    );
+    expect(items.map((i) => i.key)).toEqual(["prismic-drift:rec1"]);
+  });
+
+  it("still mutes the reviewed finding itself (the pass control for the case above)", () => {
+    const items = collectPrismicDriftAlerts(
+      [drifting({ prismicModelsDrift: REVIEWED, ...acked("2026-12-31T00:00:00.000Z", REVIEWED) })],
+      DASH,
+      NOW,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("surfaces a finding that REPLACED the reviewed one, not only one added to it", () => {
+    const items = collectPrismicDriftAlerts(
+      [
+        drifting({
+          prismicModelsDrift: "CHANGED  custom type page: field `hero_image` removed",
+          ...acked(daysFromNow(7), REVIEWED),
+        }),
+      ],
+      DASH,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+  });
+
+  it("treats an ack with no recorded finding as covering nothing — fails toward the alarm", () => {
+    // Every ack set before #1608 has a date and no finding. It cannot say what it
+    // covered, so it covers nothing; re-acking takes one UPDATE.
+    for (const drift of [null, "", "   "]) {
+      const items = collectPrismicDriftAlerts(
+        [drifting({ prismicAckUntil: daysFromNow(7), prismicAckDrift: drift })],
+        DASH,
+        NOW,
+      );
+      expect(items, `prismicAckDrift=${JSON.stringify(drift)}`).toHaveLength(1);
+    }
+  });
+
+  it("a blank ack does not cover a blank report either", () => {
+    // Two empty identities are equal; an ack that recorded nothing still covers
+    // nothing, whatever tonight's cell holds.
+    const items = collectPrismicDriftAlerts(
+      [
+        drifting({
+          prismicModelsDrift: "  ",
+          prismicAckUntil: daysFromNow(7),
+          prismicAckDrift: "",
+        }),
+      ],
+      DASH,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+  });
+
+  it("ignores line endings and surrounding blank space when matching", () => {
+    // A hand-run UPDATE through a Windows client, or a copy with a trailing
+    // newline, is the same finding.
+    const items = collectPrismicDriftAlerts(
+      [
+        drifting({
+          prismicModelsDrift: TONIGHT,
+          ...acked(daysFromNow(7), "\n" + TONIGHT.replace(/\n/g, "\r\n") + "\n  "),
+        }),
+      ],
+      DASH,
+      NOW,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("does not treat a reordered or partial report as the same finding", () => {
+    // Line-set matching would mute this: the dropped field's line exists in the
+    // acked text, but under a different model. Exact text is the only identity
+    // the report gives us.
+    const ackedText =
+      "CHANGED  custom type page\n  field `title` removed\nCHANGED  custom type post";
+    const tonight = "CHANGED  custom type post\n  field `title` removed";
+    const items = collectPrismicDriftAlerts(
+      [drifting({ prismicModelsDrift: tonight, ...acked(daysFromNow(7), ackedText) })],
+      DASH,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
   });
 });

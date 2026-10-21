@@ -81,6 +81,7 @@ export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   "Mailchimp Audience ID": "mailchimp_audience_id",
   "Notify Routing": "notify_routing",
   "Prismic Ack Until": "prismic_ack_until",
+  "Prismic Ack Drift": "prismic_ack_drift",
   "Launched at": "launched_at",
   // Non-text columns. They live here so `mirrorSiteField` can resolve them like
   // any other editor field; the coercion that makes them non-text is in
@@ -287,6 +288,7 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
     require_turnstile: 0,
     accepted_watch_conditions: null,
     prismic_ack_until: null,
+    prismic_ack_drift: null,
     launched_at: null,
     legacy: null,
   };
