@@ -56,20 +56,12 @@ export type DeployView =
  *  missing, and the exact text that marks it accepted. */
 export type SetupGapView = { reason: string; acceptKey: string };
 
+/** A site's card health, shown on its Sites row (#672 step 3). The name, URL,
+ *  scores and audit date are the table's own columns, so they are not here. */
 export type CardView = {
-  key: string;
   signals: string;
-  href: string;
-  name: string;
-  siteHref: string;
-  visibleUrl: string;
   setupTitle: string;
   setupScore: string;
-  audited: string;
-  perf: string;
-  a11yLh: string;
-  bp: string;
-  seo: string;
   a11y: string;
   deps: string;
   sec: string;
@@ -338,28 +330,16 @@ function submissionsBadge(c: SiteCard): string | null {
       : `📥 +${signups} newsletter`;
 }
 
-function cardView(c: SiteCard, index: number, now: Date): CardView {
+function cardView(c: SiteCard, now: Date): CardView {
   const site = c.site;
-  const slug = siteSlug(site.name);
   const onboarding = onboardingStatus(site, now);
   const missing = missingOnboarding(site, now);
-  const score = (v: number | null) => (v === null ? DASH : String(v));
   return {
-    key: `${index}:${site.id}`,
     signals: signals(c),
-    href: `/s/${slug}`,
-    name: site.name,
-    siteHref: safeUrl(site.url),
-    visibleUrl: site.url,
     // "Complete" only when no roster gap is open either: the card's Setup
     // checklist lists those, and the two must never disagree (#672 step 2).
     setupTitle: setupTitle(missing, (c.setup ?? []).length),
     setupScore: `${onboarding.score}/${onboarding.total}`,
-    audited: relativeTimeFromNow(site.lastLighthouseAuditAt, now),
-    perf: score(site.pScore),
-    a11yLh: score(site.rScore),
-    bp: score(site.bpScore),
-    seo: score(site.seoScore),
     a11y: a11yDisplay(site.a11yViolations, site.a11yRoutesScanned, site.a11yRoutesTotal),
     deps: depsDisplay(
       site.depsDrifted,
@@ -402,7 +382,7 @@ function setupLane(model: CockpitModel): CockpitView["setup"] {
   return rows.length === 0 ? null : { count: rows.length, rows };
 }
 
-/** Signal filters for the Fleet panel — card-derived tags only. */
+/** Signal filters for Sites' chips — card-derived tags only. */
 export const FLEET_FILTERS = [
   "all",
   "vulns",
@@ -531,9 +511,7 @@ export type SitesView = {
 
 export function buildSitesView(model: CockpitModel, now: Date): SitesView {
   const cards: Record<string, CardView> = {};
-  model.cards.forEach((c, i) => {
-    cards[siteSlug(c.site.name)] = cardView(c, i, now);
-  });
+  for (const c of model.cards) cards[siteSlug(c.site.name)] = cardView(c, now);
   return {
     filters: FLEET_FILTERS,
     cards,

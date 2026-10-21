@@ -13,11 +13,9 @@ import { buildSitesView } from "../../lib/cockpit/view.js";
 export const load: PageServerLoad = ({ url }) =>
   withDb("fleet", async (db) => {
     const now = new Date();
-    const model = await loadFleetTableModel(db, url.searchParams);
-    const cockpit = await loadCockpitModel(
-      db,
-      now,
-      resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
-    );
+    const [model, cockpit] = await Promise.all([
+      loadFleetTableModel(db, url.searchParams),
+      loadCockpitModel(db, now, resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL)),
+    ]);
     return { model, sites: buildSitesView(cockpit, now) };
   });

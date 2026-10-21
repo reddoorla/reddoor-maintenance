@@ -61,6 +61,16 @@ table.fleet th.num {
    checklist beside each row. */
 table.fleet td.health {
   min-width: 16rem;
+  /* The other cells stay on one line; this one holds chips, a metrics cluster
+     and a checklist, so it wraps rather than widen the table past the page. */
+  white-space: normal;
+}
+table.fleet td.health .cluster {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
 }
 table.fleet td.health .setup,
 table.fleet td.health .cluster {

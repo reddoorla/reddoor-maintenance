@@ -454,9 +454,12 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
   });
 
   it("the same BP-78 site shows the amber watch verdict when NOT accepted", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]));
-    expect(html).toContain('class="verdict watch"');
-    expect(html).not.toContain("chip accepted");
+    const m = model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]);
+    expect(renderCockpitHtml(m)).toContain('class="verdict watch"');
+    // The chips are on the Sites row since #672 step 3.
+    const row = renderSitesHtml(m);
+    expect(row).toContain("Best Practices 78");
+    expect(row).not.toContain("chip accepted");
   });
 });
 
@@ -514,14 +517,15 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
   it("re-alarms (attention, NOT muted) when the accepted category drops below the floor", () => {
     // pScore 72 < 75 arrives as an AttentionItem ABOVE the accept logic → broken; the
     // accepted "performance" key can never mute a sub-floor score.
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
-      ]),
-    );
+    const m = model([
+      siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
+    ]);
+    const html = renderCockpitHtml(m);
     expect(html).toContain('class="verdict warn"');
     expect(html).toMatch(/⚠ 1 site broken/);
-    expect(html).not.toContain("chip accepted");
+    // The chips are on the Sites row since #672 step 3.
+    expect(renderSitesHtml(m)).toContain('class="pill attention"');
+    expect(renderSitesHtml(m)).not.toContain("chip accepted");
   });
 
   it("mutes only the accepted conditions among several simultaneous watches", () => {
@@ -1176,9 +1180,11 @@ describe("deploy badge", () => {
   });
 
   it("does not emit a link for a non-http deploy URL (dead-link guard)", () => {
-    const html = renderCockpitHtml(
+    // The deploy badge is on the Sites row since #672 step 3.
+    const html = renderSitesHtml(
       model([siteRow({ deployStatus: "ready", deployLogUrl: "javascript:alert(1)" })]),
     );
+    expect(html).toContain('class="metric deploy ready"'); // the badge is there, unlinked
     expect(html).not.toContain('href="javascript:alert(1)"');
     expect(html).not.toContain('href="#"');
   });
@@ -1249,18 +1255,18 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     // how a stale value would go unnoticed.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
-    const html = renderCockpitHtml(
-      model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]),
-    );
-    expect(html).not.toContain("🗄 Archived");
-    expect(html).not.toContain("1 archived");
+    const m = model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]);
+    // The Archived lane is on Sites since #672 step 3; the count stays on `/`.
+    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderCockpitHtml(m)).not.toContain("1 archived");
   });
 
   it("renders neither the archived term nor the lane when nothing is archived", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "a", name: "Acme" })]));
-    expect(html).not.toContain("1 archived");
-    expect(html).not.toContain("🗄 Archived");
-    expect(html).not.toContain('class="archived"');
+    const m = model([siteRow({ id: "a", name: "Acme" })]);
+    expect(renderCockpitHtml(m)).not.toContain("1 archived");
+    // The Archived lane is on Sites since #672 step 3.
+    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderSitesHtml(m)).not.toContain('class="archived"');
   });
 
   it("renders an amber verdict + feed reason for a typo'd Status cell", () => {

@@ -17,8 +17,11 @@
   const s = $derived(data.sites);
   const DASH = "—";
   let filter = $state("all");
+  // An own-property read: a slug that names an Object.prototype key
+  // ("constructor") must find no card rather than the inherited function.
+  const cardOf = (slug: string) => (Object.hasOwn(s.cards, slug) ? s.cards[slug] : undefined);
   const shown = (slug: string) =>
-    filter === "all" || (s.cards[slug]?.signals.split(" ").includes(filter) ?? false);
+    filter === "all" || (cardOf(slug)?.signals.split(" ").includes(filter) ?? false);
 </script>
 
 <svelte:head>
@@ -73,7 +76,7 @@
       <tbody>
         {#each m.rows as r (r.slug)}
           {@const url = safeUrl(r.url)}
-          {@const c = s.cards[r.slug]}
+          {@const c = cardOf(r.slug)}
           <tr
             class="fleet-row"
             data-signals={c?.signals ?? ""}
