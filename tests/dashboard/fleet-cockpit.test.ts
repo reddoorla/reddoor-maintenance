@@ -17,6 +17,9 @@ import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
 import { siteSlug } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+// The cockpit page renders `buildCockpitView`; the old string renderer went at
+// the cutover (#582), and the lane's markup is pinned in cockpit/tests/home.
+import { buildCockpitView } from "../../cockpit/src/lib/cockpit/view.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 
@@ -723,6 +726,136 @@ describe("buildCockpitModel", () => {
     const item = espada.items.find((i) => i.kind === "deadletter")!;
     expect(item).toMatchObject({ key: "deadletter:espada", severity: "critical", metric: 2 });
     expect(m.cards.find((c) => c.site.name === "Fine")!.tier).toBe("healthy");
+  });
+
+  describe("OD 87: a known site's dead letter waits two replay cycles", () => {
+    // NOW is 2026-06-11T12:00Z. The hold runs 12 h from the oldest unreplayed row.
+    const model = (oldest: string) =>
+      buildCockpitModel(
+        [site({ id: "a", name: "Espada" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["espada", 2]]),
+        new Map([["espada", oldest]]),
+      );
+
+    it("aged 11 h 59 m: off the card and out of the Needs-you feed", () => {
+      const m = model("2026-06-11T00:01:00.000Z");
+      expect(m.cards[0]!.tier).toBe("healthy");
+      expect(m.cards[0]!.items.some((i) => i.kind === "deadletter")).toBe(false);
+      expect(buildNeedsYouFeed(m)).toEqual([]);
+    });
+
+    it("an archived site's dead letter is held too, and alarms by its own name, not as NO fleet site", () => {
+      // Replay places a lead by getSiteBySlug, which ignores status, so the cockpit
+      // resolves dead-letter slugs against the whole roster, as the digest does.
+      const archived = (oldest: string) =>
+        buildCockpitModel(
+          [
+            site({ id: "a", name: "Espada" }),
+            site({ id: "z", name: "Gone Co", status: "archived" }),
+          ],
+          [],
+          {},
+          BASE,
+          NOW,
+          [],
+          null,
+          [],
+          0,
+          new Map(),
+          new Map([["gone-co", 1]]),
+          new Map([["gone-co", oldest]]),
+        );
+      const held = archived("2026-06-11T00:01:00.000Z");
+      expect(held.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", true]]);
+      expect(buildCockpitView(held, NOW).cardless).toEqual([]);
+      // Beside an unknown slug that is due, the lane counts only the due one.
+      const mixed = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "z", name: "Gone Co", status: "archived" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([
+          ["gone-co", 1],
+          ["ghost-co", 1],
+        ]),
+        new Map([["gone-co", "2026-06-11T00:01:00.000Z"]]),
+      );
+      const lane = buildCockpitView(mixed, NOW).cardless;
+      // A slug no site owns is never linked: it has no page.
+      expect(lane.map((i) => [i.siteName, i.href])).toEqual([["(unknown site: ghost-co)", null]]);
+      const due = archived("2026-06-11T00:00:00.000Z");
+      expect(due.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["Gone Co", undefined]]);
+      expect(due.cardless![0]!.title).not.toMatch(/NO fleet site/);
+      // An archived site still has its page (getSiteBySlug ignores status).
+      expect(buildCockpitView(due, NOW).cardless.map((i) => [i.siteName, i.href])).toEqual([
+        ["Gone Co", `${BASE}/s/gone-co`],
+      ]);
+    });
+
+    it("holds a dead letter on any site without a card, not only an archived one", () => {
+      // isDashboardVisible is {maintained, launching}; a building site has no card
+      // either, and replay places its leads all the same.
+      const m = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "b", name: "New Co", status: "building" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["new-co", 1]]),
+        new Map([["new-co", "2026-06-11T00:01:00.000Z"]]),
+      );
+      expect(m.cardless!.map((i) => [i.siteName, i.waiting])).toEqual([["New Co", true]]);
+    });
+
+    it("where an archived row's name gives a visible site's slug, the visible site keeps it", () => {
+      const m = buildCockpitModel(
+        [site({ id: "a", name: "Espada" }), site({ id: "z", name: "ESPADA", status: "archived" })],
+        [],
+        {},
+        BASE,
+        NOW,
+        [],
+        null,
+        [],
+        0,
+        new Map(),
+        new Map([["espada", 2]]),
+        new Map([["espada", "2026-06-10T08:00:00.000Z"]]),
+      );
+      const card = m.cards.find((c) => c.site.name === "Espada")!;
+      expect(card.tier).toBe("attention");
+      expect(card.items.map((i) => i.key)).toContain("deadletter:espada");
+      expect(m.cardless ?? []).toEqual([]);
+    });
+
+    it("aged 12 h: CRITICAL on the card and in the feed, with the age in the title", () => {
+      const m = model("2026-06-11T00:00:00.000Z");
+      expect(m.cards[0]!.tier).toBe("attention");
+      const item = m.cards[0]!.items.find((i) => i.kind === "deadletter")!;
+      expect(item.severity).toBe("critical");
+      expect(item.title).toMatch(/^2 leads dead-lettered, the oldest not replayed for 12 h/);
+      expect(buildNeedsYouFeed(m).map((f) => f.siteName)).toEqual(["Espada"]);
+    });
   });
 
   it("emits no deadletter item when the counts map is omitted (libSQL blip default)", () => {

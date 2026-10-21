@@ -4,6 +4,7 @@
  * list; the negative one is a site with one known attention item it must list.
  * A "just wait" vuln (src/alerts/waiting.ts) must stay out, new or not.
  */
+import { createDeadLetter } from "../../src/db/deadletter.js";
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +13,7 @@ import { createClient } from "@libsql/client";
 import { openDb } from "../../src/db/client.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
+import type { ReportRow } from "../../src/reports/report-fields.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import {
   assertReadOnly,
@@ -81,6 +83,7 @@ function inputs(over: Partial<CockpitInputs> = {}): CockpitInputs {
     autoFilteredCount: 0,
     notifyBounces: new Map(),
     deadLetters: new Map(),
+    deadLetterOldest: new Map(),
     ...over,
   };
 }
@@ -137,6 +140,8 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
       .filter((l) => l.startsWith("- "))
       .map((l) => l.split(" · ")[0]);
     expect(order).toEqual(["- (unknown site: ghost-site)", "- Alpha Deploy", "- Broken Co"]);
+    // A slug no site owns is never held, so it is never "just wait" either.
+    expect(out).toMatch(/just_wait_left_out=0\b/);
   });
 
   it("lists a dead letter for a slug no site owns", () => {
@@ -148,6 +153,162 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
     );
     expect(out.split("\n")[0]).toBe("PM_COCKPIT_SUMMARY broken=1 watch=0 approval=0 sites=1");
     expect(out).toContain("(unknown site: ghost-site) · broken · (no site page)");
+  });
+});
+
+describe("pm-cockpit — a dead letter on a known site waits two replay cycles (OD 87)", () => {
+  // NOW is 2026-10-07T12:00Z.
+  const held = (oldest: string) =>
+    buildPmCockpit(
+      inputs({
+        deadLetters: new Map([["healthy-co", 1]]),
+        deadLetterOldest: new Map([["healthy-co", oldest]]),
+      }),
+      NOW,
+    );
+
+  it("aged 11 h 59 m: counted in just_wait_left_out and not listed", () => {
+    const pm = held("2026-10-07T00:01:00.000Z");
+    expect(pm.waitingKeys).toEqual(["deadletter:healthy-co", "vuln:recWAIT"]);
+    const out = formatPmCockpit(pm);
+    expect(out).toContain("just_wait_left_out=2");
+    expect(out).not.toMatch(/Healthy Co|healthy-co/);
+  });
+
+  it("a held dead letter on an archived site counts in just_wait_left_out too", () => {
+    const gone = site({ id: "recGONE", name: "Gone Co", status: "archived" });
+    const pm = buildPmCockpit(
+      inputs({
+        websites: [BROKEN, HEALTHY, WAITING, gone],
+        deadLetters: new Map([["gone-co", 1]]),
+        deadLetterOldest: new Map([["gone-co", "2026-10-07T06:00:00.000Z"]]),
+      }),
+      NOW,
+    );
+    expect(pm.waitingKeys).toEqual(["deadletter:gone-co", "vuln:recWAIT"]);
+    expect(formatPmCockpit(pm)).not.toMatch(/Gone Co|gone-co/);
+  });
+
+  it("an archived site's held dead letter is counted once, even when a visible site shares its slug", () => {
+    const twin = site({ id: "recTWIN", name: "HEALTHY CO", status: "archived" });
+    const pm = buildPmCockpit(
+      inputs({
+        websites: [BROKEN, HEALTHY, WAITING, twin],
+        deadLetters: new Map([["healthy-co", 1]]),
+        deadLetterOldest: new Map([["healthy-co", "2026-10-07T06:00:00.000Z"]]),
+      }),
+      NOW,
+    );
+    expect(pm.waitingKeys).toEqual(["deadletter:healthy-co", "vuln:recWAIT"]);
+  });
+
+  it("an archived site's escalated dead letter is listed with its page", () => {
+    const gone = site({ id: "recGONE", name: "Gone Co", status: "archived" });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, gone],
+          deadLetters: new Map([["gone-co", 1]]),
+          deadLetterOldest: new Map([["gone-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("- Gone Co · broken · /s/gone-co");
+    expect(out).not.toContain("(no site page)");
+  });
+
+  it("an escalated dead letter joins its site's existing row rather than listing it twice", () => {
+    // An unrecognized Status already puts the site on Watch with its page; the
+    // dead letter moves that one row to broken.
+    const typo = site({ id: "recTYPO", name: "Typo Co", status: "actve" as never });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, typo],
+          deadLetters: new Map([["typo-co", 2]]),
+          deadLetterOldest: new Map([["typo-co", "2026-10-06T00:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out.split("\n").filter((l) => l.startsWith("- Typo Co"))).toEqual([
+      "- Typo Co · broken · /s/typo-co",
+    ]);
+    expect(out).toContain("2 leads dead-lettered, the oldest not replayed for 36 h");
+  });
+
+  it("an unparseable received_at holds nothing and is dated as first flagged", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          deadLetters: new Map([["healthy-co", 1]]),
+          deadLetterOldest: new Map([["healthy-co", "garbage"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("Healthy Co · broken · /s/healthy-co");
+    expect(out).toMatch(/not yet replayed[^\n]*\(first flagged 2026-10-07\)/);
+  });
+
+  it("a cardless item that is not a dead letter never gets a site page", () => {
+    // collectPreflightBlocked names a report's missing site "(unlinked site)" and
+    // links the fleet root; there is no /s/ page for it.
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          reports: [
+            {
+              id: "recR",
+              siteId: "recNOWHERE",
+              reportType: "Maintenance",
+              period: "2026-09",
+              periodStart: null,
+              periodEnd: null,
+              gaUsersCurrent: null,
+              gaUsersPrevious: null,
+              draftReady: true,
+              approvedToSend: true,
+              sentAt: null,
+              withdrawnAt: null,
+              deliveryStatus: "pending",
+            } as ReportRow,
+          ],
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("- (unlinked site) · broken · (no site page)");
+    expect(out).not.toContain("/s/unlinked-site");
+  });
+
+  it("aged 28 h: listed as broken, dated the DAY its hold ran out, not today", () => {
+    // Received 2026-10-06T08:00Z, so the hold ran out 2026-10-06T20:00Z; NOW is
+    // 2026-10-07, so a reason dated "today" would be wrong.
+    const pm = held("2026-10-06T08:00:00.000Z");
+    expect(pm.waitingKeys).toEqual(["vuln:recWAIT"]);
+    const out = formatPmCockpit(pm);
+    expect(out).toContain("Healthy Co · broken · /s/healthy-co");
+    expect(out).toContain("1 lead dead-lettered and not replayed for 28 h");
+    expect(out).toContain("(escalated 2026-10-06)");
+  });
+
+  it("is dated by its escalation too when the digest saw it while it was held", () => {
+    // The common production case: the daily digest wrote the key during the hold,
+    // so the cockpit diffs it as standing, not new.
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          prior: { ...PRIOR, "deadletter:healthy-co": { metric: 1, firstFlaggedAt: "2026-10-05" } },
+          deadLetters: new Map([["healthy-co", 1]]),
+          deadLetterOldest: new Map([["healthy-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("(escalated 2026-10-06)");
+    expect(out).not.toContain("first flagged 2026-10-05");
   });
 });
 
@@ -286,6 +447,13 @@ describe("pm-cockpit — the connection is SELECT-only, proven before the first 
         status: "Maintained",
       } as never)
       .execute();
+    await createDeadLetter(rw, {
+      siteSlug: "site-a",
+      payload: { email: "ada@example.com" },
+      turnstile: { outcome: "pass", hostname: "a.example.com" },
+      error: "Error: upstream 429 quota",
+      receivedAt: new Date("2026-10-07T09:00:00.000Z"),
+    });
     await rw.destroy();
     return url;
   }
@@ -296,6 +464,9 @@ describe("pm-cockpit — the connection is SELECT-only, proven before the first 
     await expect(assertReadOnly(ro)).resolves.toBeUndefined();
     const got = await loadCockpitInputs(ro, NOW);
     expect(got.websites.map((w) => w.name)).toEqual(["Site A"]);
+    // OD 87: the loader reads the hold's clock beside the count.
+    expect(got.deadLetters.get("site-a")).toBe(1);
+    expect(got.deadLetterOldest.get("site-a")).toBe("2026-10-07T09:00:00.000Z");
     await expect(
       ro
         .updateTable("sites")

@@ -514,11 +514,18 @@ export function collectNotifyBounceAlerts(
  * and no `url`, since `/s/<slug>` would 404. `metric` is the row count, so a
  * growing queue diffs WORSE. PURE: takes pre-fetched counts
  * (`countUnreplayedDeadLettersBySlug`); slug-ordered for a stable digest.
+ *
+ * OD 87 (2026-10-20): a slug that resolves to a site carries its oldest unreplayed
+ * row's `received_at` (`oldestUnreplayedDeadLetterBySlug`), and markWaiting holds it
+ * for two replay cycles from then. A slug that resolves to no site never carries
+ * one, because replay cannot place it: it alarms at once. Neither does a known slug
+ * missing from `oldestBySlug` (a failed read), since missing data never mutes.
  */
 export function collectDeadLetterAlerts(
   sites: WebsiteRow[],
   unreplayedBySlug: ReadonlyMap<string, number>,
   baseUrl: string,
+  oldestBySlug: ReadonlyMap<string, string> = new Map(),
 ): AttentionItem[] {
   const bySlug = new Map<string, WebsiteRow>();
   for (const s of sites) {
@@ -531,6 +538,7 @@ export function collectDeadLetterAlerts(
     if (n < 1) continue;
     const site = bySlug.get(slug);
     const noun = n === 1 ? "lead" : "leads";
+    const oldest = site ? oldestBySlug.get(slug) : undefined;
     items.push({
       key: `deadletter:${slug}`,
       kind: "deadletter",
@@ -541,6 +549,7 @@ export function collectDeadLetterAlerts(
       // No link for an unresolvable slug: /s/<slug> would 404, and the
       // collectors' own rule is never to render a broken link.
       ...(site ? { url: dashboardUrl(baseUrl, site.name) } : {}),
+      ...(oldest !== undefined ? { oldestReceivedAt: oldest } : {}),
       severity: "critical",
       metric: n,
     });
