@@ -318,6 +318,93 @@ describe("pm-cockpit — a dead letter on a known site waits two replay cycles (
   });
 });
 
+describe("pm-cockpit — a cardless item's flags and rows (#1570, #1571)", () => {
+  // Typo Co's unrecognized Status puts it on Watch with an undated reason, so
+  // only the dead letter it takes can make its row new or critical.
+  const typo = site({ id: "recTYPO", name: "Typo Co", status: "actve" as never });
+  const typoDeadLetter = {
+    websites: [BROKEN, HEALTHY, WAITING, typo],
+    deadLetters: new Map([["typo-co", 2]]),
+    deadLetterOldest: new Map([["typo-co", "2026-10-06T00:00:00.000Z"]]),
+  };
+  const orphanReport = {
+    id: "recR",
+    siteId: "recNOWHERE",
+    reportType: "Maintenance",
+    period: "2026-09",
+    periodStart: null,
+    periodEnd: null,
+    gaUsersCurrent: null,
+    gaUsersPrevious: null,
+    draftReady: true,
+    approvedToSend: true,
+    sentAt: null,
+    withdrawnAt: null,
+    deliveryStatus: "pending",
+  } as ReportRow;
+  const listedNames = (out: string): string[] =>
+    out
+      .split("\n")
+      .filter((l) => l.startsWith("- "))
+      .map((l) => l.split(" · ")[0]!);
+
+  it("a Watch row that takes a dead letter escalated inside the window turns NEW", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-05T00:00:00Z"),
+    );
+    expect(out).toContain("- NEW Typo Co · broken · /s/typo-co");
+    // It escalated 2026-10-06, so a window from 10-07 does not make it new.
+    const later = formatPmCockpit(
+      buildPmCockpit(inputs(typoDeadLetter), NOW, "2026-10-07T00:00:00Z"),
+    );
+    expect(later).toContain("- Typo Co · broken · /s/typo-co");
+  });
+
+  it("a Watch row that takes a dead letter sorts as critical, ahead of a non-critical broken row", () => {
+    const out = formatPmCockpit(buildPmCockpit(inputs(typoDeadLetter), NOW));
+    expect(listedNames(out)).toEqual(["- Typo Co", "- Broken Co"]);
+  });
+
+  it("a standalone cardless dead letter is NEW inside the window, and sorts as critical", () => {
+    const zed = site({ id: "recZED", name: "Zed Co", status: "archived" });
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, zed],
+          deadLetters: new Map([["zed-co", 1]]),
+          deadLetterOldest: new Map([["zed-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+        "2026-10-05T00:00:00Z",
+      ),
+    );
+    expect(listedNames(out)).toEqual(["- NEW Zed Co", "- Broken Co"]);
+    const later = formatPmCockpit(
+      buildPmCockpit(
+        inputs({
+          websites: [BROKEN, HEALTHY, WAITING, zed],
+          deadLetters: new Map([["zed-co", 1]]),
+          deadLetterOldest: new Map([["zed-co", "2026-10-06T08:00:00.000Z"]]),
+        }),
+        NOW,
+        "2026-10-07T00:00:00Z",
+      ),
+    );
+    expect(listedNames(later)).toEqual(["- Zed Co", "- Broken Co"]);
+  });
+
+  it("two cardless items with no site page keep a row each", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        inputs({ reports: [orphanReport], deadLetters: new Map([["ghost-site", 1]]) }),
+        NOW,
+      ),
+    );
+    expect(out).toContain("- (unlinked site) · broken · (no site page)");
+    expect(out).toContain("- (unknown site: ghost-site) · broken · (no site page)");
+  });
+});
+
 describe("pm-cockpit --since", () => {
   it("dates a vuln that just exhausted its auto-fix today, and an already-exhausted one as undated", () => {
     const ex = site({

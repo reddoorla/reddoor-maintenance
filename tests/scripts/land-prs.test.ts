@@ -15,7 +15,12 @@ import {
   isReadOnlyApiCall,
   isTransientReadFailure,
   chooseMergeMethod,
+  isTestFile,
+  testChangeFlags,
+  testChangesSection,
+  unnamedTestChanges,
   type RunResult,
+  type PrFile,
 } from "../../scripts/land-prs.mjs";
 
 /**
@@ -63,6 +68,8 @@ interface Model {
   mergeStateStatus: string;
   headRepo: string | null;
   mergeCommit: string;
+  body: string | null;
+  changedFiles?: number;
 }
 
 function view(over: Partial<Model> = {}): RunResult {
@@ -77,6 +84,7 @@ function view(over: Partial<Model> = {}): RunResult {
     mergeStateStatus: "CLEAN",
     headRepo: REPO,
     mergeCommit: MERGE,
+    body: "",
     ...over,
   };
   const merged = m.state === "MERGED";
@@ -84,6 +92,8 @@ function view(over: Partial<Model> = {}): RunResult {
     JSON.stringify({
       number: m.number,
       title: m.title,
+      body: m.body,
+      ...(m.changedFiles === undefined ? {} : { changed_files: m.changedFiles }),
       state: m.state === "OPEN" ? "open" : "closed",
       merged,
       merged_at: merged ? "2026-09-28T12:30:00Z" : null,
@@ -141,6 +151,10 @@ const DELETE = (branch = "feat/something") =>
   new RegExp(`^gh api ${P}/git/refs/heads/${branch} --method DELETE$`);
 const REF = (branch = "feat/something") => new RegExp(`^gh api ${P}/git/ref/heads/${branch}$`);
 const REPO_META = new RegExp(`^gh api ${P}$`);
+const FILES = (n: number | string = "\\d+") =>
+  new RegExp(`^gh api ${P}/pulls/${n}/files\\?per_page=100&page=\\d+$`);
+const FILES_PAGE = (n: number, page: number) =>
+  new RegExp(`^gh api ${P}/pulls/${n}/files\\?per_page=100&page=${page}$`);
 const RULES = (branch = "main") =>
   new RegExp(`^gh api ${P}/rules/branches/${branch}\\?per_page=100&page=\\d+$`);
 
@@ -170,9 +184,12 @@ const MAINTENANCE_MAIN_RULES = rules(
   { type: "required_linear_history", ruleset_id: 1 },
   pullRequestRule(["merge", "squash", "rebase"], 1),
 );
+// The files a PR changed: none by default, so a test that is not about test changes never
+// trips the test-change gate. A test about them routes `FILES(n)` ahead of this one.
 const methodRoutes: Route[] = [
   [REPO_META, [repoMeta()]],
   [RULES(ANY_BRANCH), [MAINTENANCE_MAIN_RULES]],
+  [FILES(), [ok("[]")]],
 ];
 
 // What Netlify posts on this repo's heads, about 2 s before Actions registers `build`
@@ -422,6 +439,8 @@ describe("land-prs: REST shapes", () => {
     expect(prFromRest(PR_920)).toEqual({
       number: 920,
       title: PR_920.title,
+      body: "",
+      changedFiles: null,
       state: "OPEN",
       isDraft: false,
       baseRefName: "feat/fleet-analytics",
@@ -1641,7 +1660,12 @@ describe("land-prs: --dry-run", () => {
     expect(r.code).toBe(0);
     expect(
       r.calls.every(
-        (c) => VIEW(852).test(c) || VIEW(5).test(c) || REPO_META.test(c) || RULES().test(c),
+        (c) =>
+          VIEW(852).test(c) ||
+          VIEW(5).test(c) ||
+          REPO_META.test(c) ||
+          RULES().test(c) ||
+          FILES(5).test(c),
       ),
     ).toBe(true);
     expect(r.lines).toContain("LAND #852 skipped reason=already merged");
@@ -1879,3 +1903,867 @@ describe("land-prs: a read that fails in transport is retried; an answer or a wr
 function firstLineOf(r: RunResult): string {
   return (r.stderr || r.stdout).split("\n")[0]!.trim();
 }
+
+/**
+ * P1-33 next-4(2), #1597: a PR that deletes, skips or weakens a test does not land unless
+ * its body has a `Test changes:` section naming each flagged file. Over 79% of agent
+ * cheats edit tests (workspace `reviews/2026-10-06-two-touch-review/recommendations.md`
+ * §4), and this script is the path every landing takes. The fixtures are in the shape
+ * `GET pulls/N/files` answers: a bare array, `patch` absent when GitHub leaves it out.
+ */
+describe("land-prs: test changes", () => {
+  const file = (filename: string, status: string, patch?: string, over: Partial<PrFile> = {}) =>
+    ({
+      filename,
+      status,
+      changes: patch === undefined ? 0 : patch.split("\n").length,
+      ...(patch === undefined ? {} : { patch }),
+      ...over,
+    }) as PrFile;
+  const files = (...fs: PrFile[]): RunResult => ok(JSON.stringify(fs));
+  const T = "tests/scripts/thing.test.ts";
+
+  const WEAKENED = file(
+    T,
+    "modified",
+    [
+      '@@ -10,3 +10,3 @@ describe("thing", () => {',
+      '   it("counts", () => {',
+      "-    expect(count()).toBe(3);",
+      "+    expect(count()).toBe(4);",
+      "   });",
+    ].join("\n"),
+  );
+
+  describe("which files are tests", () => {
+    it("knows a test by its directory or its name, and nothing else", () => {
+      for (const t of [
+        "tests/scripts/land-prs.test.ts",
+        "test/a.js",
+        "src/lib/__tests__/x.ts",
+        "e2e/forms.spec.ts",
+        "src/a.test.mjs",
+        "packages/x/src/b.spec.tsx",
+      ]) {
+        expect(isTestFile(t), t).toBe(true);
+      }
+      for (const n of ["src/testing.ts", "scripts/land-prs.mjs", "docs/tests.md", "contest/a.ts"]) {
+        expect(isTestFile(n), n).toBe(false);
+      }
+    });
+  });
+
+  describe("testChangeFlags", () => {
+    it("PASS control: an add-only PR, new test file and new cases in an old one, flags nothing", () => {
+      expect(
+        testChangeFlags([
+          file(
+            "tests/new.test.ts",
+            "added",
+            '@@ -0,0 +1,3 @@\n+it("a", () => {\n+  expect(1).toBe(1);\n+});',
+          ),
+          file(
+            T,
+            "modified",
+            '@@ -5,2 +5,5 @@\n   });\n+  it("b", () => {\n+    assert.equal(2, 2);\n+  });\n });',
+          ),
+          file("src/a.ts", "removed", "@@ -1 +0,0 @@\n-export const expect = (x) => x;"),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("a changed assertion is a removed one: toBe(3) → toBe(4) is flagged, with the line", () => {
+      expect(testChangeFlags([WEAKENED])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(count()).toBe(3);"] },
+      ]);
+    });
+
+    it("an assert line removed is flagged too", () => {
+      const f = file(T, "modified", "@@ -1,2 +1,1 @@\n-assert.ok(x);\n keep();");
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: assert.ok(x);"] },
+      ]);
+    });
+
+    it("an assertion moved within the file, or only re-indented, is not flagged", () => {
+      const f = file(
+        T,
+        "modified",
+        "@@ -1,4 +1,4 @@\n-  expect(a).toBe(1);\n   other();\n+      expect(a).toBe(1);\n   more();",
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("an added skip, skipIf, todo, fails, xit or xdescribe is flagged", () => {
+      for (const line of [
+        'it.skip("a", () => {});',
+        'describe.skipIf(isCi)("b", () => {});',
+        'test.todo("c");',
+        'it.fails("d", () => {});',
+        'xit("e", () => {});',
+        'xdescribe("f", () => {});',
+      ]) {
+        const f = file(T, "modified", `@@ -1,1 +1,2 @@\n keep();\n+${line}`);
+        expect(testChangeFlags([f]), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+    });
+
+    it("a skip that was already there and only moved is not flagged, nor is a word like skipped", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,2 +1,3 @@\n-it.skip("old", () => {});\n+  it.skip("old", () => {});\n+const skipped = r.skipped;',
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("a deleted test file is flagged, whatever its patch says", () => {
+      for (const f of [
+        file(T, "removed", '@@ -1,1 +0,0 @@\n-it("a", () => {});'),
+        file(T, "removed", undefined, { changes: 400 }),
+      ]) {
+        expect(testChangeFlags([f])).toEqual([{ file: T, reasons: ["test file deleted"] }]);
+      }
+    });
+
+    it("a test file renamed to a path that is not a test is flagged as deleted", () => {
+      const f = file("docs/old-thing.txt", "renamed", undefined, { previous_filename: T });
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["test file renamed to docs/old-thing.txt, which is not a test"] },
+      ]);
+      // Round 4: a move between test paths is flagged too, because the runner's include may
+      // not collect the new path; naming it costs one line.
+      const moved = file("tests/b/thing.test.ts", "renamed", undefined, { previous_filename: T });
+      expect(testChangeFlags([moved])).toEqual([
+        {
+          file: T,
+          reasons: ["test file renamed to tests/b/thing.test.ts: say the runner still collects it"],
+        },
+      ]);
+    });
+
+    it("a test file whose patch GitHub left out is flagged; an unchanged one (a mode change) or a non-test file is not", () => {
+      expect(testChangeFlags([file(T, "modified", undefined, { changes: 12_000 })])).toEqual([
+        { file: T, reasons: ["GitHub left out the patch (12000 changed lines): read the diff"] },
+      ]);
+      expect(
+        testChangeFlags([
+          file(T, "modified", undefined, { changes: 0 }),
+          file("src/huge.ts", "modified", undefined, { changes: 12_000 }),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("lists every reason in a file, and every flagged file", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,3 +1,2 @@\n-expect(a).toBe(1);\n-expect(b).toBe(2);\n+it.skip("x", () => {});',
+      );
+      const g = file("tests/other.test.ts", "removed");
+      expect(testChangeFlags([f, g])).toEqual([
+        {
+          file: T,
+          reasons: [
+            "removed assertion not re-added: expect(a).toBe(1);",
+            "removed assertion not re-added: expect(b).toBe(2);",
+            'added skip: it.skip("x", () => {});',
+          ],
+        },
+        { file: "tests/other.test.ts", reasons: ["test file deleted"] },
+      ]);
+    });
+  });
+
+  describe("round-1 review findings", () => {
+    it("counts copies: removing an assertion twice and adding it back once loses one", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,4 +1,3 @@\n-  expect(res.ok).toBe(true);\n-it("b", () => {\n-  expect(res.ok).toBe(true);\n+it("b", () => {});\n+    expect(res.ok).toBe(true);',
+      );
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(res.ok).toBe(true);"] },
+      ]);
+    });
+
+    it("counts copies of a skip too: one moved and one new is one added skip", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,1 +1,2 @@\n-it.skip("a", () => {});\n+  it.skip("a", () => {});\n+  it.skip("a", () => {});',
+      );
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ['added skip: it.skip("a", () => {});'] },
+      ]);
+    });
+
+    it("a test renamed out of the runner but still under tests/ is flagged", () => {
+      for (const to of ["tests/scripts/thing.test.ts.off", "tests/scripts/thing.ts"]) {
+        const f = file(to, "renamed", undefined, { previous_filename: T });
+        expect(testChangeFlags([f]), to).toEqual([
+          { file: T, reasons: [`test file renamed to ${to}, which is not named as a test`] },
+        ]);
+      }
+    });
+
+    it("a property named todo, skip or fails is not a skip, nor is a call ending in xit", () => {
+      const f = file(
+        "tests/store.test.ts",
+        "added",
+        "@@ -0,0 +1,4 @@\n+expect(store.todo.length).toBe(1);\n+expect(summary.fails).toBe(0);\n+const o = opts.skip;\n+process.exit(1); fixit(2);",
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+    });
+
+    it("assertions are calls: a comment, a name or an import that says assert is not one", () => {
+      const f = file(
+        T,
+        "modified",
+        '@@ -1,4 +1,4 @@\n-// The assertions are on the recorded commands.\n-const assertions = 3;\n-import { strict as assert } from "node:assert";\n- * expect(x) in a doc comment\n+// The checks are on the recorded commands.',
+      );
+      expect(testChangeFlags([f])).toEqual([]);
+      const g = file(
+        T,
+        "modified",
+        "@@ -1,3 +1,0 @@\n-assertEquals(a, b);\n-assert.strict.equal(a, b);\n-expect<number>(n).toBe(3);",
+      );
+      expect(testChangeFlags([g])[0]?.reasons).toHaveLength(3);
+    });
+
+    it("a name is the whole path: a longer path does not name the flagged one, a sentence's full stop does", () => {
+      const flags = testChangeFlags([
+        file("tests/a.test.ts", "removed"),
+        file("test/a.js", "removed"),
+      ]);
+      expect(
+        unnamedTestChanges(flags, "Test changes:\n- tests/a.test.tsx: renamed\n- src/test/a.json"),
+      ).toEqual(["tests/a.test.ts", "test/a.js"]);
+      expect(
+        unnamedTestChanges(flags, "Test changes: removed tests/a.test.ts. And `test/a.js`, too."),
+      ).toEqual([]);
+    });
+
+    it("a label section ends at a paragraph, and a hidden or fenced label does not count", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Summary.\n\n**Test changes:** none.\n\nFiles touched: tests/a.test.ts, src/x.ts",
+        "<!--\nTest changes: tests/a.test.ts\n-->\n\nSummary: cleanup of tests/a.test.ts",
+        "```\nTest changes: tests/a.test.ts\n```\nSummary.",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+      for (const body of [
+        "Test changes:\n\n- tests/a.test.ts: obsolete\n- more",
+        "## Summary\n- Fixes x.\n- Test changes: tests/a.test.ts was obsolete.",
+        "1. Test changes: tests/a.test.ts was obsolete.",
+        "## Test changes\n\nOne paragraph.\n\ntests/a.test.ts was obsolete.",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+    });
+  });
+
+  describe("round-2 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+    it("a comment in front of a skip or an assertion does not hide it; a commented-out one is not code", () => {
+      expect(one('@@ -1 +1 @@\n-it("x", () => {\n+/* flaky */ it.skip("x", () => {')).toHaveLength(
+        1,
+      );
+      expect(one('@@ -1 +1 @@\n-it("x", () => {\n+*/ it.skip("x", () => {')).toHaveLength(1);
+      expect(one("@@ -1 +0,0 @@\n-/* note */ expect(a).toBe(1);")).toHaveLength(1);
+      expect(
+        one(
+          '@@ -0,0 +1,3 @@\n+// it.skip("x", () => {});\n+ * it.todo("doc");\n+/* xit("y") */ go();',
+        ),
+      ).toEqual([]);
+    });
+
+    it("a called .skip on any receiver is a skip: ctx, this, a test.extend alias, a split chain", () => {
+      for (const line of [
+        "ctx.skip();",
+        "this.skip();",
+        'myTest.skip("x", () => {});',
+        'test.extend({}).skip("x", () => {});',
+        'it("x", ({ skip }) => { skip(); });',
+        'it .skip("x", () => {});',
+        '.skip("x", () => {});',
+      ]) {
+        expect(one(`@@ -1 +1,2 @@\n keep();\n+${line}`), line).toEqual([
+          { file: T, reasons: [`added skip: ${line}`] },
+        ]);
+      }
+    });
+
+    it("assertions with generics, nested or chained, and type assertions are assertions", () => {
+      for (const line of [
+        "expect<Array<number>>(xs).toEqual([1]);",
+        "expect.soft<number>(x).toBe(1);",
+        "assertType<string>(x);",
+        'expectTypeOf<Site>().toHaveProperty("path");',
+      ]) {
+        expect(one(`@@ -1 +0,0 @@\n-${line}`), line).toHaveLength(1);
+      }
+    });
+
+    it("a hostile line is not slow to scan", () => {
+      const start = Date.now();
+      one(`@@ -1 +0,0 @@\n-${"expect<".repeat(20_000)}`);
+      testChangesSection(`Test changes:\n${"\n".repeat(60_000)}- a`);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    });
+
+    it("only a root tests/, test/ or e2e/ is a test directory; __tests__/ is one anywhere", () => {
+      for (const p of [
+        "src/routes/test/+page.svelte",
+        "src/lib/test/utils.ts",
+        "static/e2e/x.json",
+      ]) {
+        expect(isTestFile(p), p).toBe(false);
+      }
+      for (const p of ["packages/core/tests/a.ts", "e2e/a.ts", "src/__tests__/a.ts"]) {
+        expect(isTestFile(p), p).toBe(true);
+      }
+    });
+
+    it("names a file as ./path or as a GitHub blob link, but not as a longer name or another path", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Test changes: ./tests/a.test.ts removed a dup",
+        "Test changes: https://github.com/o/r/blob/main/tests/a.test.ts was a dup",
+        "Test changes: [tests/a.test.ts](https://github.com/o/r/blob/main/tests/a.test.ts) was a dup",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      for (const body of [
+        "Test changes: tests/a.test.ts.off is gone",
+        "Test changes: foo.tests/a.test.ts",
+        "Test changes: src/tests/a.test.ts",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("comments and fences hide only what GitHub hides", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "This PR escapes `<!--` in templates.\n\nTest changes: tests/a.test.ts, reason",
+        "````md\n```\n````\n\nTest changes: tests/a.test.ts reason",
+        "Test changes\n------------\n\ntests/a.test.ts: reason",
+        "Test changes: none\n\n## Test changes\n- tests/a.test.ts: dup",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      for (const body of [
+        "Summary.\n<!-- template\nTest changes: tests/a.test.ts",
+        "Test changes: <!-- tests/a.test.ts --> none",
+        "Test changes: none <!-- a > b, tests/a.test.ts -->",
+        "Summary.\n```\nTest changes: tests/a.test.ts",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("prints the list once when the merging head flags what the first view did", async () => {
+      const NAMED = `Test changes:\n- ${T}: the count is 4 now.`;
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: NAMED }), merged()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines.filter((l) => l.startsWith("LAND #5 test change"))).toHaveLength(2);
+    });
+  });
+
+  describe("round-3 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+
+    it("a chained, aliased or Playwright skip is a skip", () => {
+      for (const line of [
+        'it.skip.each(cases)("x %s", (c) => {',
+        'describe.skip.each([1, 2])("d", () => {',
+        '(process.env.CI ? it.skip : it)("works", () => {',
+        "const itLive = hasCreds ? it : it.skip;",
+        'xtest("a", () => {});',
+        'test.fixme("flaky webkit", async () => {});',
+        'test.fail("x", () => {});',
+      ]) {
+        expect(added(line), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+      expect(added('myTest.skip.each(rows)("r", () => {});')).toHaveLength(1);
+      expect(added("skip ();")).toHaveLength(1);
+      expect(added("const n = store.todo.length + result.tests.skip;")).toEqual([]);
+    });
+
+    it("a string is data: comment markers and words inside one change nothing", () => {
+      expect(removed('expect(cronOf(wf)).toBe("*/15 * * * *");')).toHaveLength(1);
+      expect(removed('expect(fg.sync("**/*.svelte")).toHaveLength(12);')).toHaveLength(1);
+      expect(added('it.skip("matches **/ globs", () => {});')).toHaveLength(1);
+      expect(added('it.skip("x", () => { // */')).toHaveLength(1);
+      expect(added('it.skip("x", () => {}); */')).toHaveLength(1);
+      expect(
+        removed('await page.goto("https://x.test/"); expect(page).toHaveURL(/x/);'),
+      ).toHaveLength(1);
+      expect(
+        one(
+          '@@ -1 +1 @@\n-it("redirects as users expect (no 404)", async () => {\n+it("redirects as users expect (no 404 page)", async () => {',
+        ),
+      ).toEqual([]);
+      expect(added('it("does not skip (hidden) rows", () => {')).toEqual([]);
+      expect(added(`const fixture = 'it.skip("a", () => {});';`)).toEqual([]);
+      expect(removed('const s = "expect(x).toBe(3)";')).toEqual([]);
+      expect(removed("expect (x).toBe(3);")).toHaveLength(1);
+      expect(added("const html = `<p>Click to skip (or wait)</p>`;")).toEqual([]);
+    });
+
+    it("no line makes the assertion scan slow", () => {
+      const start = Date.now();
+      removed(`expect${"<>".repeat(40)}x`);
+      removed(`expect ${"<b>".repeat(60)}`);
+      removed(`expect${"<a>".repeat(60)}`);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    });
+
+    it("adding a semicolon, or re-spacing a line, does not remove the assertion", () => {
+      expect(one("@@ -1 +1 @@\n-expect(x).toBe(1)\n+expect(x).toBe(1);")).toEqual([]);
+      expect(one("@@ -1 +1 @@\n-expect(x).toBe( 1 );\n+expect(x).toBe(  1 );")).toEqual([]);
+    });
+
+    it("a table or an inline-code line carries a label's section past a blank line", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Test changes:\n\n| file | why |\n|---|---|\n| tests/a.test.ts | renamed title |\n",
+        "**Test changes:**\n\n`tests/a.test.ts`: title only\n",
+        "Test changes: one file.\n\n| tests/a.test.ts | renamed title |\n",
+        "Test changes: one file.\n\n`tests/a.test.ts`: title only\n",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      expect(unnamedTestChanges(flags, "Test changes: foo./tests/a.test.ts")).toEqual([
+        "tests/a.test.ts",
+      ]);
+    });
+  });
+
+  describe("round-4 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+    const A_TEST = testChangeFlags([file("tests/a.test.ts", "removed")]);
+    const names = (body: string) => unnamedTestChanges(A_TEST, body, ["claude/x", "main"]);
+
+    it("every rename of a test is flagged: the runner's include may not collect the new path", () => {
+      const f = file("scripts/land-prs.test.ts", "renamed", undefined, {
+        previous_filename: "tests/scripts/land-prs.test.ts",
+      });
+      expect(testChangeFlags([f])).toEqual([
+        {
+          file: "tests/scripts/land-prs.test.ts",
+          reasons: [
+            "test file renamed to scripts/land-prs.test.ts: say the runner still collects it",
+          ],
+        },
+      ]);
+    });
+
+    it("a section names the file wherever a reader sees it in the section", () => {
+      for (const body of [
+        "Test changes:\n\ntests/a.test.ts: the count is now 4 because the fixture gained a row.",
+        "**Test changes:**\n\nThe assertion in tests/a.test.ts now expects 4.",
+        "## Test changes\n\n### tests/a.test.ts\nThe count is now 4.",
+        "## Test changes\n\n- tests/a.test.ts: the count is now 4.\n---\nRelated: #12",
+        "Test changes:\ntests/a.test.ts: retitled the case\n---\nCloses #12",
+        "```pnpm test``` passes locally.\n\nTest changes: tests/a.test.ts, the count is now 4.",
+        "Test changes: https://github.com/o/r/blob/claude/x/tests/a.test.ts#L3 is 4 now.",
+        "Test changes:\n\n\n- tests/a.test.ts: dup",
+      ]) {
+        expect(names(body), body).toEqual([]);
+      }
+    });
+
+    it("text a reader does not see does not name it", () => {
+      for (const body of [
+        "Refactor.\n\nTest changes:\n[//]: # (tests/a.test.ts)\n",
+        "Test changes:\n[a]: tests/a.test.ts",
+        "Uses ```x``` now.\n```x```\n<!--\n```\nTest changes: tests/a.test.ts\n-->\n",
+        "Test changes: none\n\n## Other\ntests/a.test.ts",
+      ]) {
+        expect(names(body), body).toEqual(["tests/a.test.ts"]);
+      }
+    });
+
+    it("whitespace inside a string is part of the assertion", () => {
+      expect(
+        one('@@ -1 +1 @@\n-  expect(s).toBe("a  b");\n+  expect(s).toBe("a b");'),
+      ).toHaveLength(1);
+    });
+
+    it("a skip by bracket access is a skip; RxJS skip(1) and a query's .skip(10) are not", () => {
+      expect(added('it["skip"]("x", () => {')).toHaveLength(1);
+      expect(added("source$.pipe(skip(1), take(1));")).toEqual([]);
+      expect(added("await db.find().skip(10).limit(5);")).toEqual([]);
+    });
+
+    it("assertion names are exact, generics may hold function types, a lone quote does not hide a call", () => {
+      expect(removed("const want = expectedFor(input);")).toEqual([]);
+      expect(removed("expectTypeOf<() => void>().toBeFunction();")).toHaveLength(1);
+      expect(removed("assertType<(x: number) => string>(fn);")).toHaveLength(1);
+      expect(
+        removed('render(<p>Don\'t</p>); expect(screen.getByText("x")).toBeTruthy();'),
+      ).toHaveLength(1);
+    });
+
+    it("an escaped quote stays in its string, and an unclosed /* hides the rest of the line", () => {
+      expect(added('it("says \\"skip (\\" here", () => {});')).toEqual([]);
+      expect(added('/* TODO: it.skip("a") once fixed')).toEqual([]);
+    });
+
+    it("a line too long to scan is flagged unless it comes back unchanged", () => {
+      const long = `const fixture = "${"x".repeat(2_500)}";`;
+      expect(added(long)[0]?.reasons).toEqual([
+        `a changed line of ${long.length} characters, too long to scan: read it`,
+      ]);
+      expect(one(`@@ -1 +1 @@\n-${long}\n+  ${long}`)).toEqual([]);
+    });
+
+    it("no body or line makes a scan slow", () => {
+      const start = Date.now();
+      testChangesSection(`test changes${"*".repeat(65_500)}x`);
+      testChangesSection("`".repeat(65_536));
+      testChangesSection(`Test changes:\n${"<!--".repeat(16_000)}`);
+      added("it.".repeat(20_000));
+      expect(Date.now() - start).toBeLessThan(1_000);
+    });
+  });
+
+  describe("round-5 review findings", () => {
+    const one = (patch: string, name = T) => testChangeFlags([file(name, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+    const A_TEST = testChangeFlags([file("tests/a.test.ts", "removed")]);
+
+    it("a renamed test is flagged for the rename and still scanned", () => {
+      const f = file(
+        "tests/b.test.ts",
+        "renamed",
+        "@@ -1,2 +1,1 @@\n-it('a', () => {\n+it.skip('a', () => {\n-  expect(x).toBe(1);",
+        { previous_filename: "tests/a.test.ts" },
+      );
+      expect(testChangeFlags([f])).toEqual([
+        {
+          file: "tests/a.test.ts",
+          reasons: [
+            "test file renamed to tests/b.test.ts: say the runner still collects it",
+            "removed assertion not re-added: expect(x).toBe(1);",
+            "added skip: it.skip('a', () => {",
+          ],
+        },
+      ]);
+    });
+
+    it("a conditional skip() from the test context is a skip", () => {
+      for (const line of [
+        "if (process.env.CI) skip();",
+        'it("x", async ({ skip }) => { if (!process.env.DB) skip(); });',
+        "else skip();",
+        "cond && skip();",
+        "return skip();",
+        'test("x", (c) => { c.skip(); });',
+        'it.runIf(false)("x", () => {});',
+        "base.skip('x', async () => {});",
+        "authed.skip(true, 'flaky');",
+      ]) {
+        expect(added(line), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+    });
+
+    it("a stream's or a query's skip is not, on one line or split", () => {
+      for (const line of [
+        "skip(1),",
+        ".skip(10)",
+        "const rows = latest.skip(1);",
+        "const page = query.skip(10);",
+      ]) {
+        expect(added(line), line).toEqual([]);
+      }
+      expect(removed("const n = assertionsFor(x);")).toEqual([]);
+    });
+
+    it("a regex literal does not hide a call after it", () => {
+      expect(added('const p = s.replace(/\\//g, ""); it.skip("x", () => {});')).toHaveLength(1);
+      expect(
+        removed('const parts = url.split(/\\//); expect(parts).toEqual(["a", "b"]);'),
+      ).toHaveLength(1);
+      expect(added("/'/.test(a); it.skip(\"x\", () => {}); /'/.test(b);")).toHaveLength(1);
+    });
+
+    it("a name a reader never sees does not count", () => {
+      for (const body of [
+        "Test changes: none[](tests/a.test.ts)",
+        "Test changes: none ![](tests/a.test.ts)",
+        'Test changes: none <span title="tests/a.test.ts"></span>',
+        "Test changes: [ ](https://github.com/o/r/blob/main/tests/a.test.ts)",
+        "## Test changes\n\nnone\n\n[tests/a.test.ts]:<x>",
+        "Test changes:\n- https://github.com/o/r/blob/main/packages/web/tests/a.test.ts: toBe(1) -> toBe(2)",
+      ]) {
+        expect(unnamedTestChanges(A_TEST, body, ["main"]), body).toEqual(["tests/a.test.ts"]);
+      }
+      expect(unnamedTestChanges(A_TEST, "<!-->\nTest changes: tests/a.test.ts\n-->")).toEqual([]);
+    });
+
+    it("a line of chained dots is not slow", () => {
+      const start = Date.now();
+      for (let i = 0; i < 300; i++) added("it . ".repeat(390));
+      expect(Date.now() - start).toBeLessThan(2_000);
+    });
+  });
+
+  describe("the Test changes: section", () => {
+    it("is found as a label or a heading, and ends at the next heading", () => {
+      for (const body of [
+        `Summary.\n\nTest changes: \`${T}\` pinned the old count.\n\n## Next\nother.test.ts`,
+        `## Test changes\n\n- ${T}: the count changed.\n\n## Next\nother.test.ts`,
+        `**Test changes:**\n- ${T}: the count changed.\n### Next\nother.test.ts`,
+      ]) {
+        const section = testChangesSection(body);
+        expect(section, body).toContain(T);
+        expect(section, body).not.toContain("other.test.ts");
+      }
+      expect(testChangesSection("No section here; tests/a.test.ts changed.")).toBeNull();
+      expect(testChangesSection(null)).toBeNull();
+    });
+
+    it("names the flagged files the section leaves out, and a file named outside it does not count", () => {
+      const flags = testChangeFlags([WEAKENED, file("tests/other.test.ts", "removed")]);
+      expect(unnamedTestChanges(flags, `Test changes:\n- ${T}: the count changed.`)).toEqual([
+        "tests/other.test.ts",
+      ]);
+      expect(unnamedTestChanges(flags, `I changed ${T} and tests/other.test.ts.`)).toEqual([
+        T,
+        "tests/other.test.ts",
+      ]);
+      expect(unnamedTestChanges([], "")).toEqual([]);
+    });
+  });
+
+  describe("at landing", () => {
+    const NAMED = `Fix.\n\nTest changes:\n- \`${T}\`: the count is 4 now (#1597).`;
+
+    it("a flagged change with no Test changes: section stops before any check is watched, saying what to add", async () => {
+      const r = await land(
+        [5, 9],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: add a "Test changes:" line or heading to the PR body naming ${T}, each with why its test changed, then land again`,
+      );
+      expect(pastTheRefusal(r.calls)).toEqual([]);
+      expect(r.calls.some((c) => /\/pulls\/9\b/.test(c))).toBe(false);
+    });
+
+    it("the same change lands once the section names the file, re-read on the merging head", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: NAMED }), merged()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(`LAND #5 merged ${MERGE} head=${A} method=squash`);
+      expect(r.calls.filter((c) => FILES(5).test(c))).toHaveLength(2);
+      const checks = r.calls.findIndex((c) => RUNS().test(c));
+      const files2 = r.calls.map((c) => FILES(5).test(c)).lastIndexOf(true);
+      const mergeAt = r.calls.findIndex((c) => MERGE_CMD(5).test(c));
+      expect(checks < files2 && files2 < mergeAt).toBe(true);
+    });
+
+    it("a section that names only some of the files stops, naming the rest", async () => {
+      const other = file("tests/other.test.ts", "removed");
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED, other)]],
+          [VIEW(5), [view({ body: NAMED })]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        `LAND #5 stopped reason=1 flagged test file is not named in the PR body: the "Test changes:" section does not name tests/other.test.ts; add each, with why its test changed, then land again`,
+      );
+    });
+
+    it("reads every page of the files: a deleted test on page 2 still stops", async () => {
+      const clean = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES_PAGE(5, 1), [files(...clean)]],
+          [FILES_PAGE(5, 2), [files(file(T, "removed"))]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(`LAND #5 test change: ${T}: test file deleted`);
+      expect(r.calls.some((c) => FILES_PAGE(5, 3).test(c))).toBe(false);
+    });
+
+    it("a file list at GitHub's 3000-file cap stops: the check cannot see past it", async () => {
+      const page = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        "LAND #5 stopped reason=gh api pulls/5/files listed 3000 of an unknown number of changed files (GitHub lists at most 3000): the test-change check cannot see them all",
+      );
+      expect(pastTheRefusal(r.calls)).toEqual([]);
+      const over = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view({ changedFiles: 3412 })]],
+        ],
+      );
+      expect(over.lines.at(-1)).toContain("listed 3000 of 3412 changed files");
+    });
+
+    it("a PR of exactly 3000 files is complete, and is not stopped for the cap", async () => {
+      const page = Array.from({ length: 100 }, (_, i) =>
+        file(`src/f${i}.ts`, "added", "@@ -0,0 +1 @@\n+x"),
+      );
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(...page)]],
+          [VIEW(5), [view({ changedFiles: 3000 })]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain("LAND #5 test changes: none flagged");
+    });
+
+    it("a change that appears only on the merging head stops there, and nothing merges", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(), files(WEAKENED)]],
+          [VIEW(5), [view(), view()]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toMatch(
+        /^LAND #5 stopped reason=1 flagged test file is not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+      );
+      expect(kinds(r.calls)).toEqual(["checks"]);
+    });
+
+    it("a section removed from the body during the checks wait stops at the gate", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED }), view({ body: "Fix." })]],
+          ...green,
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toMatch(
+        /not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+      );
+      expect(kinds(r.calls)).toEqual(["checks"]);
+    });
+
+    it("--dry-run prints the list and the stop it would make", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view()]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines.at(-1)).toMatch(/^LAND #5 stopped reason=1 flagged test file is not named/);
+    });
+
+    it("--dry-run with the file named prints the list, then the plan", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: NAMED })]],
+        ],
+        {
+          dryRun: true,
+        },
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
+      );
+      expect(r.lines).toContain(`LAND #5 test changes: 1 flagged file, named in the PR body`);
+      expect(r.lines.some((l) => l.startsWith("LAND #5 dry-run would: wait for checks"))).toBe(
+        true,
+      );
+    });
+
+    it("--dry-run says when nothing is flagged", async () => {
+      const r = await land([5], [[VIEW(5), [view()]]], { dryRun: true });
+      expect(r.lines).toContain("LAND #5 test changes: none flagged");
+    });
+
+    it("a files read GitHub refuses stops with the call and its reason", async () => {
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [httpError(404, "Not Found")]],
+          [VIEW(5), [view()]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).toBe(
+        "LAND #5 stopped reason=gh api pulls/5/files?per_page=100&page=1 failed: gh: Not Found (HTTP 404)",
+      );
+    });
+  });
+});
