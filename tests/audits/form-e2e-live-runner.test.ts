@@ -20,6 +20,8 @@ const contactPage = (opts: {
   statusOnError: boolean;
   statusFirst: boolean;
   beacon: boolean;
+  encoding: Encoding;
+  native: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -58,20 +60,32 @@ const contactPage = (opts: {
     const onChange = ["select-one", "checkbox", "radio"];
     f.addEventListener("input", (e) => { if (!onChange.includes(e.target.type)) note(e); });
     f.addEventListener("change", (e) => { if (onChange.includes(e.target.type)) note(e); });
-    f.addEventListener("submit", async (e) => {
+    if (!${opts.native ? "true" : "false"}) f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = {
         ...state,
         testMode: f.querySelector('[name="testMode"]')?.value ?? null,
         honeypot: f.querySelector('[name="bot-field"]').value,
       };
+      const entries = () => Object.entries(body).map(([k, v]) => [k, String(v)]);
+      const encode = {
+        json: () => JSON.stringify(body),
+        urlencoded: () => new URLSearchParams(entries()),
+        multipart: () => { const d = new FormData(); for (const [k, v] of entries()) d.append(k, v); return d; },
+        file: () => {
+          const d = new FormData();
+          for (const [k, v] of entries()) d.append(k, v);
+          d.append("attachment", new File(["resume"], "resume.txt", { type: "text/plain" }));
+          return d;
+        },
+      }[${JSON.stringify(opts.encoding)}];
       if (${opts.statusFirst ? "true" : "false"}) {
         const s = document.getElementById("ok");
         s.textContent = "Sending…";
         s.hidden = false;
       }
       if (${opts.beacon ? "true" : "false"}) await fetch("/beacon", { method: "POST", body: "ping" });
-      const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
+      const r = await fetch("/contact", { method: "POST", body: encode() });
       const failed = !r.ok || (await r.clone().json().catch(() => ({}))).type === "failure";
       if (!failed && ${opts.banner ? "true" : "false"}) {
         const s = document.getElementById("ok");
@@ -165,6 +179,11 @@ const hydratingPage = (h: Hydration, banner: boolean) => `<!doctype html>
   </script>
 </body></html>`;
 
+/** How the page encodes its action POST: JSON (a hand-rolled fetch), URL-encoded
+ *  (SvelteKit use:enhance's default), multipart, or multipart with a File (whose
+ *  body Playwright cannot read, postData() null). */
+type Encoding = "json" | "urlencoded" | "multipart" | "file";
+
 type Fixture = {
   health: unknown;
   banner: boolean;
@@ -185,6 +204,10 @@ type Fixture = {
   kitFailure?: boolean;
   /** A same-site POST to /beacon goes first, answering this status. */
   beaconStatus?: number;
+  encoding?: Encoding;
+  /** No script handles the submit: the browser posts the form, the action answers
+   *  303 to /thanks, and /thanks shows the status region. */
+  native?: boolean;
 };
 
 let server: Server;
@@ -215,8 +238,15 @@ beforeAll(async () => {
           statusOnError: fixture.statusOnError ?? false,
           statusFirst: fixture.statusFirst ?? false,
           beacon: fixture.beaconStatus !== undefined,
+          encoding: fixture.encoding ?? "json",
+          native: fixture.native ?? false,
         }),
       );
+      return;
+    }
+    if (req.method === "GET" && req.url === "/thanks") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><p role="status">Thanks, we will be in touch.</p>');
       return;
     }
     if (req.method === "POST" && req.url === "/beacon") {
@@ -235,6 +265,11 @@ beforeAll(async () => {
           posts.push(JSON.parse(raw) as Posted);
         } catch {
           posts.push({ unparsed: raw });
+        }
+        if (fixture.native) {
+          res.writeHead(303, { location: "/thanks" });
+          res.end();
+          return;
         }
         const answer = () => {
           const status = fixture.postStatus ?? 200;
@@ -386,6 +421,41 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     });
     expect(out).toMatchObject({ formPresent: true, success: false });
     expect((out as { detail?: string }).detail).toContain(`POST ${code}`);
+  });
+
+  it.each(["urlencoded", "multipart", "file"] as const)(
+    "a %s action POST is the one read: its 500 behind the status region fails",
+    async (encoding) => {
+      // The fleet's own encodings: use:enhance posts URL-encoded, a FormData fetch
+      // multipart, and an attachment makes Playwright's postData() null.
+      const out = await submit({
+        health: DECLARED,
+        banner: true,
+        encoding,
+        beaconStatus: 200,
+        postStatus: 500,
+        statusOnError: true,
+      });
+      expect(out).toMatchObject({ formPresent: true, success: false });
+      expect((out as { detail?: string }).detail).toContain("POST 500");
+    },
+  );
+
+  it("a URL-encoded SvelteKit fail() inside a 200 fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      encoding: "urlencoded",
+      kitFailure: true,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+  });
+
+  it("a native form whose action answers 303 to a thanks page passes", async () => {
+    // A redirect response has no body to read; that must not turn a pass into a throw.
+    const out = await submit({ health: DECLARED, banner: true, native: true });
+    expect(out).toMatchObject({ formPresent: true, success: true });
   });
 
   it("a SvelteKit action's fail() inside a 200 fails", async () => {

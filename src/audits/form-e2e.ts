@@ -749,9 +749,10 @@ export function carriesProbeMarker(postData: string | null): boolean {
 }
 
 /** The failure a SvelteKit form action reports inside an HTTP 200: an enhanced
- *  submission answers `fail(502)` as `{"type":"failure","status":502,…}` (and an
- *  error as `"type":"error"`), so the status line alone reads as success. Returns the
- *  status the body names, or null for any other body. */
+ *  submission answers `fail(502)` as `{"type":"failure","status":502,…}`, so the
+ *  status line alone reads as success. Kit sends `"type":"error"` with a 4xx/5xx,
+ *  which the status line already catches; a non-kit 2xx body saying so is read the
+ *  same way. Returns the status the body names, or null for any other body. */
 export function actionFailureStatus(body: string): number | null {
   try {
     const parsed = JSON.parse(body) as { type?: unknown; status?: unknown };
