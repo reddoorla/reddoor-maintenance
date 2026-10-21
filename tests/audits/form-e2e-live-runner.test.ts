@@ -17,6 +17,11 @@ const contactPage = (opts: {
   disabledSubmit: boolean;
   dropMarkerOnChange: boolean;
   dropMarkerAlways: boolean;
+  statusOnError: boolean;
+  statusFirst: boolean;
+  beacon: boolean;
+  encoding: Encoding;
+  native: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -55,15 +60,43 @@ const contactPage = (opts: {
     const onChange = ["select-one", "checkbox", "radio"];
     f.addEventListener("input", (e) => { if (!onChange.includes(e.target.type)) note(e); });
     f.addEventListener("change", (e) => { if (onChange.includes(e.target.type)) note(e); });
-    f.addEventListener("submit", async (e) => {
+    if (!${opts.native ? "true" : "false"}) f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = {
         ...state,
         testMode: f.querySelector('[name="testMode"]')?.value ?? null,
         honeypot: f.querySelector('[name="bot-field"]').value,
       };
-      const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
-      if (r.ok && ${opts.banner ? "true" : "false"}) document.getElementById("ok").hidden = false;
+      const entries = () => Object.entries(body).map(([k, v]) => [k, String(v)]);
+      const encode = {
+        json: () => JSON.stringify(body),
+        urlencoded: () => new URLSearchParams(entries()),
+        multipart: () => { const d = new FormData(); for (const [k, v] of entries()) d.append(k, v); return d; },
+        file: () => {
+          const d = new FormData();
+          for (const [k, v] of entries()) d.append(k, v);
+          d.append("attachment", new File(["resume"], "resume.txt", { type: "text/plain" }));
+          return d;
+        },
+      }[${JSON.stringify(opts.encoding)}];
+      if (${opts.statusFirst ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Sending…";
+        s.hidden = false;
+      }
+      if (${opts.beacon ? "true" : "false"}) await fetch("/beacon", { method: "POST", body: "ping" });
+      const r = await fetch("/contact", { method: "POST", body: encode() });
+      const failed = !r.ok || (await r.clone().json().catch(() => ({}))).type === "failure";
+      if (!failed && ${opts.banner ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Thanks, we will be in touch.";
+        s.hidden = false;
+      }
+      if (failed && ${opts.statusOnError ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Sorry, something went wrong. Please try again.";
+        s.hidden = false;
+      }
     });
     if (${opts.resetSelect ? "true" : "false"}) {
       const sel = f.querySelector('[name="interest"]');
@@ -146,6 +179,11 @@ const hydratingPage = (h: Hydration, banner: boolean) => `<!doctype html>
   </script>
 </body></html>`;
 
+/** How the page encodes its action POST: JSON (a hand-rolled fetch), URL-encoded
+ *  (SvelteKit use:enhance's default), multipart, or multipart with a File (whose
+ *  body Playwright cannot read, postData() null). */
+type Encoding = "json" | "urlencoded" | "multipart" | "file";
+
 type Fixture = {
   health: unknown;
   banner: boolean;
@@ -154,6 +192,22 @@ type Fixture = {
   dropMarkerOnChange?: boolean;
   dropMarkerAlways?: boolean;
   hydration?: Hydration;
+  /** The action POST's status (default 200). */
+  postStatus?: number;
+  /** On a failed POST, the page writes its error into the same role="status" region. */
+  statusOnError?: boolean;
+  /** The page shows its role="status" region ("Sending…") before it posts. */
+  statusFirst?: boolean;
+  /** How long the server holds the action POST before answering. */
+  postDelayMs?: number;
+  /** The action answers 200 with a SvelteKit `fail()` body, as `use:enhance` receives it. */
+  kitFailure?: boolean;
+  /** A same-site POST to /beacon goes first, answering this status. */
+  beaconStatus?: number;
+  encoding?: Encoding;
+  /** No script handles the submit: the browser posts the form, the action answers
+   *  303 to /thanks, and /thanks shows the status region. */
+  native?: boolean;
 };
 
 let server: Server;
@@ -181,8 +235,26 @@ beforeAll(async () => {
           disabledSubmit: fixture.disabledSubmit ?? false,
           dropMarkerOnChange: fixture.dropMarkerOnChange ?? false,
           dropMarkerAlways: fixture.dropMarkerAlways ?? false,
+          statusOnError: fixture.statusOnError ?? false,
+          statusFirst: fixture.statusFirst ?? false,
+          beacon: fixture.beaconStatus !== undefined,
+          encoding: fixture.encoding ?? "json",
+          native: fixture.native ?? false,
         }),
       );
+      return;
+    }
+    if (req.method === "GET" && req.url === "/thanks") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><p role="status">Thanks, we will be in touch.</p>');
+      return;
+    }
+    if (req.method === "POST" && req.url === "/beacon") {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(fixture.beaconStatus ?? 204);
+        res.end();
+      });
       return;
     }
     if (req.method === "POST" && req.url === "/contact") {
@@ -194,8 +266,19 @@ beforeAll(async () => {
         } catch {
           posts.push({ unparsed: raw });
         }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end('{"ok":true}');
+        if (fixture.native) {
+          res.writeHead(303, { location: "/thanks" });
+          res.end();
+          return;
+        }
+        const answer = () => {
+          const status = fixture.postStatus ?? 200;
+          res.writeHead(status, { "content-type": "application/json" });
+          if (fixture.kitFailure) res.end('{"type":"failure","status":502,"data":"[]"}');
+          else res.end(status < 400 ? '{"ok":true}' : '{"error":"ingest failed"}');
+        };
+        if (fixture.postDelayMs) setTimeout(answer, fixture.postDelayMs);
+        else answer();
       });
       return;
     }
@@ -303,6 +386,145 @@ describe("form-e2e live runner — required fields outside the standard fill set
   }, 90_000);
 });
 
+describe("form-e2e live runner — the verdict is the POST, not the banner (#1610)", () => {
+  it("fails a POST that returned 500 even though the status region showed", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 500 \{"error":"ingest failed"\}/,
+    );
+  });
+
+  it("scores that run as not passing end to end", async () => {
+    fixture = { health: DECLARED, banner: true, postStatus: 500, statusOnError: true };
+    posts = [];
+    runner = await defaultFormRunner(FAST);
+    const r = await formE2eAudit({
+      site: { name: "fixture", path: "/x", deployedUrl: base },
+      formRunner: runner,
+    });
+    expect(r.status).not.toBe("pass");
+    expect((r.details as { ok?: string }).ok).toBe("fail");
+  });
+
+  it.each([400, 422, 503])("a %i the page reports in the status region fails", async (code) => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: code,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toContain(`POST ${code}`);
+  });
+
+  it.each(["urlencoded", "multipart", "file"] as const)(
+    "a %s action POST is the one read: its 500 behind the status region fails",
+    async (encoding) => {
+      // The fleet's own encodings: use:enhance posts URL-encoded, a FormData fetch
+      // multipart, and an attachment makes Playwright's postData() null.
+      const out = await submit({
+        health: DECLARED,
+        banner: true,
+        encoding,
+        beaconStatus: 200,
+        postStatus: 500,
+        statusOnError: true,
+      });
+      expect(out).toMatchObject({ formPresent: true, success: false });
+      expect((out as { detail?: string }).detail).toContain("POST 500");
+    },
+  );
+
+  it("a URL-encoded SvelteKit fail() inside a 200 fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      encoding: "urlencoded",
+      kitFailure: true,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+  });
+
+  it("a native form whose action answers 303 to a thanks page passes", async () => {
+    // A redirect response has no body to read; that must not turn a pass into a throw.
+    const out = await submit({ health: DECLARED, banner: true, native: true });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
+
+  it("a SvelteKit action's fail() inside a 200 fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      kitFailure: true,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 200 \{"type":"failure","status":502/,
+    );
+  });
+
+  it("the region shown before the POST: a 500 that answers 800 ms later still fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 800,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+  });
+
+  it("a POST still pending when the settle ends passes, without waiting for it", async () => {
+    // The region shows at once and the POST takes 10 s: the 2 s settle ends the wait,
+    // not the 30 s submit timeout.
+    const started = Date.now();
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 10_000,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(Date.now() - started).toBeLessThan(6_000);
+  }, 20_000);
+
+  it("a same-site beacon that 404s first does not fail a form whose action succeeded", async () => {
+    const out = await submit({ health: DECLARED, banner: true, beaconStatus: 404 });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
+
+  it("a same-site beacon that answers 200 first does not hide the action's 500", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      beaconStatus: 200,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toContain("POST 500");
+  });
+
+  it("control: a 200 POST with the thanks banner still passes", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 200,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
+});
+
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {
   it("reports a failure when the success banner never appears", async () => {
     const out = await submit({ health: DECLARED, banner: false, resetSelect: true }, FAST_FAIL);
@@ -312,6 +534,8 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
       synthesized: ["company", "interest", "consent", "contactBy"],
       resynthesized: ["interest"],
     });
+    // A banner that never showed keeps its own diagnosis, not "the status region showed".
+    expect((out as { detail?: string }).detail).toMatch(/^no success banner after submit — /);
   }, 90_000);
 
   it("submits NOTHING to a site whose /health does not declare forms.testMode", async () => {
