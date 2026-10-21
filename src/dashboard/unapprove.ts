@@ -10,7 +10,7 @@ export type UnapproveResult =
     }
   | { status: "not-found"; reportId: string };
 
-/** Injected IO, the same shape as WithdrawDeps: the `.mts` adapter binds Turso,
+/** Injected IO, the same shape as WithdrawDeps: the endpoint handler binds Turso,
  *  tests bind fakes. */
 export type UnapproveDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;

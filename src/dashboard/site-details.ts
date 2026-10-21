@@ -213,7 +213,7 @@ export function normalizeFieldValue(f: EditableField, raw: string): CellValue | 
   }
 }
 
-/** Injected IO — the `.mts` binds these to Turso; tests bind fakes. */
+/** Injected IO — the endpoint handler binds these to Turso; tests bind fakes. */
 export type SiteDetailDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
   updateField: (recordId: string, column: string, value: CellValue) => Promise<void>;

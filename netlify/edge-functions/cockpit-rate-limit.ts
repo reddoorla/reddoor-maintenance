@@ -21,7 +21,9 @@ export default (_request: Request, context: EdgeContext): Promise<Response> => c
 // over twice an operator's busiest plausible minute (a navigation or an action
 // a second for most of it, plus the fleet refresh's poll every 10 s) and the
 // most generous of the per-function limits it replaces (`audit-report-json`,
-// `report-preview`). A literal: Netlify reads this config statically, not by
+// `report-preview`). The cost: the pages and `/api/*` take the shared password
+// as Basic auth, so this is also the bound on guessing it there, where the page
+// rule declared 60 and the endpoints 20 to 120 (none of which applied). A literal: Netlify reads this config statically, not by
 // running the module.
 export const config = {
   path: "/*",

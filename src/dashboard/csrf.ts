@@ -1,8 +1,8 @@
 /**
  * CSRF verdict for a state-changing POST reachable with the ambient Basic-auth
- * creds the browser replays cross-site. Extracted from approve-report.mts as a
+ * creds the browser replays cross-site. Extracted from the approve handler as a
  * pure function so the decision logic is unit-testable without booting the
- * Netlify handler — the handler stays thin glue over this.
+ * handler (cockpit/src/lib/server/endpoints/), which stays thin glue over this.
  *
  * Returns true (allow) only for a same-origin signal or the total absence of any
  * cross-site signal (legacy/non-browser clients); false (reject with 403) on any

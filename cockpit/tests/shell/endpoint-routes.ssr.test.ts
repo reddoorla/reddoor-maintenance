@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { RequestEvent } from "@sveltejs/kit";
+import svelteConfig from "../../../svelte.config.js";
 
 /**
  * The dashboard's `/api/*` and `/auth/*` endpoints, moved from Netlify
@@ -42,9 +43,10 @@ async function call(
   route: (typeof routes)[number],
   method: string,
   headers: Record<string, string> = {},
+  query = "",
 ): Promise<Response> {
   const mod = (await import(route.file)) as { fallback: (e: RequestEvent) => Promise<Response> };
-  const request = new Request(`https://cockpit.example${route.path}`, { method, headers });
+  const request = new Request(`https://cockpit.example${route.path}${query}`, { method, headers });
   return mod.fallback({ request, params: route.params } as unknown as RequestEvent);
 }
 
@@ -100,11 +102,28 @@ describe("the cockpit's endpoint routes", () => {
     }
   });
 
+  it("a GET where the old function answered 405 is still the handler's 405", async () => {
+    // Measured against production on 2026-10-21: of the moved endpoints, these
+    // two answer GET with 405; the rest answer it with a health check or a read.
+    for (const path of ["/api/reports/rec1/rerender", "/api/reports/rec1/commentary"]) {
+      const route = routes.find((r) => r.path === path);
+      if (!route) throw new Error(`no route for ${path}`);
+      const res = await call(route, "GET");
+      expect([path, res.status]).toEqual([path, 405]);
+    }
+  });
+
   it("each /api handler refuses a signed-out caller itself", async () => {
+    // The two reads are GET only (the status poll needs its `since`, or it
+    // answers 400 before auth); the rest act on POST.
+    const reads: Record<string, string> = {
+      "/api/reports/rec1/preview": "",
+      "/api/fleet/refresh/status": "?since=2026-10-21T00:00:00Z",
+    };
     for (const route of routes.filter((r) => r.path.startsWith("/api/"))) {
-      // The preview is the one read-only endpoint, GET only; the rest act on POST.
-      const method = route.path.endsWith("/preview") ? "GET" : "POST";
-      const res = await call(route, method, { origin: "https://cockpit.example" });
+      const query = reads[route.path];
+      const method = query === undefined ? "POST" : "GET";
+      const res = await call(route, method, { origin: "https://cockpit.example" }, query);
       // A JSON 401 for a fetch; the preview, opened as a page, sends the
       // visitor to sign-in instead.
       const refused =
@@ -116,10 +135,19 @@ describe("the cockpit's endpoint routes", () => {
 
   it("each state-changing /api handler refuses a cross-site POST itself", async () => {
     for (const route of routes.filter(
-      (r) => r.path.startsWith("/api/") && !r.path.endsWith("/preview"),
+      (r) =>
+        r.path.startsWith("/api/") &&
+        !r.path.endsWith("/preview") &&
+        r.path !== "/api/fleet/refresh/status",
     )) {
       const res = await call(route, "POST", { origin: "https://evil.example" });
       expect([route.path, res.status]).toEqual([route.path, 403]);
     }
+  });
+
+  it("are not fronted by SvelteKit's own origin check, which the old functions never had", () => {
+    // It would refuse a form-typed POST with no Origin before the handler's own
+    // isCsrfAllowed, which lets that through to auth.
+    expect(svelteConfig.kit?.csrf?.trustedOrigins).toEqual(["*"]);
   });
 });

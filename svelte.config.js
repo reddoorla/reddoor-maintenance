@@ -23,6 +23,12 @@ export default {
   kit: {
     adapter: adapter({ split: false }),
     files: { src: "cockpit/src" },
+    // SvelteKit's own origin check ("Cross-site POST form submissions are
+    // forbidden") would sit in front of the `/api/*` and `/auth/*` routes and
+    // refuse a form-typed POST with no Origin, which the old functions took.
+    // It stays off: the hook runs `isCsrfAllowed` on every page POST, and each
+    // state-changing endpoint runs it itself (maintenance#1642).
+    csrf: { trustedOrigins: ["*"] },
     outDir: "cockpit/.svelte-kit",
   },
 };

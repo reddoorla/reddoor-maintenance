@@ -1,7 +1,7 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { isOwnerRepo } from "../util/git.js";
 
-/** Injected IO — the `.mts` binds these to Turso + makeGitHubRest; tests bind fakes. */
+/** Injected IO — the endpoint handler binds these to Turso + makeGitHubRest; tests bind fakes. */
 export type TriggerRenovateDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
   /** Dispatch the repo's renovate.yml (the adapter resolves the default branch). */
