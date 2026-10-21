@@ -98,7 +98,9 @@ jobs:
           # completed runs with not one verdict in it does: the API answered, and no
           # release has finished in that many pushes. If the newest decisive run is
           # green, an older failure has already been superseded and we are clear.
-          latest=$(gh api \
+          # On an HTTP error `gh api` skips --jq and prints the error JSON to STDOUT
+          # (exit 1), so the exit status, not the output, says whether we got runs.
+          if ! latest=$(gh api \
             "/repos/${{ github.repository }}/actions/workflows/release.yml/runs?branch=main&per_page=30" \
             --jq '[.workflow_runs[] | select(.status == "completed")] as $done
                   | ($done | map(select(.conclusion == "success" or .conclusion == "failure"
@@ -107,8 +109,10 @@ jobs:
                   | if $d then "\($d.conclusion)\t\($d.html_url)\t\($d.head_sha)"
                     elif ($done | length) > 0
                     then "no_verdict_in_\($done | length)\t\($done[0].html_url)\t\($done[0].head_sha)"
-                    else empty end' \
-            || echo "::warning::could not read the release workflow's runs; guard 2 was not judged this run" >&2)
+                    else empty end'); then
+            latest=""
+            echo "::warning::could not read the release workflow's runs; guard 2 was not judged this run"
+          fi
           concl=$(printf '%s' "$latest" | cut -f1)
           url=$(printf '%s' "$latest" | cut -f2)
           sha=$(printf '%s' "$latest" | cut -f3)
@@ -212,8 +216,20 @@ jobs:
         run: |
           title="Release workflow is failing on main"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The `release` workflow'"'"'s latest decisive run on `main` is **%s**.\n\nFailing run: %s\nCommit: `%s`\n\nnpm and main agree on the version, so the drift guard is silent — but **nothing can publish until this is green**. Open the failing run and read the `Create release PR or publish` step; that is where changesets reports both version and publish errors.\n\nRun: %s\n\n_Auto-filed; auto-closes once the release workflow goes green on main._' \
-            "${{ steps.relstate.outputs.concl }}" "${{ steps.relstate.outputs.url }}" "${{ steps.relstate.outputs.sha }}" "$run_url")
+          concl="${{ steps.relstate.outputs.concl }}"
+          case "$concl" in
+            no_verdict_in_*)
+              finding="none of the last ${concl#no_verdict_in_} completed runs reached a verdict (all cancelled, skipped or awaiting approval)"
+              advice='Open the newest run below and find why runs are not finishing: a stuck concurrency group, a required approval, or a job-level condition that skips.' ;;
+            startup_failure)
+              finding='**startup_failure**: GitHub could not start the workflow'
+              advice='The run has no steps to read. Open it for the startup error: usually an invalid `release.yml` or an action the org settings block.' ;;
+            *)
+              finding="**$concl**"
+              advice='Open the failing run and read the `Create release PR or publish` step; that is where changesets reports both version and publish errors.' ;;
+          esac
+          body=$(printf 'The `release` workflow'"'"'s latest decisive run on `main`: %s.\n\nRun: %s\nCommit: `%s`\n\nnpm and main agree on the version, so the drift guard is silent — but **nothing can publish until this is green**. %s\n\nRun: %s\n\n_Auto-filed; auto-closes once the release workflow goes green on main._' \
+            "$finding" "${{ steps.relstate.outputs.url }}" "${{ steps.relstate.outputs.sha }}" "$advice" "$run_url")
           existing=$(gh issue list --state open --limit 200 \
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
@@ -260,8 +276,8 @@ jobs:
       # file nothing at all (P1-15). This pair covers that, and nothing else: it sits AHEAD of
       # "Fail when unhealthy", so `failure()` here means checkout, setup-node or one of the two
       # check steps broke, never that a guard found something. A guard's finding reds the run
-      # below and files only its own issue. An empty guard-2 query still stays silent — the
-      # step swallows it (`|| true`), so it is not a failure here either.
+      # below and files only its own issue. A guard-2 API error is not a failure here either:
+      # the step catches it, leaves a warning and stays green.
       - name: Open/update the release-health-run-failing tracking issue
         # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
         # for fleet-lighthouse 36451921171. main only: a branch run never speaks

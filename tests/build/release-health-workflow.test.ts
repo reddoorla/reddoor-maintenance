@@ -13,9 +13,9 @@ const execFileAsync = promisify(execFile);
  *
  * `release-health` runs two independent guards, each filing and auto-closing
  * its own tracking issue. Guard 2 reads the release workflow's newest decisive
- * run on main; when the API returns nothing at all it stays deliberately
- * SILENT — "a broken query must not masquerade as a broken pipeline" — and sets
- * `red=no`.
+ * run on main; when there is nothing to judge (an empty run list, or an API
+ * error) it stays deliberately GREEN — "a broken query must not masquerade as
+ * a broken pipeline" — and sets `red=no`.
  *
  * `red=no` is also what a genuinely green pipeline sets. And the close step is
  * gated on `steps.relstate.outputs.red != 'yes'`. So an empty query, a `gh api`
@@ -49,7 +49,12 @@ beforeAll(async () => {
  *  any other — an unexpected subcommand silently returning "" would let a case
  *  pass for a step that no longer does what its name says. */
 const GH_STUB = `#!/bin/sh
-if [ "$1" = "api" ] && [ -n "$GH_API_FAIL" ]; then echo "gh: HTTP 403" >&2; exit 1; fi
+# What real gh does on an HTTP error: --jq is skipped, the error JSON goes to
+# STDOUT and only the summary to stderr (checked against gh 2.89, a 404).
+if [ "$1" = "api" ] && [ -n "$GH_API_FAIL" ]; then
+  printf '%s' '{"message":"Resource not accessible by integration","status":"403"}'
+  echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1
+fi
 if [ "$1" = "api" ] && [ -n "$GH_API_JSON" ]; then
   # Real jq over a real-shaped response, through the step's OWN --jq filter, so
   # the filter is under test and not a canned string standing in for it.
@@ -59,6 +64,7 @@ fi
 if [ "$1" = "api" ]; then printf '%s' "$GH_API_OUT"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "list" ]; then printf '%s\\n' "$GH_ISSUES"; exit 0; fi
 if [ "$1" = "issue" ] && [ "$2" = "close" ]; then echo "CLOSED $3"; exit 0; fi
+if [ "$1" = "issue" ] && [ "$2" = "create" ]; then printf '%s\n' "$6" > "$RUNNER_TEMP/created_body"; echo "CREATED"; exit 0; fi
 echo "unexpected gh $*" >&2
 exit 2
 `;
@@ -69,6 +75,7 @@ printf '%s\\n' "$NPM_VERSION"
 `;
 
 type StepEnv = {
+  outputs?: Record<string, string>;
   GH_API_OUT?: string;
   GH_API_JSON?: string;
   GH_API_FAIL?: string;
@@ -86,10 +93,13 @@ type StepEnv = {
  * let a future `${{ steps.x.outputs.y }}` quietly turn a real comparison into a
  * comparison against the empty string, and the test would still pass.
  */
-function interpolate(script: string): string {
+function interpolate(script: string, outputs: Record<string, string> = {}): string {
   return script.replace(/\$\{\{([^}]*)\}\}/g, (_m, expr: string) => {
     const name = expr.trim();
     if (name === "github.repository") return "reddoorla/reddoor-maintenance";
+    if (name === "github.server_url") return "https://github.com";
+    if (name === "github.run_id") return "9";
+    if (name in outputs) return outputs[name]!;
     throw new Error(`unhandled Actions expression in this step: \${{ ${name} }}`);
   });
 }
@@ -118,7 +128,7 @@ async function runStep(
     "utf-8",
   );
 
-  const script = interpolate(stepRunScript(wf, stepName));
+  const script = interpolate(stepRunScript(wf, stepName), env.outputs);
   try {
     const { stdout, stderr } = await execFileAsync("bash", ["-e", "-c", script], {
       cwd: d,
@@ -347,10 +357,47 @@ describe("release-health — guard 2 reads the runs a broken pipeline actually l
     const check = await runStep(RELSTATE_STEP, { GH_API_FAIL: "1" });
     expect(check.code).toBe(0);
     expect(check.out).not.toContain("::error::");
+    // The error JSON gh printed must not become a conclusion.
+    expect(await output(check.dir)).toContain("concl=none\n");
     expect(check.out).toContain("::warning::");
     expect(check.out).toContain("guard 2 was not judged");
     expect(await output(check.dir)).toContain("red=no\n");
     const close = await runStep(RELSTATE_CLOSE, { GH_ISSUES: "42" }, check.dir);
     expect(close.out).not.toContain("CLOSED");
+  });
+
+  // The issue the finding files must describe THIS finding: a startup_failure
+  // run has no steps to read, and a window of cancellations has no failing run.
+  const OPEN_RELEASE = "Open/update the release-failing tracking issue";
+  const filedBody = async (concl: string): Promise<string> => {
+    const r = await runStep(OPEN_RELEASE, {
+      GH_ISSUES: "",
+      outputs: {
+        "steps.relstate.outputs.concl": concl,
+        "steps.relstate.outputs.url": "https://github.com/x/runs/1",
+        "steps.relstate.outputs.sha": "deadbee",
+      },
+    });
+    expect(r.out).toContain("CREATED");
+    return readFile(join(r.dir, "created_body"), "utf-8");
+  };
+
+  it("files a body that names a startup_failure for what it is", async () => {
+    const body = await filedBody("startup_failure");
+    expect(body).toContain("could not start the workflow");
+    expect(body).not.toContain("Create release PR or publish");
+  });
+
+  it("files a body that says no run reached a verdict, not that one failed", async () => {
+    const body = await filedBody("no_verdict_in_30");
+    expect(body).toContain("none of the last 30 completed runs reached a verdict");
+    expect(body).not.toContain("Create release PR or publish");
+  });
+
+  it("still points a real failure at the publish step", async () => {
+    const body = await filedBody("failure");
+    expect(body).toContain("**failure**");
+    expect(body).toContain("Create release PR or publish");
+    expect(body).toContain("https://github.com/x/runs/1");
   });
 });
