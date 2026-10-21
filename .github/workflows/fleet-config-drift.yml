@@ -197,7 +197,7 @@ jobs:
         run: |
           title="Weekly config drift sweep failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The weekly **fleet-config-drift** sweep failed, so this week has NO config drift verdict.\n\nThis is an outage in the check, not drift: drift is reported on the "Fleet config drift" issue and never reds this run. Likely causes: the positive control failed (the `--dry` instrument is broken), the sweep printed no SYNC_CONFIGS_DRIFT line, the roster resolved no sites, or more than half the repos could not be cloned.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The weekly **fleet-config-drift** sweep failed, so this week has NO config drift verdict.\n\nThis is an outage in the check, not drift: drift is reported on the "Fleet config drift" issue and never reds this run unless that issue could not be filed. Likely causes: the positive control failed (the `--dry` instrument is broken), the sweep printed no SYNC_CONFIGS_DRIFT line, the roster resolved no sites, or more than half the repos could not be cloned.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
             body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
           fi
@@ -229,6 +229,8 @@ jobs:
       # kept the run green and the finding appeared nowhere for a week (#1607).
       # Last, so the outage pair above has already read `failure()` as false and
       # files no false "sweep failing" issue; the run is red, naming the drift.
+      # The recovery close above still ran: the sweep itself did work this run,
+      # so an open "sweep failing" issue is rightly closed even though it ends red.
       - name: Fail when found drift could not be filed
         if: steps.file_drift.outcome == 'failure' && github.ref == 'refs/heads/main'
         run: |

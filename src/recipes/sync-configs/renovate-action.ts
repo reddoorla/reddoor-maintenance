@@ -128,9 +128,89 @@ const APP_AUTH_MARKERS = [
   "steps.app-token.outputs.token",
 ];
 
-/** An `if:` on a job or step, anchored like `USES_LINE_RE`. The value runs to
- *  the end of the line, less a trailing `# comment`. */
-const IF_LINE_RE = /^[ \t]*(?:- )?if:[ \t]*(.*?)(?:[ \t]+#[^\r\n]*)?[ \t]*$/gm;
+/** A `key: value` line, with an optional `- ` sequence marker, less a trailing
+ *  `# comment`. */
+const KEY_LINE_RE = /^([ \t]*)(- )?([\w-]+):[ \t]*(.*?)(?:[ \t]+#[^\r\n]*)?[ \t]*$/;
+const BLOCK_INDICATOR_RE = /^[|>][-+0-9]*$/;
+
+const indentOf = (line: string): number => line.length - line.trimStart().length;
+
+/**
+ * The `if:` conditions in a workflow that gate the job or a step Renovate needs,
+ * each with its value as YAML reads it (#1607). A line regex is not enough:
+ * a condition continued on the next line reads as empty, and `if: false` inside a
+ * `run: |` body reads as a condition. So this walks the lines once, keeping
+ * block-scalar bodies out, and folds a value that continues below its key.
+ *
+ * A step's condition counts only when that step uses one of
+ * {@link KNOWN_PINNED_ACTIONS}: a site's own extra step being disabled does not
+ * stop Renovate, and this check must not heal (overwrite) a file over it.
+ * Callers must pass comment-stripped text.
+ */
+function gatingConditions(contents: string): string[] {
+  const lines = contents.split(/\r?\n/);
+  const found: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = KEY_LINE_RE.exec(lines[i]!);
+    if (!m) continue;
+    const keyIndent = m[1]!.length + (m[2] ? 2 : 0);
+    const value = m[4]!;
+    const block = BLOCK_INDICATOR_RE.test(value);
+    let resolved = value;
+    if (block || value === "") {
+      const body: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && (lines[j]!.trim() === "" || indentOf(lines[j]!) > keyIndent)) {
+        body.push(lines[j]!.trim());
+        j++;
+      }
+      // A block body is text, never keys: step over it. An empty value may open a
+      // nested mapping (`steps:`), which must still be read, so only an `if:`
+      // folds what follows.
+      if (block) i = j - 1;
+      if (m[3] !== "if") continue;
+      resolved = body.filter((l) => l !== "").join(value.startsWith("|") ? "\n" : " ");
+      // `if:` with nothing below it is a YAML null, which Actions rejects as a
+      // workflow error rather than skipping the job; not this check's to call.
+      if (!block && resolved === "") continue;
+    }
+    if (m[3] !== "if") continue;
+    if (isStepCondition(lines, i, keyIndent) && !stepUsesKnownAction(lines, i)) continue;
+    found.push(resolved);
+  }
+  return found;
+}
+
+/** Is the `if:` at line `at` inside a sequence item (a step) rather than on a
+ *  job? Its nearest less-indented ancestor decides. */
+function isStepCondition(lines: string[], at: number, keyIndent: number): boolean {
+  if (/^[ \t]*- /.test(lines[at]!)) return true;
+  for (let k = at - 1; k >= 0; k--) {
+    const l = lines[k]!;
+    if (l.trim() === "") continue;
+    const ind = indentOf(l);
+    if (ind < keyIndent) return /^[ \t]*- /.test(l) && ind + 2 === keyIndent;
+  }
+  return false;
+}
+
+/** Does the step holding line `at` use a required action? The step runs from its
+ *  `- ` line to the next line indented no deeper than that dash. */
+function stepUsesKnownAction(lines: string[], at: number): boolean {
+  let first = at;
+  while (first > 0 && !/^[ \t]*- /.test(lines[first]!)) first--;
+  const dash = indentOf(lines[first]!);
+  let last = at;
+  while (
+    last + 1 < lines.length &&
+    (lines[last + 1]!.trim() === "" || indentOf(lines[last + 1]!) > dash)
+  )
+    last++;
+  const step = lines.slice(first, last + 1).join("\n");
+  return KNOWN_PINNED_ACTIONS.some((slug) =>
+    new RegExp(`^[ \\t]*(?:- )?uses:\\s*${escapeRegExp(slug)}@`, "m").test(step),
+  );
+}
 
 /** Is this `if:` value a constant that can never be true (#1607)? `false`,
  *  `0`, `''` and `null`, bare, quoted or inside `${{ }}`, are falsy in Actions
@@ -139,6 +219,7 @@ const IF_LINE_RE = /^[ \t]*(?:- )?if:[ \t]*(.*?)(?:[ \t]+#[^\r\n]*)?[ \t]*$/gm;
  *  a condition" (the template has none, but a site may guard its own). */
 function isConstantFalse(raw: string): boolean {
   const unquote = (v: string) => v.replace(/^(['"])(.*)\1$/, "$2").trim();
+  if (raw.trim() === "") return false;
   let v = unquote(raw.trim());
   const expr = v.match(/^\$\{\{\s*(.*?)\s*\}\}$/);
   if (expr) v = expr[1]!.trim();
@@ -231,10 +312,10 @@ export function renovateActionGaps(contents: string): string[] {
   // Every string above can be present on a job that never runs: `if: false` on
   // the renovate job leaves pins, auth and cron intact and Renovate silent, and
   // the sweep read it CLEAN (#1607).
-  for (const m of withoutComments.matchAll(IF_LINE_RE)) {
-    if (isConstantFalse(m[1]!)) {
+  for (const cond of gatingConditions(withoutComments)) {
+    if (isConstantFalse(cond)) {
       gaps.push(
-        `if: ${m[1]!.trim()} means a job or step here can never run — Renovate is disabled while every other line still reads compliant`,
+        `if: ${cond.trim()} means the renovate job, or a step it needs, can never run — Renovate is disabled while every other line still reads compliant`,
       );
     }
   }

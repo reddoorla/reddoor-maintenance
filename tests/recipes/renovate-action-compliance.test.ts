@@ -187,6 +187,40 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     expect(renovateActionGaps(withJobIf("falsey_input == 'x'"))).toEqual([]);
   });
 
+  // Review round 1: a line regex read these wrong.
+  it("a real condition written over two lines is not a gap (a plain scalar continued)", () => {
+    const twoLine = CANONICAL.replace(
+      JOB,
+      "  renovate:\n    if:\n      github.repository_owner == 'reddoorla'\n    runs-on: ubuntu-latest\n",
+    );
+    expect(twoLine).not.toBe(CANONICAL);
+    expect(renovateActionGaps(twoLine)).toEqual([]);
+  });
+
+  it("a folded block if: whose value is false is a gap", () => {
+    expect(
+      renovateActionGaps(withJobIf(">-\n      false")).some((g) => g.includes("can never run")),
+    ).toBe(true);
+  });
+
+  it("if: false inside a block scalar (a run: | body) is text, not a condition", () => {
+    const inBlock = CANONICAL.replace(
+      "        id: app-token\n",
+      "        id: app-token\n        env:\n          NOTE: |\n            if: false\n            if: 0\n",
+    );
+    expect(inBlock).not.toBe(CANONICAL);
+    expect(renovateActionGaps(inBlock)).toEqual([]);
+  });
+
+  it("a constant-false if: on a site's own extra step, not one Renovate needs, is not a gap", () => {
+    const extra = CANONICAL.replace(
+      "    steps:\n",
+      "    steps:\n      - name: notify\n        if: false\n        run: echo hi\n",
+    );
+    expect(extra).not.toBe(CANONICAL);
+    expect(renovateActionGaps(extra)).toEqual([]);
+  });
+
   it("a commented-out if: false is not a gap", () => {
     const commented = CANONICAL.replace(
       JOB,

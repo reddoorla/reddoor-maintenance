@@ -47,7 +47,9 @@ async function checkout(slug: string, repo: string, fixture: string): Promise<vo
   git("remote", "add", "origin", `https://github.com/${repo}.git`);
 }
 
-async function roster(rows: { name: string; status: string; repo: string }[]): Promise<void> {
+async function roster(
+  rows: { name: string; status: string; repo: string; url?: string }[],
+): Promise<void> {
   const db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
   try {
     for (const [i, r] of rows.entries()) {
@@ -58,7 +60,7 @@ async function roster(rows: { name: string; status: string; repo: string }[]): P
           fields: {
             Name: r.name,
             Status: r.status,
-            url: `https://${r.repo.split("/")[1]}.example.com`,
+            url: r.url ?? `https://${r.repo.split("/")[1]}.example.com`,
             "Git repo": r.repo,
           },
         },
@@ -119,6 +121,23 @@ describe("sync-configs --fleet turso --dry — rows the roster drops for their s
       expect(line, repo).toBeDefined();
       expect(line).toContain('status "maintenance"');
     }
+  });
+
+  it("does not count a retired-status row with no url, which the roster would drop anyway", async () => {
+    await roster([
+      { name: "Clean Co", status: "maintained", repo: "reddoorla/clean-co" },
+      { name: "Bare Co", status: "maintenance", repo: "reddoorla/bare-co", url: "" },
+    ]);
+    await checkout("clean-co", "reddoorla/clean-co", CLEAN_FIXTURE);
+    const { output } = await runSyncConfigsCommand(undefined, {
+      dry: true,
+      fleet: "turso",
+      workdir,
+    });
+    expect(machine(output)).toEqual([
+      "CLEAN reddoorla/clean-co",
+      "SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=0 total=1",
+    ]);
   });
 
   it("does not count rows the roster leaves out on purpose", async () => {
