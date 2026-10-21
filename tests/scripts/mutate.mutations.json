@@ -41,8 +41,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "const pre = await vitest(allTests, join(outDir, \"baseline.json\"));",
-        "replace": "const pre = { result: \"survived\", report: { testResults: [] } };"
+        "find": "const pre = await vitest(tests, join(outDir, \"baseline\", `${n}.json`));",
+        "replace": "const pre = { result: \"survived\", n, report: { testResults: tests.map((t) => ({ name: join(work, t) })) } };"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -293,8 +293,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "    if (o.check) {",
-        "replace": "    if (false) {"
+        "find": "    if (o.check) {\n      // What the run would call stillborn",
+        "replace": "    if (false) {\n      // What the run would call stillborn"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
@@ -317,8 +317,8 @@
     "edits": [
       {
         "file": "scripts/mutate.mjs",
-        "find": "    if (widened.length)\n      throw new Refusal(",
-        "replace": "    if (false)\n      throw new Refusal("
+        "find": "      if (widened.length || extra.length)",
+        "replace": "      if (extra.length)"
       }
     ],
     "test": "tests/scripts/mutate.test.ts",
