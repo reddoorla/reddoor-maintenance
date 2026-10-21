@@ -508,7 +508,8 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    confirms step 5 landed, not step 4.
 
 7. **Delete the plaintext dump.** `restore/dump.sql` is the whole fleet database, client leads
-   included, unencrypted. Once step 6 is green, from the repo root:
+   included, unencrypted. Once step 6 is green, and in any case before you leave the machine, even
+   if step 4 or 6 failed, from the repo root:
 
    ```sh
    rm restore/dump.sql

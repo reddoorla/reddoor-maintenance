@@ -11,8 +11,10 @@ import { fileURLToPath } from "node:url";
  *
  * It asks git itself (`git check-ignore -v`), not the text of `.gitignore`, and requires the
  * matching rule to come from the repo's own `.gitignore`: a machine-wide ignore file on one
- * laptop would otherwise hide the line's removal there. The negative control proves the check
- * can say "not ignored" at all.
+ * laptop would otherwise hide the line's removal there. A later `!restore/...` line re-includes the
+ * dump, and `-v` still exits 0 for it, so a matching negation counts as not ignored. The negative
+ * control proves the check can say "not ignored" at all; its path has no extension, so a global
+ * rule such as `*.sql` cannot match it.
  */
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -25,13 +27,15 @@ function checkIgnore(path: string): { ignored: boolean; source: string } {
   if (r.status !== 0 && r.status !== 1) {
     throw new Error(`git check-ignore failed (${r.status}): ${r.stderr}`);
   }
-  // `-v` prints `<source>:<line>:<pattern>\t<path>`.
-  return { ignored: r.status === 0, source: r.stdout.split(":")[0] ?? "" };
+  // `-v` prints `<source>:<line>:<pattern>\t<path>`, and exits 0 for a `!` negation too: the
+  // last matching rule is reported whether it ignores the path or re-includes it.
+  const [source = "", , pattern = ""] = r.stdout.split("\t")[0]?.split(":") ?? [];
+  return { ignored: r.status === 0 && !pattern.startsWith("!"), source };
 }
 
 describe("the restore runbook's working directory", () => {
   it("negative control: a path no rule covers reads as not ignored", () => {
-    expect(checkIgnore("restored/dump.sql").ignored).toBe(false);
+    expect(checkIgnore("restored/dump").ignored).toBe(false);
   });
 
   it.each(["restore/dump.sql", "restore/dump.sql.gpg"])(
