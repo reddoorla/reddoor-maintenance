@@ -19,7 +19,13 @@ function slowClient() {
     async execute() {
       starts.push(performance.now() - t0);
       await new Promise((r) => setTimeout(r, DELAY_MS));
-      return { rows: [], columns: [], columnTypes: [], rowsAffected: 0, lastInsertRowid: undefined };
+      return {
+        rows: [],
+        columns: [],
+        columnTypes: [],
+        rowsAffected: 0,
+        lastInsertRowid: undefined,
+      };
     },
     close() {},
   } as unknown as Client;

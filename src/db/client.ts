@@ -80,7 +80,7 @@ export type OpenDbOptions = {
    *  query and a `Promise.all` of reads runs one round trip after another. The client
    *  itself sends concurrent requests (20 at once by default). Measured 2026-10-21 against
    *  production Turso: `/s/:slug`'s six reads took ~415 ms with the mutex and ~120 ms
-   *  without.
+   *  without (`scripts/probe-kysely-mutex/override.mts` re-measures it).
    *
    *  Only the cockpit's page reads ask for it (`cockpit/src/lib/server/db.ts`). The mutex
    *  matters only for queries one caller has in flight at once, so lifting it is safe

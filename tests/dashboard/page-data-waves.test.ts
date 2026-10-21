@@ -81,10 +81,22 @@ function fault(base: Db, match: Matcher): { plugin: KyselyPlugin; hits: () => nu
   };
 }
 
-const has = (...parts: string[]): Matcher => (q) => parts.every((p) => q.sql.includes(p));
-const param = (value: unknown): Matcher => (q) => q.parameters.includes(value);
-const and = (...ms: Matcher[]): Matcher => (q) => ms.every((m) => m(q));
-const not = (m: Matcher): Matcher => (q) => !m(q);
+const has =
+  (...parts: string[]): Matcher =>
+  (q) =>
+    parts.every((p) => q.sql.includes(p));
+const param =
+  (value: unknown): Matcher =>
+  (q) =>
+    q.parameters.includes(value);
+const and =
+  (...ms: Matcher[]): Matcher =>
+  (q) =>
+    ms.every((m) => m(q));
+const not =
+  (m: Matcher): Matcher =>
+  (q) =>
+    !m(q);
 
 /** The defensive reads of `/`, each named by a matcher that picks only it. */
 const COCKPIT_READS: Record<string, Matcher> = {
@@ -100,7 +112,7 @@ const COCKPIT_READS: Record<string, Matcher> = {
 
 /** The defensive reads of `/s/:slug`. */
 const SITE_READS: Record<string, Matcher> = {
-  listSubmissionsForSite: and(has('from "submissions"'), has('select *')),
+  listSubmissionsForSite: and(has('from "submissions"'), has("select *")),
   screenOutBuckets: has('from "spam_screenouts"'),
   screenOutMarkedSpam: and(has('from "submissions"'), param("spam")),
   countNotifyBouncedForSite: and(has('from "submissions"'), param("bounced")),
@@ -109,10 +121,22 @@ const SITE_READS: Record<string, Matcher> = {
   readDigestState: and(has('from "digest_state"'), param("default")),
 };
 
-async function seedSite(id: string, name: string, slug: string, over: Record<string, unknown> = {}) {
+async function seedSite(
+  id: string,
+  name: string,
+  slug: string,
+  over: Record<string, unknown> = {},
+) {
   await db
     .insertInto("sites")
-    .values({ id, slug, name, url: `https://${slug}.example.com`, status: "maintained", ...over } as never)
+    .values({
+      id,
+      slug,
+      name,
+      url: `https://${slug}.example.com`,
+      status: "maintained",
+      ...over,
+    } as never)
     .execute();
 }
 
@@ -137,7 +161,10 @@ async function seedSubmission(id: string, siteId: string, over: Record<string, u
 async function seedEverything() {
   await seedSite("recA", "Acme", "acme");
   await seedSite("recB", "Beta", "beta");
-  await db.insertInto("site_health").values({ site_id: "recA", vulns_critical: 1 } as never).execute();
+  await db
+    .insertInto("site_health")
+    .values({ site_id: "recA", vulns_critical: 1 } as never)
+    .execute();
   await db
     .insertInto("reports")
     .values({
