@@ -405,7 +405,9 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   for (const [audit, sites] of Object.entries(result.unmeasuredAudits ?? {})) {
     if (!sites || sites.length === 0) continue;
     const of = result.applicableAudits?.[audit]?.length ?? total;
-    const line = `${audit} measured nothing on ${sites.length} of ${of} site(s): ${sites.join(", ")}`;
+    // A dotted key is one Lighthouse category on sites whose other scores landed (#1609).
+    const what = audit.includes(".") ? "missing on" : "measured nothing on";
+    const line = `${audit} ${what} ${sites.length} of ${of} site(s): ${sites.join(", ")}`;
     if (sites.length * 4 > of) reasons.push(`${line} (>25%)`);
     else warnings.push(line);
   }
