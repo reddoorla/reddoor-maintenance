@@ -1,30 +1,21 @@
-import type { Context, Config } from "@netlify/functions";
-import { openDb, readDbConfig } from "../../src/db/client.js";
+import type { Context } from "@netlify/functions";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
 import {
   getSubmissionById,
   setSubmissionStatusRow,
   ackNotifyBounce,
-} from "../../src/db/submissions.js";
+} from "../../../../../src/db/submissions.js";
 import {
   setSubmissionStatus,
   acknowledgeNotifyBounce,
   requireOperator,
   denialResponse,
-} from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
-// Operator-only state change: same posture as approve-report.mts (CSRF + Basic
-// auth + tighter 30/min). Path-routed on the function for the same ctx.params
-// reason.
-export const config: Config = {
-  path: ["/api/submissions/:id/status", "/.netlify/functions/submission-status"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 30,
-    aggregateBy: ["ip"],
-  },
-};
+// Operator-only state change: same posture as approve-report.ts (CSRF + operator
+// auth). The submission id arrives in ctx.params.id.
 
 function json(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {

@@ -21,11 +21,8 @@ import { handlerError } from "../../src/dashboard/handler-helpers.js";
 // divergence in what either accepts is a security difference, not a style one.
 export const config: Config = {
   path: ["/api/audit-report/:token"],
-  rateLimit: {
-    windowSize: 60,
-    windowLimit: 120,
-    aggregateBy: ["ip"],
-  },
+  // Rate-limited by the site-wide edge rule (cockpit-rate-limit.ts): the Pro
+  // plan honours 5 code-based rules per project (maintenance#1642).
 };
 
 /** Refusals carry no detail: the caller learns the outcome, never whether the

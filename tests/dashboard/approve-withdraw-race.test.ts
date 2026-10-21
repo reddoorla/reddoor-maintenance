@@ -28,8 +28,8 @@ vi.mock("../../src/db/fleet-state.js", async (importOriginal) => {
   };
 });
 
-import approveReportHandler from "../../netlify/functions/approve-report.mjs";
-import withdrawReportHandler from "../../netlify/functions/withdraw-report.mjs";
+import approveReportHandler from "../../cockpit/src/lib/server/endpoints/approve-report.js";
+import withdrawReportHandler from "../../cockpit/src/lib/server/endpoints/withdraw-report.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 

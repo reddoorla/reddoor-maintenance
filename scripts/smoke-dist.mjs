@@ -350,7 +350,7 @@ const requiredExports = [
   // version helpers — present so consumers can pin to our actual version
   "selfPackageVersion",
   "selfCaretRange",
-  // dashboard — the operator gate the Netlify functions call. The page
+  // dashboard — the operator gate the cockpit's hook and endpoints call. The page
   // renderers that used to sit here are gone: the pages are the SvelteKit
   // cockpit (cockpit/, #582).
   "verifyBasicAuth",

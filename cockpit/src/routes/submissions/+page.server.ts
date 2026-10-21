@@ -16,8 +16,8 @@ export const actions: Actions = {
   // The bulk mark-read form. It posts the ACTIVE filter as fields with the GET
   // query's names, so the same parse re-derives the identical filter.
   default: async ({ request }) => {
-    // The function's own CSRF gate, kept beside SvelteKit's origin check: a
-    // browser replays Basic auth cross-site.
+    // The action's own CSRF gate (SvelteKit's origin check is off, see
+    // svelte.config.js): a browser replays Basic auth cross-site.
     if (!isCsrfAllowed(request)) error(403, "Cross-site request rejected.");
     const params = new URLSearchParams(await request.text());
     const result = await withDb("submissions", (db) => markSubmissionsRead(db, params));

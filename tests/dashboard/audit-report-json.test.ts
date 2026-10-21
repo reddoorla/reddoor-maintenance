@@ -26,7 +26,7 @@ import {
   setProspectAuditOverrides,
 } from "../../src/db/prospect-audits.js";
 import auditReportJson, { config } from "../../netlify/functions/audit-report-json.mjs";
-import { config as prospectReportConfig } from "../../netlify/functions/prospect-report.mjs";
+import { config as siteRateLimit } from "../../netlify/edge-functions/cockpit-rate-limit.js";
 
 const ORIGINAL_ENV = { ...process.env };
 afterEach(() => {
@@ -206,13 +206,20 @@ describe("audit-report-json — routing", () => {
     expect(config.path).toContain("/api/audit-report/:token");
   });
 
-  it("is rate limited, like the public report route it mirrors", () => {
-    expect(config.rateLimit).toEqual({ windowSize: 60, windowLimit: 120, aggregateBy: ["ip"] });
-    // Same window and the same per-IP key as prospect-report.mts. The limit is
-    // twice that route's 60 and has been since #605 introduced the route.
-    expect(config.rateLimit).toMatchObject({
-      windowSize: prospectReportConfig.rateLimit?.windowSize,
-      aggregateBy: prospectReportConfig.rateLimit?.aggregateBy,
+  it("is rate limited by the site-wide edge rule, at its old 120 a minute", () => {
+    // The Pro plan honours 5 code-based rules per project (maintenance#1642), so
+    // this route shares the dashboard's budget instead of declaring its own.
+    expect((config as { rateLimit?: unknown }).rateLimit).toBeUndefined();
+    expect(siteRateLimit.path).toBe("/*");
+    expect(
+      siteRateLimit.excludedPath.some((p) =>
+        "/api/audit-report/x".startsWith(p.replace(/\*$/, "")),
+      ),
+    ).toBe(false);
+    expect(siteRateLimit.rateLimit).toEqual({
+      windowSize: 60,
+      windowLimit: 120,
+      aggregateBy: ["ip"],
     });
   });
 });

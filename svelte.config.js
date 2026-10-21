@@ -6,6 +6,12 @@ import adapter from "@sveltejs/adapter-netlify";
  * the Netlify adapter writes `.netlify/` (the render function) relative to the
  * build's working directory, and Netlify collects it from the root.
  *
+ * `split: false` makes the whole app one function, `sveltekit-render` on `/*`:
+ * the pages and the dashboard's `/api/*` and `/auth/*` endpoints. With
+ * `split: true` each page was its own function of about 16 MB that
+ * cold-started separately, and endpoints are routes here so that the site
+ * declares few enough rate-limit rules for any of them to apply (maintenance#1642).
+ *
  * `svelte-kit sync`, and so every `pnpm cockpit:build` in CI, therefore warns
  * that the root tsconfig.json should extend
  * ./cockpit/.svelte-kit/tsconfig.json. That is expected and stays: the root
@@ -15,8 +21,14 @@ import adapter from "@sveltejs/adapter-netlify";
  */
 export default {
   kit: {
-    adapter: adapter({ split: true }),
+    adapter: adapter({ split: false }),
     files: { src: "cockpit/src" },
+    // SvelteKit's own origin check ("Cross-site POST form submissions are
+    // forbidden") would sit in front of the `/api/*` and `/auth/*` routes and
+    // refuse a form-typed POST with no Origin, which the old functions took.
+    // It stays off: the hook runs `isCsrfAllowed` on every page POST, and each
+    // state-changing endpoint runs it itself (maintenance#1642).
+    csrf: { trustedOrigins: ["*"] },
     outDir: "cockpit/.svelte-kit",
   },
 };

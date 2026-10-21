@@ -1,0 +1,549 @@
+[
+  {
+    "id": "M0-control-comment",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": " * At how many positions `find` occurs in `text`, overlaps included:",
+        "replace": " * At how many positions `find` occurs in `text`, overlapping or not:"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "survives",
+    "why": "A comment-only edit changes no behaviour: the control that this run can report a survivor at all."
+  },
+  {
+    "id": "M1-find-twice-applied",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "if (n !== 1) {",
+        "replace": "if (n === 0) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M2-load-or-hook-failure-kills",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (notes.length) return { result: \"stillborn\", ...n, reason };",
+        "replace": "  if (notes.length) return { result: \"red\", ...n, reason };"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M3-no-unmutated-run",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const pre = await vitest(tests, join(outDir, \"baseline\", `${n}.json`));",
+        "replace": "const pre = { result: \"survived\", n, report: { testResults: tests.map((t) => ({ name: join(work, t) })) } };"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M4-no-restore-on-signal",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    stopping = true;\n    cleanupSync();\n    if (results.length && rep) {",
+        "replace": "    stopping = true;\n    if (results.length && rep) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M5-dirty-tree-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (dirty.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M6-stale-dist-kept",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (m.build) {\n        const b = await build();\n        if (b.code !== 0) throw new Error(`the rebuild",
+        "replace": "      if (false) {\n        const b = await build();\n        if (b.code !== 0) throw new Error(`the rebuild"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M7-replace-interprets-dollar",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "out.set(e.file, cur.slice(0, at) + e.replace + cur.slice(at + e.find.length));",
+        "replace": "out.set(e.file, cur.replace(e.find, e.replace));"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M8-all-skipped-survives",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (n.passed === 0)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M9-case-timeout-kills",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "m.startsWith(TIMEOUT_MARK)",
+        "replace": "m.startsWith(\"never\")"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M10-no-parse-check",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "        if (unparsed.length)",
+        "replace": "        if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M11-worktree-failure-not-refused",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (r.code !== 0)\n        throw new Refusal(\n          `git worktree add failed",
+        "replace": "      if (false)\n        throw new Refusal(\n          `git worktree add failed"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M12-in-place-dist-not-rebuilt",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "rebuildRootDist = hadDist && hasBuildScript(root);",
+        "replace": "rebuildRootDist = false;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M13-partial-results-dropped",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (r?.results?.length) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M14-sighup-unhandled",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const SIGNAL_EXIT = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };",
+        "replace": "const SIGNAL_EXIT = { SIGINT: 130, SIGTERM: 143 };"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M15-symlink-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (links.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M16-no-mutants-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (mutants.length === 0)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M17-overlaps-not-counted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "at = text.indexOf(find, at + 1)) n++;",
+        "replace": "at = text.indexOf(find, at + find.length)) n++;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M18-head-syntax-ignored",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!(await syntaxError({ file: f, text: pristine.get(f), root, run }))) checkable.add(f);",
+        "replace": "      checkable.add(f);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M20-non-utf8-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!Buffer.from(text, \"utf-8\").equals(bytes)) problems.push",
+        "replace": "      if (false) problems.push"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M21-json-error-prints-table",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (o.json) process.stdout.write(JSON.stringify({ ...r, error",
+        "replace": "      if (false) process.stdout.write(JSON.stringify({ ...r, error"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M22-worktree-checks-root",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const after = st.mode === \"in-place\" ? await dirtyLines(ctx, st.root) : [];",
+        "replace": "const after = await dirtyLines(ctx, st.root);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M23-signal-drops-results",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (results.length && rep) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M24-no-ts-check",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "  if (TS_FILE.test(file)) {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M25-check-runs-anyway",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (o.check) {\n      // What the run would call stillborn",
+        "replace": "    if (false) {\n      // What the run would call stillborn"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M26-unrun-test-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (notRun.length)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M27-overlapping-filters-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (widened.length || extra.length)",
+        "replace": "      if (extra.length)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M28-symlinked-tmp-not-resolved",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "st.tmp = realpathSync(mkdtempSync(",
+        "replace": "st.tmp = (mkdtempSync("
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M29-skip-worktree-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (hidden.length && !o.check)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M30-pathspec-as-glob",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "[\"--literal-pathspecs\", \"ls-files\"",
+        "replace": "[\"ls-files\""
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M31-created-dist-kept",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "removeRootDist = !hadDist;",
+        "replace": "removeRootDist = false;"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M32-syntax-opt-out-ignored",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "if (m.syntax && checkable.has(f)) {",
+        "replace": "if (checkable.has(f)) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M33-check-refuses-dirty",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const dirty = o.check ? [] : await dirtyLines(ctx, root);",
+        "replace": "const dirty = await dirtyLines(ctx, root);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M34-mutant-run-unrun-check-dropped",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "          if (other.length || missing.length)",
+        "replace": "          if (other.length)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "survives",
+    "why": "A second layer: the baseline already refuses a named file vitest does not run, so a mutant run can only miss one if the include changes mid-run."
+  },
+  {
+    "id": "M35-union-baseline",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    const sets = [...new Map(mutants.map((m) => [[...m.test].sort().join(\"\\0\"), m.test])).values()];",
+        "replace": "    const sets = [[...new Set(mutants.flatMap((m) => m.test))]];"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M36-case-sensitive-filter",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "x.toLowerCase().includes(t.toLowerCase())",
+        "replace": "x.includes(t)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M38-cancel-out-allowed",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "        if ([...out].every(([f, text]) => Buffer.from(text).equals(Buffer.from(pristine.get(f)))))",
+        "replace": "        if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M39-worktree-recorded-after-add",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      st.work = wt; // before the add, so a signal during it removes what it registered\n",
+        "replace": ""
+      },
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      const differs = files.filter(",
+        "replace": "      st.work = wt;\n      const differs = files.filter("
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M40-ids-case-sensitive",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "else if (seen.has(m.id.toLowerCase()))",
+        "replace": "else if (seen.has(m.id))"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M41-js-type-ignored",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "const ext = file.endsWith(\".js\") ? (jsIsModule(root, file) ? \".mjs\" : \".cjs\") : \"\";",
+        "replace": "const ext = \"\";"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M42-mutant-from-blob-again",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "[\"cat-file\", \"--filters\", `${sha}:${f}`]",
+        "replace": "[\"show\", `${sha}:${f}`]"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M43-disk-bytes-unchecked",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (!o.check && !readFileSync(join(root, f)).equals(bytes))",
+        "replace": "      if (false)"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M44-ill-formed-unicode-accepted",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "!e[k].isWellFormed()",
+        "replace": "false"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M45-backslash-unescaped",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "return text.replace(/\\\\/g, \"\\\\\\\\\").replace(/\\|/g, \"\\\\|\")",
+        "replace": "return text.replace(/\\|/g, \"\\\\|\")"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M46-json-usage-error-as-text",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "    if (process.argv.includes(\"--json\"))\n      process.stdout.write(JSON.stringify({ refused: e.message }, null, 2) + \"\\n\");\n    process.stderr.write(`mutate: ${e.message}\\n${USAGE}\\n`);",
+        "replace": "    process.stderr.write(`mutate: ${e.message}\\n${USAGE}\\n`);"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  }
+]

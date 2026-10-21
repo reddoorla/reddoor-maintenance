@@ -1,24 +1,17 @@
-import type { Context, Config } from "@netlify/functions";
-import { openDb, readDbConfig } from "../../src/db/client.js";
-import { getSiteBySlug } from "../../src/db/fleet-state.js";
+import type { Context } from "@netlify/functions";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { getSiteBySlug } from "../../../../../src/db/fleet-state.js";
 import {
   requireOperator,
   denialResponse,
   triggerRenovateForSite,
-} from "../../src/dashboard/index.js";
-import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
-import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { makeGitHubRest } from "../../src/github/gh-rest.js";
-import { RENOVATE_WORKFLOW_FILE } from "../../src/github/renovate-dispatch.js";
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { makeGitHubRest } from "../../../../../src/github/gh-rest.js";
+import { RENOVATE_WORKFLOW_FILE } from "../../../../../src/github/renovate-dispatch.js";
 
-// Path-route /api/sites/:slug/trigger-renovate on the function itself (same reason
-// as report-checklist.mts / site-dashboard.mts: a netlify.toml 200 rewrite would
-// hand the function the original URL, leaving ctx.params empty). The slug arrives
-// in ctx.params.slug.
-export const config: Config = {
-  path: ["/api/sites/:slug/trigger-renovate", "/.netlify/functions/trigger-renovate"],
-  rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
-};
+// The slug arrives in ctx.params.slug.
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {

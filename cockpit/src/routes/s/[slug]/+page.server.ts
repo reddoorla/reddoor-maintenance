@@ -5,7 +5,7 @@ import { resolveDashboardBaseUrl } from "../../../../../src/dashboard/handler-he
 import { withDb } from "../../../lib/server/db.js";
 import { buildSiteView } from "../../../lib/site/view.js";
 
-// The page's actions POST to the Netlify functions' /api/* endpoints, which
+// The page's actions POST to the cockpit's /api/* endpoint routes, which
 // carry their own auth and CSRF gates; this route only reads.
 export const load: PageServerLoad = ({ params }) =>
   withDb("site", async (db) => {

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { RequestEvent } from "@sveltejs/kit";
-import { handle, NOT_COCKPIT_PREFIXES } from "../../src/hooks.server.js";
+import { handle, NOT_COCKPIT_PREFIXES, ENDPOINT_ROUTE_PREFIXES } from "../../src/hooks.server.js";
 import { config as edgeRateLimit } from "../../../netlify/edge-functions/cockpit-rate-limit.js";
+import { config as authRateLimit } from "../../../netlify/edge-functions/auth-rate-limit.js";
 import { mintSession, SESSION_COOKIE } from "../../../src/dashboard/auth/session.js";
 import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 
@@ -19,10 +20,13 @@ function event(
   method = "GET",
   // SvelteKit's `event.url`: for a data request, the page's URL without `/__data.json`.
   url = `https://cockpit.example${path}`,
+  // SvelteKit's `event.route.id`: the route the path matched, or null.
+  routeId: string | null = null,
 ) {
   return {
     request: new Request(`https://cockpit.example${path}`, { headers, method }),
     url: new URL(url),
+    route: { id: routeId },
     locals: {} as App.Locals,
   } as unknown as RequestEvent;
 }
@@ -150,11 +154,51 @@ describe("the cockpit auth hook", () => {
     );
   });
 
-  it("refuses exactly the prefixes the edge rate limit leaves unlimited", () => {
-    // An excluded path no function owns still reaches the cockpit through its
-    // catch-all. Unlimited, it must never reach the password check.
-    expect(edgeRateLimit.excludedPath.map((p) => p.replace(/\*$/, ""))).toEqual([
-      ...NOT_COCKPIT_PREFIXES,
-    ]);
+  it("refuses every prefix the edge rate limit leaves to other rules or none", () => {
+    // An excluded path no route owns still reaches the cockpit, the site's one
+    // function on `/*`. Off the dashboard's limit, it must never reach the
+    // password check.
+    const excluded = edgeRateLimit.excludedPath.map((p) => p.replace(/\*$/, ""));
+    expect(excluded.filter((e) => !NOT_COCKPIT_PREFIXES.some((p) => e.startsWith(p)))).toEqual([]);
+    // Sign-in, off the shared budget, has its own stricter rule.
+    expect(excluded).toContain("/auth/");
+    expect(authRateLimit.path).toBe("/auth/*");
+  });
+
+  it("hands a request that matched an endpoint route to it, ungated (each handler checks for itself)", async () => {
+    for (const [path, routeId] of [
+      ["/api/reports/rec1/approve", "/api/reports/[id]/approve"],
+      ["/api/fleet/refresh/status", "/api/fleet/refresh/status"],
+      ["/auth/login", "/auth/login"],
+      ["/auth/basic", "/auth/basic"],
+    ] as const) {
+      // No credentials, and a cross-site POST: the handler, not the hook, answers.
+      const ev = event({ origin: "https://evil.example" }, path, "POST", undefined, routeId);
+      const { res, resolve } = await run(ev);
+      expect([path, res.status]).toEqual([path, 200]);
+      expect(resolve).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("still refuses an endpoint prefix no route matched, and a page route reached through one", async () => {
+    for (const [path, routeId] of [
+      ["/api/reports/rec1/nope", null],
+      ["/API/reports/rec1/approve", null],
+      ["/api/forms/a/b", null],
+      // A route outside the endpoint prefixes is never served through them.
+      ["/api%2Ffleet", "/fleet"],
+      ["/r/a/b", "/r/[x]/[y]"],
+      // An endpoint route reached through a prefix the edge limit skips.
+      ["/_app/x", "/api/reports/[id]/approve"],
+      ["/.netlify/x", "/auth/basic"],
+    ] as const) {
+      for (const pw of ["s3cret", "wrong"]) {
+        const ev = event(authHeader(pw), path, "GET", "https://cockpit.example/fleet", routeId);
+        const { res, resolve } = await run(ev);
+        expect([path, pw, res.status]).toEqual([path, pw, 404]);
+        expect(resolve).not.toHaveBeenCalled();
+      }
+    }
+    expect(ENDPOINT_ROUTE_PREFIXES).toEqual(["/api/", "/auth/"]);
   });
 });

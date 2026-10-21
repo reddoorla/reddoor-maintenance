@@ -10,9 +10,9 @@ import {
 } from "../db/prospect-audits.js";
 
 /**
- * Trigger logic for `POST /api/prospect-audit/run` (netlify/functions/prospect-audit-run.mts).
+ * Trigger logic for `POST /api/prospect-audit/run` (cockpit/src/lib/server/endpoints/prospect-audit-run.ts).
  * Kept here, deps-injected and framework-free, so it's unit-testable without
- * booting the Netlify handler — same split as trigger-renovate.ts.
+ * booting the endpoint handler — same split as trigger-renovate.ts.
  *
  * The audit itself runs as a `workflow_dispatch` in a PRIVATE repo (never this
  * one — this repo's Actions logs are world-readable, and a prospect URL there
@@ -298,7 +298,7 @@ export function prospectAuditRecipientsLabel(raw: string | undefined): string {
 }
 
 /** JSON status + body for one `ProspectAuditTriggerResult`. Kept pure and
- *  separate from the .mts handler so each message is unit-testable directly. */
+ *  separate from the endpoint handler so each message is unit-testable directly. */
 export function respondToProspectAuditTrigger(
   result: ProspectAuditTriggerResult,
   opts: { recipientsLabel: string },
