@@ -4,6 +4,7 @@ import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn, isSpawnTimeout } from "./util/spawn.js";
 import { siteLabel } from "../util/site.js";
+import { hasSmokeResult } from "./smoke-fields.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
@@ -54,8 +55,8 @@ export function isUnmeasuredSmoke(result: {
   notApplicable?: true;
 }): boolean {
   if (result.audit !== "smoke" || result.notApplicable === true) return false;
-  const d = result.details as { checkedAt?: unknown } | undefined;
-  return !(d && typeof d.checkedAt === "string");
+  // The write-back's own test for a verdict, so this line and the write gate agree.
+  return !hasSmokeResult(result as AuditResult);
 }
 
 /** Render the "did every site actually get measured?" line for CI.

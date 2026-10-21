@@ -367,6 +367,13 @@ describe("formatUnmeasuredSmokeSummary", () => {
     expect(out).toContain("2 site(s) never measured");
   });
 
+  it("a result whose details carry no checkedAt is not a verdict, as the write-back reads it", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "caltex", summary: "smoke: odd", details: { ok: "pass" } },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=1 sites=caltex");
+  });
+
   it("ignores non-smoke audits sharing the pool", () => {
     const out = formatUnmeasuredSmokeSummary([
       { audit: "lighthouse", site: "caltex", summary: `${SMOKE_UNMEASURED_PREFIX} — decoy` },
