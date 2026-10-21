@@ -575,6 +575,10 @@ describe("base-prefixed branches on the staging flow (#1673)", () => {
     expect(isFeatureUpdateBranch("renovate/main-all-minor-patch")).toBe(true);
     expect(isFeatureUpdateBranch("renovate/staging-sveltejs-kit-3.x")).toBe(true);
     expect(isFeatureUpdateBranch("renovate/main-vulnerability-scanner-2.x")).toBe(true);
+    // Only the anchors keep these: a slug ending in -vulnerability with no npm- after the base,
+    // and a topic that merely starts with lock-file.
+    expect(isFeatureUpdateBranch("renovate/main-eslint-plugin-no-vulnerability")).toBe(true);
+    expect(isFeatureUpdateBranch("renovate/main-lock-file-lint-2.x")).toBe(true);
   });
 
   // The eight repos fleet-security run 39655255844 (2026-10-21 18:47Z) printed as
