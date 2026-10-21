@@ -148,7 +148,7 @@ jobs:
         run: |
           title="Form dead-letter replay failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The scheduled **forms-deadletter-replay** run failed.\n\nThis is NOT the ordinary "rows are queued" condition — that is a warning and stays green. It means the replay could not complete, or it found a row that was re-ingested without its terminal mark (the next run would duplicate that lead), a row whose stored payload will not decode, a lead the store rejected on replay (it is now in no inbox; its payload is still in the submission_deadletter row), or a lead placed without its notification email.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The scheduled **forms-deadletter-replay** run failed.\n\nThis is NOT the ordinary "rows are queued" condition — that is a warning and stays green. It means the replay could not complete, or it found a row that was re-ingested without its terminal mark (the next run would duplicate that lead), a row whose stored payload will not decode, a lead the store rejected on replay (it is now in no inbox; its payload is still in the submission_deadletter row), or a lead placed without its notification email.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run, unless it names a REJECTED or NOTIFY FAILED lead._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
@@ -158,8 +158,13 @@ jobs:
           # FAILED row is marked terminal, so the next run is green and never sees
           # it again: this issue is what has to carry it, and the close step below
           # leaves an issue that names one open for a person.
-          defects=$(grep -aE '^(REJECTED|NOTIFY FAILED|UNMARKED|UNREADABLE) ' "${RUNNER_TEMP:-/tmp}/replay.out" 2>/dev/null | head -50 || true)
-          if [ -n "$defects" ]; then
+          all_defects=$(grep -aE '^(REJECTED|NOTIFY FAILED|UNMARKED|UNREADABLE) ' "${RUNNER_TEMP:-/tmp}/replay.out" 2>/dev/null || true)
+          defects=$(head -50 <<<"$all_defects")
+          n_defects=$(grep -c . <<<"$all_defects" || true)
+          if [ "${n_defects:-0}" -gt 50 ]; then
+            defects=$(printf '%s\n(%s more; see the run log)' "$defects" "$((n_defects - 50))")
+          fi
+          if [ -n "$all_defects" ]; then
             body=$(printf '%s\n\nWhat this run found:\n\n```\n%s\n```\n\nA REJECTED or NOTIFY FAILED lead is not recovered by a later run, so a green run does not close this issue while it names one. Deal with each lead, then close it by hand.' "$body" "$defects")
           fi
           existing=$(gh issue list --state open --limit 200 \
@@ -196,7 +201,10 @@ jobs:
               echo "::warning::could not read #$n, so it stays open"
               continue
             }
-            if printf '%s\n' "$seen" | grep -qE '^(REJECTED|NOTIFY FAILED) '; then
+            # A here-string, not `printf | grep -q`: under pipefail a large $seen
+            # makes printf die of SIGPIPE when grep -q exits early, and the `if`
+            # would read that as "no match" and close the issue.
+            if grep -qE '^(REJECTED|NOTIFY FAILED) ' <<<"$seen"; then
               echo "not closing #$n: it names a REJECTED or NOTIFY FAILED lead, which a green run does not recover. Close it by hand once each lead is dealt with."
               continue
             fi

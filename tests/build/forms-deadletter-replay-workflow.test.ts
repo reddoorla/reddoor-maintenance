@@ -393,7 +393,8 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
       let code = 0;
       let log = "";
       try {
-        const out = await execFileAsync("bash", ["-e", "-c", script], {
+        // -o pipefail too: the step must hold under the stricter shell as well.
+        const out = await execFileAsync("bash", ["-e", "-o", "pipefail", "-c", script], {
           cwd: dir,
           env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
         });
@@ -441,6 +442,23 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
     const r = await runIssueStep(CLOSE, { issueText: `What this run found:\n\n${REJECTED_LINE}` });
     expect(r.calls).not.toMatch(/issue close/);
     expect(r.log).toContain("not closing #42");
+  });
+
+  it("a green run does NOT close a long-lived issue whose text passes the pipe buffer", async () => {
+    const r = await runIssueStep(CLOSE, {
+      issueText: `${REJECTED_LINE}\n${"later failure comment\n".repeat(10_000)}`,
+    });
+    expect(r.calls).not.toMatch(/issue close/);
+  });
+
+  it("past 50 defect lines the issue says how many more the run log holds", async () => {
+    const lines = Array.from({ length: 53 }, (_, i) => `NOTIFY FAILED dl_${i} → accepted`);
+    const r = await runIssueStep(OPEN, {
+      replayOut: [...lines, marker({ replayed: 53, notifyFailed: 53 })].join("\n"),
+    });
+    expect(r.calls).toContain("NOTIFY FAILED dl_49 ");
+    expect(r.calls).not.toContain("NOTIFY FAILED dl_50 ");
+    expect(r.calls).toContain("(3 more; see the run log)");
   });
 
   it("a green run does NOT close an issue whose COMMENT names a NOTIFY FAILED lead", async () => {
