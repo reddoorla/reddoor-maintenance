@@ -363,8 +363,6 @@ export async function mutate(o, deps = {}) {
     if (r.code === 0) {
       work = wt;
       mode = "worktree";
-      symlinkSync(join(root, "node_modules"), join(wt, "node_modules"), "dir");
-      ignore.push("?? node_modules");
     } else {
       ctx.log(
         `mutate: git worktree add failed, so the edits go in place and are restored: ${r.stderr.trim()}`,
@@ -424,6 +422,24 @@ export async function mutate(o, deps = {}) {
     .concat(o.inPlace ? ["--in-place"] : [])
     .join(" ");
   try {
+    // A pnpm repo installs into the worktree from the store: pnpm refuses to run scripts
+    // (vitest's global setup runs `pnpm build`) over a node_modules linked from elsewhere.
+    if (mode === "worktree" && existsSync(join(root, "pnpm-lock.yaml"))) {
+      let r = await run("pnpm", ["install", "--frozen-lockfile", "--offline"], {
+        cwd: work,
+        timeoutMs: o.timeoutMs,
+      });
+      if (r.code !== 0)
+        r = await run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], {
+          cwd: work,
+          timeoutMs: o.timeoutMs,
+        });
+      if (r.code !== 0) throw new Refusal(`pnpm install in the worktree failed:\n${tail(r)}`);
+    } else if (mode === "worktree") {
+      symlinkSync(join(root, "node_modules"), join(work, "node_modules"), "dir");
+      ignore.push("?? node_modules");
+    }
+
     // Unmutated first: a test that fails on HEAD would make every mutant look red.
     const sets = new Map();
     for (const m of mutants) {
