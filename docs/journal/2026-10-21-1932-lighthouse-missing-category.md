@@ -24,4 +24,4 @@ Rounds 2 and 3 were dirty too:
 - **Round 2: one real defect, for a duplicate slug.** Two roster rows sharing a slug pool into one group. With an unscored result first and a scored one second, the site was filed as a lighthouse miss (the planner reads the first result), yet it was still counted applicable for every category. A 2-of-7 hole then read 2 of 8 and green. The denominator now reads the plan's own `lighthouseScored` flag.
 - **Round 3: test gaps only.** Only the seo and performance denominators had a test with unscored sites present, and the pooled scored-first order had none.
 
-Round 4 was clean. Its one out-of-diff minor, a category missing on most runs reading as a real score from one run, is #1659.
+Round 4 was clean. Its one out-of-diff minor, a category missing on most runs reading as a real score from one run, is #1662.
