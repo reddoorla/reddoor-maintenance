@@ -136,7 +136,9 @@ async function expectPartialNightsReadAsFull(
       .at(-1);
     const asFull = history
       .slice(0, i + 1)
-      .map((n, j) => (j === i ? { ...n, pnpm: "runs" as const, answer: latest } : n));
+      .map((n, j) =>
+        j === i ? { ...n, pnpm: "runs" as const, ...(latest ? { answer: latest } : {}) } : n,
+      );
     const expected = (await run(asFull, pnpm, opts))[i]!;
     expect({ night: i, ...view(actual[i]!) }).toEqual({ night: i, ...view(expected) });
     expect(actual[i]!.lastSecurityAuditAt).toBe(actual[i - 1]!.lastSecurityAuditAt);
