@@ -6,13 +6,10 @@ import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { makeGitHubRest, type DependabotAlert } from "../github/gh-rest.js";
 import { readGitHubConfig } from "../github/config.js";
-import type { SecurityAdvisory } from "../fleet/site-row.js";
 
 type Severity = "low" | "moderate" | "high" | "critical";
 
 type Counts = { low: number; moderate: number; high: number; critical: number };
-
-type AdvisoryIdentity = { module: string; title: string; cves?: string[]; ghsa?: string };
 
 type AdvisoryEntry = {
   module: string;
@@ -32,9 +29,9 @@ type AdvisoryEntry = {
    *  cannot be read. "transitive" = no direct-dep fix vehicle, so the
    *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
   relationship?: "direct" | "transitive" | "inconclusive";
-  /** Whether the lockfile audit reported it, set by the merged and partial audits only. A partial
-   *  run (#1561) re-reads only Dependabot's side, so the write-back keeps a stored advisory the
-   *  lockfile audit found and replaces one Dependabot alone found. */
+  /** Whether the lockfile audit reported it: true from mergeAudits' pnpm side, false on every
+   *  Dependabot alert. Persisted so a later night can tell the two sources apart (#1561, whose
+   *  partial-night write waits on pnpm's own counts being stored too). */
   lockfile?: boolean;
 };
 
@@ -447,18 +444,17 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
         // in for what Dependabot cannot see (#1408).
         const viaLockfile = await lockfileAudit(spawn, site.path, label, "all");
         if (viaLockfile.status !== "skip") return mergeAudits(viaLockfile, viaDependabot);
-        // The lockfile audit could not run. Dependabot's live alerts are still real, so a skip
-        // must not throw them away and leave the row's older counts standing (#1561). With none,
-        // its "0" only means it saw nothing, and writing it would read as clean: skip. With some,
-        // the result is partial: it saw no npm package, so the write may raise the row's counts
-        // but never lower them (`partial`, read by planAuditWrite).
+        // The lockfile audit could not run. Dependabot's live alerts are real, but on this path
+        // they are only part of the tree, and the row does not keep pnpm's own counts to merge
+        // them with; writing them alone lowered npm counts or ticked Security Updates "pass"
+        // (#1561, eight review rounds). So the skip stands and writes nothing, and its summary
+        // names what Dependabot sees, so the run log does not hide a live alert.
         return hasLiveCounts(viaDependabot)
           ? {
-              ...viaDependabot,
+              ...viaLockfile,
               summary:
-                `${viaDependabot.summary}; the lockfile audit could not run ` +
-                `(${viaLockfile.summary}), so this counts only what GitHub's dependency graph sees`,
-              details: { ...(viaDependabot.details as object), partial: true },
+                `${viaLockfile.summary}; not written: ${viaDependabot.summary}, which without ` +
+                `the lockfile audit is only part of the tree`,
             }
           : viaLockfile;
       }
@@ -542,9 +538,8 @@ async function lockfileAudit(
 
 /** Whether two advisories are the same one. Only ever within one module; there, a shared GHSA id
  *  decides when both carry one, else a shared CVE, else the title (#1409: the two sources word
- *  titles differently, so a title match alone misses a duplicate). Also the identity a partial
- *  run's write-back keeps stored advisories by (#1561), so it takes a persisted one too. */
-export function sameAdvisory(a: AdvisoryIdentity, b: AdvisoryIdentity): boolean {
+ *  titles differently, so a title match alone misses a duplicate). */
+function sameAdvisory(a: AdvisoryEntry, b: AdvisoryEntry): boolean {
   // Always within one module: one GHSA can cover several packages (GHSA-67hx-6x53-jw92 names
   // babel-traverse and @babel/traverse), and each is its own fix.
   if (a.module !== b.module) return false;
@@ -579,48 +574,6 @@ function combineAdvisories(kept: AdvisoryEntry, other: AdvisoryEntry): AdvisoryE
     ...(relationship ? { relationship } : {}),
     ...(scope ? { scope } : {}),
   };
-}
-
-/** A partial night's result (#1561), merged with the stored row as a full night merges:
- *  the stored advisories the lockfile audit found (or older, untagged ones) stand in for the
- *  lockfile audit that could not run, and mergeAudits combines tonight's Dependabot alerts with
- *  them, so severity, tag, relationship, scope and per-manifest folding follow one rule on
- *  every night. Their count is the stored one less what Dependabot alone found; a stored count
- *  beyond the capped list has no known source, so it stands, and mergeAudits' larger-of rule
- *  keeps tonight's own overflow from adding to it. */
-export function mergePartialWithStored(
-  partial: AuditResult,
-  stored: { counts: Counts; advisories: SecurityAdvisory[] },
-): AuditResult {
-  const lockSide: AdvisoryEntry[] = stored.advisories
-    .filter((a) => a.lockfile !== false)
-    .map((a) => ({
-      module: a.module,
-      severity: a.severity,
-      title: a.title,
-      ...(a.cves.length > 0 ? { cves: a.cves } : {}),
-      ...(a.url ? { url: a.url } : {}),
-      ...(a.ghsa ? { ghsa: a.ghsa } : {}),
-      ...(a.scope ? { scope: a.scope } : {}),
-      ...(a.relationship ? { relationship: a.relationship } : {}),
-    }));
-  const listed = (list: Array<{ severity: Severity }>, s: Severity): number =>
-    list.filter((a) => a.severity === s).length;
-  const lockCounts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
-  for (const s of Object.keys(lockCounts) as Severity[])
-    lockCounts[s] =
-      listed(lockSide, s) + Math.max(0, stored.counts[s] - listed(stored.advisories, s));
-  const merged = mergeAudits(
-    {
-      audit: "security",
-      site: partial.site,
-      status: "skip",
-      summary: "stored lockfile audit:",
-      details: { counts: lockCounts, advisories: lockSide },
-    },
-    partial,
-  );
-  return { ...partial, details: { ...(merged.details as object), partial: true } };
 }
 
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency

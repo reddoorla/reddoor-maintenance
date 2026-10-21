@@ -16,11 +16,9 @@ import { hasA11yCounts, a11yCountsFromResult } from "./a11y-fields.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-fields.js";
 import {
   hasSecurityCounts,
-  isPartialSecurityResult,
   securityCountsFromResult,
   advisoriesFromResult,
 } from "./security-fields.js";
-import { mergePartialWithStored } from "./security.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-fields.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-fields.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-fields.js";
@@ -138,31 +136,11 @@ export function planAuditWrite(args: {
 
   const sec = results.find((r) => r.audit === "security");
   if (sec && hasSecurityCounts(sec)) {
-    let counts = securityCountsFromResult(sec);
+    const counts = securityCountsFromResult(sec);
+    audits.security = counts;
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
-    let advisories = advisoriesFromResult(sec);
-    // A partial run (#1561) re-read only Dependabot's side, so it replaces that side alone,
-    // through the same mergeAudits a full night uses (mergePartialWithStored): the stored
-    // advisories the lockfile audit found stand in for it, one Dependabot alone found is dropped.
-    // The timestamp is left as stored (securityPartial), so the row reads stale, not fresh.
-    const partial = isPartialSecurityResult(sec);
-    if (partial) {
-      const merged = mergePartialWithStored(sec, {
-        counts: {
-          critical: target.securityVulnsCritical ?? 0,
-          high: target.securityVulnsHigh ?? 0,
-          moderate: target.securityVulnsModerate ?? 0,
-          low: target.securityVulnsLow ?? 0,
-        },
-        advisories: target.securityAdvisories ?? [],
-      });
-      counts = securityCountsFromResult(merged);
-      advisories = advisoriesFromResult(merged);
-    }
-    audits.security = counts;
-    audits.securityAdvisories = advisories;
-    if (partial) audits.securityPartial = true;
+    audits.securityAdvisories = advisoriesFromResult(sec);
     writes.push({ audit: "security", counts });
   }
 
