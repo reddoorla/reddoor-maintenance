@@ -895,7 +895,7 @@ describe("check-brief round 3: git, jq, npm and secret names", () => {
 
   it("rg runs with the secret names excluded, so recursion never opens them", () => {
     const c = classifyCommand("rg -q KEY=xyz .", scratch);
-    expect(c.ok && c.argv.join(" ")).toContain("-g !*.key");
+    expect(c.ok && c.argv.join(" ")).toContain("--iglob !*.key");
     expect(c.ok && c.argv.slice(-2)).toEqual(["KEY=xyz", "."]);
   });
 
@@ -1074,5 +1074,144 @@ describe("check-brief round 4: parsing", () => {
       "Example:\n\n```\n- X — `git log -1` → exit 0\n```\n\n**Verify first.**\n\n- A — `ls` → exit 0\n",
     );
     expect(p.warnings.join("\n")).not.toMatch(/outside Verify first look like claims/);
+  });
+});
+
+// ── Review round 5 (2026-10-21): each case below reproduced a defect first. ──
+// Five dirty rounds: these fixes go to the operator, not to a sixth round.
+
+describe("check-brief round 5: uncommitted content stays unreadable", () => {
+  function repo(name: string): { dir: string; git: (...a: string[]) => Buffer } {
+    const dir = join(scratch, name);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: dir });
+    git("init", "-q");
+    return { dir, git };
+  }
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+  async function verdicts(dir: string, lines: string[]): Promise<string[]> {
+    const briefDir = `${dir}-brief`;
+    mkdirSync(briefDir, { recursive: true });
+    const r = await runCheckBrief(writeBrief(briefDir, lines), { cwd: dir }, { env });
+    return r.results.map((x) => x.status);
+  }
+
+  it.each([
+    "git log --all -m -GAPI_KEY=FAKES --format=tformat:HIT",
+    "git show stash@{0}^2",
+    "git log -p -m refs/stash",
+    "git log --reflog -p",
+    "git log -g -p",
+    "git log --glob=refs/* -p",
+    "git cat-file --batch --batch-all-objects",
+    "git cat-file --batch-check --batch-all-objects",
+    "git ls-files -s",
+    "git ls-files --stage",
+  ])("refuses %s (stash, reflog, every object, staged blob ids)", (cmd) => {
+    expect(classifyCommand(cmd, process.cwd()).ok).toBe(false);
+  });
+
+  it("an upper-case secret name is excluded from git grep, git diff and rg", async () => {
+    const { dir, git } = repo("r5-icase");
+    writeFileSync(join(dir, "cert.PEM"), "X\n");
+    writeFileSync(join(dir, "notes.txt"), "visible\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(dir, "cert.PEM"), "FAKEUPPER999\n");
+    expect(
+      await verdicts(dir, [
+        "- grep finds it — `git grep -q FAKEUPPER999` → exit 0",
+        "- diff finds it — `git diff --quiet -GFAKEUPPER999` → exit 1",
+        "- rg finds it — `rg -q FAKEUPPER999 .` → exit 0",
+        "- Control: visible text — `git grep -q visible` → exit 0",
+      ]),
+    ).toEqual(["FAIL", "FAIL", "FAIL", "PASS"]);
+  });
+
+  it("ordinary files whose names resemble secret globs stay readable", async () => {
+    const { dir, git } = repo("r5-ordinary");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src/credentials.ts"), "export const loadCredentials = 1;\n");
+    writeFileSync(join(dir, ".env.example"), "RESEND_API_KEY=\n");
+    writeFileSync(join(dir, "id_token.ts"), "export const idToken = 1;\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(dir, "src/credentials.ts"), "export const loadCredentials = 2;\n");
+    expect(
+      await verdicts(dir, [
+        "- credentials.ts is searchable — `git grep -c loadCredentials src/credentials.ts` → exit 0",
+        "- the template is searchable — `git grep -q RESEND_API_KEY .env.example` → exit 0",
+        "- id_token.ts is searchable — `git grep -q idToken` → exit 0",
+        "- credentials.ts changed — `git diff --quiet -- src/credentials.ts` → exit 1",
+      ]),
+    ).toEqual(["PASS", "PASS", "PASS", "PASS"]);
+  });
+
+  it("the value after -e is the pattern, even when it names a path", () => {
+    const c = classifyCommand("git grep -c -e CHANGELOG.md", process.cwd());
+    const args = c.ok ? c.argv.slice(c.argv.indexOf("grep") + 1) : [];
+    expect(args.slice(0, 5)).toEqual(["--no-textconv", "-c", "-e", "CHANGELOG.md", "--"]);
+  });
+
+  it("rg with no path searches the cwd, not the closed stdin", async () => {
+    const dir = join(scratch, "r5-rg-nopath");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "notes.txt"), "hello\n");
+    expect(await verdicts(dir, ["- hello is there — `rg -q hello` → exit 0"])).toEqual([
+      // COULD NOT RUN only where rg is not installed.
+      expect.stringMatching(/^(PASS|COULD NOT RUN)$/),
+    ]);
+    const c = classifyCommand("rg -q hello", dir);
+    expect(c.ok && c.argv.at(-1)).toBe(".");
+  });
+
+  it("a path operand is resolved against --cwd, not the process cwd (surviving mutation M3)", () => {
+    const dir = join(scratch, "r5-cwd");
+    mkdirSync(join(dir, "only-here"), { recursive: true });
+    const c = classifyCommand("git grep -c foo only-here", dir);
+    expect(c.ok && c.argv.slice(c.argv.indexOf("--"), c.argv.indexOf("--") + 2)).toEqual([
+      "--",
+      "only-here",
+    ]);
+  });
+
+  it("from a subdirectory --cwd, git diff still sees the whole repo (surviving mutation M1)", async () => {
+    const { dir, git } = repo("r5-subdir");
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    writeFileSync(join(dir, "top.txt"), "a\n");
+    writeFileSync(join(dir, "sub/x.txt"), "a\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(dir, "top.txt"), "b\n");
+    const briefDir = `${dir}-brief`;
+    mkdirSync(briefDir, { recursive: true });
+    const r = await runCheckBrief(
+      writeBrief(briefDir, ["- Something changed — `git diff --quiet` → exit 1"]),
+      { cwd: join(dir, "sub") },
+      { env },
+    );
+    expect(r.results.map((x) => x.status)).toEqual(["PASS"]);
+  });
+
+  it("a secret file in a subdirectory is excluded from a subdirectory --cwd too (surviving mutation M4)", async () => {
+    const { dir, git } = repo("r5-subdir-secret");
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    writeFileSync(join(dir, ".dev.vars"), "X\n");
+    writeFileSync(join(dir, "sub/x.txt"), "a\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(dir, ".dev.vars"), "FAKEROOT42\n");
+    const briefDir = `${dir}-brief`;
+    mkdirSync(briefDir, { recursive: true });
+    const r = await runCheckBrief(
+      writeBrief(briefDir, [
+        "- The root secret changed — `git diff --quiet -GFAKEROOT42` → exit 1",
+      ]),
+      { cwd: join(dir, "sub") },
+      { env },
+    );
+    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
   });
 });

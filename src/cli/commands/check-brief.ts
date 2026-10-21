@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -33,6 +33,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
  * are refused. Content committed to the repository is out of scope: whoever
  * can read the PR can read the repository. The checkout's own git config is
  * trusted; the allowlist guards against the brief's command, not the repo.
+ * The stash and the reflog are uncommitted content and are refused. `git
+ * status` can still say that a secret-shaped file was modified (one bit about
+ * state, not content).
  */
 
 export type VerifyLine =
@@ -456,9 +459,31 @@ const GIT_DANGEROUS = [
   "--untracked",
   "--no-exclude-standard",
   "--ignore-revs-file",
+  // Stash commits and reflog entries hold uncommitted content; so does every
+  // object in the store (`--batch-all-objects`), and `--stage` prints the
+  // staged blob ids. None of that is "committed to the repository".
+  "--all",
+  "--glob",
+  "--reflog",
+  "--walk-reflogs",
+  "--indexed-objects",
+  "--alternate-refs",
+  "--batch",
+  "--batch-check",
+  "--batch-command",
+  "--batch-all-objects",
+  "--stage",
 ];
+// A revision that reaches the stash, by name or through the reflog syntax.
+const GIT_STASH_REF = /stash|@\{/i;
 // Short options of the same kind, per subcommand.
-const GIT_DANGEROUS_SHORTS: Record<string, string> = { grep: "Of", "ls-files": "X", blame: "S" };
+const GIT_DANGEROUS_SHORTS: Record<string, string> = {
+  grep: "Of",
+  "ls-files": "Xs",
+  blame: "S",
+  log: "g",
+  show: "g",
+};
 // Prepended to every git run: no index refresh under a lock (another session
 // may share the worktree), and no config-driven program the flags can switch
 // on (fsmonitor hook, pager, external diff, signature check). The checkout's
@@ -481,7 +506,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // a secret, which a line could otherwise test one guessed prefix at a time
 // through its exit code. Committed templates (`.env.example`) stay readable.
 const SENSITIVE_NAME =
-  /^(?:\.git|\.docker|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.pypirc|\.htpasswd|\.yarnrc\.yml|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_[a-z0-9]+|.*\.(?:pem|key|p12|pfx|tfvars))$/i;
+  /^(?:\.git|\.docker|\.env(?!\.(?:example|sample|template)$)(?:\..*)?|.*\.env|\.envrc|\.dev\.vars|\.pgpass|\.pypirc|\.htpasswd|\.yarnrc\.yml|\.netrc|\.npmrc|\.git-credentials|credentials(?:\.(?:env|json|ya?ml|txt|ini))?|service-account.*\.json|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|.*\.(?:pem|key|p12|pfx|tfvars))$/i;
 // The same names as globs, so a recursive search (rg) or a git command with no
 // pathspec never opens them: a tracked template filled in locally is uncommitted
 // content, and `git grep -q <guess>` would read it.
@@ -499,9 +524,17 @@ export const SECRET_GLOBS = [
   ".npmrc",
   ".git-credentials",
   "credentials",
-  "credentials.*",
+  "credentials.env",
+  "credentials.json",
+  "credentials.yml",
+  "credentials.yaml",
+  "credentials.txt",
+  "credentials.ini",
   "service-account*.json",
-  "id_*",
+  "id_rsa*",
+  "id_dsa*",
+  "id_ecdsa*",
+  "id_ed25519*",
   "*.pem",
   "*.key",
   "*.p12",
@@ -509,11 +542,35 @@ export const SECRET_GLOBS = [
   "*.tfvars",
   ".docker",
 ];
-const RG_EXCLUDES = SECRET_GLOBS.flatMap((g) => ["-g", `!${g}`]);
-const GIT_EXCLUDES = SECRET_GLOBS.flatMap((g) => [
-  `:(top,exclude,glob)**/${g}`,
-  `:(top,exclude,glob)**/${g}/**`,
-]);
+// --iglob: SENSITIVE_NAME ignores case, so `cert.PEM` is a secret too.
+const RG_EXCLUDES = SECRET_GLOBS.flatMap((g) => ["--iglob", `!${g}`]);
+
+/** Exclude pathspecs for git: the checkout's own tracked paths that
+ *  SENSITIVE_NAME matches (any segment, any case), each as a literal path from
+ *  the top. Read from the index, so it is exact: `src/credentials.ts` and
+ *  `.env.example` stay in, `cert.PEM` and a staged `.dev.vars` stay out. */
+function gitSecretExcludes(cwd: string): string[] {
+  let listed: string;
+  try {
+    listed = execFileSync(
+      "git", // `:/`: the whole repo, even when --cwd is a subdirectory.
+      ["--no-optional-locks", "ls-files", "-z", "--full-name", "--", ":/"],
+      {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        env: childEnv("git", process.env),
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+  } catch {
+    return [];
+  }
+  return listed
+    .split("\0")
+    .filter((f) => f && f.split("/").some((part) => SENSITIVE_NAME.test(part)))
+    .map((f) => `:(top,exclude,literal)${f}`);
+}
 // The git subcommands that read working-tree or index content across the repo
 // when no pathspec narrows them.
 const GIT_PATHSPEC_READERS = new Set(["grep", "diff"]);
@@ -527,7 +584,18 @@ function withSecretExcludes(sub: string, rest: string[], cwd: string): string[] 
   const paths = dd === -1 ? [] : rest.slice(dd + 1);
   const keep: string[] = [];
   let patternSeen = sub !== "grep" || before.some((a) => /^-e|^--regexp/.test(a));
-  for (const a of before) {
+  for (let i = 0; i < before.length; i++) {
+    const a = before[i] as string;
+    // The value of -e (and of grep's numeric options) is never a path.
+    if (
+      /^(?:-e|--regexp|-[ABCm]|--max-depth|--max-count|--context|--after-context|--before-context)$/.test(
+        a,
+      )
+    ) {
+      keep.push(a);
+      if (i + 1 < before.length) keep.push(before[++i] as string);
+      continue;
+    }
     if (a.startsWith("-")) keep.push(a);
     else if (!patternSeen) {
       keep.push(a);
@@ -537,7 +605,7 @@ function withSecretExcludes(sub: string, rest: string[], cwd: string): string[] 
   }
   // With no pathspec, grep searches the cwd's subtree and diff the whole repo.
   const scope = paths.length > 0 ? paths : [sub === "grep" ? "." : ":/"];
-  return [...keep, "--", ...scope, ...GIT_EXCLUDES];
+  return [...keep, "--", ...scope, ...gitSecretExcludes(cwd)];
 }
 
 /** A file tool's grammar: the short flags it may take (bundled or alone), the
@@ -701,6 +769,9 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
     if (rest.some((a) => namesOption(a, GIT_DANGEROUS, shorts))) {
       return refuse("git: an option that writes, runs a program or reads outside the repo");
     }
+    if (rest.some((a) => !a.startsWith("--") && GIT_STASH_REF.test(a))) {
+      return refuse("git: the stash and the reflog hold uncommitted content");
+    }
     // Every operand, and every --opt=value, must stay inside --cwd: given a
     // path outside the work tree, `git diff` switches to --no-index by itself.
     for (const a of rest) {
@@ -755,7 +826,11 @@ export function classifyCommand(cmd: string, cwd: string = process.cwd()): Class
       const why = confined(p, cwd);
       if (why) return refuse(why);
     }
-    if (bin === "rg") return { ok: true, argv: ["rg", ...RG_EXCLUDES, ...argv.slice(1)] };
+    if (bin === "rg") {
+      // With no path, rg would read the (closed) stdin instead of the tree.
+      const where = paths.length === 0 ? ["."] : [];
+      return { ok: true, argv: ["rg", ...RG_EXCLUDES, ...argv.slice(1), ...where] };
+    }
     return { ok: true, argv };
   }
   if (
