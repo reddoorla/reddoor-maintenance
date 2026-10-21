@@ -1,5 +1,6 @@
 import {
   collectProtectionCoverage,
+  RENOVATE_DROUGHT_WARN_DAYS,
   renovateOutcomeLine,
   renovateOutcomeSummary,
   rulesetBypassSummary,
@@ -83,6 +84,18 @@ export async function runProtectionAuditCommand(
   for (const r of rows) {
     const line = r.renovateOutcome && renovateOutcomeLine(r.renovateOutcome);
     if (line) lines.push(`WARN    ${r.repo} — ${line}`);
+  }
+  // A delivering repo gets its own line too (#1606). fleet-security closes the
+  // Renovate drought issue only when every repo the issue named prints one: a
+  // repo that went unmeasured tonight (private, archived, its probe threw)
+  // prints neither WARN nor DELIVER, and "not seen" must not read as "fixed".
+  for (const r of rows) {
+    const o = r.renovateOutcome;
+    if (o?.state !== "delivering") continue;
+    lines.push(
+      `DELIVER ${r.repo} — a feature update landed ${o.days}d ago ` +
+        `(${o.lastBranch} merged ${o.lastMergedAt.slice(0, 10)}; warns past ${RENOVATE_DROUGHT_WARN_DAYS}d)`,
+    );
   }
   // Accepted pnpm-pin gaps print every night with their reason and expiry, on
   // the same non-gating WARN prefix: visible, never silent, never an alarm.

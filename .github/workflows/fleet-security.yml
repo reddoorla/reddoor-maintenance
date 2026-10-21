@@ -302,6 +302,108 @@ jobs:
             gh issue close "$n" --comment "Recovered — this sweep verified every public repo clean, including the one(s) this issue named: $named" && echo "closed #$n"
           done
 
+      # The Renovate OUTCOME (#1606): when a feature update last LANDED on each
+      # repo. The audit prints it on its own RENOVATE_OUTCOME line so a drought
+      # never opens or holds the posture issue above, and until #1606 nothing
+      # read that line: the 09-14 freeze shape (security and lockfile PRs
+      # merging, no feature merge for 34 days) printed WARN lines into a green
+      # log. It gets its own issue instead. An UNMEASURED repo counts with the
+      # droughts: "I could not measure this" is not "this is fine".
+      - name: Read the Renovate outcome
+        id: renovate-outcome
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          summary=$(grep -E "^RENOVATE_OUTCOME drought=[0-9]+ delivering=[0-9]+ unmeasured=[0-9]+ " "$out" 2>/dev/null | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            # No line, no measurement: open nothing and close nothing. The
+            # posture steps above already speak for an audit that broke.
+            echo "::warning::renovate outcome: the protection audit printed no RENOVATE_OUTCOME line — the drought issue is left as it is."
+            echo "drought=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$summary"
+          drought=$(echo "$summary" | grep -oE "drought=[0-9]+" | cut -d= -f2)
+          unmeasured=$(echo "$summary" | grep -oE "unmeasured=[0-9]+" | cut -d= -f2)
+          if [ "$drought" -gt 0 ] || [ "$unmeasured" -gt 0 ]; then
+            echo "::warning::renovate outcome: $drought repo(s) past the drought threshold, $unmeasured unmeasured."
+            echo "drought=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "drought=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open/update the Renovate drought tracking issue
+        # main only, like every tracking issue here.
+        if: steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Renovate drought"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          detail=$(grep -E "^WARN +[^ ]+ — (no feature update has LANDED|renovate outcome UNMEASURED)" "$out" || true)
+          summary=$(grep -E "^RENOVATE_OUTCOME " "$out" | tail -n1 || true)
+          # The title names tonight's repos, cut to stay well inside GitHub's
+          # 256-character limit, with a count of the rest.
+          full_title=$(printf '%s\n' "$detail" | awk -v t="$title" '
+            NF >= 2 { n++; name = $2; sub(/^[^\/]*\//, "", name)
+                      if (n == shown + 1 && length(s) + length(name) + 2 <= 170) { s = s (shown ? ", " : "") name; shown++ } }
+            END { if (shown == 0) { print t; exit } r = t ": " s; if (n > shown) r = r " (+" (n - shown) " more)"; print r }')
+          body=$(printf 'The nightly protection-coverage sweep measures when a feature-update Renovate PR last MERGED on each public repo. These repos are past the drought threshold, or could not be measured at all:\n\n```\n%s\n```\n\n`%s`\n\nSecurity and lock-file Renovate PRs are excluded on purpose: they bypass the schedule and kept merging through the 2026-09-14 freeze, which is why a sweep counting them read green for a month. This is feature-version drift, not a security signal, and it never opens or holds the "Fleet protection coverage gap" issue.\n\n- **A drought line:** open the repo'\''s Dependency Dashboard issue. Look for a grouped PR that is open and waiting on CI or review, a branch a human edit has blocked, or a schedule window that never fired.\n- **An UNMEASURED line:** "window is FULL" means the last 100 closed PRs hold no feature merge, so the answer is older than the sweep reads. "never merged" means there is no baseline yet. Neither is a known drought and neither is known to be fine, so it holds this issue open until the repo measures.\n\nRun: %s\n\n_Auto-filed; auto-closes once every repo it names delivers again._' "${detail:-see run output}" "${summary:-no RENOVATE_OUTCOME line}" "$run_url")
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\" or (.title | startswith(\"$title: \")))) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Retitle and rewrite to tonight's repos, and comment for the
+            # history. Never onto a body with no repo line: the close step
+            # gates on the repos the body names and refuses a body with none.
+            if [ -n "$detail" ]; then
+              gh issue edit "$existing" --title "$full_title" --body "$body" && echo "rewrote #$existing" \
+                || echo "::warning::could not rewrite #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no drought or UNMEASURED line; keeping the body of #$existing so a delivering sweep can still close it"
+            fi
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$full_title" --body "$body"
+          fi
+
+      - name: Close the Renovate drought issue once every repo delivers
+        if: steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          # Positive evidence only: the fleet-wide line says nothing is dry or
+          # unmeasured, and each repo the issue named printed a DELIVER line.
+          if ! grep -qE "^RENOVATE_OUTCOME drought=0 delivering=[0-9]+ unmeasured=0 " "$out" 2>/dev/null; then
+            echo "no delivering sweep in the output — not closing anything"
+            exit 0
+          fi
+          title="Renovate drought"
+          delivering=$(awk '/^DELIVER / { print $2 }' "$out")
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\" or (.title | startswith(\"$title: \")))) | .[].number" || true); do
+            named=$(gh issue view "$n" --json body --jq '.body' \
+              | grep -E "^WARN +[^ ]+ — (no feature update has LANDED|renovate outcome UNMEASURED)" \
+              | awk '{ print $2 }' | sort -u || true)
+            if [ -z "$named" ]; then
+              echo "not closing #$n — its body names no drought or UNMEASURED repo this sweep can match"
+              continue
+            fi
+            unseen=""
+            for repo in $named; do
+              echo "$delivering" | grep -qxF "$repo" || unseen="$unseen $repo"
+            done
+            if [ -n "$unseen" ]; then
+              echo "not closing #$n — this sweep did not see deliver:$unseen"
+              continue
+            fi
+            gh issue close "$n" --comment "Recovered — every repo this issue named delivered a feature update again: $(echo $named)" && echo "closed #$n"
+          done
+
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible, and
       # auto-close it once the run goes green again. continue-on-error so the alert
