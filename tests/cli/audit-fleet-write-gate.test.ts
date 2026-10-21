@@ -5,7 +5,7 @@
  * `writeFleetAudits` or `runFleetWriteBack` directly; this one pins the call site
  * that hands them the roster, which nothing else would notice being dropped.
  *
- * No network: the fleet is a local module of two sites, one checkout with no
+ * No network: the fleet is a local JSON inventory of two sites, one checkout with no
  * `test:smoke` script (not applicable) and one whose path does not exist and has no
  * repo to clone (dropped at prep). The write-back reads a scratch migrated `file:`
  * database, never a `TURSO_*` url from the environment.
@@ -42,12 +42,13 @@ beforeEach(async () => {
   const alpha = join(dir, "alpha");
   mkdirSync(alpha);
   writeFileSync(join(alpha, "package.json"), JSON.stringify({ name: "alpha", scripts: {} }));
+  // A JSON inventory, not a generated module: no code is built from the temp paths.
   writeFileSync(
-    join(dir, "fleet.mjs"),
-    `export default async () => ${JSON.stringify([
+    join(dir, "fleet.json"),
+    JSON.stringify([
       { name: "alpha", path: alpha },
       { name: "beta", path: join(dir, "beta-absent") },
-    ])};\n`,
+    ]),
   );
 });
 
@@ -59,7 +60,7 @@ afterEach(() => {
 describe("audit --fleet --write-back checks total against the resolved roster", () => {
   it("names a site dropped at prep as missing, and counts the not-applicable site", async () => {
     const { output } = await runAuditCommand(undefined, {
-      fleet: join(dir, "fleet.mjs"),
+      fleet: join(dir, "fleet.json"),
       only: "smoke",
       writeBack: true,
       workdir: join(dir, "work"),
