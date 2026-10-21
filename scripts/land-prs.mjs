@@ -723,15 +723,24 @@ async function deleteBranch(ctx, n, branch) {
 // `test/` folder inside app code (a SvelteKit `src/routes/test/`) is not a test directory.
 const TEST_DIR = /^(packages\/[^/]+\/)?(tests?|e2e)\/|(^|\/)__tests__\//;
 const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
-// A call, not a word: `expect(`, `expect<Array<number>>(`, `expect.soft<number>(`,
-// `expectTypeOf<Site>(`, `assert(`, `assert.equal(`, `assertEquals(`, `assertType<string>(`.
-// A bare "assertions" in a comment or a name is not one. The generic is bounded so a
-// hostile line cannot make the scan quadratic.
-const ASSERTION = /\b(expect|assert)\w*(\s*(<[^()]{0,200}>|\.\s*\w+))*\s*\(/;
-// A modifier that is CALLED, on anything (`it.skip(`, `describe.skipIf(c)(`, `ctx.skip()`,
-// `this.skip()`, a `test.extend` alias's `.skip(`), a bare `skip(` from the test context, or
-// `xit` / `xdescribe`. A property that is only read (`store.todo`, `summary.fails`) is not.
-const SKIP = /\.\s*(skipIf|skip|todo|fails)\s*\(|(^|[^\w.$])(skip(If)?\s*\(|x(it|describe)\s*[.(])/;
+// A call, not a word, tested on a line's code (see `codeOf`) with its generics taken out
+// (see `withoutGenerics`): `expect(`, `expect.soft(`, `expectTypeOf(`, `assert(`,
+// `assert.equal(`, `assertEquals(`, `assertType(`, `expect (x)`. Strings are blanked first,
+// so a test title "as users expect (no 404)" is not one; nor is a bare "assertions".
+const ASSERTION = /\b(expect|assert)\w*(\s*\.\s*\w+)*\s*\(/;
+// A skip: a modifier on the test API, called or not (`it.skip(`, `describe.skip.each(…)`,
+// `cond ? it.skip : it`, Playwright's `test.fixme(` and `test.fail(`); a CALLED or chained
+// modifier on anything (`ctx.skip()`, `this.skip()`, a `test.extend` alias's `.skip(`);
+// a bare `skip(` from the test context; or `xit`, `xtest`, `xdescribe`. A property that is
+// only read (`store.todo`, `summary.fails`) is not.
+const SKIP_WORDS = "skipIf|skip|todo|fails|fixme";
+const SKIP = new RegExp(
+  [
+    `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+)*\\s*\\.\\s*(${SKIP_WORDS}|fail)\\b`,
+    `\\.\\s*(${SKIP_WORDS})\\s*(\\(|\\.\\s*(each|for|concurrent|sequential|only|skip|todo)\\b)`,
+    `(^|[^\\w.$])(skip(If)?\\s*\\(|x(it|test|describe)\\s*[.(])`,
+  ].join("|"),
+);
 const MAX_FILES_PAGES = 30; // GitHub lists at most 3000 files on a pull request.
 
 /** Whether `path` is a test: under a tests/, test/, __tests__/ or e2e/ directory, or named
@@ -752,18 +761,50 @@ function patchLines(patch) {
   return { removed, added };
 }
 
-/** The code on a trimmed line, without its comments: `/* flaky *\/ it.skip(…)` is code, a
- *  JSDoc continuation (`* expect(x)…`) or a `//` line is not. A `//` inside a string (a URL)
- *  cuts the line short, which leaves any call before it intact. */
+/** The code on a trimmed line: string contents blanked (`"*\/15 * * * *"` and
+ *  `"https://…"` are data, not comment markers), `//` and `/* … *\/` comments dropped, so
+ *  `/* flaky *\/ it.skip(…)` is code and `// it.skip(…)` is not. A JSDoc continuation
+ *  (`* expect(x)…`) is a comment. A stray `*\/` outside a string is kept as code: guessing
+ *  that the line began inside a comment would let `it.skip(…); *\/` pass. One pass, linear. */
 function codeOf(line) {
   if (/^\*(?!\/)/.test(line)) return "";
-  return line
-    .replace(/\/\*.*?\*\//g, " ")
-    .replace(/^.*?\*\//, " ")
-    .replace(/\/\*.*$/, " ")
-    .replace(/\/\/.*$/, " ")
-    .trim();
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) {
+        quote = "";
+        out += c;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+    } else if (c === "/" && line[i + 1] === "/") break;
+    else if (c === "/" && line[i + 1] === "*") {
+      const end = line.indexOf("*/", i + 2);
+      if (end < 0) break;
+      out += " ";
+      i = end + 1;
+    } else out += c;
+  }
+  return out.trim();
 }
+
+/** `code` with type arguments taken out, innermost first, three levels deep: `expect<Array<
+ *  number>>(` → `expect(`. Each pass is one linear regex scan, so no line can make it slow. */
+function withoutGenerics(code) {
+  let s = code;
+  for (let i = 0; i < 3; i++) s = s.replace(/<[^<>()]*>/g, "");
+  return s;
+}
+
+/** A line as re-add matching compares it: whitespace runs collapsed and a trailing `;`
+ *  dropped, so adding a semicolon or re-indenting is not a removal. */
+const lineKey = (t) => t.replace(/\s+/g, " ").replace(/;$/, "");
 
 /** How many times each line occurs: a removed line is matched by one added copy, so
  *  removing an assertion twice and adding it back once still loses one. */
@@ -825,16 +866,16 @@ export function testChangeFlags(files) {
       continue;
     }
     const { removed, added } = patchLines(f.patch);
-    const addedLeft = lineCounts(added);
-    const removedLeft = lineCounts(removed);
+    const addedLeft = lineCounts(added.map(lineKey));
+    const removedLeft = lineCounts(removed.map(lineKey));
     const reasons = [];
     for (const t of removed) {
-      if (!ASSERTION.test(codeOf(t))) continue;
-      if (!takeOne(addedLeft, t)) reasons.push(`removed assertion not re-added: ${t}`);
+      if (!ASSERTION.test(withoutGenerics(codeOf(t)))) continue;
+      if (!takeOne(addedLeft, lineKey(t))) reasons.push(`removed assertion not re-added: ${t}`);
     }
     for (const t of added) {
       if (!SKIP.test(codeOf(t))) continue;
-      if (!takeOne(removedLeft, t)) reasons.push(`added skip: ${t}`);
+      if (!takeOne(removedLeft, lineKey(t))) reasons.push(`added skip: ${t}`);
     }
     if (reasons.length > 0) out.push({ file: name, reasons });
   }
@@ -843,7 +884,9 @@ export function testChangeFlags(files) {
 
 const HEADING = /^\s{0,3}#{1,6}\s/;
 const SETEXT_UNDERLINE = /^\s{0,3}(=+|-+)\s*$/;
-const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S/;
+// A line that carries on a label's section past a blank line: a list item, an indented
+// line, a table row, a quote or a line opening with inline code.
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s|^\s{2,}\S|^\s*[|>`]/;
 
 /** The PR body without what a reader does not see as prose: fenced code blocks (closed only
  *  by a fence of the same character, at least as long), then HTML comments (a PR template's

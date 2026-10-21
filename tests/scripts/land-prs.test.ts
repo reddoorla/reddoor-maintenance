@@ -2272,6 +2272,76 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  describe("round-3 review findings", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+    const added = (line: string) => one(`@@ -1 +1,2 @@\n keep();\n+${line}`);
+    const removed = (line: string) => one(`@@ -1,2 +1 @@\n keep();\n-${line}`);
+
+    it("a chained, aliased or Playwright skip is a skip", () => {
+      for (const line of [
+        'it.skip.each(cases)("x %s", (c) => {',
+        'describe.skip.each([1, 2])("d", () => {',
+        '(process.env.CI ? it.skip : it)("works", () => {',
+        "const itLive = hasCreds ? it : it.skip;",
+        'xtest("a", () => {});',
+        'test.fixme("flaky webkit", async () => {});',
+        'test.fail("x", () => {});',
+      ]) {
+        expect(added(line), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+      expect(added('myTest.skip.each(rows)("r", () => {});')).toHaveLength(1);
+      expect(added("skip ();")).toHaveLength(1);
+      expect(added("const n = store.todo.length + result.tests.skip;")).toEqual([]);
+    });
+
+    it("a string is data: comment markers and words inside one change nothing", () => {
+      expect(removed('expect(cronOf(wf)).toBe("*/15 * * * *");')).toHaveLength(1);
+      expect(removed('expect(fg.sync("**/*.svelte")).toHaveLength(12);')).toHaveLength(1);
+      expect(added('it.skip("matches **/ globs", () => {});')).toHaveLength(1);
+      expect(added('it.skip("x", () => { // */')).toHaveLength(1);
+      expect(added('it.skip("x", () => {}); */')).toHaveLength(1);
+      expect(
+        removed('await page.goto("https://x.test/"); expect(page).toHaveURL(/x/);'),
+      ).toHaveLength(1);
+      expect(
+        one(
+          '@@ -1 +1 @@\n-it("redirects as users expect (no 404)", async () => {\n+it("redirects as users expect (no 404 page)", async () => {',
+        ),
+      ).toEqual([]);
+      expect(added('it("does not skip (hidden) rows", () => {')).toEqual([]);
+      expect(added(`const fixture = 'it.skip("a", () => {});';`)).toEqual([]);
+      expect(removed('const s = "expect(x).toBe(3)";')).toEqual([]);
+      expect(removed("expect (x).toBe(3);")).toHaveLength(1);
+      expect(added("const html = `<p>Click to skip (or wait)</p>`;")).toEqual([]);
+    });
+
+    it("no line makes the assertion scan slow", () => {
+      const start = Date.now();
+      removed(`expect${"<>".repeat(40)}x`);
+      removed(`expect ${"<b>".repeat(60)}`);
+      removed(`expect${"<a>".repeat(60)}`);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    });
+
+    it("adding a semicolon, or re-spacing a line, does not remove the assertion", () => {
+      expect(one("@@ -1 +1 @@\n-expect(x).toBe(1)\n+expect(x).toBe(1);")).toEqual([]);
+      expect(one("@@ -1 +1 @@\n-expect(x).toBe( 1 );\n+expect(x).toBe(  1 );")).toEqual([]);
+    });
+
+    it("a table or an inline-code line carries a label's section past a blank line", () => {
+      const flags = testChangeFlags([file("tests/a.test.ts", "removed")]);
+      for (const body of [
+        "Test changes:\n\n| file | why |\n|---|---|\n| tests/a.test.ts | renamed title |\n",
+        "**Test changes:**\n\n`tests/a.test.ts`: title only\n",
+      ]) {
+        expect(unnamedTestChanges(flags, body), body).toEqual([]);
+      }
+      expect(unnamedTestChanges(flags, "Test changes: foo./tests/a.test.ts")).toEqual([
+        "tests/a.test.ts",
+      ]);
+    });
+  });
+
   describe("the Test changes: section", () => {
     it("is found as a label or a heading, and ends at the next heading", () => {
       for (const body of [
