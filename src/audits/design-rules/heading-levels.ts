@@ -24,8 +24,10 @@ import type { DesignRule, RuleFinding, RuleOutcome } from "./types.js";
 // going back up is never a skip.
 //
 // Not covered: part (b), that a heading whose level changed keeps its visual
-// size, which needs two builds; empty headings, which are R15's; and headings
-// inside iframes and closed shadow roots.
+// size, which needs two builds; empty headings, which are R15's; headings
+// inside iframes and closed shadow roots; and the page behind a modal
+// <dialog>, which assistive technology treats as inert though it carries no
+// `inert` attribute.
 
 export type OutlineHeading = { target: string; level: number; text: string };
 
@@ -64,16 +66,16 @@ export function sampleOutline(): OutlineSample {
     // <details>, content-visibility:hidden), visibility:hidden, inert, or
     // inside aria-hidden="true".
     // A `display: contents` heading has no box of its own but stays in the
-    // tree; its nearest flat-tree ancestor with a box answers for its
-    // rendering (a wrapper or a <slot> can have no box either).
-    const contents = getComputedStyle(el).display === "contents";
-    let box: Element | null = el;
-    while (box && getComputedStyle(box).display === "contents") {
-      box =
-        box.assignedSlot ?? box.parentElement ?? ((box.getRootNode() as ShadowRoot).host || null);
-    }
-    if (!box?.checkVisibility({ visibilityProperty: !contents })) continue;
-    if (contents && getComputedStyle(el).visibility !== "visible") continue;
+    // tree. A probe put inside it renders where its contents do and inherits
+    // its visibility, so the probe answers for it.
+    let shown: boolean;
+    if (getComputedStyle(el).display === "contents") {
+      const probe = document.createElement("span");
+      el.append(probe);
+      shown = probe.checkVisibility({ visibilityProperty: true });
+      probe.remove();
+    } else shown = el.checkVisibility({ visibilityProperty: true });
+    if (!shown) continue;
     let hidden = false;
     // Up the flat tree: a slotted element's ancestors are its slot's.
     for (let node: Element | null = el; node;) {

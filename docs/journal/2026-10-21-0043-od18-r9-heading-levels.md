@@ -17,7 +17,7 @@ It leaves out what is not in the accessibility tree:
 - `inert`;
 - inside `aria-hidden="true"`, walking up the flat tree, so a slot's own ancestors count.
 
-A heading tag with any role but `heading` (presentation, none, tab) is not a heading. A `display: contents` heading has no box of its own but stays in the tree, so its nearest flat-tree ancestor with a box answers for whether it renders.
+A heading tag with any role but `heading` (presentation, none, tab) is not a heading. A `display: contents` heading has no box of its own but stays in the tree. A zero-size probe put inside it, and removed at once, renders where its contents do and inherits its visibility, so the probe answers for it.
 
 The level is `aria-level` when it reads as 1 or more, else the tag's level; a bare `role=heading` is level 2, the ARIA default. `aria-level` is read as axe reads it, by its leading whole number, so "4x" is 4. I tried a stricter reading in round 1, and axe disagreed on the fixture, so the check follows the instrument it is checked against.
 
@@ -70,6 +70,13 @@ The fixtures copy that page's outline heading for heading, before and after #65 
 
 - **A false fail.** The `display: contents` branch asked the heading's parent whether it renders. When that parent had no box either (a `contents` wrapper, or the `<slot>` a component slots it through, which is `display: contents` by default), the visible heading was dropped. A page whose `h1` sat that way read as having none. The check now walks up the flat tree to the first ancestor with a box.
 
+**Review round 4 was dirty**, in round 3's walk. A `display: contents` heading in a closed `<details>` or a `content-visibility: hidden` section was counted. Both containers render a box of their own and hide only their descendants, so the nearest ancestor with a box answered "visible" for a heading it hides. Two attempts:
+
+- **Asking the heading's contents for client rects.** Abandoned on contact: text in a closed `<details>` still reports rects.
+- **A probe.** A `<span>` appended to the heading, asked with `checkVisibility()`, then removed. It is a box exactly where the heading's contents render. It replaces round 3's walk, so that walk's mutation row went with it.
+
+The header now also lists the page behind a modal `<dialog>` as not covered, which the journal already did.
+
 **Not covered.**
 
 - Part (b) of R9: a heading whose level changed should keep its visual size. That needs two builds to compare.
@@ -85,7 +92,7 @@ The fixtures copy that page's outline heading for heading, before and after #65 
 | rendering not checked                               | 2         |
 | visibility not checked                              | 1         |
 | a `display: contents` heading judged by its own box | 1         |
-| `display: contents` walked one level only           | 1         |
+| a `display: contents` heading always shown          | 1         |
 | `inert` not read                                    | 2         |
 | `aria-hidden` not read                              | 2         |
 | a slot's ancestors not walked                       | 1         |
