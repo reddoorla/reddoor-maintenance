@@ -226,6 +226,10 @@ export type DependabotDeps = {
    *  every alert counts, which is the loud direction. A lookup that THROWS also counts the
    *  alert — an API hiccup must never quietly suppress a real vulnerability (#702). */
   manifestExists?: (repo: string, path: string) => Promise<boolean>;
+  /** The alerts an operator dismissed (and GitHub auto-dismissed), read only when #1612's
+   *  cross-check finds an advisory, so one of them is not brought back by `pnpm audit` (#1659).
+   *  Optional: without it nothing is left out, the loud direction; so too when it throws. */
+  listDismissedAlerts?: (repo: string) => Promise<DependabotAlert[]>;
 };
 
 function defaultDependabotDeps(): DependabotDeps | null {
@@ -235,6 +239,10 @@ function defaultDependabotDeps(): DependabotDeps | null {
   return {
     listAlerts: (repo) => gh.listDependabotAlerts(repo, { state: "open" }),
     manifestExists: (repo, path) => gh.manifestExists(repo, path),
+    listDismissedAlerts: async (repo) => [
+      ...(await gh.listDependabotAlerts(repo, { state: "dismissed" })),
+      ...(await gh.listDependabotAlerts(repo, { state: "auto_dismissed" })),
+    ],
   };
 }
 
@@ -455,7 +463,9 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
       const viaDependabot = fromDependabot?.result;
       if (viaDependabot && !(await lockfileHiddenFromDependencyGraph(site.path))) {
         if (fromDependabot.readsNpmTree) return viaDependabot;
-        return crossCheckDependabot(spawn, site.path, label, viaDependabot);
+        return crossCheckDependabot(spawn, site.path, label, viaDependabot, () =>
+          dismissedAlerts(dependabot, site.gitRepo!, label),
+        );
       }
       if (viaDependabot) {
         console.error(
@@ -503,10 +513,16 @@ async function crossCheckDependabot(
   dir: string,
   label: string,
   viaDependabot: AuditResult,
+  dismissed: () => Promise<DependabotAlert[]>,
 ): Promise<AuditResult> {
   if (!(await hasRootLockfile(dir))) return viaDependabot;
   // Every scope, as on the hidden-lockfile path: Dependabot's tallies count dev-scope alerts too.
-  const viaLockfile = await lockfileAudit(spawn, dir, label, "all");
+  const audited = await lockfileAudit(spawn, dir, label, "all");
+  // Dependabot's list is the open alerts only, so a dismissed one is missing from it while pnpm
+  // still reports the advisory: leave out what an operator dismissed (#1659).
+  const viaLockfile = hasLiveCounts(audited)
+    ? withoutDismissed(audited, await dismissed())
+    : audited;
   if (viaLockfile.status === "skip") {
     return {
       ...viaLockfile,
@@ -520,7 +536,61 @@ async function crossCheckDependabot(
     `[security] ${label}: Dependabot reports no live alert on the lockfile, but ` +
       `${viaLockfile.summary} — adding pnpm audit to Dependabot`,
   );
-  return mergeAudits(viaLockfile, viaDependabot);
+  const merged = mergeAudits(viaLockfile, viaDependabot);
+  const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
+  return leftOut
+    ? {
+        ...merged,
+        summary: `${merged.summary}; ${leftOut} advisory dismissed in Dependabot left out`,
+      }
+    : merged;
+}
+
+/** The repo's dismissed and auto-dismissed alerts, or none when they cannot be read: an API
+ *  error must never make the audit quieter (#1659). */
+async function dismissedAlerts(
+  deps: DependabotDeps,
+  repo: string,
+  label: string,
+): Promise<DependabotAlert[]> {
+  if (!deps.listDismissedAlerts) return [];
+  try {
+    return await deps.listDismissedAlerts(repo);
+  } catch (e) {
+    console.error(
+      `[security] ${label}: could not read dismissed Dependabot alerts, so none is left out: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+    );
+    return [];
+  }
+}
+
+/** The lockfile audit's result without the advisories a dismissed Dependabot alert names (same
+ *  package, same GHSA or CVE), and without their counts (#1659). `dismissedLeftOut` carries how
+ *  many, for the merged summary, so a dismissal is never silent. */
+function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]): AuditResult {
+  const lock = viaLockfile.details as { counts: Counts; advisories: AdvisoryEntry[] };
+  const gone = dismissed.map((a): AdvisoryEntry => ({
+    module: a.package,
+    severity: ghSeverityToApp(a.severity),
+    title: a.summary,
+    ...(a.cves.length > 0 ? { cves: a.cves } : {}),
+    ...(a.ghsaId ? { ghsa: a.ghsaId } : {}),
+  }));
+  // Only by id: titles differ between the two sources, and a title match is no proof.
+  const isDismissed = (a: AdvisoryEntry) =>
+    gone.some((d) => (d.ghsa || d.cves?.length) && sameAdvisory(a, d));
+  const left = lock.advisories.filter((a) => !isDismissed(a));
+  const dropped = lock.advisories.length - left.length;
+  if (dropped === 0) return viaLockfile;
+  const counts: Counts = { ...lock.counts };
+  for (const a of lock.advisories)
+    if (isDismissed(a)) counts[a.severity] = Math.max(0, counts[a.severity] - 1);
+  return {
+    ...viaLockfile,
+    status: classify(counts),
+    details: { counts, advisories: left, dismissedLeftOut: dropped },
+  };
 }
 
 /** True when the repo root holds a lockfile the lockfile audit can read. */
