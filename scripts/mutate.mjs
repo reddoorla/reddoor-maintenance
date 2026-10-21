@@ -819,6 +819,11 @@ function tail(r) {
   return `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-30).join("\n");
 }
 
+/** Text safe inside a markdown table cell: a backslash first, so `\|` cannot unescape a pipe. */
+export function cell(text) {
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
 export function formatReport(rep) {
   const c = (k) => rep.results.filter((r) => r.result === k).length;
   const unexpected = rep.results.filter((r) => !r.ok).length;
@@ -839,7 +844,7 @@ export function formatReport(rep) {
     // An outcome that is not as expected shows why it happened first.
     const note = (r.ok ? [r.why, r.reason] : [r.reason, r.why]).filter(Boolean).join(" — ");
     out.push(
-      `| ${r.id} | ${r.expect} | ${res} | ${counts} | ${r.test.map((t) => `\`${t.replace(/\|/g, "\\|")}\``).join(", ")} | ${note.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`,
+      `| ${r.id} | ${r.expect} | ${res} | ${counts} | ${r.test.map((t) => `\`${cell(t)}\``).join(", ")} | ${cell(note)} |`,
     );
   }
   return out.join("\n") + "\n";

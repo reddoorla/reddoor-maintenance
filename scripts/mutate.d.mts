@@ -99,4 +99,5 @@ export function mutate(
     writeOut?: (text: string) => void;
   },
 ): Promise<Report>;
+export function cell(text: string): string;
 export function formatReport(rep: Report): string;

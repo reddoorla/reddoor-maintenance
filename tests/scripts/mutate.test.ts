@@ -25,6 +25,7 @@ import {
   asExpected,
   mutate,
   formatReport,
+  cell,
   makeRunner,
   Refusal,
   type Options,
@@ -157,6 +158,17 @@ describe("applyEdits", () => {
         edits: [{ file: "a", find: "))", replace: ")" }],
       }),
     ).toThrow(/matches 2 times/);
+  });
+});
+
+describe("cell", () => {
+  it("escapes backslashes before pipes, so a note cannot split its table cell", () => {
+    expect(cell("a|b")).toBe("a\\|b");
+    expect(cell("a\\|b")).toBe("a\\\\\\|b");
+    expect(cell("one\ntwo")).toBe("one two");
+    // Splitting on pipes not preceded by an odd run of backslashes finds one cell.
+    const unescaped = (t: string) => t.split(/(?<!\\)(?:\\\\)*\|/).length;
+    expect(unescaped(cell("x\\|y|z\\\\|w"))).toBe(1);
   });
 });
 
