@@ -1,10 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  childEnv,
   classifyCommand,
+  containsToken,
+  execResultFrom,
+  refusedBy,
   envSet,
   isReadOnlyApiCall,
   parseBrief,
@@ -396,5 +409,259 @@ describe("check-brief: parsing", () => {
   it("a missing brief is a usage error", async () => {
     const r = await runCheckBrief(join(scratch, "nope.md"), { cwd: scratch }, { exec: noExec });
     expect(r.code).toBe(2);
+  });
+});
+
+// ── Review round 1 (2026-10-21): each case below reproduced a defect first. ──
+
+describe("check-brief round 1: allowlist holes", () => {
+  it.each([
+    // GNU sed reads options after the script: -i rewrote the file, e ran a program.
+    "sed -n 1p -i f.txt",
+    "sed -n 1p -e 1etouch f.txt",
+    "sed -n 1p",
+    // --upload-pack names the program ls-remote runs; ls-remote is gone.
+    "git ls-remote --upload-pack=./mk.sh .",
+    "git ls-remote origin",
+    // git and GNU tools take unambiguous prefixes and short bundles.
+    "git grep --open=true x",
+    "git grep -iO x",
+    "git log --outp=/tmp/x -1",
+    "git diff --ext",
+    "git show --textconv HEAD",
+    "tail --fol x",
+    "tail -nf x",
+    "rg -iz x",
+    "rg --pre-g x y",
+    "wc --files0-from=list",
+    "npm run build",
+    "npm install left-pad",
+    // A secret, one guessed prefix at a time through `prints`.
+    "cat /proc/self/environ",
+    "cat /dev/stdin",
+    "cat .env",
+    "head -1 config/.env.production",
+    "grep -c GH_TOKEN /root/.config/reddoor-maint/credentials.env",
+    "git show HEAD:.env",
+  ])("refuses %s", (cmd) => {
+    expect(classifyCommand(cmd).ok).toBe(false);
+  });
+
+  it("still allows a grep pattern that merely says secret", () => {
+    expect(classifyCommand("git grep -F 'secret scanning'").ok).toBe(true);
+  });
+
+  it("runs git with no optional locks, no config-driven programs and no textconv", () => {
+    const c = classifyCommand("git log --oneline -1");
+    expect(c.ok && c.argv).toEqual([
+      "git",
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.pager=cat",
+      "-c",
+      "diff.external=",
+      "log",
+      "--no-textconv",
+      "--no-ext-diff",
+      "--oneline",
+      "-1",
+    ]);
+  });
+
+  it("the sed -i hole is closed end to end: the file is untouched", async () => {
+    const dir = join(scratch, "sed-i");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "f.txt"), "a\nb\nc\n");
+    const path = writeBrief(dir, ["- First line — `sed -n 1p -i f.txt` → exit 0"]);
+    const r = await runCheckBrief(path, { cwd: dir }, { env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
+    expect(readFileSync(join(dir, "f.txt"), "utf8")).toBe("a\nb\nc\n");
+  });
+
+  it("a child gets a minimal env, and gh alone gets gh's token", () => {
+    const env = { PATH: "/bin", HOME: "/h", GH_TOKEN: "t", MANTIS_PRISMIC: "secret-x" };
+    expect(childEnv("git", env)).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(childEnv("gh", env)).toEqual({ PATH: "/bin", HOME: "/h", GH_TOKEN: "t" });
+  });
+
+  it("the default exec passes that minimal env, so a child cannot see a secret", async () => {
+    const dir = join(scratch, "env");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "probe.txt"), "x\n");
+    // `node --version` is allowed; we check the env through a fake that records it.
+    const seen: NodeJS.ProcessEnv[] = [];
+    const path = writeBrief(dir, ["- Node runs — `node --version` → exit 0"]);
+    await runCheckBrief(
+      path,
+      { cwd: dir },
+      {
+        env: { PATH: "/bin", MANTIS_PRISMIC: "secret-x" },
+        exec: async (_f, _a, o) => {
+          seen.push(o.env);
+          return { code: 0, stdout: "v22", stderr: "" };
+        },
+      },
+    );
+    expect(seen).toEqual([{ PATH: "/bin" }]);
+  });
+});
+
+describe("check-brief round 1: verdicts", () => {
+  it("prints matches a whole token, so '0' is not found in '10'", () => {
+    expect(containsToken("10\n", "0")).toBe(false);
+    expect(containsToken("10 ten.txt\n", "0")).toBe(false);
+    expect(containsToken("0\n", "0")).toBe(true);
+    expect(containsToken("count: 0.\n", "0")).toBe(true);
+    expect(containsToken("export function f(colour)", "export function f(")).toBe(true);
+    expect(containsToken("MANTIS_PRISMIC_X", "MANTIS_PRISMIC")).toBe(false);
+  });
+
+  it("a false count fails end to end", async () => {
+    const { exec } = fakeExec({ code: 0, stdout: "10\n", stderr: "" });
+    const path = writeBrief(scratch, [
+      '- No secrets yet — `gh api repos/o/r --jq .total_count` → exit 0, prints "0"',
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["FAIL"]);
+  });
+
+  it.each([
+    "npm error code ECONNREFUSED",
+    "npm error code ENOTFOUND",
+    "npm error code EAI_AGAIN",
+    "npm error code E403",
+    "npm error 403 Forbidden - GET https://registry.npmjs.org/x",
+    "gh: Access denied (HTTP 403)",
+  ])("treats %s as a refusal", (stderr) => {
+    expect(refusedBy(stderr)).not.toBeNull();
+  });
+
+  it("an unreachable registry cannot pass an absence claim", async () => {
+    const { exec } = fakeExec({ code: 1, stdout: "", stderr: "npm error code ECONNREFUSED" });
+    const path = writeBrief(scratch, [
+      "- react was never published — `npm view react version` → exit 1",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN"]);
+  });
+
+  it("an absence PASS whose control did not pass is COULD NOT RUN", async () => {
+    const path = writeBrief(scratch, [
+      "- The key is missing — `env-set A_KEY` → exit 1",
+      "- Control: a key that is there — `env-set B_KEY` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["COULD NOT RUN", "FAIL"]);
+    const ok = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: { B_KEY: "v" } });
+    expect(ok.results.map((x) => x.status)).toEqual(["PASS", "PASS"]);
+  });
+
+  it("an absence claim followed by an unrelated line is warned on (surviving mutation K)", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- The flag is missing — `ls` → exit 1\n- Something else — `ls` → exit 0\n",
+    );
+    expect(p.warnings.join("\n")).toMatch(/line 1 is an absence claim with no positive control/);
+  });
+});
+
+describe("check-brief round 1: lines are never dropped silently", () => {
+  it("reads a numbered list", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n1. one lacks beta — `grep beta one.txt` → exit 1\n2. one has alpha — `grep alpha one.txt` → exit 0\n3. beta is gone [I]\n",
+    );
+    expect(p.lines.map((l) => l.kind)).toEqual(["command", "command", "inferred"]);
+  });
+
+  it("a fenced # comment does not end the section, and the fence is warned on", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n```sh\n# a comment\nls\n```\n\n- zeta — `grep zeta one.txt` → exit 0\n\n**Start here.**\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["zeta"]);
+    expect(p.warnings.join("\n")).toMatch(/code block in Verify first is not read/);
+  });
+
+  it("reads every Verify-first section", () => {
+    const p = parseBrief(
+      "**Verify first.**\n\n- a — `ls` → exit 0\n\n**Start here.**\n\n- x\n\n**Verify first.**\n\n- b — `ls` → exit 0\n",
+    );
+    expect(p.lines.map((l) => l.claim)).toEqual(["a", "b"]);
+    expect(p.warnings.join("\n")).toMatch(/2 Verify-first sections/);
+  });
+
+  it("keeps the last claim of a brief with no final newline (surviving mutation G)", () => {
+    const p = parseBrief("**Verify first.**\n\n- a — `ls` → exit 0\n- b — `ls` → exit 0");
+    expect(p.lines.map((l) => l.claim)).toEqual(["a", "b"]);
+  });
+
+  it("a claim holding its own dash and code span still parses", () => {
+    const p = parseBrief(
+      '**Verify first.**\n\n- the token — `X` — is set — `cat one.txt` → exit 0, prints "alpha"\n',
+    );
+    expect(p.lines[0]).toMatchObject({
+      kind: "command",
+      claim: "the token — `X` — is set",
+      command: "cat one.txt",
+    });
+  });
+
+  it("a command tagged [I] is warned on", () => {
+    const p = parseBrief("**Verify first.**\n\n- one has alpha — `cat one.txt` → exit 0 [I]\n");
+    expect(p.lines[0]?.kind).toBe("inferred");
+    expect(p.warnings.join("\n")).toMatch(/line 1 has a command but is tagged \[I\]/);
+  });
+
+  it("a leading [laptop] tag is honoured", async () => {
+    const path = writeBrief(scratch, [
+      "- [laptop] secrets — `gh api repos/o/r/actions/secrets` → exit 0",
+    ]);
+    const r = await runCheckBrief(path, { cwd: scratch }, { exec: noExec, env: {} });
+    expect(r.results.map((x) => x.status)).toEqual(["NOT RUN"]);
+  });
+
+  it("coverage is by whole token: MANTIS_PRISMIC_X does not cover MANTIS_PRISMIC", () => {
+    const p = parseBrief(
+      "**Item.** Use `MANTIS_PRISMIC`.\n\n**Verify first.**\n\n- Key — `env-set MANTIS_PRISMIC_X` → exit 0\n",
+    );
+    expect(p.warnings.join("\n")).toMatch(/env var named outside Verify first.*MANTIS_PRISMIC\b/);
+  });
+
+  it("an [I] line naming a two-part version is warned on", () => {
+    const p = parseBrief("**Verify first.**\n\n- lightningcss 1.33 folds it [I]\n");
+    expect(p.warnings.join("\n")).toMatch(/\[I\].*1\.33/);
+  });
+});
+
+describe("check-brief round 1: paths and wiring", () => {
+  it("a relative brief path resolves against the process cwd, not --cwd (surviving mutation F)", async () => {
+    const r = await runCheckBrief(
+      "mantis.md",
+      { cwd: scratch },
+      { exec: noExec, env: {}, processCwd: () => fixtures },
+    );
+    expect(r.code).toBe(1);
+    expect(r.results).toHaveLength(2);
+  });
+
+  it("maps execFile's error to a result", () => {
+    expect(execResultFrom(null, "o", "e")).toEqual({ code: 0, stdout: "o", stderr: "e" });
+    expect(execResultFrom({ code: 3 }, "", "")).toEqual({ code: 3, stdout: "", stderr: "" });
+    expect(execResultFrom({ code: "ENOENT" }, "", "").error).toBe("ENOENT");
+    expect(execResultFrom({ killed: true, code: null }, "", "").error).toBe("TIMEOUT");
+    expect(execResultFrom({ code: "EPERM" }, "", "").error).toBe("OTHER");
+  });
+
+  it("the built CLI passes --cwd through to the commands (bin.ts wiring)", () => {
+    const binPath = resolve(here, "../../dist/cli/bin.js");
+    if (!existsSync(binPath)) throw new Error("dist/cli/bin.js missing — run `pnpm build` first.");
+    const tree = join(scratch, "cli-cwd");
+    mkdirSync(tree, { recursive: true });
+    writeFileSync(join(tree, "marker.txt"), "here\n");
+    const brief = writeBrief(scratch, ["- The marker is there — `test -f marker.txt` → exit 0"]);
+    const out = execFileSync(process.execPath, [binPath, "check-brief", brief, "--cwd", tree], {
+      encoding: "utf8",
+    });
+    expect(out).toMatch(/\| 1 \| PASS \|/);
   });
 });

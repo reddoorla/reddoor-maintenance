@@ -1,5 +1,5 @@
 <!-- Built from the journal, not a stored brief: the OD7-P1 continuation brief is not in the repo.
-     docs/workJournal.md:6400 — "This session told williamson-homes#3 that the GitHub secrets were
+     docs/workJournal.md:6405 — "This session told williamson-homes#3 that the GitHub secrets were
      still unset, as the brief said." The proxy refuses the Actions secrets path (HTTP 403), which is
      why the recommendation tags such lines [laptop]. -->
 
