@@ -346,18 +346,23 @@ describe("assignTier", () => {
     expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
   });
 
-  it("watches a maintained site with no GA4 property, and names the key that opts it out", () => {
+  it("puts a maintained site with no GA4 property on Setup, naming the opt-out key; the site stays healthy (#672 step 2)", () => {
     const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [], NOW);
-    expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual(["GA4 property not recorded (reports carry no analytics)"]);
-    expect(r.watchAcceptKeys).toEqual(["no analytics"]);
-    expect(r.watchSignals).toEqual(["no-analytics"]);
+    expect(r.tier).toBe("healthy");
+    expect(r.setup).toEqual([
+      {
+        signal: "no-analytics",
+        reason: "GA4 property not recorded (reports carry no analytics)",
+        acceptKey: "no analytics",
+      },
+    ]);
+    expect(r.watchReasons).toEqual([]);
+    expect(r.watchSignals).toEqual([]);
   });
 
   it("treats a blank GA4 property as missing", () => {
-    expect(assignTier(site({ status: "maintained", ga4PropertyId: "  " }), [], NOW).tier).toBe(
-      "watch",
-    );
+    const r = assignTier(site({ status: "maintained", ga4PropertyId: "  " }), [], NOW);
+    expect(r.setup.map((i) => i.signal)).toEqual(["no-analytics"]);
   });
 
   it("an explicit 'no analytics' opt-out leaves the band but stays visible as a muted chip", () => {
@@ -383,6 +388,7 @@ describe("assignTier", () => {
         NOW,
       );
       expect(r.watchSignals).toEqual([]);
+      expect(r.setup).toEqual([]);
       expect(r.acceptedReasons).toEqual([]);
       expect(r.tier).toBe("healthy");
     },
@@ -394,14 +400,17 @@ describe("assignTier", () => {
     searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
   };
 
-  it("#943: watches a maintained site whose last lookup matched no property, naming its host and the opt-out key", () => {
+  it("#943: a maintained site whose last lookup matched no property goes on Setup, naming its host and the opt-out key", () => {
     const r = assignTier(site({ status: "maintained", ...NO_PROPERTY }), [], NOW);
-    expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual([
-      "Search Console: no property matched www.acme.example.com (lookup 2026-06-01)",
+    expect(r.tier).toBe("healthy");
+    expect(r.setup).toEqual([
+      {
+        signal: "search-console-no-property",
+        reason: "Search Console: no property matched www.acme.example.com (lookup 2026-06-01)",
+        acceptKey: "no search console",
+      },
     ]);
-    expect(r.watchAcceptKeys).toEqual(["no search console"]);
-    expect(r.watchSignals).toEqual(["search-console-no-property"]);
+    expect(r.watchReasons).toEqual([]);
   });
 
   it("#943: a blank or unrecorded property is no longer a watch on its own; only a lookup that matched nothing is", () => {
@@ -418,6 +427,7 @@ describe("assignTier", () => {
       const r = assignTier(site({ status: "maintained", ...over }), [], NOW);
       expect(r.tier).toBe("healthy");
       expect(r.watchSignals).toEqual([]);
+      expect(r.setup).toEqual([]);
     }
   });
 
@@ -444,7 +454,8 @@ describe("assignTier", () => {
       [],
       NOW,
     );
-    expect(wrongKey.tier).toBe("watch");
+    expect(wrongKey.tier).toBe("healthy");
+    expect(wrongKey.setup.map((i) => i.signal)).toEqual(["search-console-no-property"]);
   });
 
   it("a no-property outcome without a readable timestamp is unknown, as on the setup line, not a watch", () => {
@@ -518,10 +529,21 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
   });
 
   it("exposes the primary accept key aligned to each un-accepted watch reason", () => {
-    const r = assignTier(site({ status: "maintained", url: "https://foo.netlify.app/" }), [], NOW);
+    const r = assignTier(site({ pScore: 80, bpScore: 78 }), [], NOW);
     expect(r.tier).toBe("watch");
-    expect(r.watchReasons).toEqual(["on *.netlify.app (no custom domain)"]);
-    expect(r.watchAcceptKeys).toEqual(["no custom domain"]);
+    expect(r.watchReasons).toEqual(["Performance 80", "Best Practices 78"]);
+    expect(r.watchAcceptKeys).toEqual(["performance", "best practices"]);
+  });
+
+  it("names a Setup item's primary accept key on the item itself", () => {
+    const r = assignTier(site({ status: "maintained", url: "https://foo.netlify.app/" }), [], NOW);
+    expect(r.setup).toEqual([
+      {
+        signal: "no-domain",
+        reason: "on *.netlify.app (no custom domain)",
+        acceptKey: "no custom domain",
+      },
+    ]);
   });
 
   it("keys Lighthouse acceptance on the category label, tolerating a changed score", () => {
@@ -560,13 +582,13 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
       [],
       NOW,
     );
-    expect(r.tier).toBe("watch");
     expect(r.acceptedReasons).toContain("Best Practices 78");
     expect(r.acceptedReasons.some((x) => x.startsWith("last commit"))).toBe(true);
-    // netlify is the only un-accepted watch → the sole watch reason + key + signal.
-    expect(r.watchReasons).toEqual(["on *.netlify.app (no custom domain)"]);
-    expect(r.watchAcceptKeys).toEqual(["no custom domain"]);
-    expect(r.watchSignals).toEqual(["no-domain"]);
+    // Both watches accepted, and the netlify.app domain is a Setup gap, not a
+    // watch: the site is healthy, with the gap on its checklist.
+    expect(r.tier).toBe("healthy");
+    expect(r.watchReasons).toEqual([]);
+    expect(r.setup.map((i) => i.signal)).toEqual(["no-domain"]);
   });
 });
 
@@ -1098,24 +1120,25 @@ describe("assignTier — structured watchSignals", () => {
     expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
   });
 
-  it("flags a maintenance site still on *.netlify.app (no custom domain) as watch", () => {
+  it("puts a maintenance site still on *.netlify.app (no custom domain) on Setup, not Watch", () => {
     const r = assignTier(
       site({ status: "maintained", url: "https://vineyard-custom-homes.netlify.app" }),
       [],
       NOW,
     );
-    expect(r.tier).toBe("watch");
-    expect(r.watchSignals).toContain("no-domain");
-    expect(r.watchReasons.some((s) => /netlify\.app/.test(s))).toBe(true);
+    expect(r.tier).toBe("healthy");
+    expect(r.watchSignals).not.toContain("no-domain");
+    expect(r.setup.map((i) => i.signal)).toEqual(["no-domain"]);
   });
 
   it("does NOT flag a maintenance site that has a custom domain", () => {
     const r = assignTier(site({ status: "maintained", url: "https://acme.example.com" }), [], NOW);
-    expect(r.watchSignals).not.toContain("no-domain");
+    expect(r.setup.map((i) => i.signal)).not.toContain("no-domain");
   });
 
   it("does NOT flag a launch-period site on *.netlify.app (no domain is expected pre-launch)", () => {
     const r = assignTier(site({ status: "launching", url: "https://espada.netlify.app" }), [], NOW);
+    expect(r.setup).toEqual([]);
     expect(r.watchSignals).not.toContain("no-domain");
   });
 });
@@ -1125,10 +1148,11 @@ describe("assignTier — structured watchSignals", () => {
 // chip it belonged under. Every earlier filter test built a site whose only condition
 // was the one under test, so no test mixed tiers.
 describe("assignTier — an attention site still carries its watch tags (#941)", () => {
-  it("an attention item keeps tier 'attention' and tags the watch condition", () => {
+  it("an attention item keeps tier 'attention' on a site with a Setup gap, and the gap stays on Setup (#672 step 2)", () => {
     const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [item()], NOW);
     expect(r.tier).toBe("attention");
-    expect(r.watchSignals).toEqual(["no-analytics"]);
+    expect(r.setup.map((i) => i.signal)).toEqual(["no-analytics"]);
+    expect(r.watchSignals).toEqual([]);
     // Tier-scoped fields stay empty: the card is not on Watch, and nothing that
     // reads watchReasons (Needs-you feed, verdict, chips) may treat it as if it were.
     expect(r.watchReasons).toEqual([]);
@@ -1156,14 +1180,15 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     expect(r.watchReasons).toEqual([]);
   });
 
-  it("a failed deploy keeps tier 'attention' and tags the watch condition", () => {
+  it("a failed deploy keeps tier 'attention' and a Setup gap stays on Setup", () => {
     const r = assignTier(
       site({ status: "maintained", url: "https://acme.netlify.app", deployStatus: "error" }),
       [],
       NOW,
     );
     expect(r.tier).toBe("attention");
-    expect(r.watchSignals).toEqual(["no-domain"]);
+    expect(r.setup.map((i) => i.signal)).toEqual(["no-domain"]);
+    expect(r.watchSignals).toEqual([]);
     expect(r.watchReasons).toEqual([]);
   });
 
@@ -1179,9 +1204,10 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     );
     expect(r.tier).toBe("attention");
     expect(r.watchSignals).toEqual([]);
+    expect(r.setup).toEqual([]);
   });
 
-  it("buildCockpitModel: the attention site is tagged but counted only as attention", () => {
+  it("buildCockpitModel: the attention site carries its Setup gap but is counted only as attention", () => {
     const m = buildCockpitModel(
       [
         // Reddoor's shape: a genuine break plus a launch-completeness gap.
@@ -1201,9 +1227,10 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     );
     const broken = m.cards.find((c) => c.site.name === "Broken")!;
     expect(broken.tier).toBe("attention");
-    expect(broken.watchSignals).toContain("search-console-no-property");
+    expect(broken.setup?.map((i) => i.signal)).toEqual(["search-console-no-property"]);
     expect(broken.watchReasons).toEqual([]);
     expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    expect(m.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
     expect(feed[0]!.group).toBe("broken");

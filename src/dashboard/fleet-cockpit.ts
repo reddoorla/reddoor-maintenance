@@ -75,11 +75,15 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
  * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
- * category sits in [75,85), the last commit to `main` is older than 30 days, a
- * maintained site is on `*.netlify.app`, records no GA4 property, matched no Search Console
- * property on its last report lookup (#943), no Git
- * repo or Netlify ID (#889), or requires Turnstile without a browser-verified widget.
+ * category sits in [75,85), the last commit to `main` is older than 30 days, the roster
+ * url does not resolve, or the site requires Turnstile without a browser-verified widget.
  * Else 🟢 healthy.
+ *
+ * Roster gaps are not Watch (#672 step 2, the operator's answer of 2026-10-20): a
+ * maintained site on `*.netlify.app`, or with no GA4 property, no Search Console
+ * property on its last report lookup (#943), no Git repo or no Netlify ID (#889),
+ * goes to `setup`, the card's Setup checklist, and never moves the tier. A site whose
+ * only conditions are roster gaps is healthy.
  *
  * Each active watch condition is a structured candidate with a set of accept keys
  * (aliases — e.g. the Netlify/no-custom-domain condition accepts "no custom domain",
@@ -104,7 +108,20 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  *  client-filter tag; `acceptKeys` is every string the operator can type to mute it,
  *  PRIMARY FIRST — that primary is the token surfaced on the card for discoverability;
  *  `reason` is the human label. The tuple type guarantees a primary exists. */
-type WatchCandidate = { signal: string; acceptKeys: [string, ...string[]]; reason: string };
+type WatchCandidate = {
+  signal: string;
+  acceptKeys: [string, ...string[]];
+  reason: string;
+  /** A roster gap (#672 step 2): it goes to the Setup list, never the Watch band. */
+  setup?: true;
+};
+
+/** One unfilled roster cell on a site's Setup checklist (#672 step 2): no GA4
+ *  property, no Search Console property, no git repo, no Netlify ID, or no custom
+ *  domain. Setup is not a verdict: it never moves a site's tier, so a site whose
+ *  only gaps are these is healthy. `acceptKey` is the primary token that marks
+ *  the gap accepted, as for a watch reason. */
+export type SetupItem = { signal: string; reason: string; acceptKey: string };
 
 /** Which attention items PIERCE the pre-launch mute. A "launching" site mutes
  *  expected pre-launch conditions (early/absent Lighthouse, errored deploy,
@@ -137,6 +154,8 @@ export function assignTier(
   watchAcceptKeys: string[];
   watchSignals: string[];
   acceptedReasons: string[];
+  /** Un-accepted roster gaps, whatever the tier. Never part of the verdict. */
+  setup: SetupItem[];
 } {
   // A waiting item is information, never a tier: a scheduled job is still fixing it.
   const items = allItems.filter((it) => it.waiting !== true);
@@ -163,6 +182,7 @@ export function assignTier(
         watchAcceptKeys: [],
         watchSignals: [],
         acceptedReasons: [],
+        setup: [],
       };
     return {
       tier: "pre-launch",
@@ -170,6 +190,7 @@ export function assignTier(
       watchAcceptKeys: [],
       watchSignals: [],
       acceptedReasons: [],
+      setup: [],
     };
   }
   // Any attention item is 🔴 attention. So is a failed latest production deploy: an
@@ -215,6 +236,7 @@ export function assignTier(
   if (site.status === "maintained" && isNetlifyAppUrl(site.url)) {
     candidates.push({
       signal: "no-domain",
+      setup: true,
       acceptKeys: ["no custom domain", "no-domain", "netlify", "netlify.app", "on netlify"],
       reason: "on *.netlify.app (no custom domain)",
     });
@@ -222,11 +244,12 @@ export function assignTier(
   if (site.status === "maintained" && !site.ga4PropertyId?.trim()) {
     candidates.push({
       signal: "no-analytics",
+      setup: true,
       acceptKeys: ANALYTICS_OPT_OUT_KEYS,
       reason: "GA4 property not recorded (reports carry no analytics)",
     });
   }
-  // #943: a watch only when a draft's lookup ran and matched no property. A blank
+  // #943: a Setup gap only when a draft's lookup ran and matched no property. A blank
   // record is not evidence either way, and a soft-fail is unknown, not a finding.
   if (
     site.status === "maintained" &&
@@ -235,6 +258,7 @@ export function assignTier(
   ) {
     candidates.push({
       signal: "search-console-no-property",
+      setup: true,
       acceptKeys: SEARCH_CONSOLE_OPT_OUT_KEYS,
       reason: searchConsoleMissingLabel(site, {
         state: "no-property",
@@ -250,7 +274,7 @@ export function assignTier(
   // blocks on checklist items nothing will ever measure (29 Navy, 2026-09-17;
   // beachfront-dentistry, 2026-09-29). Only `maintained`: `hosted-only` is
   // report-eligible but no sweep covers it and the cockpit shows no card for it,
-  // so filling these cells would not get it measured. Watch, not an attention
+  // so filling these cells would not get it measured. A Setup gap (#672 step 2), not an attention
   // item, because "not on Netlify" is a legitimate state the operator must be
   // able to accept. The Netlify keys deliberately avoid the no-custom-domain
   // keys ("netlify", "on netlify", …), which would otherwise mute both at once.
@@ -262,6 +286,7 @@ export function assignTier(
   if (site.status === "maintained" && !site.gitRepo?.trim()) {
     candidates.push({
       signal: "no-git-repo",
+      setup: true,
       acceptKeys: ["no git repo", "no-git-repo", "no repo", "git repo"],
       reason: "Git repo not recorded (checkout sweeps cannot clone this site)",
     });
@@ -269,6 +294,7 @@ export function assignTier(
   if (site.status === "maintained" && !site.netlifyId?.trim()) {
     candidates.push({
       signal: "no-netlify-id",
+      setup: true,
       acceptKeys: ["no netlify id", "no-netlify-id", "not on netlify", "netlify id"],
       reason: "Netlify ID not recorded (the deploy check cannot read this site)",
     });
@@ -310,10 +336,13 @@ export function assignTier(
   const watchReasons: string[] = [];
   const watchAcceptKeys: string[] = [];
   const acceptedReasons: string[] = [];
+  const setup: SetupItem[] = [];
   const signals = new Set<string>();
   for (const cand of candidates) {
     if (cand.acceptKeys.some((k) => accepted.has(k))) {
       acceptedReasons.push(cand.reason);
+    } else if (cand.setup) {
+      setup.push({ signal: cand.signal, reason: cand.reason, acceptKey: cand.acceptKeys[0] });
     } else {
       watchReasons.push(cand.reason);
       watchAcceptKeys.push(cand.acceptKeys[0]); // primary/canonical token — surfaced on the card
@@ -324,7 +353,8 @@ export function assignTier(
   // watchAcceptKeys and acceptedReasons are Watch-card content (the Needs-you feed,
   // the verdict and the chips all read them), so they stay empty here. Only the
   // un-accepted watch TAGS ride along, so the card still answers the watch filter
-  // chips (`no-analytics`, `stale`, …) it belongs under. Before #941 this was an
+  // chips (`stale`, `url-unresolved`, …) it belongs under. Its Setup gaps ride
+  // along too, in `setup`. Before #941 this was an
   // early return with no tags, and every such chip undercounted exactly the sites
   // that were also broken.
   if (broken)
@@ -334,6 +364,7 @@ export function assignTier(
       watchAcceptKeys: [],
       watchSignals: [...signals],
       acceptedReasons: [],
+      setup,
     };
   // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
   // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
@@ -348,13 +379,21 @@ export function assignTier(
   }
 
   return watchReasons.length > 0
-    ? { tier: "watch", watchReasons, watchAcceptKeys, watchSignals: [...signals], acceptedReasons }
+    ? {
+        tier: "watch",
+        watchReasons,
+        watchAcceptKeys,
+        watchSignals: [...signals],
+        acceptedReasons,
+        setup,
+      }
     : {
         tier: "healthy",
         watchReasons: [],
         watchAcceptKeys: [],
         watchSignals: [],
         acceptedReasons,
+        setup,
       };
 }
 
@@ -376,6 +415,10 @@ export type SiteCard = {
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
    *  muted chip. Populated whenever the underlying condition is currently active. */
   acceptedReasons: string[];
+  /** Un-accepted roster gaps, the card's Setup checklist (#672 step 2). Not a
+   *  verdict: a card's tier never depends on it. Optional for back-compat with
+   *  hand-built card fixtures; buildCockpitModel always sets it. */
+  setup?: SetupItem[];
   /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
   newSubmissions?: number;
   /** Split of newSubmissions: actionable leads vs newsletter/rsvp signups (2026-07-16).
@@ -678,6 +721,8 @@ export type SiteAlarmContext = {
   watchReasons: string[];
   watchAcceptKeys: string[];
   acceptedReasons: string[];
+  /** Un-accepted roster gaps (#672 step 2), shown apart from the verdict. */
+  setup: SetupItem[];
 };
 
 /**
@@ -732,8 +777,9 @@ export function buildSiteAlarmContext(
     watchAcceptKeys,
     watchSignals: _ws,
     acceptedReasons,
+    setup,
   } = assignTier(site, items, now);
-  return { tier, items, watchReasons, watchAcceptKeys, acceptedReasons };
+  return { tier, items, watchReasons, watchAcceptKeys, acceptedReasons, setup };
 }
 
 /**
@@ -865,11 +911,8 @@ export function buildCockpitModel(
     // must not ride into the chips or the needs-you feed when a genuine alarm flips
     // the tier (and a still-muted card shows no alarm chips at all).
     const items = site.status === "launching" ? collected.filter(piercesPreLaunchMute) : collected;
-    const { tier, watchReasons, watchAcceptKeys, watchSignals, acceptedReasons } = assignTier(
-      site,
-      items,
-      now,
-    );
+    const { tier, watchReasons, watchAcceptKeys, watchSignals, acceptedReasons, setup } =
+      assignTier(site, items, now);
     const c = subCountBySite.get(site.id) ?? { leads: 0, signups: 0 };
     return {
       site,
@@ -879,6 +922,7 @@ export function buildCockpitModel(
       watchAcceptKeys,
       watchSignals,
       acceptedReasons,
+      setup,
       newSubmissions: c.leads + c.signups,
       newLeads: c.leads,
       newSignups: c.signups,

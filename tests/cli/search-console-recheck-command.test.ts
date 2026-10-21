@@ -369,9 +369,11 @@ describe("search-console-recheck against a real store and the cockpit", () => {
     return db;
   }
 
-  const watchOf = (site: WebsiteRow) => assignTier(site, [], NOW).watchSignals;
+  // A missing Search Console property is a roster gap, on the Setup list since
+  // #672 step 2, not a Watch signal.
+  const gapsOf = (site: WebsiteRow) => assignTier(site, [], NOW).setup.map((g) => g.signal);
 
-  it("a site whose lookup now resolves drops its watch; a site with truly no property keeps it", async () => {
+  it("a site whose lookup now resolves drops its Setup gap; a site with truly no property keeps it", async () => {
     const lahi = "https://www.lahomelessnessawareness.org";
     const none = "https://www.no-property.example.org";
     const db = await storeWith([
@@ -380,7 +382,7 @@ describe("search-console-recheck against a real store and the cockpit", () => {
     ]);
 
     const before = await listSites(db);
-    expect(before.map(watchOf)).toEqual([
+    expect(before.map(gapsOf)).toEqual([
       ["search-console-no-property"],
       ["search-console-no-property"],
     ]);
@@ -406,14 +408,14 @@ describe("search-console-recheck against a real store and the cockpit", () => {
       searchConsoleResolved: "https://www.lahomelessnessawareness.org/",
       searchConsoleCheckedAt: NOW.toISOString(),
     });
-    expect(watchOf(after.recLAHI!)).not.toContain("search-console-no-property");
+    expect(gapsOf(after.recLAHI!)).not.toContain("search-console-no-property");
 
     expect(after.recNONE).toMatchObject({
       searchConsoleOutcome: "no-property",
       searchConsoleResolved: null,
       searchConsoleCheckedAt: NOW.toISOString(),
     });
-    expect(watchOf(after.recNONE!)).toEqual(["search-console-no-property"]);
+    expect(gapsOf(after.recNONE!)).toEqual(["search-console-no-property"]);
     await db.destroy();
   });
 });
