@@ -57,3 +57,28 @@ table.fleet td.num {
 table.fleet th.num {
   text-align: right;
 }
+/* The Health column (#672 step 3): the card's verdict, chips and Setup
+   checklist beside each row. */
+table.fleet td.health {
+  min-width: 16rem;
+  /* The other cells stay on one line; this one holds chips, a metrics cluster
+     and a checklist, so it wraps rather than widen the table past the page. */
+  white-space: normal;
+}
+table.fleet td.health .cluster {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+table.fleet td.health .setup,
+table.fleet td.health .cluster {
+  font-size: 0.8rem;
+  margin-left: 0.4rem;
+}
+table.fleet td.health .metric-label {
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

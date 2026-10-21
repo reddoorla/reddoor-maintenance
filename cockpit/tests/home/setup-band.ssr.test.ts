@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import Home from "../../src/routes/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
-import { buildCockpitView } from "../../src/lib/cockpit/view.js";
+import SitesPage from "../../src/routes/fleet/+page.svelte";
+import { buildCockpitView, buildSitesView } from "../../src/lib/cockpit/view.js";
+import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { buildSiteAlarmContext } from "../../../src/dashboard/fleet-cockpit.js";
 import { renderPage } from "../_helpers/parity.js";
@@ -26,6 +28,15 @@ afterAll(() => {
 const home = (sites: Parameters<typeof built>[0]) =>
   renderPage(Home, { data: { view: buildCockpitView(built(sites), NOW) } });
 
+/** Sites (`/fleet`), where each site's card health sits on its row (#672 step 3). */
+const sitesPage = (sites: Parameters<typeof built>[0]) =>
+  renderPage(SitesPage, {
+    data: {
+      model: buildFleetTableModel(sites, parseFleetTableQuery(new URLSearchParams())),
+      sites: buildSitesView(built(sites), NOW),
+    },
+  });
+
 const GAPS = siteRow({ id: "recG", name: "Gappy", ga4PropertyId: null, gitRepo: null });
 const CLEAN = siteRow({ id: "recC", name: "Clean", url: "https://clean.example.com" });
 // A genuine watch (Performance 80) on a site that also has a roster gap.
@@ -41,10 +52,10 @@ const BOTH = siteRow({
 const laneSummary = (html: string): string | null =>
   /<details class="setup-lane">\s*<summary>([^<]*)<\/summary>/.exec(html)?.[1] ?? null;
 
-/** The checklist items inside the card for `name`. */
+/** The checklist items on the Sites row for `name`. */
 function cardGaps(html: string, name: string): string[] {
-  const card = html.split('<article class="card"').find((c) => c.includes(`>${name}</a>`));
-  if (!card) throw new Error(`no card for ${name}`);
+  const card = html.split('<tr class="fleet-row"').find((c) => c.includes(`>${name}</a>`));
+  if (!card) throw new Error(`no row for ${name}`);
   return [
     ...card.matchAll(/<li[^>]*>\s*<span aria-hidden="true">☐<\/span> ([^<]*?)\s*<\/li>/g),
   ].map((m) => m[1]!);
@@ -68,9 +79,9 @@ describe("/ — the Setup lane", () => {
       securityVulnsCritical: 2,
       gitRepo: null,
     });
-    const html = home([broken, CLEAN]);
-    expect(html).toContain('class="pill attention"'); // the site really is broken
-    expect(laneSummary(html)).toBe("🧰 Setup (1 site)");
+    // The site really is broken (its pill is on Sites since #672 step 3).
+    expect(sitesPage([broken, CLEAN])).toContain('class="pill attention"');
+    expect(laneSummary(home([broken, CLEAN]))).toBe("🧰 Setup (1 site)");
   });
 
   it("is absent when no site has a gap (the positive control)", () => {
@@ -93,27 +104,27 @@ describe("/ — the Setup lane", () => {
   });
 });
 
-describe("/ — each card's checklist", () => {
+describe("Sites — each row's checklist (the cards merged in, #672 step 3)", () => {
   it("lists the card's gaps with the text that accepts each", () => {
-    expect(cardGaps(home([GAPS]), "Gappy")).toEqual([
+    expect(cardGaps(sitesPage([GAPS]), "Gappy")).toEqual([
       'GA4 property not recorded (reports carry no analytics) · accept: "no analytics"',
       'Git repo not recorded (checkout sweeps cannot clone this site) · accept: "no git repo"',
     ]);
   });
 
   it("a complete card shows no checklist", () => {
-    expect(cardGaps(home([CLEAN]), "Clean")).toEqual([]);
+    expect(cardGaps(sitesPage([CLEAN]), "Clean")).toEqual([]);
   });
 
   it("a gap still answers its filter chip, though it left the Watch band", () => {
-    const html = home([GAPS]);
-    const signals = /<article class="card" data-signals="([^"]*)"/.exec(html)?.[1] ?? "";
+    const html = sitesPage([GAPS]);
+    const signals = /<tr class="fleet-row" data-signals="([^"]*)"/.exec(html)?.[1] ?? "";
     expect(signals.split(" ")).toEqual(expect.arrayContaining(["no-analytics", "no-git-repo"]));
   });
 
   it("an accepted gap leaves the checklist", () => {
     const accepted = siteRow({ ...GAPS, acceptedWatchConditions: ["no analytics"] });
-    expect(cardGaps(home([accepted]), "Gappy")).toEqual([
+    expect(cardGaps(sitesPage([accepted]), "Gappy")).toEqual([
       'Git repo not recorded (checkout sweeps cannot clone this site) · accept: "no git repo"',
     ]);
   });
@@ -170,9 +181,9 @@ describe("the onboarding score never says complete beside an open gap", () => {
     expect(html).toContain('<span class="setup-ok">complete</span>');
   });
 
-  it("on a card, the setup tooltip names the open gap rather than complete", () => {
-    expect(home([GIT_ONLY])).toContain('title="1 roster gap open"');
-    expect(home([CLEAN])).toContain('title="Setup complete"');
+  it("on a Sites row, the setup tooltip names the open gap rather than complete", () => {
+    expect(sitesPage([GIT_ONLY])).toContain('title="1 roster gap open"');
+    expect(sitesPage([CLEAN])).toContain('title="Setup complete"');
   });
 
   it("on /s/:slug, the gaps still show when the site's alarm data failed to load", () => {

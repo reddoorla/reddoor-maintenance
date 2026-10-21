@@ -56,20 +56,12 @@ export type DeployView =
  *  missing, and the exact text that marks it accepted. */
 export type SetupGapView = { reason: string; acceptKey: string };
 
+/** A site's card health, shown on its Sites row (#672 step 3). The name, URL,
+ *  scores and audit date are the table's own columns, so they are not here. */
 export type CardView = {
-  key: string;
   signals: string;
-  href: string;
-  name: string;
-  siteHref: string;
-  visibleUrl: string;
   setupTitle: string;
   setupScore: string;
-  audited: string;
-  perf: string;
-  a11yLh: string;
-  bp: string;
-  seo: string;
   a11y: string;
   deps: string;
   sec: string;
@@ -80,7 +72,6 @@ export type CardView = {
   /** The card's Setup checklist: roster gaps, apart from the verdict. */
   setupGaps: SetupGapView[];
   submissions: string | null;
-  triggerUrl: string | null;
 };
 
 export type RecentRowView = {
@@ -119,9 +110,6 @@ export type CockpitView = {
     count: number;
     rows: Array<{ name: string; href: string; gaps: SetupGapView[] }>;
   } | null;
-  browse: { total: number; filters: readonly string[]; cards: CardView[] };
-  recently: RecentRowView[];
-  archived: Array<{ name: string; status: string; slug: string }>;
   /** Attention items on no site card (#786). A held one (OD 87) is left out. A
    *  dead letter carrying a `url` links its site: a site with no card (archived)
    *  still has its page, while a slug that resolves to no site has none. */
@@ -225,7 +213,7 @@ function feedGroups(feed: NeedsYouItem[]): FeedGroupView[] {
     .filter((g) => g.rows.length > 0);
 }
 
-// ---- the browse panel's card (fleet-browse-render.ts) ----
+// ---- a site's card health, shown on its Sites row (was the browse panel's card) ----
 
 function a11yDisplay(value: number | null, scanned: number | null, total: number | null): string {
   const partial = value !== null && scanned !== null && total !== null && scanned < total;
@@ -342,28 +330,16 @@ function submissionsBadge(c: SiteCard): string | null {
       : `📥 +${signups} newsletter`;
 }
 
-function cardView(c: SiteCard, index: number, now: Date): CardView {
+function cardView(c: SiteCard, now: Date): CardView {
   const site = c.site;
-  const slug = siteSlug(site.name);
   const onboarding = onboardingStatus(site, now);
   const missing = missingOnboarding(site, now);
-  const score = (v: number | null) => (v === null ? DASH : String(v));
   return {
-    key: `${index}:${site.id}`,
     signals: signals(c),
-    href: `/s/${slug}`,
-    name: site.name,
-    siteHref: safeUrl(site.url),
-    visibleUrl: site.url,
     // "Complete" only when no roster gap is open either: the card's Setup
     // checklist lists those, and the two must never disagree (#672 step 2).
     setupTitle: setupTitle(missing, (c.setup ?? []).length),
     setupScore: `${onboarding.score}/${onboarding.total}`,
-    audited: relativeTimeFromNow(site.lastLighthouseAuditAt, now),
-    perf: score(site.pScore),
-    a11yLh: score(site.rScore),
-    bp: score(site.bpScore),
-    seo: score(site.seoScore),
     a11y: a11yDisplay(site.a11yViolations, site.a11yRoutesScanned, site.a11yRoutesTotal),
     deps: depsDisplay(
       site.depsDrifted,
@@ -383,8 +359,6 @@ function cardView(c: SiteCard, index: number, now: Date): CardView {
     chips: chips(c),
     setupGaps: setupGaps(c),
     submissions: submissionsBadge(c),
-    // Only repo-backed sites have anything to dispatch.
-    triggerUrl: site.gitRepo?.trim() ? `/api/sites/${slug}/trigger-renovate` : null,
   };
 }
 
@@ -408,7 +382,7 @@ function setupLane(model: CockpitModel): CockpitView["setup"] {
   return rows.length === 0 ? null : { count: rows.length, rows };
 }
 
-/** Signal filters for the Fleet panel — card-derived tags only. */
+/** Signal filters for Sites' chips — card-derived tags only. */
 export const FLEET_FILTERS = [
   "all",
   "vulns",
@@ -512,13 +486,6 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
     feedCount: feed.length,
     feed: feedGroups(feed),
     setup: setupLane(model),
-    browse: {
-      total: model.cards.length,
-      filters: FLEET_FILTERS,
-      cards: model.cards.map((c, i) => cardView(c, i, now)),
-    },
-    recently: recently(model, now),
-    archived: (model.archived ?? []).map((s) => ({ name: s.name, status: s.status, slug: s.slug })),
     cardless: (model.cardless ?? [])
       .filter((i) => i.waiting !== true)
       .map((i) => ({
@@ -527,5 +494,28 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
         href: i.kind === "deadletter" && i.url ? i.url : null,
       })),
     inbox: inbox(model, now),
+  };
+}
+
+/** Sites (`/fleet`), the inventory the browse panel merged into (#672 step 3):
+ *  each visible site's card health keyed by its slug (the table's rows carry
+ *  the slug), the signal filters, and the Recently and Archived lanes, which
+ *  moved here from `/`. A table row with no card (an archived or building
+ *  site) has no entry in `cards`. */
+export type SitesView = {
+  filters: readonly string[];
+  cards: Record<string, CardView>;
+  recently: RecentRowView[];
+  archived: Array<{ name: string; status: string; slug: string }>;
+};
+
+export function buildSitesView(model: CockpitModel, now: Date): SitesView {
+  const cards: Record<string, CardView> = {};
+  for (const c of model.cards) cards[siteSlug(c.site.name)] = cardView(c, now);
+  return {
+    filters: FLEET_FILTERS,
+    cards,
+    recently: recently(model, now),
+    archived: (model.archived ?? []).map((s) => ({ name: s.name, status: s.status, slug: s.slug })),
   };
 }

@@ -6,9 +6,9 @@ import FleetPage from "../../src/routes/fleet/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
 import SubmissionsPage from "../../src/routes/submissions/+page.svelte";
 import AuditsPage from "../../src/routes/audits/+page.svelte";
-import BrowsePanel from "../../src/lib/cockpit/BrowsePanel.svelte";
 import SubmissionRowInner from "../../src/lib/submission/SubmissionRowInner.svelte";
-import { buildCockpitView } from "../../src/lib/cockpit/view.js";
+import { buildCockpitView, buildSitesView, type SitesView } from "../../src/lib/cockpit/view.js";
+import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { buildSubmissionRowView } from "../../src/lib/submission/view.js";
 import { auditsPageView } from "../../src/lib/audits/view.js";
@@ -73,11 +73,25 @@ export function renderCockpitHtml(
   return documentOf(HomePage, { view: buildCockpitView(model, new Date()) }, "/", operatorEmail);
 }
 
+const NO_SITES_VIEW: SitesView = { filters: [], cards: {}, recently: [], archived: [] };
+
 export function renderFleetTableHtml(
   m: FleetTableModel,
   operatorEmail: string | null = null,
+  sites: SitesView = NO_SITES_VIEW,
 ): string {
-  return documentOf(FleetPage, { model: m }, "/fleet", operatorEmail);
+  return documentOf(FleetPage, { model: m, sites }, "/fleet", operatorEmail);
+}
+
+/** Sites (`/fleet`) for a cockpit model, since the browse panel's cards and the
+ *  Recently and Archived lanes moved there (#672 step 3): the table's rows are
+ *  the model's card sites, in the default order, each with its card's health. */
+export function renderSitesHtml(model: CockpitModel, operatorEmail: string | null = null): string {
+  const table = buildFleetTableModel(
+    model.cards.map((c) => c.site),
+    parseFleetTableQuery(new URLSearchParams()),
+  );
+  return renderFleetTableHtml(table, operatorEmail, buildSitesView(model, new Date()));
 }
 
 export function renderSiteDashboardHtml(
@@ -120,10 +134,10 @@ export function renderProspectAuditsPageHtml(input: {
   );
 }
 
-/** The cockpit's Fleet browse panel on its own, as `renderFleetBrowsePanel` was. */
+/** The browse panel's content, which `renderFleetBrowsePanel` rendered on `/`,
+ *  now lives on Sites (#672 step 3): this renders Sites for the model. */
 export function renderFleetBrowsePanel(model: CockpitModel): string {
-  const view = buildCockpitView(model, new Date());
-  return withoutComments(render(BrowsePanel, { props: { browse: view.browse } }).body);
+  return renderSitesHtml(model);
 }
 
 /** One submission row, as `renderSubmissionRow` rendered it (with its `<li>`). */

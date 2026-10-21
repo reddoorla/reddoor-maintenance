@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml } from "./render.js";
+import { renderCockpitHtml, renderSitesHtml } from "./render.js";
 import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { mapRow } from "../../../src/fleet/site-fields.js";
@@ -90,23 +90,25 @@ describe("renderCockpitHtml — document shell", () => {
 });
 
 describe("renderCockpitHtml — card per site", () => {
-  it('emits one <article class="card"> per site', () => {
-    const html = renderCockpitHtml(
+  // #672 step 3: the cards merged into Sites' table, one row per site.
+  it("emits one Sites row per site, each with its card's health", () => {
+    const html = renderSitesHtml(
       model([
         siteRow({ id: "rec1", name: "Acme Co" }),
         siteRow({ id: "rec2", name: "Beta Inc" }),
         siteRow({ id: "rec3", name: "Gamma LLC" }),
       ]),
     );
-    const cards = html.match(/<article class="card"/g) ?? [];
-    expect(cards).toHaveLength(3);
+    const rows = html.match(/<tr class="fleet-row"/g) ?? [];
+    expect(rows).toHaveLength(3);
+    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(3);
     expect(html).toContain(">Acme Co<");
     expect(html).toContain(">Beta Inc<");
     expect(html).toContain(">Gamma LLC<");
   });
 
   it("links the site name to /s/<slug> with no token (operator-only dashboard)", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "CalTex" })]));
+    const html = renderSitesHtml(model([siteRow({ name: "CalTex" })]));
     expect(html).toContain('href="/s/caltex"');
     expect(html).not.toContain("?t=");
   });
@@ -114,29 +116,32 @@ describe("renderCockpitHtml — card per site", () => {
 
 describe("renderCockpitHtml — header row (setup + audited)", () => {
   it("shows '6/6' when the site is fully onboarded", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
+    const html = renderSitesHtml(model([siteRow()]));
     expect(html).toContain(">6/6<");
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
     );
     expect(html).toContain(">4/6<");
   });
 
-  it("renders the lighthouse-audited timestamp as a relative-time string", () => {
-    const audited = renderCockpitHtml(model([siteRow()]));
-    expect(audited).toMatch(/(just now|\d+[mhdw]o? ago)/);
+  // #672 step 3: on Sites the table's Last audit column carries it, as a date.
+  it("renders the lighthouse-audited time in the Last audit column", () => {
+    const audited = renderSitesHtml(model([siteRow()]));
+    expect(audited).toMatch(
+      /<td><span title="2026-05-27T18:00:00Z">2026-05-27<\/span><\/td>\s*<td class="health">/,
+    );
 
-    const never = renderCockpitHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
-    expect(never).toMatch(/Audited[^<]*<[^>]*>\s*—\s*</);
+    const never = renderSitesHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
+    expect(never).toMatch(/<td>—<\/td>\s*<td class="health">/);
   });
 });
 
 describe("renderCockpitHtml — metrics row", () => {
   it("renders the four lighthouse scores", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 100 })]),
     );
     expect(html).toContain(">73<");
@@ -144,23 +149,24 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("renders an em-dash placeholder for null lighthouse scores", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ pScore: null, rScore: null, bpScore: null, seoScore: null })]),
     );
     expect(html).not.toContain(">null<");
-    expect(html).toMatch(/<span class="score perf">—<\/span>/);
+    // #672 step 3: Sites' score columns.
+    expect(html).toMatch(/(<td class="num">—<\/td>\s*){4}/);
   });
 
   it("renders the a11y violation count", () => {
-    const html = renderCockpitHtml(model([siteRow({ a11yViolations: 3 })]));
+    const html = renderSitesHtml(model([siteRow({ a11yViolations: 3 })]));
     expect(html).toMatch(/<span class="metric a11y">3<\/span>/);
   });
 
   it("marks an a11y count from a partial run with its route coverage (#910)", () => {
-    const partial = renderCockpitHtml(
+    const partial = renderSitesHtml(
       model([siteRow({ a11yViolations: 0, a11yRoutesScanned: 1, a11yRoutesTotal: 2 })]),
     );
-    const complete = renderCockpitHtml(
+    const complete = renderSitesHtml(
       model([siteRow({ a11yViolations: 0, a11yRoutesScanned: 2, a11yRoutesTotal: 2 })]),
     );
     expect(partial).toMatch(/<span class="metric a11y">0 \(1\/2 routes\)<\/span>/);
@@ -168,10 +174,10 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("marks a run that scanned no routes as partial, and an unknown scanned count as nothing", () => {
-    const none = renderCockpitHtml(
+    const none = renderSitesHtml(
       model([siteRow({ a11yViolations: 0, a11yRoutesScanned: 0, a11yRoutesTotal: 2 })]),
     );
-    const unknown = renderCockpitHtml(
+    const unknown = renderSitesHtml(
       model([siteRow({ a11yViolations: 0, a11yRoutesScanned: null, a11yRoutesTotal: 2 })]),
     );
     expect(none).toMatch(/<span class="metric a11y">0 \(0\/2 routes\)<\/span>/);
@@ -179,46 +185,46 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("renders '—' for a never-audited a11y count", () => {
-    const html = renderCockpitHtml(model([siteRow({ a11yViolations: null })]));
+    const html = renderSitesHtml(model([siteRow({ a11yViolations: null })]));
     expect(html).toMatch(/<span class="metric a11y">—<\/span>/);
   });
 
   it("renders deps as 'N drifted (M major)' when there is drift", () => {
-    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 1 })]));
+    const html = renderSitesHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 1 })]));
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
   });
 
   it("renders deps with '(0 major)' when there is non-major drift only", () => {
-    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 0 })]));
+    const html = renderSitesHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 0 })]));
     expect(html).toMatch(/<span class="metric deps">5 drifted \(0 major\)<\/span>/);
   });
 
   it("renders deps as '0' when clean", () => {
-    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 0, depsMajorBehind: 0 })]));
+    const html = renderSitesHtml(model([siteRow({ depsDrifted: 0, depsMajorBehind: 0 })]));
     expect(html).toMatch(/<span class="metric deps">0<\/span>/);
   });
 
   it("renders deps as '—' when never audited", () => {
-    const html = renderCockpitHtml(model([siteRow({ depsDrifted: null, depsMajorBehind: null })]));
+    const html = renderSitesHtml(model([siteRow({ depsDrifted: null, depsMajorBehind: null })]));
     expect(html).toMatch(/<span class="metric deps">—<\/span>/);
   });
 
   it("appends the outdated-install count to deps when it was determined", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3 })]),
     );
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\) · 3 outdated<\/span>/);
   });
 
   it("shows the outdated count even when declared-range drift is clean", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2 })]),
     );
     expect(html).toMatch(/<span class="metric deps">0 · 2 outdated<\/span>/);
   });
 
   it("appends the registry-major count (majors behind npm) to the outdated part when known", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3, depsMajorOutdated: 2 }),
       ]),
@@ -229,7 +235,7 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("omits the registry-major part when not determined (null), keeping the bare outdated count", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2, depsMajorOutdated: null }),
       ]),
@@ -238,7 +244,7 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("omits the outdated part when it wasn't determined (null), not implying clean", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: null })]),
     );
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
@@ -246,7 +252,7 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("renders security as 'C/H/M/L' format when there are vulns", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           securityVulnsCritical: 1,
@@ -260,7 +266,7 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("renders security as '0' when clean", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           securityVulnsCritical: 0,
@@ -274,7 +280,7 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 
   it("renders security as '—' when never audited", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           securityVulnsCritical: null,
@@ -290,41 +296,40 @@ describe("renderCockpitHtml — metrics row", () => {
 
 describe("renderCockpitHtml — lighthouse score labels", () => {
   it("labels each of the four lighthouse scores using the metric-label pattern", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 90 })]),
     );
-    // Same metric-label treatment the health cluster already uses, so the bare
-    // numbers read as Perf / Access / BP / SEO.
+    // #672 step 3: on Sites the table's column headers name the bare numbers.
     for (const label of ["Perf", "Access", "BP", "SEO"]) {
-      expect(html).toContain(`<span class="metric-label">${label}</span>`);
+      expect(html).toMatch(new RegExp(`<th class="num"><a href="[^"]*">${label}</a>`));
     }
   });
 });
 
 describe("renderCockpitHtml — setup chip tooltip", () => {
   it("lists the missing onboarding items in the setup chip title when incomplete", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
     );
     expect(html).toContain('title="Missing: Report recipients, Point of contact"');
   });
 
   it("says the setup is complete in the title when fully onboarded", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
+    const html = renderSitesHtml(model([siteRow()]));
     expect(html).toContain('title="Setup complete"');
   });
 
   it("escapes the setup title text", () => {
     // A site missing only the audit still produces a stable, escaped title;
     // assert the chip carries a title attribute on the setup span.
-    const html = renderCockpitHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
+    const html = renderSitesHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
     expect(html).toMatch(/<span class="setup" title="Missing: First audit">/);
   });
 });
 
 describe("renderCockpitHtml — escaping & safety", () => {
   it("escapes HTML in site names and URLs", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ name: "<script>alert(1)</script>", url: "javascript:alert(1)" })]),
     );
     expect(html).not.toContain("<script>alert(1)</script>");
@@ -421,7 +426,7 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
   });
 
   it("an accepted Best-Practices watch leaves the band but shows a muted accepted chip", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           id: "a",
@@ -432,16 +437,29 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
       ]),
     );
     // Accepted → the site is healthy → verdict stays All clear (out of the Watch band)…
-    expect(html).toContain('class="verdict ok"');
-    expect(html).toContain("✓ All clear");
-    // …but the condition is still on record as a muted chip.
+    const home = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "a",
+          name: "Accepted",
+          bpScore: 78,
+          acceptedWatchConditions: ["Best Practices"],
+        }),
+      ]),
+    );
+    expect(home).toContain('class="verdict ok"');
+    expect(home).toContain("✓ All clear");
+    // …but the condition is still on record as a muted chip, on its Sites row.
     expect(html).toContain('class="chip accepted">✓ accepted: Best Practices 78');
   });
 
   it("the same BP-78 site shows the amber watch verdict when NOT accepted", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]));
-    expect(html).toContain('class="verdict watch"');
-    expect(html).not.toContain("chip accepted");
+    const m = model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]);
+    expect(renderCockpitHtml(m)).toContain('class="verdict watch"');
+    // The chips are on the Sites row since #672 step 3.
+    const row = renderSitesHtml(m);
+    expect(row).toContain("Best Practices 78");
+    expect(row).not.toContain("chip accepted");
   });
 });
 
@@ -456,17 +474,21 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     });
 
   it("mutes the no-custom-domain watch when accepted via the alias 'netlify'", () => {
-    const html = renderCockpitHtml(model([netlify({ acceptedWatchConditions: ["netlify"] })]));
-    expect(html).toContain('class="verdict ok"');
-    expect(html).toContain("✓ All clear");
+    const m = model([netlify({ acceptedWatchConditions: ["netlify"] })]);
+    // #672 step 3: the verdict is on `/`; the chip on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
+    expect(home).toContain('class="verdict ok"');
+    expect(home).toContain("✓ All clear");
     expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
   });
 
   it("still mutes the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
-    const html = renderCockpitHtml(
-      model([netlify({ acceptedWatchConditions: ["no custom domain"] })]),
-    );
-    expect(html).toContain('class="verdict ok"');
+    const m = model([netlify({ acceptedWatchConditions: ["no custom domain"] })]);
+    // #672 step 3: the verdict is on `/`; the chip on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
+    expect(home).toContain('class="verdict ok"');
     expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
   });
 
@@ -482,44 +504,47 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
   });
 
   it("keys Lighthouse acceptance on the label and tolerates a changed score (78 muted)", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "p", name: "Perf78", pScore: 78, acceptedWatchConditions: ["performance"] }),
-      ]),
-    );
-    expect(html).toContain('class="verdict ok"');
+    const m = model([
+      siteRow({ id: "p", name: "Perf78", pScore: 78, acceptedWatchConditions: ["performance"] }),
+    ]);
+    // #672 step 3: the verdict is on `/`; the chip on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
+    expect(home).toContain('class="verdict ok"');
     expect(html).toContain("✓ accepted: Performance 78");
   });
 
   it("re-alarms (attention, NOT muted) when the accepted category drops below the floor", () => {
     // pScore 72 < 75 arrives as an AttentionItem ABOVE the accept logic → broken; the
     // accepted "performance" key can never mute a sub-floor score.
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
-      ]),
-    );
+    const m = model([
+      siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
+    ]);
+    const html = renderCockpitHtml(m);
     expect(html).toContain('class="verdict warn"');
     expect(html).toMatch(/⚠ 1 site broken/);
-    expect(html).not.toContain("chip accepted");
+    // The chips are on the Sites row since #672 step 3.
+    expect(renderSitesHtml(m)).toContain('class="pill attention"');
+    expect(renderSitesHtml(m)).not.toContain("chip accepted");
   });
 
   it("mutes only the accepted conditions among several simultaneous watches", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({
-          id: "m",
-          name: "Multi",
-          status: "maintained",
-          url: "https://x.netlify.app",
-          bpScore: 78,
-          acceptedWatchConditions: ["best practices"],
-        }),
-      ]),
-    );
+    const m = model([
+      siteRow({
+        id: "m",
+        name: "Multi",
+        status: "maintained",
+        url: "https://x.netlify.app",
+        bpScore: 78,
+        acceptedWatchConditions: ["best practices"],
+      }),
+    ]);
+    // #672 step 3: the verdict is on `/`; the chip on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
     // BP muted, so no watch is left: netlify is a Setup gap (#672 step 2), still
     // open with its accept token surfaced.
-    expect(html).toContain('class="verdict ok"');
+    expect(home).toContain('class="verdict ok"');
     expect(html).toContain("✓ accepted: Best Practices 78");
     expect(html).toContain('accept: "no custom domain"');
   });
@@ -613,7 +638,7 @@ describe("needs-you feed", () => {
 });
 
 describe("inbox lane", () => {
-  it("renders submissions + spam inside one collapsed details, after the fleet panel", () => {
+  it("renders submissions + spam inside one collapsed details", () => {
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
       [],
@@ -636,10 +661,7 @@ describe("inbox lane", () => {
     expect(html).toContain('<details class="inbox">');
     expect(html).toContain("📥 Submissions (1 new)");
     expect(html).toContain('href="/submissions"');
-    const inboxIdx = html.indexOf('class="inbox"');
-    const fleetIdx = html.indexOf('class="fleet-browse"');
-    expect(fleetIdx).toBeGreaterThan(-1);
-    expect(inboxIdx).toBeGreaterThan(fleetIdx); // inbox after the fleet panel
+    // "after the fleet panel": the panel moved to Sites (#672 step 3).
   });
 
   it("omits the inbox entirely with no submissions and no spam", () => {
@@ -649,7 +671,7 @@ describe("inbox lane", () => {
 });
 
 describe("renderCockpitHtml — region order", () => {
-  it("composes the four regions in order: verdict → needs-you → fleet → inbox", () => {
+  it("composes the regions in order: verdict → needs-you → inbox (the fleet panel moved to Sites, #672 step 3)", () => {
     // A model that populates ALL four regions at once: a pending-approval report
     // (→ needs-you feed, verdict warns) plus a new submission and spam (→ inbox).
     const m = buildCockpitModel(
@@ -689,12 +711,10 @@ describe("renderCockpitHtml — region order", () => {
     const html = renderCockpitHtml(m);
     const iVerdict = html.indexOf('class="verdict');
     const iFeed = html.indexOf('class="needs-you');
-    const iFleet = html.indexOf('class="fleet-browse');
     const iInbox = html.indexOf('class="inbox');
     expect(iVerdict).toBeGreaterThan(-1);
     expect(iFeed).toBeGreaterThan(iVerdict);
-    expect(iFleet).toBeGreaterThan(iFeed);
-    expect(iInbox).toBeGreaterThan(iFleet);
+    expect(iInbox).toBeGreaterThan(iFeed);
   });
 });
 
@@ -750,7 +770,7 @@ describe("renderCockpitHtml — inbox lane submissions cap", () => {
 
 describe("renderCockpitHtml — cockpit cards", () => {
   it("puts a status pill and the site's attention chips on the card, with data-signals", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model(
         [
           siteRow({
@@ -772,30 +792,31 @@ describe("renderCockpitHtml — cockpit cards", () => {
   });
 
   it("renders a pre-live 'launch period' site with a muted pre-launch pill, never broken", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({
-          id: "p",
-          name: "Launching",
-          status: "launching",
-          pScore: 60, // sub-floor Lighthouse — expected pre-launch noise, stays muted
-          deployStatus: "error", // errored deploy — also expected pre-launch
-        }),
-      ]),
-    );
+    const m = model([
+      siteRow({
+        id: "p",
+        name: "Launching",
+        status: "launching",
+        pScore: 60, // sub-floor Lighthouse — expected pre-launch noise, stays muted
+        deployStatus: "error", // errored deploy — also expected pre-launch
+      }),
+    ]);
+    // #672 step 3: the verdict is on `/`; the pill and tags on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
     expect(html).toMatch(/class="pill pre-launch"/);
     expect(html).not.toMatch(/class="pill attention"/);
     // The fleet's only non-green site is pre-launch → calm verdict, not broken.
-    expect(html).toContain('class="verdict ok"');
-    expect(html).toContain("✓ All clear");
-    expect(html).toContain("1 pre-launch");
-    expect(html).not.toMatch(/site[s]? broken/);
+    expect(home).toContain('class="verdict ok"');
+    expect(home).toContain("✓ All clear");
+    expect(home).toContain("1 pre-launch");
+    expect(home).not.toMatch(/site[s]? broken/);
   });
 
   it("a launch-period site with an EXHAUSTED vuln pierces the mute (red pill, not pre-launch)", () => {
     // A pre-exhaustion vuln stays muted while Renovate self-patches it — only the
     // exhausted vuln is the genuine alarm that pierces the pre-launch mute.
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           id: "p",
@@ -812,7 +833,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
   });
 
   it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
-    const newHtml = renderCockpitHtml(
+    const newHtml = renderSitesHtml(
       model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1, pScore: 60 })]), // prior {} → NEW
     );
     expect(newHtml).toMatch(/class="badge">NEW/);
@@ -824,7 +845,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
       BASE,
       NOW,
     );
-    expect(renderCockpitHtml(worse)).toMatch(/class="badge">WORSE/);
+    expect(renderSitesHtml(worse)).toMatch(/class="badge">WORSE/);
   });
 
   it("shows the watch reasons on a watch-tier card", () => {
@@ -832,19 +853,19 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toMatch(/Performance 80/);
   });
 
-  // "includes the filter script with the data-filter wiring": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
+  // "includes the filter script with the data-filter wiring": its behaviour is the DOM tests' now (cockpit/tests/fleet/sites.dom.test.ts: the signal filters).
 });
 
 describe("renderCockpitHtml — filter signals & all-clear", () => {
   it("a watch-band Lighthouse site carries the 'lighthouse' filter signal", () => {
     // pScore 80 ∈ [75,85) with the other categories healthy → watch via Lighthouse.
-    const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    const html = renderSitesHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
     expect(html).toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
   it("a commit-stale site carries the 'stale' filter signal (not the lighthouse one)", () => {
     // Healthy scores but the last commit is >30d before NOW → watch via staleness only.
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ id: "s", name: "Stale", lastCommitAt: "2026-01-01T00:00:00Z" })]),
     );
     expect(html).toMatch(/data-signals="[^"]*stale[^"]*"/);
@@ -852,7 +873,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("tags a maintained site with no GA4 property with the no-analytics signal, and offers the filter", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ id: "n", name: "NoGa", status: "maintained", ga4PropertyId: null })]),
     );
     expect(html).toMatch(/data-signals="[^"]*no-analytics[^"]*"/);
@@ -861,7 +882,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("#943: tags a maintained site whose lookup matched no Search Console property, names the host, and offers the filter", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           id: "g",
@@ -880,7 +901,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("tags a maintained site missing its Git repo / Netlify ID with their signals, and offers both filters (#889)", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({ id: "r", name: "NoIds", status: "maintained", gitRepo: null, netlifyId: null }),
       ]),
@@ -894,7 +915,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("tags a maintained site whose roster url fails with url-unresolved, and offers the filter (#912)", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           id: "u",
@@ -911,7 +932,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           id: "nd",
@@ -925,24 +946,25 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
   });
 
   it("a broken site keeps its watch tags, so it stays under those filter chips (#941)", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({
-          id: "r",
-          name: "Broken",
-          status: "maintained",
-          defaultBranchCi: "failing",
-          searchConsoleOutcome: "no-property",
-          searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
-        }),
-      ]),
-    );
+    const m = model([
+      siteRow({
+        id: "r",
+        name: "Broken",
+        status: "maintained",
+        defaultBranchCi: "failing",
+        searchConsoleOutcome: "no-property",
+        searchConsoleCheckedAt: "2026-06-01T09:00:00Z",
+      }),
+    ]);
+    // #672 step 3: the verdict is on `/`; the pill and tags on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
     expect(html).toMatch(/class="pill attention"/);
     expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
     expect(html).toMatch(/data-signals="[^"]*\bsearch-console-no-property\b[^"]*"/);
     // Tagged, not re-tiered: the verdict still counts it once, as broken.
-    expect(html).toMatch(/⚠ 1 site broken/);
-    expect(html).not.toMatch(/\d+ watching/);
+    expect(home).toMatch(/⚠ 1 site broken/);
+    expect(home).not.toMatch(/\d+ watching/);
   });
 
   it("renders the ok verdict when nothing needs attention", () => {
@@ -1003,12 +1025,12 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/⚠ 1 site broken/);
   });
 
-  // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit.dom: the filter chips).
+  // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit/tests/fleet/sites.dom.test.ts: the signal filters).
 });
 
 describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
   it("a Renovate-failing card carries the prs signal + its chip", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]),
     );
     expect(html).toMatch(/data-signals="[^"]*prs[^"]*"/);
@@ -1016,7 +1038,7 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
   });
 
   it("a CI-red card carries the ci signal + its chip", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ id: "b", name: "CiRed", defaultBranchCi: "failing" })]),
     );
     expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
@@ -1053,7 +1075,7 @@ describe("renderCockpitHtml — spam roll-up", () => {
 
 describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
   it("tags the card with the auto-fix-failed signal and a stuck chip", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([siteRow({ name: "Stuck Co", securityVulnsCritical: 2, securityAutoFixAttempts: 3 })]),
     );
     // data-signals carries BOTH the base vuln token and the new one
@@ -1066,33 +1088,31 @@ describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
 });
 
 describe("renderCockpitHtml — Trigger Renovate button", () => {
-  it("shows a Trigger Renovate button only for repo-backed sites", () => {
-    const html = renderCockpitHtml(
+  it("leaves Trigger Renovate to the site page: Sites carries none (#672 step 3)", () => {
+    // The button lives on /s/:slug (the brief: "already lives on /s/:slug"), where
+    // the site page's tests cover it; the merged cards dropped their copy.
+    const html = renderSitesHtml(
       model([
         siteRow({ name: "Has Repo", gitRepo: "reddoorla/hasrepo" }),
         siteRow({ name: "No Repo", gitRepo: null }),
       ]),
     );
-    expect(html).toContain('data-trigger-url="/api/sites/has-repo/trigger-renovate"');
-    expect(html).not.toContain("/api/sites/no-repo/trigger-renovate");
-    expect(html).toContain("Trigger Renovate");
+    expect(html).toContain(">Has Repo<"); // the repo-backed site is on the page
+    expect(html).not.toContain("trigger-renovate");
   });
 });
 
 describe("fleet browse panel", () => {
-  it("renders one collapsed <details> with a single flat card grid (no nested tier details)", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "Acme" }), siteRow({ name: "Beta" })]));
-    expect(html).toContain('<details class="fleet-browse">');
-    expect(html).toContain("Fleet (2)");
-    expect(html.match(/<div class="cards">/g) ?? []).toHaveLength(1);
+  it("renders one table of sites with the signal filters, and no tier groups (#672 step 3)", () => {
+    const html = renderSitesHtml(model([siteRow({ name: "Acme" }), siteRow({ name: "Beta" })]));
+    expect(html.match(/<table class="fleet">/g) ?? []).toHaveLength(1);
+    expect(html.match(/<tr class="fleet-row"/g) ?? []).toHaveLength(2);
+    expect(html).toContain('class="signal-filters" role="group"');
     expect(html).not.toContain('details class="tier"');
   });
-  it("keeps the per-card Trigger Renovate button for repo-backed sites", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "Acme", gitRepo: "reddoorla/acme" })]));
-    expect(html).toContain("trigger-renovate");
-  });
+
   it("offers signal filters but not pending/submissions", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    const html = renderSitesHtml(model([siteRow({ name: "Acme" })]));
     expect(html).toContain('data-filter="vulns"');
     expect(html).not.toContain('data-filter="pending"');
     expect(html).not.toContain('data-filter="submissions"');
@@ -1132,7 +1152,7 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
 
 describe("deploy badge", () => {
   it("renders a green ready badge linking to the deploy log", () => {
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({
           deployStatus: "ready",
@@ -1149,19 +1169,21 @@ describe("deploy badge", () => {
   });
 
   it("renders a red failed badge", () => {
-    const html = renderCockpitHtml(model([siteRow({ deployStatus: "error" })]));
+    const html = renderSitesHtml(model([siteRow({ deployStatus: "error" })]));
     expect(html).toContain("metric deploy failed");
   });
 
   it("renders a grey unknown badge when there is no deploy status", () => {
-    const html = renderCockpitHtml(model([siteRow({ deployStatus: null })]));
+    const html = renderSitesHtml(model([siteRow({ deployStatus: null })]));
     expect(html).toContain("metric deploy unknown");
   });
 
   it("does not emit a link for a non-http deploy URL (dead-link guard)", () => {
-    const html = renderCockpitHtml(
+    // The deploy badge is on the Sites row since #672 step 3.
+    const html = renderSitesHtml(
       model([siteRow({ deployStatus: "ready", deployLogUrl: "javascript:alert(1)" })]),
     );
+    expect(html).toContain('class="metric deploy ready"'); // the badge is there, unlinked
     expect(html).not.toContain('href="javascript:alert(1)"');
     expect(html).not.toContain('href="#"');
   });
@@ -1169,23 +1191,24 @@ describe("deploy badge", () => {
 
 describe("renderCockpitHtml — archived lane + status honesty", () => {
   it("renders an archived count term and a collapsed Archived lane for a legacy row", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "a", name: "Acme" }),
-        // Synthetic since stage 3 (no cell can diverge from its canonical value
-        // any more): the lane MIRRORS the raw Status cell, so a row whose raw
-        // cell says "legacy" must render "legacy", never the canonical value.
-        siteRow({ id: "l", name: "Old & Legacy", status: "archived", statusRaw: "legacy" }),
-      ]),
-    );
-    expect(html).toContain("1 archived");
+    const m = model([
+      siteRow({ id: "a", name: "Acme" }),
+      // Synthetic since stage 3 (no cell can diverge from its canonical value
+      // any more): the lane MIRRORS the raw Status cell, so a row whose raw
+      // cell says "legacy" must render "legacy", never the canonical value.
+      siteRow({ id: "l", name: "Old & Legacy", status: "archived", statusRaw: "legacy" }),
+    ]);
+    // #672 step 3: the verdict is on `/`; the pill and tags on the site's Sites row.
+    const home = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
+    expect(home).toContain("1 archived");
     expect(html).toContain("🗄 Archived (1)");
     expect(html).toContain("Old &amp; Legacy"); // escaped site name
     expect(html).toContain('<span class="muted">legacy</span>');
     expect(html).not.toContain('<span class="muted">archived</span>');
     expect(html).toContain('href="/s/old-legacy"');
-    // The archived row is a roster entry, never a fleet card.
-    expect(html).toContain("Fleet (1)");
+    // The archived row is a roster entry, never a fleet card: one row with health.
+    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(1);
   });
 
   it("labels each archived row from its OWN raw cell, not from the shared canonical one", () => {
@@ -1194,7 +1217,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     // by hand rather than through mapRow. What it still catches is a renderer
     // that starts labelling from `status` — the change that once relabelled all
     // 12 live archived rows and was caught only on the combined tree.
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         siteRow({ id: "a", name: "Acme" }),
         siteRow({ id: "l", name: "Old Legacy", status: "archived", statusRaw: "legacy" }),
@@ -1211,7 +1234,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     // output, and the label still comes from the raw cell.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
-    const html = renderCockpitHtml(
+    const html = renderSitesHtml(
       model([
         record("recL", "Old Site", "archived"),
         record("recD", "Dead Site", "archived"),
@@ -1220,7 +1243,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     );
     expect(html).toContain("🗄 Archived (2)");
     expect(html).toContain('<span class="muted">archived</span>');
-    expect(html).toContain("Fleet (1)");
+    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(1);
   });
 
   it("a RETIRED cell is no longer archived — it surfaces instead of being absorbed", () => {
@@ -1231,18 +1254,18 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     // how a stale value would go unnoticed.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
-    const html = renderCockpitHtml(
-      model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]),
-    );
-    expect(html).not.toContain("🗄 Archived");
-    expect(html).not.toContain("1 archived");
+    const m = model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]);
+    // The Archived lane is on Sites since #672 step 3; the count stays on `/`.
+    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderCockpitHtml(m)).not.toContain("1 archived");
   });
 
   it("renders neither the archived term nor the lane when nothing is archived", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "a", name: "Acme" })]));
-    expect(html).not.toContain("1 archived");
-    expect(html).not.toContain("🗄 Archived");
-    expect(html).not.toContain('class="archived"');
+    const m = model([siteRow({ id: "a", name: "Acme" })]);
+    expect(renderCockpitHtml(m)).not.toContain("1 archived");
+    // The Archived lane is on Sites since #672 step 3.
+    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderSitesHtml(m)).not.toContain('class="archived"');
   });
 
   it("renders an amber verdict + feed reason for a typo'd Status cell", () => {
@@ -1274,7 +1297,7 @@ describe("renderCockpitHtml — Recently lane", () => {
         },
       ],
     };
-    const html = renderCockpitHtml(m);
+    const html = renderSitesHtml(m);
     expect(html).toContain("sent with override");
   });
 });
