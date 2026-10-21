@@ -11,6 +11,8 @@ import {
   hasRealScores,
   lighthouseFailingAuditsFromResult,
   lighthouseScoresFromResult,
+  missingLighthouseCategories,
+  LIGHTHOUSE_CATEGORIES,
 } from "./lighthouse-fields.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-fields.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-fields.js";
@@ -84,6 +86,11 @@ export type AuditWritePlan = {
    *  were not applicable (#1605): an install that failed, an unreadable lockfile, a runner
    *  that threw. Lighthouse is left out when `lighthouseMiss` already files the site. */
   unmeasured: Array<{ audit: AuditName; summary: string }>;
+  /** Lighthouse categories missing from scores that otherwise landed, as
+   *  `lighthouse.<category>` (#1609). Their written cells are null; the gate counts them. */
+  missingCategories: string[];
+  /** Lighthouse ran and its scores landed: the denominator for each category's share. */
+  lighthouseScored: boolean;
 };
 
 /** The audits whose results land in `site_health`. An audit outside this set (lint) has
@@ -255,6 +262,11 @@ export function planAuditWrite(args: {
     summary: { siteName: target.name, writes, events, siteId: target.id, fields },
     lighthouseMiss,
     unmeasured,
+    missingCategories:
+      lhResult && lhHasScores
+        ? missingLighthouseCategories(lhResult).map((c) => `lighthouse.${c}`)
+        : [],
+    lighthouseScored: lhHasScores,
   };
 }
 
@@ -294,11 +306,11 @@ export type FleetWriteResult = {
   missing?: string[];
   /** Per audit, the sites where it measured nothing and did not say it was not applicable.
    *  A site can be written (lighthouse landed) while its browser audit measured nothing. */
-  unmeasuredAudits?: Partial<Record<AuditName, string[]>>;
+  unmeasuredAudits?: Partial<Record<string, string[]>>;
   /** Per audit, the sites it applied to: requested and not marked not applicable. The
    *  denominator for that audit's share in the gate, so a fleet where most sites have no
    *  `test:smoke` script cannot dilute four blind adopters into a green run. */
-  applicableAudits?: Partial<Record<AuditName, string[]>>;
+  applicableAudits?: Partial<Record<string, string[]>>;
   /** Per audit, the sites whose result said "not applicable here" by design (no deployed
    *  URL, no form, no smoke suite), whether or not the site wrote other values. Printed so
    *  a by-design skip is counted rather than merely absent from the denominators. */
@@ -395,8 +407,10 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   }
   for (const [audit, sites] of Object.entries(result.unmeasuredAudits ?? {})) {
     if (!sites || sites.length === 0) continue;
-    const of = result.applicableAudits?.[audit as AuditName]?.length ?? total;
-    const line = `${audit} measured nothing on ${sites.length} of ${of} site(s): ${sites.join(", ")}`;
+    const of = result.applicableAudits?.[audit]?.length ?? total;
+    // A dotted key is one Lighthouse category on sites whose other scores landed (#1609).
+    const what = audit.includes(".") ? "missing on" : "measured nothing on";
+    const line = `${audit} ${what} ${sites.length} of ${of} site(s): ${sites.join(", ")}`;
     if (sites.length * 4 > of) reasons.push(`${line} (>25%)`);
     else warnings.push(line);
   }
@@ -484,10 +498,10 @@ export async function writeFleetAudits(args: {
   let mirrorFailed = 0;
   let mirrorMissed = 0;
   const notApplicable: string[] = [];
-  const unmeasuredAudits: Partial<Record<AuditName, string[]>> = {};
-  const applicableAudits: Partial<Record<AuditName, string[]>> = {};
+  const unmeasuredAudits: Partial<Record<string, string[]>> = {};
+  const applicableAudits: Partial<Record<string, string[]>> = {};
   const notApplicableAudits: Partial<Record<AuditName, string[]>> = {};
-  const note = (into: Partial<Record<AuditName, string[]>>, audit: AuditName, slug: string) => {
+  const note = (into: Partial<Record<string, string[]>>, audit: string, slug: string) => {
     const list = (into[audit] ??= []);
     // Two roster rows can share a slug and pool into one group; count the slug once.
     if (!list.includes(slug)) list.push(slug);
@@ -502,6 +516,14 @@ export async function writeFleetAudits(args: {
     }
     const { summary } = plan;
     for (const u of plan.unmeasured) note(unmeasuredAudits, u.audit, slug);
+    for (const c of plan.missingCategories) note(unmeasuredAudits, c, slug);
+    // A category applies wherever lighthouse scored; an unscored site is a miss. Read
+    // off the plan, so a slug pooling two results is judged by the one that was written.
+    if (plan.lighthouseScored) {
+      for (const c of LIGHTHOUSE_CATEGORIES) {
+        note(applicableAudits, `lighthouse.${c}`, slug);
+      }
+    }
     for (const r of siteResults) {
       if (PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true) {
         note(applicableAudits, r.audit, slug);
