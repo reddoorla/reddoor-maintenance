@@ -39,6 +39,13 @@ function endpointRoutes(
 
 const routes = endpointRoutes();
 
+/** The two GET-only reads, with the query each needs to reach its auth (the
+ *  status poll answers 400 before auth without `since`). The rest act on POST. */
+const READS: Record<string, string> = {
+  "/api/reports/rec1/preview": "",
+  "/api/fleet/refresh/status": "?since=2026-10-21T00:00:00Z",
+};
+
 async function call(
   route: (typeof routes)[number],
   method: string,
@@ -96,7 +103,7 @@ describe("the cockpit's endpoint routes", () => {
   });
 
   it("a method no handler takes is the handler's own 405", async () => {
-    for (const route of routes.filter((r) => r.path.startsWith("/api/"))) {
+    for (const route of routes) {
       const res = await call(route, "PUT", { origin: "https://cockpit.example" });
       expect([route.path, res.status]).toEqual([route.path, 405]);
     }
@@ -116,30 +123,23 @@ describe("the cockpit's endpoint routes", () => {
   it("each /api handler refuses a signed-out caller itself", async () => {
     // The two reads are GET only (the status poll needs its `since`, or it
     // answers 400 before auth); the rest act on POST.
-    const reads: Record<string, string> = {
-      "/api/reports/rec1/preview": "",
-      "/api/fleet/refresh/status": "?since=2026-10-21T00:00:00Z",
-    };
     for (const route of routes.filter((r) => r.path.startsWith("/api/"))) {
-      const query = reads[route.path];
+      const query = READS[route.path];
       const method = query === undefined ? "POST" : "GET";
       const res = await call(route, method, { origin: "https://cockpit.example" }, query);
       // A JSON 401 for a fetch; the preview, opened as a page, sends the
       // visitor to sign-in instead.
       const refused =
         res.status === 401 ||
-        (res.status === 302 && (res.headers.get("location") ?? "").startsWith("/auth/login"));
+        (route.path === "/api/reports/rec1/preview" &&
+          res.status === 302 &&
+          (res.headers.get("location") ?? "").startsWith("/auth/login"));
       expect([route.path, res.status, refused]).toEqual([route.path, res.status, true]);
     }
   });
 
   it("each state-changing /api handler refuses a cross-site POST itself", async () => {
-    for (const route of routes.filter(
-      (r) =>
-        r.path.startsWith("/api/") &&
-        !r.path.endsWith("/preview") &&
-        r.path !== "/api/fleet/refresh/status",
-    )) {
+    for (const route of routes.filter((r) => r.path.startsWith("/api/") && !(r.path in READS))) {
       const res = await call(route, "POST", { origin: "https://evil.example" });
       expect([route.path, res.status]).toEqual([route.path, 403]);
     }

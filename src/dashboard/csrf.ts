@@ -12,6 +12,10 @@
  *     ("cross-site"/"same-site") is a cross-site signal → reject.
  *  2. Sec-Fetch-Site absent but Origin (or, lacking it, the Referer's origin)
  *     present → its host must equal the request's own host → reject on mismatch.
+ *     `Origin: null` (a sandboxed frame, a data: page, a privacy redirect) is a
+ *     cross-site signal, never "no Origin" → reject. SvelteKit's own origin
+ *     check, which refused it on the pages, is off since the endpoints moved
+ *     into the app (maintenance#1642), so this is the pages' only gate too.
  *  3. No Sec-Fetch AND no Origin AND no Referer → legacy/non-browser client with
  *     no cross-site signal at all → allow (still gated by Basic auth downstream).
  */
@@ -54,7 +58,8 @@ export function isCsrfAllowed(req: CsrfRequestLike): boolean {
     return secFetchSite === "same-origin" || secFetchSite === "none";
   }
   // Fallback when Sec-Fetch-Site is absent: compare Origin (then Referer) host
-  // against the request's own host.
+  // against the request's own host. An opaque origin is a cross-site signal.
+  if (req.headers.get("origin")?.trim().toLowerCase() === "null") return false;
   const claimedHost =
     originHost(req.headers.get("origin")) ?? originHost(req.headers.get("referer"));
   if (claimedHost === null) {

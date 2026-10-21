@@ -46,7 +46,10 @@ export const handle: Handle = async ({ event, resolve }) => {
   path = `${path.replace(/[/\\]+/g, "/").toLowerCase()}/`;
   if (NOT_COCKPIT_PREFIXES.some((p) => path.startsWith(p))) {
     const route = event.route.id;
-    if (route && ENDPOINT_ROUTE_PREFIXES.some((p) => route.startsWith(p))) return resolve(event);
+    // The raw path must sit under the same prefix as the route it matched, so a
+    // path under a prefix the edge limit skips never reaches an endpoint.
+    if (route && ENDPOINT_ROUTE_PREFIXES.some((p) => route.startsWith(p) && path.startsWith(p)))
+      return resolve(event);
     return new Response("Not found.", {
       status: 404,
       headers: { "content-type": "text/plain; charset=utf-8" },

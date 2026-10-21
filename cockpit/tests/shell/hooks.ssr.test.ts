@@ -188,6 +188,9 @@ describe("the cockpit auth hook", () => {
       // A route outside the endpoint prefixes is never served through them.
       ["/api%2Ffleet", "/fleet"],
       ["/r/a/b", "/r/[x]/[y]"],
+      // An endpoint route reached through a prefix the edge limit skips.
+      ["/_app/x", "/api/reports/[id]/approve"],
+      ["/.netlify/x", "/auth/basic"],
     ] as const) {
       for (const pw of ["s3cret", "wrong"]) {
         const ev = event(authHeader(pw), path, "GET", "https://cockpit.example/fleet", routeId);

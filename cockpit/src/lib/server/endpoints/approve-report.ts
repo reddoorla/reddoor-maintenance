@@ -36,7 +36,7 @@ function plainText(
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
   // GET health check — presence-only, mirrors resend-webhook.mts and
-  // site-dashboard.mts so an operator can curl after wiring env vars.
+  // the other endpoints so an operator can curl after wiring env vars.
   // Never reports env values.
   if (req.method === "GET") {
     return Response.json(
@@ -66,7 +66,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText("Cross-site request rejected", 403);
   }
 
-  // Auth BEFORE any store read, same realm as site-dashboard.mts so the
+  // Auth BEFORE any store read, same realm as the pages so the
   // browser reuses creds when the inline fetch fires from /s/:slug.
   // Fired by fetch() from the dashboard page, so JSON — a 302 to Google inside
   // fetch() gives the script Google's HTML instead of something it can act on.
