@@ -1,5 +1,7 @@
 # Webflow conversions before 2026-10-19
 
+> `reddoor-maint webflow` and `src/webflow` were removed 2026-10-20 (OD 97(c)); the capture path is `scripts/webflow-capture`.
+
 Scoped 2026-09-29 by a worker session for BACKLOG Operator decisions 7. This is
 research and planning only: nothing was built, no repo was created, and no DNS,
 Netlify or Webflow setting was touched. Every measurement below comes from a
