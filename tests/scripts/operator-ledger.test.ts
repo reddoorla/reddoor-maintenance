@@ -526,6 +526,93 @@ describe("the asks, at the edges", () => {
   });
 });
 
+/** A home base with a README, for the one-scenario tests below. */
+function bareHome(tag: string) {
+  const dir = mkdtempSync(join(tmpdir(), `ledger-${tag}-`));
+  g(dir, ["init", "-q", "-b", "main"]);
+  mkdirSync(join(dir, "decisions"));
+  writeFileSync(join(dir, "decisions", "README.md"), "# Operator decisions\n");
+  return dir;
+}
+
+/** Write one ask whose `asked` need not match its name, and commit it at `date`. */
+function writeAsk(dir: string, date: string, name: string, asked: string, status: string) {
+  const text = decisionText(name, status).replace(/^asked: .*$/m, `asked: ${asked}`);
+  writeFileSync(join(dir, "decisions", name), text);
+  g(dir, ["add", "-A"]);
+  g(dir, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name], date);
+}
+
+describe("the asks, at round 5's edges", () => {
+  it("links a rename that corrects the ask time, so the old name never lingers", async () => {
+    const dir = bareHome("hhmm");
+    writeAsk(dir, "2026-10-14T00:10:00Z", "2026-10-14-0000-ask.md", "2026-10-14T00:05Z", "open");
+    g(dir, ["mv", "decisions/2026-10-14-0000-ask.md", "decisions/2026-10-14-0005-ask.md"]);
+    g(
+      dir,
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "mv"],
+      "2026-10-15T00:00:00Z",
+    );
+    const { asks } = await askTimelines(dir, "main");
+    expect(asks.map((x) => [x.file, x.events.map((e) => e.status)])).toEqual([
+      ["2026-10-14-0005-ask.md", ["open", "open"]],
+    ]);
+    const l = askLedger(asks, { start: START, end: END });
+    expect(l.unparsed).toEqual([]);
+    expect(l.open.map((o) => o.file)).toEqual(["2026-10-14-0005-ask.md"]);
+  });
+
+  it("counts once an ask whose name and asked time are both corrected after the week", async () => {
+    const dir = bareHome("both");
+    writeAsk(dir, "2026-10-14T00:10:00Z", "2026-10-14-0000-ask.md", "2026-10-14T00:00Z", "open");
+    g(dir, ["rm", "-q", "decisions/2026-10-14-0000-ask.md"]);
+    writeAsk(dir, "2026-10-21T00:00:00Z", "2026-10-14-0005-ask.md", "2026-10-14T00:05Z", "open");
+    const { asks } = await askTimelines(dir, "main");
+    const l = askLedger(asks, { start: START, end: END });
+    expect(l.open.map((o) => o.file)).toEqual(["2026-10-14-0005-ask.md"]);
+    expect(l.born).toHaveLength(1);
+    expect(l.backfilled).toEqual([]);
+  });
+
+  it("an ask born answered and deleted in the same week is still answered at birth", async () => {
+    const dir = bareHome("birth-deleted");
+    writeAsk(dir, "2026-10-14T00:10:00Z", "2026-10-14-0000-ab.md", "2026-10-14T00:00Z", "answered");
+    g(dir, ["rm", "-q", "decisions/2026-10-14-0000-ab.md"]);
+    g(
+      dir,
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rm"],
+      "2026-10-15T00:00:00Z",
+    );
+    const { asks } = await askTimelines(dir, "main");
+    const l = askLedger(asks, { start: START, end: END });
+    expect(l.atBirth).toEqual(["2026-10-14-0000-ab.md"]);
+    expect(l.answered).toEqual([]);
+  });
+
+  it("never reads a subfolder as an ask", async () => {
+    const dir = bareHome("subfolder");
+    mkdirSync(join(dir, "decisions", "archive"));
+    writeFileSync(join(dir, "decisions", "archive", "notes.md"), "# notes\n");
+    writeAsk(dir, "2026-10-14T00:10:00Z", "2026-10-14-0000-ask.md", "2026-10-14T00:00Z", "open");
+    const { asks } = await askTimelines(dir, "main");
+    expect(asks.map((x) => x.file)).toEqual(["2026-10-14-0000-ask.md"]);
+    expect(askLedger(asks, { start: START, end: END }).unparsed).toEqual([]);
+  });
+
+  it("dates the first ask in PT, not UTC", async () => {
+    const dir = bareHome("pt-date");
+    // 03:00Z on 10-02 is 8pm PT on 10-01.
+    writeAsk(dir, "2026-10-02T03:00:00Z", "2026-10-02-0000-ask.md", "2026-10-02T00:00Z", "open");
+    const l = await ledger(
+      { home: dir, week: "2026-10-05", rev: "main", repo: REPO, json: false },
+      { run: fakeGh(100) },
+    );
+    expect(formatLedger(l).split("\n")[0]).toContain(
+      " · PARTIAL the first ask reached main 2026-10-01;",
+    );
+  });
+});
+
 describe("GitHub lines", () => {
   it("names same-repo PRs from the title, and from the body only as the PR fixed", () => {
     expect(

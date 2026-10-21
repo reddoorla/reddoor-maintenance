@@ -149,19 +149,16 @@ export async function askTimelines(home, rev, run = realRunner) {
     .trim()
     .split("\t");
   const names = (
-    await git(run, home, [
-      "-c",
-      "core.quotePath=false",
-      "ls-tree",
-      "--name-only",
-      `${sha}:${DECISIONS_DIR}`,
-    ])
+    await git(run, home, ["-c", "core.quotePath=false", "ls-tree", `${sha}:${DECISIONS_DIR}`])
   )
     .split("\n")
-    .filter((n) => n !== "" && !IGNORED_ENTRIES.includes(n) && !n.startsWith("."));
+    // "<mode> <type> <sha>\t<name>": files only, so a subfolder is never read as an ask.
+    .filter((l) => / blob [0-9a-f]+\t/.test(l))
+    .map((l) => l.slice(l.indexOf("\t") + 1))
+    .filter((n) => !IGNORED_ENTRIES.includes(n) && !n.startsWith("."));
   // One log of the directory, renames only, never copies: every ask starts from the same
   // template, and --follow or -C would graft one ask's history onto another's. A rename
-  // counts only when both names carry the same YYYY-MM-DD-HHMM- prefix, the ask's time.
+  // counts only between two names of one ask (sameAsk below).
   const log = await git(run, home, [
     "-c",
     "core.quotePath=false",
@@ -182,12 +179,17 @@ export async function askTimelines(home, rev, run = realRunner) {
     const [commit, iso] = head.split("\t");
     const at = Date.parse(iso);
     const id = (p) => p.slice(0, ASK_ID_PREFIX);
+    const slug = (p) => p.slice(ASK_ID_PREFIX);
+    const top = (p) => !p.slice(DECISIONS_DIR.length + 1).includes("/");
+    // One ask under two names: both in decisions/ itself, sharing the ask time or the slug
+    // (a rename that corrects the time keeps the slug; one that renames the slug keeps the time).
+    const sameAsk = (p1, p2) => top(p1) && top(p2) && (id(p1) === id(p2) || slug(p1) === slug(p2));
     const changes = lines
       .map((l) => l.split("\t"))
       .filter(([st, p1]) => st && p1)
       .map(([st, p1, p2]) =>
         // A rename across ask times is two asks: the old one goes, a new one arrives.
-        st.startsWith("R") && id(p1) !== id(p2)
+        st.startsWith("R") && !sameAsk(p1, p2)
           ? [
               ["D", p1],
               ["A", p2],
@@ -198,8 +200,10 @@ export async function askTimelines(home, rev, run = realRunner) {
     // A delete and an add of the same ask time in one commit, alone on each side, is a
     // rename git scored below 50% (the answer grew); link them too.
     for (const del of changes.filter(([st]) => st === "D")) {
-      const adds = changes.filter(([st, p]) => st === "A" && id(p) === id(del[1]));
-      const dels = changes.filter(([st, p]) => st === "D" && id(p) === id(del[1]));
+      const adds = changes.filter(([st, p]) => st === "A" && sameAsk(p, del[1]));
+      const dels = changes.filter(
+        ([st, p]) => st === "D" && adds.length === 1 && sameAsk(p, adds[0][1]),
+      );
       if (adds.length === 1 && dels.length === 1) {
         adds[0].splice(0, 3, "R", del[1], adds[0][1]);
         del[0] = "-";
@@ -293,7 +297,7 @@ export function askLedger(asks, { start, end }) {
     if (a.asked >= start && a.asked < end) r.born.push({ file: a.file, kind: askKind(a.slug) });
     // Answered at birth: it reached main answered and stayed so; its latency means nothing.
     // Only events before the end decide it, so a closed week never changes afterwards.
-    const byEnd = a.events.filter((e) => e.at < end);
+    const byEnd = a.events.filter((e) => e.at < end && e.status !== "deleted");
     if (
       birth.status === "answered" &&
       byEnd.length &&
