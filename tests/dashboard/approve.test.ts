@@ -71,6 +71,31 @@ describe("approveReport — happy path", () => {
   });
 });
 
+/** #672 step 4: the approver is whoever the caller says the session is. */
+describe("approveReport — who approved", () => {
+  const AT = new Date("2026-06-11T15:30:00.000Z");
+
+  it("stamps the signed-in email on an approval", async () => {
+    const d = deps();
+    await approveReport(d, "recREP1", undefined, "op@example.com");
+    expect(d.approveReportRow).toHaveBeenCalledWith("recREP1", AT, "op@example.com");
+  });
+
+  it("stamps it on an override's approval and override alike", async () => {
+    const d = deps();
+    await approveReport(d, "recREP1", { reason: "client asked" }, "op@example.com");
+    expect(d.overrideReport).toHaveBeenCalledWith("recREP1", AT, "op@example.com", "client asked");
+  });
+
+  it("falls back to the dashboard marker when no one is signed in (the password fallback)", async () => {
+    for (const by of [null, "", "   "]) {
+      const d = deps();
+      await approveReport(d, "recREP1", undefined, by);
+      expect(d.approveReportRow).toHaveBeenCalledWith("recREP1", AT, "dashboard");
+    }
+  });
+});
+
 describe("approveReport — idempotency and guards", () => {
   it("is a no-op when the report is already approved (never re-writes, never un-approves)", async () => {
     const d = deps({

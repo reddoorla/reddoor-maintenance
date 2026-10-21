@@ -19,6 +19,7 @@ import { join } from "node:path";
  */
 
 import approveReportHandler from "../../netlify/functions/approve-report.mjs";
+import { mintSession, SESSION_COOKIE } from "../../src/dashboard/auth/session.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 import { sql } from "kysely";
@@ -166,6 +167,29 @@ describe("approve-report writes to Turso", () => {
     expect(row?.approved_to_send).toBe(1);
     expect(row?.approved_at).toBe(row?.override_at);
     expect(row?.approved_by).toBe("dashboard");
+  });
+
+  it("a signed-in approval records the operator's email, approve and override alike (#672 step 4)", async () => {
+    const secret = "test-session-secret-0123456789abcdef";
+    process.env.DASHBOARD_SESSION_SECRET = secret;
+    process.env.DASHBOARD_ALLOWED_EMAILS = "op@example.com";
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "id";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "secret";
+    const cookie = `${SESSION_COOKIE}=${encodeURIComponent(mintSession("op@example.com", secret, new Date()))}`;
+    await seedSite("recSiteE");
+    await seedReport("recREPE1", "recSiteE");
+    await seedReport("recREPE2", "recSiteE");
+    expect((await post("recREPE1", { headers: { cookie } })).status).toBe(200);
+    expect((await reportRow("recREPE1"))?.approved_by).toBe("op@example.com");
+    const res = await post("recREPE2", {
+      override: true,
+      reason: "client asked",
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const row = await reportRow("recREPE2");
+    expect(row?.approved_by).toBe("op@example.com");
+    expect(row?.override_by).toBe("op@example.com");
   });
 
   it("a minted report_<ULID> id is served too", async () => {

@@ -6,6 +6,7 @@ vi.mock("../../src/dashboard/approve.js", async (orig) => {
 });
 import { approveReport } from "../../src/dashboard/approve.js";
 import approveReportFn from "../../netlify/functions/approve-report.mjs";
+import { mintSession, SESSION_COOKIE } from "../../src/dashboard/auth/session.js";
 
 const approveMock = vi.mocked(approveReport);
 
@@ -71,7 +72,7 @@ describe("approve-report adapter — env + method gating", () => {
       { params: { id: "recREP1" } },
     );
     expect(res.status).toBe(200);
-    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1", undefined, null);
   });
 
   it("proceeds when no cross-site signal at all (no Sec-Fetch, no Origin, no Referer — legacy/non-browser)", async () => {
@@ -81,7 +82,7 @@ describe("approve-report adapter — env + method gating", () => {
       params: { id: "recREP1" },
     });
     expect(res.status).toBe(200);
-    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1", undefined, null);
   });
 
   it("proceeds when Sec-Fetch-Site is absent but the Origin host matches the request host", async () => {
@@ -93,7 +94,7 @@ describe("approve-report adapter — env + method gating", () => {
       { params: { id: "recREP1" } },
     );
     expect(res.status).toBe(200);
-    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1", undefined, null);
   });
 
   it("403s when Sec-Fetch-Site is absent and the Origin host is a different origin", async () => {
@@ -124,7 +125,7 @@ describe("approve-report adapter — env + method gating", () => {
       { params: { id: "recREP1" } },
     );
     expect(res.status).toBe(200);
-    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1", undefined, null);
   });
 
   it("401s an unauthenticated POST and never touches the handler", async () => {
@@ -176,7 +177,7 @@ describe("approve-report adapter — env + method gating", () => {
       params: { id: "recREP1" },
     });
     expect(res.status).toBe(200);
-    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1", undefined, null);
     expect(((await res.json()) as { status: string }).status).toBe("approved");
   });
 
@@ -200,5 +201,65 @@ describe("approve-report adapter — env + method gating", () => {
       params: { id: "recNOPE" },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+/** #672 step 4: an approval records who approved it, from the session. */
+describe("approve-report adapter — the approver is the session's email", () => {
+  const ORIGINAL_ENV = { ...process.env };
+  const SECRET = "test-session-secret-0123456789abcdef";
+
+  beforeEach(() => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.DASHBOARD_PASSWORD = "s3cret";
+    process.env.DASHBOARD_SESSION_SECRET = SECRET;
+    process.env.DASHBOARD_ALLOWED_EMAILS = "op@example.com";
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "id";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "secret";
+    delete process.env.CONTEXT;
+    approveMock.mockReset();
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  const session = () =>
+    `${SESSION_COOKIE}=${encodeURIComponent(mintSession("op@example.com", SECRET, new Date()))}`;
+
+  it("passes the signed-in email to approveReport", async () => {
+    const res = await approveReportFn(
+      post("recREP1", { cookie: session() }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "recREP1",
+      undefined,
+      "op@example.com",
+    );
+  });
+
+  it("ignores any approver the request body names", async () => {
+    const req = new Request("https://x/api/reports/recREP1/approve?override=1", {
+      method: "POST",
+      headers: { cookie: session(), "content-type": "application/json" },
+      body: JSON.stringify({
+        reason: "client asked",
+        approvedBy: "mallory@evil.example",
+        email: "mallory@evil.example",
+      }),
+    });
+    // @ts-expect-error — minimal Context
+    await approveReportFn(req, { params: { id: "recREP1" } });
+    expect(approveMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "recREP1",
+      { reason: "client asked" },
+      "op@example.com",
+    );
   });
 });
