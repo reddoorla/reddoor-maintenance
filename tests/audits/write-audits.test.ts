@@ -334,6 +334,22 @@ describe("writeBackOneSite", () => {
       expect(written.map((a) => [a.severity, a.lockfile])).toEqual([["high", true]]);
     });
 
+    it("two Dependabot alerts on one lockfile advisory, one per manifest, count once", async () => {
+      const pnpmSide = { ...sharp, cves: ["CVE-2026-4"], lockfile: true };
+      const perManifest = {
+        ...sharp,
+        severity: "moderate" as const,
+        cves: ["CVE-2026-4"],
+        lockfile: false,
+      };
+      const { fields } = await write(
+        row({ securityVulnsHigh: 1, securityAdvisories: [pnpmSide] }),
+        partialRun({ critical: 0, high: 0, moderate: 2, low: 0 }, [perManifest, perManifest]),
+      );
+      expect(fields).toMatchObject({ "Security Vulns High": 1, "Security Vulns Moderate": 0 });
+      expect(JSON.parse(fields["Security advisories"] as string)).toHaveLength(1);
+    });
+
     it("below the cap, keeps pnpm's unlisted count beside a new Dependabot alert", async () => {
       // pnpm's metadata said high 3 with one advisory in detail; tonight Dependabot finds a high
       // the row has never seen. Neither explains the other two, so they stay.

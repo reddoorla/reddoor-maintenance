@@ -158,13 +158,26 @@ export function planAuditWrite(args: {
       // One of tonight's the lockfile audit also reported stays the lockfile's: the louder
       // severity (as mergeAudits' combineAdvisories keeps it) and `lockfile: true`, so neither a
       // lower Dependabot rating nor a later night without it can clear what pnpm saw.
-      const tonight = advisories.map((b): SecurityAdvisory => {
+      // Each stored entry combines once: two alerts on one advisory (one per manifest) are one
+      // advisory, as mergeAudits counts them.
+      const louder = (x: SecurityAdvisory, y: SecurityAdvisory): SecurityAdvisory["severity"] =>
+        SEVERITY_RANK[x.severity] < SEVERITY_RANK[y.severity] ? x.severity : y.severity;
+      const combined = new Map<SecurityAdvisory, number>();
+      const tonight: SecurityAdvisory[] = [];
+      for (const b of advisories) {
         const a = stored.find((x) => x.lockfile !== false && sameAdvisory(x, b));
-        if (!a) return b;
-        const severity =
-          SEVERITY_RANK[a.severity] < SEVERITY_RANK[b.severity] ? a.severity : b.severity;
-        return { ...b, severity, lockfile: true };
-      });
+        if (!a) {
+          tonight.push(b);
+          continue;
+        }
+        const at = combined.get(a);
+        if (at !== undefined) {
+          tonight[at] = { ...tonight[at]!, severity: louder(tonight[at]!, b) };
+          continue;
+        }
+        combined.set(a, tonight.length);
+        tonight.push({ ...b, severity: louder(a, b), lockfile: true });
+      }
       const listed = (list: SecurityAdvisory[], s: SecurityAdvisory["severity"]): number =>
         list.filter((a) => a.severity === s).length;
       const storedCounts = {
