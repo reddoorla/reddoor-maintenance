@@ -6,6 +6,7 @@ import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { makeGitHubRest, type DependabotAlert } from "../github/gh-rest.js";
 import { readGitHubConfig } from "../github/config.js";
+import type { SecurityAdvisory } from "../fleet/site-row.js";
 
 type Severity = "low" | "moderate" | "high" | "critical";
 
@@ -578,6 +579,48 @@ function combineAdvisories(kept: AdvisoryEntry, other: AdvisoryEntry): AdvisoryE
     ...(relationship ? { relationship } : {}),
     ...(scope ? { scope } : {}),
   };
+}
+
+/** A partial night's result (#1561), merged with the stored row as a full night merges:
+ *  the stored advisories the lockfile audit found (or older, untagged ones) stand in for the
+ *  lockfile audit that could not run, and mergeAudits combines tonight's Dependabot alerts with
+ *  them, so severity, tag, relationship, scope and per-manifest folding follow one rule on
+ *  every night. Their count is the stored one less what Dependabot alone found; a stored count
+ *  beyond the capped list has no known source, so it stands, and mergeAudits' larger-of rule
+ *  keeps tonight's own overflow from adding to it. */
+export function mergePartialWithStored(
+  partial: AuditResult,
+  stored: { counts: Counts; advisories: SecurityAdvisory[] },
+): AuditResult {
+  const lockSide: AdvisoryEntry[] = stored.advisories
+    .filter((a) => a.lockfile !== false)
+    .map((a) => ({
+      module: a.module,
+      severity: a.severity,
+      title: a.title,
+      ...(a.cves.length > 0 ? { cves: a.cves } : {}),
+      ...(a.url ? { url: a.url } : {}),
+      ...(a.ghsa ? { ghsa: a.ghsa } : {}),
+      ...(a.scope ? { scope: a.scope } : {}),
+      ...(a.relationship ? { relationship: a.relationship } : {}),
+    }));
+  const listed = (list: Array<{ severity: Severity }>, s: Severity): number =>
+    list.filter((a) => a.severity === s).length;
+  const lockCounts: Counts = { low: 0, moderate: 0, high: 0, critical: 0 };
+  for (const s of Object.keys(lockCounts) as Severity[])
+    lockCounts[s] =
+      listed(lockSide, s) + Math.max(0, stored.counts[s] - listed(stored.advisories, s));
+  const merged = mergeAudits(
+    {
+      audit: "security",
+      site: partial.site,
+      status: "skip",
+      summary: "stored lockfile audit:",
+      details: { counts: lockCounts, advisories: lockSide },
+    },
+    partial,
+  );
+  return { ...partial, details: { ...(merged.details as object), partial: true } };
 }
 
 /** One result from the lockfile audit and Dependabot, for a repo whose lockfile the dependency

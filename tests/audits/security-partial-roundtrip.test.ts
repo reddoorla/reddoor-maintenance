@@ -274,4 +274,144 @@ describe("a partial security run through the Turso row and the auto-tick (#1561)
     await db.destroy();
     expect(highs).toEqual([1, 1]);
   });
+
+  // Review round 7: a partial night must read as the full night before it did, because both
+  // now go through mergeAudits. Each case runs a full night, then two partial nights.
+  async function fullThenPartials(
+    pnpmAdvisories: Record<string, unknown>[],
+    alerts: DependabotAlert[],
+    packageJson?: object,
+  ) {
+    const { db, write } = await freshDb();
+    const dir = mkdtempSync(join(tmpdir(), "security-partial-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), TWO_DOCUMENTS);
+    if (packageJson) writeFileSync(join(dir, "package.json"), JSON.stringify(packageJson));
+    const tally = { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
+    for (const a of pnpmAdvisories) tally[a["severity"] as keyof typeof tally] += 1;
+    const pnpmOut = JSON.stringify({
+      metadata: { vulnerabilities: tally },
+      advisories: Object.fromEntries(pnpmAdvisories.map((a, i) => [String(i + 1), a])),
+    });
+    const full = await write(
+      await securityAudit({
+        site: { path: dir, gitRepo: "reddoorla/acme" },
+        dependabotDeps: { listAlerts: async () => alerts },
+        spawn: async (cmd) => {
+          if (cmd !== "pnpm") throw new Error(`ENOENT: ${cmd}`);
+          return { code: 1, stdout: pnpmOut, stderr: "" };
+        },
+      }),
+    );
+    const first = await write(await partialRun(alerts));
+    const second = await write(await partialRun(alerts));
+    await db.destroy();
+    const view = (r: typeof full) => ({
+      counts: [
+        r.securityVulnsCritical,
+        r.securityVulnsHigh,
+        r.securityVulnsModerate,
+        r.securityVulnsLow,
+      ],
+      advisories: (r.securityAdvisories ?? [])
+        .map((a) => `${a.module}:${a.severity}:${a.relationship ?? "-"}`)
+        .sort(),
+    });
+    return { full: view(full), first: view(first), second: view(second) };
+  }
+  const sharpGhsa = { ghsaId: "GHSA-aaaa-bbbb-1001", cves: [] as string[] };
+
+  it("a partial night merges relationship as the full night does (round 7)", async () => {
+    const r = await fullThenPartials(
+      [
+        {
+          module_name: "sharp",
+          severity: "high",
+          title: "pnpm",
+          github_advisory_id: "GHSA-aaaa-bbbb-1001",
+        },
+      ],
+      [{ ...pkg1(sharpGhsa), package: "sharp", relationship: "transitive" }],
+    );
+    expect(r.first).toEqual(r.full);
+    expect(r.second).toEqual(r.full);
+  });
+
+  it("a second manifest's direct alert is not lost on a partial night (round 7)", async () => {
+    const r = await fullThenPartials(
+      [
+        {
+          module_name: "sharp",
+          severity: "high",
+          title: "pnpm",
+          github_advisory_id: "GHSA-aaaa-bbbb-1001",
+        },
+      ],
+      [
+        {
+          ...pkg1(sharpGhsa),
+          package: "sharp",
+          relationship: "transitive",
+          manifestPath: "a/package.json",
+        },
+        {
+          ...pkg1(sharpGhsa),
+          package: "sharp",
+          severity: "moderate",
+          relationship: "direct",
+          manifestPath: "b/package.json",
+        },
+      ],
+    );
+    expect(r.first).toEqual(r.full);
+    expect(r.second).toEqual(r.full);
+  });
+
+  it("two stored pnpm advisories one alert matches both stay (round 7)", async () => {
+    const r = await fullThenPartials(
+      [
+        {
+          module_name: "sharp",
+          severity: "high",
+          title: "pnpm G",
+          github_advisory_id: "GHSA-aaaa-bbbb-1001",
+        },
+        { module_name: "sharp", severity: "moderate", title: "pnpm legacy", cves: ["CVE-2026-9"] },
+      ],
+      [{ ...pkg1({ ghsaId: "GHSA-aaaa-bbbb-1001", cves: ["CVE-2026-9"] }), package: "sharp" }],
+    );
+    expect(r.first).toEqual(r.full);
+    expect(r.second).toEqual(r.full);
+  });
+
+  it("a Dependabot-only advisory on two manifests counts once on every night (round 7)", async () => {
+    const lodash = { ...pkg1({ ghsaId: "GHSA-cccc-dddd-2002", cves: [] }), package: "lodash" };
+    const r = await fullThenPartials(
+      [],
+      [
+        { ...lodash, manifestPath: "a/package.json" },
+        { ...lodash, manifestPath: "b/package.json" },
+      ],
+    );
+    expect(r.first).toEqual(r.full);
+    expect(r.second).toEqual(r.full);
+  });
+
+  it("a pnpm advisory's own transitive relationship carries through a partial night (round 7)", async () => {
+    // package.json names no sharp, so pnpm's entry is transitive; Dependabot agrees.
+    const r = await fullThenPartials(
+      [
+        {
+          module_name: "sharp",
+          severity: "high",
+          title: "pnpm",
+          github_advisory_id: "GHSA-aaaa-bbbb-1001",
+        },
+      ],
+      [{ ...pkg1(sharpGhsa), package: "sharp", relationship: "transitive" }],
+      { dependencies: { svelte: "^5.0.0" } },
+    );
+    expect(r.full.advisories).toEqual(["sharp:high:transitive"]);
+    expect(r.first).toEqual(r.full);
+    expect(r.second).toEqual(r.full);
+  });
 });

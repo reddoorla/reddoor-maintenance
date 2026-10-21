@@ -350,15 +350,16 @@ describe("writeBackOneSite", () => {
       expect(JSON.parse(fields["Security advisories"] as string)).toHaveLength(1);
     });
 
-    it("below the cap, keeps pnpm's unlisted count beside a new Dependabot alert", async () => {
+    it("below the cap, keeps pnpm's unlisted count as the larger, as a full night does (#1411)", async () => {
       // pnpm's metadata said high 3 with one advisory in detail; tonight Dependabot finds a high
-      // the row has never seen. Neither explains the other two, so they stay.
+      // the row has never seen. mergeAudits takes the larger of pnpm's count and the merged list
+      // (2), never their sum, on a full night and so on a partial one.
       const devalue = { ...sharp, module: "devalue", title: "prototype pollution" };
       const { fields } = await write(
         row({ securityVulnsHigh: 3, securityAdvisories: [{ ...sharp, lockfile: true }] }),
         partialRun({ critical: 0, high: 1, moderate: 0, low: 0 }, [devalue]),
       );
-      expect(fields["Security Vulns High"]).toBe(4);
+      expect(fields["Security Vulns High"]).toBe(3);
     });
 
     it("keeps a stored count the capped list does not explain", async () => {

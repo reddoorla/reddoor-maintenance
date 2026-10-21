@@ -4,7 +4,6 @@ import {
   type AuditFieldInputs,
   type WebsiteRow,
   auditFields,
-  MAX_PERSISTED_ADVISORIES,
   siteSlug,
   type FieldSet,
 } from "../fleet/site-fields.js";
@@ -21,8 +20,7 @@ import {
   securityCountsFromResult,
   advisoriesFromResult,
 } from "./security-fields.js";
-import { sameAdvisory } from "./security.js";
-import { SEVERITY_RANK, type SecurityAdvisory } from "../fleet/site-row.js";
+import { mergePartialWithStored } from "./security.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-fields.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-fields.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-fields.js";
@@ -144,63 +142,23 @@ export function planAuditWrite(args: {
     // Persist the advisory list alongside the counts so the dashboard can show which packages
     // are vulnerable. An empty array (clean run) clears any stale list.
     let advisories = advisoriesFromResult(sec);
-    // A partial run (#1561) re-read only Dependabot's side, so it replaces that side alone: a
-    // stored advisory the lockfile audit found (or an older one, untagged) stays unless tonight's
-    // list names it, one Dependabot alone found is dropped, and so is its count. A stored count
-    // beyond the capped list has no known source, so it stays. The timestamp is left as stored
-    // (securityPartial), so the row reads stale, not freshly clean.
+    // A partial run (#1561) re-read only Dependabot's side, so it replaces that side alone,
+    // through the same mergeAudits a full night uses (mergePartialWithStored): the stored
+    // advisories the lockfile audit found stand in for it, one Dependabot alone found is dropped.
+    // The timestamp is left as stored (securityPartial), so the row reads stale, not fresh.
     const partial = isPartialSecurityResult(sec);
     if (partial) {
-      const stored = target.securityAdvisories ?? [];
-      const kept = stored.filter(
-        (a) => a.lockfile !== false && !advisories.some((b) => sameAdvisory(a, b)),
-      );
-      // One of tonight's the lockfile audit also reported stays the lockfile's: the louder
-      // severity (as mergeAudits' combineAdvisories keeps it) and `lockfile: true`, so neither a
-      // lower Dependabot rating nor a later night without it can clear what pnpm saw.
-      // Each stored entry combines once: two alerts on one advisory (one per manifest) are one
-      // advisory, as mergeAudits counts them.
-      const louder = (x: SecurityAdvisory, y: SecurityAdvisory): SecurityAdvisory["severity"] =>
-        SEVERITY_RANK[x.severity] < SEVERITY_RANK[y.severity] ? x.severity : y.severity;
-      const combined = new Map<SecurityAdvisory, number>();
-      const tonight: SecurityAdvisory[] = [];
-      for (const b of advisories) {
-        const a = stored.find((x) => x.lockfile !== false && sameAdvisory(x, b));
-        if (!a) {
-          tonight.push(b);
-          continue;
-        }
-        const at = combined.get(a);
-        if (at !== undefined) {
-          tonight[at] = { ...tonight[at]!, severity: louder(tonight[at]!, b) };
-          continue;
-        }
-        combined.set(a, tonight.length);
-        tonight.push({ ...b, severity: louder(a, b), lockfile: true });
-      }
-      const listed = (list: SecurityAdvisory[], s: SecurityAdvisory["severity"]): number =>
-        list.filter((a) => a.severity === s).length;
-      const storedCounts = {
-        critical: target.securityVulnsCritical ?? 0,
-        high: target.securityVulnsHigh ?? 0,
-        moderate: target.securityVulnsModerate ?? 0,
-        low: target.securityVulnsLow ?? 0,
-      };
-      // At the cap, the unlisted part can be tonight's own alerts the list had no room for, so
-      // each of tonight's the stored list does not name is taken out of it; else every partial
-      // night would add the overflow again.
-      const capped = stored.length >= MAX_PERSISTED_ADVISORIES;
-      const unnamed = (s: SecurityAdvisory["severity"]): number =>
-        advisories.filter((b) => b.severity === s && !stored.some((a) => sameAdvisory(a, b)))
-          .length;
-      const next = { ...counts };
-      for (const s of ["critical", "high", "moderate", "low"] as const)
-        next[s] =
-          listed(tonight, s) +
-          listed(kept, s) +
-          Math.max(0, storedCounts[s] - listed(stored, s) - (capped ? unnamed(s) : 0));
-      counts = next;
-      advisories = [...tonight, ...kept];
+      const merged = mergePartialWithStored(sec, {
+        counts: {
+          critical: target.securityVulnsCritical ?? 0,
+          high: target.securityVulnsHigh ?? 0,
+          moderate: target.securityVulnsModerate ?? 0,
+          low: target.securityVulnsLow ?? 0,
+        },
+        advisories: target.securityAdvisories ?? [],
+      });
+      counts = securityCountsFromResult(merged);
+      advisories = advisoriesFromResult(merged);
     }
     audits.security = counts;
     audits.securityAdvisories = advisories;
