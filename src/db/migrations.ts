@@ -686,8 +686,8 @@ export const MIGRATIONS: Migration[] = [
     // The cockpit snapshot's change counter (the operator, 2026-10-21, workspace
     // decisions/2026-10-21-2339-cockpit-snapshot-version-stamp.md). One row, bumped
     // by a trigger on every insert, update and delete of every table the snapshot
-    // reads, whoever writes, so the cockpit can ask "has anything changed?" with one
-    // primary-key read before it reads everything. The tables are frozen here, as a
+    // reads, whoever writes, so the open cockpit can ask "has anything changed?" with
+    // one primary-key read, and offer a reload when it has. The tables are frozen here, as a
     // shipped script must be; a table added to the snapshot later needs its own
     // migration, and tests/db/cockpit-version.test.ts fails until it has one.
     // Never drop cockpit_version by hand while the triggers exist: every write to

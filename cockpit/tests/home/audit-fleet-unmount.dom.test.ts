@@ -5,7 +5,7 @@ import { RF_KEY, RF_POLL_MS } from "../../src/lib/cockpit/fleet-refresh.js";
 
 /**
  * The fleet-audit panel follows a running audit by polling its status. Since the
- * cockpit navigates in the browser and remounts a page on each fresh snapshot,
+ * cockpit navigates in the browser and mounts each page afresh on navigation,
  * the panel can unmount mid-audit: its poll must stop with it, or it doubles up
  * with the next panel's and, once the audit is done, reloads whatever page the
  * operator moved on to.

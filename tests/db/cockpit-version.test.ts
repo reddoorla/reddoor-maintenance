@@ -8,9 +8,10 @@ import { DATABASE_TABLES } from "../../src/db/schema.js";
 /**
  * The cockpit snapshot's change counter (migration 0048; the operator's choice,
  * workspace decisions/2026-10-21-2339-cockpit-snapshot-version-stamp.md). The
- * cockpit skips a full re-read when the counter has not moved, so a write that
- * fails to move it would leave the operator looking at old data: every write to
- * every table the snapshot reads must move it, and nothing else may be needed.
+ * cockpit offers a reload only when the counter has moved, so a write that fails
+ * to move it would leave the operator looking at old data with no notice: every
+ * write to every table the snapshot reads must move it, and nothing else may be
+ * needed.
  */
 
 /** The tables with no trigger, each for a reason. Every other table the app

@@ -10,7 +10,7 @@ import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 
 /**
  * `/api/cockpit/version`: the store's change counter, which the open cockpit
- * compares with its snapshot's before reading everything again. It must agree
+ * compares with its snapshot's to know whether to offer a reload. It must agree
  * with the snapshot when nothing changed, move when anything the snapshot shows
  * did (the brief's mutation 5: a new submission), and say nothing to a stranger.
  */
@@ -52,7 +52,7 @@ describe("/api/cockpit/version", () => {
     expect(first.res.headers.get("cache-control")).toBe("private, no-store");
     expect(first.body?.version).toBe(snapshot.version);
 
-    // Nothing written: the same answer, so the cockpit reads nothing more.
+    // Nothing written: the same answer, so the cockpit shows no notice.
     expect((await ask()).body?.version).toBe(snapshot.version);
 
     // A lead arrives through the ingest path's own writer.

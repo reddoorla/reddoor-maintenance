@@ -62,8 +62,7 @@ export type FreshnessEnv = {
 };
 
 export type FreshnessController = {
-  /** Ask whether anything changed (focus, the tab coming back, the interval). */
-  check: () => Promise<void>;
+  /** Remove the interval and the listeners. */
   stop: () => void;
 };
 
@@ -71,8 +70,9 @@ export type FreshnessController = {
  * The open cockpit's freshness check, one per page load (`+layout.svelte`):
  * about every `CHECK_EVERY_MS` while the tab is visible, on coming back to the
  * tab and on window focus, one check at a time. Once the store is newer it calls
- * `onNewer` and stops: the notice stays until the operator reloads. Once the
- * session has ended it stops too.
+ * `onNewer`, and every later check does nothing (the notice stays until the
+ * operator reloads); the same once the session has ended. `stop` removes the
+ * interval and the listeners.
  */
 export function startFreshness(
   getSnapshot: () => Pick<CockpitSnapshot, "version"> | null,
@@ -110,5 +110,5 @@ export function startFreshness(
     clearInterval(timer);
     for (const remove of removers) remove();
   };
-  return { check, stop };
+  return { stop };
 }
