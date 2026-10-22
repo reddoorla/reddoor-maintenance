@@ -126,12 +126,29 @@ jobs:
           # replaced. The threshold belongs after the rollout, not before it.
           # `|| true`: grep -c exits 1 on zero matches, which `set -e` would
           # treat as a step failure.
+          #
+          # A /health that could not be read (timeout, non-2xx, not JSON) also
+          # refuses the probe, but it is not an undeclared site: on 2026-10-22
+          # vineyard-custom-homes, which declares testMode, timed out once and was
+          # listed as undeclared (P1-68). It is counted and named apart, with its
+          # reason, and still listed on the UNCOVERED line, because it is.
           selfskipped=$(grep -c "does not declare forms.testMode" "$out" || true)
-          echo "FLEET_FORM_E2E skipped=$selfskipped total=$total"
-          uncovered=$(grep -B1 "does not declare forms.testMode" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          unreadable=$(grep -c "site /health could not be read" "$out" || true)
+          echo "FLEET_FORM_E2E skipped=$selfskipped unreadable=$unreadable total=$total"
+          undeclared=$(grep -B1 "does not declare forms.testMode" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          # "site (reason), …" from each summary and the result line above it.
+          unread=$(awk '/site \/health could not be read \(/ && prev ~ /^form-e2e +skip / {
+              split(prev, f, " "); r = $0
+              sub(/.*could not be read \(/, "", r); sub(/\) — probe refused.*/, "", r)
+              out = out (out == "" ? "" : ", ") f[3] " (" r ")"
+            } { prev = $0 } END { print out }' "$out")
+          uncovered=$(grep -B1 -E "does not declare forms.testMode|site /health could not be read" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
           echo "FLEET_FORM_E2E_UNCOVERED sites=${uncovered:-none}"
           if [ "$selfskipped" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight: ${uncovered:-unnamed}."
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight: ${undeclared:-unnamed}."
+          fi
+          if [ "$unreadable" -gt 0 ]; then
+            echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: ${unread:-unnamed}."
           fi
 
           # Surface every partial miss as a visible warning.
@@ -227,7 +244,7 @@ jobs:
           probed=$(grep -cE "^form-e2e +(pass|warn) +" "$out" || true)
           echo "FLEET_FORM_E2E probed=$probed"
           if [ "$probed" -eq 0 ]; then
-            echo "::error::fleet form-e2e probed no site end to end: $selfskipped of $total self-skipped (${uncovered:-none}), and the probe drove no other site."
+            echo "::error::fleet form-e2e probed no site end to end: $selfskipped of $total self-skipped and $unreadable unreadable (${uncovered:-none}), and the probe drove no other site."
             exit 1
           fi
 

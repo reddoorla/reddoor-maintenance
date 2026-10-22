@@ -186,6 +186,8 @@ type Encoding = "json" | "urlencoded" | "multipart" | "file";
 
 type Fixture = {
   health: unknown;
+  /** The /health status (default 200). */
+  healthStatus?: number;
   banner: boolean;
   resetSelect?: boolean;
   disabledSubmit?: boolean;
@@ -214,11 +216,13 @@ let server: Server;
 let base: string;
 let fixture: Fixture;
 let posts: Posted[];
+let healthReads = 0;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.method === "GET" && req.url === "/health") {
-      res.writeHead(200, { "content-type": "application/json" });
+      healthReads++;
+      res.writeHead(fixture.healthStatus ?? 200, { "content-type": "application/json" });
       res.end(JSON.stringify(fixture.health));
       return;
     }
@@ -541,6 +545,15 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
   it("submits NOTHING to a site whose /health does not declare forms.testMode", async () => {
     const out = await submit({ health: { ok: true, forms: { turnstile: false } }, banner: true });
     expect(out).toEqual({ testModeUndeclared: true });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  // P1-68: an unreadable /health refuses the submit like an undeclared one, but says so.
+  it("submits NOTHING when /health answers 503, and names the status", async () => {
+    healthReads = 0;
+    const out = await submit({ health: DECLARED, healthStatus: 503, banner: true });
+    expect(out).toEqual({ testModeUndeclared: true, healthUnreadable: "HTTP 503" });
+    expect(healthReads).toBe(2);
     expect(posts).toHaveLength(0);
   }, 90_000);
 

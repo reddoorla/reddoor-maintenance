@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   formE2eAudit,
   declaresTestModeForwarding,
+  readFormsHealth,
+  formE2eHealthUnreadableSummary,
   findFormPath,
   isSameSitePost,
   noBannerDetail,
@@ -404,6 +406,142 @@ describe("audits/form-e2e declaresTestModeForwarding", () => {
   it("false (fail-closed) on a non-object body", async () => {
     stubHealth({ ok: true, body: "ok" });
     expect(await declaresTestModeForwarding("https://acme.example.com")).toBe(false);
+  });
+});
+
+/**
+ * P1-68: on 2026-10-22 07:13Z vineyard-custom-homes self-skipped as "does not
+ * declare forms.testMode" while its /health hardcodes `testMode: true` and served
+ * it on the same deploy before and after. Its site took 9.9995 s against the 10 s
+ * /health timeout: the read failed, and the reader reported the failure as an
+ * absent declaration. An unreadable /health still refuses the submit (fail-closed
+ * is the safety property), but it says so, and one retry absorbs a slow answer.
+ */
+describe("audits/form-e2e readFormsHealth — unreadable is not undeclared (P1-68)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Vineyard's /health body exactly as it served it on 2026-10-22. */
+  const VINEYARD_HEALTH = {
+    ok: true,
+    prismic: "ok",
+    forms: { ingestUrl: true, ingestToken: true, turnstile: true, testMode: true },
+  };
+
+  type Answer = { status: number; body?: unknown } | "timeout" | "throw" | "refused" | "not-json";
+
+  /** Stub fetch to answer each /health call in turn; returns the call counter. */
+  function stubAnswers(...answers: Answer[]): { calls: number } {
+    const seen = { calls: 0 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: URL | string) => {
+        expect(String(url)).toBe("https://vineyard.example.com/health");
+        const a = answers[Math.min(seen.calls, answers.length - 1)] ?? "throw";
+        seen.calls++;
+        if (a === "timeout") {
+          throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        }
+        if (a === "throw") throw new TypeError("fetch failed");
+        if (a === "refused") {
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+          });
+        }
+        if (a === "not-json") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => {
+              throw new SyntaxError("Unexpected token '<'");
+            },
+          } as unknown as Response;
+        }
+        return {
+          ok: a.status >= 200 && a.status < 300,
+          status: a.status,
+          json: async () => a.body,
+        } as Response;
+      }),
+    );
+    return seen;
+  }
+
+  const BASE = "https://vineyard.example.com";
+
+  it("reads Vineyard's own declaration as testMode:true, with nothing unreadable", async () => {
+    stubAnswers({ status: 200, body: VINEYARD_HEALTH });
+    expect(await readFormsHealth(BASE)).toEqual({ testMode: true, turnstile: true });
+  });
+
+  it("a /health that times out once and then answers is read, not skipped (the 10-22 night)", async () => {
+    const seen = stubAnswers("timeout", { status: 200, body: VINEYARD_HEALTH });
+    expect(await readFormsHealth(BASE)).toEqual({ testMode: true, turnstile: true });
+    expect(seen.calls).toBe(2);
+  });
+
+  it("a /health that times out twice refuses the submit and names the timeout", async () => {
+    const seen = stubAnswers("timeout");
+    expect(await readFormsHealth(BASE)).toEqual({
+      testMode: false,
+      turnstile: null,
+      unreadable: "timed out after 10s",
+    });
+    expect(seen.calls).toBe(2);
+  });
+
+  it("names a non-2xx status", async () => {
+    stubAnswers({ status: 503, body: {} });
+    expect((await readFormsHealth(BASE)).unreadable).toBe("HTTP 503");
+  });
+
+  it("names a body that is not JSON", async () => {
+    stubAnswers("not-json");
+    expect((await readFormsHealth(BASE)).unreadable).toBe("body is not JSON");
+  });
+
+  it("names a network failure", async () => {
+    stubAnswers("throw");
+    expect((await readFormsHealth(BASE)).unreadable).toBe("fetch failed");
+  });
+
+  it("names the network error's code, not undici's bare \"fetch failed\"", async () => {
+    stubAnswers("refused");
+    expect((await readFormsHealth(BASE)).unreadable).toBe("ECONNREFUSED");
+  });
+
+  it("names a JSON body that is not an object", async () => {
+    stubAnswers({ status: 200, body: null });
+    expect((await readFormsHealth(BASE)).unreadable).toBe("body is not a JSON object");
+  });
+
+  it("an unreadable first read and an undeclared second read is plain undeclared", async () => {
+    const seen = stubAnswers("timeout", { status: 200, body: { ok: true, forms: {} } });
+    expect(await readFormsHealth(BASE)).toEqual({ testMode: false, turnstile: null });
+    expect(seen.calls).toBe(2);
+  });
+
+  it("a readable /health with no declaration is undeclared, not unreadable, and is read once", async () => {
+    const seen = stubAnswers({ status: 200, body: { ok: true, forms: { turnstile: true } } });
+    expect(await readFormsHealth(BASE)).toEqual({ testMode: false, turnstile: true });
+    expect(seen.calls).toBe(1);
+  });
+
+  it("the audit names an unreadable /health instead of calling it undeclared", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: {
+        submit: async () => ({ testModeUndeclared: true, healthUnreadable: "timed out after 10s" }),
+      },
+    });
+    expect(r.status).toBe("skip");
+    expect(r.summary).toBe(formE2eHealthUnreadableSummary("timed out after 10s"));
+    expect(r.summary).toContain("timed out after 10s");
+    expect(r.summary).not.toMatch(/does not declare/);
+    // The same write shape as the undeclared skip: no stamp, the widget verdict cleared.
+    expect(r.details).toEqual({ checkedAt: NOW.toISOString(), turnstileWidget: null });
   });
 });
 
