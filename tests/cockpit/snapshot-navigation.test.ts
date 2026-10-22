@@ -423,6 +423,29 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(await page.locator(".cockpit-newer").count()).toBe(0);
   });
 
+  it("a check that finds the session ended makes the next navigation a full load, and says nothing", async () => {
+    // Review round 1 of the notice: the layout's wiring of the session check had
+    // no test.
+    const page = await signedIn();
+    await page.route("**/api/cockpit/version", (r) =>
+      r.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, error: "unauthorized" }),
+      }),
+    );
+    await page.goto(`${origin}/fleet`);
+    await page.waitForLoadState("networkidle");
+    const answered = page.waitForResponse((r) => r.url().endsWith("/api/cockpit/version"));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await answered;
+    await expect
+      .poll(() => page.evaluate(() => document.body.hasAttribute("data-sveltekit-reload")))
+      .toBe(true);
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
+    expect(page.url()).toBe(`${origin}/fleet`);
+  });
+
   it("a signed-out browser gets no snapshot", async () => {
     const context = await browser.newContext();
     const page = await context.newPage();

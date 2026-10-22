@@ -60,12 +60,14 @@
 </script>
 
 <Shell email={data.email} path={data.path}>
-  {#if newer}
-    <div class="cockpit-newer" role="status">
-      The store has changed since this page was read.
+  <!-- The live region is always there, so a screen reader announces what
+       appears in it. -->
+  <div class={newer ? "cockpit-newer" : undefined} role="status">
+    {#if newer}
+      Newer data is available.
       <button type="button" onclick={() => location.reload()}>Reload</button>
-    </div>
-  {/if}
+    {/if}
+  </div>
   <!-- A fresh mount per page, as when every link was a full page load: no
        button's "working…" state or local filter carries over to the next page
        now that navigation stays in the browser (the snapshot). -->

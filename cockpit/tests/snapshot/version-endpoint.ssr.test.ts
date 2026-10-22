@@ -75,6 +75,8 @@ describe("/api/cockpit/version", () => {
     await openDb({ url });
     const out = await ask({});
     expect([401, 403]).toContain(out.res.status);
+    // No answer from this route may be cached, a denial included.
+    expect(out.res.headers.get("cache-control")).toBe("private, no-store");
     expect(out.body?.version).toBeUndefined();
     expect((await ask(authHeader("s3cret"), "POST")).res.status).toBe(405);
   });
