@@ -56,11 +56,7 @@ const $$ = <T extends Element = HTMLElement>(sel: string) =>
 
 function lastCall() {
   const call = fetchMock.mock.calls.at(-1)!;
-  // Every post carries its deadline's signal (lib/post.ts, pinned in
-  // tests/snapshot/reload.dom.test.ts); what the control sends is the rest.
-  const { signal, ...init } = call[1] as RequestInit;
-  expect(signal).toBeInstanceOf(AbortSignal);
-  return { url: call[0] as string, init };
+  return { url: call[0] as string, init: call[1] as RequestInit };
 }
 
 beforeEach(() => {

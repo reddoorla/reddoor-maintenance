@@ -88,22 +88,6 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
-  await db
-    .insertInto("submissions")
-    .values({
-      id: "sub-auto",
-      site_id: "recB",
-      form_type: "contact",
-      name: "Sam",
-      email: "sam@filtered.example",
-      message: "Hello",
-      status: "spam_auto",
-      spam_score: 7,
-      spam_reason: "links",
-      notify_status: "skipped",
-      submitted_at: new Date().toISOString(),
-    } as never)
-    .execute();
   await db.destroy();
 }
 
@@ -288,7 +272,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(documents).toEqual(["/no-such-page", "/submissions"]);
   });
 
-  it("after a change, the page shows it at once, with no full load", async () => {
+  it("after a change, the next navigation is a full load and shows it", async () => {
     const page = await signedIn();
     const documents: string[] = [];
     page.on("request", (r) => {
@@ -296,29 +280,23 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     });
     await page.goto(`${origin}/submissions?status=new`);
     await page.waitForLoadState("networkidle");
-    const row = page.locator("li.subm-item", { hasText: "pat@example.com" });
-    expect(await row.count()).toBe(1);
+    expect(await page.content()).toContain("pat@example.com");
     const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
-    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
-    await row.locator("button", { hasText: /^Archive$/ }).click();
-    expect((await posted).status()).toBe(200);
-    // The snapshot is read again and this very page re-derives: the lead has left
-    // the "new" bucket without a reload.
-    expect((await reread).status()).toBe(200);
-    await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(0);
+    await page
+      .locator("button", { hasText: /^Archive$/ })
+      .first()
+      .click();
+    const resp = await posted;
+    expect(resp.status()).toBe(200);
     await follow(page, "/submissions", "Submissions");
-    await expect
-      .poll(
-        () => page.locator("li.subm-item", { hasText: "pat@example.com" }).first().textContent(),
-        {
-          timeout: 10_000,
-        },
-      )
-      .toContain("archived");
-    expect(documents).toEqual(["/submissions"]);
+    // A fresh read: the lead's row now says archived, and only an "archived"
+    // status button state could have come from the server.
+    const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
+    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("archived");
+    expect(documents).toEqual(["/submissions", "/submissions"]);
   });
 
-  it("after a change, Back and Forward show it too, still without a full load", async () => {
+  it("after a change, Back and Forward load the page in full too", async () => {
     const page = await signedIn();
     const documents: string[] = [];
     page.on("request", (r) => {
@@ -328,23 +306,37 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.waitForLoadState("networkidle");
     await follow(page, "/submissions", "Submissions");
     const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
-    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
     await page
       .locator("li.subm-item", { hasText: "pat@example.com" })
       .locator("button", { hasText: /^Spam$/ })
       .click();
     expect((await posted).status()).toBe(200);
-    await reread;
+    // Back lands on `/` and reloads it in full. Mark this document, so the wait
+    // below is for a new one, fully loaded and hydrated, before stepping Forward:
+    // a step taken while the reload is in flight aborts it.
+    await page.evaluate(() => Object.assign(window, { __beforeBack: true }));
     await page.goBack();
     await page.waitForURL(`${origin}/`);
+    await page.waitForFunction(
+      () =>
+        !("__beforeBack" in window) &&
+        document.readyState === "complete" &&
+        document.querySelector("a[href='/submissions']") !== null,
+      undefined,
+      { timeout: 15_000 },
+    );
+    await page.waitForLoadState("networkidle");
+    expect(documents).toEqual(["/", "/"]);
     await page.goForward();
     await page.waitForURL(`${origin}/submissions`);
+    // That reload read a fresh snapshot, so Forward derives in the browser and
+    // already shows the change.
     const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
     await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("spam");
-    expect(documents).toEqual(["/"]);
+    expect(documents).toEqual(["/", "/"]);
   });
 
-  it("on focus: nothing changed reads only the counter; a lead written elsewhere shows", async () => {
+  it("on focus with nothing changed, one counter read and no notice", async () => {
     const page = await signedIn();
     const data: string[] = [];
     const checks: number[] = [];
@@ -356,484 +348,79 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     });
     await page.goto(`${origin}/submissions`);
     await page.waitForLoadState("networkidle");
-    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
-
-    // Nothing written since the page loaded: one counter read, no snapshot read.
-    await focus();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect.poll(() => checks.length, { timeout: 10_000 }).toBe(1);
     await page.waitForLoadState("networkidle");
     expect(checks).toEqual([200]);
     expect(data).toEqual([]);
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
+  });
 
-    // Another writer (the form-ingest path, here directly) adds a lead.
+  it("a change elsewhere shows a notice and leaves the page as it is until the operator reloads", async () => {
+    // The operator's decision 2026-10-22-1541: the page never changes under
+    // them; a notice says the store moved, and they reload when they choose.
+    const page = await signedIn();
+    const data: string[] = [];
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    await page.goto(`${origin}/s/acme`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const contact = page.locator("input[data-detail-field='pointOfContact']");
+    await contact.fill("half typed");
+
     const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
     await db
       .insertInto("submissions")
       .values({
-        id: "sub-elsewhere",
+        id: "sub-notice",
         site_id: "recB",
         form_type: "contact",
-        name: "Robin",
-        email: "robin@elsewhere.example",
+        name: "Noor",
+        email: "noor@elsewhere.example",
         status: "new",
         notify_status: "sent",
         submitted_at: new Date().toISOString(),
       } as never)
       .execute();
     await db.destroy();
-    await focus();
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
-    await expect
-      .poll(() => page.content(), { timeout: 10_000 })
-      .toContain("robin@elsewhere.example");
-  });
-
-  it("after a change a row's buttons post what they say, the page taking the read in place", async () => {
-    // Review round 1: buttons keyed by position kept their old labels over the
-    // next button's action once the row re-derived ("Archive" posted spam).
-    const page = await signedIn();
-    await page.goto(`${origin}/submissions`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const row = page.locator("li.subm-item", { hasText: "sam@filtered.example" });
-    const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
-    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
-    await row.locator("button", { hasText: "Not spam" }).click();
-    expect((await posted).status()).toBe(200);
-    await reread;
-    // The read after the page's own post is taken in place (review round 4).
-    await expect.poll(() => row.locator("button", { hasText: "Not spam" }).count()).toBe(0);
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-    const buttons = await row
-      .locator("button.subm-status")
-      .evaluateAll((els) => els.map((b) => [b.textContent?.trim(), b.getAttribute("data-status")]));
-    expect(buttons).toEqual([
-      ["Read", "read"],
-      ["Archive", "archived"],
-      ["Spam", "spam"],
-    ]);
-  });
-
-  it("an unchanged check keeps the page as it is; a refresh waits while a field is in use", async () => {
-    const page = await signedIn();
-    const data: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().includes("__data.json")) data.push(r.url());
-    });
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    const versionAnswer = () =>
-      page.waitForResponse((r) => r.url().endsWith("/api/cockpit/version"));
-
-    // Nothing changed: the page is not remounted.
-    const answered = versionAnswer();
-    await focus();
-    await answered;
-    await page.waitForLoadState("networkidle");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => page.locator(".cockpit-newer").count(), { timeout: 10_000 }).toBe(1);
+    // Nothing read, nothing redrawn, nothing typed lost.
     expect(data).toEqual([]);
-
-    // The operator starts typing in a field; meanwhile a lead arrives elsewhere.
-    const field = page.locator("input[data-detail-field='pointOfContact']");
-    await field.click();
-    await field.pressSequentially("Half-typed");
-    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-    await db
-      .insertInto("submissions")
-      .values({
-        id: "sub-while-typing",
-        site_id: "recB",
-        form_type: "contact",
-        name: "Kai",
-        email: "kai@elsewhere.example",
-        status: "new",
-        notify_status: "sent",
-        submitted_at: new Date().toISOString(),
-      } as never)
-      .execute();
-    await db.destroy();
-    await focus();
-    await page.waitForTimeout(500);
-    // No refresh while the field is in use: the text stays, the page stays.
-    expect(data).toEqual([]);
-    expect(await field.inputValue()).toBe("Half-typed");
     expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-    // The operator moves on to a non-field (the page heading): the refresh runs
-    // (the field's own save posts first, as it always did on blur).
-    await page.locator("h1").click();
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(await contact.inputValue()).toBe("half typed");
+
+    // The next navigation reads the store afresh: a full load.
+    await follow(page, "/submissions", "Submissions");
+    expect(documents).toEqual(["/s/acme", "/submissions"]);
+    expect(await page.content()).toContain("noor@elsewhere.example");
   });
 
-  it("a failed save keeps what the operator typed and its ✗; the page is not remounted", async () => {
-    // Review round 2: a refresh after every post remounted the page, so a save
-    // the server refused put the stored value back and dropped the ✗, and the
-    // retry on the next blur (DetailField) never came.
+  it("the notice's Reload loads the page in full", async () => {
     const page = await signedIn();
-    await page.route("**/api/sites/acme/details", (r) => r.fulfill({ status: 500, body: "down" }));
-    const data: string[] = [];
+    const documents: string[] = [];
     page.on("request", (r) => {
-      if (r.url().includes("__data.json")) data.push(r.url());
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
     });
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const field = page.locator("input[data-detail-field='url']");
-    await field.fill("operator typed this");
-    const posted = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    await page.locator("h1").click();
-    expect((await posted).status()).toBe(500);
-    // The action still reads the snapshot again; the counter has not moved.
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
-    await page.waitForLoadState("networkidle");
-    expect(await field.inputValue()).toBe("operator typed this");
-    expect(await page.locator(".detail-saved[data-for='url']").textContent()).toContain("✗");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-  });
-
-  it("a failed save keeps its text and ✗ after an earlier save of its own", async () => {
-    // Review round 3: the operator saves one field, tabs to the next, and that
-    // save fails; the refresh the first save left waiting remounted the page
-    // (the counter had moved) and took the second field's text and ✗ with it.
-    // Since round 4 that read is the page's own and is taken in place.
-    const page = await signedIn();
-    await page.route("**/api/sites/acme/details", async (r) => {
-      const body = r.request().postDataJSON() as { field?: string };
-      if (body.field !== "pointOfContact") return r.continue();
-      // Slower than the snapshot read, so a remount that did not wait for the
-      // answer would land before it, and its ✗ with the old field.
-      await new Promise((done) => setTimeout(done, 1500));
-      return r.fulfill({ status: 500, body: "down" });
-    });
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const url = page.locator("input[data-detail-field='url']");
-    const contact = page.locator("input[data-detail-field='pointOfContact']");
-    await url.fill("https://acme.example.org");
-    const first = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    await contact.click();
-    expect((await first).status()).toBe(200);
-    await contact.fill("Typed B");
-    const second = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    await page.locator("h1").click();
-    expect((await second).status()).toBe(500);
-    // The first save moved the counter; the read after the posts is the page's
-    // own, so B stays where it is, ✗ and all.
-    await page.waitForLoadState("networkidle");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-    expect(await url.inputValue()).toBe("https://acme.example.org");
-    expect(await contact.inputValue()).toBe("Typed B");
-    expect(await page.locator(".detail-saved[data-for='pointOfContact']").textContent()).toContain(
-      "✗",
-    );
-  });
-
-  it("a failed save keeps its text and ✗ through a remount for a write elsewhere", async () => {
-    const page = await signedIn();
-    await page.route("**/api/sites/acme/details", (r) => r.fulfill({ status: 500, body: "down" }));
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const contact = page.locator("input[data-detail-field='pointOfContact']");
-    await contact.fill("Typed elsewhere");
-    const posted = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    const ownRead = page.waitForResponse((r) => r.url().includes("__data.json"));
-    await page.locator("h1").click();
-    expect((await posted).status()).toBe(500);
-    // The post's own read lands first; the write elsewhere comes after it.
-    await ownRead;
-    await page.waitForLoadState("networkidle");
-    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-    await db
-      .updateTable("sites")
-      .set({ name: "Beta, once more" } as never)
-      .where("id", "=", "recB")
-      .execute();
-    await db.destroy();
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect
-      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), { timeout: 10_000 })
-      .toBe(0);
-    expect(await contact.inputValue()).toBe("Typed elsewhere");
-    expect(await page.locator(".detail-saved[data-for='pointOfContact']").textContent()).toContain(
-      "✗",
-    );
-    // And the next blur retries it, as before.
-    const retried = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    await contact.click();
-    await page.locator("h1").click();
-    expect(JSON.parse((await retried).request().postData() ?? "{}")).toEqual({
-      field: "pointOfContact",
-      value: "Typed elsewhere",
-    });
-  });
-
-  it("a read that lands while the operator has stepped into a field waits for them", async () => {
-    // Review round 3: a check already under way when the operator clicked into
-    // a field remounted the page under their cursor.
-    const page = await signedIn();
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    let release: () => void = () => undefined;
-    const held = new Promise<void>((r) => (release = r));
-    await page.route("**/__data.json*", async (r) => {
-      await held;
-      await r.continue();
-    });
-    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-    await db
-      .updateTable("sites")
-      .set({ name: "Beta, while typing" } as never)
-      .where("id", "=", "recB")
-      .execute();
-    await db.destroy();
-    const read = page.waitForResponse((r) => r.url().includes("__data.json"));
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.waitForRequest((r) => r.url().includes("__data.json"));
-    const contact = page.locator("input[data-detail-field='pointOfContact']");
-    const stored = await contact.inputValue();
-    await contact.click();
-    await contact.pressSequentially("half typed");
-    release();
-    await read;
-    await page.waitForTimeout(300);
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-    expect(await contact.inputValue()).toContain("half typed");
-    expect(
-      await page.evaluate(() => document.activeElement?.getAttribute("data-detail-field")),
-    ).toBe("pointOfContact");
-    // Once they leave the field, the remount it held goes ahead: here with no
-    // save (the text put back as it was), so leaving is all that releases it.
-    await page.unroute("**/__data.json*");
-    await contact.fill(stored);
-    const saves: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().endsWith("/api/sites/acme/details")) saves.push(r.url());
-    });
-    await page.locator("h1").click();
-    await expect
-      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), { timeout: 10_000 })
-      .toBe(0);
-    expect(saves).toEqual([]);
-  });
-
-  it("the read after the page's own post is taken in place: what the post's control shows stays", async () => {
-    // Review round 4: an audit that failed to start had moved the counter (its
-    // reservation is written, then released), so the read after it remounted the
-    // page: the error and the whole form the operator filled in went with it.
-    const page = await signedIn();
-    await page.route("**/api/prospect-audit/run", async (r) => {
-      const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-      await db
-        .insertInto("prospect_audits")
-        .values({
-          id: "pa-reserved",
-          token: "t-reserved",
-          url: "https://prospect.example/",
-          created_at: new Date().toISOString(),
-          status: "queued",
-          result_json: "{}",
-        } as never)
-        .execute();
-      await db.deleteFrom("prospect_audits").where("id", "=", "pa-reserved").execute();
-      await db.destroy();
-      await r.fulfill({
-        status: 502,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "Could not start the audit: GitHub failed (401)." }),
-      });
-    });
-    const data: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().includes("__data.json")) data.push(r.url());
-    });
-    await page.goto(`${origin}/audits`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    await page.locator("input[name='url']").fill("https://prospect.example");
-    await page.locator("select[name='goal']").selectOption("book");
-    await page.locator("textarea[name='terms']").fill("roofing, gutters");
-    await page.locator("#audit-run-form button[type='submit']").click();
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
-    await page.waitForLoadState("networkidle");
-    await expect
-      .poll(() => page.locator("#audit-run-status").textContent())
-      .toContain("Could not start the audit");
-    expect(await page.locator("input[name='url']").inputValue()).toBe("https://prospect.example");
-    expect(await page.locator("textarea[name='terms']").inputValue()).toBe("roofing, gutters");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-  });
-
-  it("a saved field keeps its ✓, in place", async () => {
-    const page = await signedIn();
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const read = page.waitForResponse((r) => r.url().includes("__data.json"));
-    await page.locator("input[data-detail-field='url']").fill("https://acme.example.net");
-    await page.locator("h1").click();
-    await read;
-    await page.waitForLoadState("networkidle");
-    expect(await page.locator(".detail-saved[data-for='url']").textContent()).toContain("✓");
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-  });
-
-  it("a read that finds the same counter leaves the page mounted", async () => {
-    // The remount is keyed on the counter, not on each read: here the version
-    // answer says "moved" but the snapshot read finds the store as it was.
-    const page = await signedIn();
-    await page.route("**/api/cockpit/version", (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true, version: 999_999 }),
-      }),
-    );
-    const data: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().includes("__data.json")) data.push(r.url());
-    });
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(200);
-    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
-  });
-
-  it("a change found elsewhere while a save is on its way waits for the save's answer", async () => {
-    // Review round 3: a remount under a save in flight left its ✗ to a field
-    // that was gone.
-    const page = await signedIn();
-    await page.route("**/api/sites/acme/details", async (r) => {
-      await new Promise((done) => setTimeout(done, 2000));
-      await r.fulfill({ status: 500, body: "down" });
-    });
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const contact = page.locator("input[data-detail-field='pointOfContact']");
-    await contact.fill("Slow and failing");
-    const posted = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    await page.locator("h1").click();
-    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-    await db
-      .updateTable("sites")
-      .set({ name: "Beta, mid-save" } as never)
-      .where("id", "=", "recB")
-      .execute();
-    await db.destroy();
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    expect((await posted).status()).toBe(500);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(300);
-    expect(await contact.inputValue()).toBe("Slow and failing");
-    expect(await page.locator(".detail-saved[data-for='pointOfContact']").textContent()).toContain(
-      "✗",
-    );
-  });
-
-  it("a read of the page's own that never answers does not decide how a later one lands", async () => {
-    // Review round 5: the own read hung, and every later read was then taken
-    // in place as if it were the page's own, so a change from elsewhere never
-    // remounted the page.
-    const page = await signedIn();
-    await page.goto(`${origin}/s/acme`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    let first = true;
-    await page.route("**/__data.json*", async (r) => {
-      if (first) {
-        first = false;
-        return; // dropped: never answers
-      }
-      await r.continue();
-    });
-    const saved = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
-    const ownRead = page.waitForRequest((r) => r.url().includes("__data.json"));
-    await page.locator("input[data-detail-field='url']").fill("https://acme.example.dev");
-    await page.locator("h1").click();
-    expect((await saved).status()).toBe(200);
-    await ownRead;
-    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-    await db
-      .updateTable("sites")
-      .set({ point_of_contact: "elsewhere@acme.example" } as never)
-      .where("slug", "=", "acme")
-      .execute();
-    await db.destroy();
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect
-      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), { timeout: 10_000 })
-      .toBe(0);
-    expect(await page.locator("input[data-detail-field='pointOfContact']").inputValue()).toBe(
-      "elsewhere@acme.example",
-    );
-  });
-
-  it("a change elsewhere redraws the page, keeping the open lead and the chip filter", async () => {
-    // Review round 2: the remount for a fresh snapshot closed every open
-    // <details> and reset the page's own filters whenever anyone wrote.
-    const page = await signedIn();
-    const data: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().includes("__data.json")) data.push(r.url());
-    });
-    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    const elsewhere = async (name: string) => {
-      const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
-      await db
-        .updateTable("sites")
-        .set({ name } as never)
-        .where("id", "=", "recB")
-        .execute();
-      await db.destroy();
-    };
-
-    await page.goto(`${origin}/submissions`);
-    await page.waitForLoadState("networkidle");
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    const lead = page.locator("li.subm-item", { hasText: "sam@filtered.example" });
-    await lead.locator("summary").click();
-    // Which leads are open, by the submission their buttons act on.
-    const openLeads = () =>
-      page.$$eval("li.subm-item details[open]", (els) =>
-        els.map((e) => e.parentElement?.querySelector("[data-id]")?.getAttribute("data-id")),
-      );
-    const before = await openLeads();
-    expect(before).toHaveLength(1);
-    await elsewhere("Beta, renamed");
-    await focus();
-    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
-    // Redrawn from the new snapshot (a fresh mount), with the same lead open.
-    await expect.poll(() => page.$$("h1[data-this-mount]").then((h) => h.length)).toBe(0);
-    expect(await openLeads()).toEqual(before);
-
     await page.goto(`${origin}/fleet`);
     await page.waitForLoadState("networkidle");
-    const chip = page
-      .locator(".signal-filters button[data-filter]:not([data-filter='all'])")
-      .first();
-    const picked = await chip.getAttribute("data-filter");
-    await chip.click();
-    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
-    await elsewhere("Beta, renamed again");
-    await focus();
-    await expect
-      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), {
-        timeout: 10_000,
-      })
-      .toBe(0);
-    expect(
-      await page
-        .locator(`.signal-filters button[data-filter='${picked}']`)
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .updateTable("sites")
+      .set({ name: "Beta, renamed" } as never)
+      .where("id", "=", "recB")
+      .execute();
+    await db.destroy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.locator(".cockpit-newer button", { hasText: "Reload" }).click({ timeout: 10_000 });
+    await page.waitForLoadState("networkidle");
+    expect(documents).toEqual(["/fleet", "/fleet"]);
+    expect(await page.content()).toContain("Beta, renamed");
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
   });
 
   it("a signed-out browser gets no snapshot", async () => {

@@ -1,29 +1,11 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
   import { postAction } from "../post.js";
-  import { keepValue, keptValue } from "../view-keep.js";
   import type { DetailRowView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
-  let { row: mountedRow, url: mountedUrl }: { row: DetailRowView; url: string } = $props();
-  // The field renders the row it mounted with: binding the live prop would let a
-  // refresh in place write the stored value over an edit whose save failed
-  // (Svelte sets a hydrated input's value on its first update), and the retry
-  // on the next blur would have nothing to send. A fresher stored value is
-  // taken by hand instead (`follow`, below), only into a field the operator
-  // has nothing of their own in.
-  // svelte-ignore state_referenced_locally
-  const row = mountedRow;
-  // svelte-ignore state_referenced_locally
-  const url = mountedUrl;
+  let { row, url }: { row: DetailRowView; url: string } = $props();
 
-  // An edit not yet saved, or whose save failed, and the last save's mark, carry
-  // over a remount for a change in the store (lib/view-keep.ts): what the
-  // operator typed stays, with its ✗, and the next blur still retries it.
-  const fieldName = row.kind === "readonly" ? row.label : row.field;
-  const keepName = `detail:${url}:${fieldName}`;
-  const kept = keptValue<{ value: string | null; mark: string } | null>(keepName, null);
-  let mark = $state(kept?.mark ?? "");
+  let mark = $state("");
   // Disabled until the save handlers exist, so an edit is never lost silently.
   const m = mounted();
   // What the server last accepted, for the controls that save on blur. A save
@@ -37,61 +19,7 @@
     row.kind === "input" || row.kind === "date" || row.kind === "textarea"
       ? row.value.replace(/\r\n?/g, "\n")
       : "";
-  let edited = kept?.value != null;
-  onDestroy(
-    keepValue(keepName, () => {
-      const el = document.getElementById(`detail-${fieldName}`);
-      const typed =
-        edited &&
-        (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
-        el.type !== "password" &&
-        el.value !== saved
-          ? el.value
-          : null;
-      // The mark travels only with the edit it is about: a ✓ or ✗ kept on its
-      // own would read as a verdict on whatever the store now holds.
-      return typed === null ? null : { value: typed, mark };
-    }),
-  );
-
-  // A refresh in place (the read after the page's own post, which can carry
-  // another writer's change too) brings the stored value: the field takes it
-  // unless it holds an edit not yet saved or a save that failed. A value that
-  // changed under a ✓ drops the ✓, which was about the old one (review round 5).
-  $effect(() => {
-    const live = mountedRow;
-    untrack(() => follow(live));
-  });
-  function follow(live: DetailRowView): void {
-    if (live.kind === "readonly" || live.kind === "secret" || mark === " ✗") return;
-    const el = document.getElementById(`detail-${fieldName}`);
-    if (live.kind === "input" || live.kind === "date" || live.kind === "textarea") {
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
-      if (edited && el.value !== saved) return;
-      const stored = live.value.replace(/\r\n?/g, "\n");
-      if (stored === saved) return;
-      el.value = stored;
-      saved = stored;
-      mark = "";
-    } else if (live.kind === "checkbox") {
-      if (el instanceof HTMLInputElement && el.checked !== live.checked) {
-        el.checked = live.checked;
-        mark = "";
-      }
-    } else if (el instanceof HTMLSelectElement) {
-      const want = (o: HTMLOptionElement) =>
-        live.kind === "multi" ? live.selected.includes(o.value) : o.value === live.current;
-      let moved = false;
-      for (const o of el.options) {
-        if (o.value === "" && live.kind === "select") continue;
-        if (o.selected !== want(o)) {
-          o.selected = want(o);
-          moved = true;
-        }
-      }
-      if (moved) mark = "";
-    }
-  }
+  let edited = false;
 
   /** The string the control POSTs. A checkbox's `.value` is its content
    *  attribute, never the checked state, and a multiple select's `.value` is its
@@ -139,7 +67,7 @@
 {#if row.kind === "readonly"}
   <div class="detail">
     <dt>{row.label}</dt>
-    <dd>{mountedRow.kind === "readonly" ? mountedRow.display : row.display}</dd>
+    <dd>{row.display}</dd>
   </div>
 {:else}
   <div class={row.kind === "multi" || row.kind === "textarea" ? "detail wide" : "detail"}>
@@ -202,7 +130,7 @@
           data-detail-field={row.field}
           data-details-url={url}
           disabled={!m.ready}
-          value={kept?.value ?? row.value}
+          value={row.value}
           {oninput}
           {onblur}></textarea>
       {:else}
@@ -212,7 +140,7 @@
           data-detail-field={row.field}
           data-details-url={url}
           disabled={!m.ready}
-          value={kept?.value ?? row.value}
+          value={row.value}
           {oninput}
           {onblur}
         />

@@ -21,19 +21,8 @@ export class ReportUi {
   overrideSubmitDisabled = $state(false);
   overrideReasonDisabled = $state(false);
 
-  /** Set once the operator acts on this report: from then on its controls show
-   *  what that action answered, not the server's gate. */
-  acted = false;
-
   constructor(approveDisabled: boolean) {
     this.approveDisabled = approveDisabled;
-  }
-
-  /** The server's Approve gate from a fresher snapshot, taken in place (the
-   *  read after the page's own post, which can unblock or block a report: a
-   *  point of contact saved, say). The operator's own action wins. */
-  followGate(approveDisabled: boolean): void {
-    if (!this.acted) this.approveDisabled = approveDisabled;
   }
 
   /** Once a report is approved, overridden or withdrawn, the override controls

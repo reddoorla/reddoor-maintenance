@@ -8,13 +8,8 @@
   const ui = reportUis().get(approve.reportId, approve.disabled);
   // The spinner is this button's alone; the label and gate are shared with its twin.
   let loading = $state(false);
-  // The gate follows the snapshot until the operator acts (review round 5).
-  $effect(() => {
-    ui.followGate(approve.disabled);
-  });
 
   async function onclick() {
-    ui.acted = true;
     ui.approveDisabled = true;
     loading = true;
     try {

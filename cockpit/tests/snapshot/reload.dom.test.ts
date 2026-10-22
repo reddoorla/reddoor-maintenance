@@ -1,16 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { POST_DEADLINE_MS, onPostsSettled, postAction, postsInFlight } from "../../src/lib/post.js";
-import { invalidated } from "../_helpers/app-navigation.js";
-import { setActiveFreshness } from "../../src/lib/freshness.js";
+import { postAction } from "../../src/lib/post.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 /**
- * The snapshot is never kept past a change the operator makes: `postAction` reads
- * it again (`invalidate("cockpit:snapshot")`, PR 2 of the snapshot brief). Nor
- * past a failed read: the next navigation is then a full page load, which reads
+ * Until PR 2 of the snapshot brief refreshes it, the snapshot is never kept past
+ * a change or a failed read: the next navigation is a full page load, which reads
  * the store again, as every navigation did when each link reloaded the page.
  * SvelteKit's switch for that is `data-sveltekit-reload` on <body>.
  */
@@ -46,14 +43,11 @@ const parent = (d: Partial<SnapshotData>) => async (): Promise<SnapshotData> => 
   ...d,
 });
 
-beforeEach(() => {
-  document.body.removeAttribute("data-sveltekit-reload");
-  invalidated.length = 0;
-});
+beforeEach(() => document.body.removeAttribute("data-sveltekit-reload"));
 afterEach(() => vi.unstubAllGlobals());
 
-describe("a change the page posts reads the snapshot again", () => {
-  it("whatever its answer, and without a full page load", async () => {
+describe("the next navigation reloads", () => {
+  it("after any change a page posts, whatever its answer", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("no", { status: 500 })),
@@ -61,8 +55,7 @@ describe("a change the page posts reads the snapshot again", () => {
     expect(reloads()).toBe(false);
     const res = await postAction("/api/x", { body: "{}" });
     expect(res.status).toBe(500);
-    expect(invalidated).toEqual(["cockpit:snapshot"]);
-    expect(reloads()).toBe(false);
+    expect(reloads()).toBe(true);
     expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: "{}" });
   });
 
@@ -72,131 +65,9 @@ describe("a change the page posts reads the snapshot again", () => {
       vi.fn(async () => Promise.reject(new TypeError("offline"))),
     );
     await expect(postAction("/api/x")).rejects.toThrow("offline");
-    expect(invalidated).toEqual(["cockpit:snapshot"]);
-  });
-});
-
-describe("a post whose session ended", () => {
-  it("reads nothing (which would follow the redirect to sign-in) and marks the next navigation", async () => {
-    // Review round 4: the read after a 401 sent the tab to sign-in at once, and
-    // the text the operator typed went with it.
-    for (const status of [401, 403]) {
-      document.body.removeAttribute("data-sveltekit-reload");
-      invalidated.length = 0;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => new Response("{}", { status })),
-      );
-      // The page's freshness stops checking too (review round 5): a check's
-      // read would follow the same redirect.
-      const controller = {
-        requestRefresh: vi.fn(),
-        check: vi.fn(async () => {}),
-        signOut: vi.fn(),
-        stop: vi.fn(),
-      };
-      setActiveFreshness(controller);
-      try {
-        const res = await postAction("/api/x");
-        expect(res.status).toBe(status);
-        expect(invalidated).toEqual([]);
-        expect(reloads()).toBe(true);
-        expect(controller.signOut).toHaveBeenCalledTimes(1);
-        expect(controller.requestRefresh).not.toHaveBeenCalled();
-      } finally {
-        setActiveFreshness(null);
-      }
-    }
-  });
-});
-
-describe("a post that never answers", () => {
-  it("fails after the deadline, so its control shows ✗ and freshness goes on", async () => {
-    // Review round 4: a dropped connection never settles, and the page's
-    // freshness waits for every post in flight.
-    vi.useFakeTimers();
-    try {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(
-          (_: string, init: RequestInit) =>
-            new Promise<Response>((_resolve, reject) => {
-              init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
-            }),
-        ),
-      );
-      const settled = vi.fn();
-      const stop = onPostsSettled(settled);
-      const posted = postAction("/api/x");
-      const failed = expect(posted).rejects.toThrow("took too long");
-      await vi.advanceTimersByTimeAsync(POST_DEADLINE_MS - 1);
-      expect(postsInFlight()).toBe(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await failed;
-      expect(postsInFlight()).toBe(0);
-      expect(settled).toHaveBeenCalledTimes(1);
-      // Past Netlify's 60 s limit on a synchronous function, so the server has
-      // stopped before the page gives up (review round 5).
-      expect(POST_DEADLINE_MS).toBeGreaterThan(60_000);
-      stop();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(reloads()).toBe(true);
   });
 
-  it("keeps a caller's own signal", async () => {
-    const own = new AbortController();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        (_: string, init: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
-          }),
-      ),
-    );
-    const posted = postAction("/api/x", { signal: own.signal });
-    own.abort(new Error("caller gave up"));
-    await expect(posted).rejects.toThrow("caller gave up");
-  });
-});
-
-describe("a post in flight", () => {
-  it("is counted until it answers, and the last answer is announced", async () => {
-    // Review round 3: the layout holds a remount while a save has not answered,
-    // so its ✓ or ✗ lands on the field it belongs to.
-    const answers: Array<() => void> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<Response>((r) => answers.push(() => r(new Response("{}"))))),
-    );
-    const settled = vi.fn();
-    const stop = onPostsSettled(settled);
-    const a = postAction("/api/a");
-    const b = postAction("/api/b");
-    expect(postsInFlight()).toBe(2);
-    answers[0]!();
-    await a;
-    expect(postsInFlight()).toBe(1);
-    expect(settled).not.toHaveBeenCalled();
-    answers[1]!();
-    await b;
-    expect(postsInFlight()).toBe(0);
-    expect(settled).toHaveBeenCalledTimes(1);
-    stop();
-  });
-
-  it("is counted down when it fails too", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Promise.reject(new TypeError("offline"))),
-    );
-    await expect(postAction("/api/x")).rejects.toThrow("offline");
-    expect(postsInFlight()).toBe(0);
-  });
-});
-
-describe("the next navigation reloads", () => {
   it("after a page derives from a snapshot with a gap", async () => {
     await fromSnapshot("t", parent({ snapshot: snapshot({ gaps: ["events"] }) }), () => 1);
     expect(reloads()).toBe(true);

@@ -103,11 +103,7 @@ describe("↻ Audit fleet", () => {
     expect(button().textContent).toBe("Auditing…");
     expect(button().disabled).toBe(true);
     await settle();
-    // The post's deadline signal aside (lib/post.ts).
-    expect(fetchMock.mock.calls[0]).toEqual([
-      "/api/fleet/refresh",
-      { method: "POST", signal: expect.any(AbortSignal) },
-    ]);
+    expect(fetchMock.mock.calls[0]).toEqual(["/api/fleet/refresh", { method: "POST" }]);
     expect(button().textContent).toBe("↻ Audit running…");
     expect(button().disabled).toBe(true);
     expect(JSON.parse(localStorage.getItem(RF_KEY)!)).toEqual({

@@ -34,13 +34,3 @@ export function navigate(to = "/fleet"): void {
   } as unknown as AfterNavigate;
   for (const cb of after) cb(n);
 }
-
-/** Every dependency `invalidate` was called with, in order; tests reset it. */
-export const invalidated: string[] = [];
-
-/** `invalidate` as a recorder: the vitest projects have no router to re-run loads. */
-export async function invalidate(
-  dependency: string | URL | ((url: URL) => boolean),
-): Promise<void> {
-  invalidated.push(String(dependency));
-}

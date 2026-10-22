@@ -74,8 +74,6 @@ describe("submission triage buttons", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status: "read" }),
-      // The post's deadline (lib/post.ts).
-      signal: expect.any(AbortSignal),
     });
     expect(b.textContent).toBe("✓");
     expect(b.disabled).toBe(true);

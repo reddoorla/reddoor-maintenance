@@ -42,9 +42,5 @@
   </div>
 </details>
 <div class="subm-actions">
-  {#each row.buttons as button ("ack" in button ? `ack:${button.ack}` : button.status)}<StatusButton
-      id={row.id}
-      url={row.url}
-      {button}
-    />{/each}
+  {#each row.buttons as button, i (i)}<StatusButton id={row.id} url={row.url} {button} />{/each}
 </div>
