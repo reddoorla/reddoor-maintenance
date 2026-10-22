@@ -63,7 +63,7 @@ function escapeRegExp(s: string): string {
  * Full-line only: a trailing `# vX.Y.Z` after a real `uses:` line is
  * meaningful (it's the human-readable version tag) and must survive — only
  * strip a line whose first non-whitespace character is `#`. This is safe
- * specifically because the template's YAML has no block scalars (`|`/`>`),
+ * specifically because this workflow's YAML has no block scalars (`|`/`>`),
  * so there is no line in a compliant or non-compliant renovate.yml where a
  * leading `#` is literal string content rather than a comment.
  */
@@ -127,175 +127,6 @@ const APP_AUTH_MARKERS = [
   "secrets.RENOVATE_APP_PRIVATE_KEY",
   "steps.app-token.outputs.token",
 ];
-
-const indentOf = (line: string): number => line.length - line.trimStart().length;
-
-/** The column a line's key starts at: its indent, or past a `- ` (or `-   `)
- *  sequence marker. A dash alone on its line has no key. */
-function keyColumn(line: string): number {
-  const m = /^([ \t]*)-([ \t]+)\S/.exec(line);
-  return m ? m[1]!.length + 1 + m[2]!.length : indentOf(line);
-}
-
-const isItemStart = (line: string): boolean => /^[ \t]*-([ \t]|$)/.test(line);
-const isBlank = (line: string): boolean => line.trim() === "";
-
-/** Lines after `at` that belong to it: blank, or indented deeper than `col`. */
-function childEnd(lines: string[], at: number, col: number): number {
-  let j = at + 1;
-  while (j < lines.length && (isBlank(lines[j]!) || indentOf(lines[j]!) > col)) j++;
-  return j;
-}
-
-/** The value of the `if:` key on line `at`, folding a block (`|`/`>`) or a plain
- *  scalar continued below it; null when the line is not an `if:` key. */
-function ifValue(lines: string[], at: number): string | null {
-  const line = lines[at]!;
-  const m = /^[ \t]*(?:-[ \t]+)?if:(?:[ \t]+(.*?))?(?:[ \t]+#[^\r\n]*)?[ \t]*$/.exec(line);
-  if (!m) return null;
-  const value = m[1] ?? "";
-  if (value !== "" && !/^[|>][-+0-9]*$/.test(value)) return value;
-  // A block keeps its indentation or trailing newline around an expression, so
-  // `${{ false }}` in one is a truthy format() string: not read (a miss).
-  if (
-    value !== "" &&
-    lines.slice(at + 1, childEnd(lines, at, keyColumn(line))).some((l) => l.includes("${{"))
-  )
-    return "<block expression>";
-  const body = lines
-    .slice(at + 1, childEnd(lines, at, keyColumn(line)))
-    .map((l) => l.trim())
-    .filter((l) => l !== "");
-  return body.join(value.startsWith("|") ? "\n" : " ");
-}
-
-/**
- * The constant-false `if:` conditions that leave Renovate unable to run (#1607),
- * or `[]` when it can run.
- *
- * Renovate runs if SOME `renovatebot/github-action` step can: its job's own
- * `if:` and its step's own `if:` are not constant-false, and some step of that
- * job using `actions/create-github-app-token` (its credential) is not either.
- * So a site's own disabled extra job, a disabled second copy beside a working
- * one, or a disabled checkout is not a gap. (A required action with no step at
- * all is `pinGap`'s to report.)
- *
- * A false gap is the expensive mistake here: any gap makes `sync-configs` heal the
- * file by overwriting it and `self-updating` open a PR, so a site's own guard, job
- * or step would be deleted. So this reads only `if:` keys at the EXACT column of
- * the job's own keys or those steps' own keys. A block-scalar body, an
- * `env:`/`with:` map, another job and a site's own step all sit at other columns
- * or outside those ranges, so none can match. What it does not read (a quoted
- * `"if":` key, a flow mapping, an expression such as `false && x`) is a miss,
- * which leaves today's blind spot, never an overwrite. Callers must pass
- * comment-stripped text.
- */
-function renovateDisabledBy(contents: string): string[] {
-  const lines = contents.split(/\r?\n/);
-  const usesRe = (slug: string) =>
-    new RegExp(`^[ \\t]*(?:-[ \\t]+)?uses:\\s*${escapeRegExp(slug)}@`);
-  const usesAt = (slug: string, from: number, to: number) => {
-    const re = usesRe(slug);
-    const out: number[] = [];
-    for (let i = from; i < to; i++) if (re.test(lines[i]!)) out.push(i);
-    return out;
-  };
-  /** The step holding line `at`: its `-` line, the column of its keys, its end. */
-  const stepOf = (at: number) => {
-    const col = keyColumn(lines[at]!);
-    let first = at;
-    while (first >= 0 && !(isItemStart(lines[first]!) && indentOf(lines[first]!) < col)) first--;
-    if (first < 0) return null;
-    return { first, col, end: childEnd(lines, first, indentOf(lines[first]!)) };
-  };
-  /** Constant-false `if:` values among lines `[from, to)` at key column `col`. */
-  const falseIfs = (from: number, to: number, col: number) => {
-    const out: string[] = [];
-    for (let i = from; i < to; i++) {
-      const l = lines[i]!;
-      if (isBlank(l) || keyColumn(l) !== col) continue;
-      const v = ifValue(lines, i);
-      if (v !== null && isConstantFalse(v)) out.push(v);
-    }
-    return out;
-  };
-  /** The job holding a step that starts at line `first`. */
-  const jobOf = (first: number) => {
-    const dash = indentOf(lines[first]!);
-    let stepsLine = first - 1;
-    // Skip the steps above it: their bodies are deeper, their `-` lines level.
-    while (
-      stepsLine >= 0 &&
-      (isBlank(lines[stepsLine]!) ||
-        indentOf(lines[stepsLine]!) > dash ||
-        (isItemStart(lines[stepsLine]!) && indentOf(lines[stepsLine]!) === dash))
-    )
-      stepsLine--;
-    if (stepsLine < 0 || !/^[ \t]*steps:[ \t]*(?:#.*)?$/.test(lines[stepsLine]!)) return null;
-    const col = indentOf(lines[stepsLine]!);
-    let line = stepsLine - 1;
-    while (line >= 0 && (isBlank(lines[line]!) || indentOf(lines[line]!) >= col)) line--;
-    if (line < 0) return null;
-    return { line, col, end: childEnd(lines, line, indentOf(lines[line]!)) };
-  };
-  /** The disabling conditions of one step, or null when it can run. */
-  const stepDisabledBy = (at: number): string[] | null => {
-    const st = stepOf(at);
-    if (!st) return null;
-    const f = falseIfs(st.first, st.end, st.col);
-    return f.length > 0 ? f : null;
-  };
-
-  const anchors = usesAt("renovatebot/github-action", 0, lines.length);
-  const reasons: string[] = [];
-  for (const at of anchors) {
-    const st = stepOf(at);
-    const job = st ? jobOf(st.first) : null;
-    if (!st || !job) return []; // a shape this cannot read: never call it disabled
-    // The job's own `if:`: a step's `- ` line never has its key at this column.
-    const blocked: string[] = [...falseIfs(job.line + 1, job.end, job.col)];
-    const own = stepDisabledBy(at);
-    if (own) blocked.push(...own);
-    // The App token is the one other step Renovate cannot run without: its
-    // output is Renovate's credential. Checkout is not one: the action reads the
-    // repository through the API, and the template passes it no config file.
-    for (const slug of ["actions/create-github-app-token"]) {
-      const uses = usesAt(slug, job.line + 1, job.end);
-      if (uses.length === 0) continue;
-      const each = uses.map(stepDisabledBy);
-      if (each.every((d) => d !== null)) blocked.push(...each.flatMap((d) => d!));
-    }
-    if (blocked.length === 0) return []; // this one can run, so Renovate runs
-    reasons.push(...blocked);
-  }
-  return [...new Set(reasons.map((r) => r.trim()))];
-}
-
-/** Is this `if:` value a constant that can never be true (#1607)? `false`,
- *  `0`, `''` and `null`, bare, quoted or inside `${{ }}`, are falsy in Actions
- *  expressions. Anything that reads a context is a real condition, and is the
- *  site's own business: this check owns "the job cannot run", not "the job has
- *  a condition" (the template has none, but a site may guard its own). */
-function isConstantFalse(raw: string): boolean {
-  // One layer of YAML quoting comes off: `if: "false"` hands Actions the
-  // expression `false`.
-  const t = raw.trim();
-  const quoted = /^(['"])(.*)\1$/.exec(t);
-  // Inside quotes, whitespace is part of the string: `"${{ false }} "` is a
-  // format() of a non-empty string, truthy (@actions/workflow-parser). Only an
-  // exact literal is read; anything padded is a miss, never a gap.
-  if (quoted && quoted[2] !== quoted[2]!.trim()) return false;
-  const v = quoted ? quoted[2]! : t;
-  // An empty or null `if:` RUNS the job: GitHub's parser reads it as `success()`
-  // ("Empty condition defaults to success()", @actions/workflow-parser), and so
-  // does `${{ '' }}` there.
-  if (v === "" || (!quoted && (v === "null" || v === "~"))) return false;
-  const expr = v.match(/^\$\{\{\s*(.*?)\s*\}\}$/);
-  if (expr) return ["false", "0", "null"].includes(expr[1]!.trim());
-  // A YAML string `''` or `null` is that expression: an empty string literal or
-  // null, both falsy. Any other quoted literal is a non-empty string, truthy.
-  return ["false", "0", "null", "''"].includes(v);
-}
 
 /** Gaps in a site's `.github/workflows/renovate.yml`. Empty = compliant,
  *  leave it alone — see the module doc comment above for why this is
@@ -377,16 +208,6 @@ export function renovateActionGaps(contents: string): string[] {
   const hasContentsRead = /^[ \t]*contents:\s*["']?read["']?[ \t]*$/m.test(withoutComments);
   if (!hasPermissionsKey || !hasContentsRead) {
     gaps.push("permissions: does not grant contents: read");
-  }
-
-  // Every string above can be present on a job that never runs: `if: false` on
-  // the renovate job leaves pins, auth and cron intact and Renovate silent, and
-  // the sweep read it CLEAN (#1607).
-  const disabledBy = renovateDisabledBy(withoutComments);
-  if (disabledBy.length > 0) {
-    gaps.push(
-      `if: ${disabledBy.join(" / if: ")} means the renovate job, or a step it needs, can never run — Renovate is disabled while every other line still reads compliant`,
-    );
   }
 
   return gaps;
