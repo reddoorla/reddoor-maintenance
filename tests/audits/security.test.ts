@@ -2180,7 +2180,7 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
       });
       expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
         expect.stringMatching(
-          /\(1 dismissed in Dependabot left out\) — adding pnpm audit to Dependabot/,
+          /but pnpm audit: 1 vulnerabilities \(0C\/0H\/1M\/0L\) \(1 dismissed in Dependabot left out\) — adding pnpm audit to Dependabot/,
         ),
       );
     } finally {
