@@ -25,7 +25,12 @@ export default async (req: Request): Promise<Response> => {
   // Fetched by the page's script, so JSON: a sign-in redirect inside fetch() would
   // hand it Google's HTML. A denial tells the page its session ended.
   const auth = requireOperator(req, { wants: "json" });
-  if (!auth.ok) return denialResponse(auth.denial);
+  if (!auth.ok) {
+    // No answer from this route may be cached, a denial included.
+    const res = denialResponse(auth.denial);
+    res.headers.set("cache-control", "private, no-store");
+    return res;
+  }
 
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[cockpit-version] TURSO_DATABASE_URL missing");
