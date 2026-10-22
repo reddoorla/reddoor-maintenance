@@ -637,7 +637,20 @@ function withoutDismissed(viaLockfile: AuditResult, dismissed: DependabotAlert[]
   for (const a of lock.advisories)
     if (isDismissed(a) && !a.info)
       counts[a.severity] = Math.max(0, counts[a.severity] - (a.findings ?? 1));
-  return { ...viaLockfile, details: { counts, advisories: left, dismissedLeftOut: dropped } };
+  // Status and summary follow the reduced counts, so the run log shows what is left (#1659
+  // review round 5: it showed the critical a dismissal had just taken out).
+  const status = classify(counts);
+  const total = counts.low + counts.moderate + counts.high + counts.critical;
+  const tool = viaLockfile.summary.split(":")[0];
+  return {
+    ...viaLockfile,
+    status,
+    summary:
+      status === "pass"
+        ? `${tool}: 0 vulnerabilities`
+        : `${tool}: ${total} vulnerabilities (${counts.critical}C/${counts.high}H/${counts.moderate}M/${counts.low}L)`,
+    details: { counts, advisories: left, dismissedLeftOut: dropped },
+  };
 }
 
 /** True when the repo root holds a lockfile the lockfile audit can read. */
