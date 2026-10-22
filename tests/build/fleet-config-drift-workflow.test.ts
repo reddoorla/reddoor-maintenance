@@ -10,6 +10,7 @@ import yaml from "js-yaml";
 
 type Step = {
   name?: string;
+  id?: string;
   uses?: string;
   if?: string;
   with?: Record<string, unknown>;
@@ -321,6 +322,22 @@ describe("fleet-config-drift — the sweep gate", () => {
     expect(r.out).toContain("::warning::");
   });
 
+  it("fails on #1607's roster shrink, now that retired-status rows are SKIPPED", async () => {
+    // The CLI's own output for 3 of 4 rows on the retired `maintenance`
+    // (tests/cli/sync-configs-roster-status.test.ts); before #1607 the same
+    // roster printed drifted=0 clean=1 skipped=0 total=1 and passed.
+    const out = [
+      "CLEAN reddoorla/clean-co",
+      'SKIPPED reddoorla/drift-co status "maintenance" is not in the vocabulary (a retired name?), so the roster did not visit it',
+      'SKIPPED reddoorla/other-co status "maintenance" is not in the vocabulary (a retired name?), so the roster did not visit it',
+      'SKIPPED reddoorla/third-co status "maintenance" is not in the vocabulary (a retired name?), so the roster did not visit it',
+      "SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=3 total=4",
+    ].join("\n");
+    const r = await sweep(out + "\n");
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("more than half");
+  });
+
   it("fails when more than half the sites were skipped", async () => {
     const r = await sweep(`${summary(1, 5, 8)}\n`);
     expect(r.code).not.toBe(0);
@@ -335,6 +352,11 @@ const fs = require("node:fs");
 const corpus = JSON.parse(fs.readFileSync(process.env.GH_CORPUS, "utf-8"));
 const a = process.argv.slice(2);
 const log = (s) => fs.appendFileSync(process.env.GH_LOG, s + "\\n");
+// A 502 on one subcommand, as gh exits on an HTTP error.
+if (process.env.GH_FAIL && a[0] === "issue" && process.env.GH_FAIL.split(",").includes(a[1])) {
+  process.stderr.write("HTTP 502: Bad Gateway\\n");
+  process.exit(1);
+}
 if (a[0] === "issue" && a[1] === "list") {
   const phrase = /in:title "(.*)"/.exec(a[a.indexOf("--search") + 1])[1].toLowerCase();
   const state = a.includes("--state") ? a[a.indexOf("--state") + 1] : "open";
@@ -359,7 +381,7 @@ if (a[0] === "issue" && a[1] === "comment") { log("COMMENT #" + a[2]); process.e
 process.exit(1);
 `;
 
-async function issueStep(step: string, sweepOut: string, corpus: Issue[]) {
+async function issueStep(step: string, sweepOut: string, corpus: Issue[], ghFail?: string) {
   const dir = await mkdtemp(join(tmpdir(), "config-drift-issue-"));
   await writeFile(join(dir, "config-drift.out"), sweepOut, "utf-8");
   await writeFile(join(dir, "corpus.json"), JSON.stringify(corpus), "utf-8");
@@ -367,7 +389,11 @@ async function issueStep(step: string, sweepOut: string, corpus: Issue[]) {
   const r = await exec(script(step), {
     dir,
     bin: { gh: GH },
-    env: { GH_CORPUS: join(dir, "corpus.json"), GH_LOG: join(dir, "gh.log") },
+    env: {
+      GH_CORPUS: join(dir, "corpus.json"),
+      GH_LOG: join(dir, "gh.log"),
+      ...(ghFail ? { GH_FAIL: ghFail } : {}),
+    },
   });
   return { ...r, log: await readFile(join(dir, "gh.log"), "utf-8") };
 }
@@ -516,5 +542,90 @@ describe("fleet-config-drift — the run-failure issue", () => {
       { number: 9, title: TITLE, body: "drift" },
     ]);
     expect(r.log.match(/CLOSE #\d+/g)).toEqual(["CLOSE #7"]);
+  });
+});
+
+/**
+ * A FAILED FILING HID A WEEK (#1607). Every issue step runs under
+ * `continue-on-error`, so a gh error is never read as an outage of the sweep —
+ * and that is kept. But when drift was found and `gh issue create` returned 502,
+ * the job stayed green and the drift appeared nowhere until next Sunday. A last
+ * step now reds the run in exactly that case, after the outage pair has already
+ * been decided, so the run is red without a false "sweep failing" issue.
+ */
+describe("fleet-config-drift — drift that could not be filed reds the run (#1607)", () => {
+  const FILED_RED = "Fail when found drift could not be filed";
+  const DRIFT_OUT = `DRIFT ${A} .gitignore\n${summary(1, 0, 0)}\n`;
+
+  it("the open step fails when the issue could not be created", async () => {
+    const r = await issueStep(OPEN, DRIFT_OUT, [], "create");
+    expect(r.code).not.toBe(0);
+    expect(r.log).not.toContain("CREATE");
+  });
+
+  it("the open step still succeeds when it only failed to comment on an issue that is open", async () => {
+    // The finding is already visible on the open issue; a missed comment is not
+    // a lost week, and must not red the run.
+    const r = await issueStep(
+      OPEN,
+      DRIFT_OUT,
+      [{ number: 7, title: TITLE, body: `DRIFT ${A} x` }],
+      "comment",
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("could not comment on #7");
+  });
+
+  it("the open step fails when the open issue could be neither rewritten nor commented on", async () => {
+    // Review round 4: with both writes failing, this week's drift reached no
+    // issue, so the last step must red the run.
+    const r = await issueStep(
+      OPEN,
+      DRIFT_OUT,
+      [{ number: 7, title: TITLE, body: `DRIFT reddoorla/old x` }],
+      "edit,comment",
+    );
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("could not update #7");
+  });
+
+  it("a rewritten body alone is enough when only the comment fails", async () => {
+    const r = await issueStep(
+      OPEN,
+      DRIFT_OUT,
+      [{ number: 7, title: TITLE, body: `DRIFT ${A} x` }],
+      "comment",
+    );
+    expect(r.code).toBe(0);
+  });
+
+  it("the pass control: a filing that worked exits 0", async () => {
+    const r = await issueStep(OPEN, DRIFT_OUT, []);
+    expect(r.code).toBe(0);
+    expect(r.log).toContain("CREATE ");
+  });
+
+  it("has a last step keyed on the open step's own outcome, after the outage pair, that is not continue-on-error", () => {
+    const doc = yaml.load(wf) as Workflow;
+    const steps = doc.jobs.drift.steps;
+    const names = steps.map((s) => s.name);
+    const open = steps.find((s) => s.name === OPEN)!;
+    expect(open.id).toBeTruthy();
+    const red = steps.find((s) => s.name === FILED_RED);
+    expect(red).toBeDefined();
+    expect(names.indexOf(FILED_RED)).toBe(names.length - 1);
+    expect(names.indexOf(FILED_RED)).toBeGreaterThan(names.indexOf(FAIL_OPEN));
+    expect(names.indexOf(FILED_RED)).toBeGreaterThan(names.indexOf(FAIL_CLOSE));
+    expect(red!.if).toContain(`steps.${open.id}.outcome == 'failure'`);
+    expect(red!["continue-on-error"]).toBeUndefined();
+  });
+
+  it("the last step exits 1 and names the drift it could not file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-drift-filed-"));
+    await writeFile(join(dir, "config-drift.out"), DRIFT_OUT, "utf-8");
+    const r = await exec(script(FILED_RED), { dir });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("::error::");
+    expect(r.out).toContain(`DRIFT ${A} .gitignore`);
   });
 });
