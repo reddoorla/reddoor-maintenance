@@ -9,6 +9,7 @@ import { listFleetEvents } from "../db/fleet-events.js";
 import { listScreenOutBucketsSince, screenOutsSince } from "../db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../db/digest-state.js";
 import { listRecentProspectAudits } from "../db/prospect-audits.js";
+import { readCockpitVersion } from "../db/cockpit-version.js";
 import { orElse } from "./or-else.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import {
@@ -53,6 +54,7 @@ export async function loadCockpitSnapshot(
       return fallback;
     });
   const [
+    version,
     sites,
     slugs,
     reports,
@@ -65,6 +67,11 @@ export async function loadCockpitSnapshot(
     screenOuts,
     audits,
   ] = await Promise.all([
+    // First, in the same read batch as the rest, so it is the version of exactly
+    // these rows. Should the batch fail and its reads run one by one, first still
+    // means the version is never newer than a row (client.ts): a write between
+    // them reads as a change on the next check, never as "unchanged".
+    read<number | null>("version", () => readCockpitVersion(db), null),
     read("sites", () => listSites(db), null),
     read("sites", () => listSiteSlugs(db), null),
     read<CockpitSnapshot["reports"]>("reports", () => listAllReports(db), null),
@@ -103,6 +110,7 @@ export async function loadCockpitSnapshot(
   ]);
   return {
     takenAt: now.toISOString(),
+    version,
     baseUrl,
     gaps: [...new Set(gaps)],
     // Both reads or neither: a slug map without its sites (or the reverse) would

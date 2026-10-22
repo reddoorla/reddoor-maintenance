@@ -43,6 +43,7 @@ const routes = endpointRoutes();
 const READS: Record<string, string> = {
   "/api/reports/rec1/preview": "",
   "/api/fleet/refresh/status": "?since=2026-10-21T00:00:00Z",
+  "/api/cockpit/version": "",
 };
 
 async function call(
@@ -75,6 +76,8 @@ afterEach(() => {
 describe("the cockpit's endpoint routes", () => {
   it("are exactly the endpoints the dashboard's functions served", () => {
     expect(routes.map((r) => r.path).sort()).toEqual([
+      // The cockpit's own, not a moved function: the snapshot's change check.
+      "/api/cockpit/version",
       "/api/fleet/refresh",
       "/api/fleet/refresh/status",
       "/api/prospect-audit/run",

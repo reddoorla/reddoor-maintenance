@@ -132,13 +132,14 @@ export function batchingReadClient(client: Client): Client {
       // One failing statement fails the whole batch; settle each on its own instead,
       // each as a read batch of one, which Turso runs read-only (a local file:
       // client does not; the guard in `execute` is what holds there). The
-      // reads are then no longer one consistent snapshot of the store: a page
-      // built from them may mix instants a few milliseconds apart.
-      await Promise.all(
-        run.map((p) =>
-          client.batch([p.stmt], "read").then((r) => p.resolve(r[0] as ResultSet), p.reject),
-        ),
-      );
+      // reads are then no longer one consistent snapshot of the store, so they
+      // run one after another in the order they were issued: a caller that
+      // issues a version read first (the cockpit snapshot) then holds a version
+      // no newer than any row it read, and a write landing between them shows as
+      // a change rather than hiding behind an unchanged version.
+      for (const p of run) {
+        await client.batch([p.stmt], "read").then((r) => p.resolve(r[0] as ResultSet), p.reject);
+      }
       return;
     }
     run.forEach((p, i) => p.resolve(results[i] as ResultSet));

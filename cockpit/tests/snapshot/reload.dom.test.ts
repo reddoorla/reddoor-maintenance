@@ -17,6 +17,7 @@ const reloads = () => document.body.hasAttribute("data-sveltekit-reload");
 function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
   return {
     takenAt: "2026-10-20T12:00:00.000Z",
+    version: 0,
     baseUrl: "https://dash.example",
     gaps: [],
     sites: [],

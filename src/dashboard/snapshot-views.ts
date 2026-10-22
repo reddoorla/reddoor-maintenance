@@ -54,6 +54,9 @@ const AUTO_SPAM_WINDOW_DAYS = 7;
 
 export type CockpitSnapshot = {
   takenAt: string;
+  /** The store's change counter when these rows were read (migration 0048), or null
+   *  when that read failed (then `gaps` names it and the next navigation is a full load). */
+  version: number | null;
   baseUrl: string;
   /** The reads that fell back (`snapshot.ts`); empty when every read worked. */
   gaps: string[];

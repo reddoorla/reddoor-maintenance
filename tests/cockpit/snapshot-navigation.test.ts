@@ -336,6 +336,123 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(documents).toEqual(["/", "/"]);
   });
 
+  it("on focus with nothing changed, one counter read and no notice", async () => {
+    const page = await signedIn();
+    const data: string[] = [];
+    const checks: number[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+    });
+    page.on("response", (r) => {
+      if (r.url().endsWith("/api/cockpit/version")) checks.push(r.status());
+    });
+    await page.goto(`${origin}/submissions`);
+    await page.waitForLoadState("networkidle");
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => checks.length, { timeout: 10_000 }).toBe(1);
+    await page.waitForLoadState("networkidle");
+    expect(checks).toEqual([200]);
+    expect(data).toEqual([]);
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
+  });
+
+  it("a change elsewhere shows a notice and leaves the page as it is until the operator reloads", async () => {
+    // The operator's decision 2026-10-22-1541: the page never changes under
+    // them; a notice says the store moved, and they reload when they choose.
+    const page = await signedIn();
+    const data: string[] = [];
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    await page.goto(`${origin}/s/acme`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const contact = page.locator("input[data-detail-field='pointOfContact']");
+    await contact.fill("half typed");
+
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .insertInto("submissions")
+      .values({
+        id: "sub-notice",
+        site_id: "recB",
+        form_type: "contact",
+        name: "Noor",
+        email: "noor@elsewhere.example",
+        status: "new",
+        notify_status: "sent",
+        submitted_at: new Date().toISOString(),
+      } as never)
+      .execute();
+    await db.destroy();
+    // The live region is there, empty, before the notice, so a screen reader
+    // announces what appears in it (review round 1 of the notice).
+    const region = page.locator("[role='status']", { has: page.locator("button") });
+    expect(await page.locator("[role='status']").count()).toBeGreaterThan(0);
+    expect(await region.count()).toBe(0);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect.poll(() => page.locator(".cockpit-newer").count(), { timeout: 10_000 }).toBe(1);
+    expect(await page.locator(".cockpit-newer").getAttribute("role")).toBe("status");
+    expect(await region.textContent()).toContain("Newer data is available.");
+    // Nothing read, nothing redrawn, nothing typed lost.
+    expect(data).toEqual([]);
+    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
+    expect(await contact.inputValue()).toBe("half typed");
+
+    // The next navigation reads the store afresh: a full load.
+    await follow(page, "/submissions", "Submissions");
+    expect(documents).toEqual(["/s/acme", "/submissions"]);
+    expect(await page.content()).toContain("noor@elsewhere.example");
+  });
+
+  it("the notice's Reload loads the page in full", async () => {
+    const page = await signedIn();
+    const documents: string[] = [];
+    page.on("request", (r) => {
+      if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
+    });
+    await page.goto(`${origin}/fleet`);
+    await page.waitForLoadState("networkidle");
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .updateTable("sites")
+      .set({ name: "Beta, renamed" } as never)
+      .where("id", "=", "recB")
+      .execute();
+    await db.destroy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.locator(".cockpit-newer button", { hasText: "Reload" }).click({ timeout: 10_000 });
+    await page.waitForLoadState("networkidle");
+    expect(documents).toEqual(["/fleet", "/fleet"]);
+    expect(await page.content()).toContain("Beta, renamed");
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
+  });
+
+  it("a check that finds the session ended makes the next navigation a full load, and says nothing", async () => {
+    // Review round 1 of the notice: the layout's wiring of the session check had
+    // no test.
+    const page = await signedIn();
+    await page.route("**/api/cockpit/version", (r) =>
+      r.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, error: "unauthorized" }),
+      }),
+    );
+    await page.goto(`${origin}/fleet`);
+    await page.waitForLoadState("networkidle");
+    const answered = page.waitForResponse((r) => r.url().endsWith("/api/cockpit/version"));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await answered;
+    await expect
+      .poll(() => page.evaluate(() => document.body.hasAttribute("data-sveltekit-reload")))
+      .toBe(true);
+    expect(await page.locator(".cockpit-newer").count()).toBe(0);
+    expect(page.url()).toBe(`${origin}/fleet`);
+  });
+
   it("a signed-out browser gets no snapshot", async () => {
     const context = await browser.newContext();
     const page = await context.newPage();

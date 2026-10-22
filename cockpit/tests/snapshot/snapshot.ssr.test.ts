@@ -90,6 +90,8 @@ async function countingClient(failSql?: (sql: string) => boolean) {
   const batches: string[][] = [];
   const executes: string[] = [];
   const results: ResultSet[] = [];
+  let inFlight = 0;
+  let overlap = 0;
   const text = (s: InStatement) => (typeof s === "string" ? s : s.sql);
   const client = new Proxy(real, {
     get(target, prop, receiver) {
@@ -97,9 +99,17 @@ async function countingClient(failSql?: (sql: string) => boolean) {
         return async (stmts: InStatement[], mode: "read") => {
           batches.push(stmts.map(text));
           if (failSql && stmts.some((s) => failSql(text(s)))) throw new Error("injected");
-          const out = await target.batch(stmts, mode);
-          results.push(...out);
-          return out;
+          inFlight++;
+          overlap = Math.max(overlap, inFlight);
+          try {
+            // A beat, so batches sent together would be seen in flight together.
+            await new Promise((r) => setTimeout(r, 2));
+            const out = await target.batch(stmts, mode);
+            results.push(...out);
+            return out;
+          } finally {
+            inFlight--;
+          }
         };
       }
       if (prop === "execute") {
@@ -112,7 +122,7 @@ async function countingClient(failSql?: (sql: string) => boolean) {
       return bound(target, prop, receiver);
     },
   }) as Client;
-  return { client, batches, executes, results };
+  return { client, batches, executes, results, overlap: () => overlap };
 }
 
 async function batchedDb(client: Client): Promise<Db> {
@@ -174,6 +184,11 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     // The batch, then each statement as a read batch of its own.
     expect(c.batches[0]?.length).toBeGreaterThanOrEqual(11);
     expect(c.batches.slice(1).every((b) => b.length === 1)).toBe(true);
+    // Run one at a time in issue order, the version first: never newer than the
+    // rows read after it.
+    expect(c.overlap()).toBe(1);
+    expect(c.batches[1]?.[0]).toContain('from "cockpit_version"');
+    expect(c.batches[0]?.[0]).toContain('from "cockpit_version"');
     expect(c.batches.slice(1).length).toBe(c.batches[0]?.length);
     expect(c.executes).toEqual([]);
     expect(s.recentEvents).toEqual([]);
