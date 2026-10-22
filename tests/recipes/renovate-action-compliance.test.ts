@@ -178,6 +178,20 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     });
   }
 
+  // Review round 5, against @actions/workflow-parser: whitespace around ${{ }}
+  // inside quotes, or the newline a block keeps, makes the condition a
+  // format() string, which is truthy. Those jobs run.
+  for (const cond of [
+    `"\${{ false }} "`,
+    `'  \${{ null }}'`,
+    "|\n      ${{ false }}",
+    ">\n      ${{ 0 }}",
+  ]) {
+    it(`if: ${JSON.stringify(cond)} runs the job, so is not a gap`, () => {
+      expect(renovateActionGaps(withJobIf(cond))).toEqual([]);
+    });
+  }
+
   it("a disabled checkout is not a gap: Renovate reads the repo through the API, not the checkout", () => {
     const off = CANONICAL.replace(/(- uses: actions\/checkout@[^\n]*\n)/, "$1        if: false\n");
     expect(off).not.toBe(CANONICAL);
@@ -260,7 +274,7 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     noGap(CANONICAL.replace("        with:\n", "        with:\n          if: false\n"));
   });
 
-  it("a quoted string inside ${{ }} is truthy in Actions, so not a gap", () => {
+  it("a quoted string inside ${{ }} is not read as constant-false (a miss, never a gap)", () => {
     for (const cond of ["${{ 'false' }}", "${{ '0' }}", "${{ 'null' }}", `"'false'"`]) {
       expect(renovateActionGaps(withJobIf(cond)), cond).toEqual([]);
     }

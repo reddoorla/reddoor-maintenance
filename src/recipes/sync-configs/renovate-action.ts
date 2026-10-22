@@ -155,6 +155,13 @@ function ifValue(lines: string[], at: number): string | null {
   if (!m) return null;
   const value = m[1] ?? "";
   if (value !== "" && !/^[|>][-+0-9]*$/.test(value)) return value;
+  // A block keeps its indentation or trailing newline around an expression, so
+  // `${{ false }}` in one is a truthy format() string: not read (a miss).
+  if (
+    value !== "" &&
+    lines.slice(at + 1, childEnd(lines, at, keyColumn(line))).some((l) => l.includes("${{"))
+  )
+    return "<block expression>";
   const body = lines
     .slice(at + 1, childEnd(lines, at, keyColumn(line)))
     .map((l) => l.trim())
@@ -274,7 +281,11 @@ function isConstantFalse(raw: string): boolean {
   // expression `false`.
   const t = raw.trim();
   const quoted = /^(['"])(.*)\1$/.exec(t);
-  const v = quoted ? quoted[2]!.trim() : t;
+  // Inside quotes, whitespace is part of the string: `"${{ false }} "` is a
+  // format() of a non-empty string, truthy (@actions/workflow-parser). Only an
+  // exact literal is read; anything padded is a miss, never a gap.
+  if (quoted && quoted[2] !== quoted[2]!.trim()) return false;
+  const v = quoted ? quoted[2]! : t;
   // An empty or null `if:` RUNS the job: GitHub's parser reads it as `success()`
   // ("Empty condition defaults to success()", @actions/workflow-parser), and so
   // does `${{ '' }}` there.
