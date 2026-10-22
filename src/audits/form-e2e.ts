@@ -37,8 +37,8 @@ export type FormE2eDetails = {
 
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
  *  (persisted). `testModeUndeclared` ⇒ the site's /health does not declare
- *  `forms.testMode`, so the probe refused to submit — a plain skip, prior
- *  verdict preserved. `elapsedMs` times the submit itself (click → success
+ *  `forms.testMode`, or (with `healthUnreadable`) could not be read at all, so
+ *  the probe refused to submit — a plain skip, prior verdict preserved. `elapsedMs` times the submit itself (click → success
  *  banner) and feeds the budget-headroom check; absent means "not measured",
  *  which never manufactures a verdict. */
 export type FormSubmitOutcome =
@@ -80,7 +80,11 @@ export type FormSubmitOutcome =
        *  the probe. Undefined = an older runner that did not report it. */
       formsHealth?: FormsHealth;
     }
-  | { testModeUndeclared: true };
+  | {
+      testModeUndeclared: true;
+      /** Set when /health could not be read at all, naming why (P1-68). */
+      healthUnreadable?: string;
+    };
 
 /**
  * The summary a self-skipped site emits — the site's `/health` does not declare
@@ -97,6 +101,18 @@ export type FormSubmitOutcome =
 export const FORM_E2E_TESTMODE_UNDECLARED_SUMMARY =
   "site /health does not declare forms.testMode — probe refused " +
   "(testMode forwarding not yet rolled out here)";
+
+/**
+ * The summary when the site's /health could not be read, so the probe refused to
+ * submit without knowing whether the site declares testMode. Distinct from the
+ * undeclared summary because the remedy is different: an undeclared site needs a
+ * deploy, an unreadable one needs its /health looked at (P1-68: Vineyard declares
+ * testMode and was listed as undeclared after its /health timed out once).
+ * `fleet-form-e2e.yml` counts these by the "/health could not be read" phrase.
+ */
+export function formE2eHealthUnreadableSummary(reason: string): string {
+  return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
+}
 
 /**
  * What a browser saw the site's own Turnstile widget do. Only two of Cloudflare's
@@ -223,9 +239,12 @@ export type FormRunner = {
  * whether the probe may submit at all; `turnstile` is `!!PUBLIC_TURNSTILE_SITE_KEY`
  * on the deployed site — it says a sitekey is CONFIGURED and nothing more, since
  * /health never contacts Cloudflare. Null = absent or malformed (an older site
- * package whose /health has no such key).
+ * package whose /health has no such key). `unreadable` is set only when /health
+ * itself could not be read (timeout, non-2xx, a body that is not a JSON object)
+ * and names why: a site that does declare testMode can still be refused for the
+ * night, and the skip must not call that "undeclared" (P1-68).
  */
-export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
+export type FormsHealth = { testMode: boolean; turnstile: boolean | null; unreadable?: string };
 
 /**
  * The `Turnstile widget` verdict, from the two things one form-e2e run knows: what
@@ -449,8 +468,12 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       testSitekey: CF_TEST_SITEKEY,
     });
     if ("testModeUndeclared" in outcome) {
-      // Not n/a — the site may well have a form; it just hasn't rolled out
-      // testMode forwarding, so probing it would submit a real lead. The FORM
+      const summary = outcome.healthUnreadable
+        ? formE2eHealthUnreadableSummary(outcome.healthUnreadable)
+        : FORM_E2E_TESTMODE_UNDECLARED_SUMMARY;
+      // Not n/a — the site may well have a form; it hasn't rolled out testMode
+      // forwarding, or its /health could not be read to say whether it has, so
+      // probing it could submit a real lead. The FORM
       // verdict and its stamp are left untouched, which preserves them.
       //
       // The Turnstile verdict is explicitly CLEARED to null, and that is
@@ -464,7 +487,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "skip",
-        summary: FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+        summary,
         details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }
@@ -705,17 +728,46 @@ export async function declaresTestModeForwarding(baseUrl: string): Promise<boole
  *
  * Everything unreachable degrades to the SAFE side of each field independently:
  * `testMode:false` refuses the submit, `turnstile:null` means "unknown", never
- * "no key" — a network blip must not manufacture a `fail`.
+ * "no key" — a network blip must not manufacture a `fail`. An unreadable /health
+ * is read ONCE more before the refusal stands, and the refusal names why
+ * (`unreadable`): on 2026-10-22 one 10 s timeout cost vineyard-custom-homes its
+ * night's coverage under the "does not declare" wording (P1-68). A readable body
+ * that declares nothing is final on the first read.
  */
 export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
+  const first = await readFormsHealthOnce(baseUrl);
+  return first.unreadable === undefined ? first : readFormsHealthOnce(baseUrl);
+}
+
+async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
+  // One line: the workflow reads the reason back out of the printed summary.
+  const unreadable = (why: string): FormsHealth => ({
+    testMode: false,
+    turnstile: null,
+    unreadable: why.replace(/\s+/g, " ").trim(),
+  });
+  // undici says "fetch failed" for every network error; the code is in `cause`.
+  const networkReason = (e: unknown): string => {
+    const code = (e as { cause?: { code?: unknown } } | null)?.cause?.code;
+    if (typeof code === "string") return code;
+    return e instanceof Error ? e.message : String(e);
+  };
+  // The timeout covers the body as well as the headers, so either read can hit it.
+  const timedOut = (e: unknown) => e instanceof Error && e.name === "TimeoutError";
+  const TIMED_OUT = `timed out after ${HEALTH_TIMEOUT_MS / 1000}s`;
   const unknown: FormsHealth = { testMode: false, turnstile: null };
+  let res: Response;
   try {
-    const res = await fetch(new URL("/health", baseUrl), {
+    res = await fetch(new URL("/health", baseUrl), {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
-    if (!res.ok) return unknown;
+  } catch (e) {
+    return unreadable(timedOut(e) ? TIMED_OUT : networkReason(e));
+  }
+  if (!res.ok) return unreadable(`HTTP ${res.status}`);
+  try {
     const body: unknown = await res.json();
-    if (typeof body !== "object" || body === null) return unknown;
+    if (typeof body !== "object" || body === null) return unreadable("body is not a JSON object");
     const forms = (body as Record<string, unknown>).forms;
     if (typeof forms !== "object" || forms === null) return unknown;
     const f = forms as Record<string, unknown>;
@@ -725,8 +777,8 @@ export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
       // "no sitekey" is a conclusive fail downstream and must be earned.
       turnstile: typeof f.turnstile === "boolean" ? f.turnstile : null,
     };
-  } catch {
-    return unknown;
+  } catch (e) {
+    return unreadable(timedOut(e) ? TIMED_OUT : "body is not JSON");
   }
 }
 
@@ -858,7 +910,9 @@ export async function defaultFormRunner(
       // Per-site safety preflight — refuse before a browser even launches.
       const formsHealth = await readFormsHealth(baseUrl);
       if (!formsHealth.testMode) {
-        return { testModeUndeclared: true };
+        return formsHealth.unreadable === undefined
+          ? { testModeUndeclared: true }
+          : { testModeUndeclared: true, healthUnreadable: formsHealth.unreadable };
       }
       // Hoisted above the try: the catch below reports what the widget did, and
       // the listener that sets this is attached inside.

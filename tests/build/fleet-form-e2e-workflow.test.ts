@@ -4,7 +4,10 @@ import { mkdtemp, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { FORM_E2E_TESTMODE_UNDECLARED_SUMMARY } from "../../src/audits/form-e2e.js";
+import {
+  FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+  formE2eHealthUnreadableSummary,
+} from "../../src/audits/form-e2e.js";
 import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
 
@@ -270,6 +273,68 @@ describe("fleet-form-e2e — an uncovered site is named, not only counted (#779)
       exit: 0,
     });
     expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=none");
+  });
+});
+
+describe("fleet-form-e2e — an unreadable /health is named as unreadable, not undeclared (P1-68)", () => {
+  /** A site whose /health could not be read, from the audit's own summary builder. */
+  const unreadable = (site: string, reason = "timed out after 10s"): string =>
+    resultBlock("skip", site, formE2eHealthUnreadableSummary(reason));
+
+  // 2026-10-22: vineyard-custom-homes declares testMode, its /health timed out, and
+  // the run listed it beside 29-navy and caltex as "no forms.testMode declaration".
+  it("counts it as uncovered, names it with its reason, and keeps it out of the undeclared warning", async () => {
+    const r = await runGate({
+      stdout:
+        `${probed(SIX_COVERED.filter((s) => s !== "vineyard-custom-homes"))}\n` +
+        `${selfSkips(["29-navy", "caltex"])}\n${unreadable("vineyard-custom-homes")}\n` +
+        `${writeSummary(8, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=2 unreadable=1 total=8");
+    expect(r.out).toContain(
+      "FLEET_FORM_E2E_UNCOVERED sites=29-navy,caltex,vineyard-custom-homes\n",
+    );
+    const undeclared =
+      r.out.split("\n").find((l) => l.includes("no forms.testMode declaration")) ?? "";
+    expect(undeclared).toContain("2 of 8");
+    expect(undeclared).not.toContain("vineyard-custom-homes");
+    const health =
+      r.out.split("\n").find((l) => l.startsWith("::warning::") && l.includes("/health")) ?? "";
+    expect(health).toContain("1 of 8 site(s) not probed because their /health could not be read");
+    expect(health).toContain("vineyard-custom-homes (timed out after 10s)");
+  });
+
+  it("names each unreadable site with its own reason when they are not adjacent", async () => {
+    const r = await runGate({
+      stdout:
+        `${unreadable("espada", "HTTP 503")}\n${probed(["1836dig"])}\n` +
+        `${unreadable("revogen")}\n${writeSummary(3, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=espada,revogen\n");
+    expect(r.out).toContain(": espada (HTTP 503), revogen (timed out after 10s).");
+  });
+
+  it("prints unreadable=0 on a sweep where every /health answered", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${writeSummary(6, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=0 unreadable=0 total=6");
+    expect(r.out).not.toContain("/health could not be read");
+  });
+
+  it("still FAILS when no site was probed because every /health was unreadable", async () => {
+    const r = await runGate({
+      stdout: `${SIX_COVERED.map((s) => unreadable(s, "HTTP 503")).join("\n")}\n${writeSummary(6, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E probed=0");
+    expect(r.out).toContain("::error::fleet form-e2e probed no site end to end");
   });
 });
 
