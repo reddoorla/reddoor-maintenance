@@ -140,16 +140,30 @@ jobs:
             --search "in:title \"$title\"" --json number,title \
             --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
+            # This run's drift must reach the issue by its body or a comment. One
+            # failed write is a warning; both failing is a lost week, and the step
+            # fails so the last step reds the run (#1607).
+            updated=no
             if printf '%s\n' "$detail" | grep -q '^DRIFT '; then
-              gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
-                || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+              if gh issue edit "$existing" --body "$body"; then
+                echo "rewrote the body of #$existing"
+                updated=yes
+              else
+                echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+              fi
             else
               echo "::warning::this run printed no DRIFT line; keeping the body of #$existing so a clean sweep can still close it"
             fi
-            # The finding is already on an open issue, so a missed comment is not a
-            # lost week: this step fails only when no issue could be created (#1607).
-            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing" \
-              || echo "::warning::could not comment on #$existing; the issue is still open"
+            if gh issue comment "$existing" --body "$body"; then
+              echo "commented on existing #$existing"
+              updated=yes
+            else
+              echo "::warning::could not comment on #$existing"
+            fi
+            if [ "$updated" = "no" ]; then
+              echo "::error::could not update #$existing with this run's drift"
+              exit 1
+            fi
           else
             gh issue create --title "$title" --body "$body"
           fi

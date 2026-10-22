@@ -353,7 +353,7 @@ const corpus = JSON.parse(fs.readFileSync(process.env.GH_CORPUS, "utf-8"));
 const a = process.argv.slice(2);
 const log = (s) => fs.appendFileSync(process.env.GH_LOG, s + "\\n");
 // A 502 on one subcommand, as gh exits on an HTTP error.
-if (process.env.GH_FAIL && a[0] === "issue" && a[1] === process.env.GH_FAIL) {
+if (process.env.GH_FAIL && a[0] === "issue" && process.env.GH_FAIL.split(",").includes(a[1])) {
   process.stderr.write("HTTP 502: Bad Gateway\\n");
   process.exit(1);
 }
@@ -574,6 +574,29 @@ describe("fleet-config-drift — drift that could not be filed reds the run (#16
     );
     expect(r.code).toBe(0);
     expect(r.out).toContain("could not comment on #7");
+  });
+
+  it("the open step fails when the open issue could be neither rewritten nor commented on", async () => {
+    // Review round 4: with both writes failing, this week's drift reached no
+    // issue, so the last step must red the run.
+    const r = await issueStep(
+      OPEN,
+      DRIFT_OUT,
+      [{ number: 7, title: TITLE, body: `DRIFT reddoorla/old x` }],
+      "edit,comment",
+    );
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("could not update #7");
+  });
+
+  it("a rewritten body alone is enough when only the comment fails", async () => {
+    const r = await issueStep(
+      OPEN,
+      DRIFT_OUT,
+      [{ number: 7, title: TITLE, body: `DRIFT ${A} x` }],
+      "comment",
+    );
+    expect(r.code).toBe(0);
   });
 
   it("the pass control: a filing that worked exits 0", async () => {

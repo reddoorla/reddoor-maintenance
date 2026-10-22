@@ -159,15 +159,30 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     '"false"',
     "0",
     "${{ 0 }}",
-    "''",
-    "${{ '' }}",
-    "null",
+    "${{ null }}",
+    `"null"`,
+    `"''"`,
   ]) {
     it(`if: ${cond} on the renovate job yields a gap`, () => {
       const gaps = renovateActionGaps(withJobIf(cond));
       expect(gaps.some((g) => g.includes("can never run"))).toBe(true);
     });
   }
+
+  // Review round 4, against GitHub's own parser (@actions/workflow-parser
+  // convertToIfCondition: "Empty condition defaults to success()"): an empty or
+  // null `if:` RUNS the job, so it is no gap.
+  for (const cond of ["''", '""', "null", "~", "${{ '' }}"]) {
+    it(`if: ${cond} on the renovate job runs it, so is not a gap`, () => {
+      expect(renovateActionGaps(withJobIf(cond))).toEqual([]);
+    });
+  }
+
+  it("a disabled checkout is not a gap: Renovate reads the repo through the API, not the checkout", () => {
+    const off = CANONICAL.replace(/(- uses: actions\/checkout@[^\n]*\n)/, "$1        if: false\n");
+    expect(off).not.toBe(CANONICAL);
+    expect(renovateActionGaps(off)).toEqual([]);
+  });
 
   it("a constant-false if: on a step yields a gap too", () => {
     const disabled = CANONICAL.replace(
@@ -288,6 +303,15 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
   const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
   const RENOVATE_USES = /( *)- (?:name: [^\n]*\n *)?uses: renovatebot\/github-action@[^\n]*\n/;
 
+  it("a disabled extra app-token step beside the working one is not a gap", () => {
+    noGap(
+      CANONICAL.replace(
+        "    steps:\n",
+        "    steps:\n      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1\n        if: false\n",
+      ),
+    );
+  });
+
   it("a disabled extra checkout beside the working one is not a gap", () => {
     noGap(
       CANONICAL.replace(
@@ -316,14 +340,11 @@ describe("renovateActionGaps — a job or step that can never run (#1607)", () =
     noGap(CANONICAL.slice(0, at) + old.trimEnd() + "\n" + job); // and before it
   });
 
-  it("disabling every checkout IS a gap", () => {
+  it("disabling every app-token step IS a gap: Renovate has no token", () => {
     const both = CANONICAL.replace(
       "    steps:\n",
-      `    steps:\n      - uses: ${CHECKOUT}\n        if: false\n`,
-    ).replace(
-      /(- uses: actions\/checkout@[^\n]*\n)(?![ ]+if: false)/,
-      `$1        if: \${{ false }}\n`,
-    );
+      "    steps:\n      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1\n        if: false\n",
+    ).replace("        id: app-token\n", "        id: app-token\n        if: ${{ false }}\n");
     expect(both.match(/if: (false|\$\{\{ false \}\})/g)?.length).toBe(2);
     expect(renovateActionGaps(both).some((g) => g.includes("can never run"))).toBe(true);
   });

@@ -167,16 +167,16 @@ function ifValue(lines: string[], at: number): string | null {
  * or `[]` when it can run.
  *
  * Renovate runs if SOME `renovatebot/github-action` step can: its job's own
- * `if:` and its step's own `if:` are not constant-false, and for each other
- * {@link KNOWN_PINNED_ACTIONS} action, some step of that job using it is not
- * either. So a site's own disabled extra job, or a disabled second copy of a
- * required step beside the working one, is not a gap. (A required action with
- * no step at all is `pinGap`'s to report.)
+ * `if:` and its step's own `if:` are not constant-false, and some step of that
+ * job using `actions/create-github-app-token` (its credential) is not either.
+ * So a site's own disabled extra job, a disabled second copy beside a working
+ * one, or a disabled checkout is not a gap. (A required action with no step at
+ * all is `pinGap`'s to report.)
  *
  * A false gap is the expensive mistake here: any gap makes `sync-configs` heal the
  * file by overwriting it and `self-updating` open a PR, so a site's own guard, job
  * or step would be deleted. So this reads only `if:` keys at the EXACT column of
- * the job's own keys or a required step's own keys. A block-scalar body, an
+ * the job's own keys or those steps' own keys. A block-scalar body, an
  * `env:`/`with:` map, another job and a site's own step all sit at other columns
  * or outside those ranges, so none can match. What it does not read (a quoted
  * `"if":` key, a flow mapping, an expression such as `false && x`) is a miss,
@@ -249,8 +249,10 @@ function renovateDisabledBy(contents: string): string[] {
     const blocked: string[] = [...falseIfs(job.line + 1, job.end, job.col)];
     const own = stepDisabledBy(at);
     if (own) blocked.push(...own);
-    for (const slug of KNOWN_PINNED_ACTIONS) {
-      if (slug === "renovatebot/github-action") continue;
+    // The App token is the one other step Renovate cannot run without: its
+    // output is Renovate's credential. Checkout is not one: the action reads the
+    // repository through the API, and the template passes it no config file.
+    for (const slug of ["actions/create-github-app-token"]) {
       const uses = usesAt(slug, job.line + 1, job.end);
       if (uses.length === 0) continue;
       const each = uses.map(stepDisabledBy);
@@ -269,16 +271,19 @@ function renovateDisabledBy(contents: string): string[] {
  *  a condition" (the template has none, but a site may guard its own). */
 function isConstantFalse(raw: string): boolean {
   // One layer of YAML quoting comes off: `if: "false"` hands Actions the
-  // expression `false`. What is left is an expression, bare or in `${{ }}`.
-  let v = raw
-    .trim()
-    .replace(/^(['"])(.*)\1$/, "$2")
-    .trim();
+  // expression `false`.
+  const t = raw.trim();
+  const quoted = /^(['"])(.*)\1$/.exec(t);
+  const v = quoted ? quoted[2]!.trim() : t;
+  // An empty or null `if:` RUNS the job: GitHub's parser reads it as `success()`
+  // ("Empty condition defaults to success()", @actions/workflow-parser), and so
+  // does `${{ '' }}` there.
+  if (v === "" || (!quoted && (v === "null" || v === "~"))) return false;
   const expr = v.match(/^\$\{\{\s*(.*?)\s*\}\}$/);
-  if (expr) v = expr[1]!.trim();
-  // In an expression `'…'` is a string literal, and only the empty one is
-  // falsy: `${{ 'false' }}` is a non-empty string, so the job runs.
-  return ["false", "0", "null", "''"].includes(v) || raw.trim() === "''" || raw.trim() === '""';
+  if (expr) return ["false", "0", "null"].includes(expr[1]!.trim());
+  // A YAML string `''` or `null` is that expression: an empty string literal or
+  // null, both falsy. Any other quoted literal is a non-empty string, truthy.
+  return ["false", "0", "null", "''"].includes(v);
 }
 
 /** Gaps in a site's `.github/workflows/renovate.yml`. Empty = compliant,
