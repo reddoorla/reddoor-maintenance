@@ -68,7 +68,8 @@ export function isUnmeasuredSmoke(result: {
  *  distinction is the whole point: this alarm exists because the previous one was
  *  structurally incapable of firing, and an alarm nobody has seen pass is not evidence.
  *
- *  Only `smoke` results are considered; other audits in the same pool are ignored. */
+ *  Only `smoke` results are considered; other audits in the same pool are ignored.
+ *  Sites are listed sorted by name. */
 export function formatUnmeasuredSmokeSummary(
   results: ReadonlyArray<{
     audit: string;
@@ -78,7 +79,12 @@ export function formatUnmeasuredSmokeSummary(
     notApplicable?: true;
   }>,
 ): string {
-  const unmeasured = results.filter(isUnmeasuredSmoke).map((r) => r.site);
+  // Sorted: the pool hands results back in completion order, which changes from
+  // night to night, and CI greps this line (#1677).
+  const unmeasured = results
+    .filter(isUnmeasuredSmoke)
+    .map((r) => r.site)
+    .sort();
   let out = "";
   if (unmeasured.length > 0) {
     out += `⚠ ${unmeasured.length} site(s) never measured: ${unmeasured.join("; ")}\n`;
