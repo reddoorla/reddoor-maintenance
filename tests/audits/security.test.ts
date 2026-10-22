@@ -2127,7 +2127,61 @@ describe("audits/security — an alert dismissed in Dependabot stays dismissed (
         spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
       });
       expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
-        expect.stringMatching(/every advisory pnpm audit found \(2\) was dismissed in Dependabot/),
+        expect.stringMatching(/nothing live is left of what pnpm audit found after 2 dismissed/),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the run log never claims every advisory was dismissed while an info one is left (round 4)", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 1, low: 0, moderate: 0, high: 0, critical: 1 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "critical",
+          title: "c",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+        },
+        "2": {
+          module_name: "foo",
+          severity: "info",
+          title: "i",
+          url: "https://github.com/advisories/GHSA-ffff-ffff-0001",
+        },
+      },
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({})]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+      });
+      expect(result.summary).toBe("Dependabot: 0 alerts");
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => /every advisory/.test(l))).toBe(false);
+      expect(lines).toContainEqual(
+        expect.stringMatching(/nothing live is left .* after 1 dismissed/),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the merge's run log names what was left out", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({})]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringMatching(
+          /\(1 dismissed in Dependabot left out\) — adding pnpm audit to Dependabot/,
+        ),
       );
     } finally {
       log.mockRestore();

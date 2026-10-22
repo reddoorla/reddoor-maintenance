@@ -553,11 +553,12 @@ async function crossCheckDependabot(
   }
   if (!hasLiveCounts(viaLockfile)) {
     const leftOut = (viaLockfile.details as { dismissedLeftOut?: number }).dismissedLeftOut;
-    // Everything pnpm found was dismissed: Dependabot's answer stands, and the log says why.
+    // Nothing live is left once the dismissals are out (an info advisory may remain, which
+    // counts for nothing): Dependabot's answer stands, and the log says why.
     if (leftOut)
       console.error(
-        `[security] ${label}: every advisory pnpm audit found (${leftOut}) was dismissed in ` +
-          `Dependabot, so Dependabot's answer stands`,
+        `[security] ${label}: nothing live is left of what pnpm audit found after ${leftOut} ` +
+          `dismissed in Dependabot, so Dependabot's answer stands`,
       );
     return viaDependabot;
   }
@@ -598,7 +599,8 @@ async function dismissedAlerts(
 }
 
 /** A dismissal that speaks for the root lockfile: filed on it, on the root `package.json`, or on
- *  no manifest GitHub named. */
+ *  no manifest GitHub named. Any root lockfile counts, so a dismissal made while the site was on
+ *  npm (`package-lock.json`) still holds after it moved to pnpm: same package, same advisory. */
 function dismissedOnRoot(a: DependabotAlert): boolean {
   return (
     a.manifestPath === null ||
