@@ -653,6 +653,13 @@ export const MIGRATIONS: Migration[] = [
     sql: `DROP INDEX IF EXISTS idx_deadletter_slug_unreplayed;`,
   },
   {
+    // #1654: pnpm's own security result on the last full merged night (JSON: its
+    // per-severity counts and advisories before any merge lifted a severity), so a
+    // night `pnpm audit` cannot run merges with it exactly. NULL until such a night.
+    id: "0046_site_health_security_lockfile_audit",
+    sql: `ALTER TABLE site_health ADD COLUMN security_lockfile_audit TEXT;`,
+  },
+  {
     // #1608: the Prismic drift report an ack accepts, copied from
     // site_health.prismic_models_drift when the ack is set. The ack mutes only that finding;
     // NULL covers nothing. 0046 is #1654's (site_health.security_lockfile_audit),
