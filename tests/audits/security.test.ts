@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import { advisoriesFromResult, isPartialSecurityResult } from "../../src/audits/security-fields.js";
+import {
+  advisoriesFromResult,
+  isPartialSecurityResult,
+  lockfileAuditFromResult,
+} from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 /** The caveat a partial night's summary carries when neither pnpm nor npm is installed (#1654). */
