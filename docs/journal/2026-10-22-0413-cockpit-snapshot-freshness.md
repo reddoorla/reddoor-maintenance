@@ -26,7 +26,7 @@
    - a post answered 401 followed the auth gate's redirect at once, taking the typed text with it;
    - a post that never answers froze freshness for good.
 
-   Now a 401 or 403 marks the next navigation as a full load, and every post has a 30 s deadline.
+   Now a 401 or 403 marks the next navigation as a full load, and every post has a deadline. Round 5 caught that my first deadline, 30 s, was shorter than Netlify's 60 s limit on a synchronous function: a ✗ for a change the server went on to apply, and a retry would have dispatched a second fleet sweep or paid audit. It is 65 s.
 
 5. **Round 5:** see the PR.
 

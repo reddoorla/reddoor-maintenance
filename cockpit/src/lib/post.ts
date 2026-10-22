@@ -43,8 +43,11 @@ export async function postAction(input: string, init: RequestInit = {}): Promise
 }
 
 /** How long a change may take to answer before it counts as failed: longer than
- *  any function Netlify lets run. */
-export const POST_DEADLINE_MS = 30_000;
+ *  any function Netlify lets run (60 s for a synchronous function, its
+ *  functions configuration page). A shorter deadline could show ✗ for a change
+ *  the server went on to apply, and a retry would apply it twice (a second
+ *  fleet sweep, Renovate run, or paid prospect audit). */
+export const POST_DEADLINE_MS = 65_000;
 
 let inFlight = 0;
 const settled = new Set<() => void>();

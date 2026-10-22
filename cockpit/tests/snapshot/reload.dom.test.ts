@@ -119,7 +119,9 @@ describe("a post that never answers", () => {
       await failed;
       expect(postsInFlight()).toBe(0);
       expect(settled).toHaveBeenCalledTimes(1);
-      expect(POST_DEADLINE_MS).toBe(30_000);
+      // Past Netlify's 60 s limit on a synchronous function, so the server has
+      // stopped before the page gives up (review round 5).
+      expect(POST_DEADLINE_MS).toBeGreaterThan(60_000);
       stop();
     } finally {
       vi.useRealTimers();
