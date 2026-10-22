@@ -205,7 +205,7 @@ describe("fleet-smoke — the gate cannot go green having measured nothing", () 
     const r = await runGate({ stdout: await realSweep(9, timedOut), exit: 1 });
     expect(r.code).not.toBe(0);
     expect(firstError(r.out)).toBe(
-      `::error::fleet smoke: 4 site(s) never measured — ${[...timedOut].sort().join(",")}`,
+      "::error::fleet smoke: 4 site(s) never measured — beachfront-dentistry,espada,reddoor,sonder",
     );
   });
 
