@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { postAction } from "../../src/lib/post.js";
+import { onPostsSettled, postAction, postsInFlight } from "../../src/lib/post.js";
 import { invalidated } from "../_helpers/app-navigation.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
@@ -72,6 +72,41 @@ describe("a change the page posts reads the snapshot again", () => {
     );
     await expect(postAction("/api/x")).rejects.toThrow("offline");
     expect(invalidated).toEqual(["cockpit:snapshot"]);
+  });
+});
+
+describe("a post in flight", () => {
+  it("is counted until it answers, and the last answer is announced", async () => {
+    // Review round 3: the layout holds a remount while a save has not answered,
+    // so its ✓ or ✗ lands on the field it belongs to.
+    const answers: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((r) => answers.push(() => r(new Response("{}"))))),
+    );
+    const settled = vi.fn();
+    const stop = onPostsSettled(settled);
+    const a = postAction("/api/a");
+    const b = postAction("/api/b");
+    expect(postsInFlight()).toBe(2);
+    answers[0]!();
+    await a;
+    expect(postsInFlight()).toBe(1);
+    expect(settled).not.toHaveBeenCalled();
+    answers[1]!();
+    await b;
+    expect(postsInFlight()).toBe(0);
+    expect(settled).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("is counted down when it fails too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("offline"))),
+    );
+    await expect(postAction("/api/x")).rejects.toThrow("offline");
+    expect(postsInFlight()).toBe(0);
   });
 });
 

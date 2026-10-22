@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { afterNavigate, invalidate } from "$app/navigation";
   import Shell from "../lib/Shell.svelte";
-  import { reloadsOnNextNavigation } from "../lib/post.js";
+  import { onPostsSettled, postsInFlight, reloadsOnNextNavigation } from "../lib/post.js";
   import {
     SNAPSHOT_DEPENDENCY,
     isEditingField,
@@ -34,6 +34,12 @@
     if (type === "popstate" && reloadsOnNextNavigation()) location.reload();
   });
 
+  // The operator is in a field, or a save has not answered yet: a remount now
+  // would take the field's text, or the answer's ✓ or ✗, with it.
+  const busy = () =>
+    typeof document !== "undefined" &&
+    (isEditingField(document.activeElement) || postsInFlight() > 0);
+
   // Freshness (the snapshot brief's PR 2): on coming back to the tab, on focus
   // and about once a minute while it is visible, ask whether the store changed,
   // and read the snapshot again only if it did; never while the operator is in a
@@ -48,7 +54,7 @@
       },
       {
         isVisible: () => document.visibilityState === "visible",
-        isEditing: () => isEditingField(document.activeElement),
+        isEditing: busy,
         listen: (event, handler) => {
           const target = event === "focus" ? window : document;
           target.addEventListener(event, handler);
@@ -57,9 +63,15 @@
       },
     );
     setActiveFreshness(controller);
+    // A remount held for the operator (below) goes ahead once they are done.
+    const whenDone = () => setTimeout(() => applyView(dataKey, pageKey), 0);
+    document.addEventListener("focusout", whenDone);
+    const stopSettled = onPostsSettled(whenDone);
     return () => {
       setActiveFreshness(null);
       controller.stop();
+      document.removeEventListener("focusout", whenDone);
+      stopSettled();
     };
   });
 
@@ -70,22 +82,43 @@
   // read: a check that finds nothing new, or a refused or failed save, leaves
   // the page as it is, with what the operator typed and the ✗ beside it. Only a
   // snapshot with no counter (the read failed) falls back to its read time.
+  //
+  // A snapshot read can land while the operator has just stepped into a field
+  // (a check under way when they clicked in): the remount then waits until they
+  // are done, while a navigation (a page of its own) mounts at once.
   const pageKey = $derived(data.page ?? data.path);
-  const viewKey = $derived(`${pageKey}@${data.snapshot?.version ?? data.snapshot?.takenAt ?? ""}`);
+  const dataKey = $derived(`${pageKey}@${data.snapshot?.version ?? data.snapshot?.takenAt ?? ""}`);
+  let viewKey = $state(untrack(() => dataKey));
+  let viewPage = untrack(() => pageKey);
+  function applyView(key: string, page: string): void {
+    if (key === viewKey) return;
+    if (page === viewPage && busy()) return;
+    viewPage = page;
+    viewKey = key;
+  }
+  $effect.pre(() => {
+    const key = dataKey;
+    const page = pageKey;
+    untrack(() => applyView(key, page));
+  });
 
   // A remount on the same page keeps the operator's place (lib/view-keep.ts):
   // recorded before the old page goes, put back once the new one is in.
   let shownPage: string | null = null;
   $effect.pre(() => {
     void viewKey;
-    const kept: KeptView | null =
-      shownPage === null ? null : captureView(shownPage, document, window.scrollY);
-    beginRestore(kept, pageKey);
+    untrack(() => {
+      const kept: KeptView | null =
+        shownPage === null ? null : captureView(shownPage, document, window.scrollY);
+      beginRestore(kept, viewPage);
+    });
   });
   $effect(() => {
     void viewKey;
-    finishRestore(document, (y) => window.scrollTo(0, y));
-    shownPage = pageKey;
+    untrack(() => {
+      finishRestore(document, (y) => window.scrollTo(0, y));
+      shownPage = viewPage;
+    });
   });
 </script>
 

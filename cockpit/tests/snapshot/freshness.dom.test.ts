@@ -166,6 +166,32 @@ describe("startFreshness: when the open cockpit checks", () => {
     }
   });
 
+  it("a check whose answer comes back once the operator is in a field waits for them", async () => {
+    // Review round 3: `isEditing` was asked only before the counter read, so a
+    // check under way when the operator clicked into a field remounted the page.
+    vi.useFakeTimers();
+    try {
+      let answer: (r: Response) => void = () => undefined;
+      const d = deps(() => new Promise<Response>((r) => (answer = r)));
+      const e = env();
+      const c = startFreshness(() => snapshot, d, e.env);
+      e.fire("focus");
+      await flush();
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      e.state.editing = true;
+      answer(new Response(JSON.stringify({ ok: true, version: 42 })));
+      await flush();
+      expect(d.refresh).not.toHaveBeenCalled();
+      e.state.editing = false;
+      e.fire("focusout");
+      await flush();
+      expect(d.refresh).toHaveBeenCalledTimes(1);
+      c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a refresh asked for outside a field runs at once", () => {
     const d = deps(version(41));
     const c = startFreshness(() => snapshot, d, env().env);

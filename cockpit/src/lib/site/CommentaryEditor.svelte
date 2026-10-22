@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { postAction } from "../post.js";
+  import { keepValue, keptValue } from "../view-keep.js";
   import type { CommentaryView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
@@ -14,7 +16,18 @@
   // saves only when the text differs, and a successful save moves the baseline.
   // svelte-ignore state_referenced_locally
   let saved = c.text.replace(/\r\n?/g, "\n");
-  let mark = $state("");
+  // Text not yet saved, or whose save failed, and the mark, carry over a remount
+  // for a change in the store, as DetailField's do (lib/view-keep.ts).
+  const keepName = `commentary:${c.id}`;
+  const kept = keptValue<{ text: string | null; mark: string } | null>(keepName, null);
+  let mark = $state(kept?.mark ?? "");
+  onDestroy(
+    keepValue(keepName, () => {
+      const t = document.getElementById(`commentary-${c.id}`);
+      const text = t instanceof HTMLTextAreaElement && t.value !== saved ? t.value : null;
+      return text === null && mark === "" ? null : { text, mark };
+    }),
+  );
   // Disabled until the blur handler exists, so an edit is never lost silently.
   const m = mounted();
 
@@ -44,6 +57,6 @@
     data-commentary-url={c.url}
     rows="3"
     disabled={!m.ready}
-    value={c.text}
+    value={kept?.text ?? c.text}
     {onblur}></textarea><span class="commentary-saved" data-for={c.id}>{mark}</span>
 </div>

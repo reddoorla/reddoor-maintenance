@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { postAction } from "../post.js";
+  import { keepValue, keptValue } from "../view-keep.js";
   import type { DetailRowView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
@@ -14,7 +16,13 @@
   // svelte-ignore state_referenced_locally
   const url = mountedUrl;
 
-  let mark = $state("");
+  // An edit not yet saved, or whose save failed, and the last save's mark, carry
+  // over a remount for a change in the store (lib/view-keep.ts): what the
+  // operator typed stays, with its ✗, and the next blur still retries it.
+  const fieldName = row.kind === "readonly" ? row.label : row.field;
+  const keepName = `detail:${url}:${fieldName}`;
+  const kept = keptValue<{ value: string | null; mark: string } | null>(keepName, null);
+  let mark = $state(kept?.mark ?? "");
   // Disabled until the save handlers exist, so an edit is never lost silently.
   const m = mounted();
   // What the server last accepted, for the controls that save on blur. A save
@@ -28,7 +36,20 @@
     row.kind === "input" || row.kind === "date" || row.kind === "textarea"
       ? row.value.replace(/\r\n?/g, "\n")
       : "";
-  let edited = false;
+  let edited = kept?.value != null;
+  onDestroy(
+    keepValue(keepName, () => {
+      const el = document.getElementById(`detail-${fieldName}`);
+      const typed =
+        edited &&
+        (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+        el.type !== "password" &&
+        el.value !== saved
+          ? el.value
+          : null;
+      return typed === null && mark === "" ? null : { value: typed, mark };
+    }),
+  );
 
   /** The string the control POSTs. A checkbox's `.value` is its content
    *  attribute, never the checked state, and a multiple select's `.value` is its
@@ -139,7 +160,7 @@
           data-detail-field={row.field}
           data-details-url={url}
           disabled={!m.ready}
-          value={row.value}
+          value={kept?.value ?? row.value}
           {oninput}
           {onblur}></textarea>
       {:else}
@@ -149,7 +170,7 @@
           data-detail-field={row.field}
           data-details-url={url}
           disabled={!m.ready}
-          value={row.value}
+          value={kept?.value ?? row.value}
           {oninput}
           {onblur}
         />

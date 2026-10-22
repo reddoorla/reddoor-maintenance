@@ -108,7 +108,9 @@ export function startFreshness(
     checkWaiting = false;
     checking = true;
     try {
-      await checkFreshness(getSnapshot(), deps);
+      // The answer can take a while; the operator may be in a field by then,
+      // and the refresh waits for them like any other.
+      await checkFreshness(getSnapshot(), { ...deps, refresh: async () => requestRefresh() });
     } finally {
       checking = false;
     }
