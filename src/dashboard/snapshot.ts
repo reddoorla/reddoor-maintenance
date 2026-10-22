@@ -179,7 +179,6 @@ function charCost(code: number): number {
   return code > 0x7f ? 4 : 1;
 }
 
-/** `value` cut to at most `max` serialised bytes, and what that cost. */
 /** `value` cut to at most `max` characters, never between the halves of a
  *  surrogate pair, and what the kept part costs serialised. */
 function cutTo(value: string, max: number): { text: string; cost: number; cut: boolean } {
