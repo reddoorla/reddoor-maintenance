@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -44,7 +44,10 @@ process.stdin.once("data", async () => {
 type Outcome = { ran: string[] } | { error: string };
 
 const dirs: string[] = [];
+const live: ChildProcess[] = [];
 afterEach(() => {
+  // A failed expectation or a timeout leaves children waiting on stdin.
+  for (const c of live.splice(0)) if (c.exitCode === null) c.kill();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -78,6 +81,7 @@ async function migrateInProcesses(url: string, n: number): Promise<Outcome[]> {
       stdio: ["pipe", "pipe", "inherit"],
     }),
   );
+  live.push(...children);
   const lines = children.map((c) => createInterface({ input: c.stdout })[Symbol.asyncIterator]());
   const next = async (i: number) => {
     const line = await lines[i]!.next();

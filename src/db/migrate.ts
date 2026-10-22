@@ -51,14 +51,15 @@ export async function runMigrations(client: Client): Promise<string[]> {
     // idempotent, so the marker is the race that remains. The loser's insert
     // hits the primary key, which means "another client recorded it".
     // `ON CONFLICT(id)` ignores that one conflict only; any other insert failure
-    // still throws.
+    // still throws. `RETURNING id`, not `rowsAffected`, says whether THIS insert
+    // wrote: after a BUSY attempt the local-file driver's count can be stale.
     const marked = await retryOnBusy(() =>
       client.execute({
-        sql: "INSERT INTO _migrations (id, applied_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
+        sql: "INSERT INTO _migrations (id, applied_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING RETURNING id",
         args: [m.id, new Date().toISOString()],
       }),
     );
-    if (marked.rowsAffected > 0) ran.push(m.id);
+    if (marked.rows.length > 0) ran.push(m.id);
   }
   return ran;
 }
