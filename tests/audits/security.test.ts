@@ -5,8 +5,14 @@ import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import { advisoriesFromResult, hasSecurityCounts } from "../../src/audits/security-fields.js";
+import { advisoriesFromResult, isPartialSecurityResult } from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
+
+/** The caveat a partial night's summary carries when neither pnpm nor npm is installed (#1654). */
+const PARTIAL_CAVEAT =
+  "partial: the lockfile audit could not run (cannot run audit — pnpm: not installed; " +
+  "npm: not installed), so this merges with pnpm's last stored audit, or is not written " +
+  "when none is stored";
 
 /** A clean `pnpm audit --json` answer. */
 const CLEAN_PNPM = JSON.stringify({
@@ -789,28 +795,25 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
     expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (0C/2H/0M/0L)");
   });
 
-  it("skips, writing no counts, when the lockfile audit cannot run", async () => {
+  it("is a partial night, with no live alert too, when the lockfile audit cannot run (#1654)", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: fakeDependabot([]),
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe("Dependabot: 0 alerts; " + PARTIAL_CAVEAT);
   });
 
-  it("names Dependabot's live alerts in the skip, and writes nothing, when the lockfile audit cannot run (#1561)", async () => {
+  // #1654: the write merges it with pnpm's stored result (tests/audits/security-partial-night.test.ts).
+  it("returns Dependabot's live alerts as a partial night when the lockfile audit cannot run (#1561, #1654)", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "critical" }]),
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
-    expect(result.summary).toBe(
-      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
-        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (1C/0H/0M/0L)",
-    );
-    // A skip writes no counts: the row keeps what the last full run wrote.
-    expect(hasSecurityCounts(result)).toBe(false);
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe("Dependabot: 1 alert(s) (1C/0H/0M/0L); " + PARTIAL_CAVEAT);
   });
 
   it("names a moderate-only Dependabot result too", async () => {
@@ -819,10 +822,8 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       dependabotDeps: fakeDependabot([{ ...actionAlert, severity: "moderate" }]),
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
-    expect(result.summary).toMatch(
-      /part of the tree: Dependabot: 1 alert\(s\) \(0C\/0H\/1M\/0L\)$/,
-    );
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe("Dependabot: 1 alert(s) (0C/0H/1M/0L); " + PARTIAL_CAVEAT);
   });
 
   it("with live and ghost alerts, the caveat qualifies the live count, not the ghost advice", async () => {
@@ -840,13 +841,13 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       spawn: fakeSpawn({}),
     });
     expect(result.summary).toBe(
-      "cannot run audit — pnpm: not installed; npm: not installed; not written, as without " +
-        "the lockfile audit it is only part of the tree: Dependabot: 1 alert(s) (0C/1H/0M/0L); " +
-        "1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
+      "Dependabot: 1 alert(s) (0C/1H/0M/0L); " +
+        PARTIAL_CAVEAT +
+        "; 1 alert(s) on a manifest GitHub no longer tracks (package-lock.json) — dismiss as inaccurate",
     );
   });
 
-  it("adds no note for ghost alerts alone: nothing live to name", async () => {
+  it("with ghost alerts alone, the caveat still precedes the ghost advice (#1654)", async () => {
     const result = await securityAudit({
       site: { path: clone({ "pnpm-lock.yaml": pnpm12Lockfile }), gitRepo: "reddoorla/acme" },
       dependabotDeps: {
@@ -855,8 +856,12 @@ describe("audits/security — a lockfile GitHub's dependency graph cannot read (
       },
       spawn: fakeSpawn({}),
     });
-    expect(result.status).toBe("skip");
-    expect(result.summary).toBe("cannot run audit — pnpm: not installed; npm: not installed");
+    expect(isPartialSecurityResult(result)).toBe(true);
+    expect(result.summary).toBe(
+      "Dependabot: 0 live alert(s); " +
+        PARTIAL_CAVEAT +
+        "; 1 alert(s) on a manifest GitHub no longer tracks (.github/workflows/ci.yml) — dismiss as inaccurate",
+    );
   });
 
   it("tags Dependabot's own advisories as not the lockfile audit's, on its stand-alone path too", async () => {
@@ -1579,10 +1584,10 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
     expect(result.summary).toBe("Dependabot: 0 alerts");
   });
 
-  // Review round 2: writing Dependabot's 0 here cleared a lockfile critical a good night wrote,
-  // and reset the auto-fix counter, every night the registry flaked. As on the hidden-lockfile
-  // path (#1561), the skip stands and writes nothing.
-  it("skips, writing nothing, when the lockfile audit cannot run, and names Dependabot's answer", async () => {
+  // #1612 review round 2: writing Dependabot's 0 here cleared a lockfile critical a good night
+  // wrote, and reset the auto-fix counter, every night the registry flaked. It is a partial night
+  // (#1654): merged with pnpm's stored result, or not written when none is stored.
+  it("returns a partial night when the lockfile audit cannot run, and names Dependabot's answer", async () => {
     const result = await securityAudit({
       site: site(),
       dependabotDeps: fakeDependabot([]),
@@ -1593,10 +1598,9 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
         },
       }),
     });
-    expect(result.status).toBe("skip");
-    expect(hasSecurityCounts(result)).toBe(false);
+    expect(isPartialSecurityResult(result)).toBe(true);
     expect(result.summary).toMatch(
-      /^cannot run audit — .*; not written, as Dependabot's answer could not be checked against the lockfile: Dependabot: 0 alerts$/,
+      /^Dependabot: 0 alerts; partial: the lockfile audit could not run \(cannot run audit — .*\), so this merges with pnpm's last stored audit, or is not written when none is stored$/,
     );
   });
 
