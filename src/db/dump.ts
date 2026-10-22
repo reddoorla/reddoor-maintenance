@@ -215,10 +215,20 @@ async function dumpOnce(
       "ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name",
   );
 
+  // Tables first, then their rows, then everything else (indexes, triggers), as
+  // `sqlite3 .dump` writes it. A trigger created before the rows would fire on
+  // every replayed INSERT: migration 0048's cockpit_version counter would restore
+  // past its dumped value and fail the rehearsal's content check.
   const tables: string[] = [];
+  const afterRows: string[] = [];
   for (const row of schema.rows) {
-    out.push(`${String(row.sql).trim().replace(/;?$/, "")};`);
-    if (row.type === "table") tables.push(String(row.name));
+    const statement = `${String(row.sql).trim().replace(/;?$/, "")};`;
+    if (row.type === "table") {
+      out.push(statement);
+      tables.push(String(row.name));
+    } else {
+      afterRows.push(statement);
+    }
   }
 
   // What this dump ACTUALLY carries, accumulated as it is written — the side
@@ -266,7 +276,7 @@ async function dumpOnce(
   if (moved.length > 0) return { sql: null, moved };
 
   out[0] = `${MANIFEST_PREFIX}${JSON.stringify(manifest)}`;
-  out.push("COMMIT;");
+  out.push(...afterRows, "COMMIT;");
   return { sql: out.join("\n") + "\n", moved: [] };
 }
 

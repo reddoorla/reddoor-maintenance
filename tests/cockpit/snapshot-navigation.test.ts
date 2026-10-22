@@ -272,7 +272,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(documents).toEqual(["/no-such-page", "/submissions"]);
   });
 
-  it("after a change, the next navigation is a full load and shows it", async () => {
+  it("after a change, the page shows it at once, with no full load", async () => {
     const page = await signedIn();
     const documents: string[] = [];
     page.on("request", (r) => {
@@ -280,23 +280,29 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     });
     await page.goto(`${origin}/submissions?status=new`);
     await page.waitForLoadState("networkidle");
-    expect(await page.content()).toContain("pat@example.com");
+    const row = page.locator("li.subm-item", { hasText: "pat@example.com" });
+    expect(await row.count()).toBe(1);
     const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
-    await page
-      .locator("button", { hasText: /^Archive$/ })
-      .first()
-      .click();
-    const resp = await posted;
-    expect(resp.status()).toBe(200);
+    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
+    await row.locator("button", { hasText: /^Archive$/ }).click();
+    expect((await posted).status()).toBe(200);
+    // The snapshot is read again and this very page re-derives: the lead has left
+    // the "new" bucket without a reload.
+    expect((await reread).status()).toBe(200);
+    await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(0);
     await follow(page, "/submissions", "Submissions");
-    // A fresh read: the lead's row now says archived, and only an "archived"
-    // status button state could have come from the server.
-    const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
-    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("archived");
-    expect(documents).toEqual(["/submissions", "/submissions"]);
+    await expect
+      .poll(
+        () => page.locator("li.subm-item", { hasText: "pat@example.com" }).first().textContent(),
+        {
+          timeout: 10_000,
+        },
+      )
+      .toContain("archived");
+    expect(documents).toEqual(["/submissions"]);
   });
 
-  it("after a change, Back and Forward load the page in full too", async () => {
+  it("after a change, Back and Forward show it too, still without a full load", async () => {
     const page = await signedIn();
     const documents: string[] = [];
     page.on("request", (r) => {
@@ -306,34 +312,64 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.waitForLoadState("networkidle");
     await follow(page, "/submissions", "Submissions");
     const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
+    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
     await page
       .locator("li.subm-item", { hasText: "pat@example.com" })
       .locator("button", { hasText: /^Spam$/ })
       .click();
     expect((await posted).status()).toBe(200);
-    // Back lands on `/` and reloads it in full. Mark this document, so the wait
-    // below is for a new one, fully loaded and hydrated, before stepping Forward:
-    // a step taken while the reload is in flight aborts it.
-    await page.evaluate(() => Object.assign(window, { __beforeBack: true }));
+    await reread;
     await page.goBack();
     await page.waitForURL(`${origin}/`);
-    await page.waitForFunction(
-      () =>
-        !("__beforeBack" in window) &&
-        document.readyState === "complete" &&
-        document.querySelector("a[href='/submissions']") !== null,
-      undefined,
-      { timeout: 15_000 },
-    );
-    await page.waitForLoadState("networkidle");
-    expect(documents).toEqual(["/", "/"]);
     await page.goForward();
     await page.waitForURL(`${origin}/submissions`);
-    // That reload read a fresh snapshot, so Forward derives in the browser and
-    // already shows the change.
     const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
     await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("spam");
-    expect(documents).toEqual(["/", "/"]);
+    expect(documents).toEqual(["/"]);
+  });
+
+  it("on focus: nothing changed reads only the counter; a lead written elsewhere shows", async () => {
+    const page = await signedIn();
+    const data: string[] = [];
+    const checks: number[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+    });
+    page.on("response", (r) => {
+      if (r.url().endsWith("/api/cockpit/version")) checks.push(r.status());
+    });
+    await page.goto(`${origin}/submissions`);
+    await page.waitForLoadState("networkidle");
+    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+    // Nothing written since the page loaded: one counter read, no snapshot read.
+    await focus();
+    await expect.poll(() => checks.length, { timeout: 10_000 }).toBe(1);
+    await page.waitForLoadState("networkidle");
+    expect(checks).toEqual([200]);
+    expect(data).toEqual([]);
+
+    // Another writer (the form-ingest path, here directly) adds a lead.
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .insertInto("submissions")
+      .values({
+        id: "sub-elsewhere",
+        site_id: "recB",
+        form_type: "contact",
+        name: "Robin",
+        email: "robin@elsewhere.example",
+        status: "new",
+        notify_status: "sent",
+        submitted_at: new Date().toISOString(),
+      } as never)
+      .execute();
+    await db.destroy();
+    await focus();
+    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
+    await expect
+      .poll(() => page.content(), { timeout: 10_000 })
+      .toContain("robin@elsewhere.example");
   });
 
   it("a signed-out browser gets no snapshot", async () => {

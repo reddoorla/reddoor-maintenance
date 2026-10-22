@@ -1,21 +1,26 @@
+import { invalidate } from "$app/navigation";
+import { SNAPSHOT_DEPENDENCY } from "./freshness.js";
+
 /**
  * Every change the cockpit's pages make goes through here: a POST to one of its
  * `/api/*` routes. The pages derive from the layout's snapshot, which the change
- * has just made stale, so once it is sent (whatever its answer) the next
- * navigation is a full page load, with a fresh snapshot: what every navigation
- * was before the snapshot, when each link reloaded the page. The page in view
- * keeps showing what the control itself reports (its ✓ or ✗), as it always did.
+ * has just made stale, so once it is sent (whatever its answer: a refused change
+ * leaves the store as it was, and a fresh read shows that too) the snapshot is
+ * read again, and the page in view re-derives from it. It never shows the state
+ * from before a change the operator just made.
  */
 export async function postAction(input: string, init: RequestInit = {}): Promise<Response> {
   try {
     return await fetch(input, { ...init, method: "POST" });
   } finally {
-    reloadOnNextNavigation();
+    void invalidate(SNAPSHOT_DEPENDENCY);
   }
 }
 
 /** SvelteKit's own opt-out, set on <body>: every link and GET form under it is
- *  then a full page load (and Back and Forward too, through `+layout.svelte`). */
+ *  then a full page load (and Back and Forward too, through `+layout.svelte`).
+ *  For a snapshot that could not be read whole (a gap, or the store failing): the
+ *  next navigation reads it again in full, as every navigation did before. */
 export function reloadOnNextNavigation(): void {
   if (typeof document !== "undefined") document.body.setAttribute("data-sveltekit-reload", "");
 }

@@ -8,6 +8,21 @@
  *  Turso-specific syntax) so the host stays a connection-string swap. */
 export type Migration = { id: string; sql: string };
 
+/** The tables migration 0048 puts the cockpit's change counter on: every table the
+ *  cockpit snapshot reads (src/dashboard/snapshot.ts). Frozen with the script. */
+const COCKPIT_VERSION_TABLES_0048 = [
+  "sites",
+  "site_health",
+  "site_schedule",
+  "reports",
+  "submissions",
+  "spam_screenouts",
+  "fleet_events",
+  "submission_deadletter",
+  "digest_state",
+  "prospect_audits",
+] as const;
+
 export const MIGRATIONS: Migration[] = [
   {
     id: "0001_init",
@@ -666,5 +681,30 @@ export const MIGRATIONS: Migration[] = [
     // landing separately; ids are an applied-set, so either order is safe.
     id: "0047_sites_prismic_ack_drift",
     sql: `ALTER TABLE sites ADD COLUMN prismic_ack_drift TEXT;`,
+  },
+  {
+    // The cockpit snapshot's change counter (the operator, 2026-10-21, workspace
+    // decisions/2026-10-21-2339-cockpit-snapshot-version-stamp.md). One row, bumped
+    // by a trigger on every insert, update and delete of every table the snapshot
+    // reads, whoever writes, so the cockpit can ask "has anything changed?" with one
+    // primary-key read before it reads everything. The tables are frozen here, as a
+    // shipped script must be; a table added to the snapshot later needs its own
+    // migration, and tests/db/cockpit-version.test.ts fails until it has one.
+    id: "0048_cockpit_version",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS cockpit_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        n INTEGER NOT NULL
+      );`,
+      `INSERT OR IGNORE INTO cockpit_version (id, n) VALUES (1, 0);`,
+      ...COCKPIT_VERSION_TABLES_0048.flatMap((table) =>
+        (["INSERT", "UPDATE", "DELETE"] as const).map(
+          (op) =>
+            `CREATE TRIGGER IF NOT EXISTS cockpit_version_${table}_${op.toLowerCase()}
+              AFTER ${op} ON ${table}
+              BEGIN UPDATE cockpit_version SET n = n + 1 WHERE id = 1; END;`,
+        ),
+      ),
+    ].join("\n"),
   },
 ];

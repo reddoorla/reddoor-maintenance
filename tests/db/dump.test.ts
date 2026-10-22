@@ -82,6 +82,27 @@ describe("db/dump", () => {
     expect(names).toContain("idx_deadletter_unreplayed");
   });
 
+  it("writes triggers after the rows, so a trigger-kept value restores as dumped", async () => {
+    // Migration 0048's cockpit_version counter moves on every write: a trigger
+    // created before the replayed INSERTs would push it past its dumped value.
+    const client = await seeded();
+    const before = await client.execute("SELECT n FROM cockpit_version");
+    const sql = await dumpDatabase(wrap(client), "2026-10-22T00:00:00Z");
+    const lines = sql.split("\n");
+    const lastInsert = lines.reduce((last, l, i) => (l.startsWith("INSERT INTO ") ? i : last), -1);
+    const firstTrigger = lines.findIndex((l) => l.startsWith("CREATE TRIGGER"));
+    expect(firstTrigger).toBeGreaterThan(lastInsert);
+    const fresh = createClient({ url: ":memory:" });
+    await fresh.executeMultiple(sql.split("\n").slice(1).join("\n"));
+    const after = await fresh.execute("SELECT n FROM cockpit_version");
+    expect(Number(after.rows[0]?.n)).toBe(Number(before.rows[0]?.n));
+    expect(Number(before.rows[0]?.n)).toBeGreaterThan(0);
+    // The triggers came with it, and still count.
+    await fresh.execute("UPDATE sites SET name = 'x'");
+    const moved = await fresh.execute("SELECT n FROM cockpit_version");
+    expect(Number(moved.rows[0]?.n)).toBe(Number(before.rows[0]?.n) + 1);
+  });
+
   it("is deterministic — two dumps of an unchanged db are byte-identical", async () => {
     const client = await seeded();
     const a = await dumpDatabase(wrap(client), "2026-08-26T00:00:00.000Z");
@@ -153,7 +174,7 @@ describe("db verify-dump (CLI)", () => {
     const r = await runDbCommand("verify-dump", { file: await dumpToFile() });
     expect(r.code).toBe(0);
     expect(r.output).toMatch(
-      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ hashed=11 mismatches=0/,
+      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ hashed=12 mismatches=0/,
     );
   });
 

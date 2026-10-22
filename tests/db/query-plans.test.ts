@@ -31,6 +31,7 @@ import * as deadletter from "../../src/db/deadletter.js";
 import * as fleetState from "../../src/db/fleet-state.js";
 import * as digestState from "../../src/db/digest-state.js";
 import * as prospectAudits from "../../src/db/prospect-audits.js";
+import * as cockpitVersion from "../../src/db/cockpit-version.js";
 import type { Db } from "../../src/db/client.js";
 import type { SubmissionFilter } from "../../src/db/submissions.js";
 
@@ -51,6 +52,7 @@ const GATED_MODULES: Record<string, Record<string, unknown>> = {
   "fleet-state.ts": fleetState,
   "prospect-audits.ts": prospectAudits,
   "digest-state.ts": digestState,
+  "cockpit-version.ts": cockpitVersion,
 };
 
 /** Modules the gate deliberately does not plan-check. Every entry needs a reason
@@ -661,6 +663,13 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       // The cockpit roll-up (MED-16). It exists precisely so the fleet homepage
       // stops aggregating over `submissions` per request — so this read landing
       // on anything but a primary-key lookup would defeat its own purpose.
+      // The cockpit's "has anything changed?" read, once a minute per open tab:
+      // one row by primary key, or it would cost what it exists to save.
+      name: "readCockpitVersion (the cockpit snapshot's change counter)",
+      covers: ["readCockpitVersion"],
+      run: (db) => cockpitVersion.readCockpitVersion(db),
+    },
+    {
       name: "readCockpitRollup (fleet-homepage spam + bounce strips)",
       covers: ["readCockpitRollup"],
       run: (db) => digestState.readCockpitRollup(db),

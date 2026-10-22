@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { postAction } from "../../src/lib/post.js";
+import { invalidated } from "../_helpers/app-navigation.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 /**
- * Until PR 2 of the snapshot brief refreshes it, the snapshot is never kept past
- * a change or a failed read: the next navigation is a full page load, which reads
+ * The snapshot is never kept past a change the operator makes: `postAction` reads
+ * it again (`invalidate("cockpit:snapshot")`, PR 2 of the snapshot brief). Nor
+ * past a failed read: the next navigation is then a full page load, which reads
  * the store again, as every navigation did when each link reloaded the page.
  * SvelteKit's switch for that is `data-sveltekit-reload` on <body>.
  */
@@ -17,6 +19,7 @@ const reloads = () => document.body.hasAttribute("data-sveltekit-reload");
 function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
   return {
     takenAt: "2026-10-20T12:00:00.000Z",
+    version: 0,
     baseUrl: "https://dash.example",
     gaps: [],
     sites: [],
@@ -42,11 +45,14 @@ const parent = (d: Partial<SnapshotData>) => async (): Promise<SnapshotData> => 
   ...d,
 });
 
-beforeEach(() => document.body.removeAttribute("data-sveltekit-reload"));
+beforeEach(() => {
+  document.body.removeAttribute("data-sveltekit-reload");
+  invalidated.length = 0;
+});
 afterEach(() => vi.unstubAllGlobals());
 
-describe("the next navigation reloads", () => {
-  it("after any change a page posts, whatever its answer", async () => {
+describe("a change the page posts reads the snapshot again", () => {
+  it("whatever its answer, and without a full page load", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("no", { status: 500 })),
@@ -54,7 +60,8 @@ describe("the next navigation reloads", () => {
     expect(reloads()).toBe(false);
     const res = await postAction("/api/x", { body: "{}" });
     expect(res.status).toBe(500);
-    expect(reloads()).toBe(true);
+    expect(invalidated).toEqual(["cockpit:snapshot"]);
+    expect(reloads()).toBe(false);
     expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: "{}" });
   });
 
@@ -64,9 +71,11 @@ describe("the next navigation reloads", () => {
       vi.fn(async () => Promise.reject(new TypeError("offline"))),
     );
     await expect(postAction("/api/x")).rejects.toThrow("offline");
-    expect(reloads()).toBe(true);
+    expect(invalidated).toEqual(["cockpit:snapshot"]);
   });
+});
 
+describe("the next navigation reloads", () => {
   it("after a page derives from a snapshot with a gap", async () => {
     await fromSnapshot("t", parent({ snapshot: snapshot({ gaps: ["events"] }) }), () => 1);
     expect(reloads()).toBe(true);

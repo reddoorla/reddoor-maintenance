@@ -297,6 +297,13 @@ export interface DigestStateTable {
   updated_at: string | null;
 }
 
+/** Migration 0048: one row (`id` 1), whose `n` a trigger on every table the
+ *  cockpit snapshot reads bumps on every write. Only its changing means anything. */
+export interface CockpitVersionTable {
+  id: number;
+  n: number;
+}
+
 /** Every table the app owns, as a RUNTIME value (#612 review).
  *
  *  The `Database` interface below is types-only, so nothing could assert that a
@@ -316,6 +323,7 @@ export const DATABASE_TABLES = [
   "reports",
   "prospect_audits",
   "digest_state",
+  "cockpit_version",
 ] as const;
 
 export type DatabaseTable = (typeof DATABASE_TABLES)[number];
@@ -332,6 +340,7 @@ export interface Database {
   reports: ReportsTable;
   prospect_audits: ProspectAuditsTable;
   digest_state: DigestStateTable;
+  cockpit_version: CockpitVersionTable;
 }
 
 /** Compile-time exhaustiveness: if a table is added to `Database` and not to
