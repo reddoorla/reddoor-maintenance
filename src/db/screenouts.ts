@@ -1,6 +1,5 @@
 import { sql } from "kysely";
 import type { Db } from "./client.js";
-import { ymd } from "../util/date.js";
 
 export type ScreenOutReason = "honeypot" | "too-fast";
 export type ScreenOutTotals = { honeypot: number; tooFast: number; markedSpam: number };
@@ -79,6 +78,28 @@ export async function listScreenOutsSince(
   return out;
 }
 
+/** One (site, day) bucket of screen-outs, as stored. */
+export type ScreenOutBucket = { siteId: string; date: string; honeypot: number; tooFast: number };
+
+/** The buckets dated on/after `sinceDate`, for the cockpit snapshot: the browser sums
+ *  one site's window from them, as `screenOutTotalsForSite` sums it in SQL. */
+export async function listScreenOutBucketsSince(
+  db: Db,
+  sinceDate: string,
+): Promise<ScreenOutBucket[]> {
+  const rows = await db
+    .selectFrom("spam_screenouts")
+    .select(["site_id", "date", "honeypot", "too_fast"])
+    .where("date", ">=", sinceDate)
+    .execute();
+  return rows.map((r) => ({
+    siteId: r.site_id,
+    date: r.date,
+    honeypot: Number(r.honeypot) || 0,
+    tooFast: Number(r.too_fast) || 0,
+  }));
+}
+
 /** The same totals for ONE site — the `/s/:slug` spam panel (MED-11).
  *
  *  Same two sources and the same window as `listScreenOutsSince`, each narrowed
@@ -124,10 +145,9 @@ export async function screenOutTotalsForSite(
   };
 }
 
-/** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries. */
-export function screenOutsSince(now: Date, days: number): string {
-  return ymd(new Date(now.getTime() - days * 24 * 60 * 60 * 1000));
-}
+// Defined beside `ymd` so the cockpit's browser code can window the snapshot with it
+// without importing a module that imports Kysely.
+export { screenOutsSince } from "../util/date.js";
 
 /** Set the (site, date) bucket to exact totals. Replace-upsert (DO UPDATE SET col
  *  = excluded.col) so re-running the backfill is idempotent. */

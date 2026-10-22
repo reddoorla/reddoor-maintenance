@@ -2,7 +2,8 @@
   import type { Snippet } from "svelte";
   import { FAVICON_LINK } from "../../../src/dashboard/favicon.js";
   import { NAV_ITEMS } from "./nav.js";
-  import "./base.css";
+  import PageStyles from "./PageStyles.svelte";
+  import baseCss from "./base.css?inline";
 
   let { email, path, children }: { email: string | null; path: string; children: Snippet } =
     $props();
@@ -11,6 +12,7 @@
 <svelte:head>
   {@html FAVICON_LINK}
 </svelte:head>
+<PageStyles sheets={[baseCss]} />
 
 <header data-shell>
   <!-- No identity under the shared-password fallback: "signed in as cockpit"

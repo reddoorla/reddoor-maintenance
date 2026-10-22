@@ -2,8 +2,9 @@
   import type { CockpitView } from "../lib/cockpit/view.js";
   import AuditFleet from "../lib/cockpit/AuditFleet.svelte";
   import SetupChecklist from "../lib/SetupChecklist.svelte";
-  import "../lib/cockpit/health.css";
-  import "./cockpit.css";
+  import PageStyles from "../lib/PageStyles.svelte";
+  import healthCss from "../lib/cockpit/health.css?inline";
+  import cockpitCss from "./cockpit.css?inline";
 
   // The fleet cockpit, a start page: verdict bar, the per-site Needs-you feed,
   // the Setup count, and the quiet lanes (Cardless, Inbox). The per-site cards
@@ -16,6 +17,7 @@
 <svelte:head>
   <title>Reddoor maintenance — fleet cockpit</title>
 </svelte:head>
+<PageStyles sheets={[healthCss, cockpitCss]} />
 
 <h1>Reddoor fleet cockpit</h1>
 <div class="meta">

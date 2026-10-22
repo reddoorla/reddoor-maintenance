@@ -1,4 +1,5 @@
-/** OD 87 through the production cockpit load (`cockpit/src/routes/+page.server.ts`).
+/** OD 87 through the production cockpit load: the root layout's snapshot, then
+ *  the page's own `load` (`cockpit/src/routes/+page.ts`).
  *
  *  Moved from tests/dashboard/fleet-homepage-deadletter.test.ts (#1575) when the
  *  cockpit cutover (#582) retired the fleet-homepage function: it drives the
@@ -14,7 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import Page from "../../src/routes/+page.svelte";
-import { load } from "../../src/routes/+page.server.js";
+import { load } from "../../src/routes/+page.js";
+import { runPage } from "../_helpers/snapshot-load.js";
 import { openDb } from "../../../src/db/client.js";
 import { createDeadLetter } from "../../../src/db/deadletter.js";
 import { renderPage } from "../_helpers/parity.js";
@@ -56,7 +58,7 @@ async function cockpitWithDeadLetterAged(hours: number, breakOldestRead = false)
   await db.destroy();
   vi.stubEnv("TURSO_DATABASE_URL", url);
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
-  const data = await (load as unknown as () => Promise<{ view: CockpitView }>)();
+  const data = await runPage<{ view: CockpitView }>(load, "/");
   return renderPage(Page, { data });
 }
 

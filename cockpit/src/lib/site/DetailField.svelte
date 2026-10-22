@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import type { DetailRowView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
@@ -34,8 +35,7 @@
   }
 
   function save(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, field: string) {
-    return fetch(url, {
-      method: "POST",
+    return postAction(url, {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ field, value: detailValue(el) }),
     })

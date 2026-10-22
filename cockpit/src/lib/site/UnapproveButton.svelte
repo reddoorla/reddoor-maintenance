@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   let { reportId, url, confirmText }: { reportId: string; url: string; confirmText: string } =
     $props();
   let label = $state("Unapprove");
@@ -11,7 +12,7 @@
     if (!confirm(confirmText)) return;
     disabled = true;
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await postAction(url);
       if (res.ok) {
         label = "Unapproved";
         if (typeof location !== "undefined") location.reload();

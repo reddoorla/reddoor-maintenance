@@ -493,6 +493,12 @@ export async function listSites(db: Db): Promise<WebsiteRow[]> {
   return rows.map((r) => rowFromJoined(r as JoinedRow));
 }
 
+/** Every site's stored slug, by id: what `getSiteBySlug` matches, for the cockpit
+ *  snapshot (`src/dashboard/snapshot.ts`). Not a `WebsiteRow` field. */
+export async function listSiteSlugs(db: Db): Promise<Array<{ id: string; slug: string }>> {
+  return db.selectFrom("sites").select(["id", "slug"]).execute();
+}
+
 // ————————————————————————— reports —————————————————————————
 
 /** stable checklist key → `field` name. The store keeps stable keys

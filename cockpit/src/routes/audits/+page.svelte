@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { AuditRowView } from "../../lib/audits/view.js";
   import RunForm from "../../lib/audits/RunForm.svelte";
-  import "./audits.css";
+  import PageStyles from "../../lib/PageStyles.svelte";
+  import auditsCss from "./audits.css?inline";
 
   // Frozen by the operator (2026-10-20): ported as it was, nothing added.
   let { data }: { data: { audits: AuditRowView[] } } = $props();
@@ -10,6 +11,7 @@
 <svelte:head>
   <title>Prospect audits — Reddoor maintenance</title>
 </svelte:head>
+<PageStyles sheets={[auditsCss]} />
 
 <h1>Prospect audits</h1>
 <div class="meta">Run a Lighthouse + AI-visibility audit against a prospect's site.</div>

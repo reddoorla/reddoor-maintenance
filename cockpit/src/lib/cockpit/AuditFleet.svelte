@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import { onMount } from "svelte";
   import {
     RF_KEY,
@@ -91,7 +92,7 @@
     disabled = true;
     label = "Auditing…";
     try {
-      const res = await fetch(REFRESH_URL, { method: "POST" });
+      const res = await postAction(REFRESH_URL);
       if (res.ok) {
         const data = await res.json();
         label = "↻ Audit running…";
