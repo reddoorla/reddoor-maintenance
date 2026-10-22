@@ -10,9 +10,11 @@ import {
   toPrismicModelsVerdict,
   SEVERITY_RANK,
   parseSecurityAdvisories,
+  parseSecurityLockfileAudit,
   type WebsiteRow,
   type PrismicModelsVerdict,
   type SecurityAdvisory,
+  type SecurityLockfileAudit,
 } from "./site-row.js";
 
 // The site-row model and its pure coercers live in src/fleet/site-row.ts since
@@ -123,6 +125,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityAutoFixAttempts: (f["Security Auto-Fix Attempts"] as number | undefined) ?? null,
     lastSecurityAuditAt: (f["Last security audit at"] as string | undefined) ?? null,
     securityAdvisories: parseSecurityAdvisories(f["Security advisories"]),
+    securityLockfileAudit: parseSecurityLockfileAudit(f["Security lockfile audit"]),
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
     domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
     netlifyId: trimToNull(f["Netlify ID"]),
@@ -300,16 +303,18 @@ function securityAdvisoryFields(advisories: SecurityAdvisory[]): FieldSet {
   return { "Security advisories": JSON.stringify(capped) };
 }
 
-function securityFields(counts: SecurityCounts): FieldSet {
-  return {
+function securityFields(counts: SecurityCounts, partial: boolean): FieldSet {
+  const fields: FieldSet = {
     "Security Vulns Critical": counts.critical,
     "Security Vulns High": counts.high,
     "Security Vulns Moderate": counts.moderate,
     "Security Vulns Low": counts.low,
-    // Stamp freshness alongside the counts so the Security Updates auto-tick can require a recent
-    // audit (a clean count from months ago must not silently keep ticking the box).
-    "Last security audit at": new Date().toISOString(),
   };
+  // Stamp freshness alongside the counts so the Security Updates auto-tick can require a recent
+  // audit (a clean count from months ago must not silently keep ticking the box). A partial night
+  // is not a recent audit of the tree: its lockfile side is as old as the stored one (#1561, #1654).
+  if (!partial) fields["Last security audit at"] = new Date().toISOString();
+  return fields;
 }
 
 function domainFields(result: DomainResult): FieldSet {
@@ -453,6 +458,12 @@ export type AuditFieldInputs = {
   deps?: DepsCounts;
   security?: SecurityCounts;
   securityAdvisories?: SecurityAdvisory[];
+  /** The counts come from a partial night (#1654): written, but `Last security audit at` is
+   *  left as stored. */
+  securityPartial?: boolean;
+  /** pnpm's own result after a full night (#1654): written when pnpm ran over every scope,
+   *  null clears it when it did not, omitted on a partial night so the stored one stands. */
+  securityLockfileAudit?: SecurityLockfileAudit | null;
   domain?: DomainResult;
   browser?: BrowserAuditFields;
   netlifyDeploy?: NetlifyDeployResult;
@@ -468,7 +479,11 @@ export function auditFields(audits: AuditFieldInputs): FieldSet {
     fields["Lighthouse failing audits"] = audits.lighthouseFailingAudits;
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
-  if (audits.security) Object.assign(fields, securityFields(audits.security));
+  if (audits.security)
+    Object.assign(fields, securityFields(audits.security, audits.securityPartial === true));
+  if (audits.securityLockfileAudit !== undefined)
+    (fields as Record<string, string | null>)["Security lockfile audit"] =
+      audits.securityLockfileAudit === null ? null : JSON.stringify(audits.securityLockfileAudit);
   // Separate slice (not folded into `security`) so the advisory list and the counts can be
   // written independently, but in practice the security audit supplies both together.
   if (audits.securityAdvisories)

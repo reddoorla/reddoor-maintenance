@@ -106,6 +106,10 @@ const RICH: RawRecord = {
     "Security advisories": JSON.stringify([
       { id: "GHSA-xxxx", severity: "moderate", package: "left-pad" },
     ]),
+    "Security lockfile audit": JSON.stringify({
+      counts: { critical: 0, high: 0, moderate: 1, low: 2 },
+      advisories: [{ module: "left-pad", severity: "moderate", title: "t", cves: [] }],
+    }),
     "Cert days remaining": 61,
     "Domain checked at": "2026-08-23T06:00:00.000Z",
     "Deploy status": "ready",
@@ -157,6 +161,7 @@ const WEIRD: RawRecord = {
     "Copy — Intro": "   ", // whitespace-only → null on both sides
     "Notify Routing": "{not json", // malformed → null on both sides
     "Security advisories": "also not json", // malformed → null on both sides
+    "Security lockfile audit": "{not json", // malformed → null on both sides
     "Accepted Watch Conditions": "cert-warning,  , prismic\nsmoke", // delimited string + empty entry
     "Function health": "maybe", // not pass/fail → null
     "Prismic Models": "unknown", // the third state must SURVIVE (never null)
