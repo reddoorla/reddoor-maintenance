@@ -17,6 +17,7 @@
       status = "Reason required";
       return;
     }
+    ui.acted = true;
     ui.overrideSubmitDisabled = true;
     status = "Sending…";
     try {

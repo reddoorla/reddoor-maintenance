@@ -738,6 +738,44 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     );
   });
 
+  it("a read of the page's own that never answers does not decide how a later one lands", async () => {
+    // Review round 5: the own read hung, and every later read was then taken
+    // in place as if it were the page's own, so a change from elsewhere never
+    // remounted the page.
+    const page = await signedIn();
+    await page.goto(`${origin}/s/acme`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    let first = true;
+    await page.route("**/__data.json*", async (r) => {
+      if (first) {
+        first = false;
+        return; // dropped: never answers
+      }
+      await r.continue();
+    });
+    const saved = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
+    const ownRead = page.waitForRequest((r) => r.url().includes("__data.json"));
+    await page.locator("input[data-detail-field='url']").fill("https://acme.example.dev");
+    await page.locator("h1").click();
+    expect((await saved).status()).toBe(200);
+    await ownRead;
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .updateTable("sites")
+      .set({ point_of_contact: "elsewhere@acme.example" } as never)
+      .where("slug", "=", "acme")
+      .execute();
+    await db.destroy();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect
+      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), { timeout: 10_000 })
+      .toBe(0);
+    expect(await page.locator("input[data-detail-field='pointOfContact']").inputValue()).toBe(
+      "elsewhere@acme.example",
+    );
+  });
+
   it("a change elsewhere redraws the page, keeping the open lead and the chip filter", async () => {
     // Review round 2: the remount for a fresh snapshot closed every open
     // <details> and reset the page's own filters whenever anyone wrote.

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { POST_DEADLINE_MS, onPostsSettled, postAction, postsInFlight } from "../../src/lib/post.js";
 import { invalidated } from "../_helpers/app-navigation.js";
+import { setActiveFreshness } from "../../src/lib/freshness.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
@@ -86,10 +87,25 @@ describe("a post whose session ended", () => {
         "fetch",
         vi.fn(async () => new Response("{}", { status })),
       );
-      const res = await postAction("/api/x");
-      expect(res.status).toBe(status);
-      expect(invalidated).toEqual([]);
-      expect(reloads()).toBe(true);
+      // The page's freshness stops checking too (review round 5): a check's
+      // read would follow the same redirect.
+      const controller = {
+        requestRefresh: vi.fn(),
+        check: vi.fn(async () => {}),
+        signOut: vi.fn(),
+        stop: vi.fn(),
+      };
+      setActiveFreshness(controller);
+      try {
+        const res = await postAction("/api/x");
+        expect(res.status).toBe(status);
+        expect(invalidated).toEqual([]);
+        expect(reloads()).toBe(true);
+        expect(controller.signOut).toHaveBeenCalledTimes(1);
+        expect(controller.requestRefresh).not.toHaveBeenCalled();
+      } finally {
+        setActiveFreshness(null);
+      }
     }
   });
 });

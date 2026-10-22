@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { postAction } from "../post.js";
   import { keepValue, keptValue } from "../view-keep.js";
   import type { CommentaryView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
   let { c: mountedC }: { c: CommentaryView } = $props();
-  // The text it mounted with, as DetailField: a refresh in place (the store
-  // unchanged) must not write the stored text over an edit whose save failed.
+  // The text it mounted with, as DetailField: a refresh in place must not write
+  // the stored text over an edit whose save failed. A fresher stored text is
+  // taken by hand, below, only while the editor holds nothing of the operator's.
   // svelte-ignore state_referenced_locally
   const c = mountedC;
   // What the server last accepted, as a textarea shows it: a browser exposes
@@ -30,6 +31,20 @@
   );
   // Disabled until the blur handler exists, so an edit is never lost silently.
   const m = mounted();
+  // A refresh in place brings the stored text: taken unless the editor holds
+  // unsaved text or a failed save; a ✓ about the old text goes (review round 5).
+  $effect(() => {
+    const live = mountedC.text;
+    untrack(() => {
+      const t = document.getElementById(`commentary-${c.id}`);
+      if (!(t instanceof HTMLTextAreaElement) || mark === " ✗" || t.value !== saved) return;
+      const stored = live.replace(/\r\n?/g, "\n");
+      if (stored === saved) return;
+      t.value = stored;
+      saved = stored;
+      mark = "";
+    });
+  });
 
   function onblur(e: FocusEvent & { currentTarget: HTMLTextAreaElement }) {
     const t = e.currentTarget;

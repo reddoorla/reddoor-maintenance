@@ -11,6 +11,7 @@
   // report goes dead too, since the server now refuses to approve it.
   async function onclick() {
     if (!confirm(confirmText)) return;
+    ui.acted = true;
     ui.withdrawDisabled = true;
     try {
       const res = await postAction(url);

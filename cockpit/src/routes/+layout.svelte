@@ -55,14 +55,19 @@
       {
         fetch: (input, init) => fetch(input, init),
         refresh: async (own) => {
-          if (own) ownReads += 1;
+          // SvelteKit applies only the newest read's data (an older one that
+          // answers later is dropped), so what lands is the last read started:
+          // its own-ness is the one that counts. A read that never answers
+          // therefore never decides how a later one lands (review round 5).
+          const read = ++reads;
+          lastReadOwn = own;
           try {
             await invalidate(SNAPSHOT_DEPENDENCY);
             // SvelteKit hands the page its new data without waiting for the
-            // page to take it; count the read down only once it has.
+            // page to take it; settle only once it has.
             await tick();
           } finally {
-            if (own) ownReads -= 1;
+            if (read === reads) lastReadOwn = false;
           }
         },
         signedOut: () => reloadOnNextNavigation(),
@@ -112,10 +117,11 @@
   let viewPage = untrack(() => pageKey);
   // The data the page shows: `viewKey`'s, or newer, taken in place.
   let shownKey = untrack(() => dataKey);
-  let ownReads = 0;
+  let reads = 0;
+  let lastReadOwn = false;
   function applyView(key: string, page: string): void {
     if (key === shownKey) return;
-    if (page === viewPage && ownReads > 0) {
+    if (page === viewPage && lastReadOwn) {
       shownKey = key;
       return;
     }

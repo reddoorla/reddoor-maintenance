@@ -33,10 +33,16 @@ export async function checkFreshness(
   snapshot: Pick<CockpitSnapshot, "version" | "gaps"> | null,
   deps: FreshnessDeps,
 ): Promise<FreshnessResult> {
-  if (snapshot === null || snapshot.version === null || snapshot.gaps.length > 0) {
+  // A snapshot the counter cannot vouch for is read again whatever the counter
+  // says; the counter is still asked first, because its answer is also the
+  // session check, and a read for a session that ended would follow the auth
+  // gate's redirect to sign-in at once (review round 5).
+  const unvouched = snapshot === null || snapshot.version === null || snapshot.gaps.length > 0;
+  const orUnknown = async (): Promise<FreshnessResult> => {
+    if (!unvouched) return "unknown";
     await deps.refresh(false);
     return "refreshed";
-  }
+  };
   let res: Response;
   try {
     res = await deps.fetch("/api/cockpit/version", {
@@ -44,21 +50,21 @@ export async function checkFreshness(
       cache: "no-store",
     });
   } catch {
-    return "unknown";
+    return orUnknown();
   }
   if (res.status === 401 || res.status === 403) {
     deps.signedOut();
     return "signed-out";
   }
-  if (!res.ok) return "unknown";
+  if (!res.ok) return orUnknown();
   let body: { version?: unknown };
   try {
     body = (await res.json()) as { version?: unknown };
   } catch {
-    return "unknown";
+    return orUnknown();
   }
-  if (typeof body.version !== "number") return "unknown";
-  if (body.version === snapshot.version) return "unchanged";
+  if (typeof body.version !== "number") return orUnknown();
+  if (!unvouched && body.version === snapshot.version) return "unchanged";
   await deps.refresh(false);
   return "refreshed";
 }
@@ -81,6 +87,8 @@ export type FreshnessController = {
   requestRefresh: (own: boolean) => void;
   /** Ask whether anything changed (focus, the tab coming back, the interval). */
   check: () => Promise<void>;
+  /** The session ended (a post was answered 401/403): no more checks. */
+  signOut: () => void;
   stop: () => void;
 };
 
@@ -153,6 +161,9 @@ export function startFreshness(
   return {
     requestRefresh,
     check,
+    signOut: () => {
+      signedOut = true;
+    },
     stop: () => {
       clearInterval(timer);
       for (const remove of removers) remove();
@@ -165,6 +176,11 @@ export function startFreshness(
 let active: FreshnessController | null = null;
 export function setActiveFreshness(c: FreshnessController | null): void {
   active = c;
+}
+/** A post was answered 401/403: the running page checks no more (a check's read
+ *  would follow the redirect to sign-in). */
+export function reportSignedOut(): void {
+  active?.signOut();
 }
 export function requestSnapshotRefresh(refreshNow: () => Promise<void>): void {
   if (active) active.requestRefresh(true);

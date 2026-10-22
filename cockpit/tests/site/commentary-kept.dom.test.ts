@@ -78,4 +78,21 @@ describe("CommentaryEditor across a refresh in place", () => {
     unmount(app);
     target.remove();
   });
+
+  it("takes a fresher stored text in place while it holds nothing of the operator's", () => {
+    // Review round 5: the read after the page's own post is taken in place and
+    // can carry another writer's text.
+    const props = reactive({
+      c: { id: "rep3", url: "/api/reports/rep3/commentary", text: "Old." },
+    });
+    const target = document.createElement("div");
+    document.body.append(target);
+    const app = mount(CommentaryEditor, { target, props });
+    flushSync();
+    props.c = { id: "rep3", url: "/api/reports/rep3/commentary", text: "Written elsewhere." };
+    flushSync();
+    expect(target.querySelector("textarea")!.value).toBe("Written elsewhere.");
+    unmount(app);
+    target.remove();
+  });
 });

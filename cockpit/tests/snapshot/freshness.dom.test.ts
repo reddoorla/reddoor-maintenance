@@ -40,13 +40,25 @@ describe("checkFreshness", () => {
     expect(d.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("a snapshot with a gap, or with no version, is read again without asking", async () => {
-    for (const s of [{ version: 41, gaps: ["events"] }, { version: null, gaps: [] }, null]) {
-      const d = deps(version(41));
-      expect(await checkFreshness(s, d)).toBe("refreshed");
-      expect(d.fetch).not.toHaveBeenCalled();
-      expect(d.refresh).toHaveBeenCalledTimes(1);
+  it("a snapshot with a gap, or with no version, is read again whatever the counter says", async () => {
+    const unvouched = [{ version: 41, gaps: ["events"] }, { version: null, gaps: [] }, null];
+    for (const s of unvouched) {
+      for (const answer of [version(41), async () => new Response("down", { status: 502 })]) {
+        const d = deps(answer);
+        expect(await checkFreshness(s, d)).toBe("refreshed");
+        expect(d.refresh).toHaveBeenCalledTimes(1);
+      }
     }
+  });
+
+  it("but asks the counter first, which is also the session check", async () => {
+    // Review round 5: a read for a session that ended follows the auth gate's
+    // redirect to sign-in at once.
+    const d = deps(async () => new Response("{}", { status: 401 }));
+    expect(await checkFreshness({ version: 41, gaps: ["events"] }, d)).toBe("signed-out");
+    expect(d.fetch).toHaveBeenCalledTimes(1);
+    expect(d.refresh).not.toHaveBeenCalled();
+    expect(d.signedOut).toHaveBeenCalledTimes(1);
   });
 
   it("a session that ended marks the next navigation for a full load, which signs it out", async () => {
@@ -233,6 +245,22 @@ describe("startFreshness: when the open cockpit checks", () => {
       expect(d.refresh).toHaveBeenCalledTimes(3);
       // The post's, though the check's came later.
       expect(d.refresh).toHaveBeenLastCalledWith(true);
+      c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a post answered 401/403 stops the checks (signOut)", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps(version(42));
+      const e = env();
+      const c = startFreshness(() => snapshot, d, e.env);
+      c.signOut();
+      e.fire("focus");
+      await vi.advanceTimersByTimeAsync(60_000 * 3);
+      expect(d.fetch).not.toHaveBeenCalled();
       c.stop();
     } finally {
       vi.useRealTimers();

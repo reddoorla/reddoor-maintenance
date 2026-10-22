@@ -1,5 +1,5 @@
 import { invalidate } from "$app/navigation";
-import { SNAPSHOT_DEPENDENCY, requestSnapshotRefresh } from "./freshness.js";
+import { SNAPSHOT_DEPENDENCY, reportSignedOut, requestSnapshotRefresh } from "./freshness.js";
 
 /**
  * Every change the cockpit's pages make goes through here: a POST to one of its
@@ -36,8 +36,10 @@ export async function postAction(input: string, init: RequestInit = {}): Promise
   } finally {
     clearTimeout(timer);
     inFlight -= 1;
-    if (signedOut) reloadOnNextNavigation();
-    else requestSnapshotRefresh(() => invalidate(SNAPSHOT_DEPENDENCY));
+    if (signedOut) {
+      reloadOnNextNavigation();
+      reportSignedOut();
+    } else requestSnapshotRefresh(() => invalidate(SNAPSHOT_DEPENDENCY));
     if (inFlight === 0) for (const f of [...settled]) f();
   }
 }
