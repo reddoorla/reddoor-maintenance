@@ -134,6 +134,11 @@ export type WebsiteRow = {
    *  WHICH packages are vulnerable, not just the totals. null = never audited / unparseable;
    *  empty array = audited clean. Written alongside the counts by the security audit. */
   securityAdvisories: SecurityAdvisory[] | null;
+  /** The lockfile audit's own result over every scope (pnpm's, or npm's where pnpm is
+   *  missing) on the last full security night that ran it, before any merge lifted a severity
+   *  (#1654): what a night the lockfile audit cannot run merges with. null = none stored.
+   *  Optional so a row built by hand reads as none stored. */
+  securityLockfileAudit?: SecurityLockfileAudit | null;
   /** Domain/DNS/SSL probe (the `domain` audit). `certDaysRemaining` is days until the TLS cert
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
   certDaysRemaining: number | null;
@@ -510,11 +515,10 @@ export type SecurityAdvisory = {
    *  lockfile-maintenance window. Omitted when GitHub reports "unknown" or for the
    *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
   relationship?: "direct" | "transitive";
-  /** Who reported it: `true` for the pnpm side of a merged audit (a lockfile the dependency
-   *  graph cannot read, or a Dependabot answer with no live alert on the root lockfile that
-   *  the lockfile audit contradicted, #1612), `false` for every Dependabot alert. Absent on
-   *  older rows and on the stand-alone `pnpm audit`/`npm audit` path, which is lockfile-sourced too. Not read yet:
-   *  #1654 is to use it for a night the lockfile audit cannot run. */
+  /** Who reported it: `true` for the pnpm side of a merged audit, `false` for every Dependabot
+   *  alert. Absent on older rows and on the stand-alone `pnpm audit`/`npm audit` path; read
+   *  absent as lockfile-sourced. Nothing decides on it: a night the lockfile audit cannot run
+   *  rebuilds pnpm's side from `securityLockfileAudit` instead (#1654). */
   lockfile?: boolean;
   /** The GitHub advisory id (GHSA-…), when the source named one: what a later run matches this
    *  stored entry on first, since the two sources word titles differently (#1409, #1561). */
@@ -586,6 +590,50 @@ export function allActionableVulnsTransitive(advisories: SecurityAdvisory[] | nu
   const actionable = advisories.filter((a) => a.severity === "critical" || a.severity === "high");
   if (actionable.length === 0) return false;
   return actionable.every((a) => a.relationship === "transitive");
+}
+
+/** pnpm's own result as stored (#1654). `truncated` = pnpm reported more advisories than the
+ *  cell keeps, so the list cannot rebuild its result exactly. */
+export type SecurityLockfileAudit = {
+  counts: { critical: number; high: number; moderate: number; low: number };
+  advisories: SecurityAdvisory[];
+  truncated: boolean;
+};
+
+/** The most advisories the `Security lockfile audit` cell keeps. Past it the cell says
+ *  `truncated`, and a partial night writes nothing rather than merge with a cut list. */
+export const MAX_STORED_LOCKFILE_ADVISORIES = 200;
+
+/** Parse the `Security lockfile audit` JSON cell. null when absent, blank, unparseable or
+ *  without four numeric counts: read as none stored. */
+export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const p = parsed as Record<string, unknown>;
+  const c = p["counts"] as Record<string, unknown> | undefined;
+  const n = (k: string) =>
+    c && Number.isSafeInteger(c[k]) && (c[k] as number) >= 0 ? (c[k] as number) : null;
+  const counts = {
+    critical: n("critical"),
+    high: n("high"),
+    moderate: n("moderate"),
+    low: n("low"),
+  };
+  if (Object.values(counts).some((v) => v === null)) return null;
+  if (!Array.isArray(p["advisories"])) return null;
+  return {
+    counts: counts as SecurityLockfileAudit["counts"],
+    advisories: (p["advisories"] as unknown[])
+      .map(normalizeSecurityAdvisory)
+      .filter((a): a is SecurityAdvisory => a !== null),
+    truncated: p["truncated"] === true,
+  };
 }
 
 /** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array

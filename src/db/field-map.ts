@@ -149,6 +149,7 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   "Security Vulns Low": "vulns_low",
   "Last security audit at": "security_audit_at",
   "Security advisories": "security_advisories",
+  "Security lockfile audit": "security_lockfile_audit",
   "Security Auto-Fix Attempts": "auto_fix_attempts",
   "Analytics soft-fail at": "analytics_soft_fail_at",
   "Cert days remaining": "cert_days_remaining",
