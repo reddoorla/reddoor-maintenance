@@ -17,7 +17,7 @@ function deps(answer: () => Promise<Response>) {
   return {
     fetch: vi.fn<FreshnessDeps["fetch"]>(answer),
     refresh: vi.fn<FreshnessDeps["refresh"]>(async () => {}),
-    reload: vi.fn<FreshnessDeps["reload"]>(),
+    signedOut: vi.fn<FreshnessDeps["signedOut"]>(),
   };
 }
 const version =
@@ -49,11 +49,11 @@ describe("checkFreshness", () => {
     }
   });
 
-  it("a session that ended loads the page in full, which signs it out", async () => {
+  it("a session that ended marks the next navigation for a full load, which signs it out", async () => {
     for (const status of [401, 403]) {
       const d = deps(async () => new Response("{}", { status }));
       expect(await checkFreshness({ version: 41, gaps: [] }, d)).toBe("signed-out");
-      expect(d.reload).toHaveBeenCalledTimes(1);
+      expect(d.signedOut).toHaveBeenCalledTimes(1);
       expect(d.refresh).not.toHaveBeenCalled();
     }
   });
@@ -68,7 +68,7 @@ describe("checkFreshness", () => {
       const d = deps(answer);
       expect(await checkFreshness({ version: 41, gaps: [] }, d)).toBe("unknown");
       expect(d.refresh).not.toHaveBeenCalled();
-      expect(d.reload).not.toHaveBeenCalled();
+      expect(d.signedOut).not.toHaveBeenCalled();
     }
   });
 });
@@ -147,7 +147,7 @@ describe("startFreshness: when the open cockpit checks", () => {
       const e = env({ editing: true });
       const c = startFreshness(() => snapshot, d, e.env);
       e.fire("focus");
-      c.requestRefresh();
+      c.requestRefresh(true);
       await flush();
       expect(d.fetch).not.toHaveBeenCalled();
       expect(d.refresh).not.toHaveBeenCalled();
@@ -192,10 +192,57 @@ describe("startFreshness: when the open cockpit checks", () => {
     }
   });
 
+  it("once a check finds the session ended, it never checks again", async () => {
+    // Review round 4: a reload at once took what the operator had typed; the page
+    // now stays as it is and the next navigation is a full load (signedOut).
+    vi.useFakeTimers();
+    try {
+      const d = deps(async () => new Response("{}", { status: 401 }));
+      const e = env();
+      const c = startFreshness(() => snapshot, d, e.env);
+      e.fire("focus");
+      await flush();
+      expect(d.signedOut).toHaveBeenCalledTimes(1);
+      e.fire("focus");
+      await vi.advanceTimersByTimeAsync(60_000 * 3);
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a post's refresh is the page's own; one a check starts is not; a waiting pair runs as own", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps(version(42));
+      const e = env();
+      const c = startFreshness(() => snapshot, d, e.env);
+      c.requestRefresh(true);
+      expect(d.refresh).toHaveBeenLastCalledWith(true);
+      e.fire("focus");
+      await flush();
+      expect(d.refresh).toHaveBeenLastCalledWith(false);
+      // Both waiting for the operator: the post's control must keep what it shows.
+      e.state.editing = true;
+      c.requestRefresh(true);
+      c.requestRefresh(false);
+      e.state.editing = false;
+      e.fire("focusout");
+      await flush();
+      expect(d.refresh).toHaveBeenCalledTimes(3);
+      // The post's, though the check's came later.
+      expect(d.refresh).toHaveBeenLastCalledWith(true);
+      c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a refresh asked for outside a field runs at once", () => {
     const d = deps(version(41));
     const c = startFreshness(() => snapshot, d, env().env);
-    c.requestRefresh();
+    c.requestRefresh(true);
     expect(d.refresh).toHaveBeenCalledTimes(1);
     c.stop();
   });

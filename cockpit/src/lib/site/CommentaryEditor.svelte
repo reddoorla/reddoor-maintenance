@@ -25,7 +25,7 @@
     keepValue(keepName, () => {
       const t = document.getElementById(`commentary-${c.id}`);
       const text = t instanceof HTMLTextAreaElement && t.value !== saved ? t.value : null;
-      return text === null && mark === "" ? null : { text, mark };
+      return text === null ? null : { text, mark };
     }),
   );
   // Disabled until the blur handler exists, so an edit is never lost silently.

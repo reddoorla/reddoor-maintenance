@@ -8,10 +8,15 @@ export const CHECK_EVERY_MS = 60_000;
 
 export type FreshnessDeps = {
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
-  /** Read the snapshot again (SvelteKit's `invalidate(SNAPSHOT_DEPENDENCY)`). */
-  refresh: () => Promise<void>;
-  /** A full page load: the auth gate then sends a signed-out browser to sign-in. */
-  reload: () => void;
+  /** Read the snapshot again (SvelteKit's `invalidate(SNAPSHOT_DEPENDENCY)`).
+   *  `own`: the page's own post asked for it, so the page takes the new data in
+   *  place, keeping what the post's control shows; otherwise a change found
+   *  elsewhere, which remounts the page (`+layout.svelte`). */
+  refresh: (own: boolean) => Promise<void>;
+  /** The session ended: the next navigation is a full load, which the auth gate
+   *  sends to sign-in. Never a load at once, which would take whatever the
+   *  operator has typed with it. */
+  signedOut: () => void;
 };
 
 export type FreshnessResult = "unchanged" | "refreshed" | "signed-out" | "unknown";
@@ -29,7 +34,7 @@ export async function checkFreshness(
   deps: FreshnessDeps,
 ): Promise<FreshnessResult> {
   if (snapshot === null || snapshot.version === null || snapshot.gaps.length > 0) {
-    await deps.refresh();
+    await deps.refresh(false);
     return "refreshed";
   }
   let res: Response;
@@ -42,7 +47,7 @@ export async function checkFreshness(
     return "unknown";
   }
   if (res.status === 401 || res.status === 403) {
-    deps.reload();
+    deps.signedOut();
     return "signed-out";
   }
   if (!res.ok) return "unknown";
@@ -54,7 +59,7 @@ export async function checkFreshness(
   }
   if (typeof body.version !== "number") return "unknown";
   if (body.version === snapshot.version) return "unchanged";
-  await deps.refresh();
+  await deps.refresh(false);
   return "refreshed";
 }
 
@@ -71,8 +76,9 @@ export type FreshnessEnv = {
 };
 
 export type FreshnessController = {
-  /** Read the snapshot again now, or as soon as the operator leaves the field. */
-  requestRefresh: () => void;
+  /** Read the snapshot again now, or as soon as the operator leaves the field;
+   *  `own` as `FreshnessDeps.refresh`. */
+  requestRefresh: (own: boolean) => void;
   /** Ask whether anything changed (focus, the tab coming back, the interval). */
   check: () => Promise<void>;
   stop: () => void;
@@ -83,6 +89,7 @@ export type FreshnessController = {
  * - about every `CHECK_EVERY_MS` while the tab is visible, on coming back to the
  *   tab and on window focus, one `checkFreshness` at a time;
  * - after a change the page posted, a refresh (`requestRefresh`);
+ * - once a check finds the session ended, no more checks;
  * - never while the operator is in a field: a check or refresh then waits for
  *   them to leave it (`focusout`), and runs once they have.
  */
@@ -93,14 +100,17 @@ export function startFreshness(
 ): FreshnessController {
   let checking = false;
   let checkWaiting = false;
-  let refreshWaiting = false;
+  // A refresh waiting for the operator, and whether one the page's own post
+  // asked for is among them (then it runs as its own: in place).
+  let refreshWaiting: { own: boolean } | null = null;
+  let signedOut = false;
 
-  const refresh = async () => {
-    refreshWaiting = false;
-    await deps.refresh();
+  const refresh = async (own: boolean) => {
+    refreshWaiting = null;
+    await deps.refresh(own);
   };
   const check = async () => {
-    if (checking || !env.isVisible()) return;
+    if (signedOut || checking || !env.isVisible()) return;
     if (env.isEditing()) {
       checkWaiting = true;
       return;
@@ -110,20 +120,24 @@ export function startFreshness(
     try {
       // The answer can take a while; the operator may be in a field by then,
       // and the refresh waits for them like any other.
-      await checkFreshness(getSnapshot(), { ...deps, refresh: async () => requestRefresh() });
+      const result = await checkFreshness(getSnapshot(), {
+        ...deps,
+        refresh: async () => requestRefresh(false),
+      });
+      if (result === "signed-out") signedOut = true;
     } finally {
       checking = false;
     }
   };
-  const requestRefresh = () => {
-    if (env.isEditing()) refreshWaiting = true;
-    else void refresh();
+  const requestRefresh = (own: boolean) => {
+    if (env.isEditing()) refreshWaiting = { own: own || (refreshWaiting?.own ?? false) };
+    else void refresh(own);
   };
   const leftField = () => {
     // `focusout` fires before focus lands on the next element; look after it.
     setTimeout(() => {
       if (env.isEditing()) return;
-      if (refreshWaiting) void refresh();
+      if (refreshWaiting) void refresh(refreshWaiting.own);
       else if (checkWaiting) void check();
     }, 0);
   };
@@ -153,7 +167,7 @@ export function setActiveFreshness(c: FreshnessController | null): void {
   active = c;
 }
 export function requestSnapshotRefresh(refreshNow: () => Promise<void>): void {
-  if (active) active.requestRefresh();
+  if (active) active.requestRefresh(true);
   else void refreshNow();
 }
 

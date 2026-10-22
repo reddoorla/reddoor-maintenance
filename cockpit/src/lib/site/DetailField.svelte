@@ -47,7 +47,9 @@
         el.value !== saved
           ? el.value
           : null;
-      return typed === null && mark === "" ? null : { value: typed, mark };
+      // The mark travels only with the edit it is about: a ✓ or ✗ kept on its
+      // own would read as a verdict on whatever the store now holds.
+      return typed === null ? null : { value: typed, mark };
     }),
   );
 

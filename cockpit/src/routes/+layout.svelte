@@ -1,9 +1,14 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { afterNavigate, invalidate } from "$app/navigation";
   import Shell from "../lib/Shell.svelte";
-  import { onPostsSettled, postsInFlight, reloadsOnNextNavigation } from "../lib/post.js";
+  import {
+    onPostsSettled,
+    postsInFlight,
+    reloadOnNextNavigation,
+    reloadsOnNextNavigation,
+  } from "../lib/post.js";
   import {
     SNAPSHOT_DEPENDENCY,
     isEditingField,
@@ -49,8 +54,18 @@
       () => data.snapshot ?? null,
       {
         fetch: (input, init) => fetch(input, init),
-        refresh: () => invalidate(SNAPSHOT_DEPENDENCY),
-        reload: () => location.reload(),
+        refresh: async (own) => {
+          if (own) ownReads += 1;
+          try {
+            await invalidate(SNAPSHOT_DEPENDENCY);
+            // SvelteKit hands the page its new data without waiting for the
+            // page to take it; count the read down only once it has.
+            await tick();
+          } finally {
+            if (own) ownReads -= 1;
+          }
+        },
+        signedOut: () => reloadOnNextNavigation(),
       },
       {
         isVisible: () => document.visibilityState === "visible",
@@ -83,6 +98,11 @@
   // the page as it is, with what the operator typed and the ✗ beside it. Only a
   // snapshot with no counter (the read failed) falls back to its read time.
   //
+  // The read after the page's own post is taken in place, never remounted: the
+  // control that posted knows what it did, and shows it (its ✓ or error, the
+  // form as filled in), and every other control follows the new data. A change
+  // a check found elsewhere remounts.
+  //
   // A snapshot read can land while the operator has just stepped into a field
   // (a check under way when they clicked in): the remount then waits until they
   // are done, while a navigation (a page of its own) mounts at once.
@@ -90,11 +110,19 @@
   const dataKey = $derived(`${pageKey}@${data.snapshot?.version ?? data.snapshot?.takenAt ?? ""}`);
   let viewKey = $state(untrack(() => dataKey));
   let viewPage = untrack(() => pageKey);
+  // The data the page shows: `viewKey`'s, or newer, taken in place.
+  let shownKey = untrack(() => dataKey);
+  let ownReads = 0;
   function applyView(key: string, page: string): void {
-    if (key === viewKey) return;
+    if (key === shownKey) return;
+    if (page === viewPage && ownReads > 0) {
+      shownKey = key;
+      return;
+    }
     if (page === viewPage && busy()) return;
     viewPage = page;
     viewKey = key;
+    shownKey = key;
   }
   $effect.pre(() => {
     const key = dataKey;

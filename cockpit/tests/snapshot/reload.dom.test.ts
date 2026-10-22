@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { onPostsSettled, postAction, postsInFlight } from "../../src/lib/post.js";
+import { POST_DEADLINE_MS, onPostsSettled, postAction, postsInFlight } from "../../src/lib/post.js";
 import { invalidated } from "../_helpers/app-navigation.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
@@ -72,6 +72,74 @@ describe("a change the page posts reads the snapshot again", () => {
     );
     await expect(postAction("/api/x")).rejects.toThrow("offline");
     expect(invalidated).toEqual(["cockpit:snapshot"]);
+  });
+});
+
+describe("a post whose session ended", () => {
+  it("reads nothing (which would follow the redirect to sign-in) and marks the next navigation", async () => {
+    // Review round 4: the read after a 401 sent the tab to sign-in at once, and
+    // the text the operator typed went with it.
+    for (const status of [401, 403]) {
+      document.body.removeAttribute("data-sveltekit-reload");
+      invalidated.length = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("{}", { status })),
+      );
+      const res = await postAction("/api/x");
+      expect(res.status).toBe(status);
+      expect(invalidated).toEqual([]);
+      expect(reloads()).toBe(true);
+    }
+  });
+});
+
+describe("a post that never answers", () => {
+  it("fails after the deadline, so its control shows ✗ and freshness goes on", async () => {
+    // Review round 4: a dropped connection never settles, and the page's
+    // freshness waits for every post in flight.
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_: string, init: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+            }),
+        ),
+      );
+      const settled = vi.fn();
+      const stop = onPostsSettled(settled);
+      const posted = postAction("/api/x");
+      const failed = expect(posted).rejects.toThrow("took too long");
+      await vi.advanceTimersByTimeAsync(POST_DEADLINE_MS - 1);
+      expect(postsInFlight()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await failed;
+      expect(postsInFlight()).toBe(0);
+      expect(settled).toHaveBeenCalledTimes(1);
+      expect(POST_DEADLINE_MS).toBe(30_000);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a caller's own signal", async () => {
+    const own = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+          }),
+      ),
+    );
+    const posted = postAction("/api/x", { signal: own.signal });
+    own.abort(new Error("caller gave up"));
+    await expect(posted).rejects.toThrow("caller gave up");
   });
 });
 
