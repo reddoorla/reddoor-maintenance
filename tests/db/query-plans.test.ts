@@ -193,6 +193,22 @@ const ALLOWED_RAW_SCANS: Array<{
     requestPath: false,
     why: "BATCH ONLY — same roll-up, same two-handler history: site-dashboard.mts kept calling this per request until MED-11 moved it to screenOutTotalsForSite. Bounded by sites × days regardless",
   },
+  // The cockpit snapshot (home base briefs/2026-10-21-cockpit-one-snapshot.md):
+  // read on each full page load of a signed-in browser (never for a path no page
+  // owns), and kept in the browser, which derives every page from it as it
+  // navigates, in place of a set of slices per page.
+  {
+    scenario: "listAllSubmissions (the cockpit snapshot)",
+    table: "submissions",
+    requestPath: true,
+    why: "the snapshot reads the whole table on every full page load (then client navigation reads nothing) so the browser can derive /submissions and every per-site list; 681 rows on 2026-10-21, the brief's stop is 1 MB gzipped",
+  },
+  {
+    scenario: "listSiteSlugs (the cockpit snapshot)",
+    table: "sites",
+    requestPath: true,
+    why: "every site's slug, as listSites reads every site; bounded by fleet size",
+  },
   {
     scenario: "countSubmissionsSinceBySite (digest telemetry)",
     table: "submissions",
@@ -384,6 +400,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       },
     },
     {
+      name: "listAllSubmissions (the cockpit snapshot)",
+      covers: ["listAllSubmissions"],
+      run: (db) => submissions.listAllSubmissions(db),
+    },
+    {
       name: "listNewSubmissions (cockpit unread strip)",
       covers: ["listNewSubmissions"],
       run: (db) => submissions.listNewSubmissions(db),
@@ -506,6 +527,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => screenouts.recordScreenOut(db, "recA", "honeypot", "2026-08-10"),
     },
     {
+      name: "listScreenOutBucketsSince (the cockpit snapshot)",
+      covers: ["listScreenOutBucketsSince"],
+      run: (db) => screenouts.listScreenOutBucketsSince(db, SINCE_DATE),
+    },
+    {
       name: "listScreenOutsSince (window on date + marked-spam count)",
       covers: ["listScreenOutsSince"],
       run: (db) => screenouts.listScreenOutsSince(db, SINCE_DATE),
@@ -568,6 +594,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       name: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
       covers: ["listSites"],
       run: (db) => fleetState.listSites(db),
+    },
+    {
+      name: "listSiteSlugs (the cockpit snapshot)",
+      covers: ["listSiteSlugs"],
+      run: (db) => fleetState.listSiteSlugs(db),
     },
     {
       name: "listAllReports (cockpit fleet read)",

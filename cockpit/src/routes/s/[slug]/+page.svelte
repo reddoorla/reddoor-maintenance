@@ -11,8 +11,9 @@
   import SetupChecklist from "../../../lib/SetupChecklist.svelte";
   import DetailField from "../../../lib/site/DetailField.svelte";
   import SubmissionRowInner from "../../../lib/submission/SubmissionRowInner.svelte";
-  import "./site.css";
-  import "../../../lib/submission/submission.css";
+  import PageStyles from "../../../lib/PageStyles.svelte";
+  import siteCss from "./site.css?inline";
+  import submissionCss from "../../../lib/submission/submission.css?inline";
 
   let { data }: { data: { view: SiteView } } = $props();
   const v = $derived(data.view);
@@ -22,6 +23,7 @@
 <svelte:head>
   <title>{data.view.name} — Reddoor maintenance</title>
 </svelte:head>
+<PageStyles sheets={[siteCss, submissionCss]} />
 
 {#snippet tiles(list: Tile[])}
   <div class="tiles">

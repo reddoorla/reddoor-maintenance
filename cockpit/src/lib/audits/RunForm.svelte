@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import { mounted } from "../mounted.svelte.js";
   // The Run form. No polling and no live progress: a run takes minutes and the
   // result arrives by email. The server's `message` is shown as text only.
@@ -23,8 +24,7 @@
     reportUrl = null;
     busy = true;
     try {
-      const res = await fetch("/api/prospect-audit/run", {
-        method: "POST",
+      const res = await postAction("/api/prospect-audit/run", {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           url: field(form, "url").trim(),

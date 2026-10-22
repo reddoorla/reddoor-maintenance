@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   let { url }: { url: string } = $props();
   let label = $state("refresh preview");
   let disabled = $state(false);
@@ -10,7 +11,7 @@
     disabled = true;
     label = "Refreshing…";
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await postAction(url);
       label = res.ok ? "Queued ✓ reload in ~2 min" : "Failed";
       if (!res.ok) disabled = false;
     } catch {

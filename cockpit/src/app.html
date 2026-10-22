@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     %sveltekit.head%
   </head>
-  <!-- data-sveltekit-reload: every link is a full page load, as it was when each
-       page was its own Netlify function. Client-side navigation would keep one
-       page's stylesheet alive on the next, and the pages share class names. -->
-  <body data-sveltekit-reload>
+  <!-- Links navigate in the browser: every page derives from the snapshot the
+       root layout loads once. Each page's stylesheets leave with it
+       (lib/PageStyles.svelte), since the pages share class names. -->
+  <body>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

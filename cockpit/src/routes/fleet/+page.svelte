@@ -5,8 +5,9 @@
   import type { SitesView } from "../../lib/cockpit/view.js";
   import SetupChecklist from "../../lib/SetupChecklist.svelte";
   import { COLUMNS, showHiddenHref, sortHref, sortArrow, statusOptions } from "./view.js";
-  import "../../lib/cockpit/health.css";
-  import "./fleet-table.css";
+  import PageStyles from "../../lib/PageStyles.svelte";
+  import healthCss from "../../lib/cockpit/health.css?inline";
+  import fleetTableCss from "./fleet-table.css?inline";
 
   // Sites: the fleet table with the browse panel merged in (#672 step 3). Sorting
   // and the status and name filters are links and a GET form. The signal chips
@@ -35,6 +36,7 @@
 <svelte:head>
   <title>Sites — Reddoor maintenance</title>
 </svelte:head>
+<PageStyles sheets={[healthCss, fleetTableCss]} />
 
 {#snippet dateCell(v: string | null)}
   {#if v === null}{DASH}{:else if v.slice(0, 10) === v}{v}{:else}<span title={v}

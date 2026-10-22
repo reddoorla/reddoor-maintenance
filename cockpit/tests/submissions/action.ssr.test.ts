@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isHttpError, isRedirect } from "@sveltejs/kit";
 import { openDb, type Db } from "../../../src/db/client.js";
-import { actions, load } from "../../src/routes/submissions/+page.server.js";
+import { actions } from "../../src/routes/submissions/+page.server.js";
+import { load } from "../../src/routes/submissions/+page.js";
+import { runPage } from "../_helpers/snapshot-load.js";
 import type { SubmissionsPageModel } from "../../../src/dashboard/submissions-page.js";
 
 /**
@@ -125,8 +127,7 @@ describe("the mark-read action", () => {
 describe("the page load", () => {
   it("404s an unknown ?site= slug", async () => {
     try {
-      // @ts-expect-error — only `url` is read
-      await load({ url: new URL("https://dash.example/submissions?site=nope") });
+      await runPage(load, "/submissions?site=nope");
       throw new Error("load returned");
     } catch (thrown) {
       expect(isHttpError(thrown) && thrown.status).toBe(404);
@@ -134,10 +135,7 @@ describe("the page load", () => {
   });
 
   it("scopes the model to the site", async () => {
-    // @ts-expect-error — only `url` is read
-    const data = (await load({ url: new URL("https://dash.example/submissions?site=beta") })) as {
-      model: SubmissionsPageModel;
-    };
+    const data = await runPage<{ model: SubmissionsPageModel }>(load, "/submissions?site=beta");
     expect(data.model.rows.map((r) => r.id)).toEqual(["sub2"]);
   });
 });

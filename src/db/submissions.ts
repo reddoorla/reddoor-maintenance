@@ -143,6 +143,37 @@ export async function listSubmissionsForSite(
   return rows.map(rowFromDb);
 }
 
+/** A row whose stored `status` or `form_type` is not one of ours: `rowFromDb`
+ *  narrows those, while the SQL filters compare what is stored. */
+export type RawSubmissionEnums = { status: string; formType: string };
+
+/** Every submission, newest first: the cockpit snapshot's one read of the table
+ *  (`src/dashboard/snapshot.ts`), from which the browser derives the per-site lists,
+ *  the counts and the `/submissions` page (`matchesSubmissionFilter` there is this
+ *  file's `applySubmissionFilter`, row by row). The one unbounded table, read whole
+ *  per snapshot rather than in slices on every page load; 681 rows on 2026-10-21.
+ *
+ *  `raw` holds the stored enum values of each row `rowFromDb` narrowed (normally
+ *  none), so the browser can filter on what the SQL would have compared. */
+export async function listAllSubmissions(
+  db: Db,
+): Promise<{ rows: SubmissionRow[]; raw: Map<string, RawSubmissionEnums> }> {
+  const stored = await db
+    .selectFrom("submissions")
+    .selectAll()
+    .orderBy("submitted_at", "desc")
+    .execute();
+  const raw = new Map<string, RawSubmissionEnums>();
+  const rows = stored.map((r) => {
+    const row = rowFromDb(r);
+    if (row.status !== r.status || row.formType !== r.form_type) {
+      raw.set(r.id, { status: r.status, formType: r.form_type });
+    }
+    return row;
+  });
+  return { rows, raw };
+}
+
 export async function setSubmissionStatusRow(
   db: Db,
   id: string,

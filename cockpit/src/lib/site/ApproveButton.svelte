@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import type { ApproveView } from "./view.js";
   import { reportUis } from "./report-ui.svelte.js";
 
@@ -12,7 +13,7 @@
     ui.approveDisabled = true;
     loading = true;
     try {
-      const res = await fetch(approve.url, { method: "POST" });
+      const res = await postAction(approve.url);
       if (res.ok) {
         // Terminal success: they stay disabled (approving twice is a no-op
         // server-side, but the button should not invite the second click).

@@ -1,5 +1,5 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
-import { isOwnerRepo } from "../util/git.js";
+import { isOwnerRepo } from "../util/owner-repo.js";
 
 /** Injected IO — the endpoint handler binds these to Turso + makeGitHubRest; tests bind fakes. */
 export type TriggerRenovateDeps = {

@@ -1,10 +1,7 @@
 import { safeUrl } from "../../../../src/util/html.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
-import {
-  hasNoReport,
-  isValidToken,
-  type ProspectAuditListItem,
-} from "../../../../src/db/prospect-audits.js";
+import type { ProspectAuditListItem } from "../../../../src/db/prospect-audits.js";
+import { hasNoReport, isValidToken } from "../../../../src/prospect/audit-status.js";
 import { isStaleRunning } from "../../../../src/prospect/daily-cap.js";
 
 /**

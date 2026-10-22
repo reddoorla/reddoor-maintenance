@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import { reportUis } from "./report-ui.svelte.js";
 
   let { reportId, url, confirmText }: { reportId: string; url: string; confirmText: string } =
@@ -12,7 +13,7 @@
     if (!confirm(confirmText)) return;
     ui.withdrawDisabled = true;
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await postAction(url);
       if (res.ok) {
         ui.withdrawLabel = "Withdrawn";
         ui.approveLabel = "Withdrawn";
