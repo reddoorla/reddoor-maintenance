@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import type { CommentaryView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
@@ -16,8 +17,7 @@
   function onblur(e: FocusEvent & { currentTarget: HTMLTextAreaElement }) {
     const t = e.currentTarget;
     if (t.value === saved) return;
-    fetch(c.url, {
-      method: "POST",
+    postAction(c.url, {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: t.value }),
     })

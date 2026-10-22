@@ -4,6 +4,11 @@ export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** The ISO date (YYYY-MM-DD) `days` before `now`, for the window queries. */
+export function screenOutsSince(now: Date, days: number): string {
+  return ymd(new Date(now.getTime() - days * 24 * 60 * 60 * 1000));
+}
+
 /** An ISO timestamp as a long US date ("October 20, 2026"), in UTC.
  *  `toLocaleDateString` on an invalid Date returns the string "Invalid Date"
  *  rather than throwing, so this checks `getTime()` and falls back to the raw

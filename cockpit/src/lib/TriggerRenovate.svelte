@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "./post.js";
   // On-demand Renovate dispatch for a repo-backed site: POST to the authed
   // /api/sites/:slug/trigger-renovate endpoint.
   let { url }: { url: string } = $props();
@@ -9,7 +10,7 @@
     disabled = true;
     label = "Dispatching…";
     try {
-      const res = await fetch(url, { method: "POST" });
+      const res = await postAction(url);
       label = res.ok ? "Dispatched ✓" : "Failed";
       if (!res.ok) disabled = false;
     } catch {

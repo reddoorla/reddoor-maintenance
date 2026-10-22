@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { postAction } from "../post.js";
   import type { SubmissionStatusButton } from "./view.js";
 
   let { id, url, button }: { id: string; url: string; button: SubmissionStatusButton } = $props();
@@ -12,8 +13,7 @@
   async function onclick() {
     disabled = true;
     try {
-      const res = await fetch(url, {
-        method: "POST",
+      const res = await postAction(url, {
         headers: { "content-type": "application/json" },
         body: JSON.stringify("ack" in button ? { ack: button.ack } : { status: button.status }),
       });

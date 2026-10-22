@@ -5,7 +5,8 @@
   import SubmissionRowInner from "../../lib/submission/SubmissionRowInner.svelte";
   import type { SubmissionsPageData } from "./data.js";
   import { pageHref, maxPage, markReadConfirmText } from "./view.js";
-  import "./submissions.css";
+  import PageStyles from "../../lib/PageStyles.svelte";
+  import submissionsCss from "./submissions.css?inline";
 
   let { data }: { data: SubmissionsPageData } = $props();
   const m = $derived(data.model);
@@ -40,6 +41,7 @@
 <svelte:head>
   <title>Submissions — Reddoor maintenance</title>
 </svelte:head>
+<PageStyles sheets={[submissionsCss]} />
 
 <h1>Submissions</h1>
 <form class="filters" method="get" action="/submissions">
