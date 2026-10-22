@@ -10,6 +10,7 @@
     setActiveFreshness,
     startFreshness,
   } from "../lib/freshness.js";
+  import { beginRestore, captureView, finishRestore, type KeptView } from "../lib/view-keep.js";
   import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
   let {
@@ -61,14 +62,35 @@
       controller.stop();
     };
   });
+
+  // A fresh mount per page, and per change in the store, as when every link was
+  // a full page load: no control keeps state built from data the store no longer
+  // holds (a button's label, the Approve gate, a field's saved value), now that
+  // the page stays in the browser. Keyed on the store's counter, not on each
+  // read: a check that finds nothing new, or a refused or failed save, leaves
+  // the page as it is, with what the operator typed and the ✗ beside it. Only a
+  // snapshot with no counter (the read failed) falls back to its read time.
+  const pageKey = $derived(data.page ?? data.path);
+  const viewKey = $derived(`${pageKey}@${data.snapshot?.version ?? data.snapshot?.takenAt ?? ""}`);
+
+  // A remount on the same page keeps the operator's place (lib/view-keep.ts):
+  // recorded before the old page goes, put back once the new one is in.
+  let shownPage: string | null = null;
+  $effect.pre(() => {
+    void viewKey;
+    const kept: KeptView | null =
+      shownPage === null ? null : captureView(shownPage, document, window.scrollY);
+    beginRestore(kept, pageKey);
+  });
+  $effect(() => {
+    void viewKey;
+    finishRestore(document, (y) => window.scrollTo(0, y));
+    shownPage = pageKey;
+  });
 </script>
 
 <Shell email={data.email} path={data.path}>
-  <!-- A fresh mount per page, and per snapshot read, as when every link was a
-       full page load: no control keeps state from before a navigation or a
-       refresh (a button's label, the Approve gate, a field's saved value), now
-       that the page stays in the browser (the snapshot). -->
-  {#key `${data.page ?? data.path}@${data.snapshot?.takenAt ?? ""}`}
+  {#key viewKey}
     {@render children()}
   {/key}
 </Shell>

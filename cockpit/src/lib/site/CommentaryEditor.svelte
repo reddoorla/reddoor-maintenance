@@ -3,7 +3,11 @@
   import type { CommentaryView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
-  let { c }: { c: CommentaryView } = $props();
+  let { c: mountedC }: { c: CommentaryView } = $props();
+  // The text it mounted with, as DetailField: a refresh in place (the store
+  // unchanged) must not write the stored text over an edit whose save failed.
+  // svelte-ignore state_referenced_locally
+  const c = mountedC;
   // What the server last accepted, as a textarea shows it: a browser exposes
   // CR LF as LF, so stored CRLF text must not read as an edit (the old page
   // compared against `defaultValue`, which the parser had normalised). A blur

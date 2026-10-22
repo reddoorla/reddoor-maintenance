@@ -3,7 +3,16 @@
   import type { DetailRowView } from "./view.js";
   import { mounted } from "../mounted.svelte.js";
 
-  let { row, url }: { row: DetailRowView; url: string } = $props();
+  let { row: mountedRow, url: mountedUrl }: { row: DetailRowView; url: string } = $props();
+  // The field shows the row it mounted with. The layout remounts the page when
+  // the store changes, so a refresh in place carries these same values; binding
+  // the live prop would let that refresh write the stored value over an edit
+  // whose save failed (Svelte sets a hydrated input's value on its first
+  // update), and the retry on the next blur would have nothing to send.
+  // svelte-ignore state_referenced_locally
+  const row = mountedRow;
+  // svelte-ignore state_referenced_locally
+  const url = mountedUrl;
 
   let mark = $state("");
   // Disabled until the save handlers exist, so an edit is never lost silently.

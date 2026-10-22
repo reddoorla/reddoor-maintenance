@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { afterNavigate } from "$app/navigation";
+  import { keepValue, keptValue } from "../../lib/view-keep.js";
   import type { FleetTableModel } from "../../../../src/dashboard/fleet-table.js";
   import { safeUrl } from "../../../../src/util/html.js";
   import type { SitesView } from "../../lib/cockpit/view.js";
@@ -21,7 +23,10 @@
   const m = $derived(data.model);
   const s = $derived(data.sites);
   const DASH = "—";
-  let filter = $state("all");
+  // The chip survives a remount for a change in the store (lib/view-keep.ts),
+  // not a navigation.
+  let filter = $state(keptValue("fleet:filter", "all"));
+  onDestroy(keepValue("fleet:filter", () => filter));
   // An own-property read: a slug that names an Object.prototype key
   // ("constructor") must find no card rather than the inherited function.
   const cardOf = (slug: string) => (Object.hasOwn(s.cards, slug) ? s.cards[slug] : undefined);

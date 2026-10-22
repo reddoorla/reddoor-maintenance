@@ -466,6 +466,92 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect.poll(() => data.length, { timeout: 10_000 }).toBeGreaterThan(0);
   });
 
+  it("a failed save keeps what the operator typed and its ✗; the page is not remounted", async () => {
+    // Review round 2: a refresh after every post remounted the page, so a save
+    // the server refused put the stored value back and dropped the ✗, and the
+    // retry on the next blur (DetailField) never came.
+    const page = await signedIn();
+    await page.route("**/api/sites/acme/details", (r) => r.fulfill({ status: 500, body: "down" }));
+    const data: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+    });
+    await page.goto(`${origin}/s/acme`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const field = page.locator("input[data-detail-field='url']");
+    await field.fill("operator typed this");
+    const posted = page.waitForResponse((r) => r.url().endsWith("/api/sites/acme/details"));
+    await page.locator("h1").click();
+    expect((await posted).status()).toBe(500);
+    // The action still reads the snapshot again; the counter has not moved.
+    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
+    await page.waitForLoadState("networkidle");
+    expect(await field.inputValue()).toBe("operator typed this");
+    expect(await page.locator(".detail-saved[data-for='url']").textContent()).toContain("✗");
+    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
+  });
+
+  it("a change elsewhere redraws the page, keeping the open lead and the chip filter", async () => {
+    // Review round 2: the remount for a fresh snapshot closed every open
+    // <details> and reset the page's own filters whenever anyone wrote.
+    const page = await signedIn();
+    const data: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+    });
+    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const elsewhere = async (name: string) => {
+      const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+      await db
+        .updateTable("sites")
+        .set({ name } as never)
+        .where("id", "=", "recB")
+        .execute();
+      await db.destroy();
+    };
+
+    await page.goto(`${origin}/submissions`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const lead = page.locator("li.subm-item", { hasText: "sam@filtered.example" });
+    await lead.locator("summary").click();
+    // Which leads are open, by the submission their buttons act on.
+    const openLeads = () =>
+      page.$$eval("li.subm-item details[open]", (els) =>
+        els.map((e) => e.parentElement?.querySelector("[data-id]")?.getAttribute("data-id")),
+      );
+    const before = await openLeads();
+    expect(before).toHaveLength(1);
+    await elsewhere("Beta, renamed");
+    await focus();
+    await expect.poll(() => data.length, { timeout: 10_000 }).toBe(1);
+    // Redrawn from the new snapshot (a fresh mount), with the same lead open.
+    await expect.poll(() => page.$$("h1[data-this-mount]").then((h) => h.length)).toBe(0);
+    expect(await openLeads()).toEqual(before);
+
+    await page.goto(`${origin}/fleet`);
+    await page.waitForLoadState("networkidle");
+    const chip = page
+      .locator(".signal-filters button[data-filter]:not([data-filter='all'])")
+      .first();
+    const picked = await chip.getAttribute("data-filter");
+    await chip.click();
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    await elsewhere("Beta, renamed again");
+    await focus();
+    await expect
+      .poll(() => page.$$("h1[data-this-mount]").then((h) => h.length), {
+        timeout: 10_000,
+      })
+      .toBe(0);
+    expect(
+      await page
+        .locator(`.signal-filters button[data-filter='${picked}']`)
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
   it("a signed-out browser gets no snapshot", async () => {
     const context = await browser.newContext();
     const page = await context.newPage();
