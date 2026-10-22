@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Db } from "./client.js";
 import { PROSPECT_AUDIT_DAILY_CAP, capBounds } from "../prospect/daily-cap.js";
+import { retryOnBusy } from "./busy.js";
 // Apart from this file's `node:crypto`, so the cockpit's browser code can use them.
 import {
   NO_REPORT_STATUSES,
@@ -286,40 +287,14 @@ function countedTowardCap(db: Db, now: Date) {
     );
 }
 
-/** Attempts `retryOnBusy` makes before letting SQLITE_BUSY through. */
-export const RESERVATION_BUSY_ATTEMPTS = 8;
-
-/** SQLite's "another writer holds the lock" — including the WAL form, where a
- *  writer's snapshot went stale — as libSQL reports it. */
-function isBusy(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null)?.code;
-  if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) return true;
-  return err instanceof Error && /SQLITE_BUSY|database is locked/i.test(err.message);
-}
-
-/**
- * Run a reservation statement, retrying while the database says it is busy.
- *
- * SQLITE_BUSY is how SQLite refuses the SECOND of two concurrent writers
- * rather than letting it write on a stale count — i.e. it is the atomicity
- * working, and it arrives exactly when a burst does. Measured on 2026-09-29:
- * twelve OS processes reserving against one SQLite file under a cap of 5 were
- * never admitted past 5, but 3 to 8 of them got SQLITE_BUSY instead of an
- * answer. The CLI treats a reservation that throws as a blip and runs anyway
- * (the fail-open decision recorded on MED-15), so without this every loser of
- * the lock race would have run unbraked. Retried, the statement re-reads the
- * count and gets a real answer: reserved or capped.
- */
-async function retryOnBusy<T>(run: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await run();
-    } catch (err) {
-      if (!isBusy(err) || attempt >= RESERVATION_BUSY_ATTEMPTS) throw err;
-      await new Promise((r) => setTimeout(r, attempt * 25 + Math.random() * 25));
-    }
-  }
-}
+// Reservations retry on SQLITE_BUSY (`retryOnBusy`, shared in `./busy.ts`).
+// Measured on 2026-09-29: twelve OS processes reserving against one SQLite file
+// under a cap of 5 were never admitted past 5, but 3 to 8 of them got
+// SQLITE_BUSY instead of an answer. The CLI treats a reservation that throws as
+// a blip and runs anyway (the fail-open decision recorded on MED-15), so
+// without the retry every loser of the lock race would have run unbraked.
+// Retried, the statement re-reads the count and gets a real answer: reserved
+// or capped.
 
 /** How many audits the cap currently counts. For the refusal message; the
  *  refusal itself is decided atomically inside `reserveProspectAudit`. */

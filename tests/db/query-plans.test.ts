@@ -60,6 +60,7 @@ const EXEMPT_MODULES: Record<string, string> = {
   "lazy-fleet-db.ts":
     "lazily opens client.ts's connection for a CLI command and closes it — no queries of its own",
   "migrate.ts": "migration runner — DDL, not a query path",
+  "busy.ts": "SQLITE_BUSY retry around a caller-supplied statement — issues no SQL of its own",
   "migrations.ts": "DDL scripts",
   "schema.ts": "types only",
   "field-map.ts": "column maps + pure record mappers — no queries of its own",
