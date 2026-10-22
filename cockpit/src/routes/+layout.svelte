@@ -4,7 +4,12 @@
   import { afterNavigate, invalidate } from "$app/navigation";
   import Shell from "../lib/Shell.svelte";
   import { reloadsOnNextNavigation } from "../lib/post.js";
-  import { CHECK_EVERY_MS, SNAPSHOT_DEPENDENCY, checkFreshness } from "../lib/freshness.js";
+  import {
+    SNAPSHOT_DEPENDENCY,
+    isEditingField,
+    setActiveFreshness,
+    startFreshness,
+  } from "../lib/freshness.js";
   import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
   let {
@@ -28,44 +33,42 @@
     if (type === "popstate" && reloadsOnNextNavigation()) location.reload();
   });
 
-  // Freshness (the snapshot brief's PR 2): on coming back to the tab, and about
-  // once a minute while it is visible, ask whether the store changed, and read
-  // the snapshot again only if it did. One check at a time.
+  // Freshness (the snapshot brief's PR 2): on coming back to the tab, on focus
+  // and about once a minute while it is visible, ask whether the store changed,
+  // and read the snapshot again only if it did; never while the operator is in a
+  // field (lib/freshness.ts).
   onMount(() => {
-    let checking = false;
-    const check = async () => {
-      if (checking || document.visibilityState !== "visible") return;
-      checking = true;
-      try {
-        await checkFreshness(data.snapshot ?? null, {
-          fetch: (input, init) => fetch(input, init),
-          refresh: () => invalidate(SNAPSHOT_DEPENDENCY),
-          reload: () => location.reload(),
-        });
-      } finally {
-        checking = false;
-      }
-    };
-    const timer = setInterval(() => void check(), CHECK_EVERY_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void check();
-    };
-    const onFocus = () => void check();
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
+    const controller = startFreshness(
+      () => data.snapshot ?? null,
+      {
+        fetch: (input, init) => fetch(input, init),
+        refresh: () => invalidate(SNAPSHOT_DEPENDENCY),
+        reload: () => location.reload(),
+      },
+      {
+        isVisible: () => document.visibilityState === "visible",
+        isEditing: () => isEditingField(document.activeElement),
+        listen: (event, handler) => {
+          const target = event === "focus" ? window : document;
+          target.addEventListener(event, handler);
+          return () => target.removeEventListener(event, handler);
+        },
+      },
+    );
+    setActiveFreshness(controller);
     return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
+      setActiveFreshness(null);
+      controller.stop();
     };
   });
 </script>
 
 <Shell email={data.email} path={data.path}>
-  <!-- A fresh mount per page, as when every link was a full page load: no
-       button's "working…" state or local filter carries over to the next page
-       now that navigation stays in the browser (the snapshot). -->
-  {#key data.page ?? data.path}
+  <!-- A fresh mount per page, and per snapshot read, as when every link was a
+       full page load: no control keeps state from before a navigation or a
+       refresh (a button's label, the Approve gate, a field's saved value), now
+       that the page stays in the browser (the snapshot). -->
+  {#key `${data.page ?? data.path}@${data.snapshot?.takenAt ?? ""}`}
     {@render children()}
   {/key}
 </Shell>

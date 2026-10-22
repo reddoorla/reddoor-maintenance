@@ -7,7 +7,9 @@ import type { Db } from "./client.js";
  * everything again; equal means nothing the snapshot shows has changed.
  *
  * Only equality means anything: the value is not a count of writes a caller can
- * rely on (a restore, or a failed statement's own trigger, may move it too).
+ * rely on (a restore, or a failed statement's own trigger, may move it too). A
+ * `db restore` sets it back to its dumped value, so a tab open across a restore
+ * could in theory meet an equal value over different rows; reload after one.
  */
 export async function readCockpitVersion(db: Db): Promise<number> {
   const row = await db

@@ -690,6 +690,8 @@ export const MIGRATIONS: Migration[] = [
     // primary-key read before it reads everything. The tables are frozen here, as a
     // shipped script must be; a table added to the snapshot later needs its own
     // migration, and tests/db/cockpit-version.test.ts fails until it has one.
+    // Never drop cockpit_version by hand while the triggers exist: every write to
+    // those tables, form-ingest's lead capture included, would then fail.
     id: "0048_cockpit_version",
     sql: [
       `CREATE TABLE IF NOT EXISTS cockpit_version (

@@ -88,6 +88,22 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
+  await db
+    .insertInto("submissions")
+    .values({
+      id: "sub-auto",
+      site_id: "recB",
+      form_type: "contact",
+      name: "Sam",
+      email: "sam@filtered.example",
+      message: "Hello",
+      status: "spam_auto",
+      spam_score: 7,
+      spam_reason: "links",
+      notify_status: "skipped",
+      submitted_at: new Date().toISOString(),
+    } as never)
+    .execute();
   await db.destroy();
 }
 
@@ -370,6 +386,84 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect
       .poll(() => page.content(), { timeout: 10_000 })
       .toContain("robin@elsewhere.example");
+  });
+
+  it("after a change a row's buttons post what they say, and the page remounts", async () => {
+    // Review round 1: buttons keyed by position kept their old labels over the
+    // next button's action once the row re-derived ("Archive" posted spam).
+    const page = await signedIn();
+    await page.goto(`${origin}/submissions`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const row = page.locator("li.subm-item", { hasText: "sam@filtered.example" });
+    const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
+    const reread = page.waitForResponse((r) => r.url().includes("__data.json"));
+    await row.locator("button", { hasText: "Not spam" }).click();
+    expect((await posted).status()).toBe(200);
+    await reread;
+    // A fresh snapshot remounts the page, as a fresh load would.
+    await expect.poll(() => page.$$("h1[data-this-mount]").then((h) => h.length)).toBe(0);
+    await expect.poll(() => row.locator("button", { hasText: "Not spam" }).count()).toBe(0);
+    const buttons = await row
+      .locator("button.subm-status")
+      .evaluateAll((els) => els.map((b) => [b.textContent?.trim(), b.getAttribute("data-status")]));
+    expect(buttons).toEqual([
+      ["Read", "read"],
+      ["Archive", "archived"],
+      ["Spam", "spam"],
+    ]);
+  });
+
+  it("an unchanged check keeps the page as it is; a refresh waits while a field is in use", async () => {
+    const page = await signedIn();
+    const data: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("__data.json")) data.push(r.url());
+    });
+    await page.goto(`${origin}/s/acme`);
+    await page.waitForLoadState("networkidle");
+    await page.$eval("h1", (h) => h.setAttribute("data-this-mount", ""));
+    const focus = () => page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    const versionAnswer = () =>
+      page.waitForResponse((r) => r.url().endsWith("/api/cockpit/version"));
+
+    // Nothing changed: the page is not remounted.
+    const answered = versionAnswer();
+    await focus();
+    await answered;
+    await page.waitForLoadState("networkidle");
+    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
+    expect(data).toEqual([]);
+
+    // The operator starts typing in a field; meanwhile a lead arrives elsewhere.
+    const field = page.locator("input[data-detail-field='pointOfContact']");
+    await field.click();
+    await field.pressSequentially("Half-typed");
+    const db = await openDb({ url: process.env.TURSO_DATABASE_URL ?? "" });
+    await db
+      .insertInto("submissions")
+      .values({
+        id: "sub-while-typing",
+        site_id: "recB",
+        form_type: "contact",
+        name: "Kai",
+        email: "kai@elsewhere.example",
+        status: "new",
+        notify_status: "sent",
+        submitted_at: new Date().toISOString(),
+      } as never)
+      .execute();
+    await db.destroy();
+    await focus();
+    await page.waitForTimeout(500);
+    // No refresh while the field is in use: the text stays, the page stays.
+    expect(data).toEqual([]);
+    expect(await field.inputValue()).toBe("Half-typed");
+    expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);
+    // The operator moves on to a non-field (the page heading): the refresh runs
+    // (the field's own save posts first, as it always did on blur).
+    await page.locator("h1").click();
+    await expect.poll(() => data.length, { timeout: 10_000 }).toBeGreaterThan(0);
   });
 
   it("a signed-out browser gets no snapshot", async () => {

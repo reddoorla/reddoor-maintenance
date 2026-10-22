@@ -54,6 +54,7 @@ export async function loadCockpitSnapshot(
       return fallback;
     });
   const [
+    version,
     sites,
     slugs,
     reports,
@@ -65,8 +66,12 @@ export async function loadCockpitSnapshot(
     submissions,
     screenOuts,
     audits,
-    version,
   ] = await Promise.all([
+    // First, in the same read batch as the rest, so it is the version of exactly
+    // these rows. Should the batch fail and its reads run one by one, first still
+    // means the version is never newer than a row (client.ts): a write between
+    // them reads as a change on the next check, never as "unchanged".
+    read<number | null>("version", () => readCockpitVersion(db), null),
     read("sites", () => listSites(db), null),
     read("sites", () => listSiteSlugs(db), null),
     read<CockpitSnapshot["reports"]>("reports", () => listAllReports(db), null),
@@ -102,9 +107,6 @@ export async function loadCockpitSnapshot(
       () => listRecentProspectAudits(db, RECENT_AUDITS_LIMIT),
       null,
     ),
-    // In the same read batch as the rest, so it is the version of exactly these
-    // rows. A refresh compares it before reading everything again.
-    read<number | null>("version", () => readCockpitVersion(db), null),
   ]);
   return {
     takenAt: now.toISOString(),

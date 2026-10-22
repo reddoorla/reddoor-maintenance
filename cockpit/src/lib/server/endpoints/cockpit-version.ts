@@ -36,6 +36,8 @@ export default async (req: Request): Promise<Response> => {
     const db = await openDb(readDbConfig());
     return json({ ok: true, version: await readCockpitVersion(db) }, 200);
   } catch (err) {
-    return handlerError("cockpit-version", err);
+    const res = handlerError("cockpit-version", err);
+    res.headers.set("cache-control", "private, no-store");
+    return res;
   }
 };

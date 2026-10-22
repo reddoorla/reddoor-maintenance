@@ -44,7 +44,17 @@
     return true;
   }
 
+  // Set when this panel unmounts (a navigation away, or the page remounting on a
+  // fresh snapshot): its poll stops, so it neither doubles up with the next
+  // panel's nor reloads whatever page the operator has moved on to.
+  let gone = false;
+  const later = (f: () => void, ms: number) =>
+    setTimeout(() => {
+      if (!gone) f();
+    }, ms);
+
   function poll(since: string, startedAt: number) {
+    if (gone) return;
     fetch("/api/fleet/refresh/status?since=" + encodeURIComponent(since))
       .then((res) => {
         if (res.status === 401) return { authFail: true };
@@ -61,7 +71,7 @@
             if (!data.status.anyFailure) {
               rows = [...rows, { kind: "text", text: "✓ Done — reloading…" }];
               stop();
-              setTimeout(() => location.reload(), 2000);
+              later(() => location.reload(), 2000);
               return;
             }
             finishWith({ kind: "reload" });
@@ -69,11 +79,11 @@
           }
         }
         if (pastCeiling(startedAt)) return;
-        setTimeout(() => poll(since, startedAt), RF_POLL_MS);
+        later(() => poll(since, startedAt), RF_POLL_MS);
       })
       .catch(() => {
         if (pastCeiling(startedAt)) return;
-        setTimeout(() => poll(since, startedAt), RF_POLL_MS);
+        later(() => poll(since, startedAt), RF_POLL_MS);
       });
   }
 
@@ -120,6 +130,9 @@
       label = "↻ Audit running…";
       begin(saved.since, saved.startedAt);
     }
+    return () => {
+      gone = true;
+    };
   });
 </script>
 

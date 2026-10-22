@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { checkFreshness, type FreshnessDeps } from "../../src/lib/freshness.js";
+import {
+  CHECK_EVERY_MS,
+  checkFreshness,
+  isEditingField,
+  startFreshness,
+  type FreshnessDeps,
+} from "../../src/lib/freshness.js";
 
 /**
  * The open cockpit's refresh (PR 2 of the snapshot brief): one read of the store's
@@ -64,5 +70,124 @@ describe("checkFreshness", () => {
       expect(d.refresh).not.toHaveBeenCalled();
       expect(d.reload).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("startFreshness: when the open cockpit checks", () => {
+  function env(over: Partial<{ visible: boolean; editing: boolean }> = {}) {
+    const state = { visible: true, editing: false, ...over };
+    const handlers = new Map<string, Set<() => void>>();
+    return {
+      state,
+      fire: (event: string) => {
+        for (const h of handlers.get(event) ?? []) h();
+      },
+      listeners: () => [...handlers.values()].reduce((n, s) => n + s.size, 0),
+      env: {
+        isVisible: () => state.visible,
+        isEditing: () => state.editing,
+        listen: (event: "visibilitychange" | "focus" | "focusout", handler: () => void) => {
+          const set = handlers.get(event) ?? new Set();
+          set.add(handler);
+          handlers.set(event, set);
+          return () => set.delete(handler);
+        },
+      },
+    };
+  }
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+  const snapshot = { version: 41, gaps: [] as string[] };
+
+  it("asks about every 60 s while visible, and not while hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps(version(41));
+      const e = env();
+      const c = startFreshness(() => snapshot, d, e.env);
+      // The period itself, not the constant: a slower cadence must fail here.
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(d.fetch).toHaveBeenCalledTimes(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      e.state.visible = false;
+      await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS * 3);
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      // Coming back to the tab asks at once.
+      e.state.visible = true;
+      e.fire("visibilitychange");
+      await flush();
+      expect(d.fetch).toHaveBeenCalledTimes(2);
+      c.stop();
+      await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS * 3);
+      expect(d.fetch).toHaveBeenCalledTimes(2);
+      expect(e.listeners()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks on focus, one check at a time", async () => {
+    let answer!: (r: Response) => void;
+    const d = deps(() => new Promise<Response>((r) => (answer = r)));
+    const e = env();
+    const c = startFreshness(() => snapshot, d, e.env);
+    e.fire("focus");
+    e.fire("focus");
+    e.fire("visibilitychange");
+    expect(d.fetch).toHaveBeenCalledTimes(1);
+    answer(new Response(JSON.stringify({ version: 41 })));
+    await vi.waitFor(() => expect(d.fetch).toHaveBeenCalledTimes(1));
+    c.stop();
+  });
+
+  it("while the operator is in a field, a check and a refresh wait until they leave it", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps(version(42));
+      const e = env({ editing: true });
+      const c = startFreshness(() => snapshot, d, e.env);
+      e.fire("focus");
+      c.requestRefresh();
+      await flush();
+      expect(d.fetch).not.toHaveBeenCalled();
+      expect(d.refresh).not.toHaveBeenCalled();
+      // Moving to another field is still editing.
+      e.fire("focusout");
+      await flush();
+      expect(d.refresh).not.toHaveBeenCalled();
+      // Leaving the fields runs the waiting refresh.
+      e.state.editing = false;
+      e.fire("focusout");
+      await flush();
+      expect(d.refresh).toHaveBeenCalledTimes(1);
+      c.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a refresh asked for outside a field runs at once", () => {
+    const d = deps(version(41));
+    const c = startFreshness(() => snapshot, d, env().env);
+    c.requestRefresh();
+    expect(d.refresh).toHaveBeenCalledTimes(1);
+    c.stop();
+  });
+});
+
+describe("isEditingField", () => {
+  it("is a field that takes typing or a choice, not a button or a box", () => {
+    const make = (html: string) => {
+      const div = document.createElement("div");
+      div.innerHTML = html;
+      return div.firstElementChild;
+    };
+    expect(isEditingField(make("<input>"))).toBe(true);
+    expect(isEditingField(make('<input type="date">'))).toBe(true);
+    expect(isEditingField(make("<textarea></textarea>"))).toBe(true);
+    expect(isEditingField(make("<select></select>"))).toBe(true);
+    expect(isEditingField(make('<input type="checkbox">'))).toBe(false);
+    expect(isEditingField(make("<button></button>"))).toBe(false);
+    expect(isEditingField(null)).toBe(false);
   });
 });

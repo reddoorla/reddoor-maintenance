@@ -57,3 +57,111 @@ export async function checkFreshness(
   await deps.refresh();
   return "refreshed";
 }
+
+/** What the controller needs from the page it runs on; the layout passes the
+ *  browser's own, a test passes its fakes. */
+export type FreshnessEnv = {
+  isVisible: () => boolean;
+  /** Whether the operator is typing or choosing in a field right now: a refresh
+   *  remounts the page, which would take that field's unsaved text with it. */
+  isEditing: () => boolean;
+  /** Add a listener (`visibilitychange` on the document, `focus` on the window,
+   *  `focusout` on the document) and return its removal. */
+  listen: (event: "visibilitychange" | "focus" | "focusout", handler: () => void) => () => void;
+};
+
+export type FreshnessController = {
+  /** Read the snapshot again now, or as soon as the operator leaves the field. */
+  requestRefresh: () => void;
+  /** Ask whether anything changed (focus, the tab coming back, the interval). */
+  check: () => Promise<void>;
+  stop: () => void;
+};
+
+/**
+ * The open cockpit's freshness, one per page load (`+layout.svelte`):
+ * - about every `CHECK_EVERY_MS` while the tab is visible, on coming back to the
+ *   tab and on window focus, one `checkFreshness` at a time;
+ * - after a change the page posted, a refresh (`requestRefresh`);
+ * - never while the operator is in a field: a check or refresh then waits for
+ *   them to leave it (`focusout`), and runs once they have.
+ */
+export function startFreshness(
+  getSnapshot: () => Pick<CockpitSnapshot, "version" | "gaps"> | null,
+  deps: FreshnessDeps,
+  env: FreshnessEnv,
+): FreshnessController {
+  let checking = false;
+  let checkWaiting = false;
+  let refreshWaiting = false;
+
+  const refresh = async () => {
+    refreshWaiting = false;
+    await deps.refresh();
+  };
+  const check = async () => {
+    if (checking || !env.isVisible()) return;
+    if (env.isEditing()) {
+      checkWaiting = true;
+      return;
+    }
+    checkWaiting = false;
+    checking = true;
+    try {
+      await checkFreshness(getSnapshot(), deps);
+    } finally {
+      checking = false;
+    }
+  };
+  const requestRefresh = () => {
+    if (env.isEditing()) refreshWaiting = true;
+    else void refresh();
+  };
+  const leftField = () => {
+    // `focusout` fires before focus lands on the next element; look after it.
+    setTimeout(() => {
+      if (env.isEditing()) return;
+      if (refreshWaiting) void refresh();
+      else if (checkWaiting) void check();
+    }, 0);
+  };
+
+  const timer = setInterval(() => void check(), CHECK_EVERY_MS);
+  const removers = [
+    env.listen("visibilitychange", () => {
+      if (env.isVisible()) void check();
+    }),
+    env.listen("focus", () => void check()),
+    env.listen("focusout", leftField),
+  ];
+  return {
+    requestRefresh,
+    check,
+    stop: () => {
+      clearInterval(timer);
+      for (const remove of removers) remove();
+    },
+  };
+}
+
+/** The running page's controller, which `postAction` asks for a refresh. With
+ *  none (a test, or before the layout mounts) a refresh runs at once. */
+let active: FreshnessController | null = null;
+export function setActiveFreshness(c: FreshnessController | null): void {
+  active = c;
+}
+export function requestSnapshotRefresh(refreshNow: () => Promise<void>): void {
+  if (active) active.requestRefresh();
+  else void refreshNow();
+}
+
+/** Whether the focused element takes typing or a choice the operator has not
+ *  finished with. */
+export function isEditingField(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLInputElement) {
+    return !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(el.type);
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}

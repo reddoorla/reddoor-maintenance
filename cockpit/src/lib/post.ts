@@ -1,19 +1,20 @@
 import { invalidate } from "$app/navigation";
-import { SNAPSHOT_DEPENDENCY } from "./freshness.js";
+import { SNAPSHOT_DEPENDENCY, requestSnapshotRefresh } from "./freshness.js";
 
 /**
  * Every change the cockpit's pages make goes through here: a POST to one of its
  * `/api/*` routes. The pages derive from the layout's snapshot, which the change
  * has just made stale, so once it is sent (whatever its answer: a refused change
  * leaves the store as it was, and a fresh read shows that too) the snapshot is
- * read again, and the page in view re-derives from it. It never shows the state
- * from before a change the operator just made.
+ * read again, and the page in view remounts from it, as a fresh load would. It
+ * never shows the state from before a change the operator just made. While they
+ * are in a field, the refresh waits until they leave it (`startFreshness`).
  */
 export async function postAction(input: string, init: RequestInit = {}): Promise<Response> {
   try {
     return await fetch(input, { ...init, method: "POST" });
   } finally {
-    void invalidate(SNAPSHOT_DEPENDENCY);
+    requestSnapshotRefresh(() => invalidate(SNAPSHOT_DEPENDENCY));
   }
 }
 
