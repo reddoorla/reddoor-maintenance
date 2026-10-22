@@ -313,12 +313,18 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect((await posted).status()).toBe(200);
     await page.goBack();
     await page.waitForURL(`${origin}/`);
+    // Back lands on `/` and reloads it in full; wait for that load to finish
+    // before stepping Forward, or the step aborts the reload.
+    await expect.poll(() => documents, { timeout: 10_000 }).toEqual(["/", "/"]);
+    await page.waitForLoadState("load");
+    await page.waitForLoadState("networkidle");
     await page.goForward();
     await page.waitForURL(`${origin}/submissions`);
+    // That reload read a fresh snapshot, so Forward derives in the browser and
+    // already shows the change.
     const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
     await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("spam");
-    expect(documents.slice(0, 1)).toEqual(["/"]);
-    expect(documents.length).toBeGreaterThanOrEqual(2);
+    expect(documents).toEqual(["/", "/"]);
   });
 
   it("a signed-out browser gets no snapshot", async () => {
