@@ -311,13 +311,22 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       .locator("button", { hasText: /^Spam$/ })
       .click();
     expect((await posted).status()).toBe(200);
+    // Back lands on `/` and reloads it in full. Mark this document, so the wait
+    // below is for a new one, fully loaded and hydrated, before stepping Forward:
+    // a step taken while the reload is in flight aborts it.
+    await page.evaluate(() => Object.assign(window, { __beforeBack: true }));
     await page.goBack();
     await page.waitForURL(`${origin}/`);
-    // Back lands on `/` and reloads it in full; wait for that load to finish
-    // before stepping Forward, or the step aborts the reload.
-    await expect.poll(() => documents, { timeout: 10_000 }).toEqual(["/", "/"]);
-    await page.waitForLoadState("load");
+    await page.waitForFunction(
+      () =>
+        !("__beforeBack" in window) &&
+        document.readyState === "complete" &&
+        document.querySelector("a[href='/submissions']") !== null,
+      undefined,
+      { timeout: 15_000 },
+    );
     await page.waitForLoadState("networkidle");
+    expect(documents).toEqual(["/", "/"]);
     await page.goForward();
     await page.waitForURL(`${origin}/submissions`);
     // That reload read a fresh snapshot, so Forward derives in the browser and
