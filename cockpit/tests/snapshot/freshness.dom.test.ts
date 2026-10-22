@@ -7,15 +7,11 @@ import { checkFreshness, type FreshnessDeps } from "../../src/lib/freshness.js";
  * proof: where nothing changed, no full read happens; where a lead arrived, it does.
  */
 
-function deps(answer: () => Promise<Response>): FreshnessDeps & {
-  refresh: ReturnType<typeof vi.fn>;
-  reload: ReturnType<typeof vi.fn>;
-  fetch: ReturnType<typeof vi.fn>;
-} {
+function deps(answer: () => Promise<Response>) {
   return {
-    fetch: vi.fn(answer),
-    refresh: vi.fn(async () => {}),
-    reload: vi.fn(),
+    fetch: vi.fn<FreshnessDeps["fetch"]>(answer),
+    refresh: vi.fn<FreshnessDeps["refresh"]>(async () => {}),
+    reload: vi.fn<FreshnessDeps["reload"]>(),
   };
 }
 const version =
