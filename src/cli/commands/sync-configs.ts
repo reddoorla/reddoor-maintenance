@@ -11,6 +11,7 @@ import {
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import { isGitWorkTree } from "../../util/git.js";
 import type { ConfigName, Site } from "../../types.js";
+import { siteSlug, type WebsiteRow } from "../../fleet/site-row.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
@@ -146,10 +147,15 @@ export async function runSyncConfigsCommand(
   const which = parseOnly(opts.only);
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
+  // A roster row on a Status outside the vocabulary is not swept, and must not
+  // vanish either: it is reported SKIPPED, so it counts toward `total` and the
+  // weekly drift run's skipped-share gate (#1607).
+  let unrecognized: WebsiteRow[] = [];
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
     ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
+    onUnrecognizedStatus: (rows) => (unrecognized = rows),
     cwd,
   });
 
@@ -158,7 +164,14 @@ export async function runSyncConfigsCommand(
     const workdir = opts.workdir ?? fleetWorkdir();
     const prep = await prepareFleetSites(sites, { workdir });
     sites = prep.prepared;
-    skipped = prep.skipped;
+    skipped = [
+      ...prep.skipped,
+      ...unrecognized.map((w) => ({
+        site: siteSlug(w.name) || w.id,
+        ...(w.gitRepo ? { repo: w.gitRepo } : {}),
+        reason: `status ${JSON.stringify(w.status)} is not in the vocabulary (a retired name?), so the roster did not visit it`,
+      })),
+    ];
   }
 
   if (opts.dry) {

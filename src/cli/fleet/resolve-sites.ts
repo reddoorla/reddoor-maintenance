@@ -5,6 +5,7 @@ import { localPath } from "../../inventory/local.js";
 import { fromJsonFile } from "../../inventory/json.js";
 import { isHttpUrl } from "../../util/url.js";
 import type { Db } from "../../db/client.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
 
 /** The `--fleet` keyword that reads the fleet roster from the database (#646 step 4). */
 export const FLEET_KEYWORD = "turso";
@@ -36,6 +37,9 @@ export type ResolveSitesInput = {
   /** Test seam for the `--fleet turso` keyword: the database the roster is read
    *  from. Defaults to `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`. */
   openDb?: () => Promise<Db>;
+  /** `--fleet turso` only: the rows dropped for a Status outside the vocabulary
+   *  (see `rowsWithUnrecognizedStatus`). */
+  onUnrecognizedStatus?: (rows: WebsiteRow[]) => void;
   cwd: string;
 };
 
@@ -50,7 +54,10 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     const { openDb, readDbConfig } = await import("../../db/client.js");
     const { fromTursoDb } = await import("../../inventory/turso.js");
     const open = input.openDb ?? (() => openDb(readDbConfig()));
-    return fromTursoDb(open, input.workdir ? { workdir: input.workdir } : {})();
+    return fromTursoDb(open, {
+      ...(input.workdir ? { workdir: input.workdir } : {}),
+      ...(input.onUnrecognizedStatus ? { onUnrecognizedStatus: input.onUnrecognizedStatus } : {}),
+    })();
   }
 
   if (input.fleet) {

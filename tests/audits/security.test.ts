@@ -1,11 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import type { DependabotAlert } from "../../src/github/gh-rest.js";
-import { advisoriesFromResult, isPartialSecurityResult } from "../../src/audits/security-fields.js";
+import {
+  advisoriesFromResult,
+  isPartialSecurityResult,
+  lockfileAuditFromResult,
+} from "../../src/audits/security-fields.js";
 import { allActionableVulnsTransitive } from "../../src/fleet/site-row.js";
 
 /** The caveat a partial night's summary carries when neither pnpm nor npm is installed (#1654). */
@@ -1728,5 +1732,510 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
       "pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L); 1 alert(s) on a manifest " +
         "GitHub no longer tracks (old/package-lock.json) — dismiss as inaccurate",
     );
+  });
+});
+
+// #1659: Dependabot's list is fetched with state=open, so an alert an operator dismissed is
+// missing from it while `pnpm audit` still reports the advisory, and #1612's cross-check brought
+// it back, turning a site red the night it otherwise went clean. The cross-check now reads the
+// dismissed alerts too and leaves out a pnpm advisory one of them names.
+describe("audits/security — an alert dismissed in Dependabot stays dismissed (#1659)", () => {
+  const minimist = JSON.stringify({
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 1 } },
+    advisories: {
+      "1": {
+        module_name: "minimist",
+        severity: "critical",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+      },
+      "2": {
+        module_name: "minimist",
+        severity: "moderate",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+      },
+    },
+  });
+  const site = () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    return { path: dir, gitRepo: "reddoorla/acme" };
+  };
+  const dismissed = (over: Partial<DependabotAlert>): DependabotAlert => ({
+    package: "minimist",
+    severity: "critical",
+    summary: "GitHub words it",
+    cves: [],
+    url: null,
+    scope: "runtime",
+    relationship: "transitive",
+    manifestPath: "pnpm-lock.yaml",
+    ghsaId: "GHSA-xvch-5gv4-984h",
+    ...over,
+  });
+  const deps = (gone: DependabotAlert[] | Error, open: DependabotAlert[] = []) => ({
+    listAlerts: async () => open,
+    listDismissedAlerts: async () => {
+      if (gone instanceof Error) throw gone;
+      return gone;
+    },
+  });
+
+  it("leaves out the pnpm advisory a dismissed alert names, and its count", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({})]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.status).toBe("warn");
+    expect((result.details as { counts: unknown }).counts).toEqual({
+      low: 0,
+      moderate: 1,
+      high: 0,
+      critical: 0,
+    });
+    expect(advisoriesFromResult(result).map((a) => a.ghsa)).toEqual(["GHSA-vh95-rmgr-6w4m"]);
+    expect(result.summary).toMatch(/1 advisory dismissed in Dependabot left out/);
+  });
+
+  it("with every pnpm advisory dismissed, Dependabot's clean answer stands", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({}),
+        dismissed({ ghsaId: "GHSA-vh95-rmgr-6w4m", severity: "medium" }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("a dismissal on another package with the same GHSA does not count", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ package: "minimist-other" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+  });
+
+  it("when the dismissed list cannot be read, pnpm's advisories stand: never quieter on an API error", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps(new Error("HTTP 502")),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+  });
+
+  // Review round 1. Real `pnpm audit --json` output (pnpm 10.28, `{"mkdirp":"0.5.1",
+  // "optimist":"0.6.1"}`): minimist is installed at two versions, so each advisory has two
+  // findings and metadata counts 2C/2M from two advisories.
+  const twoVersions = JSON.stringify({
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 2, high: 0, critical: 2 } },
+    advisories: {
+      "1": {
+        module_name: "minimist",
+        severity: "moderate",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+        github_advisory_id: "GHSA-vh95-rmgr-6w4m",
+        findings: [{ version: "0.0.8" }, { version: "0.0.10" }],
+      },
+      "2": {
+        module_name: "minimist",
+        severity: "critical",
+        title: "Prototype Pollution in minimist",
+        url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+        github_advisory_id: "GHSA-xvch-5gv4-984h",
+        findings: [{ version: "0.0.8" }, { version: "0.0.10" }],
+      },
+    },
+  });
+
+  it("an advisory pnpm finds at two versions leaves no phantom count when dismissed", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({}),
+        dismissed({ ghsaId: "GHSA-vh95-rmgr-6w4m", severity: "medium" }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: twoVersions } }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("leaving one out takes only its own findings off its severity", async () => {
+    const withLodash = JSON.parse(twoVersions);
+    // lodash at two versions too: 4 critical findings. Zeroing the severity would read 1 (the
+    // merge keeps the larger of pnpm's count and the advisories), the truth is 2.
+    withLodash.metadata.vulnerabilities.critical = 4;
+    withLodash.advisories["3"] = {
+      module_name: "lodash",
+      severity: "critical",
+      title: "Prototype Pollution in lodash",
+      url: "https://github.com/advisories/GHSA-jf85-cpcp-j695",
+      findings: [{ version: "4.17.4" }, { version: "4.17.11" }],
+    };
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({})]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: JSON.stringify(withLodash) } }),
+    });
+    expect((result.details as { counts: unknown }).counts).toEqual({
+      low: 0,
+      moderate: 2,
+      high: 0,
+      critical: 2,
+    });
+    expect(result.summary).toMatch(/; 1 advisory dismissed in Dependabot left out$/);
+  });
+
+  it("a dismissal filed on another manifest does not speak for the root lockfile", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ manifestPath: "legacy/package-lock.json" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: twoVersions } }),
+    });
+    expect(result.summary).toBe("pnpm audit + Dependabot: 4 vulnerabilities (2C/0H/2M/0L)");
+  });
+
+  it("an advisory pnpm names by title alone is never left out, whatever the dismissal's title", async () => {
+    const titled = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 1 } },
+      advisories: {
+        "1": { module_name: "minimist", severity: "critical", title: "GitHub words it" },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({})]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: titled } }),
+    });
+    expect(result.status).toBe("fail");
+  });
+
+  it("a dismissed alert that names neither GHSA nor CVE leaves nothing out, even on a shared title", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({ ghsaId: null, cves: [], summary: "Prototype Pollution in minimist" }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+  });
+
+  // Review round 2. Real `npm audit --json` (npm 10, `{"mkdirp":"0.5.1","optimist":"0.6.1"}`):
+  // npm collapses minimist to one entry and counts the three vulnerable packages.
+  const npmOut = JSON.stringify({
+    metadata: {
+      vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 3, total: 3 },
+    },
+    vulnerabilities: {
+      minimist: {
+        name: "minimist",
+        severity: "critical",
+        via: [
+          {
+            source: 1,
+            name: "minimist",
+            title: "Prototype Pollution in minimist",
+            url: "https://github.com/advisories/GHSA-vh95-rmgr-6w4m",
+            severity: "moderate",
+          },
+          {
+            source: 2,
+            name: "minimist",
+            title: "Prototype Pollution in minimist",
+            url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+            severity: "critical",
+          },
+        ],
+      },
+      mkdirp: { name: "mkdirp", severity: "critical", via: ["minimist"] },
+      optimist: { name: "optimist", severity: "critical", via: ["minimist"] },
+    },
+  });
+  const npmSite = () => {
+    const dir = mkdtempSync(join(tmpdir(), "security-audit-"));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    return { path: dir, gitRepo: "reddoorla/acme" };
+  };
+
+  it("npm's answer is never thinned: a dismissed moderate does not hide an undismissed critical", async () => {
+    const result = await securityAudit({
+      site: npmSite(),
+      dependabotDeps: deps([
+        dismissed({
+          ghsaId: "GHSA-vh95-rmgr-6w4m",
+          severity: "medium",
+          manifestPath: "package-lock.json",
+        }),
+      ]),
+      spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+    });
+    expect(result.status).toBe("fail");
+    expect((result.details as { counts: { critical: number } }).counts.critical).toBe(3);
+  });
+
+  it("npm's answer stands even with every advisory dismissed: its counts are packages", async () => {
+    const result = await securityAudit({
+      site: npmSite(),
+      dependabotDeps: deps([
+        dismissed({ manifestPath: "package-lock.json" }),
+        dismissed({
+          ghsaId: "GHSA-vh95-rmgr-6w4m",
+          severity: "medium",
+          manifestPath: "package-lock.json",
+        }),
+      ]),
+      spawn: fakeSpawn({ npm: { code: 1, stdout: npmOut } }),
+    });
+    expect(result.summary).not.toMatch(/dismissed in Dependabot left out/);
+    expect(result.status).toBe("fail");
+  });
+
+  it("a dismissal on the root package.json, or on no named manifest, speaks for the root lockfile", async () => {
+    for (const manifestPath of ["package.json", null]) {
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({ manifestPath })]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(result.summary).toMatch(/1 advisory dismissed in Dependabot left out$/);
+    }
+  });
+
+  // Review round 3.
+  const one = (advisory: Record<string, unknown>, metadata: Record<string, number>) =>
+    JSON.stringify({
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, ...metadata },
+      },
+      advisories: { "1": advisory },
+    });
+
+  it("a GHSA on one side and only a CVE on the other is no match: titles are never compared", async () => {
+    const cveOnly = one(
+      {
+        module_name: "minimist",
+        severity: "critical",
+        title: "GitHub words it",
+        cves: ["CVE-2021-44906"],
+      },
+      { critical: 1 },
+    );
+    const a = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ ghsaId: "GHSA-aaaa-bbbb-cccc" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: cveOnly } }),
+    });
+    expect(a.status).toBe("fail");
+    const b = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({
+          ghsaId: null,
+          cves: ["CVE-1999-0001"],
+          summary: "Prototype Pollution in minimist",
+        }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(b.summary).toBe("pnpm audit + Dependabot: 2 vulnerabilities (1C/0H/1M/0L)");
+  });
+
+  it("a dismissal matches by CVE when both sides carry one", async () => {
+    const cveOnly = one(
+      {
+        module_name: "minimist",
+        severity: "critical",
+        title: "pnpm words it",
+        cves: ["CVE-2021-44906"],
+      },
+      { critical: 1 },
+    );
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ ghsaId: null, cves: ["CVE-2021-44906"] })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: cveOnly } }),
+    });
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("a dismissed info advisory takes nothing off low: pnpm counts info apart", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 1, low: 2, moderate: 0, high: 0, critical: 0 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "info",
+          title: "i",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+        },
+        "2": {
+          module_name: "lodash",
+          severity: "low",
+          title: "l",
+          url: "https://github.com/advisories/GHSA-llll-llll-0001",
+          findings: [{ version: "1" }, { version: "2" }],
+        },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({ severity: "low" })]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+    });
+    expect((result.details as { counts: { low: number } }).counts.low).toBe(2);
+  });
+
+  it("findings above pnpm's metadata count never take a severity below zero", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 0, low: 1, moderate: 0, high: 0, critical: 1 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "critical",
+          title: "c",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+          findings: [{ version: "1" }, { version: "2" }],
+        },
+        "2": {
+          module_name: "lodash",
+          severity: "low",
+          title: "l",
+          url: "https://github.com/advisories/GHSA-llll-llll-0001",
+        },
+      },
+    });
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([dismissed({})]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+    });
+    expect((result.details as { counts: { critical: number } }).counts.critical).toBe(0);
+  });
+
+  it("with every advisory dismissed, the run log says so", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await securityAudit({
+        site: site(),
+        dependabotDeps: deps([
+          dismissed({}),
+          dismissed({ ghsaId: "GHSA-vh95-rmgr-6w4m", severity: "medium" }),
+        ]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringMatching(/nothing live is left of what pnpm audit found after 2 dismissed/),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the run log never claims every advisory was dismissed while an info one is left (round 4)", async () => {
+    const out = JSON.stringify({
+      metadata: { vulnerabilities: { info: 1, low: 0, moderate: 0, high: 0, critical: 1 } },
+      advisories: {
+        "1": {
+          module_name: "minimist",
+          severity: "critical",
+          title: "c",
+          url: "https://github.com/advisories/GHSA-xvch-5gv4-984h",
+        },
+        "2": {
+          module_name: "foo",
+          severity: "info",
+          title: "i",
+          url: "https://github.com/advisories/GHSA-ffff-ffff-0001",
+        },
+      },
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({})]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: out } }),
+      });
+      expect(result.summary).toBe("Dependabot: 0 alerts");
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => /every advisory/.test(l))).toBe(false);
+      expect(lines).toContainEqual(
+        expect.stringMatching(/nothing live is left .* after 1 dismissed/),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the merge's run log names what was left out", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await securityAudit({
+        site: site(),
+        dependabotDeps: deps([dismissed({})]),
+        spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+      });
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringMatching(
+          /but pnpm audit: 1 vulnerabilities \(0C\/0H\/1M\/0L\) \(1 dismissed in Dependabot left out\) — adding pnpm audit to Dependabot/,
+        ),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  // With #1654: the stored lockfile result is pnpm's answer with the dismissals out, so a later
+  // night pnpm cannot run does not bring a dismissed advisory back.
+  it("stores pnpm's answer with the dismissed advisories out", async () => {
+    const result = await securityAudit({
+      site: site(),
+      dependabotDeps: deps([
+        dismissed({}),
+        dismissed({ ghsaId: "GHSA-vh95-rmgr-6w4m", severity: "medium" }),
+      ]),
+      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimist } }),
+    });
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+    expect(lockfileAuditFromResult(result)).toEqual({
+      counts: { critical: 0, high: 0, moderate: 0, low: 0 },
+      advisories: [],
+      truncated: false,
+    });
+  });
+
+  it("reads the dismissed list only when the cross-check found something", async () => {
+    let asked = 0;
+    await securityAudit({
+      site: site(),
+      dependabotDeps: {
+        listAlerts: async () => [],
+        listDismissedAlerts: async () => {
+          asked += 1;
+          return [];
+        },
+      },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 0,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } },
+            advisories: {},
+          }),
+        },
+      }),
+    });
+    expect(asked).toBe(0);
   });
 });
