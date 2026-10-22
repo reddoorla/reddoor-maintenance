@@ -387,8 +387,15 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       } as never)
       .execute();
     await db.destroy();
+    // The live region is there, empty, before the notice, so a screen reader
+    // announces what appears in it (review round 1 of the notice).
+    const region = page.locator("[role='status']", { has: page.locator("button") });
+    expect(await page.locator("[role='status']").count()).toBeGreaterThan(0);
+    expect(await region.count()).toBe(0);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect.poll(() => page.locator(".cockpit-newer").count(), { timeout: 10_000 }).toBe(1);
+    expect(await page.locator(".cockpit-newer").getAttribute("role")).toBe("status");
+    expect(await region.textContent()).toContain("Newer data is available.");
     // Nothing read, nothing redrawn, nothing typed lost.
     expect(data).toEqual([]);
     expect(await page.$$("h1[data-this-mount]")).toHaveLength(1);

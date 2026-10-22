@@ -78,6 +78,8 @@ describe("/api/cockpit/version", () => {
     // No answer from this route may be cached, a denial included.
     expect(out.res.headers.get("cache-control")).toBe("private, no-store");
     expect(out.body?.version).toBeUndefined();
-    expect((await ask(authHeader("s3cret"), "POST")).res.status).toBe(405);
+    const post = await ask(authHeader("s3cret"), "POST");
+    expect(post.res.status).toBe(405);
+    expect(post.res.headers.get("cache-control")).toBe("private, no-store");
   });
 });

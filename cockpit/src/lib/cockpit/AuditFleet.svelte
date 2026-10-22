@@ -44,9 +44,9 @@
     return true;
   }
 
-  // Set when this panel unmounts (a navigation away, or the page remounting on a
-  // fresh snapshot): its poll stops, so it neither doubles up with the next
-  // panel's nor reloads whatever page the operator has moved on to.
+  // Set when this panel unmounts (a client navigation away): its poll stops, so
+  // it neither doubles up with the next panel's nor reloads whatever page the
+  // operator has moved on to.
   let gone = false;
   const later = (f: () => void, ms: number) =>
     setTimeout(() => {

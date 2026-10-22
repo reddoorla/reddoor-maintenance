@@ -3,8 +3,8 @@ import type { Db } from "./client.js";
 /**
  * The cockpit snapshot's change counter (migration 0048): a number that moves on
  * every write to any table the snapshot reads, whoever writes. The cockpit keeps
- * the value its snapshot was read with and asks for this one row before reading
- * everything again; equal means nothing the snapshot shows has changed.
+ * the value its snapshot was read with and asks for this one row to learn whether
+ * its snapshot is out of date; equal means nothing the snapshot shows has changed.
  *
  * Only equality means anything: the value is not a count of writes a caller can
  * rely on (a restore, or a failed statement's own trigger, may move it too). A

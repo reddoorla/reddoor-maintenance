@@ -5,8 +5,8 @@ import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
 
 // The cockpit's "has anything changed?" check: the store's change counter
 // (migration 0048), one row by primary key. The open cockpit asks it on focus and
-// about once a minute while visible, and reads its whole snapshot again only when
-// the answer differs from the version that snapshot was read with.
+// about once a minute while visible, and shows a reload notice when the answer
+// differs from the version its snapshot was read with.
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
