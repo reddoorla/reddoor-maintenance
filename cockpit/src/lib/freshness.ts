@@ -3,6 +3,9 @@ import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 /** How often an open, visible cockpit asks whether anything changed. */
 export const CHECK_EVERY_MS = 60_000;
 
+/** How long one check may take before it counts as "unknown". */
+export const CHECK_TIMEOUT_MS = 10_000;
+
 export type FreshnessDeps = {
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
   /** The session ended: the next navigation is a full load, which the auth gate
@@ -27,11 +30,29 @@ export async function checkFreshness(
   snapshot: Pick<CockpitSnapshot, "version"> | null,
   deps: FreshnessDeps,
 ): Promise<FreshnessResult> {
+  // A request that never settles (a connection dropped mid-request) would hold
+  // the one-at-a-time slot in `startFreshness` until a full load (#1701). A
+  // plain timer rather than `AbortSignal.timeout`, whose clock a test cannot move.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), CHECK_TIMEOUT_MS);
+  try {
+    return await readVersion(snapshot, deps, abort.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readVersion(
+  snapshot: Pick<CockpitSnapshot, "version"> | null,
+  deps: FreshnessDeps,
+  signal: AbortSignal,
+): Promise<FreshnessResult> {
   let res: Response;
   try {
     res = await deps.fetch("/api/cockpit/version", {
       headers: { accept: "application/json" },
       cache: "no-store",
+      signal,
     });
   } catch {
     return "unknown";
