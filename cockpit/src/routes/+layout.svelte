@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import { afterNavigate } from "$app/navigation";
   import Shell from "../lib/Shell.svelte";
-  import { reloadOnNextNavigation, reloadsOnNextNavigation } from "../lib/post.js";
+  import { reloadOnNextNavigation, reloadsOnNextNavigation, setOwnWrite } from "../lib/post.js";
   import { startFreshness } from "../lib/freshness.js";
   import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
@@ -55,7 +55,12 @@
         reloadOnNextNavigation();
       },
     );
-    return () => controller.stop();
+    // The page's own posts do not raise the notice (#1700).
+    setOwnWrite(controller.aroundOwnWrite);
+    return () => {
+      setOwnWrite(null);
+      controller.stop();
+    };
   });
 </script>
 
