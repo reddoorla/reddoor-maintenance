@@ -535,8 +535,8 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
   navigation, and it never offers a reload; with the table dropped, every write to those tables
   fails with `no such table: main.cockpit_version`, form-ingest's leads included. Either way,
   run `node dist/cli/bin.js db migrate` against the store: it puts the table and row back and
-  says `Restored the cockpit_version counter row`. Then redeploy the cockpit and form-ingest
-  sites if they were running across the drop (a local connection that saw it keeps failing),
+  says `Restored the cockpit_version counter row`. Then redeploy this repo's Netlify site, which serves the
+  cockpit and form-ingest, if it ran across the drop (a local connection that saw it keeps failing),
   and reload every open cockpit tab: the counter restarts at 0, so an old tab could read an
   equal number over different rows (#1692, #1702).
 
