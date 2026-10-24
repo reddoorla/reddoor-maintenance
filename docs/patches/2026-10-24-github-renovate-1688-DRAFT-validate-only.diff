@@ -1,0 +1,28 @@
+diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
+index 994854b..b7f0841 100644
+--- a/.github/workflows/validate.yml
++++ b/.github/workflows/validate.yml
+@@ -80,6 +80,23 @@ jobs:
+               if (!rules.some((g) => g.groupName && g.matchPackageNames && names(g) === names(hold) && JSON.stringify([...(g.matchUpdateTypes ?? [])].sort()) === minorPatch))
+                 throw new Error("never-automerge packages " + names(hold) + " have no minor/patch group of their own: they hold the whole all-minor-patch group (2026-10-21)");
+             }
++            // Majors and digests hit the same early return: a run that pushes a new major or digest branch opens no PR unless
++            // prCreation is immediate, so it opened only in a week when a second in-window run pushed nothing
++            // (reddoor-maintenance#1688). The LAST rule that sets prCreation for either decides, and it must be unscoped.
++            const lastMajorPrCreation = rules.filter((r) => "prCreation" in r && (r.matchUpdateTypes ?? []).some((t) => ["major", "digest"].includes(t))).at(-1);
++            const majorImmediate = !!lastMajorPrCreation && lastMajorPrCreation.prCreation === "immediate" && !scoped(lastMajorPrCreation) && ["major", "digest"].every((t) => lastMajorPrCreation.matchUpdateTypes.includes(t));
++            if (["not-pending", "status-success"].includes(cfg.prCreation) && !majorImmediate)
++              throw new Error("no unscoped major/digest rule with prCreation:immediate under prCreation:" + cfg.prCreation + ": a new major or digest PR cannot open on the run that pushes it (#1688)");
++            // Renovate sorts lock-file maintenance after every other update type and creates at most prHourlyLimit (2) PRs an
++            // hour, so in a week when both grouped PRs refill it loses its slot to them (lib/workers/repository/process/sort.ts,
++            // Renovate 44.176.1). prPriority sorts before update type, so lock-file maintenance needs the highest one, set by an
++            // unscoped rule. Renovate accepts prPriority only inside packageRules.
++            if (cfg.lockFileMaintenance?.enabled) {
++              const lastLockPriority = rules.filter((r) => "prPriority" in r && (r.matchUpdateTypes ?? []).includes("lockFileMaintenance")).at(-1);
++              const others = rules.filter((r) => "prPriority" in r && r !== lastLockPriority).map((r) => r.prPriority);
++              if (!lastLockPriority || scoped(lastLockPriority) || !(lastLockPriority.prPriority > Math.max(0, ...others)))
++                throw new Error("lockFileMaintenance without an unscoped packageRule giving it the highest prPriority: the grouped PRs take the hourly PR slots first (#1688)");
++            }
+             console.log("renovate-config.json OK:", automergeRules.length, "automerge rule(s), platformAutomerge false everywhere");
+           '
+       - name: renovate-staging-flow.json parses, grants no automerge, and keeps its three base-bound rules
