@@ -179,8 +179,9 @@ export type GitHub = {
    *  answer, not an error: a dashboard naming a deleted branch is simply one
    *  Renovate has not rewritten yet. */
   branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
-  /** Every `renovate/*` head MERGED inside one page of the repo's closed PRs,
-   *  plus whether that page filled up. The classification (security vs
+  /** Every `renovate/*` head MERGED into the default branch inside one page
+   *  of the repo's closed PRs, how many merged elsewhere, and whether that
+   *  page filled up. The classification (security vs
    *  feature) is deliberately left to the caller so the verdict stays a pure,
    *  fixture-testable function — see renovateOutcome. */
   renovateMergeWindow: (repo: string) => Promise<RenovateMergeWindow>;
@@ -241,8 +242,15 @@ export type BranchTip = { authorIsMachine: boolean; committedAt: string };
 export const RENOVATE_MERGE_WINDOW_PAGE = 100;
 
 export type RenovateMergeWindow = {
-  /** Merged `renovate/*` PRs seen in the window, newest merge first. */
+  /** Merged `renovate/*` PRs into the repo's default branch seen in the
+   *  window, newest merge first. */
   merges: Array<{ headRef: string; mergedAt: string }>;
+  /** Merged `renovate/*` PRs in the window whose base was NOT the default
+   *  branch (or could not be read): `staging` on the staging flow. Never
+   *  measured as delivery, but kept (and classified by the caller, like
+   *  `merges`) so "nothing landed" is never reported as "never merged one".
+   *  Absent means none. */
+  offDefault?: Array<{ headRef: string; mergedAt: string }>;
   /** The page came back FULL, so older history exists that was not read. */
   truncated: boolean;
 };
@@ -1139,8 +1147,9 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
     },
     async renovateMergeWindow(repo) {
       // `sort=updated&direction=desc` is the only ordering this endpoint offers
-      // that tracks recency; merged_at + head.ref come back on the list item, so
-      // no per-PR call is needed. ONE request per repo is the whole cost.
+      // that tracks recency; merged_at, head.ref and base (with the repo's
+      // default branch) come back on the list item, so no per-PR call is
+      // needed. ONE request per repo is the whole cost.
       const out = await gh([
         "api",
         `repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${RENOVATE_MERGE_WINDOW_PAGE}`,
@@ -1148,14 +1157,36 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       const arr = JSON.parse(out) as Array<{
         merged_at: string | null;
         head?: { ref?: string };
+        base?: { ref?: string; repo?: { default_branch?: string } };
       }>;
-      const merges = arr
-        .filter((p) => p.merged_at !== null && (p.head?.ref ?? "").startsWith("renovate/"))
-        .map((p) => ({ headRef: p.head!.ref!, mergedAt: p.merged_at as string }))
-        // ISO8601 UTC strings sort lexicographically; `updated` order is not
-        // merge order, so sort explicitly rather than trusting the page.
-        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt));
-      return { merges, truncated: arr.length >= RENOVATE_MERGE_WINDOW_PAGE };
+      const renovate = arr.filter(
+        (p) => p.merged_at !== null && (p.head?.ref ?? "").startsWith("renovate/"),
+      );
+      // Only a merge into the production branch (the repo's default) has
+      // reached a visitor. On the staging flow a major merged into `staging`
+      // waits for the human promotion, which is not a Renovate PR, so counting
+      // it read a repo as delivering on nothing (#1686). A base we cannot read
+      // is not production either, and is counted, not thrown: this is a
+      // measurement, and a throw here would turn the whole row into a gap.
+      const intoDefault = renovate.filter(
+        (p) => !!p.base?.ref && p.base.ref === p.base.repo?.default_branch,
+      );
+      const toMerge = (p: (typeof arr)[number]) => ({
+        headRef: p.head!.ref!,
+        mergedAt: p.merged_at as string,
+      });
+      // ISO8601 UTC strings sort lexicographically; `updated` order is not
+      // merge order, so sort explicitly rather than trusting the page.
+      const newestFirst = (a: { mergedAt: string }, b: { mergedAt: string }) =>
+        b.mergedAt.localeCompare(a.mergedAt);
+      return {
+        merges: intoDefault.map(toMerge).sort(newestFirst),
+        offDefault: renovate
+          .filter((p) => !intoDefault.includes(p))
+          .map(toMerge)
+          .sort(newestFirst),
+        truncated: arr.length >= RENOVATE_MERGE_WINDOW_PAGE,
+      };
     },
   };
 }

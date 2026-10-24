@@ -50,7 +50,7 @@ export type ProtectionCoverageRow = {
    *  gaps, or why the repo was skipped. */
   detail: string;
   /** The one OUTCOME measurement on this sweep: did a feature update actually
-   *  LAND here (see renovateOutcome). Deliberately not folded into `status` —
+   *  LAND on the default branch here (see renovateOutcome). Deliberately not folded into `status` —
    *  it warns, it never gaps, so it can never file or hold open the tracking
    *  issue. Absent on skipped repos, which are not measured at all. */
   renovateOutcome?: RenovateOutcome;
@@ -359,7 +359,8 @@ export type RenovateOutcome =
   | { state: "unmeasured"; reason: string };
 
 /**
- * Days since this repo last MERGED a feature-update Renovate PR.
+ * Days since this repo last MERGED a feature-update Renovate PR into its
+ * default branch. A merge into `staging` has reached no visitor (#1686).
  *
  * Three states, and the third is the one that keeps this honest. A repo with
  * no feature merge inside the scanned window is `unmeasured`, NEVER a drought:
@@ -368,20 +369,36 @@ export type RenovateOutcome =
  *     `truncated` says the answer is older than we looked, not that it is bad;
  *   - on a repo that has genuinely never merged one there is no elapsed time to
  *     measure at all, and calling that a drought would fire forever on every
- *     freshly bootstrapped repo.
- * Both print every night with their reason. "I could not measure this" must
+ *     freshly bootstrapped repo;
+ *   - on a repo whose Renovate merges all went to another branch
+ *     (reddoor-website targets only `staging`), the reason says so, because
+ *     "never merged one" would be false there.
+ * All print every night with their reason. "I could not measure this" must
  * never render as "this is fine" — that silent-green reading is the failure
  * this whole sweep exists to kill.
  */
 export function renovateOutcome(window: RenovateMergeWindow, now: Date): RenovateOutcome {
   const last = window.merges.filter((m) => isFeatureUpdateBranch(m.headRef))[0];
   if (!last) {
+    // Only off-default FEATURE merges earn the note: a staging security or
+    // lock-file merge says nothing about feature updates waiting anywhere.
+    const off = (window.offDefault ?? []).filter((m) => isFeatureUpdateBranch(m.headRef)).length;
+    const offNote =
+      off > 0
+        ? `${off} feature-update Renovate merge${off === 1 ? "" : "s"} went to a branch other ` +
+          "than the default (on the staging flow they reach production only through the " +
+          "promotion PR, which is not measured)"
+        : "";
     return {
       state: "unmeasured",
       reason: window.truncated
-        ? "no feature-update Renovate merge inside the scanned window, and the window is FULL " +
-          "(older history not read — this repo merges too many PRs to see back that far)"
-        : "this repo has never merged a feature-update Renovate PR (no baseline to measure from)",
+        ? "no feature-update Renovate merge into the default branch inside the scanned window, " +
+          "and the window is FULL (older history not read — this repo merges too many PRs to see " +
+          "back that far)" +
+          (offNote ? `; ${offNote}` : "")
+        : offNote
+          ? `no feature-update Renovate merge into the default branch inside the scanned window; ${offNote}`
+          : "this repo has never merged a feature-update Renovate PR (no baseline to measure from)",
     };
   }
   const days = Math.floor((now.getTime() - new Date(last.mergedAt).getTime()) / 86_400_000);
