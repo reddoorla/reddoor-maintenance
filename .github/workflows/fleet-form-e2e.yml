@@ -131,9 +131,14 @@ jobs:
           # refuses the probe, but it is not an undeclared site: on 2026-10-22
           # vineyard-custom-homes, which declares testMode, timed out once and was
           # listed as undeclared (P1-68). It is counted and named apart, with its
-          # reason, and still listed on the UNCOVERED line, because it is.
-          selfskipped=$(grep -c "does not declare forms.testMode" "$out" || true)
-          unreadable=$(grep -c "site /health could not be read" "$out" || true)
+          # reason, and still listed on the UNCOVERED line, because it is. Unlike an
+          # undeclared site it writes nothing back: the writer names it as having
+          # kept its verdicts (#1698), and only a night where every site did reds.
+          # Anchored on the summary line formatTable indents under each site: the
+          # writer's "kept their verdicts" line repeats an unreadable site's reason
+          # (#1698), and an unanchored count read one site as two.
+          selfskipped=$(grep -cE "^  site /health does not declare forms.testMode" "$out" || true)
+          unreadable=$(grep -cE "^  site /health could not be read" "$out" || true)
           echo "FLEET_FORM_E2E skipped=$selfskipped unreadable=$unreadable total=$total"
           undeclared=$(grep -B1 "does not declare forms.testMode" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
           # "site (reason), …" from each summary and the result line above it.

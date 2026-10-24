@@ -144,6 +144,9 @@ describe("an unreadable /health in the nightly fleet write (#1698)", () => {
     });
     expect(result.failed).toEqual([]);
     expect(result.written.map((w) => w.siteName)).toEqual(["b", "c", "d", "e"]);
+    // Neither written nor "not applicable": it kept its verdicts, and says why.
+    expect(result.notApplicable).toEqual([]);
+    expect(result.kept).toEqual([{ slug: "a", reason: `form-e2e: ${results[0]!.summary}` }]);
     expect(fleetWriteGate(result).red).toBe(false);
   });
 });
