@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { makeGitHub, ProtectionRefusedError, protectionPutBody } from "../../src/github/gh.js";
-import { resolveBlockedBranches } from "../../src/audits/protection-coverage.js";
+import { renovateOutcome, resolveBlockedBranches } from "../../src/audits/protection-coverage.js";
 import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
 
 function fakeSpawn(result: Partial<SpawnResult>): {
@@ -697,6 +697,124 @@ describe("makeGitHub", () => {
           new Date("2026-10-14T06:16:00Z"),
         ),
       ).toEqual([]);
+    });
+
+    describe("renovateMergeWindow counts only merges into the production branch (#1686)", () => {
+      const NOW = new Date("2026-10-24T14:00:00Z");
+      const pr = (headRef: string, baseRef: string, mergedAt: string | null) => ({
+        merged_at: mergedAt,
+        head: { ref: headRef },
+        base: { ref: baseRef, repo: { default_branch: "main" } },
+      });
+      const outcomeOf = async (prs: unknown[]) => {
+        const { spawn } = fakeSpawn({ stdout: JSON.stringify(prs) });
+        return renovateOutcome(
+          await makeGitHub({ token: "T", spawn }).renovateMergeWindow("o/r"),
+          NOW,
+        );
+      };
+
+      it("a staging-flow repo whose only recent feature merge went into staging reads as a drought", async () => {
+        // The concrete input from #1686: the major landed in `staging`, which
+        // serves no visitor; the last update to reach `main` is 30 days old.
+        const outcome = await outcomeOf([
+          pr("renovate/staging-sveltejs-kit-3.x", "staging", "2026-10-22T10:00:00Z"),
+          pr("renovate/main-all-minor-patch", "main", "2026-09-24T10:00:00Z"),
+        ]);
+        expect(outcome).toMatchObject({
+          state: "drought",
+          days: 30,
+          lastBranch: "renovate/main-all-minor-patch",
+        });
+      });
+
+      it("staging merges alone are never 'delivering'", async () => {
+        const outcome = await outcomeOf([
+          pr("renovate/staging-sveltejs-kit-3.x", "staging", "2026-10-22T10:00:00Z"),
+        ]);
+        expect(outcome.state).toBe("unmeasured");
+      });
+
+      it("a feature merge into the default branch still reads delivering", async () => {
+        const outcome = await outcomeOf([
+          pr("renovate/staging-sveltejs-kit-3.x", "staging", "2026-10-23T10:00:00Z"),
+          pr("renovate/main-sveltejs-kit-3.x", "main", "2026-10-22T10:00:00Z"),
+        ]);
+        expect(outcome).toMatchObject({
+          state: "delivering",
+          days: 2,
+          lastBranch: "renovate/main-sveltejs-kit-3.x",
+        });
+      });
+
+      it("the production branch is the repo's default branch, whatever its name", async () => {
+        const outcome = await outcomeOf([
+          {
+            merged_at: "2026-10-22T10:00:00Z",
+            head: { ref: "renovate/all-minor-patch" },
+            base: { ref: "production", repo: { default_branch: "production" } },
+          },
+        ]);
+        expect(outcome.state).toBe("delivering");
+      });
+
+      it("a repo whose Renovate merges all go to staging is unmeasured, and says why", async () => {
+        // reddoor-website: `baseBranchPatterns: ["staging"]`, unprefixed
+        // branch names, promoted to `main` by hand. "Never merged one" would
+        // be false; the reason must name where the merges went.
+        const outcome = await outcomeOf([
+          pr("renovate/all-minor-patch", "staging", "2026-10-19T10:00:00Z"),
+          pr("renovate/all-minor-patch", "staging", "2026-10-12T10:00:00Z"),
+        ]);
+        expect(outcome.state).toBe("unmeasured");
+        expect(outcome.state === "unmeasured" && outcome.reason).toMatch(
+          /2 feature-update Renovate merges went to a branch other than the default/,
+        );
+        expect(outcome.state === "unmeasured" && outcome.reason).not.toMatch(/never merged/);
+      });
+
+      it("a merge with no readable base or default branch is counted off-default, never thrown", async () => {
+        const { spawn } = fakeSpawn({
+          stdout: JSON.stringify([
+            { merged_at: "2026-10-22T10:00:00Z", head: { ref: "renovate/all-minor-patch" } },
+            {
+              merged_at: "2026-10-21T10:00:00Z",
+              head: { ref: "renovate/all-minor-patch" },
+              base: { ref: "main", repo: null },
+            },
+            {
+              merged_at: "2026-10-20T10:00:00Z",
+              head: { ref: "renovate/all-minor-patch" },
+              base: { ref: "main", repo: {} },
+            },
+          ]),
+        });
+        expect(await makeGitHub({ token: "T", spawn }).renovateMergeWindow("o/r")).toEqual({
+          merges: [],
+          offDefault: [
+            { headRef: "renovate/all-minor-patch", mergedAt: "2026-10-22T10:00:00Z" },
+            { headRef: "renovate/all-minor-patch", mergedAt: "2026-10-21T10:00:00Z" },
+            { headRef: "renovate/all-minor-patch", mergedAt: "2026-10-20T10:00:00Z" },
+          ],
+          truncated: false,
+        });
+      });
+
+      it("truncated counts the raw page, so a page full of staging merges still says so", async () => {
+        const prs = [
+          pr("renovate/main-all-minor-patch", "main", "2026-10-01T10:00:00Z"),
+          ...Array.from({ length: 99 }, () =>
+            pr("renovate/staging-all-minor-patch", "staging", "2026-10-20T10:00:00Z"),
+          ),
+        ];
+        const { spawn } = fakeSpawn({ stdout: JSON.stringify(prs) });
+        const window = await makeGitHub({ token: "T", spawn }).renovateMergeWindow("o/r");
+        expect(window.truncated).toBe(true);
+        expect(window.offDefault).toHaveLength(99);
+        expect(window.merges).toEqual([
+          { headRef: "renovate/main-all-minor-patch", mergedAt: "2026-10-01T10:00:00Z" },
+        ]);
+      });
     });
 
     it("any other 422 still throws — only the missing-commit answer means no branch", async () => {
