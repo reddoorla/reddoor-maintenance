@@ -71,7 +71,9 @@ describe("audit --fleet --write-back checks total against the resolved roster", 
     // The CLI hands the formatter each result whole: the n/a site is not unmeasured.
     expect(output).toContain("FLEET_SMOKE_UNMEASURED count=0 sites=");
     expect(output).toContain("⚠ 1 site(s) on the roster never reached write-back: beta");
-    expect(output).toMatch(/FLEET_WRITE_SUMMARY wrote=0 failed=0 total=2 .* na=1 missing=1 kept=0$/m);
+    expect(output).toMatch(
+      /FLEET_WRITE_SUMMARY wrote=0 failed=0 total=2 .* na=1 missing=1 kept=0$/m,
+    );
     // Nothing was written, so the gate is red whatever else holds.
     expect(output).toContain("\nFLEET_WRITE_GATE verdict=red");
   });
