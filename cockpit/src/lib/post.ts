@@ -14,7 +14,7 @@ export async function postAction(input: string, init: RequestInit = {}): Promise
   }
 }
 
-type OwnWrite = <T>(write: () => Promise<T>) => Promise<T>;
+type OwnWrite = (write: () => Promise<Response>) => Promise<Response>;
 const direct: OwnWrite = (write) => write();
 let ownWrite: OwnWrite = direct;
 

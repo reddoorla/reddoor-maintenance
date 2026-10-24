@@ -6,9 +6,10 @@ export const CHECK_EVERY_MS = 60_000;
 /** How long one check may take before it counts as "unknown". */
 export const CHECK_TIMEOUT_MS = 10_000;
 
-/** How long the read just before one of the page's own posts may hold that post
- *  up (#1700). Past it the post goes ahead and is not taken as the page's own. */
-export const OWN_WRITE_READ_MS = 2_000;
+/** The response headers a cockpit POST answers with (#1700): the change counter
+ *  just before and just after its own handler ran (`route.ts`). */
+export const VERSION_BEFORE_HEADER = "x-cockpit-version-before";
+export const VERSION_AFTER_HEADER = "x-cockpit-version-after";
 
 export type FreshnessDeps = {
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
@@ -77,27 +78,6 @@ async function readVersion(
   return body.version === snapshot.version ? "unchanged" : "newer";
 }
 
-/** The counter's value, or null when it cannot be read in `timeoutMs` (any
- *  failure, a non-number, an ended session: the post itself reports that). */
-async function readCounter(deps: FreshnessDeps, timeoutMs: number): Promise<number | null> {
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeoutMs);
-  try {
-    const res = await deps.fetch("/api/cockpit/version", {
-      headers: { accept: "application/json" },
-      cache: "no-store",
-      signal: abort.signal,
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { version?: unknown };
-    return typeof body.version === "number" ? body.version : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /** What the controller needs from the page it runs on; the layout passes the
  *  browser's own, a test passes its fakes. */
 export type FreshnessEnv = {
@@ -112,7 +92,7 @@ export type FreshnessController = {
   stop: () => void;
   /** Run one of the page's own posts so that its change does not raise the
    *  notice (#1700); `post.ts` sends every post through it. */
-  aroundOwnWrite: <T>(write: () => Promise<T>) => Promise<T>;
+  aroundOwnWrite: (write: () => Promise<Response>) => Promise<Response>;
 };
 
 /**
@@ -131,25 +111,40 @@ export function startFreshness(
 ): FreshnessController {
   let checking = false;
   let done = false;
-  // The page's own posts (#1700). `ownWrites` counts those in flight, during
-  // which no check runs: the store has moved and the page has not seen why yet.
-  // `own` is the counter after the last of them, for the snapshot it was taken
-  // against, and is what a check compares with in place of the snapshot's.
-  let ownWrites = 0;
+  // The page's own posts (#1700). Each answers with the counter just before and
+  // just after its handler ran. `pairs` keeps those not yet chained onto the
+  // baseline, so overlapping posts resolve in whatever order their answers come;
+  // `own` is the baseline they have carried the snapshot's counter to.
+  let pairs: Array<{ before: number; after: number }> = [];
   let own: { snapshot: number; version: number } | null = null;
+  // Posts in flight, each holding checks off for at most CHECK_TIMEOUT_MS: the
+  // store may already have moved and the page cannot yet tell whose write it was.
+  let inFlight = 0;
 
   /** The counter value that means "nothing but this page has changed the store". */
   const expected = (): Pick<CockpitSnapshot, "version"> | null => {
     const s = getSnapshot();
     if (s === null || s.version === null) return s;
-    return own !== null && own.snapshot === s.version ? { version: own.version } : s;
+    let version = own !== null && own.snapshot === s.version ? own.version : s.version;
+    // Chain: a post that started from the baseline moves it to its after-value.
+    for (let next = pairs.find((p) => p.before === version); next;) {
+      version = next.after;
+      pairs = pairs.filter((p) => p !== next);
+      next = pairs.find((p) => p.before === version);
+    }
+    own = { snapshot: s.version, version };
+    return { version };
   };
 
   const check = async () => {
-    if (done || checking || ownWrites > 0 || !env.isVisible()) return;
+    if (done || checking || inFlight > 0 || !env.isVisible()) return;
     checking = true;
     try {
+      const asked = expected()?.version;
       const result = await checkFreshness(expected(), deps);
+      // A post's answer that arrived meanwhile moved the baseline: this answer
+      // was judged against the old one, so it says nothing.
+      if (result === "newer" && expected()?.version !== asked) return;
       if (result === "newer") {
         done = true;
         onNewer();
@@ -173,34 +168,33 @@ export function startFreshness(
     for (const remove of removers) remove();
   };
 
-  // Read the counter just before the post and just after it. Only when the
-  // before-value is still the one expected (nobody else has written since this
-  // page last knew the store) is the after-value taken as the page's own; a
-  // write by anyone else before the post, or one the read could not rule out,
-  // still raises the notice. A write that lands during the post's own round trip
-  // is the one this cannot tell from the page's.
-  const aroundOwnWrite = async <T>(write: () => Promise<T>): Promise<T> => {
-    ownWrites++;
-    const base = expected();
-    const before =
-      base === null || base.version === null ? null : await readCounter(deps, OWN_WRITE_READ_MS);
-    const settle = async () => {
-      try {
-        if (before === null || base === null || before !== base.version) return;
-        const after = await readCounter(deps, CHECK_TIMEOUT_MS);
-        const s = getSnapshot();
-        if (after !== null && s !== null && s.version !== null) {
-          own = { snapshot: s.version, version: after };
-        }
-      } finally {
-        ownWrites--;
-      }
+  const header = (res: Response, name: string): number | null => {
+    const v = res.headers.get(name);
+    return v !== null && /^\d+$/.test(v) ? Number(v) : null;
+  };
+
+  // The post goes out at once: nothing is read in front of it, so a click that
+  // unloads the page cannot strand it. Its answer's headers say which counter
+  // values were its own; an answer without them (a refusal, an error, an older
+  // server) changes nothing, and the notice behaves as before.
+  const aroundOwnWrite = async (write: () => Promise<Response>): Promise<Response> => {
+    inFlight++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      inFlight--;
+      clearTimeout(cap);
     };
+    const cap = setTimeout(release, CHECK_TIMEOUT_MS);
     try {
-      return await write();
+      const res = await write();
+      const before = header(res, VERSION_BEFORE_HEADER);
+      const after = header(res, VERSION_AFTER_HEADER);
+      if (before !== null && after !== null) pairs.push({ before, after });
+      return res;
     } finally {
-      // Not awaited: the page shows the post's answer at once.
-      void settle();
+      release();
     }
   };
   return { stop, aroundOwnWrite };
