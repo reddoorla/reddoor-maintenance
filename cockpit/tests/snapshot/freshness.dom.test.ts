@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import {
   CHECK_EVERY_MS,
   CHECK_TIMEOUT_MS,
+  VERSION_AFTER_HEADER,
+  VERSION_BEFORE_HEADER,
   checkFreshness,
   startFreshness,
   type FreshnessDeps,
@@ -200,6 +202,266 @@ describe("startFreshness: when the open cockpit checks", () => {
       expect(onNewer).toHaveBeenCalledTimes(1);
       c.stop();
     }));
+
+  describe("the page's own changes (#1700)", () => {
+    /** A store whose counter the test moves, answering every read with its value. */
+    function store(start: number) {
+      const s = { n: start };
+      const d = deps(async () => new Response(JSON.stringify({ ok: true, version: s.n })));
+      return { s, d };
+    }
+    /** A post's answer as the cockpit's endpoint wrapper sends it (route.ts). */
+    const answered = (before: number, after: number, status = 200) =>
+      new Response("{}", {
+        status,
+        headers: {
+          [VERSION_BEFORE_HEADER]: String(before),
+          [VERSION_AFTER_HEADER]: String(after),
+        },
+      });
+    /** One of the page's own posts: the store moves by `by` while its handler runs. */
+    const post =
+      (s: { n: number }, by = 1) =>
+      async () => {
+        const before = s.n;
+        s.n += by;
+        return answered(before, s.n);
+      };
+
+    it("a post the page makes does not raise the notice, however far it moves the counter", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(post(s, 3));
+        e.fire("focus");
+        await flush();
+        expect(d.fetch).toHaveBeenCalledTimes(1);
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("sends the post at once, reading nothing in front of it", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const c = startFreshness(() => snapshot, d, env().env, vi.fn());
+        const write = vi.fn(post(s));
+        await c.aroundOwnWrite(write);
+        expect(write).toHaveBeenCalledTimes(1);
+        expect(d.fetch).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("someone else's write before the post still raises it", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        s.n = 42; // another session, after this snapshot was read
+        await c.aroundOwnWrite(post(s));
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("someone else's write after the post still raises it", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(post(s));
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        s.n += 1;
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("two overlapping posts, answered in either order, are both the page's own", () =>
+      withTimers(async () => {
+        for (const order of ["in order", "reversed"]) {
+          const { s, d } = store(41);
+          const e = env();
+          const onNewer = vi.fn();
+          const c = startFreshness(() => snapshot, d, e.env, onNewer);
+          const first = answered(41, 42);
+          const second = answered(42, 43);
+          s.n = 43;
+          let a: (r: Response) => void = () => undefined;
+          let b: (r: Response) => void = () => undefined;
+          const pa = c.aroundOwnWrite(() => new Promise<Response>((r) => (a = r)));
+          const pb = c.aroundOwnWrite(() => new Promise<Response>((r) => (b = r)));
+          if (order === "in order") {
+            a(first);
+            b(second);
+          } else {
+            b(second);
+            a(first);
+          }
+          await Promise.all([pa, pb]);
+          e.fire("focus");
+          await flush();
+          expect(onNewer, order).not.toHaveBeenCalled();
+          c.stop();
+        }
+      }));
+
+    it("two posts that both read the counter before either wrote are both the page's own", () =>
+      withTimers(async () => {
+        const { s, d } = store(43);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(async () => answered(41, 42));
+        await c.aroundOwnWrite(async () => answered(41, 43));
+        e.fire("focus");
+        await flush();
+        expect(s.n).toBe(43);
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("three overlapping posts whose reads fall inside each other's runs are all the page's own", () =>
+      withTimers(async () => {
+        // A reads 41 and writes 42; B and C read 42; B writes 43 and A reads 43;
+        // C writes 44 and B and C read 44. No one else writes.
+        const { d } = store(44);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        for (const [before, after] of [
+          [41, 43],
+          [42, 44],
+          [42, 44],
+        ] as const) {
+          await c.aroundOwnWrite(async () => answered(before, after));
+        }
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("a check asking when the page starts a post says nothing, even before the post answers", () =>
+      withTimers(async () => {
+        const s = { n: 41 };
+        let reply: (r: Response) => void = () => undefined;
+        const d = deps(() => new Promise<Response>((r) => (reply = r)));
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        e.fire("focus"); // the check asks while the counter is 41
+        await flush();
+        let answer: (r: Response) => void = () => undefined;
+        const posting = c.aroundOwnWrite(() => new Promise<Response>((r) => (answer = r)));
+        s.n = 42; // the post's write lands; the check's read sees it
+        reply(new Response(JSON.stringify({ ok: true, version: s.n })));
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        answer(answered(41, 42));
+        await posting;
+        c.stop();
+      }));
+
+    it("no check runs while the page's own post is in flight", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        let finish: (r: Response) => void = () => undefined;
+        const posting = c.aroundOwnWrite(
+          () =>
+            new Promise<Response>((r) => {
+              s.n = 42; // the write has landed; its answer has not
+              finish = r;
+            }),
+        );
+        e.fire("focus");
+        await flush();
+        expect(d.fetch).not.toHaveBeenCalled();
+        finish(answered(41, 42));
+        await posting;
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("a post that never answers holds checks off for at most CHECK_TIMEOUT_MS", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        void c.aroundOwnWrite(() => new Promise<Response>(() => undefined));
+        s.n = 99; // someone else writes while the page's post hangs
+        await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS - 1);
+        e.fire("focus");
+        await flush();
+        expect(d.fetch).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("an answer without the counter (a refusal, an older server) leaves the notice as it was", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(async () => {
+          s.n += 1;
+          return new Response("{}", { status: 200 });
+        });
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("a check already asking when the post's answer lands says nothing", () =>
+      withTimers(async () => {
+        const s = { n: 41 };
+        let reply: (r: Response) => void = () => undefined;
+        const d = deps(() => new Promise<Response>((r) => (reply = r)));
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        e.fire("focus"); // the check asks while the counter is 41
+        await flush();
+        // The page's post lands and is answered before the check's reply comes back,
+        // which the server read after the post had committed.
+        s.n = 42;
+        reply(new Response(JSON.stringify({ ok: true, version: s.n })));
+        await c.aroundOwnWrite(async () => answered(41, 42));
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("the post's own answer and error come back unchanged", () =>
+      withTimers(async () => {
+        const { d } = store(41);
+        const c = startFreshness(() => snapshot, d, env().env, vi.fn());
+        const res = answered(41, 42, 201);
+        await expect(c.aroundOwnWrite(async () => res)).resolves.toBe(res);
+        await expect(
+          c.aroundOwnWrite(async () => Promise.reject(new Error("refused"))),
+        ).rejects.toThrow("refused");
+        c.stop();
+      }));
+  });
 
   it("once the session has ended, asks no more", () =>
     withTimers(async () => {
