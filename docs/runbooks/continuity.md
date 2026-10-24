@@ -424,7 +424,7 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
      ```
 
      It applies only what `_migrations` lacks, and prints `Already up to date.` when nothing is
-     owed.
+     owed (and `Restored the cockpit_version counter row` if the dump had lost it).
 
 2. **Decrypt it** with `BACKUP_PASSPHRASE`. The value lives in
    `~/.config/reddoor-maint/credentials.env` on the operator's machine
@@ -531,12 +531,14 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
   need it, not during an incident.
 - **Never delete or drop `cockpit_version` by hand.** Migration 0048's triggers bump its one row
   on every write to the ten tables the cockpit snapshot reads. With the row deleted,
-  `/api/cockpit/version` answers 502 and the open cockpit re-reads its whole snapshot on every
-  check; with the table dropped, every write to those tables fails with
-  `no such table: main.cockpit_version`, form-ingest's leads included. Either way, run
-  `node dist/cli/bin.js db migrate` against the store: it puts the table and row back and says
-  `Restored the cockpit_version counter row`. Then redeploy anything that was running across
-  the drop: a local connection that saw it keeps failing (#1692, #1702).
+  `/api/cockpit/version` answers 502, the cockpit re-reads its whole snapshot on every
+  navigation, and it never offers a reload; with the table dropped, every write to those tables
+  fails with `no such table: main.cockpit_version`, form-ingest's leads included. Either way,
+  run `node dist/cli/bin.js db migrate` against the store: it puts the table and row back and
+  says `Restored the cockpit_version counter row`. Then redeploy the cockpit and form-ingest
+  sites if they were running across the drop (a local connection that saw it keeps failing),
+  and reload every open cockpit tab: the counter restarts at 0, so an old tab could read an
+  equal number over different rows (#1692, #1702).
 
 ### Why you can trust this
 

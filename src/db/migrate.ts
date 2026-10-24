@@ -72,7 +72,8 @@ export async function runMigrations(client: Client): Promise<string[]> {
  * dropped table fails every write to the counted tables, form-ingest's leads
  * included (the triggers outlive their target). Run by `db migrate`, the
  * operator's command, not on every connection, so no open pays for a write.
- * Returns true when the row had to be put back.
+ * The row comes back at 0, so an open cockpit tab must be reloaded, as after a
+ * `db restore` (see `readCockpitVersion`). Returns true when the row had to be put back.
  */
 export async function healCockpitVersion(client: Client): Promise<boolean> {
   await retryOnBusy(() =>
