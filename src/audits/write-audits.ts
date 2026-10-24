@@ -414,12 +414,18 @@ function permanentFailures(result: FleetWriteResult): string[] {
 
 export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
 
-/** "slug (reason)", the first five, so a red line names its cause without
- *  repeating one reason for every site of the fleet. */
+/** The kept sites grouped by what their audits said, each reason once with the
+ *  sites that gave it (the first five of them), so a red line names its cause
+ *  without repeating it for every site of the fleet. */
 function keptList(kept: Array<{ slug: string; reason: string }>): string {
-  const shown = kept.slice(0, 5).map((k) => `${k.slug} (${k.reason})`);
-  const more = kept.length - shown.length;
-  return shown.join("; ") + (more > 0 ? `; and ${more} more` : "");
+  const byReason = new Map<string, string[]>();
+  for (const k of kept) byReason.set(k.reason, [...(byReason.get(k.reason) ?? []), k.slug]);
+  return [...byReason]
+    .map(([reason, slugs]) => {
+      const more = slugs.length > 5 ? ` and ${slugs.length - 5} more` : "";
+      return `${reason}: ${slugs.slice(0, 5).join(", ")}${more}`;
+    })
+    .join("; ");
 }
 
 /** The write gate's verdict, computed here rather than in five copies of workflow bash.
@@ -448,8 +454,10 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
       owed === 0 && total > 0
         ? `every one of ${total} site(s) was not applicable: nothing was measured`
         : kept.length > 0 && kept.length === owed
-          ? `every one of ${owed} site(s) had nothing new to write and kept its verdicts: ${keptList(kept)}`
-          : `wrote 0 of ${total} site(s)`,
+          ? `every one of ${owed} site(s) had nothing new to write and kept its verdicts — ${keptList(kept)}`
+          : kept.length > 0
+            ? `wrote 0 of ${total} site(s): ${kept.length} had nothing new to write and kept their verdicts — ${keptList(kept)}`
+            : `wrote 0 of ${total} site(s)`,
     );
   }
   const short = failed + missing.length;

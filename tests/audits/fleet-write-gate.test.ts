@@ -556,10 +556,30 @@ describe("#1698: a site that ran and had nothing new to write kept its verdicts"
     const gate = fleetWriteGate(result);
     expect(gate.red).toBe(true);
     expect(gate.reasons).toHaveLength(1);
-    expect(gate.reasons[0]).toMatch(
-      /^every one of 7 site\(s\) had nothing new to write and kept its verdicts: site-0 \(form-e2e: site \/health could not be read/,
+    // Each reason once, with the sites that gave it.
+    expect(gate.reasons[0]).toBe(
+      `every one of 7 site(s) had nothing new to write and kept its verdicts — ` +
+        `form-e2e: ${unread("x").summary}: site-0, site-1, site-2, site-3, site-4 and 2 more`,
     );
-    expect(gate.reasons[0]).toMatch(/; and 2 more$/);
+  });
+
+  it("a night that wrote nothing, mostly kept, says so rather than blaming the store", async () => {
+    // Seven sites' /health unreadable and one runner that threw: on main this night
+    // wrote seven nulls; here it writes nothing, and must not read as a Turso outage.
+    const { result } = await sweep({
+      n: 8,
+      expected: 8,
+      results: (s, i) =>
+        i === 7
+          ? [blind("form-e2e", s, "browserType.launch: Timeout 30000ms exceeded", "fail")]
+          : [unread(s)],
+    });
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(true);
+    expect(gate.reasons[0]).toBe(
+      `wrote 0 of 8 site(s): 7 had nothing new to write and kept their verdicts — ` +
+        `form-e2e: ${unread("x").summary}: site-0, site-1, site-2, site-3, site-4 and 2 more`,
+    );
   });
 
   it("a site whose every audit said not applicable is still not applicable", async () => {
