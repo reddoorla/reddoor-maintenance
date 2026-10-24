@@ -255,7 +255,7 @@ not the leads — unless the site has `Require Turnstile` on.
 
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:267`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:271`,
 `.github/workflows/fleet-db-backup.yml:308`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -462,7 +462,7 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:211`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:215`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -471,14 +471,14 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:250–263`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:254–267`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:235–237`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:239–241`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as
@@ -520,7 +520,7 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    repository, but the ignore only keeps it out of git: the file stays on the disk until you
    remove it. `dump.sql.gpg` is encrypted and may stay.
 
-### Two traps
+### Three traps
 
 - **Never pipe a dump through `pnpm exec`.** It writes warnings to **stdout**, which lands
   inside the SQL and corrupts the dump. Invoke the binary directly — `./node_modules/.bin/tsx`
@@ -529,6 +529,14 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
   first reviewed, on the only machine holding the passphrase
   (`docs/meta-week/04-journal-beat-by-beat.md:2766–2768`). Check `gpg --version` before you
   need it, not during an incident.
+- **Never delete or drop `cockpit_version` by hand.** Migration 0048's triggers bump its one row
+  on every write to the ten tables the cockpit snapshot reads. With the row deleted,
+  `/api/cockpit/version` answers 502 and the open cockpit re-reads its whole snapshot on every
+  check; with the table dropped, every write to those tables fails with
+  `no such table: main.cockpit_version`, form-ingest's leads included. Either way, run
+  `node dist/cli/bin.js db migrate` against the store: it puts the table and row back and says
+  `Restored the cockpit_version counter row`. Then redeploy anything that was running across
+  the drop: a local connection that saw it keeps failing (#1692, #1702).
 
 ### Why you can trust this
 

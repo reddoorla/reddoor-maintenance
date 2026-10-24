@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
 import { runMigrations } from "../../src/db/migrate.js";
 import { kyselyOverClient } from "../../src/db/client.js";
 import { readCockpitVersion } from "../../src/db/cockpit-version.js";
 import { DATABASE_TABLES } from "../../src/db/schema.js";
+import { runDbCommand } from "../../src/cli/commands/db.js";
 
 /**
  * The cockpit snapshot's change counter (migration 0048; the operator's choice,
@@ -118,5 +122,71 @@ describe("the cockpit change counter", () => {
     await client.execute("UPDATE sites SET name = 'Zee' WHERE id = 'recZ'");
     // One trigger per write, not two.
     expect(await version()).toBe(before + 1);
+  });
+});
+
+/**
+ * `db migrate` puts the counter back (#1692, #1702). Only a hand-run DELETE or
+ * DROP gets there, and 0048 is already marked applied, so nothing else would:
+ * a missing row makes every version read throw (the cockpit re-reads the whole
+ * snapshot on each check), and a dropped table fails every write to the ten
+ * counted tables, form-ingest's leads included.
+ */
+describe("db migrate heals the counter", () => {
+  let dir: string;
+  let url: string;
+  let file: Client;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "cockpit-version-heal-"));
+    url = `file:${join(dir, "fleet.db")}`;
+    expect((await runDbCommand("migrate", { url })).code).toBe(0);
+    file = createClient({ url });
+    await file.execute(ROW.sites!);
+  });
+  afterEach(async () => {
+    file.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const read = async () => readCockpitVersion(await kyselyOverClient(file));
+
+  it("a deleted row comes back, and the counter moves again", async () => {
+    await file.execute("DELETE FROM cockpit_version");
+    await expect(read()).rejects.toThrow(/counter row is missing/);
+    const r = await runDbCommand("migrate", { url });
+    expect(r.code).toBe(0);
+    expect(r.output).toMatch(/cockpit_version/);
+    expect(await read()).toBe(0);
+    await file.execute("UPDATE sites SET name = 'Zee' WHERE id = 'recZ'");
+    expect(await read()).toBe(1);
+  });
+
+  it("a dropped table comes back, and writes to the counted tables work again", async () => {
+    await file.execute("DROP TABLE cockpit_version");
+    await expect(file.execute("UPDATE sites SET name = 'Zee' WHERE id = 'recZ'")).rejects.toThrow(
+      /no such table: main.cockpit_version/,
+    );
+    expect((await runDbCommand("migrate", { url })).code).toBe(0);
+    // A fresh connection, as the next function or nightly opens. A local-file
+    // connection that saw the drop keeps failing after the heal (measured
+    // 2026-10-24, @libsql/client 0.8.1); a remote one is not measured, so the
+    // runbook says to redeploy anything that was running across the drop.
+    file.close();
+    file = createClient({ url });
+    await file.execute("UPDATE sites SET name = 'Zee' WHERE id = 'recZ'");
+    expect(await read()).toBe(1);
+    // The same shape 0048 made: the one-row CHECK still holds.
+    await expect(file.execute("INSERT INTO cockpit_version (id, n) VALUES (2, 0)")).rejects.toThrow(
+      /CHECK constraint failed/,
+    );
+  });
+
+  it("a present row is left as it is, and nothing is reported", async () => {
+    await file.execute("UPDATE sites SET name = 'Zee' WHERE id = 'recZ'");
+    const before = await read();
+    const r = await runDbCommand("migrate", { url });
+    expect(r.output).toBe("Already up to date.");
+    expect(await read()).toBe(before);
   });
 });
