@@ -328,6 +328,27 @@ describe("startFreshness: when the open cockpit checks", () => {
         c.stop();
       }));
 
+    it("three overlapping posts whose reads fall inside each other's runs are all the page's own", () =>
+      withTimers(async () => {
+        // A reads 41 and writes 42; B and C read 42; B writes 43 and A reads 43;
+        // C writes 44 and B and C read 44. No one else writes.
+        const { d } = store(44);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        for (const [before, after] of [
+          [41, 43],
+          [42, 44],
+          [42, 44],
+        ] as const) {
+          await c.aroundOwnWrite(async () => answered(before, after));
+        }
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
     it("a check asking when the page starts a post says nothing, even before the post answers", () =>
       withTimers(async () => {
         const s = { n: 41 };

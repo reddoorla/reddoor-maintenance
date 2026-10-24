@@ -129,17 +129,18 @@ export function startFreshness(
     const s = getSnapshot();
     if (s === null || s.version === null) return s;
     let version = own !== null && own.snapshot === s.version ? own.version : s.version;
-    // Every counter value reachable from the baseline through the page's own posts
-    // is the page's own, whatever order the posts' reads and answers interleaved
-    // in: two posts that both read 41 before either wrote answer (41,42) and
-    // (41,43). The counter only rises, so the baseline becomes the highest.
-    const reached = new Set([version]);
-    for (let next = pairs.find((p) => reached.has(p.before)); next;) {
+    // Each post's pair covers the counter values its handler's run spanned. The
+    // values from the snapshot's counter up to `version` are all the page's own;
+    // a pair whose before-value falls inside that range extends it, whatever
+    // order the posts' reads, writes and answers interleaved in: three posts can
+    // answer (41,43), (42,44), (42,44). Someone else's write outside every
+    // handler's run leaves a gap no pair starts in, so it still raises the notice.
+    const from = s.version;
+    const covered = (p: { before: number }) => p.before >= from && p.before <= version;
+    for (let next = pairs.find(covered); next; next = pairs.find(covered)) {
       const used = next;
-      reached.add(used.after);
       version = Math.max(version, used.after);
       pairs = pairs.filter((p) => p !== used);
-      next = pairs.find((p) => reached.has(p.before));
     }
     own = { snapshot: s.version, version };
     return { version };
