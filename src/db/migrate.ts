@@ -26,8 +26,9 @@ export async function runMigrations(client: Client): Promise<string[]> {
   // local file refuse each other's writes with it while a migration is pending
   // (#1674; five of six threw before this). Each retried statement is safe to
   // run again: the DDL is idempotent as described above, and a multi-statement
-  // migration is all `IF [NOT] EXISTS` (every `ADD COLUMN` stands alone, so a
-  // re-run cannot stop at its "duplicate column" before a later statement).
+  // migration is all `IF [NOT] EXISTS` or `OR IGNORE` (every `ADD COLUMN` stands alone, so a
+  // re-run cannot stop at its "duplicate column" before a later statement;
+  // tests/db/migration-shape.test.ts pins it, #1690).
   await retryOnBusy(() =>
     client.execute(
       "CREATE TABLE IF NOT EXISTS _migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
@@ -62,4 +63,27 @@ export async function runMigrations(client: Client): Promise<string[]> {
     if (marked.rows.length > 0) ran.push(m.id);
   }
   return ran;
+}
+
+/**
+ * Put the counter back if a hand-run DELETE or DROP took it (#1692, #1702): the
+ * table and row exactly as migration 0048 made them, both idempotent, so a
+ * present counter is untouched. 0048 is already marked applied by then, so
+ * nothing else would: a missing row makes every version read throw, and a
+ * dropped table fails every write to the counted tables, form-ingest's leads
+ * included (the triggers outlive their target). Run by `db migrate`, the
+ * operator's command, not on every connection, so no open pays for a write.
+ * The row comes back at 0, so an open cockpit tab must be reloaded, as after a
+ * `db restore` (see `readCockpitVersion`). Returns true when the row had to be put back.
+ */
+export async function healCockpitVersion(client: Client): Promise<boolean> {
+  await retryOnBusy(() =>
+    client.execute(
+      "CREATE TABLE IF NOT EXISTS cockpit_version (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)",
+    ),
+  );
+  const put = await retryOnBusy(() =>
+    client.execute("INSERT OR IGNORE INTO cockpit_version (id, n) VALUES (1, 0) RETURNING id"),
+  );
+  return put.rows.length > 0;
 }
