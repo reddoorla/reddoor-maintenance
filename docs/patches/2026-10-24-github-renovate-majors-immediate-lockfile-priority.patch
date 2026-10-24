@@ -1,4 +1,4 @@
-From 7e500a0c871ec347716ec5127692360543fbd160 Mon Sep 17 00:00:00 2001
+From 9eb4c0ef44f84dd6876d51be7fc55a7ec55c3490 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sat, 24 Oct 2026 15:06:13 +0000
 Subject: [PATCH] fix(renovate): majors open on the run that pushes them, and
@@ -49,43 +49,47 @@ decisions/2026-10-24-1436-renovate-1688-digests-and-slots.md
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01TYswWu72jUMpCKDzQ5MQ1d
 ---
- .github/workflows/validate.yml | 27 +++++++++++++++++++++++++++
+ .github/workflows/validate.yml | 31 +++++++++++++++++++++++++++++++
  docs/workJournal.md            | 18 ++++++++++++++++++
  renovate-config.json           | 15 +++++++++++++++
- 3 files changed, 60 insertions(+)
+ 3 files changed, 64 insertions(+)
 
 diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
-index 994854b..494222e 100644
+index 994854b..e585d34 100644
 --- a/.github/workflows/validate.yml
 +++ b/.github/workflows/validate.yml
-@@ -80,6 +80,33 @@ jobs:
+@@ -80,6 +80,37 @@ jobs:
                if (!rules.some((g) => g.groupName && g.matchPackageNames && names(g) === names(hold) && JSON.stringify([...(g.matchUpdateTypes ?? [])].sort()) === minorPatch))
                  throw new Error("never-automerge packages " + names(hold) + " have no minor/patch group of their own: they hold the whole all-minor-patch group (2026-10-21)");
              }
 +            // Majors hit the same early return: a run that pushes a new major branch opens no PR unless prCreation is
 +            // immediate, so a major opened only in a week when a second in-window run pushed nothing (reddoor-maintenance#1688).
-+            // The LAST rule that sets prCreation for major decides, and it must be unscoped. Digests are left out on purpose:
++            // An unscoped immediate rule must reach major, and no later rule may set any other prCreation for it (a later scoped
++            // immediate rule is harmless; a later not-pending one, scoped or not, would undo it). Digests are left out on purpose:
 +            // they carry no release timestamp, so under minimumReleaseAge they are never branched, and made immediate they
 +            // open behind a stability status that never clears and take an hourly PR slot ahead of both grouped PRs
 +            // (reddoor-workspace decision 2026-10-24-1436).
-+            // A rule with no matchUpdateTypes reaches majors too, so it counts as the last one.
-+            const lastMajorPrCreation = rules.filter((r) => "prCreation" in r && (r.matchUpdateTypes ?? ["major"]).includes("major")).at(-1);
-+            const majorImmediate = !!lastMajorPrCreation && lastMajorPrCreation.prCreation === "immediate" && !scoped(lastMajorPrCreation);
++            // matchUpdateTypes may be a string, and a rule without it reaches every update type.
++            const reaches = (r, t) => (r.matchUpdateTypes == null ? [t] : [].concat(r.matchUpdateTypes)).includes(t);
++            const majorRules = rules.filter((r) => "prCreation" in r && reaches(r, "major"));
++            const firstMajorImmediate = majorRules.findIndex((r) => r.prCreation === "immediate" && !scoped(r));
++            const majorImmediate = firstMajorImmediate !== -1 && majorRules.slice(firstMajorImmediate).every((r) => r.prCreation === "immediate");
 +            if (["not-pending", "status-success"].includes(cfg.prCreation) && !majorImmediate)
 +              throw new Error("no unscoped major rule with prCreation:immediate under prCreation:" + cfg.prCreation + ": a new major PR cannot open on the run that pushes it (#1688)");
 +            const digestImmediate = cfg.prCreation === "immediate" || cfg.digest?.prCreation === "immediate" ||
-+              rules.some((r) => r.prCreation === "immediate" && (r.matchUpdateTypes ?? ["digest"]).includes("digest"));
++              rules.some((r) => r.prCreation === "immediate" && reaches(r, "digest"));
 +            if (digestImmediate)
 +              throw new Error("prCreation:immediate on digest: digests have no release timestamp, so the PR waits on a stability status that never clears and takes an hourly slot ahead of the grouped PRs (2026-10-24)");
 +            // Renovate sorts lock-file maintenance after every other update type and creates at most prHourlyLimit (2) PRs an
 +            // hour, so in a week when both grouped PRs refill it loses its slot to them (lib/workers/repository/process/sort.ts,
 +            // Renovate 44.176.1 to 44.181.3). prPriority sorts before update type, so lock-file maintenance needs the highest one, set by an
-+            // unscoped rule that matches lockFileMaintenance alone: a rule that also matched minor or patch would tie the grouped branches
-+            // with it, and the update-type order would put them first again. Renovate accepts prPriority only inside packageRules.
++            // unscoped rule that matches lockFileMaintenance alone and is the last prPriority rule to reach it: a rule that also matched
++            // minor or patch, or a later one with no matchUpdateTypes (say prPriority: -1), would tie the grouped branches with it, and
++            // the update-type order would put them first again. Renovate accepts prPriority only inside packageRules.
 +            if (cfg.lockFileMaintenance?.enabled) {
-+              const lastLockPriority = rules.filter((r) => "prPriority" in r && (r.matchUpdateTypes ?? []).includes("lockFileMaintenance")).at(-1);
++              const lastLockPriority = rules.filter((r) => "prPriority" in r && reaches(r, "lockFileMaintenance")).at(-1);
 +              const others = rules.filter((r) => "prPriority" in r && r !== lastLockPriority).map((r) => r.prPriority);
-+              const lockOnly = !!lastLockPriority && JSON.stringify(lastLockPriority.matchUpdateTypes) === JSON.stringify(["lockFileMaintenance"]);
++              const lockOnly = !!lastLockPriority && JSON.stringify([].concat(lastLockPriority.matchUpdateTypes ?? [])) === JSON.stringify(["lockFileMaintenance"]);
 +              if (!lockOnly || scoped(lastLockPriority) || !(lastLockPriority.prPriority > Math.max(0, ...others)))
 +                throw new Error("lockFileMaintenance without an unscoped packageRule, matching it alone, that gives it the highest prPriority: the grouped PRs take the hourly PR slots first (#1688)");
 +            }
@@ -93,7 +97,7 @@ index 994854b..494222e 100644
            '
        - name: renovate-staging-flow.json parses, grants no automerge, and keeps its three base-bound rules
 diff --git a/docs/workJournal.md b/docs/workJournal.md
-index a98d533..e400169 100644
+index a98d533..e147bde 100644
 --- a/docs/workJournal.md
 +++ b/docs/workJournal.md
 @@ -135,3 +135,21 @@ Before the push, both `renovate` steps, extracted from the patched `validate.yml
@@ -117,7 +121,7 @@ index a98d533..e400169 100644
 +
 +What `prHourlyLimit: 2` still costs, stated so it is not mistaken for a fix: in a week when both grouped branches refill, the Monday run opens lock-file maintenance and one grouped PR, and the other grouped PR and any new major wait. The hourly count resets each clock hour, so a second in-window run would open them the same day; but the 12:00Z cron almost always starts after the window closes (17:51Z to 21:12Z, measured 10-21), so in practice they usually wait for the next Monday with a free slot. Raising the limit was option (c), not chosen.
 +
-+`validate.yml` now refuses three things. Under `not-pending`, the last rule setting `prCreation` that reaches `major` (a rule with no `matchUpdateTypes` counts) must be unscoped and `immediate`. `prCreation: immediate` must not reach `digest`, whether top-level, in a `digest` block, or by a rule naming `digest` or naming no update type. And with lock-file maintenance enabled, there must be an unscoped rule matching `lockFileMaintenance` alone that gives it the strictly highest `prPriority`. Nine mutations turned the step red, each with its own error: the majors rule removed, scoped, or overridden by a later scoped `not-pending` rule; `digest` added to it; the priority rule removed, set to 0, outranked, scoped, or moved inside `lockFileMaintenance` (where Renovate does not accept it). The unchanged patched preset passed, and `main`'s preset at `a726791` failed on the majors guard. Review round 1 (session model) found the guards too narrow (a priority rule that also matched minor and patch tied with the groups and passed; a typeless `prCreation` override and three other routes to an immediate digest passed), and found the first text calling the next-Monday wait certain when it is only usual; both were fixed before this landed, with six more mutations, listed in reddoor-maintenance#1712.
++`validate.yml` now refuses three things. Under `not-pending`, an unscoped rule must set `prCreation: immediate` for `major`, and no later rule reaching `major` (a rule with no `matchUpdateTypes` counts) may set anything else. `prCreation: immediate` must not reach `digest`, whether top-level, in a `digest` block, or by a rule naming `digest` or naming no update type. And with lock-file maintenance enabled, the last `prPriority` rule reaching it (a typeless one counts) must be unscoped, match `lockFileMaintenance` alone, and give it the strictly highest `prPriority`. Nine mutations turned the step red, each with its own error: the majors rule removed, scoped, or overridden by a later scoped `not-pending` rule; `digest` added to it; the priority rule removed, set to 0, outranked, scoped, or moved inside `lockFileMaintenance` (where Renovate does not accept it). The unchanged patched preset passed, and `main`'s preset at `a726791` failed on the majors guard. Review round 1 (session model) found the guards too narrow (a priority rule that also matched minor and patch tied with the groups and passed; a typeless `prCreation` override and three other routes to an immediate digest passed), and found the first text calling the next-Monday wait certain when it is only usual; both were fixed before this landed, with six more mutations. Round 2 found one more: a later typeless or scoped `prPriority: -1` tied lock-file maintenance with the groups again and passed; that and a false refusal of a harmless later scoped `immediate` major rule were fixed too, with the mutations listed in reddoor-maintenance#1712.
 diff --git a/renovate-config.json b/renovate-config.json
 index 31efb03..a23cc97 100644
 --- a/renovate-config.json
