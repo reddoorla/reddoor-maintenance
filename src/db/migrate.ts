@@ -26,7 +26,7 @@ export async function runMigrations(client: Client): Promise<string[]> {
   // local file refuse each other's writes with it while a migration is pending
   // (#1674; five of six threw before this). Each retried statement is safe to
   // run again: the DDL is idempotent as described above, and a multi-statement
-  // migration is all `IF [NOT] EXISTS` (every `ADD COLUMN` stands alone, so a
+  // migration is all `IF [NOT] EXISTS` or `OR IGNORE` (every `ADD COLUMN` stands alone, so a
   // re-run cannot stop at its "duplicate column" before a later statement;
   // tests/db/migration-shape.test.ts pins it, #1690).
   await retryOnBusy(() =>
