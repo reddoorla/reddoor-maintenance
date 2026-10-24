@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../../../src/db/client.js";
 import { readCockpitVersion } from "../../../src/db/cockpit-version.js";
-import { withVersionHeaders } from "../../src/lib/server/endpoints/route.js";
+import { endpoint, withVersionHeaders } from "../../src/lib/server/endpoints/route.js";
 import { VERSION_AFTER_HEADER, VERSION_BEFORE_HEADER } from "../../src/lib/freshness.js";
 import { authHeader } from "../../../tests/_helpers/basic-auth.js";
 
@@ -67,6 +67,16 @@ describe("withVersionHeaders", () => {
     expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
     expect(res.headers.get(VERSION_BEFORE_HEADER)).toBe(String(start));
     expect(res.headers.get(VERSION_AFTER_HEADER)).toBe(String(start + 3));
+  });
+
+  it("every cockpit endpoint route answers through it (endpoint())", async () => {
+    const db = await openDb({ url });
+    const start = await readCockpitVersion(db);
+    const run = await writing(1);
+    const route = endpoint(run as never);
+    const res = (await route({ request: req("/api/x"), params: {} } as never)) as Response;
+    expect(res.headers.get(VERSION_BEFORE_HEADER)).toBe(String(start));
+    expect(res.headers.get(VERSION_AFTER_HEADER)).toBe(String(start + 1));
   });
 
   it("a refused or failed POST carries no counter", async () => {

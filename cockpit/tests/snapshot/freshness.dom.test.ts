@@ -313,6 +313,42 @@ describe("startFreshness: when the open cockpit checks", () => {
         }
       }));
 
+    it("two posts that both read the counter before either wrote are both the page's own", () =>
+      withTimers(async () => {
+        const { s, d } = store(43);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(async () => answered(41, 42));
+        await c.aroundOwnWrite(async () => answered(41, 43));
+        e.fire("focus");
+        await flush();
+        expect(s.n).toBe(43);
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("a check asking when the page starts a post says nothing, even before the post answers", () =>
+      withTimers(async () => {
+        const s = { n: 41 };
+        let reply: (r: Response) => void = () => undefined;
+        const d = deps(() => new Promise<Response>((r) => (reply = r)));
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        e.fire("focus"); // the check asks while the counter is 41
+        await flush();
+        let answer: (r: Response) => void = () => undefined;
+        const posting = c.aroundOwnWrite(() => new Promise<Response>((r) => (answer = r)));
+        s.n = 42; // the post's write lands; the check's read sees it
+        reply(new Response(JSON.stringify({ ok: true, version: s.n })));
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        answer(answered(41, 42));
+        await posting;
+        c.stop();
+      }));
+
     it("no check runs while the page's own post is in flight", () =>
       withTimers(async () => {
         const { s, d } = store(41);

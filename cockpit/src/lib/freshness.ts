@@ -120,17 +120,26 @@ export function startFreshness(
   // Posts in flight, each holding checks off for at most CHECK_TIMEOUT_MS: the
   // store may already have moved and the page cannot yet tell whose write it was.
   let inFlight = 0;
+  // Posts started so far: a check that saw one start while it was asking cannot
+  // tell the page's write from anyone else's, so its answer says nothing.
+  let started = 0;
 
   /** The counter value that means "nothing but this page has changed the store". */
   const expected = (): Pick<CockpitSnapshot, "version"> | null => {
     const s = getSnapshot();
     if (s === null || s.version === null) return s;
     let version = own !== null && own.snapshot === s.version ? own.version : s.version;
-    // Chain: a post that started from the baseline moves it to its after-value.
-    for (let next = pairs.find((p) => p.before === version); next;) {
-      version = next.after;
-      pairs = pairs.filter((p) => p !== next);
-      next = pairs.find((p) => p.before === version);
+    // Every counter value reachable from the baseline through the page's own posts
+    // is the page's own, whatever order the posts' reads and answers interleaved
+    // in: two posts that both read 41 before either wrote answer (41,42) and
+    // (41,43). The counter only rises, so the baseline becomes the highest.
+    const reached = new Set([version]);
+    for (let next = pairs.find((p) => reached.has(p.before)); next;) {
+      const used = next;
+      reached.add(used.after);
+      version = Math.max(version, used.after);
+      pairs = pairs.filter((p) => p !== used);
+      next = pairs.find((p) => reached.has(p.before));
     }
     own = { snapshot: s.version, version };
     return { version };
@@ -140,11 +149,18 @@ export function startFreshness(
     if (done || checking || inFlight > 0 || !env.isVisible()) return;
     checking = true;
     try {
-      const asked = expected()?.version;
-      const result = await checkFreshness(expected(), deps);
-      // A post's answer that arrived meanwhile moved the baseline: this answer
-      // was judged against the old one, so it says nothing.
-      if (result === "newer" && expected()?.version !== asked) return;
+      const base = expected();
+      const startedBefore = started;
+      const result = await checkFreshness(base, deps);
+      // A post began while this check was asking (its write may be what the
+      // counter shows), or a post's answer moved the baseline meanwhile: this
+      // answer was judged against what the page knew before, so it says nothing.
+      if (
+        result === "newer" &&
+        (started !== startedBefore || expected()?.version !== base?.version)
+      ) {
+        return;
+      }
       if (result === "newer") {
         done = true;
         onNewer();
@@ -179,6 +195,7 @@ export function startFreshness(
   // server) changes nothing, and the notice behaves as before.
   const aroundOwnWrite = async (write: () => Promise<Response>): Promise<Response> => {
     inFlight++;
+    started++;
     let released = false;
     const release = () => {
       if (released) return;
