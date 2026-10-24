@@ -62,6 +62,7 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
     ["submitted and failed", { formPresent: true, success: false }],
     ["no contact form (n/a)", { formPresent: false }],
     ["testMode undeclared", { testModeUndeclared: true }],
+    ["/health unreadable", { testModeUndeclared: true, healthUnreadable: "timed out after 10s" }],
   ];
 
   it.each(EXITS)("%s: writes the stamp only alongside a verdict", async (_label, outcome) => {
@@ -93,5 +94,19 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
     const fields = auditFields({ formE2e: formE2eResultFromAudit(r) });
     expect(Object.keys(fields)).toEqual(["Turnstile widget"]);
     expect(fields["Turnstile widget"]).toBeNull();
+  });
+
+  it("an unreadable /health writes nothing, so a declared site keeps its verdict (#1698)", async () => {
+    // The site may well declare testMode; its /health just did not answer. A
+    // verdict it earned stays, and keeps ageing on its own unrefreshed stamp.
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: {
+        submit: async () =>
+          ({ testModeUndeclared: true, healthUnreadable: "timed out after 10s" }) as never,
+      },
+    });
+    expect(auditFields({ formE2e: formE2eResultFromAudit(r) })).toEqual({});
   });
 });
