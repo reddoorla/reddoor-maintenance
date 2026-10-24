@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   CHECK_EVERY_MS,
+  CHECK_TIMEOUT_MS,
   checkFreshness,
   startFreshness,
   type FreshnessDeps,
@@ -31,7 +32,11 @@ describe("checkFreshness", () => {
     expect(d.fetch).toHaveBeenCalledTimes(1);
     expect(d.fetch.mock.calls[0]).toEqual([
       "/api/cockpit/version",
-      { headers: { accept: "application/json" }, cache: "no-store" },
+      {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+        signal: expect.any(AbortSignal),
+      },
     ]);
   });
 
@@ -159,6 +164,39 @@ describe("startFreshness: when the open cockpit checks", () => {
       e.fire("focus");
       await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS * 3);
       expect(d.fetch).toHaveBeenCalledTimes(1);
+      expect(onNewer).toHaveBeenCalledTimes(1);
+      c.stop();
+    }));
+
+  it("a check that never answers is abandoned, and the next one still runs (#1701)", () =>
+    withTimers(async () => {
+      // A dropped connection: the request settles only when its signal aborts,
+      // as a real fetch does.
+      let calls = 0;
+      const d = deps(async () => Promise.reject(new Error("unused")));
+      d.fetch.mockImplementation((_url, init) => {
+        calls++;
+        if (calls > 1) return version(42)();
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        });
+      });
+      const e = env();
+      const onNewer = vi.fn();
+      const c = startFreshness(() => snapshot, d, e.env, onNewer);
+      e.fire("focus");
+      await flush();
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      // Within the timeout the hung check still holds the slot.
+      await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS - 1);
+      e.fire("focus");
+      await flush();
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      // Past it, the hung check counts as "unknown" and frees the slot.
+      await vi.advanceTimersByTimeAsync(1);
+      e.fire("focus");
+      await flush();
+      expect(d.fetch).toHaveBeenCalledTimes(2);
       expect(onNewer).toHaveBeenCalledTimes(1);
       c.stop();
     }));
