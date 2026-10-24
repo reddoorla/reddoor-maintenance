@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { postAction } from "../../src/lib/post.js";
+import { postAction, setOwnWrite } from "../../src/lib/post.js";
 import { fromSnapshot, type SnapshotData } from "../../src/lib/snapshot.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
@@ -44,9 +44,31 @@ const parent = (d: Partial<SnapshotData>) => async (): Promise<SnapshotData> => 
 });
 
 beforeEach(() => document.body.removeAttribute("data-sveltekit-reload"));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setOwnWrite(null);
+});
 
 describe("the next navigation reloads", () => {
+  it("sends each post through the page's own-write hook (#1700), and still reloads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok", { status: 200 })),
+    );
+    const seen: string[] = [];
+    setOwnWrite(async (write) => {
+      seen.push("before");
+      const r = await write();
+      seen.push("after");
+      return r;
+    });
+    const res = await postAction("/api/x", { body: "{}" });
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["before", "after"]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(reloads()).toBe(true);
+  });
+
   it("after any change a page posts, whatever its answer", async () => {
     vi.stubGlobal(
       "fetch",

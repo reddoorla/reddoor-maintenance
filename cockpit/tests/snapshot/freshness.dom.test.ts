@@ -201,6 +201,124 @@ describe("startFreshness: when the open cockpit checks", () => {
       c.stop();
     }));
 
+  describe("the page's own changes (#1700)", () => {
+    /** A store whose counter the test moves, answering every read with its value. */
+    function store(start: number) {
+      const s = { n: start };
+      const d = deps(async () => new Response(JSON.stringify({ ok: true, version: s.n })));
+      return { s, d };
+    }
+
+    it("a post the page makes does not raise the notice", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(async () => {
+          s.n += 3; // one post can move it several times (a trigger per row)
+        });
+        await flush();
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("someone else's write before the post still raises it", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        s.n = 42; // another session, after this snapshot was read
+        await c.aroundOwnWrite(async () => {
+          s.n += 1;
+        });
+        await flush();
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("someone else's write after the post still raises it", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        await c.aroundOwnWrite(async () => {
+          s.n += 1;
+        });
+        await flush();
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        s.n += 1;
+        e.fire("focus");
+        await flush();
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("no check runs while the page's own post is in flight", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        let finish: () => void = () => undefined;
+        const posting = c.aroundOwnWrite(
+          () =>
+            new Promise<void>((r) => {
+              s.n += 1; // the write has landed; its answer has not
+              finish = r;
+            }),
+        );
+        await flush();
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        finish();
+        await posting;
+        await flush();
+        e.fire("focus");
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
+    it("a counter it cannot read before the post leaves the notice as it was", () =>
+      withTimers(async () => {
+        const { s, d } = store(41);
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        d.fetch.mockImplementationOnce(async () => new Response("down", { status: 502 }));
+        await c.aroundOwnWrite(async () => {
+          s.n += 1;
+        });
+        await flush();
+        e.fire("focus");
+        await flush();
+        // Unsure whether anyone else wrote first, so it says the store moved.
+        expect(onNewer).toHaveBeenCalledTimes(1);
+        c.stop();
+      }));
+
+    it("the post's own answer and error come back unchanged", () =>
+      withTimers(async () => {
+        const { d } = store(41);
+        const c = startFreshness(() => snapshot, d, env().env, vi.fn());
+        await expect(c.aroundOwnWrite(async () => "answer")).resolves.toBe("answer");
+        await expect(
+          c.aroundOwnWrite(async () => Promise.reject(new Error("refused"))),
+        ).rejects.toThrow("refused");
+        c.stop();
+      }));
+  });
+
   it("once the session has ended, asks no more", () =>
     withTimers(async () => {
       const d = deps(async () => new Response("{}", { status: 401 }));
