@@ -540,10 +540,9 @@ describe("audits/form-e2e readFormsHealth — unreadable is not undeclared (P1-6
     expect(r.summary).toBe(formE2eHealthUnreadableSummary("timed out after 10s"));
     expect(r.summary).toContain("timed out after 10s");
     expect(r.summary).not.toMatch(/does not declare/);
-    // No stamp, and unlike the undeclared skip the widget verdict is left out, which
-    // preserves it: a site that declares testMode earned that verdict, and one slow
+    // No details at all, unlike the undeclared skip, which clears the widget verdict: a site that declares testMode earned that verdict, and one slow
     // /health must not wipe it (#1698: vineyard-custom-homes, 2026-10-22 07:13Z).
-    expect(r.details).toEqual({ checkedAt: NOW.toISOString() });
+    expect(r.details).toBeUndefined();
   });
 });
 

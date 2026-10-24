@@ -433,8 +433,8 @@ function liveRunnerEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * - /health does not declare testMode → skip WITH details, but NO stamp: the form
  *   verdict is preserved and only `turnstileWidget` is written (null, clearing the
  *   value function-health used to keep alive in that column).
- * - /health could not be read → the same skip, but `turnstileWidget` is left out
- *   too, so both verdicts are preserved (#1698).
+ * - /health could not be read → skip, NO details: both verdicts are preserved, and
+ *   the fleet writer counts the site as measuring nothing (#1698).
  * - no contact form → skip WITH details (ok:null + fresh checkedAt) → persisted as n/a.
  * - form submitted, success → pass (ok:"pass"); not success → warn (ok:"fail").
  */
@@ -470,12 +470,21 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       testSitekey: CF_TEST_SITEKEY,
     });
     if ("testModeUndeclared" in outcome) {
-      const summary = outcome.healthUnreadable
-        ? formE2eHealthUnreadableSummary(outcome.healthUnreadable)
-        : FORM_E2E_TESTMODE_UNDECLARED_SUMMARY;
+      if (outcome.healthUnreadable !== undefined) {
+        // An UNREADABLE /health is not an undeclared one: the site may declare
+        // testMode and have earned its widget verdict, so one slow night must not
+        // wipe it (#1698). No details at all, so nothing is written and both
+        // verdicts keep ageing on their own stamp, and the fleet writer counts the
+        // site as measuring nothing, which its gate sees, rather than as n/a.
+        return {
+          audit: "form-e2e",
+          site: label,
+          status: "skip",
+          summary: formE2eHealthUnreadableSummary(outcome.healthUnreadable),
+        };
+      }
       // Not n/a — the site may well have a form; it hasn't rolled out testMode
-      // forwarding, or its /health could not be read to say whether it has, so
-      // probing it could submit a real lead. The FORM
+      // forwarding, so probing it could submit a real lead. The FORM
       // verdict and its stamp are left untouched, which preserves them.
       //
       // The Turnstile verdict is explicitly CLEARED to null, and that is
@@ -485,19 +494,12 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       // it — and if that site were ever gated it would emit a CRITICAL, un-mutable
       // digest item every morning, forever. Writing null defuses that on the first
       // run and states the truth: nothing verified this widget.
-      //
-      // An UNREADABLE /health is different: the site may declare testMode and have
-      // earned its widget verdict, so one slow night must not wipe it (#1698). The
-      // key is left out, which preserves the verdict; it keeps ageing on its own
-      // stamp, which this skip does not refresh.
       return {
         audit: "form-e2e",
         site: label,
         status: "skip",
-        summary,
-        details: (outcome.healthUnreadable
-          ? { checkedAt }
-          : { checkedAt, turnstileWidget: null }) satisfies FormE2eDetails,
+        summary: FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+        details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }
     if (!outcome.formPresent) {

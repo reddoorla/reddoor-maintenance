@@ -4,6 +4,9 @@ import { auditFields } from "../../src/fleet/site-fields.js";
 import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-fields.js";
 import { formE2eAudit } from "../../src/audits/form-e2e.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
+import { recordingMirror } from "../_helpers/recording-mirror.js";
+import { writeFleetAudits, fleetWriteGate } from "../../src/audits/write-audits.js";
 
 const NOW = new Date("2026-09-10T00:00:00.000Z");
 const FRESH = "2026-09-09T10:15:00.000Z";
@@ -107,6 +110,42 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
           ({ testModeUndeclared: true, healthUnreadable: "timed out after 10s" }) as never,
       },
     });
-    expect(auditFields({ formE2e: formE2eResultFromAudit(r) })).toEqual({});
+    expect(hasFormE2eResult(r)).toBe(false);
+  });
+});
+
+describe("an unreadable /health in the nightly fleet write (#1698)", () => {
+  it("is a site that measured nothing, not a site the audit does not apply to", async () => {
+    // One of five sites times out twice; the other four submit and pass.
+    const slugs = ["a", "b", "c", "d", "e"];
+    const results = await Promise.all(
+      slugs.map((slug, i) =>
+        formE2eAudit({
+          site: { path: `/${slug}`, name: slug, deployedUrl: `https://${slug}.example.com` },
+          now: NOW,
+          formRunner: {
+            submit: async () =>
+              (i === 0
+                ? { testModeUndeclared: true, healthUnreadable: "timed out after 10s" }
+                : { formPresent: true, success: true }) as never,
+          },
+        }),
+      ),
+    );
+    const result = await writeFleetAudits({
+      websites: websiteRowsFrom(
+        slugs.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+      ),
+      results,
+      mirror: recordingMirror().mirror,
+      expectedSites: slugs,
+    });
+    expect(result.notApplicable ?? []).toEqual([]);
+    expect(result.failed).toEqual([
+      { slug: "a", error: `nothing measured: form-e2e: ${results[0]!.summary}` },
+    ]);
+    expect(result.written).toHaveLength(4);
+    // One unmeasured site of five is inside the gate's tolerance.
+    expect(fleetWriteGate(result).red).toBe(false);
   });
 });
