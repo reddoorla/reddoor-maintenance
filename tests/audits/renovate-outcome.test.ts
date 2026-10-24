@@ -586,10 +586,16 @@ describe("base-prefixed branches on the staging flow (#1673)", () => {
   // feature merge, as tabled on #1673 (dates from the run log and the issue;
   // times of day are not in either, so the test asserts states, not day counts).
   const RUN_AT = new Date("2026-10-21T18:47:39Z");
+  // Since #1686 a merge into `staging` arrives in `offDefault`, not `merges`.
   const W = (...merges: Array<[string, string]>) => ({
     merges: merges.map(([headRef, mergedAt]) => ({ headRef, mergedAt })),
     truncated: false,
   });
+  const STAGING_SHARP = {
+    offDefault: [
+      { headRef: "renovate/staging-npm-sharp-vulnerability", mergedAt: "2026-10-19T12:00:00Z" },
+    ],
+  };
   const RUN_39655255844: Record<string, RenovateMergeWindow> = {
     "data-dynamiq": W(
       ["renovate/main-npm-vite-vulnerability", "2026-10-21T02:00:00Z"],
@@ -603,29 +609,46 @@ describe("base-prefixed branches on the staging flow (#1673)", () => {
       ["renovate/main-npm-vite-vulnerability", "2026-10-21T02:00:00Z"],
       ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
     ),
-    "vida-legacy-foundation": W(
-      ["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"],
-      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
-    ),
-    gallerysonder: W(
-      ["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"],
-      ["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"],
-    ),
-    "mantis-landscaping": W(["renovate/staging-npm-sharp-vulnerability", "2026-10-19T12:00:00Z"]),
-    // The known-good pair: these two really were delivering that night.
+    "vida-legacy-foundation": {
+      ...W(["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"]),
+      ...STAGING_SHARP,
+    },
+    gallerysonder: {
+      ...W(["renovate/pnpm-12.x", "2026-09-22T12:00:00Z"]),
+      ...STAGING_SHARP,
+    },
+    // A staging SECURITY merge is no feature update, so it earns no note and
+    // the true reason, "never merged one", stands.
+    "mantis-landscaping": { ...W(), ...STAGING_SHARP },
+    // The known-good: alamo-anatomy really was delivering that night.
     "alamo-anatomy": W(["renovate/main-all-minor-patch", "2026-10-20T12:00:00Z"]),
-    "reddoor-website": W(["renovate/all-minor-patch", "2026-10-06T12:00:00Z"]),
+    // reddoor-website's 10-06 `renovate/all-minor-patch` merged into
+    // `staging` (its only Renovate base). Since #1686 the window keeps only
+    // merges into the default branch, so it arrives here counted, not listed.
+    "reddoor-website": {
+      merges: [],
+      offDefault: [{ headRef: "renovate/all-minor-patch", mergedAt: "2026-10-06T12:00:00Z" }],
+      truncated: false,
+    },
   };
   const outcomes = Object.fromEntries(
     Object.entries(RUN_39655255844).map(([repo, w]) => [repo, renovateOutcome(w, RUN_AT)]),
   );
 
-  it("the two repos that really delivered still read delivering", () => {
+  it("the repo that really delivered still reads delivering", () => {
     expect(outcomes["alamo-anatomy"]).toMatchObject({
       state: "delivering",
       lastBranch: "renovate/main-all-minor-patch",
     });
-    expect(outcomes["reddoor-website"]).toMatchObject({ state: "delivering" });
+  });
+
+  it("reddoor-website, whose merges go to staging, is unmeasured with a true reason (#1686)", () => {
+    const website = outcomes["reddoor-website"]!;
+    expect(website.state).toBe("unmeasured");
+    expect(renovateOutcomeLine(website)).toContain(
+      "1 feature-update Renovate merge went to a branch other",
+    );
+    expect(renovateOutcomeLine(website)).not.toContain("never merged");
   });
 
   it("the six false greens now read as what they are", () => {
@@ -645,7 +668,7 @@ describe("base-prefixed branches on the staging flow (#1673)", () => {
     expect(mantis.state).toBe("unmeasured");
     expect(renovateOutcomeLine(mantis)).toContain("never merged");
     expect(renovateOutcomeSummary(Object.values(outcomes))).toMatch(
-      /^RENOVATE_OUTCOME drought=5 delivering=2 unmeasured=1 /,
+      /^RENOVATE_OUTCOME drought=5 delivering=1 unmeasured=2 /,
     );
   });
 });
