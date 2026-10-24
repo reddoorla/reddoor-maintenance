@@ -110,12 +110,14 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
           ({ testModeUndeclared: true, healthUnreadable: "timed out after 10s" }) as never,
       },
     });
-    expect(hasFormE2eResult(r)).toBe(false);
+    expect(auditFields({ formE2e: formE2eResultFromAudit(r) })).toEqual({});
   });
 });
 
 describe("an unreadable /health in the nightly fleet write (#1698)", () => {
-  it("is a site that measured nothing, not a site the audit does not apply to", async () => {
+  it("writes nothing for the site and never counts toward the red gate", async () => {
+    // A refused probe is a warning in fleet-form-e2e.yml, deliberately never a
+    // threshold; the workflow names the site on its own unreadable line.
     // One of five sites times out twice; the other four submit and pass.
     const slugs = ["a", "b", "c", "d", "e"];
     const results = await Promise.all(
@@ -140,12 +142,8 @@ describe("an unreadable /health in the nightly fleet write (#1698)", () => {
       mirror: recordingMirror().mirror,
       expectedSites: slugs,
     });
-    expect(result.notApplicable ?? []).toEqual([]);
-    expect(result.failed).toEqual([
-      { slug: "a", error: `nothing measured: form-e2e: ${results[0]!.summary}` },
-    ]);
-    expect(result.written).toHaveLength(4);
-    // One unmeasured site of five is inside the gate's tolerance.
+    expect(result.failed).toEqual([]);
+    expect(result.written.map((w) => w.siteName)).toEqual(["b", "c", "d", "e"]);
     expect(fleetWriteGate(result).red).toBe(false);
   });
 });

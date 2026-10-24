@@ -433,8 +433,8 @@ function liveRunnerEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * - /health does not declare testMode → skip WITH details, but NO stamp: the form
  *   verdict is preserved and only `turnstileWidget` is written (null, clearing the
  *   value function-health used to keep alive in that column).
- * - /health could not be read → skip, NO details: both verdicts are preserved, and
- *   the fleet writer counts the site as measuring nothing (#1698).
+ * - /health could not be read → skip WITH details but no stamp and no
+ *   `turnstileWidget`: nothing is written, so both verdicts are preserved (#1698).
  * - no contact form → skip WITH details (ok:null + fresh checkedAt) → persisted as n/a.
  * - form submitted, success → pass (ok:"pass"); not success → warn (ok:"fail").
  */
@@ -473,14 +473,16 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       if (outcome.healthUnreadable !== undefined) {
         // An UNREADABLE /health is not an undeclared one: the site may declare
         // testMode and have earned its widget verdict, so one slow night must not
-        // wipe it (#1698). No details at all, so nothing is written and both
-        // verdicts keep ageing on their own stamp, and the fleet writer counts the
-        // site as measuring nothing, which its gate sees, rather than as n/a.
+        // wipe it (#1698). `turnstileWidget` is left out, which preserves it, and
+        // nothing is written: both verdicts keep ageing on their own stamp. The
+        // details stay, so the fleet writer does not count this refused probe
+        // toward its red gate, which fleet-form-e2e.yml keeps a warning by design.
         return {
           audit: "form-e2e",
           site: label,
           status: "skip",
           summary: formE2eHealthUnreadableSummary(outcome.healthUnreadable),
+          details: { checkedAt } satisfies FormE2eDetails,
         };
       }
       // Not n/a — the site may well have a form; it hasn't rolled out testMode
