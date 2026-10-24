@@ -46,14 +46,18 @@ export async function runDbCommand(
   if (action === "migrate") {
     const { readDbConfig } = await import("../../db/client.js");
     const cfg = opts.url ? { url: opts.url } : readDbConfig();
-    const { runMigrations } = await import("../../db/migrate.js");
+    const { runMigrations, healCockpitVersion } = await import("../../db/migrate.js");
     const { createClient } = await import("@libsql/client");
     const client = createClient(cfg.url === ":memory:" ? { url: ":memory:" } : cfg);
     const ran = await runMigrations(client);
-    return {
-      output: ran.length ? `Applied migrations: ${ran.join(", ")}` : "Already up to date.",
-      code: 0,
-    };
+    // A fresh store's 0048 has just made the row, so a heal here means a hand-run
+    // DELETE or DROP had taken it (#1692, #1702).
+    const healed = await healCockpitVersion(client);
+    const lines = [
+      ran.length ? `Applied migrations: ${ran.join(", ")}` : "Already up to date.",
+      ...(healed ? ["Restored the cockpit_version counter row (it was missing)."] : []),
+    ];
+    return { output: lines.join("\n"), code: 0 };
   }
 
   // Re-run every lead that dead-lettered during a site-lookup outage (#539
