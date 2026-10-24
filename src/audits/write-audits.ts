@@ -348,7 +348,8 @@ export type FleetWriteResult = {
   /** Sites whose audits ran and applied but had nothing new to write, so every verdict
    *  the row holds was kept (#1698: a form-e2e probe refused because the site's /health
    *  could not be read). Neither written, failed nor not applicable; counted in `total`,
-   *  named with each audit's reason, and red only when every owed site is one. */
+   *  named with each audit's reason. A night that wrote nothing is red, and its reason
+   *  says how many sites were kept and why. */
   kept?: Array<{ slug: string; reason: string }>;
   /** Sites the run resolved before prep that reached write-back with no result at all:
    *  dropped at prep, or lost between audit and write (#1605). Present only when the caller

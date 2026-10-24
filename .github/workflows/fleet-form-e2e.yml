@@ -133,7 +133,8 @@ jobs:
           # listed as undeclared (P1-68). It is counted and named apart, with its
           # reason, and still listed on the UNCOVERED line, because it is. Unlike an
           # undeclared site it writes nothing back: the writer names it as having
-          # kept its verdicts (#1698), and only a night where every site did reds.
+          # kept its verdicts (#1698); a night that wrote nothing reds, its reason
+          # naming the kept sites and why.
           # Anchored on the summary line formatTable indents under each site: the
           # writer's "kept their verdicts" line repeats an unreadable site's reason
           # (#1698), and an unanchored count read one site as two.
