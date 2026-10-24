@@ -100,7 +100,11 @@ async function runGate(opts: {
  *  Honouring that invariant is load-bearing here: it is precisely because
  *  `wrote=0` forces `failed=total` that the mass-flake gate accidentally covers
  *  every zero-write case EXCEPT `total=0`. */
-const writeSummary = (wrote: number, failed: number): string => fleetWriteOutput(wrote, failed);
+const writeSummary = (
+  wrote: number,
+  failed: number,
+  kept: Array<{ slug: string; reason: string }> = [],
+): string => fleetWriteOutput(wrote, failed, kept);
 
 /** One site's block as `formatTable` in src/cli/commands/audit.ts renders it:
  *  `audit` padded to 12, `status` padded to 5, the site, then the summary on the
@@ -280,6 +284,11 @@ describe("fleet-form-e2e — an unreadable /health is named as unreadable, not u
   /** A site whose /health could not be read, from the audit's own summary builder. */
   const unreadable = (site: string, reason = "timed out after 10s"): string =>
     resultBlock("skip", site, formE2eHealthUnreadableSummary(reason));
+  /** What the writer files such a site under (#1698): kept, with the audit's reason. */
+  const keptAs = (site: string, reason = "timed out after 10s") => ({
+    slug: site,
+    reason: `form-e2e: ${formE2eHealthUnreadableSummary(reason)}`,
+  });
 
   // 2026-10-22: vineyard-custom-homes declares testMode, its /health timed out, and
   // the run listed it beside 29-navy and caltex as "no forms.testMode declaration".
@@ -288,7 +297,7 @@ describe("fleet-form-e2e — an unreadable /health is named as unreadable, not u
       stdout:
         `${probed(SIX_COVERED.filter((s) => s !== "vineyard-custom-homes"))}\n` +
         `${selfSkips(["29-navy", "caltex"])}\n${unreadable("vineyard-custom-homes")}\n` +
-        `${writeSummary(8, 0)}\n`,
+        `${writeSummary(7, 0, [keptAs("vineyard-custom-homes")])}\n`,
       exit: 0,
     });
     expect(r.code).toBe(0);
@@ -310,7 +319,8 @@ describe("fleet-form-e2e — an unreadable /health is named as unreadable, not u
     const r = await runGate({
       stdout:
         `${unreadable("espada", "HTTP 503")}\n${probed(["1836dig"])}\n` +
-        `${unreadable("revogen")}\n${writeSummary(3, 0)}\n`,
+        `${unreadable("revogen")}\n` +
+        `${writeSummary(1, 0, [keptAs("espada", "HTTP 503"), keptAs("revogen")])}\n`,
       exit: 0,
     });
     expect(r.code).toBe(0);
@@ -327,14 +337,37 @@ describe("fleet-form-e2e — an unreadable /health is named as unreadable, not u
     expect(r.out).not.toContain("/health could not be read");
   });
 
-  it("still FAILS when no site was probed because every /health was unreadable", async () => {
+  it("still FAILS when no site was probed because every /health was unreadable, naming /health", async () => {
     const r = await runGate({
-      stdout: `${SIX_COVERED.map((s) => unreadable(s, "HTTP 503")).join("\n")}\n${writeSummary(6, 0)}\n`,
+      stdout:
+        `${SIX_COVERED.map((s) => unreadable(s, "HTTP 503")).join("\n")}\n` +
+        `${writeSummary(
+          0,
+          0,
+          SIX_COVERED.map((s) => keptAs(s, "HTTP 503")),
+        )}\n`,
       exit: 0,
     });
     expect(r.code).not.toBe(0);
-    expect(r.out).toContain("FLEET_FORM_E2E probed=0");
-    expect(r.out).toContain("::error::fleet form-e2e probed no site end to end");
+    // Counted once each, though the writer's kept line repeats the reason (#1698).
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=0 unreadable=6 total=6");
+    // The write gate reds first, and its reason names the cause, not "not applicable".
+    const error = r.out.split("\n").find((l) => l.startsWith("::error::")) ?? "";
+    expect(error).toContain("had nothing new to write and kept its verdicts");
+    expect(error).toContain("/health could not be read");
+    expect(error).not.toContain("not applicable");
+  });
+
+  it("counts each unreadable site once beside the writer's kept line (#1698)", async () => {
+    const r = await runGate({
+      stdout:
+        `${probed(SIX_COVERED.filter((s) => s !== "vineyard-custom-homes"))}\n` +
+        `${unreadable("vineyard-custom-homes")}\n` +
+        `${writeSummary(5, 0, [keptAs("vineyard-custom-homes")])}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=0 unreadable=1 total=6");
   });
 });
 

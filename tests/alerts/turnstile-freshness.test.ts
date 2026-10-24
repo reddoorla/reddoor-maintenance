@@ -4,6 +4,9 @@ import { auditFields } from "../../src/fleet/site-fields.js";
 import { formE2eResultFromAudit, hasFormE2eResult } from "../../src/audits/form-e2e-fields.js";
 import { formE2eAudit } from "../../src/audits/form-e2e.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { websiteRowsFrom } from "../_helpers/raw-rows.js";
+import { recordingMirror } from "../_helpers/recording-mirror.js";
+import { writeFleetAudits, fleetWriteGate } from "../../src/audits/write-audits.js";
 
 const NOW = new Date("2026-09-10T00:00:00.000Z");
 const FRESH = "2026-09-09T10:15:00.000Z";
@@ -62,6 +65,7 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
     ["submitted and failed", { formPresent: true, success: false }],
     ["no contact form (n/a)", { formPresent: false }],
     ["testMode undeclared", { testModeUndeclared: true }],
+    ["/health unreadable", { testModeUndeclared: true, healthUnreadable: "timed out after 10s" }],
   ];
 
   it.each(EXITS)("%s: writes the stamp only alongside a verdict", async (_label, outcome) => {
@@ -93,5 +97,56 @@ describe("verdict and stamp are written together, on every form-e2e exit", () =>
     const fields = auditFields({ formE2e: formE2eResultFromAudit(r) });
     expect(Object.keys(fields)).toEqual(["Turnstile widget"]);
     expect(fields["Turnstile widget"]).toBeNull();
+  });
+
+  it("an unreadable /health writes nothing, so a declared site keeps its verdict (#1698)", async () => {
+    // The site may well declare testMode; its /health just did not answer. A
+    // verdict it earned stays, and keeps ageing on its own unrefreshed stamp.
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: {
+        submit: async () =>
+          ({ testModeUndeclared: true, healthUnreadable: "timed out after 10s" }) as never,
+      },
+    });
+    expect(auditFields({ formE2e: formE2eResultFromAudit(r) })).toEqual({});
+  });
+});
+
+describe("an unreadable /health in the nightly fleet write (#1698)", () => {
+  it("writes nothing for the site and never counts toward the red gate", async () => {
+    // A refused probe is a warning in fleet-form-e2e.yml, deliberately never a
+    // threshold; the workflow names the site on its own unreadable line.
+    // One of five sites times out twice; the other four submit and pass.
+    const slugs = ["a", "b", "c", "d", "e"];
+    const results = await Promise.all(
+      slugs.map((slug, i) =>
+        formE2eAudit({
+          site: { path: `/${slug}`, name: slug, deployedUrl: `https://${slug}.example.com` },
+          now: NOW,
+          formRunner: {
+            submit: async () =>
+              (i === 0
+                ? { testModeUndeclared: true, healthUnreadable: "timed out after 10s" }
+                : { formPresent: true, success: true }) as never,
+          },
+        }),
+      ),
+    );
+    const result = await writeFleetAudits({
+      websites: websiteRowsFrom(
+        slugs.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+      ),
+      results,
+      mirror: recordingMirror().mirror,
+      expectedSites: slugs,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.written.map((w) => w.siteName)).toEqual(["b", "c", "d", "e"]);
+    // Neither written nor "not applicable": it kept its verdicts, and says why.
+    expect(result.notApplicable).toEqual([]);
+    expect(result.kept).toEqual([{ slug: "a", reason: `form-e2e: ${results[0]!.summary}` }]);
+    expect(fleetWriteGate(result).red).toBe(false);
   });
 });

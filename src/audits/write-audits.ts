@@ -345,6 +345,12 @@ export type FleetWriteResult = {
   /** Sites every one of whose audits said "not applicable here" (#1605): neither written nor
    *  failed, and counted in `total` so a skip by design is visible rather than absent. */
   notApplicable?: string[];
+  /** Sites whose audits ran and applied but had nothing new to write, so every verdict
+   *  the row holds was kept (#1698: a form-e2e probe refused because the site's /health
+   *  could not be read). Neither written, failed nor not applicable; counted in `total`,
+   *  named with each audit's reason. A night that wrote nothing is red, and its reason
+   *  says how many sites were kept and why. */
+  kept?: Array<{ slug: string; reason: string }>;
   /** Sites the run resolved before prep that reached write-back with no result at all:
    *  dropped at prep, or lost between audit and write (#1605). Present only when the caller
    *  passed `expectedSites`. */
@@ -390,6 +396,7 @@ function fleetWriteTotal(result: FleetWriteResult): number {
     result.written.length +
     result.failed.length +
     (result.notApplicable?.length ?? 0) +
+    (result.kept?.length ?? 0) +
     (result.missing?.length ?? 0)
   );
 }
@@ -407,6 +414,20 @@ function permanentFailures(result: FleetWriteResult): string[] {
 }
 
 export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
+
+/** The kept sites grouped by what their audits said, each reason once with the
+ *  sites that gave it (the first five of them), so a red line names its cause
+ *  without repeating it for every site of the fleet. */
+function keptList(kept: Array<{ slug: string; reason: string }>): string {
+  const byReason = new Map<string, string[]>();
+  for (const k of kept) byReason.set(k.reason, [...(byReason.get(k.reason) ?? []), k.slug]);
+  return [...byReason]
+    .map(([reason, slugs]) => {
+      const more = slugs.length > 5 ? ` and ${slugs.length - 5} more` : "";
+      return `${reason}: ${slugs.slice(0, 5).join(", ")}${more}`;
+    })
+    .join("; ");
+}
 
 /** The write gate's verdict, computed here rather than in five copies of workflow bash.
  *  The CLI's exit code cannot carry it: a site whose audit reports `fail` exits 1 by design,
@@ -428,11 +449,16 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   const owed = total - (result.notApplicable?.length ?? 0);
   // A sweep where every site said "not applicable" established nothing either; it is
   // red, under its own name rather than as a write failure.
+  const kept = result.kept ?? [];
   if (wrote === 0) {
     reasons.push(
       owed === 0 && total > 0
         ? `every one of ${total} site(s) was not applicable: nothing was measured`
-        : `wrote 0 of ${total} site(s)`,
+        : kept.length > 0 && kept.length === owed
+          ? `every one of ${owed} site(s) had nothing new to write and kept its verdicts — ${keptList(kept)}`
+          : kept.length > 0
+            ? `wrote 0 of ${total} site(s): ${kept.length} had nothing new to write and kept their verdicts — ${keptList(kept)}`
+            : `wrote 0 of ${total} site(s)`,
     );
   }
   const short = failed + missing.length;
@@ -486,6 +512,12 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
       .join("; ")}`;
   }
   if (na.length > 0) out += `\n· ${na.length} site(s) not applicable: ${na.join(", ")}`;
+  const kept = result.kept ?? [];
+  if (kept.length > 0) {
+    out += `\n· ${kept.length} site(s) kept their verdicts, nothing new to write: ${kept
+      .map((k) => `${k.slug} (${k.reason})`)
+      .join("; ")}`;
+  }
   for (const [audit, sites] of Object.entries(result.notApplicableAudits ?? {})) {
     if (sites && sites.length > 0) {
       out += `\n· ${audit} not applicable by design on ${sites.length} site(s): ${sites.join(", ")}`;
@@ -501,7 +533,7 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
     out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;
     out += ` mirror_missed=${result.mirrorMissed ?? 0}`;
   }
-  out += ` na=${na.length} missing=${missing.length}`;
+  out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;
   const gate = fleetWriteGate(result);
   out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
   for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${r}`;
@@ -543,6 +575,7 @@ export async function writeFleetAudits(args: {
   let mirrorFailed = 0;
   let mirrorMissed = 0;
   const notApplicable: string[] = [];
+  const kept: Array<{ slug: string; reason: string }> = [];
   const unmeasuredAudits: Partial<Record<string, string[]>> = {};
   const applicableAudits: Partial<Record<string, string[]>> = {};
   const notApplicableAudits: Partial<Record<AuditName, string[]>> = {};
@@ -580,7 +613,14 @@ export async function writeFleetAudits(args: {
     // is counted as such; one whose audits measured nothing is a failure, named by what each
     // audit said, and never `written` with its row still serving last month's verdict.
     if (!hasFields && !plan.lighthouseMiss) {
-      if (plan.unmeasured.length === 0) {
+      // An audit that applied, ran and still had nothing to write kept the row's
+      // verdicts (#1698); only a site whose every audit said n/a is not applicable.
+      const ranEmpty = siteResults.filter(
+        (r) => PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true,
+      );
+      if (plan.unmeasured.length === 0 && ranEmpty.length > 0) {
+        kept.push({ slug, reason: ranEmpty.map((r) => `${r.audit}: ${r.summary}`).join("; ") });
+      } else if (plan.unmeasured.length === 0) {
         notApplicable.push(slug);
       } else {
         failed.push({
@@ -623,6 +663,7 @@ export async function writeFleetAudits(args: {
     failed,
     events,
     notApplicable,
+    kept,
     unmeasuredAudits,
     applicableAudits,
     notApplicableAudits,

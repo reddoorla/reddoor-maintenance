@@ -523,3 +523,75 @@ describe("review round 2", () => {
     });
   });
 });
+
+describe("#1698: a site that ran and had nothing new to write kept its verdicts", () => {
+  const unread = (site: string): AuditResult => ({
+    audit: "form-e2e",
+    site,
+    status: "skip",
+    summary: "site /health could not be read (timed out after 10s) — probe refused",
+    details: { checkedAt: CHECKED_AT },
+  });
+
+  it("is named as kept, not written, failed or not applicable, and stays green", async () => {
+    const { result, out } = await sweep({
+      n: 4,
+      expected: 4,
+      results: (s, i) => [i === 0 ? unread(s) : measured("form-e2e", s)],
+    });
+    expect(result.written).toHaveLength(3);
+    expect(result.failed).toEqual([]);
+    expect(result.notApplicable).toEqual([]);
+    expect(result.kept).toEqual([{ slug: "site-0", reason: `form-e2e: ${unread("x").summary}` }]);
+    expect(out).toContain(
+      `· 1 site(s) kept their verdicts, nothing new to write: site-0 (form-e2e: ${unread("x").summary})`,
+    );
+    expect(out).toContain("FLEET_WRITE_SUMMARY wrote=3 failed=0 total=4");
+    expect(out).toContain(" kept=1");
+    expect(fleetWriteGate(result)).toEqual({ red: false, reasons: [], warnings: [] });
+  });
+
+  it("every site kept is red, under a reason that names what the audits said", async () => {
+    const { result } = await sweep({ n: 7, expected: 7, results: (s) => [unread(s)] });
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(true);
+    expect(gate.reasons).toHaveLength(1);
+    // Each reason once, with the sites that gave it.
+    expect(gate.reasons[0]).toBe(
+      `every one of 7 site(s) had nothing new to write and kept its verdicts — ` +
+        `form-e2e: ${unread("x").summary}: site-0, site-1, site-2, site-3, site-4 and 2 more`,
+    );
+  });
+
+  it("a night that wrote nothing, mostly kept, says so rather than blaming the store", async () => {
+    // Seven sites' /health unreadable and one runner that threw: on main this night
+    // wrote seven nulls; here it writes nothing, and must not read as a Turso outage.
+    const { result } = await sweep({
+      n: 8,
+      expected: 8,
+      results: (s, i) =>
+        i === 7
+          ? [blind("form-e2e", s, "browserType.launch: Timeout 30000ms exceeded", "fail")]
+          : [unread(s)],
+    });
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(true);
+    expect(gate.reasons[0]).toBe(
+      `wrote 0 of 8 site(s): 7 had nothing new to write and kept their verdicts — ` +
+        `form-e2e: ${unread("x").summary}: site-0, site-1, site-2, site-3, site-4 and 2 more`,
+    );
+  });
+
+  it("a site whose every audit said not applicable is still not applicable", async () => {
+    const { result } = await sweep({
+      n: 2,
+      expected: 2,
+      results: (s, i) =>
+        i === 0
+          ? [measured("smoke", s)]
+          : [{ ...blind("smoke", s, "no test:smoke script"), notApplicable: true }],
+    });
+    expect(result.notApplicable).toEqual(["site-1"]);
+    expect(result.kept).toEqual([]);
+  });
+});
