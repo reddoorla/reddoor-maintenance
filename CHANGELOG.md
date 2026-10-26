@@ -1,5 +1,14 @@
 # @reddoorla/maintenance
 
+## 0.111.1
+
+### Patch Changes
+
+- 1ac697d: The cockpit says when its snapshot is out of date. An open, visible cockpit asks the store's change counter (`/api/cockpit/version`, migration `0048_cockpit_version`, kept by triggers on every table the snapshot reads) on focus, on returning to the tab and once a minute. When the counter has moved, a notice offers a reload, and the next navigation is a full load. The page never changes under the operator. A check that finds the session ended marks the next navigation as a full load, which goes to sign-in. `db dump` now writes indexes and triggers after the rows, as `sqlite3 .dump` does, so a trigger cannot fire on a restore's replayed inserts.
+- 6f1a466: `sync-configs --fleet turso --dry` reports a roster row whose Status is outside the vocabulary (a retired name like `maintenance`) as `SKIPPED … status "maintenance" is not in the vocabulary`, where before the row was silently dropped: such rows now count toward `total` and the weekly drift run's skipped-share gate (#1607). The weekly run also goes red when found drift reached no issue: `gh issue create` failed, or both rewriting and commenting on the open issue failed. The new `rowsWithUnrecognizedStatus` and the `onUnrecognizedStatus` option of `fromTursoDb`/`resolveSites` expose the dropped rows to any sweep.
+- 8ed1488: form-e2e no longer calls an unreadable `/health` "does not declare forms.testMode" (P1-68). On 2026-10-22 vineyard-custom-homes, whose `/health` hardcodes `testMode: true`, timed out once at the 10 s limit and was listed as undeclared beside the two sites that have no form. The preflight now reads an unreadable `/health` (timeout, network error, non-2xx, a body that is not a JSON object) once more before refusing, and a refusal that stands is a skip naming why: `site /health could not be read (timed out after 10s) — probe refused, so this site was not probed`. The submit is still refused either way. fleet-form-e2e counts these as `unreadable=N` with their own warning naming each site and reason, keeps them on the `FLEET_FORM_E2E_UNCOVERED` line, and keeps them out of the undeclared warning.
+- 9f21421: An alert dismissed in Dependabot stays dismissed on the security audit's cross-check (#1659). When the cross-check (#1612) finds a live advisory in `pnpm audit`'s output, the audit reads the repo's dismissed and auto-dismissed Dependabot alerts and leaves out a pnpm advisory that a dismissal on a root lockfile, the root `package.json` or no manifest names: same package, and a GHSA on both sides or a CVE on both, never a title. Its count comes off as pnpm's own number of findings (one per installed version), and nothing comes off for an `info` advisory. The summary, or the run log when nothing live is left, says how many were left out. A dismissed list that cannot be read leaves nothing out, and `npm audit`'s answer is never thinned.
+
 ## 0.111.0
 
 ### Minor Changes
