@@ -27,7 +27,6 @@ import {
   buildCockpitModel,
   buildNeedsYouFeed,
   buildSiteAlarmContext,
-  isFailedDeployStatus,
   type NeedsYouItem,
 } from "../src/dashboard/fleet-cockpit.js";
 import { resolveDashboardBaseUrl } from "../src/dashboard/handler-helpers.js";
@@ -43,6 +42,7 @@ import {
   directVulnEscalatesAt,
   transitiveVulnEscalatesAt,
 } from "../src/alerts/waiting.js";
+import { levelOf } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 
@@ -166,7 +166,12 @@ export type PmEntry = {
   hasCritical: boolean;
 };
 
-const GROUP_RANK: Record<NeedsYouItem["group"], number> = { broken: 0, watch: 1, approval: 2 };
+const GROUP_RANK: Record<NeedsYouItem["group"], number> = {
+  broken: 0,
+  attention: 1,
+  watch: 2,
+  approval: 3,
+};
 
 export function comparePmEntries(a: PmEntry, b: PmEntry): number {
   if (GROUP_RANK[a.group] !== GROUP_RANK[b.group]) return GROUP_RANK[a.group] - GROUP_RANK[b.group];
@@ -259,30 +264,8 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     };
   });
 
-  for (const card of model.cards) {
-    if (card.tier !== "broken" || card.site.status === "launching") continue;
-    if (!isFailedDeployStatus(card.site.deployStatus)) continue;
-    const slug = siteSlug(card.site.name);
-    const reason: DatedReason = {
-      text: `latest production deploy ${card.site.deployStatus ?? "failed"}`,
-      day: null,
-      how: null,
-    };
-    const e = entries.find((x) => x.slug === slug);
-    if (e) {
-      e.reasons.push(reason);
-      e.group = "broken";
-    } else
-      entries.push({
-        group: "broken",
-        siteName: card.site.name,
-        slug,
-        url: `/s/${slug}`,
-        reasons: [reason],
-        isNew: false,
-        hasCritical: false,
-      });
-  }
+  // P1-78b: a failed deploy is a `deploy:` item on its card, so the feed above names
+  // it, dated by the digest snapshot. The loop that added it here, undated, is gone.
 
   for (const it of model.cardless ?? []) {
     if (it.waiting === true) continue;
@@ -293,14 +276,17 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     // other cardless item, and a dead letter for a slug no site owns, has no page.
     const slug = it.kind === "deadletter" && it.url ? it.key.slice("deadletter:".length) : "";
     const e = slug ? entries.find((x) => x.slug === slug) : undefined;
+    // P1-78b: a cardless item keeps its own level (an unknown-slug dead letter is
+    // Broken, the fleet-wide url-probe-stale is Attention), and raises a row it joins.
+    const level = it.level ?? levelOf(it, inputs.prior[it.key]?.firstFlaggedAt, now);
     if (e) {
       e.reasons.push(reason);
-      e.group = "broken";
+      if (GROUP_RANK[level] < GROUP_RANK[e.group]) e.group = level;
       e.isNew = isNew(e.reasons);
       e.hasCritical ||= it.severity === "critical";
     } else
       entries.push({
-        group: "broken",
+        group: level,
         siteName: it.siteName,
         slug,
         url: slug ? `/s/${slug}` : "(no site page)",
@@ -356,7 +342,7 @@ export function formatPmCockpit(pm: PmCockpit): string {
   const sinceField =
     pm.since !== null ? ` new=${all.filter((e) => e.isNew).length} since=${pm.since}` : "";
   const out = [
-    `PM_COCKPIT_SUMMARY broken=${count("broken")} watch=${count("watch")} approval=${count("approval")} setup=${pm.setup.length} sites=${pm.sites}${sinceField}`,
+    `PM_COCKPIT_SUMMARY broken=${count("broken")} attention=${count("attention")} watch=${count("watch")} approval=${count("approval")} setup=${pm.setup.length} sites=${pm.sites}${sinceField}`,
     `now=${pm.now} just_wait_left_out=${pm.waitingKeys.length}`,
     "",
     `## Needs you (${pm.needsYou.length})`,

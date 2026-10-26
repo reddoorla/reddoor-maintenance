@@ -178,7 +178,7 @@ describe("assignTier — roster identity a sweep needs (#889)", () => {
       metric: 1,
     };
     const r = assignTier(beachfrontShape({ gitRepo: null }), [ci], NOW);
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.setup).toEqual([REPO_ITEM, NETLIFY_ITEM]);
     expect(r.watchSignals).toEqual([]);
     expect(r.watchReasons).toEqual([]);
@@ -190,7 +190,7 @@ describe("assignTier — roster identity a sweep needs (#889)", () => {
       [ci],
       NOW,
     );
-    expect(acked.tier).toBe("broken");
+    expect(acked.tier).toBe("attention");
     expect(acked.setup).toEqual([REPO_ITEM]);
     expect(acked.acceptedReasons).toEqual([]);
   });

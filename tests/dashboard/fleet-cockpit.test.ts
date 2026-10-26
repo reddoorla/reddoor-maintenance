@@ -138,7 +138,7 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
 describe("assignTier", () => {
   it("is 'attention' when the site has any attention item", () => {
     const r = assignTier(site(), [item()], NOW);
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.watchReasons).toEqual([]);
   });
 
@@ -170,12 +170,14 @@ describe("assignTier", () => {
       [item({ kind: "lighthouse", severity: "warning" })],
       NOW,
     );
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
   });
 
-  it("is 'attention' when the latest production deploy failed (no other items)", () => {
-    expect(assignTier(site({ deployStatus: "error" }), [], NOW).tier).toBe("broken");
-    expect(assignTier(site({ deployStatus: "failed" }), [], NOW).tier).toBe("broken");
+  it("is 'broken' when the latest production deploy failed, which arrives as a deploy: item (P1-78b)", () => {
+    const deploy = item({ key: "deploy:recSITE", kind: "deploy", severity: "warning" });
+    expect(assignTier(site({ deployStatus: "error" }), [deploy], NOW).tier).toBe("broken");
+    // The flag alone no longer tiers: the item carries it, dated, so it is never counted twice.
+    expect(assignTier(site({ deployStatus: "failed" }), [], NOW).tier).toBe("healthy");
   });
 
   it("does NOT escalate a ready / building / unknown deploy to attention", () => {
@@ -230,7 +232,7 @@ describe("assignTier", () => {
     expect(assignTier(site({ status: "launching" }), [item()], NOW).tier).toBe("pre-launch");
     expect(
       assignTier(site({ status: "launching" }), [item({ autoFixExhausted: true })], NOW).tier,
-    ).toBe("broken");
+    ).toBe("attention");
   });
 
   it("default-branch CI red pierces the pre-launch mute despite its warning severity", () => {
@@ -239,7 +241,7 @@ describe("assignTier", () => {
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
       NOW,
     );
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
   });
 
   it("accept keys can never mute a pierced pre-launch alarm", () => {
@@ -253,7 +255,7 @@ describe("assignTier", () => {
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
       NOW,
     );
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
   });
 
   it("routes an accepted Lighthouse watch category to acceptedReasons and stays healthy", () => {
@@ -319,7 +321,7 @@ describe("assignTier", () => {
     const s = acked({ prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle` });
     const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
     expect(card.items.map((i) => i.key)).toEqual([`prismic-drift:${s.id}`]);
-    expect(card.tier).toBe("broken");
+    expect(card.tier).toBe("attention");
     expect(card.acceptedReasons).toEqual([]);
   });
 
@@ -559,7 +561,7 @@ describe("assignTier", () => {
 
   it("returns empty acceptedReasons when the site has attention items", () => {
     const r = assignTier(site({ acceptedWatchConditions: ["Best Practices"] }), [item()], NOW);
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.acceptedReasons).toEqual([]);
   });
 });
@@ -746,10 +748,10 @@ describe("buildCockpitModel", () => {
     );
     const bad = m.cards.find((c) => c.site.name === "Bad")!;
     const good = m.cards.find((c) => c.site.name === "Good")!;
-    expect(bad.tier).toBe("broken");
+    expect(bad.tier).toBe("attention");
     expect(bad.items).toHaveLength(1);
     expect(good.tier).toBe("healthy");
-    expect(m.summary).toMatchObject({ broken: 1, healthy: 1, criticalHighVulns: 3 });
+    expect(m.summary).toMatchObject({ broken: 0, attention: 1, healthy: 1, criticalHighVulns: 3 });
   });
 
   it("surfaces bounced lead notifications as a CRITICAL item (notify-bounce wiring)", () => {
@@ -1031,7 +1033,7 @@ describe("buildCockpitModel", () => {
     expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
   });
 
-  it("an EXHAUSTED vuln on a launch-period site reaches the broken band, critical-first", () => {
+  it("an EXHAUSTED vuln on a launch-period site pierces the mute into the attention band, critical-first (P1-78b)", () => {
     const m = buildCockpitModel(
       [
         site({
@@ -1047,10 +1049,10 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.find((c) => c.site.name === "Launching")!.tier).toBe("broken");
+    expect(m.cards.find((c) => c.site.name === "Launching")!.tier).toBe("attention");
     const feed = buildNeedsYouFeed(m);
     const row = feed.find((r) => r.siteName === "Launching")!;
-    expect(row.group).toBe("broken");
+    expect(row.group).toBe("attention");
     expect(row.hasCritical).toBe(true);
   });
 
@@ -1071,7 +1073,7 @@ describe("buildCockpitModel", () => {
       NOW,
     );
     const card = m.cards.find((c) => c.site.name === "Launching")!;
-    expect(card.tier).toBe("broken");
+    expect(card.tier).toBe("attention");
     expect(card.items).toHaveLength(1);
     expect(card.items[0]!.kind).toBe("ci");
   });
@@ -1102,7 +1104,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    const attn = m.cards.filter((c) => c.tier === "broken").map((c) => c.site.name);
+    const attn = m.cards.filter((c) => c.tier === "attention").map((c) => c.site.name);
     expect(attn).toEqual(["CritHigh", "CritLow", "WarnOnly"]);
   });
 
@@ -1119,7 +1121,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.map((c) => c.tier)).toEqual(["broken", "watch", "healthy", "healthy"]);
+    expect(m.cards.map((c) => c.tier)).toEqual(["attention", "watch", "healthy", "healthy"]);
     expect(m.cards.map((c) => c.site.name)).toEqual(["Bad", "Mid", "Alpha", "Zeta"]);
   });
 
@@ -1202,7 +1204,7 @@ describe("assignTier — structured watchSignals", () => {
 describe("assignTier — an attention site still carries its watch tags (#941)", () => {
   it("an attention item keeps tier 'attention' on a site with a Setup gap, and the gap stays on Setup (#672 step 2)", () => {
     const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [item()], NOW);
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.setup.map((i) => i.signal)).toEqual(["no-analytics"]);
     expect(r.watchSignals).toEqual([]);
     // Tier-scoped fields stay empty: the card is not on Watch, and nothing that
@@ -1214,7 +1216,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
 
   it("an attention item keeps tier 'attention' and tags a stale repo", () => {
     const r = assignTier(site({ lastCommitAt: "2026-04-01T00:00:00Z" }), [item()], NOW);
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.watchSignals).toEqual(["stale"]);
     expect(r.watchReasons).toEqual([]);
   });
@@ -1232,10 +1234,10 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
     expect(r.watchReasons).toEqual([]);
   });
 
-  it("a failed deploy keeps tier 'attention' and a Setup gap stays on Setup", () => {
+  it("a failed deploy keeps tier 'broken' and a Setup gap stays on Setup", () => {
     const r = assignTier(
       site({ status: "maintained", url: "https://acme.netlify.app", deployStatus: "error" }),
-      [],
+      [item({ key: "deploy:recSITE", kind: "deploy", severity: "warning" })],
       NOW,
     );
     expect(r.tier).toBe("broken");
@@ -1254,7 +1256,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       [item()],
       NOW,
     );
-    expect(r.tier).toBe("broken");
+    expect(r.tier).toBe("attention");
     expect(r.watchSignals).toEqual([]);
     expect(r.setup).toEqual([]);
   });
@@ -1278,20 +1280,20 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       NOW,
     );
     const broken = m.cards.find((c) => c.site.name === "Broken")!;
-    expect(broken.tier).toBe("broken");
+    expect(broken.tier).toBe("attention");
     expect(broken.setup?.map((i) => i.signal)).toEqual(["search-console-no-property"]);
     expect(broken.watchReasons).toEqual([]);
-    expect(m.summary).toMatchObject({ broken: 1, watch: 0, healthy: 1 });
+    expect(m.summary).toMatchObject({ broken: 0, attention: 1, watch: 0, healthy: 1 });
     expect(m.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
-    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.group).toBe("attention");
     expect(feed[0]!.reasons.some((r) => r.startsWith("Search Console"))).toBe(false);
   });
 });
 
 describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
-  it("tiers a Renovate-failing site and a CI-red site as attention, and counts them", () => {
+  it("tiers a day-one Renovate-failing site as watch and a CI-red site as attention, and counts them (P1-78b)", () => {
     const m = buildCockpitModel(
       [
         site({ id: "a", name: "Reno", renovateFailingCis: 2 }),
@@ -1302,9 +1304,15 @@ describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.find((c) => c.site.name === "Reno")!.tier).toBe("broken");
-    expect(m.cards.find((c) => c.site.name === "CiRed")!.tier).toBe("broken");
-    expect(m.summary).toMatchObject({ renovateFailing: 2, ciRed: 1, broken: 2 });
+    expect(m.cards.find((c) => c.site.name === "Reno")!.tier).toBe("watch");
+    expect(m.cards.find((c) => c.site.name === "CiRed")!.tier).toBe("attention");
+    expect(m.summary).toMatchObject({
+      renovateFailing: 2,
+      ciRed: 1,
+      broken: 0,
+      attention: 1,
+      watch: 1,
+    });
   });
 
   it("uses lastCommitAt (not audit age) for Watch staleness; null commit is not stale", () => {
@@ -1377,6 +1385,7 @@ describe("fleetLastAuditedAt", () => {
 
 const ZERO_SUMMARY: CockpitSummary = {
   broken: 0,
+  attention: 0,
   watch: 0,
   healthy: 0,
   preLaunch: 0,
@@ -1473,17 +1482,15 @@ describe("buildNeedsYouFeed", () => {
     });
     expect(feed[0]!.reasons).toEqual(["CI red", "reports failing to send"]);
   });
-  it("routes a self-patching vuln to watch and an exhausted vuln to broken", () => {
-    const inflight = buildNeedsYouFeed(
-      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: false })])] }),
-    );
-    expect(inflight).toHaveLength(1);
-    expect(inflight[0]!.group).toBe("watch");
-    const stuck = buildNeedsYouFeed(
-      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: true })])] }),
-    );
-    expect(stuck).toHaveLength(1);
-    expect(stuck[0]!.group).toBe("broken");
+  it("a vuln that reaches the card is Attention, exhausted or not, never a red card in the watch group (P1-78b)", () => {
+    for (const exhausted of [false, true]) {
+      const v = vuln("Acme", { exhausted });
+      const tier = assignTier(site({ name: "Acme" }), [v], NOW).tier;
+      expect(tier).toBe("attention");
+      const feed = buildNeedsYouFeed(feedModel({ cards: [{ ...attnCard("Acme", [v]), tier }] }));
+      expect(feed).toHaveLength(1);
+      expect(feed[0]!.group).toBe("attention");
+    }
   });
   it("keeps a hard-broken site broken and still names its escalated vuln", () => {
     const feed = buildNeedsYouFeed(

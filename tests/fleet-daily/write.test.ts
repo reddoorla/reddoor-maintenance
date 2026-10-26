@@ -278,9 +278,9 @@ describe("a full night", () => {
     });
   });
 
-  it("writes ladder version 0 until the ladder ships", async () => {
+  it("writes ladder version 1, the severity ladder (P1-78b)", async () => {
     await write(NIGHT_RUN, FULL_LOG);
-    expect((await only()).ladderVersion).toBe(0);
+    expect((await only()).ladderVersion).toBe(1);
   });
 
   it("a re-run of the same night replaces the row, never adds one", async () => {

@@ -262,6 +262,11 @@ button.unapprove:disabled {
   background: #fff4e5;
   color: #a65a00;
 }
+.pill.attention {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
 .pill.broken {
   background: #fdecea;
   color: #b00;

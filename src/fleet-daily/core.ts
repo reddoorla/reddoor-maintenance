@@ -325,5 +325,5 @@ export function addCounts(
   return out;
 }
 
-/** The ladder version this build writes. P1-78b moves it to 1. */
-export const LADDER_VERSION = 0;
+/** The ladder version this build writes: 1 since P1-78b put the cockpit on the severity ladder. */
+export const LADDER_VERSION = 1;

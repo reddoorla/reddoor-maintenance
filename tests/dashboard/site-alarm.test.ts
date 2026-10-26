@@ -45,12 +45,12 @@ describe("loadSiteAlarmContext reads the digest snapshot the cockpit reads", () 
   it("the same vuln first flagged weeks ago is an alarm (positive control)", async () => {
     await writeDigestState(db, { "vuln:recA": { metric: 1, firstFlaggedAt: "2026-09-01" } });
     const alarm = (await load())!;
-    expect(alarm.tier).toBe("broken");
+    expect(alarm.tier).toBe("attention");
     expect(alarm.items.map((i) => [i.key, i.waiting])).toEqual([["vuln:recA", undefined]]);
   });
 
   it("with no snapshot row, nothing waits", async () => {
-    expect((await load())!.tier).toBe("broken");
+    expect((await load())!.tier).toBe("attention");
   });
 });
 

@@ -296,6 +296,35 @@ export function collectDeliveryFailures(
   return items;
 }
 
+/** Netlify deploy states that mean the latest production build failed. */
+const FAILED_DEPLOY_STATES: ReadonlySet<string> = new Set(["error", "failed", "rejected"]);
+
+/**
+ * P1-78b. One Broken item per **maintained** site whose latest production deploy
+ * failed: its new content never ships. Maintained only, because a site still being
+ * built often has a failed deploy (the cockpit's pre-launch mute), and the digest's
+ * collectors have no mute of their own. An item, not only a card flag, so the
+ * digest dates it and the triage feed gives it a row and an age. PURE.
+ */
+export function collectDeployAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    if (s.status !== "maintained") continue;
+    const state = s.deployStatus;
+    if (state === null || !FAILED_DEPLOY_STATES.has(state.toLowerCase())) continue;
+    items.push({
+      key: `deploy:${s.id}`,
+      kind: "deploy",
+      siteName: s.name,
+      title: `latest production deploy ${state}`,
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  return items;
+}
+
 /**
  * One attention item per site carrying failing Renovate PRs, read from the
  * slice-2a-persisted `renovateFailingCis` field (the nightly github-signals sweep

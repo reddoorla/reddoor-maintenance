@@ -83,6 +83,12 @@
   background: #fdecea;
   color: #b00;
 }
+/* P1-78b: interim until P1-78e's tokens, a dark outline, never red. */
+.pill.attention {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
 .pill.watch {
   background: #fff4e5;
   color: #a65a00;

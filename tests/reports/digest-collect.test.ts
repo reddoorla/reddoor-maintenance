@@ -62,6 +62,26 @@ function bouncedReport(): RawRow {
 }
 
 describe("collectAttention", () => {
+  it("mails a maintained site's failed production deploy, and never a launching site's (P1-78b)", async () => {
+    const row = (id: string, status: string): RawRow => ({
+      id,
+      fields: {
+        Name: id,
+        url: `https://${id}.example.com`,
+        Status: status,
+        "Deploy status": "error",
+        "URL Resolves": "pass",
+        "URL Checked At": new Date().toISOString(),
+      },
+    });
+    const tables = {
+      Reports: [],
+      Websites: [row("live", "maintained"), row("early", "launching")],
+    };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    expect(items.filter((i) => i.kind === "deploy").map((i) => i.key)).toEqual(["deploy:live"]);
+  });
+
   it("builds sitesById and merges both collectors' items", async () => {
     const tables = { Reports: [bouncedReport()], Websites: [vulnSite()] };
     const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });

@@ -73,7 +73,7 @@ describe("buildSiteAlarmContext", () => {
       NO_DEADLETTERS,
       escalated("a"),
     );
-    expect(alarm.tier).toBe("broken");
+    expect(alarm.tier).toBe("attention");
     expect(alarm.items).toHaveLength(1);
     expect(alarm.items[0]!.kind).toBe("vuln");
   });
@@ -99,7 +99,7 @@ describe("buildSiteAlarmContext", () => {
       buildSiteAlarmContext(s, [], BASE, now, NO_BOUNCES, NO_DEADLETTERS, prior).tier;
     const cockpit = (now: Date) => buildCockpitModel([s], [], prior, BASE, now).cards[0]!.tier;
     expect([page(before), cockpit(before)]).toEqual(["healthy", "healthy"]);
-    expect([page(after), cockpit(after)]).toEqual(["broken", "broken"]);
+    expect([page(after), cockpit(after)]).toEqual(["attention", "attention"]);
   });
 
   it("surfaces bounced lead notifications as a critical notify-bounce item", () => {

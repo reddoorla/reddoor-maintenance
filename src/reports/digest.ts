@@ -17,6 +17,7 @@ import {
   collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
   collectUrlResolveAlerts,
+  collectDeployAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { markWaiting } from "../alerts/waiting.js";
@@ -655,6 +656,11 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // #912. Digest-only: its scope is every non-archived row, and a `building`
     // site has no cockpit card to carry it.
     ...runCollector("url", () => collectUrlResolveAlerts(websites, deps.baseUrl, now)),
+    // P1-78b, the one digest change the ladder makes: a maintained site's failed
+    // production deploy is an item, so it is mailed and dated, and the snapshot gives
+    // the triage row its age. Maintained only (collectDeployAlerts): a launching
+    // site's failed deploy stays muted, as on the cockpit.
+    ...runCollector("deploy", () => collectDeployAlerts(websites, deps.baseUrl)),
   ];
 }
 

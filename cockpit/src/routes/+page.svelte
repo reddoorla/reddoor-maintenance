@@ -69,7 +69,8 @@
   <details class="cardless">
     <summary>⚠ Not on any site card ({v.cardless.length})</summary>
     {#each v.cardless as item, i (i)}
-      <div class="approve-row">
+      <div class="approve-row" data-level={item.level}>
+        <span class="pill {item.level}">{item.levelLabel}</span>
         <strong
           >{#if item.href}<a href={item.href}>{item.siteName}</a>{:else}{item.siteName}{/if}</strong
         > <span class="muted">{item.title}</span>

@@ -407,7 +407,13 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
     chips.push({ cls: "chip accepted", title: null, text: `✓ accepted: ${reason}` });
   if (chips.length === 0) return null;
   const label =
-    a.tier === "broken" ? "Needs attention" : a.tier === "watch" ? "Watch" : "Status";
+    a.tier === "broken"
+      ? "Broken"
+      : a.tier === "attention"
+        ? "Needs attention this week"
+        : a.tier === "watch"
+          ? "Watch"
+          : "Status";
   return { label, chips };
 }
 

@@ -8,6 +8,7 @@
 // digest renderer AND the alerts collectors depend on the contract, not on each
 // other. Types-only — no runtime, no output change.
 import type { ReportType } from "../reports/types.js";
+import type { Level } from "./ladder.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -63,7 +64,10 @@ export type AttentionItem = {
     | "prismic-drift"
     /** #912. The nightly `roster-urls` probe: `url-unresolved:<siteId>` for a fresh
      *  `fail`, and one fleet-wide `url-probe-stale` when stamps age out. */
-    | "url";
+    | "url"
+    /** P1-78b. A maintained site's latest production deploy failed: new content
+     *  never ships. An item (not only a card flag) so it is dated and mailed. */
+    | "deploy";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;
@@ -92,6 +96,9 @@ export type AttentionItem = {
   ask?: string;
   askParts?: string[];
   ageDays?: number;
+  /** P1-78b. The item's place on the severity ladder (src/alerts/ladder.ts), set
+   *  by `withLevels` once the diff has dated it. Absent before that. */
+  level?: Level;
 };
 
 /** The digest "Submissions (24h)" telemetry block. bySite lists only sites with
