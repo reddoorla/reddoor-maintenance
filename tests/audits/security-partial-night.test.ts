@@ -528,6 +528,20 @@ describe("tonight's package.json decides relationship (#1654 review round 4)", (
     expect(v!.advisories).toContain("lodash:high:direct:-");
   });
 
+  // #1683: the cross-check partial night (a single-document lockfile, #1612) takes tonight's
+  // direct dependencies too.
+  it("cross-check: the same", async () => {
+    const [v] = await expectPartialNightsReadAsFull(
+      [
+        { ...full([]), packageJson: { dependencies: { express: "^4" } } },
+        { ...partialPlus([]), packageJson: { dependencies: { express: "^4", lodash: "^4" } } },
+      ],
+      { advisories: [lodashHigh] },
+      { lockfile: ONE_DOCUMENT },
+    );
+    expect(v!.advisories).toContain("lodash:high:direct:-");
+  });
+
   it("a site that became a workspace carries no relationship, as a full night writes it", async () => {
     const [v] = await expectPartialNightsReadAsFull(
       [

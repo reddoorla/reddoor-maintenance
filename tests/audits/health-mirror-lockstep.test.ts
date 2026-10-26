@@ -38,6 +38,14 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
       securityAdvisories: [
         { module: "left-pad", severity: "moderate", title: "x", cves: [], url: null },
       ],
+      // #1683: a full night, so the `Last security audit at` stamp is emitted too (a partial
+      // night writes one column fewer), with pnpm's own result stored beside it (#1654).
+      securityPartial: false,
+      securityLockfileAudit: {
+        counts: { critical: 0, high: 0, moderate: 1, low: 0 },
+        advisories: [{ module: "left-pad", severity: "moderate", title: "x", cves: [], url: null }],
+        truncated: false,
+      },
       domain: { certDaysRemaining: null, checkedAt: "2026-08-24T06:00:00.000Z" },
       browser: {
         desktopOk: true,
@@ -64,6 +72,8 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
       formE2e: { ok: null, checkedAt: "2026-08-24T07:10:00.000Z" },
     });
     expect(Object.keys(fields).length).toBeGreaterThanOrEqual(25);
+    expect(fields).toHaveProperty("Security lockfile audit");
+    expect(fields).toHaveProperty("Last security audit at");
     for (const key of Object.keys(fields)) {
       expect(healthColumnFor(key), `unclaimed audit column '${key}'`).not.toBeNull();
     }
