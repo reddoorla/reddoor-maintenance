@@ -180,8 +180,10 @@ const DAY_MS = 86_400_000;
  *  Quarterly from 2026-07-05, last sent 2026-10-09). There the check stays the
  *  loose one: not a date to `Date.parse`, or more than ~13 months old.
  *
- *  Either way, more than a year ahead is refused: a year typo that would hold
- *  the first report for decades. */
+ *  Either way, a first report (anchor plus one cycle) more than 396 days ahead
+ *  is refused: a year typo that would hold it for decades. The bound is on that
+ *  report, not on the anchor, so a Yearly anchor cannot put it two years out
+ *  (#1375 item 3), yet may sit about a month ahead. */
 function dayProblem(
   field: string,
   value: string,
@@ -190,16 +192,11 @@ function dayProblem(
   preLaunch: boolean,
 ): string | null {
   const day = value.trim();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   let at: number;
   if (preLaunch) {
     if (!isCalendarDate(day)) return `${field} ${JSON.stringify(day)} is not a date`;
     at = Date.parse(`${day}T00:00:00Z`);
-    const firstDue = addMonths(new Date(at), months);
-    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    if (firstDue.getTime() < today) {
-      const due = firstDue.toISOString().slice(0, 10);
-      return `${field} ${day} puts the first report on ${due}, which has passed, so it drafts back-dated and overdue. Set the day the cycle counts from.`;
-    }
   } else {
     at = Date.parse(day);
     if (!Number.isFinite(at)) return `${field} ${JSON.stringify(day)} is not a date`;
@@ -207,14 +204,30 @@ function dayProblem(
       return `${field} ${day} is more than 13 months old, so the first report drafts back-dated and overdue. Set the day the cycle counts from.`;
     }
   }
-  if (at - now.getTime() > MAX_AHEAD_DAYS * DAY_MS) {
-    return `${field} ${day} is more than a year ahead, so the first report would not fall due until then.`;
+  const firstDue = addMonths(new Date(at), months).getTime();
+  // A live row's lenient parse can land past year 9999 ("275760"), where
+  // toISOString writes a six-digit year ("+275760-02-01") or, once one more
+  // cycle leaves Date's range, throws on NaN. Either is ahead.
+  if (!(firstDue < LAST_FOUR_DIGIT_YEAR_END)) {
+    return `${field} ${day} puts the first report past the year 9999, more than 13 months ahead.`;
+  }
+  const due = new Date(firstDue).toISOString().slice(0, 10);
+  if (preLaunch && firstDue < today) {
+    return `${field} ${day} puts the first report on ${due}, which has passed, so it drafts back-dated and overdue. Set the day the cycle counts from.`;
+  }
+  if (firstDue - today > MAX_AHEAD_DAYS * DAY_MS) {
+    return `${field} ${day} puts the first report on ${due}, more than 13 months ahead.`;
   }
   return null;
 }
 
-/** The furthest ahead an anchor day may sit: one Yearly cycle. */
-const MAX_AHEAD_DAYS = 366;
+/** The furthest ahead the first report an anchor schedules may fall due: the
+ *  same ~13 months as the staleness line, so a Yearly anchor may sit about a
+ *  month ahead (the operator, 2026-10-26, on #1746). */
+const MAX_AHEAD_DAYS = STALE_ANCHOR_DAYS;
+
+/** The first instant toISOString writes with a six-digit year. */
+const LAST_FOUR_DIGIT_YEAR_END = Date.UTC(10000, 0, 1);
 
 function checkSchedule(row: WebsiteRow, now: Date): LaunchCheckLine {
   const raw = row.maintenanceFreqRaw?.trim() ?? "";

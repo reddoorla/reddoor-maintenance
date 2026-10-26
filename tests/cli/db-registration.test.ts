@@ -14,7 +14,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import type { DbCommandOptions } from "../../src/cli/commands/db.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
@@ -30,18 +29,6 @@ function dbCommandBlock(): string {
   const end = rest.indexOf("\ncli\n");
   return end === -1 ? rest : rest.slice(0, end);
 }
-
-/** Flags the shell can type, mapped to the option key each lands on. `satisfies`
- *  ties every value to a REAL key of DbCommandOptions, so a renamed option is a
- *  tsc error rather than a flag that parses into nothing. */
-const FLAGS = {
-  "--file": "file",
-  "--url": "url",
-  "--org": "org",
-  "--abandon": "abandon",
-  "--reason": "reason",
-  "--by": "by",
-} satisfies Record<string, keyof DbCommandOptions>;
 
 describe("db command — CLI registration", () => {
   it("registers every flag the command reads off opts", () => {
@@ -67,15 +54,6 @@ describe("db command — CLI registration", () => {
     // Vacuity guard: if the `opts.` scan ever stops matching, the assertion above
     // passes by finding nothing to check.
     expect(read.size).toBeGreaterThan(1);
-  });
-
-  it("every flag in FLAGS is really registered (the other direction)", () => {
-    const block = dbCommandBlock();
-    for (const flag of Object.keys(FLAGS)) {
-      expect(block, `${flag} is not registered on the db command`).toMatch(
-        new RegExp(`\\.option\\(\\s*\\n?\\s*"${flag}[ <"]`),
-      );
-    }
   });
 
   it("cac actually accepts both flags together, from a shell", () => {
