@@ -620,6 +620,10 @@ describe("the next night", () => {
     await event("e9", "pr_automerged", "2026-10-26T12:00:00Z");
     await write(NEXT, FULL_LOG, {}, new Date("2026-10-27T08:20:00Z"));
     const before = (await rows()).find((r) => r.night === "2026-10-25")!;
+    // A later night's smoke stamp: 10-25's re-run must not count it as its own.
+    await exec("UPDATE site_health SET last_smoke_at = ? WHERE site_id = 'recB'", [
+      "2026-10-27T07:40:00.000Z",
+    ]);
     // "Re-run all jobs" on the 10-25 conductor, three days on: the guard skips nothing.
     const out = await write(
       { ...NIGHT_RUN, attempt: 2, startedAt: "2026-10-28T16:00:00Z" },
