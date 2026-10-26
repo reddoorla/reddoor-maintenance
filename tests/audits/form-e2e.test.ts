@@ -6,6 +6,8 @@ import {
   formE2eHealthUnreadableSummary,
   findFormPath,
   isSameSitePost,
+  actionFailureStatus,
+  carriesProbeMarker,
   noBannerDetail,
   CONTACT_PATHS,
   BUDGET_WARN_RATIO,
@@ -857,5 +859,63 @@ describe("audits/form-e2e synthesized required fields (#779)", () => {
   it("says nothing about synthesis when the standard fills were enough", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.summary).toBe("form-e2e: synthetic submission succeeded");
+  });
+});
+
+// #1669 (A3, A4, A15). The two pure helpers the runner's POST verdict rests on,
+// pinned without a browser. The number is pinned too, not only `!== null`.
+describe("audits/form-e2e actionFailureStatus", () => {
+  it("reads a SvelteKit fail() body as the status it names", () => {
+    expect(actionFailureStatus('{"type":"failure","status":502,"data":"[]"}')).toBe(502);
+    expect(actionFailureStatus('{"type":"failure","status":422,"data":"[]"}')).toBe(422);
+  });
+
+  it("reads a 2xx body that says type:error as a failure too", () => {
+    expect(actionFailureStatus('{"type":"error","status":503,"error":{"message":"x"}}')).toBe(503);
+  });
+
+  it("reads a failure or error with no numeric status as 500, not as success", () => {
+    expect(actionFailureStatus('{"type":"failure"}')).toBe(500);
+    expect(actionFailureStatus('{"type":"failure","status":"502"}')).toBe(500);
+    expect(actionFailureStatus('{"type":"error"}')).toBe(500);
+  });
+
+  it("returns null for a kit success or redirect body", () => {
+    expect(actionFailureStatus('{"type":"success","status":200,"data":"[]"}')).toBeNull();
+    expect(actionFailureStatus('{"type":"redirect","status":303,"location":"/thanks"}')).toBeNull();
+  });
+
+  it("returns null for a non-kit JSON body, even one carrying a status", () => {
+    expect(actionFailureStatus('{"ok":true}')).toBeNull();
+    expect(actionFailureStatus('{"status":500}')).toBeNull();
+    expect(actionFailureStatus("null")).toBeNull();
+    expect(actionFailureStatus("42")).toBeNull();
+  });
+
+  it("returns null for a body that is not JSON, or empty (a redirect has none)", () => {
+    expect(actionFailureStatus("<!doctype html><p>Thanks</p>")).toBeNull();
+    expect(actionFailureStatus("")).toBeNull();
+  });
+});
+
+describe("audits/form-e2e carriesProbeMarker", () => {
+  it("is true for a JSON, URL-encoded or multipart body naming testMode", () => {
+    expect(carriesProbeMarker('{"name":"x","testMode":"1"}')).toBe(true);
+    expect(carriesProbeMarker("name=x&testMode=1")).toBe(true);
+    expect(
+      carriesProbeMarker(
+        '------b\r\nContent-Disposition: form-data; name="testMode"\r\n\r\n1\r\n------b--',
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a body Playwright cannot read (null) as a candidate", () => {
+    expect(carriesProbeMarker(null)).toBe(true);
+  });
+
+  it("is false for a beacon or pre-submit body without the marker, and for an empty one", () => {
+    expect(carriesProbeMarker("v=2&tid=G-XXXX&en=page_view")).toBe(false);
+    expect(carriesProbeMarker('{"event":"submit_click"}')).toBe(false);
+    expect(carriesProbeMarker("")).toBe(false);
   });
 });
