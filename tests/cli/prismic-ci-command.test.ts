@@ -462,6 +462,12 @@ type Uncovered = Exclude<keyof PrismicCiCommandOptions, "cwd" | (typeof FLAGS)[k
 const _everyOptionHasAFlag: [Uncovered] extends [never] ? true : Uncovered = true;
 
 describe("bin.ts registration", () => {
+  it("registers prismic-ci and wires it to the command", () => {
+    const block = commandBlock(binSource, "prismic-ci");
+    expect(block).toContain("runPrismicCiCommand");
+    expect(_everyOptionHasAFlag).toBe(true);
+  });
+
   it("registers every flag the command reads", () => {
     const block = commandBlock(binSource, "prismic-ci");
     for (const flag of Object.keys(FLAGS)) {

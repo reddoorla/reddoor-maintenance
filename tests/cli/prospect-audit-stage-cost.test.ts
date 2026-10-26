@@ -27,4 +27,12 @@ describe("every pipeline stage is classified paid or free", () => {
   it("STAGE_COST names exactly the stages pipeline.ts declares", () => {
     expect(Object.keys(STAGE_COST).sort()).toEqual(stageNamesInPipeline(pipelineSource));
   });
+
+  it("the paid stages are exactly the three that bill per call", () => {
+    const paid = Object.entries(STAGE_COST)
+      .filter(([, c]) => c === "paid")
+      .map(([n]) => n)
+      .sort();
+    expect(paid).toEqual(["accuracy", "analyze", "probes"]);
+  });
 });

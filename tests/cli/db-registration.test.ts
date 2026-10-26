@@ -88,6 +88,14 @@ describe("db command — CLI registration", () => {
     // And it got far enough to act on the arguments rather than dying at parse.
     expect(combined).toMatch(/ENOENT|does-not-exist/);
   }, 60_000);
+
+  it("restore refuses without --url, so it can never default to production", () => {
+    // The guard that matters most: a restore that fell back to the ambient
+    // TURSO_DATABASE_URL would overwrite the live store.
+    expect(dbSource).toMatch(/restore: pass the TARGET database via --url/);
+    expect(dbSource).toMatch(/RESTORE refused=target-not-empty/);
+    expect(dbSource).toMatch(/RESTORE refused=manifest-absent/);
+  });
 });
 
 /**
