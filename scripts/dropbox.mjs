@@ -21,7 +21,7 @@ const CONTENT = "https://content.dropboxapi.com";
 
 export const USAGE = `usage:
   node scripts/dropbox.mjs check
-  node scripts/dropbox.mjs upload <dropbox-folder> <file> [<file> …] [--no-overwrite]
+  node scripts/dropbox.mjs upload <dropbox-folder> <file> [<file> …] [--no-overwrite] [--mkdir]
   node scripts/dropbox.mjs close-request <id> [<id> …]
   node scripts/dropbox.mjs hash <file> [<file> …]`;
 
@@ -73,7 +73,8 @@ export function parseArgs(argv) {
   const flags = rest.filter((a) => a.startsWith("--"));
   const args = rest.filter((a) => !a.startsWith("--"));
   for (const f of flags) {
-    if (!(cmd === "upload" && f === "--no-overwrite")) throw new Error(`unknown option: ${f}`);
+    if (!(cmd === "upload" && (f === "--no-overwrite" || f === "--mkdir")))
+      throw new Error(`unknown option: ${f}`);
   }
   if (cmd === "check") {
     if (args.length) throw new Error("check takes no arguments");
@@ -94,7 +95,13 @@ export function parseArgs(argv) {
         );
       seen.set(name, f);
     }
-    return { cmd, folder, files, overwrite: !flags.includes("--no-overwrite") };
+    return {
+      cmd,
+      folder,
+      files,
+      overwrite: !flags.includes("--no-overwrite"),
+      mkdir: flags.includes("--mkdir"),
+    };
   }
   if (cmd === "close-request") {
     if (!args.length) throw new Error("close-request needs at least one file request id");
@@ -304,6 +311,18 @@ export function contentCall(ctx, endpoint, arg, data) {
   });
 }
 
+// What Dropbox holds at a team-space path, or null when nothing is there (path/not_found).
+// Any other error is thrown: a lookup that failed is not proof the path is free.
+export async function metadata(ctx, path) {
+  try {
+    return await rpc(ctx, "files/get_metadata", { path });
+  } catch (e) {
+    if (e instanceof DropboxError && e.status === 409 && /^path\/not_found\//.test(summary(e.body)))
+      return null;
+    throw e;
+  }
+}
+
 export async function probeScopes(ctx) {
   const probes = [
     [
@@ -458,10 +477,39 @@ export async function run(o, deps) {
       say(`${p.scope}: ${p.state}${p.detail ? ` (${p.detail})` : ""}`);
     }
   } else if (o.cmd === "upload") {
+    // files/upload creates every missing parent folder, so a mistyped folder would otherwise
+    // become a new one nobody meant to make (#1390). The root always exists.
+    const folder = o.folder.replace(/\/+$/, "");
+    if (folder) {
+      let found;
+      try {
+        found = await metadata(ctx, folder);
+      } catch (e) {
+        say(`FAILED looking up ${folder}, so nothing was uploaded: ${e.message}`);
+        return { code: 1, lines };
+      }
+      if (found && found[".tag"] !== "folder") {
+        say(`FAILED ${folder} is a file, not a folder, so nothing was uploaded`);
+        return { code: 1, lines };
+      }
+      if (!found && !o.mkdir) {
+        say(
+          `FAILED no folder ${folder} in the team space, so nothing was uploaded: check the path, or pass --mkdir to create it`,
+        );
+        return { code: 1, lines };
+      }
+      if (!found) say(`no folder ${folder} yet: --mkdir, so the upload creates it`);
+    }
     for (const f of o.files) {
       try {
+        // Overwrite mode replaces a teammate's file silently; Dropbox's version history can
+        // restore it, so say which rev to look for (#1391).
+        const prior = o.overwrite ? await metadata(ctx, dropboxPath(o.folder, f)) : null;
         const r = await uploadFile(ctx, f, o.folder, { overwrite: o.overwrite });
-        if (r.ok) say(`ok ${r.path} ${r.size} bytes content_hash ${r.remoteHash} matches local`);
+        const replaced =
+          prior?.[".tag"] === "file" ? ` (replaced an existing file, rev ${prior.rev})` : "";
+        if (r.ok)
+          say(`ok ${r.path} ${r.size} bytes content_hash ${r.remoteHash} matches local${replaced}`);
         else {
           code = 1;
           say(

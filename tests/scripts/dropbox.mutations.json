@@ -1,0 +1,93 @@
+[
+  {
+    "id": "M1-1390-no-not-found-refusal",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "      if (!found && !o.mkdir) {",
+        "replace": "      if (false) {"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Undoes #1390: a missing folder is uploaded into, and files/upload creates it."
+  },
+  {
+    "id": "M2-1390-mkdir-no-op",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "      if (!found && !o.mkdir) {",
+        "replace": "      if (!found) {"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "--mkdir is ignored, so a missing folder is always refused."
+  },
+  {
+    "id": "M3-1390-mkdir-not-parsed",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "      mkdir: flags.includes(\"--mkdir\"),",
+        "replace": "      mkdir: false,"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "--mkdir is accepted on the command line but never reaches run."
+  },
+  {
+    "id": "M4-1390-file-as-folder-allowed",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "      if (found && found[\".tag\"] !== \"folder\") {",
+        "replace": "      if (false) {"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "A folder path that is a file is no longer refused before uploading."
+  },
+  {
+    "id": "M5-1390-lookup-error-treated-as-missing",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "    if (e instanceof DropboxError && e.status === 409 && /^path\\/not_found\\//.test(summary(e.body)))",
+        "replace": "    if (e instanceof DropboxError && e.status === 409)"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Any 409 from the lookup would read as 'nothing there', so --mkdir would upload past a failed lookup."
+  },
+  {
+    "id": "M6-1391-no-replaced-note",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "prior?.[\".tag\"] === \"file\" ? ` (replaced an existing file, rev ${prior.rev})` : \"\";",
+        "replace": "\"\";"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Undoes #1391: the ok line no longer says a file was replaced."
+  },
+  {
+    "id": "M7-1391-lookup-after-upload",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "        const prior = o.overwrite ? await metadata(ctx, dropboxPath(o.folder, f)) : null;\n        const r = await uploadFile(ctx, f, o.folder, { overwrite: o.overwrite });",
+        "replace": "        const r = await uploadFile(ctx, f, o.folder, { overwrite: o.overwrite });\n        const prior = o.overwrite ? await metadata(ctx, dropboxPath(o.folder, f)) : null;"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Looking up after the upload always finds the new file, so every upload would claim it replaced one."
+  }
+]

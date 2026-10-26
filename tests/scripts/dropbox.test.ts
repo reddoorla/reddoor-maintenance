@@ -182,7 +182,9 @@ describe("parseArgs", () => {
       folder: "/Design Resources/X",
       files: ["a.pdf", "b.png"],
       overwrite: true,
+      mkdir: false,
     });
+    expect(parseArgs(["upload", "/X", "a.pdf", "--mkdir"])).toMatchObject({ mkdir: true });
     expect(parseArgs(["upload", "/X", "a.pdf", "--no-overwrite"])).toMatchObject({
       overwrite: false,
     });
@@ -200,6 +202,7 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["upload", "X", "a.pdf"])).toThrow(/must start with "\/"/);
     expect(() => parseArgs(["close-request", "--no-overwrite", "abc"])).toThrow(/unknown option/);
     expect(() => parseArgs(["check", "extra"])).toThrow(/no arguments/);
+    expect(() => parseArgs(["check", "--mkdir"])).toThrow(/unknown option/);
   });
 
   it("refuses two files that would land on the same Dropbox path", () => {
@@ -832,15 +835,147 @@ describe("closeRequest", () => {
 });
 
 describe("run", () => {
-  function session(handler: (ep: string, c: Call) => Reply) {
+  const NOT_FOUND: Reply = {
+    status: 409,
+    body: { error_summary: "path/not_found/..", error: { ".tag": "path" } },
+  };
+  // files/get_metadata answers from `meta` by path: by default /X is a folder and nothing
+  // else exists, so an upload into /X replaces nothing.
+  function session(
+    handler: (ep: string, c: Call) => Reply,
+    meta: Record<string, Reply> = { "/X": { body: { ".tag": "folder", path_display: "/X" } } },
+  ) {
     return fake((ep, c) =>
       ep === "oauth2/token"
         ? { body: { access_token: "sl.abc" } }
         : ep === "users/get_current_account"
           ? { body: ACCOUNT }
-          : handler(ep, c),
+          : ep === "files/get_metadata"
+            ? (meta[JSON.parse(c.init.body as string).path as string] ?? NOT_FOUND)
+            : handler(ep, c),
     );
   }
+  const metaPaths = (calls: Call[]) =>
+    calls
+      .filter((c) => c.url.endsWith("/files/get_metadata"))
+      .map((c) => JSON.parse(c.init.body as string).path as string);
+  const uploads = (calls: Call[]) => calls.filter((c) => c.url.endsWith("/files/upload"));
+
+  it("refuses a folder that does not exist and uploads nothing (#1390)", async () => {
+    const local = file("typo.pdf", pattern(3));
+    const { fetch, calls } = session(() => ({ body: {} }), {});
+    const r = await run(
+      {
+        cmd: "upload",
+        folder: "/Design Resource/Reddoor Style Guide",
+        files: [local],
+        overwrite: true,
+      },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines).toEqual([
+      r.lines[0],
+      "FAILED no folder /Design Resource/Reddoor Style Guide in the team space, so nothing was uploaded: check the path, or pass --mkdir to create it",
+    ]);
+    expect(metaPaths(calls)).toEqual(["/Design Resource/Reddoor Style Guide"]);
+    expect(uploads(calls)).toHaveLength(0);
+  });
+
+  it("refuses a folder path that is a file, even with --mkdir (#1390)", async () => {
+    const local = file("into-file.pdf", pattern(3));
+    const { fetch, calls } = session(() => ({ body: {} }), {
+      "/X": { body: { ".tag": "file", path_display: "/X" } },
+    });
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true, mkdir: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines[1]).toBe("FAILED /X is a file, not a folder, so nothing was uploaded");
+    expect(uploads(calls)).toHaveLength(0);
+  });
+
+  it("refuses when the folder lookup itself fails, since that proves nothing (#1390)", async () => {
+    const local = file("lookup-failed.pdf", pattern(3));
+    const { fetch, calls } = session(() => ({ body: {} }), {
+      "/X": { status: 409, body: { error_summary: "path/malformed_path/.." } },
+    });
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true, mkdir: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines[1]).toBe(
+      "FAILED looking up /X, so nothing was uploaded: files/get_metadata: HTTP 409 path/malformed_path/..",
+    );
+    expect(uploads(calls)).toHaveLength(0);
+  });
+
+  it("creates a missing folder only when --mkdir asks, and says so (#1390)", async () => {
+    const data = pattern(5);
+    const local = file("new-folder.pdf", data);
+    const { fetch, calls } = session(
+      () => ({
+        body: { path_display: "/New/new-folder.pdf", size: 5, content_hash: contentHash(data) },
+      }),
+      {},
+    );
+    const r = await run(
+      { cmd: "upload", folder: "/New/", files: [local], overwrite: true, mkdir: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines.slice(1)).toEqual([
+      "no folder /New yet: --mkdir, so the upload creates it",
+      `ok /New/new-folder.pdf 5 bytes content_hash ${contentHash(data)} matches local`,
+    ]);
+    expect(metaPaths(calls)).toEqual(["/New", "/New/new-folder.pdf"]);
+    expect(uploads(calls)).toHaveLength(1);
+  });
+
+  it("does not look up the root folder, which always exists", async () => {
+    const data = pattern(2);
+    const local = file("at-root.pdf", data);
+    const { fetch, calls } = session(() => ({
+      body: { path_display: "/at-root.pdf", size: 2, content_hash: contentHash(data) },
+    }));
+    const r = await run(
+      { cmd: "upload", folder: "/", files: [local], overwrite: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(0);
+    expect(metaPaths(calls)).toEqual(["/at-root.pdf"]);
+  });
+
+  it("says when an upload replaced an existing file, with its old rev (#1391)", async () => {
+    const data = pattern(6);
+    const local = file("deck.pdf", data);
+    const { fetch, calls } = session(
+      () => ({
+        body: { path_display: "/X/deck.pdf", size: 6, content_hash: contentHash(data), rev: "02" },
+      }),
+      {
+        "/X": { body: { ".tag": "folder", path_display: "/X" } },
+        "/X/deck.pdf": { body: { ".tag": "file", path_display: "/X/deck.pdf", rev: "01a2b3" } },
+      },
+    );
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines[1]).toBe(
+      `ok /X/deck.pdf 6 bytes content_hash ${contentHash(data)} matches local (replaced an existing file, rev 01a2b3)`,
+    );
+    expect(metaPaths(calls)).toEqual(["/X", "/X/deck.pdf"]);
+    // The file is looked up before the upload: after it, the lookup would find the new copy.
+    expect(calls.slice(2).map((c) => c.url.split("/2/")[1])).toEqual([
+      "files/get_metadata",
+      "files/get_metadata",
+      "files/upload",
+    ]);
+  });
 
   it("check names the account and proves each write scope without changing anything", async () => {
     const { fetch, calls } = session((ep) =>
@@ -917,7 +1052,8 @@ describe("run", () => {
       { cmd: "upload", folder: "/X", files: [local], overwrite: true },
       { fetch, env: ENV, emit: (l) => seen.push(`${calls.length} ${l}`) },
     );
-    expect(seen).toEqual([`2 ${r.lines[0]}`, `3 ${r.lines[1]}`]);
+    // token, account; then the folder lookup, the file lookup and the upload (#1390, #1391).
+    expect(seen).toEqual([`2 ${r.lines[0]}`, `5 ${r.lines[1]}`]);
   });
 
   it("prints a match line per file and exits 0", async () => {
