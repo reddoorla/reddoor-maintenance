@@ -1,0 +1,54 @@
+[
+  {
+    "id": "drop-if",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "              s.if === undefined &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "#1620: a sync step with an if: no longer disqualifies; the if: fixture must go red"
+  },
+  {
+    "id": "drop-job-defaults",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "const jobDir = j.defaults?.run?.[\"working-directory\"] ?? workflowDir;",
+        "replace": "const jobDir = workflowDir;"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "#1620: the job's defaults.run.working-directory is ignored; the job-defaults fixture must go red"
+  },
+  {
+    "id": "drop-workflow-defaults",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "const workflowDir = doc.defaults?.run?.[\"working-directory\"];",
+        "replace": "const workflowDir = undefined;"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "#1620: the workflow's defaults.run.working-directory is ignored; the workflow-defaults fixture must go red"
+  },
+  {
+    "id": "drop-step-dir",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "(s[\"working-directory\"] ?? jobDir) === undefined",
+        "replace": "jobDir === undefined"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "the pre-#1620 condition (a step's own working-directory) still has a fixture that goes red"
+  }
+]
