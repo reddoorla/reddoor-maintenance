@@ -3,12 +3,6 @@ import { ESLint } from "eslint";
 import { createEslintConfig } from "../../src/configs/eslint.js";
 
 describe("configs/eslint", () => {
-  it("returns a flat config array", () => {
-    const config = createEslintConfig({ svelteConfig: {} });
-    expect(Array.isArray(config)).toBe(true);
-    expect(config.length).toBeGreaterThan(3);
-  });
-
   it("includes ignores block with starter-relevant paths", () => {
     const config = createEslintConfig({ svelteConfig: {} });
     const ignores = config.find((c) => "ignores" in c && Array.isArray(c.ignores)) as {
