@@ -482,8 +482,9 @@ describe("review round 1 (P1-78b)", () => {
   it("Broken and Attention rows carry their age, oldest first within a group", () => {
     const m = model(
       [
-        site({ id: "recY", name: "Young", defaultBranchCi: "failing" }),
-        site({ id: "recO", name: "Old", defaultBranchCi: "failing" }),
+        // Names sort the other way round, so only the age can put Zed first.
+        site({ id: "recY", name: "Amber", defaultBranchCi: "failing" }),
+        site({ id: "recO", name: "Zed", defaultBranchCi: "failing" }),
       ],
       {
         prior: {
@@ -493,8 +494,8 @@ describe("review round 1 (P1-78b)", () => {
       },
     );
     expect(buildNeedsYouFeed(m).map((r) => [r.siteName, r.since])).toEqual([
-      ["Old", daysAgo(6)],
-      ["Young", daysAgo(1)],
+      ["Zed", daysAgo(6)],
+      ["Amber", daysAgo(1)],
     ]);
     const rows = buildCockpitView(m, NOW).feed[0]!.rows;
     expect(rows.map((r) => r.age)).toEqual(["for 6 days", "for 1 day"]);
