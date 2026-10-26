@@ -178,10 +178,10 @@ export function assignTier(
   // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
   // an errored/absent Netlify deploy, Renovate warnings — would otherwise force it
-  // to 🔴 attention and read as "broken". Mute those as a calm "pre-launch" tier
+  // to an alarm tier and read as "broken". Mute those as a calm "pre-launch" tier
   // that never alarms and is excluded from the "needs you" feed — but a GENUINE
-  // alarm (piercesPreLaunchMute: any critical item, or CI red) re-tiers the site
-  // to 🔴 attention through the normal machinery. (Only "launching" reaches
+  // alarm (piercesPreLaunchMute: any Broken item but a deploy, any critical item,
+  // or CI red) re-tiers the site to that alarm's level through the normal machinery. (Only "launching" reaches
   // the cockpit — isDashboardVisible = {maintained, launching}.)
   if (site.status === "launching") {
     // Genuine alarms pierce the mute; this attention verdict is decided before the
@@ -210,13 +210,11 @@ export function assignTier(
       setup: [],
     };
   }
-  // Any attention item is 🔴 attention. So is a failed latest production deploy: an
-  // active break, the same severity a sub-floor Lighthouse score gets (which arrives
-  // as an item). The tier is fixed HERE, before acceptance is read, so no accept key
-  // can ever move a broken site; the watch conditions below are still collected for
+  // P1-78b: the worst level among the site's items is its verdict; a failed latest
+  // production deploy arrives as a Broken `deploy:` item, no longer a flag of its own.
+  // The tier is fixed HERE, before acceptance is read, so no accept key can ever move
+  // a Broken or Attention site; the watch conditions below are still collected for
   // it, but only as filter tags (#941).
-  // P1-78b: the worst level among the site's items is its verdict. A failed deploy
-  // arrives as a `deploy:` item (Broken), so it is no longer a flag of its own.
   const level = worstLevel(items.map((it) => ({ level: itemLevel(it) })));
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
