@@ -26,7 +26,7 @@ import {
   collectNotifyBounceAlerts,
   collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
-  prismicAckIsLive,
+  prismicAckCovers,
   urlProbeFresh,
   URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
@@ -372,8 +372,10 @@ export function assignTier(
   // invisible — an accepted finding is still a finding, and the expiry date is the
   // part the operator most needs on the card. Not a WatchCandidate: this is already
   // acked by its own column, and routing it through `accepted` would let a stray
-  // "prismic" string in Accepted Watch Conditions mute it with no expiry.
-  if (site.prismicModels === "fail" && prismicAckIsLive(site.prismicAckUntil, now)) {
+  // "prismic" string in Accepted Watch Conditions mute it with no expiry. The rule
+  // is the digest's own, `prismicAckCovers`: an ack accepts the report the operator
+  // reviewed, so a later finding on the same site gets no chip (#1679).
+  if (site.prismicModels === "fail" && prismicAckCovers(site, now)) {
     const until = new Date(Date.parse(site.prismicAckUntil!)).toISOString().slice(0, 10);
     acceptedReasons.push(`Prismic drift accepted until ${until}`);
   }
