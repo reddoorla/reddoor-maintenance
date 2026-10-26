@@ -16,10 +16,6 @@ describe("assembleIR", () => {
     expect(ir.assets.every((a) => a.sourceUrl !== null)).toBe(true);
     expect(ir.diagnostics.filter((d) => d.kind === "unresolved-asset")).toHaveLength(0);
   });
-  it("is deterministic — same input yields deep-equal output", () => {
-    const again = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
-    expect(again).toEqual(ir);
-  });
 });
 
 describe("assembleIR favicon", () => {

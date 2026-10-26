@@ -140,6 +140,68 @@ describe("launchCheck", () => {
       expect(stateOf(lines, "schedule")).toBe("missing");
     });
 
+    // #1375 item 3: the bound is on the first report the anchor schedules (anchor
+    // plus one cycle), not on the anchor, at preLaunch's staleness line of 396
+    // days (the operator, 2026-10-26). Checked on 2026-10-14, so the last
+    // allowed first due date is 2027-11-14.
+    it("bounds the first due date, not the anchor, at 396 days ahead", async () => {
+      const yearly = (day: string) => row({ "maintenence freq": "Yearly", "maintenance day": day });
+      const inside = await launchCheck(yearly("2026-11-14"), goodDeps());
+      expect(stateOf(inside, "schedule")).toBe("ok");
+      const past = await launchCheck(yearly("2026-11-15"), goodDeps());
+      expect(stateOf(past, "schedule")).toBe("missing");
+      expect(detailOf(past, "schedule")).toContain("2027-11-15");
+      expect(detailOf(past, "schedule")).toContain("more than 13 months ahead");
+      // A Monthly anchor 12 months ahead was inside the old anchor line, but its
+      // first report falls due 2027-11-15.
+      const monthly = (day: string) =>
+        row({ "maintenence freq": "Monthly", "maintenance day": day });
+      const monthlyInside = await launchCheck(monthly("2027-10-14"), goodDeps());
+      expect(stateOf(monthlyInside, "schedule")).toBe("ok");
+      const monthlyPast = await launchCheck(monthly("2027-10-15"), goodDeps());
+      expect(stateOf(monthlyPast, "schedule")).toBe("missing");
+      expect(detailOf(monthlyPast, "schedule")).toContain("more than 13 months ahead");
+    });
+
+    // The round-1 review's case: a Yearly site anchored on a launch day three
+    // weeks out. Its first report is 386 days away, inside the line.
+    it("accepts a launching Yearly anchor a few weeks ahead", async () => {
+      const lines = await launchCheck(
+        row({ Status: "launching", "maintenence freq": "Yearly", "maintenance day": "2026-11-16" }),
+        goodDeps({ now: () => new Date("2026-10-26T12:00:00Z") }),
+      );
+      expect(stateOf(lines, "schedule")).toBe("ok");
+    });
+
+    it("bounds a live row's first due date too", async () => {
+      const day = { "maintenence freq": "Yearly", Status: "maintained" };
+      const inside = await launchCheck(
+        row({ ...day, "maintenance day": "2026-11-14" }),
+        goodDeps(),
+      );
+      expect(stateOf(inside, "schedule")).toBe("ok");
+      const past = await launchCheck(row({ ...day, "maintenance day": "2026-11-15" }), goodDeps());
+      expect(stateOf(past, "schedule")).toBe("missing");
+      expect(detailOf(past, "schedule")).toContain("more than 13 months ahead");
+      // Date.parse reads "275760" as the last year Date can hold; one more cycle
+      // overflows, which is ahead, not a crash.
+      const edge = await launchCheck(row({ ...day, "maintenance day": "275760" }), goodDeps());
+      expect(stateOf(edge, "schedule")).toBe("missing");
+      expect(detailOf(edge, "schedule")).toContain("more than 13 months ahead");
+    });
+
+    // Round-1 nit: a Monthly cycle on "275760" stays in Date's range, and
+    // toISOString writes a six-digit year as "+275760-02-01".
+    it("names a first report past year 9999 without a garbled date", async () => {
+      const lines = await launchCheck(
+        row({ Status: "maintained", "maintenence freq": "Monthly", "maintenance day": "275760" }),
+        goodDeps(),
+      );
+      expect(stateOf(lines, "schedule")).toBe("missing");
+      expect(detailOf(lines, "schedule")).toContain("past the year 9999");
+      expect(detailOf(lines, "schedule")).not.toContain("+275760");
+    });
+
     it("parses testing_day too", async () => {
       const lines = await launchCheck(
         row({ "testing freq": "Monthly", "testing day": "banana" }),
