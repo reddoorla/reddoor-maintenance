@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "const night = nightOf(i.run.createdAt);",
-        "replace": "const night = nightOf(i.run.startedAt);"
+        "find": "  const night = nightOf(i.run.createdAt);\n  const prev = previousRow(rows, night);",
+        "replace": "  const night = nightOf(i.run.startedAt);\n  const prev = previousRow(rows, night);"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "return measure(\"GitHub merges\", async () => (base ?? 0) + (await i.github.mergesSince(since)));",
-        "replace": "return measure(\"GitHub merges\", async () => (base ?? 0) + (await i.github.mergesSince(since).catch(() => 0)));"
+        "find": "(await i.github.mergesSince(since, nowIso))",
+        "replace": "(await i.github.mergesSince(since, nowIso).catch(() => 0))"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
