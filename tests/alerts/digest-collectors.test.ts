@@ -770,6 +770,8 @@ describe("collectTurnstileGuardrailAlerts", () => {
         name: "Gated",
         requireTurnstile: true,
         turnstileWidget: "fail",
+        // The verdict's own stamp: an unstamped "fail" is legacy, not fresh (#1710).
+        formE2eCheckedAt: fresh,
         functionHealthCheckedAt: fresh,
       }),
       // flag off — a failing widget alone is not an alarm (nothing buckets)

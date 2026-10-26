@@ -1,0 +1,28 @@
+[
+  {
+    "id": "1710-null-stamp-alarms",
+    "why": "undoes #1710: a null form-e2e stamp goes back to skipping the age check, so a legacy 'fail' pages",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "    // every morning, un-mutably, for a site whose /health never reads.\n    if (at === null) continue;\n",
+        "replace": "    // every morning, un-mutably, for a site whose /health never reads.\n    if (at === null && Number.isNaN(0)) continue;\n"
+      }
+    ],
+    "test": "tests/alerts/turnstile-freshness.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1710-overreach-unparseable-dropped",
+    "why": "over-broad fix: treating an unparseable stamp like a missing one would silently drop a real failure",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "    if (Number.isFinite(ageMs) && ageMs > TURNSTILE_WIDGET_STALE_DAYS * MS_PER_DAY) continue;\n",
+        "replace": "    if (!Number.isFinite(ageMs) || ageMs > TURNSTILE_WIDGET_STALE_DAYS * MS_PER_DAY) continue;\n"
+      }
+    ],
+    "test": "tests/alerts/turnstile-freshness.test.ts",
+    "expect": "red"
+  }
+]
