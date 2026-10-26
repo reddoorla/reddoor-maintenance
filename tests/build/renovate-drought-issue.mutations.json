@@ -29,7 +29,7 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-security.yml",
-        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
+        "find": "if grep -qxF \"$marker\" <<<\"$comments\"; then",
         "replace": "if false; then"
       }
     ],
@@ -41,7 +41,7 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-security.yml",
-        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
+        "find": "if grep -qxF \"$marker\" <<<\"$comments\"; then",
         "replace": "if printf '%s\\n' \"$comments\" | grep -qF \"<!-- renovate-drought-unseen:\"; then"
       }
     ],
@@ -89,7 +89,7 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-security.yml",
-        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
+        "find": "if grep -qxF \"$marker\" <<<\"$comments\"; then",
         "replace": "if [ \"$(printf '%s\\n' \"$comments\" | grep -F \"<!-- renovate-drought-unseen:\" | tail -n1)\" = \"$marker\" ]; then"
       }
     ],

@@ -543,7 +543,7 @@ jobs:
                 echo "::warning::could not read the comments on #$n; not commenting, so a failed read never repeats the note"
                 continue
               fi
-              if printf '%s\n' "$comments" | grep -qxF "$marker"; then
+              if grep -qxF "$marker" <<<"$comments"; then
                 echo "#$n already names these repos"
                 continue
               fi
