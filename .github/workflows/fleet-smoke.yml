@@ -129,9 +129,11 @@ jobs:
 
           # The write gate's own verdict (#1605), computed by fleetWriteGate in
           # write-audits.ts so five workflows cannot drift apart. It reds on what the
-          # counts above cannot see: a site the run resolved that never reached
-          # write-back, a failure that recurs every night (no row to write to), and
-          # one audit that measured nothing across more than a quarter of the fleet.
+          # counts above cannot see: sites the run resolved that never reached
+          # write-back, once they and the unwritten ones pass a quarter of the fleet
+          # (below that, a warning), and a failure that recurs every night (no row to
+          # write to). Its third reason, one audit that measured nothing across more
+          # than a quarter of the fleet, cannot fire here: this run is smoke only.
           # A site whose smoke measured nothing (deps would not install, a timeout)
           # never reaches this gate: the never-measured check above reds on it first
           # (#1611). The gate runs before the bare counts below: a fleet that wrote
