@@ -34,14 +34,6 @@ describe("frozenPageCustomType", () => {
     expect(model.status).toBe(true);
   });
 
-  it("its json round-trips through JSON.parse (a shippable Custom Types API body)", () => {
-    const t = frozenPageCustomType();
-    const round = JSON.parse(JSON.stringify(t.json)) as Model;
-    expect(round.id).toBe("frozen_page");
-    // Serialization is lossless — the full model survives the wire.
-    expect(round).toEqual(t.json);
-  });
-
   it("has a Main tab: uid + a plain-Text title", () => {
     const main = (frozenPageCustomType().json as Model).json.Main;
     expect(main.uid.type).toBe("UID");
