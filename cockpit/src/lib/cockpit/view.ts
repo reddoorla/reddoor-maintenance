@@ -130,6 +130,8 @@ export type CockpitView = {
     /** P1-78b: grouped by level, worst first, each row naming its level. */
     level: Level;
     levelLabel: string;
+    /** P1-78b: how long it has stood ("for 6 days"); null when undated. */
+    age: string | null;
   }>;
   inbox: InboxView | null;
 };
@@ -527,6 +529,7 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
           href: i.kind === "deadletter" && i.url ? i.url : null,
           level,
           levelLabel: LEVEL_LABEL[level],
+          age: level === "watch" ? null : ageOf(i.firstFlaggedAt ?? null, now),
         };
       })
       .sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]),

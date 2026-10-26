@@ -482,8 +482,9 @@ describe("review round 1 (P1-78b)", () => {
   it("Broken and Attention rows carry their age, oldest first within a group", () => {
     const m = model(
       [
-        site({ id: "recY", name: "Young", defaultBranchCi: "failing" }),
-        site({ id: "recO", name: "Old", defaultBranchCi: "failing" }),
+        // Names sort the other way round, so only the age can put Zed first.
+        site({ id: "recY", name: "Amber", defaultBranchCi: "failing" }),
+        site({ id: "recO", name: "Zed", defaultBranchCi: "failing" }),
       ],
       {
         prior: {
@@ -493,8 +494,8 @@ describe("review round 1 (P1-78b)", () => {
       },
     );
     expect(buildNeedsYouFeed(m).map((r) => [r.siteName, r.since])).toEqual([
-      ["Old", daysAgo(6)],
-      ["Young", daysAgo(1)],
+      ["Zed", daysAgo(6)],
+      ["Amber", daysAgo(1)],
     ]);
     const rows = buildCockpitView(m, NOW).feed[0]!.rows;
     expect(rows.map((r) => r.age)).toEqual(["for 6 days", "for 1 day"]);
@@ -506,5 +507,56 @@ describe("review round 1 (P1-78b)", () => {
       site({ id: "recB", name: "Building", status: "building", urlCheckedAt: null }),
     ]);
     expect((m.cardless ?? []).map((i) => [i.key, i.metric])).toEqual([["url-probe-stale", 2]]);
+  });
+});
+
+describe("review round 2 (P1-78b): a row's age is its own level's oldest item", () => {
+  it("a Broken row is as old as its Broken item, not an older Attention item beside it", () => {
+    const m = model(
+      [
+        site({ id: "recA", name: "Alpha", deployStatus: "error", defaultBranchCi: "failing" }),
+        site({ id: "recB", name: "Beta", deployStatus: "error" }),
+      ],
+      {
+        prior: {
+          "ci:recA": { metric: 1, firstFlaggedAt: daysAgo(6) },
+          "deploy:recB": { metric: 1, firstFlaggedAt: daysAgo(3) },
+        },
+      },
+    );
+    expect(buildNeedsYouFeed(m).map((r) => [r.siteName, r.group, r.since])).toEqual([
+      ["Beta", "broken", daysAgo(3)],
+      ["Alpha", "broken", TODAY],
+    ]);
+  });
+
+  it("takes the oldest of several items at the row's level", () => {
+    const m = model([site({ defaultBranchCi: "failing", pScore: 60 })], {
+      prior: {
+        "ci:recS": { metric: 1, firstFlaggedAt: daysAgo(2) },
+        "lighthouse:recS:performance": { metric: 60, firstFlaggedAt: daysAgo(9) },
+      },
+    });
+    expect(buildNeedsYouFeed(m)[0]!.since).toBe(daysAgo(9));
+  });
+
+  it("a Watch item's date never sets an Attention row's age", () => {
+    const m = model([site({ defaultBranchCi: "failing", renovateFailingCis: 1 })], {
+      prior: {
+        "ci:recS": { metric: 1, firstFlaggedAt: daysAgo(1) },
+        "renovate:recS": { metric: 1, firstFlaggedAt: daysAgo(5) },
+      },
+    });
+    expect(buildNeedsYouFeed(m)[0]!).toMatchObject({ group: "attention", since: daysAgo(1) });
+  });
+
+  it("a cardless Broken item carries its age, and opens its lane", () => {
+    const m = model([site()], {
+      deadLetters: new Map([["ghost", 1]]),
+      prior: { "deadletter:ghost": { metric: 1, firstFlaggedAt: daysAgo(4) } },
+    });
+    expect(buildCockpitView(m, NOW).cardless.map((c) => [c.levelLabel, c.age])).toEqual([
+      ["Broken", "for 4 days"],
+    ]);
   });
 });

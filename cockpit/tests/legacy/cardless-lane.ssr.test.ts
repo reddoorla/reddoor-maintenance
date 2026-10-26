@@ -67,7 +67,8 @@ describe("card-less attention items reach the cockpit", () => {
 describe("the card-less lane renders", () => {
   it("shows the lane with a count and the item's title", () => {
     const html = renderCockpitHtml(modelWithDeadLetters(new Map([["ghost-co", 2]])));
-    expect(html).toContain('<details class="cardless">');
+    // Open: it holds a Broken item, which the verdict counts (P1-78b).
+    expect(html).toContain('<details class="cardless" open="">');
     expect(html).toContain("(1)");
     expect(html).toContain("ghost-co");
   });

@@ -178,10 +178,10 @@ export function assignTier(
   // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
   // an errored/absent Netlify deploy, Renovate warnings — would otherwise force it
-  // to 🔴 attention and read as "broken". Mute those as a calm "pre-launch" tier
+  // to an alarm tier and read as "broken". Mute those as a calm "pre-launch" tier
   // that never alarms and is excluded from the "needs you" feed — but a GENUINE
-  // alarm (piercesPreLaunchMute: any critical item, or CI red) re-tiers the site
-  // to 🔴 attention through the normal machinery. (Only "launching" reaches
+  // alarm (piercesPreLaunchMute: any Broken item but a deploy, any critical item,
+  // or CI red) re-tiers the site to that alarm's level through the normal machinery. (Only "launching" reaches
   // the cockpit — isDashboardVisible = {maintained, launching}.)
   if (site.status === "launching") {
     // Genuine alarms pierce the mute; this attention verdict is decided before the
@@ -210,13 +210,11 @@ export function assignTier(
       setup: [],
     };
   }
-  // Any attention item is 🔴 attention. So is a failed latest production deploy: an
-  // active break, the same severity a sub-floor Lighthouse score gets (which arrives
-  // as an item). The tier is fixed HERE, before acceptance is read, so no accept key
-  // can ever move a broken site; the watch conditions below are still collected for
+  // P1-78b: the worst level among the site's items is its verdict; a failed latest
+  // production deploy arrives as a Broken `deploy:` item, no longer a flag of its own.
+  // The tier is fixed HERE, before acceptance is read, so no accept key can ever move
+  // a Broken or Attention site; the watch conditions below are still collected for
   // it, but only as filter tags (#941).
-  // P1-78b: the worst level among the site's items is its verdict. A failed deploy
-  // arrives as a `deploy:` item (Broken), so it is no longer a flag of its own.
   const level = worstLevel(items.map((it) => ({ level: itemLevel(it) })));
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
@@ -567,9 +565,9 @@ export type NeedsYouItem = {
   reasons: string[];
   /** Always `/s/${slug}`. */
   url: string;
-  /** P1-78b. The oldest `firstFlaggedAt` among the site's Broken or Attention
-   *  items (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when
-   *  no item is dated. */
+  /** P1-78b. The oldest `firstFlaggedAt` among the site's items at the row's own
+   *  level (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when no
+   *  item at that level is dated. */
   since: string | null;
 };
 
@@ -598,7 +596,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     hasCritical: boolean;
     group: NeedsYouGroup | null;
     approval: boolean;
-    since: string | null;
+    since: { broken?: string; attention?: string };
   };
   const bySlug = new Map<string, Acc>();
   const get = (siteName: string): Acc => {
@@ -612,7 +610,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         hasCritical: false,
         group: null,
         approval: false,
-        since: null,
+        since: {},
       };
       bySlug.set(slug, a);
     }
@@ -635,10 +633,13 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         if (it.severity === "critical") a.hasCritical = true;
       }
       raise(a, card.tier);
+      // The age of each level's oldest item: a Broken row is as old as its oldest
+      // Broken item, never an older Attention one beside it.
       for (const it of card.items) {
         const l = itemLevel(it);
-        if ((l === "broken" || l === "attention") && it.firstFlaggedAt !== undefined)
-          if (a.since === null || it.firstFlaggedAt < a.since) a.since = it.firstFlaggedAt;
+        if (l === "watch" || it.firstFlaggedAt === undefined) continue;
+        const was = a.since[l];
+        if (was === undefined || it.firstFlaggedAt < was) a.since[l] = it.firstFlaggedAt;
       }
     } else if (card.tier === "watch") {
       // Watch-level items first (they are named by title), then the watch reasons.
@@ -681,7 +682,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       siteName: a.siteName,
       reasons: a.reasons,
       url: `/s/${a.slug}`,
-      since: group === "broken" || group === "attention" ? a.since : null,
+      since: group === "broken" || group === "attention" ? (a.since[group] ?? null) : null,
     });
   }
 
