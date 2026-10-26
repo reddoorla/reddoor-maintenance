@@ -307,6 +307,14 @@ describe("assignTier", () => {
     expect(r.acceptedReasons).toEqual([]);
   });
 
+  it("shows the chip on the card of a fresh fail the ack covers, and stays healthy", () => {
+    const s = acked();
+    const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
+    expect(card.items).toEqual([]);
+    expect(card.tier).toBe("healthy");
+    expect(card.acceptedReasons).toEqual(["Prismic drift accepted until 2026-06-20"]);
+  });
+
   it("puts a new finding on an acked site's card, with no accepted chip", () => {
     const s = acked({ prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle` });
     const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
