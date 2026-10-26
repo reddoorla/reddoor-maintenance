@@ -375,5 +375,31 @@
     ],
     "test": "tests/dashboard/ladder.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "4b-deploy-not-dated",
+    "why": "A failed deploy gets no age: the digest stops collecting deploy:, so digest_state never dates it",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    ...runCollector(\"deploy\", () => collectDeployAlerts(websites, deps.baseUrl)),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-collect.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-renovate-rise-not-new",
+    "why": "Review round 3: a Renovate PR that rose to Attention today is not NEW",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  if (it.kind === \"renovate\" && it.level === \"attention\") {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
   }
 ]

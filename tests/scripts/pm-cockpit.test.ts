@@ -128,6 +128,27 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
     expect(out.match(/latest production deploy/g)).toHaveLength(1);
   });
 
+  it("a Renovate PR that rose to Attention today is NEW, dated the day it rose (P1-78b)", () => {
+    const reno = site({
+      id: "recRENO",
+      name: "Reno Co",
+      url: "https://reno.example.com",
+      renovateFailingCis: 1,
+      githubSignalsAt: NOW.toISOString(),
+    });
+    const base = inputs({ websites: [HEALTHY, reno] });
+    const firstFlagged = new Date(NOW.getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
+    const prior = {
+      ...base.prior,
+      "renovate:recRENO": { metric: 1, firstFlaggedAt: firstFlagged },
+    };
+    const since = new Date(NOW.getTime() - 86_400_000).toISOString();
+    const out = formatPmCockpit(buildPmCockpit({ ...base, prior }, NOW, since));
+    const today = NOW.toISOString().slice(0, 10);
+    expect(out).toContain("- NEW Reno Co · attention · /s/reno-co");
+    expect(out).toContain(`1 Renovate PR failing CI (escalated ${today})`);
+  });
+
   it("prints a stale url probe as Attention, not Broken (P1-78b)", () => {
     const unstamped = { ...HEALTHY, urlCheckedAt: null };
     const out = formatPmCockpit(buildPmCockpit(inputs({ websites: [unstamped] }), NOW));

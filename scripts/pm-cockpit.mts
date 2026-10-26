@@ -42,7 +42,7 @@ import {
   directVulnEscalatesAt,
   transitiveVulnEscalatesAt,
 } from "../src/alerts/waiting.js";
-import { levelOf } from "../src/alerts/ladder.js";
+import { levelOf, RENOVATE_ATTENTION_DAYS } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 
@@ -211,6 +211,15 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
         ? transitiveVulnEscalatesAt(was.firstFlaggedAt)
         : directVulnEscalatesAt(was.firstFlaggedAt);
     if (at !== null)
+      return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };
+  }
+  // P1-78b: a Renovate PR is Watch until its 7th day red, then Attention. Its NEW
+  // morning is the day it rose, as a vuln's is the day its wait failed.
+  if (it.kind === "renovate" && it.level === "attention") {
+    const at = new Date(
+      Date.parse(was.firstFlaggedAt.slice(0, 10)) + RENOVATE_ATTENTION_DAYS * 86_400_000,
+    );
+    if (Number.isFinite(at.getTime()))
       return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };
   }
   return { text: it.title, day: was.firstFlaggedAt, how: "first flagged" };
