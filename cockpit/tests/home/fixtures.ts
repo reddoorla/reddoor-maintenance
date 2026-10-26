@@ -209,7 +209,7 @@ export function cases(): Array<[string, CockpitModel]> {
       "pre-launch and archived",
       built([
         siteRow({ id: "recP", name: "Prelaunch", status: "launching" }),
-        siteRow({ id: "recL", name: "Legacy", status: "archived", statusRaw: "legacy" }),
+        siteRow({ id: "recL", name: "Legacy", status: "archived", statusRaw: "archived" }),
         siteRow({ id: "recA", name: "Acme Co" }),
       ]),
     ],
