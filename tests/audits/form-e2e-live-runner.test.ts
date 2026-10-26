@@ -475,6 +475,32 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     );
   });
 
+  // #1669 (A14). The body is read for every status below 400, not only 200: a 201
+  // whose body is a kit failure fails too, and a plain 201 still passes.
+  it("a SvelteKit fail() inside a 201 fails", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 201,
+      kitFailure: true,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 201 \{"type":"failure","status":502/,
+    );
+  });
+
+  it("control: a 201 POST with an ordinary body and the thanks banner passes", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      postStatus: 201,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  });
+
   it("the region shown before the POST: a 500 that answers 800 ms later still fails", async () => {
     const out = await submit({
       health: DECLARED,

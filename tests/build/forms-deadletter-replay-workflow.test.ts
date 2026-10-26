@@ -365,6 +365,31 @@ describe("forms-deadletter-replay — the real CLI through the gate (#1615)", ()
     expect(r.log).not.toContain("PASS:");
   });
 
+  // #1634 (2). One lost lead per counter: every case above uses three, so a marker
+  // that dropped exactly one failure to 0 would pass them all while the gate went green.
+  it("ONE lead whose formType was retired: the marker says rejected=1 and the gate reds", async () => {
+    const r = await replayThroughGate(await seed([lead(1, { formType: "estimate" })]));
+    expect(r.log).toContain(
+      "DEADLETTER_REPLAY replayed=0 rejected=1 notify_failed=0 still_failing=0 unmarked=0 unreadable=0",
+    );
+    expect(r.cliCode).toBe(1);
+    expect(r.code).toBe(1);
+    expect(r.log).toContain("::error::deadletter replay: rejected=1 notify_failed=0");
+    expect(r.log).not.toContain("PASS:");
+  });
+
+  it("ONE lead placed un-emailed: the marker says notify_failed=1 and the gate reds", async () => {
+    resend.configured = false;
+    const r = await replayThroughGate(await seed([lead(1)]));
+    expect(r.log).toContain(
+      "DEADLETTER_REPLAY replayed=1 rejected=0 notify_failed=1 still_failing=0 unmarked=0 unreadable=0",
+    );
+    expect(r.cliCode).toBe(1);
+    expect(r.code).toBe(1);
+    expect(r.log).toContain("::error::deadletter replay: rejected=0 notify_failed=1");
+    expect(r.log).not.toContain("PASS:");
+  });
+
   it("a key Resend refuses: three leads placed un-emailed, and the gate reds", async () => {
     resend.refuses = true;
     const r = await replayThroughGate(await seed([lead(1), lead(2), lead(3)]));
@@ -385,11 +410,13 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
 
   /** `gh` stubbed: `issue list` finds #42, `issue view` serves `issue` as the JSON
    *  the real CLI would and applies the step's own `--jq` with real jq (or exits 1
-   *  when `viewFails`), and every call is logged. */
+   *  when `viewFails`), and every call is logged. The last `--body` argument any
+   *  call passed is kept verbatim as `body` (#1634), so the open step's real body
+   *  can be handed to the close step. */
   async function runIssueStep(
     step: string,
     opts: { replayOut?: string; issue?: Issue; viewFails?: boolean },
-  ): Promise<{ code: number; log: string; calls: string }> {
+  ): Promise<{ code: number; log: string; calls: string; body: string | null }> {
     const dir = await mkdtemp(join(tmpdir(), "dl-replay-issue-"));
     try {
       const bin = join(dir, "bin");
@@ -405,6 +432,8 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
         [
           "#!/bin/bash",
           `printf '%s\\n' "$*" >> "${join(dir, "calls.txt")}"`,
+          'prev=""',
+          `for a in "$@"; do [ "$prev" = "--body" ] && printf '%s' "$a" > "${join(dir, "body.txt")}"; prev="$a"; done`,
           'if [ "$1 $2" = "issue list" ]; then echo 42; exit 0; fi',
           'if [ "$1 $2" = "issue view" ]; then',
           `  ${opts.viewFails ? "echo 'HTTP 502' >&2; exit 1" : ":"}`,
@@ -433,7 +462,8 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
         log = (err.stdout ?? "") + (err.stderr ?? "");
       }
       const calls = await readFile(join(dir, "calls.txt"), "utf-8").catch(() => "");
-      return { code, log, calls };
+      const body = await readFile(join(dir, "body.txt"), "utf-8").catch(() => null);
+      return { code, log, calls, body };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -494,6 +524,18 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
     expect(r.calls).toContain("(3 more; see the run log)");
   });
 
+  // #1634 (3). The boundary: exactly 50 lines all fit, so there is no "more" line.
+  // `-ge 50` here would print "(0 more; see the run log)".
+  it("at exactly 50 defect lines the issue lists them all and says nothing about more", async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `NOTIFY FAILED dl_${i} → accepted`);
+    const r = await runIssueStep(OPEN, {
+      replayOut: [...lines, marker({ replayed: 50, notifyFailed: 50 })].join("\n"),
+    });
+    expect(r.calls).toContain("NOTIFY FAILED dl_0 ");
+    expect(r.calls).toContain("NOTIFY FAILED dl_49 ");
+    expect(r.calls).not.toContain("more; see the run log");
+  });
+
   it("a green run does NOT close an issue whose COMMENT names a NOTIFY FAILED lead", async () => {
     // The open step rewrites the body on every failure, so a lead named by an
     // earlier run survives only in that run's comment.
@@ -541,10 +583,40 @@ describe("forms-deadletter-replay — the tracking issue keeps a lost lead (#161
     }
     expect(open.calls).not.toContain("dl_ok");
 
-    // …and the close step reads those same lines back as a reason to stay open.
+    // …and the close step reads those same lines back, in the body the open step
+    // actually wrote (#1634: not a hand-written one), as a reason to stay open.
+    // The open step rewrote the body and commented the same text.
+    expect(open.body).toContain("REJECTED dl_rj");
+    const written = open.body ?? "";
     const close = await runIssueStep(CLOSE, {
-      issue: { body: "", comments: [report.output] },
+      issue: { body: written, comments: [written] },
     });
+    expect(close.calls).toMatch(/issue view 42/);
     expect(close.calls).not.toMatch(/issue close/);
+    expect(close.log).toContain("not closing #42");
+  });
+
+  // #1634 (1). The KNOWN-GOOD half of open → close: the open step's own prose says
+  // "REJECTED or NOTIFY FAILED" mid-line, so only the close step's `^` anchor lets
+  // an issue about an unmarked or unreadable row close on recovery.
+  it("KNOWN-GOOD: the body the open step writes for unmarked/unreadable rows is closed by a green run", async () => {
+    const { formatReplayReport } = await import("../../src/forms/replay.js");
+    const report = formatReplayReport({
+      replayed: [],
+      rejected: [],
+      stillFailing: [],
+      unmarked: [{ id: "dl_um", outcome: "accepted", submissionId: "sub_3", error: "turso 500" }],
+      unreadable: [
+        { id: "dl_ur", siteSlug: "acme", error: "payload is not JSON", receivedAt: "2026-10-21" },
+      ],
+    });
+    const open = await runIssueStep(OPEN, { replayOut: report.output });
+    expect(open.body).toContain("UNMARKED dl_um");
+    expect(open.body).toContain("REJECTED or NOTIFY FAILED");
+    const written = open.body ?? "";
+    const close = await runIssueStep(CLOSE, {
+      issue: { body: written, comments: [written] },
+    });
+    expect(close.calls).toMatch(/issue close 42/);
   });
 });

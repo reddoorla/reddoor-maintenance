@@ -45,6 +45,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   storeRenderedHtml: async () => {},
   storeChecklistEvidence: vi.fn(async () => true),
   storeLighthouseScores: vi.fn(async () => true),
+  storeGaVisits: vi.fn(async () => true),
   mirrorHealthFields: vi.fn(async () => true),
 }));
 vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
@@ -55,6 +56,7 @@ vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
     notConfigured: false,
     lookup: { outcome: "resolved", property: "https://www.acme.com/" },
   })),
+  fetchGaVisits: vi.fn(async () => ({ value: { current: 217, previous: 206 }, softFailed: false })),
 }));
 
 import { runReportCommand } from "../../src/cli/commands/report.js";
@@ -62,8 +64,9 @@ import {
   mirrorHealthFields,
   storeChecklistEvidence,
   storeLighthouseScores,
+  storeGaVisits,
 } from "../../src/db/fleet-state.js";
-import { fetchSearch } from "../../src/reports/draft.js";
+import { fetchGaVisits, fetchSearch } from "../../src/reports/draft.js";
 
 describe("report --rerender binds the Google Indexed re-measure to the real IO", () => {
   it("measures with fetchSearch over the report's period and stores the search columns with the evidence", async () => {
@@ -108,5 +111,22 @@ describe("report --rerender binds the Search Console lookup write-back to the re
       "Search Console Resolved": "https://www.acme.com/",
     });
     expect(typeof fields["Search Console Checked At"]).toBe("string");
+  });
+});
+
+describe("report --rerender binds the analytics refresh to the real IO (P1-73)", () => {
+  it("measures with the draft's own fetchGaVisits as of now and stores the pair on the report", async () => {
+    const before = Date.now();
+    const out = await runReportCommand(undefined, { rerender: "report_X" });
+    expect(out.code).toBe(0);
+    expect(out.output).toContain("ga=refreshed");
+
+    const [site, now] = vi.mocked(fetchGaVisits).mock.calls.at(-1)!;
+    expect(site.id).toBe("recSITE");
+    expect(now.getTime()).toBeGreaterThanOrEqual(before);
+    expect(vi.mocked(storeGaVisits).mock.calls.at(-1)!.slice(1)).toEqual([
+      "report_X",
+      { current: 217, previous: 206 },
+    ]);
   });
 });

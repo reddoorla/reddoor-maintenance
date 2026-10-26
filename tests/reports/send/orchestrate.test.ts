@@ -744,15 +744,25 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.html).toContain("Page 1 Google Result (#4)");
   });
 
-  it("labels the analytics trend with the stored period window length on re-render", async () => {
+  it("labels the analytics as engaged visits over 30 days on re-render, whatever the report's period (P1-73)", async () => {
     const h = harness({
-      // Default fixture period is 2026-04-26 → 2026-05-26 = 30 days.
-      Reports: [reportRow({ "GA users (period)": 679, "GA users (prev period)": 549 })],
+      // A quarterly report: the stored period is 91 days, but the GA numbers in the row
+      // always cover the fixed 30-day window, so the label must say 30.
+      Reports: [
+        reportRow({
+          "Period start": "2026-02-24",
+          "Period end": "2026-05-26",
+          "GA users (period)": 679,
+          "GA users (prev period)": 549,
+        }),
+      ],
       Websites: [siteRow()],
     });
     const { client, captured } = captureClient();
     await sendApprovedReports({ ...h.io, resend: client });
+    expect(captured[0]!.html).toContain("679 Engaged visits");
     expect(captured[0]!.html).toContain("vs the previous 30 days");
+    expect(captured[0]!.html).not.toContain("vs the previous 91 days");
   });
 
   it("logs site-not-found failure when a report's siteId has no matching Website", async () => {

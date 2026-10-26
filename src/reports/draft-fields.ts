@@ -23,7 +23,8 @@ export type DraftInput = {
   completedOn: Date;
   lighthouse: LighthouseScores;
   lastTestedDate: Date | null;
-  /** GA "Users" for the period / previous period. Omitted when GA is not configured
+  /** GA "Engaged visits" (`engagedSessions`) for the last 30 complete days / the 30 before
+   *  (P1-73; the field keeps its stored "GA users" name). Omitted when GA is not configured
    *  for the site or the fetch failed — the operator fills the fields manually. */
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;

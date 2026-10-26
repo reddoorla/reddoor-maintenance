@@ -729,6 +729,12 @@ const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 // so a test title "as users expect (no 404)" is not one; nor is `expectedFor(` or a bare
 // "assertions".
 const ASSERTION = /\b(expect|expectTypeOf|assert|assertType|assert[A-Z]\w*)(\s*\.\s*\w+){0,8}\s*\(/;
+// The matcher of an assertion Prettier broke across lines (#1604): `expect(\n  x,\n)
+// .toBe(false);` leaves `).toBe(false);` on a line with no `expect(`. A line whose code
+// opens with `)` and goes on to a matcher, through `.not`, `.resolves` or `.rejects`, is an
+// assertion line. A `)` that closes any other call (`);`, `).toString()`) is not.
+const MATCHER_LINE =
+  /^\)+\s*(\.\s*(not|resolves|rejects)\s*){0,3}\.\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\w*\s*\(/;
 // A skip, tested on a line's code:
 // - a modifier on the test API, called or not: `it.skip(`, `describe.skip.each(…)`,
 //   `cond ? it.skip : it`, `it.runIf(false)(`, Playwright's `test.fixme(` and `test.fail(`;
@@ -898,7 +904,8 @@ function renamedAway(before, after) {
 /** `GET pulls/N/files` → the flagged test files, `[{ file, reasons }]`, in the API's order.
  *
  *  Flagged: a test file deleted or renamed (see `renamedAway`); a removed line holding an
- *  assertion call (see `ASSERTION`) that is not added back, re-indented or moved, as many
+ *  assertion call (see `ASSERTION`), or an assertion's matcher on a line of its own (see
+ *  `MATCHER_LINE`), that is not added back, re-indented or moved, as many
  *  times as it was removed, in the same file (so `toBe(3)` → `toBe(4)` is flagged, a moved
  *  assertion is not); an added skip (see `SKIP`) that was not there before; a changed line
  *  too long to scan; and a changed test file whose patch GitHub left out (it does for a
@@ -938,7 +945,7 @@ export function testChangeFlags(files) {
         if (!takeOne(addedLeft, lineKey(t))) reasons.push(tooLong(t));
         continue;
       }
-      if (!hasCall(t, ASSERTION, withoutGenerics)) continue;
+      if (!hasCall(t, ASSERTION, withoutGenerics) && !hasCall(t, MATCHER_LINE)) continue;
       if (!takeOne(addedLeft, lineKey(t))) reasons.push(`removed assertion not re-added: ${t}`);
     }
     for (const t of added) {

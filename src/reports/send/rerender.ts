@@ -50,8 +50,17 @@ export type RerenderDeps = {
   /** Writes the #943 lookup cells to the site's `site_health` row, as the draft
    *  does (P1-36). Returns whether a row matched. */
   storeLookup?: (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
+  /** The draft's own GA fetch (`fetchGaVisits`): engaged visits over the last 30
+   *  complete days before `now`, and the 30 before. Never throws; null when GA is
+   *  not configured, the site has no property, or the API soft-failed (P1-73). */
+  measureVisits?: (site: WebsiteRow, now: Date) => Promise<{ value: GaVisits | null }>;
+  /** Conditional on the row still being unsent and unapproved, like `storeScores`. */
+  storeVisits?: (reportId: string, visits: GaVisits) => Promise<boolean>;
   now: () => Date;
 };
+
+/** A report's analytics pair, as the `ga_users_*` columns hold it. */
+export type GaVisits = { current: number; previous: number };
 
 /** Whether this refresh re-measured Google Indexed: `measured` (a query ran),
  *  `unavailable` (soft-fail or no credentials), `skipped` (locked, not enrolled,
@@ -77,6 +86,13 @@ export type EvidenceStatus = "reticked" | "unchanged" | "locked" | "not-written"
  *  `not-written` (the conditional write matched nothing). */
 export type ScoresStatus = "refreshed" | "unchanged" | "locked" | "site-missing" | "not-written";
 
+/** Whether this refresh re-measured the analytics line (P1-73): `refreshed`
+ *  (written and rendered), `unchanged` (already equal), `locked` (approved),
+ *  `unavailable` (no GA here, no property, or a soft-fail: stored numbers kept),
+ *  `skipped` (no fetch wired, or a Launch report, which shows none), `not-written` (the conditional write matched nothing). */
+export type GaStatus =
+  "refreshed" | "unchanged" | "locked" | "unavailable" | "skipped" | "not-written";
+
 export type RerenderResult =
   | {
       status: "rendered";
@@ -88,6 +104,8 @@ export type RerenderResult =
       scores: ScoresStatus;
       scoresChange: string | null;
       lookup: LookupStatus;
+      ga: GaStatus;
+      gaChange: string | null;
     }
   /** Already sent: its stored body is the record of what the client received. */
   | { status: "already-sent"; reportId: string }
@@ -99,6 +117,8 @@ export type RerenderResult =
       scores: ScoresStatus;
       scoresChange: string | null;
       lookup: LookupStatus;
+      ga: GaStatus;
+      gaChange: string | null;
     }
   | { status: "not-found"; reportId: string };
 
@@ -157,6 +177,10 @@ export async function rerenderReport(
   current = refresh.report;
   const { scores, scoresChange } = refresh;
 
+  const visits = await refreshVisits(deps, reportId, site, current);
+  current = visits.report;
+  const { ga, gaChange } = visits;
+
   const plate = await deps.loadHeaderPlate(site.id);
   // Named, not rendered around: a report with no header is already blocked at
   // approve, and a preview that quietly omitted it would disagree with both
@@ -170,6 +194,8 @@ export async function rerenderReport(
       scores,
       scoresChange,
       lookup,
+      ga,
+      gaChange,
     };
   }
 
@@ -185,6 +211,8 @@ export async function rerenderReport(
     scores,
     scoresChange,
     lookup,
+    ga,
+    gaChange,
   };
 }
 
@@ -216,6 +244,35 @@ async function refreshScores(
   if (!change) return { ...unchanged, scores: "unchanged" };
   if (!(await deps.storeScores(reportId, live))) return { ...unchanged, scores: "not-written" };
   return { report: { ...report, lighthouse: live }, scores: "refreshed", scoresChange: change };
+}
+
+/** An unsent, unapproved report takes the analytics line a draft made now would
+ *  carry (P1-73): the draft's own fetch, over the last 30 complete days. A draft
+ *  made before P1-73 holds `activeUsers` over its own period, and this is how it
+ *  picks up engaged visits without a hand-written write. An approved one keeps
+ *  what was approved; a fetch that comes back empty keeps what is stored. */
+async function refreshVisits(
+  deps: RerenderDeps,
+  reportId: string,
+  site: WebsiteRow,
+  report: ReportRow,
+): Promise<{ report: ReportRow; ga: GaStatus; gaChange: string | null }> {
+  const unchanged = { report, gaChange: null };
+  if (!deps.measureVisits || !deps.storeVisits) return { ...unchanged, ga: "skipped" };
+  // The launch email shows no analytics and its draft never fetches GA.
+  if (report.reportType === "Launch") return { ...unchanged, ga: "skipped" };
+  if (report.approvedToSend) return { ...unchanged, ga: "locked" };
+  const { value } = await deps.measureVisits(site, deps.now());
+  if (!value) return { ...unchanged, ga: "unavailable" };
+  const before = `${report.gaUsersCurrent ?? "none"}/${report.gaUsersPrevious ?? "none"}`;
+  const after = `${value.current}/${value.previous}`;
+  if (before === after) return { ...unchanged, ga: "unchanged" };
+  if (!(await deps.storeVisits(reportId, value))) return { ...unchanged, ga: "not-written" };
+  return {
+    report: { ...report, gaUsersCurrent: value.current, gaUsersPrevious: value.previous },
+    ga: "refreshed",
+    gaChange: `${before}→${after}`,
+  };
 }
 
 /** Google Indexed is measured only where the draft would measure it: an unsent
@@ -270,6 +327,11 @@ function scoresSuffix(r: {
   scores: ScoresStatus;
   scoresChange: string | null;
   lookup: LookupStatus;
+  ga: GaStatus;
+  gaChange: string | null;
 }): string {
-  return ` scores=${r.scores}${r.scoresChange ? ` scores_change=${r.scoresChange}` : ""} lookup=${r.lookup}`;
+  return (
+    ` scores=${r.scores}${r.scoresChange ? ` scores_change=${r.scoresChange}` : ""} lookup=${r.lookup}` +
+    ` ga=${r.ga}${r.gaChange ? ` ga_change=${r.gaChange}` : ""}`
+  );
 }

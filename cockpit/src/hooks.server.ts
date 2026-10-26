@@ -1,4 +1,4 @@
-import type { Handle } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
 import { requireOperator, denialResponse } from "../../src/dashboard/auth/require.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 

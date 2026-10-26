@@ -196,7 +196,7 @@ describe("renderReportHtml", () => {
       );
       // No empty "— Users" block; the section (and its SEO footnote) is omitted.
       expect(html).not.toContain(">ANALYTICS</mj-text>");
-      expect(html).not.toContain("Users");
+      expect(html).not.toMatch(/Users|Engaged visits/);
       expect(html).not.toContain("Last Period");
     });
   });
@@ -251,7 +251,7 @@ describe("renderReportHtml", () => {
     const { html } = await renderReportHtml(
       baseData({ gaUsersCurrent: 12345, gaUsersPrevious: 6789 }),
     );
-    expect(html).toContain("12,345 Users");
+    expect(html).toContain("12,345 Engaged visits");
     // Both counts carry thousands separators — now shown in the trend range line.
     expect(html).toContain("(6,789 → 12,345)");
   });

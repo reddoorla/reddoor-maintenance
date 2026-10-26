@@ -854,6 +854,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
         }),
     },
     {
+      name: "storeGaVisits (preview refresh re-measures an unsent draft's analytics, P1-73)",
+      covers: ["storeGaVisits"],
+      run: (db) => fleetState.storeGaVisits(db, "recA", { current: 1, previous: 1 }),
+    },
+    {
       name: "mirrorHealthFields (nightly audit write-through)",
       covers: ["mirrorHealthFields"],
       run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),
