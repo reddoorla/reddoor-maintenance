@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { body, frontmatter, toolList } from "../_helpers/agent-frontmatter.js";
 
 // P1-56: the `sweep` agent routes mechanical census and inventory sweeps to Haiku 5.5 at
-// `medium` with only Read, Grep and Glob, the configuration that scored 228/228 in each of two
+// `medium` with only Read, Grep and Glob, the configuration that scored 228/228 in each of three
 // read-only runs of the 2026-10-19 row-4 census (P1-56's result comment on
 // reddoorla/reddoor-workspace#1). The row-4 bake-off's own Haiku arms, at 456/456 for `medium`,
 // also had Bash and Write, so they are not this configuration. Claude Code reads these frontmatter keys from
