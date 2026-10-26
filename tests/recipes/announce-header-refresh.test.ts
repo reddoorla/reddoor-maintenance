@@ -6,7 +6,7 @@ import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 // No network: GA/Search enrichment stubbed to "not configured".
 vi.mock("../../src/reports/draft.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/draft.js")>()),
-  fetchGaUsers: vi.fn(),
+  fetchGaVisits: vi.fn(),
   fetchSearch: vi.fn(),
 }));
 // Stand in for the real capture so these tests never launch a browser.
@@ -18,14 +18,14 @@ vi.mock("../../src/reports/header-image/index.js", () => ({
     contentType: "image/jpeg" as const,
   })),
 }));
-import { fetchGaUsers, fetchSearch } from "../../src/reports/draft.js";
+import { fetchGaVisits, fetchSearch } from "../../src/reports/draft.js";
 import { generateHeaderImage } from "../../src/reports/header-image/index.js";
 
 const NOW = new Date("2026-06-17T12:00:00.000Z");
 
 beforeEach(() => {
   delete process.env.GA_SUBJECT;
-  vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
+  vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: false });
   vi.mocked(fetchSearch).mockResolvedValue({
     value: null,
     softFailed: false,

@@ -5,10 +5,10 @@ import type { PreparedHeader } from "../../src/reports/send/render-email.js";
 // Mock the live GA/Search enrichment (no network in tests). Default: configured + returns data.
 vi.mock("../../src/reports/draft.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/draft.js")>()),
-  fetchGaUsers: vi.fn(),
+  fetchGaVisits: vi.fn(),
   fetchSearch: vi.fn(),
 }));
-import { fetchGaUsers, fetchSearch } from "../../src/reports/draft.js";
+import { fetchGaVisits, fetchSearch } from "../../src/reports/draft.js";
 import { scoresFromRow, buildReportDataForSite } from "../../src/reports/report-data.js";
 
 const HEADER: PreparedHeader = {
@@ -43,7 +43,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(fetchGaUsers).mockResolvedValue({
+  vi.mocked(fetchGaVisits).mockResolvedValue({
     value: { current: 280, previous: 275 },
     softFailed: false,
   });
@@ -97,11 +97,11 @@ describe("buildReportDataForSite", () => {
     const d = await buildReportDataForSite(site(), "Launch", NOW, { scores, header: HEADER });
     expect(d.reportType).toBe("Launch");
     expect(d.gaUsersCurrent).toBeUndefined();
-    expect(fetchGaUsers).not.toHaveBeenCalled();
+    expect(fetchGaVisits).not.toHaveBeenCalled();
   });
 
   it("omits GA fields when enrichment is unavailable (null)", async () => {
-    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
+    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: false });
     vi.mocked(fetchSearch).mockResolvedValue({
       value: null,
       softFailed: false,
