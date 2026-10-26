@@ -105,12 +105,12 @@ Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
    unread for a week, this channel is dark; the issues in (1) are not.
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
-at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into four
-tiers — `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:40`) —
-worst-band-wins, with the watch band being the soft zone beneath the alert floor (a Lighthouse
-score in [75, 85), a check stale past 30 days). A watch reason the operator has explicitly
-accepted is routed to `acceptedReasons` and leaves the band rather than raising it
-(`fleet-cockpit.ts:204`, `:417–419`).
+at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into five
+tiers — `broken`, `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:45`) —
+worst-band-wins on the severity ladder (`src/alerts/ladder.ts`, P1-78b), with the watch band being
+the soft zone beneath the alert floor (a Lighthouse score in [75, 85), a check stale past 30 days).
+A watch reason the operator has explicitly accepted is routed to `acceptedReasons` and leaves the
+band rather than raising it (`fleet-cockpit.ts:347`, `:417–419`).
 
 **The "Needs you" feed** is real and is the thing to read first
 (`src/dashboard/fleet-cockpit.ts:533–668`, rendered as the cockpit's `needs-you` section,
