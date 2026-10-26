@@ -412,6 +412,10 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
     const known = new Set(workflowUses(security));
     for (const u of workflowUses(wf)) expect(known).toContain(u);
   });
+
+  it("bounds the sweep so a wedged run cannot pin the runner all night", () => {
+    expect(/timeout-minutes: \d+/.test(wf)).toBe(true);
+  });
 });
 
 describe("fleet-prismic-drift — a red night is durably visible", () => {
