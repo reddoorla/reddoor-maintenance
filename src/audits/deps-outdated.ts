@@ -5,7 +5,13 @@ import { pathExists } from "../util/fs.js";
 /** Real installed-version drift, distinct from the declared-range "drift" the
  *  deps audit computes against the baseline: how many dependencies are behind
  *  the registry's latest, per the committed lockfile. */
-export type OutdatedCounts = { outdated: number; major: number };
+export type OutdatedCounts = {
+  outdated: number;
+  major: number;
+  /** P1-78a: the packages counted in `major`, each as `name@installed-major`
+   *  (the major the site has now), sorted. fleet_daily ages each one. */
+  behind: string[];
+};
 
 function majorOf(version: string): number {
   const head = version.replace(/^[\^~]/, "").split(".")[0] ?? "0";
@@ -58,12 +64,12 @@ export async function scanOutdated(
       string,
       { current?: string; latest?: string }
     >;
-    const entries = Object.values(parsed);
-    return {
-      outdated: entries.length,
-      major: entries.filter((e) => e.current && e.latest && majorOf(e.latest) > majorOf(e.current))
-        .length,
-    };
+    const entries = Object.entries(parsed);
+    const behind = entries
+      .filter(([, e]) => e.current && e.latest && majorOf(e.latest) > majorOf(e.current))
+      .map(([name, e]) => `${name}@${majorOf(e.current!)}`)
+      .sort();
+    return { outdated: entries.length, major: behind.length, behind };
   } catch {
     return null;
   }

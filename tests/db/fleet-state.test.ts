@@ -98,6 +98,8 @@ const RICH: RawRecord = {
     "Deps Major Behind": 1,
     "Deps Outdated": 3,
     "Deps Major Outdated": 0,
+    "Deps Behind Packages": '["vite@5"]',
+    "Deps Behind Packages At": "2026-10-26T06:30:00.000Z",
     "Security Vulns Critical": 0,
     "Security Vulns High": 0,
     "Security Vulns Moderate": 1,

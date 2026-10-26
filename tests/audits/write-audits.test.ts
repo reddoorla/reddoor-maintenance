@@ -38,7 +38,7 @@ const a11yResult = (
 
 const depsResult = (
   drifts: Array<"same" | "patch" | "minor" | "major" | "newer">,
-  outdated: { outdated: number; major: number } | null = null,
+  outdated: { outdated: number; major: number; behind?: string[] } | null = null,
 ): AuditResult =>
   ({
     audit: "deps",
@@ -293,6 +293,38 @@ describe("writeBackOneSite", () => {
     const merged = Object.assign({}, ...calls.map((c) => c.fields));
     expect(merged["Deps Outdated"]).toBe(4);
     expect(merged["Deps Major Outdated"]).toBe(1);
+  });
+
+  it("writes the behind-package list and its stamp together when determined (P1-78a)", async () => {
+    const { mirror: mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], { outdated: 4, major: 2, behind: ["kit@2", "vite@5"] }),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect(JSON.parse(merged["Deps Behind Packages"] as string)).toEqual(["kit@2", "vite@5"]);
+    expect(Number.isNaN(Date.parse(merged["Deps Behind Packages At"] as string))).toBe(false);
+  });
+
+  it("a failed install writes neither the package list nor its stamp, so the stored list stands (P1-78a)", async () => {
+    const { mirror: mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Behind Packages" in merged).toBe(false);
+    expect("Deps Behind Packages At" in merged).toBe(false);
   });
 
   it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {

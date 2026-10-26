@@ -55,6 +55,9 @@ describe("runMigrations", () => {
       "0046_site_health_security_lockfile_audit",
       "0047_sites_prismic_ack_drift",
       "0048_cockpit_version",
+      "0049_fleet_daily",
+      "0050_site_health_deps_behind_packages",
+      "0051_site_health_deps_behind_packages_at",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -121,6 +124,9 @@ describe("runMigrations", () => {
       "0046_site_health_security_lockfile_audit",
       "0047_sites_prismic_ack_drift",
       "0048_cockpit_version",
+      "0049_fleet_daily",
+      "0050_site_health_deps_behind_packages",
+      "0051_site_health_deps_behind_packages_at",
     ]);
   });
 
@@ -191,6 +197,9 @@ describe("runMigrations", () => {
       "0046_site_health_security_lockfile_audit",
       "0047_sites_prismic_ack_drift",
       "0048_cockpit_version",
+      "0049_fleet_daily",
+      "0050_site_health_deps_behind_packages",
+      "0051_site_health_deps_behind_packages_at",
     ]);
   });
 
@@ -264,6 +273,9 @@ describe("runMigrations", () => {
       "0046_site_health_security_lockfile_audit",
       "0047_sites_prismic_ack_drift",
       "0048_cockpit_version",
+      "0049_fleet_daily",
+      "0050_site_health_deps_behind_packages",
+      "0051_site_health_deps_behind_packages_at",
     ]);
   });
 });

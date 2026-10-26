@@ -143,6 +143,8 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   "Deps Major Behind": "deps_major_behind",
   "Deps Outdated": "deps_outdated",
   "Deps Major Outdated": "deps_major_outdated",
+  "Deps Behind Packages": "deps_behind_packages",
+  "Deps Behind Packages At": "deps_behind_packages_at",
   "Security Vulns Critical": "vulns_critical",
   "Security Vulns High": "vulns_high",
   "Security Vulns Moderate": "vulns_moderate",

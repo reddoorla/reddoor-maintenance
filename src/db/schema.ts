@@ -147,6 +147,10 @@ export interface SiteHealthTable {
   deps_major_behind: number | null;
   deps_outdated: number | null;
   deps_major_outdated: number | null;
+  /** P1-78a (0050): JSON `name@installed-major` list of packages a major behind. */
+  deps_behind_packages: string | null;
+  /** P1-78a (0051): when that list was last written. */
+  deps_behind_packages_at: string | null;
   vulns_critical: number | null;
   vulns_high: number | null;
   vulns_moderate: number | null;
@@ -297,6 +301,14 @@ export interface DigestStateTable {
   updated_at: string | null;
 }
 
+export interface FleetDailyTable {
+  /** Migration 0049: the Pacific date the night's full conductor run names. */
+  night: string;
+  /** JSON, `FleetDailyCounts` in src/fleet-daily/types.ts. */
+  counts: string;
+  written_at: string;
+}
+
 /** Migration 0048: one row (`id` 1), whose `n` a trigger on every table the
  *  cockpit snapshot reads bumps on every write. Only its changing means anything. */
 export interface CockpitVersionTable {
@@ -324,6 +336,7 @@ export const DATABASE_TABLES = [
   "prospect_audits",
   "digest_state",
   "cockpit_version",
+  "fleet_daily",
 ] as const;
 
 export type DatabaseTable = (typeof DATABASE_TABLES)[number];
@@ -341,6 +354,7 @@ export interface Database {
   prospect_audits: ProspectAuditsTable;
   digest_state: DigestStateTable;
   cockpit_version: CockpitVersionTable;
+  fleet_daily: FleetDailyTable;
 }
 
 /** Compile-time exhaustiveness: if a table is added to `Database` and not to

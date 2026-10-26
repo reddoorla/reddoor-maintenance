@@ -199,6 +199,9 @@ export type DepsCounts = {
   majorBehind: number;
   outdated: number | null;
   majorOutdated: number | null;
+  /** P1-78a: `name@installed-major` per package a major behind; null = not read
+   *  this run (optional for callers that never had it). */
+  behindPackages?: string[] | null;
 };
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
@@ -288,6 +291,12 @@ function depsFields(counts: DepsCounts): FieldSet {
   // Same null-guard for the registry-major breakdown (same source signal).
   if (counts.majorOutdated !== null) {
     fields["Deps Major Outdated"] = counts.majorOutdated;
+  }
+  // P1-78a: the list and its stamp travel together, under the same guard, so a
+  // stamp that did not advance means a night with no reading.
+  if (counts.behindPackages != null) {
+    fields["Deps Behind Packages"] = JSON.stringify(counts.behindPackages);
+    fields["Deps Behind Packages At"] = new Date().toISOString();
   }
   return fields;
 }

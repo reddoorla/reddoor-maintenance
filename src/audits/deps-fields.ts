@@ -14,6 +14,7 @@ export function depsCountsFromResult(result: AuditResult): {
   majorBehind: number;
   outdated: number | null;
   majorOutdated: number | null;
+  behindPackages: string[] | null;
 } {
   if (result.audit !== "deps") {
     throw new Error(`Expected a 'deps' AuditResult, got '${result.audit}'`);
@@ -33,5 +34,8 @@ export function depsCountsFromResult(result: AuditResult): {
   // "N major" available, distinct from the baseline-drift "major" count. Shares
   // the outdated signal's null-when-undetermined semantics.
   const majorOutdated = details.outdated?.major ?? null;
-  return { drifted, majorBehind, outdated, majorOutdated };
+  // P1-78a: the packages a major behind, by name. Null with the counts, so a night
+  // `pnpm outdated` could not run never clobbers the stored list.
+  const behindPackages = details.outdated ? (details.outdated.behind ?? null) : null;
+  return { drifted, majorBehind, outdated, majorOutdated, behindPackages };
 }
