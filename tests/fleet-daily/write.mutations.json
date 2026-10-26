@@ -362,5 +362,31 @@
     ],
     "test": "tests/fleet-daily/write.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4-gap-night-full-write",
+    "why": "Review round 4: a night with no row, written after a later night, takes later nights' numbers",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "    if (!same && later)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-skipped-coverage-zero",
+    "why": "Review round 4: a step the guard skipped stores 0 coverage",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": ": s?.outcome === \"skipped\"",
+        "replace": ": s?.outcome === \"never\""
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
   }
 ]

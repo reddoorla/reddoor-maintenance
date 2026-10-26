@@ -366,6 +366,20 @@ describe("a full night", () => {
     });
   });
 
+  it("a step the guard skipped has no coverage count, not 0", async () => {
+    await write(
+      NIGHT_RUN,
+      FULL_LOG.replace(
+        "NIGHTLY fleet-form-e2e.yml dispatched run=107 at=2026-10-26T07:55:00Z",
+        "NIGHTLY fleet-form-e2e.yml skipped: run 555 (created 2026-10-26T02:30:00Z) was dispatched by the conductor within 12 h",
+      ).replace("NIGHTLY fleet-form-e2e.yml run=107 conclusion=success minutes=5\n", ""),
+    );
+    expect((await only()).coverage.value!.form_e2e_checked_at).toEqual({
+      value: null,
+      reason: "skipped by the guard: run 555 ran it before this night's run began",
+    });
+  });
+
   it("counts a stamp in the same second as a run start given without milliseconds", async () => {
     await exec(
       "UPDATE site_health SET last_smoke_at = '2026-10-26T06:07:10.500Z' WHERE site_id = 'recB'",
@@ -637,6 +651,14 @@ describe("the next night", () => {
     expect(after.counts.events).toEqual(before.counts.events);
     expect(after.counts.coverage).toEqual(before.counts.coverage);
     expect(after.counts.steps["fleet-smoke.yml"]).toMatchObject({ conclusion: "success" });
+  });
+
+  it("a night with no row, written after a later night, writes nothing", async () => {
+    await write(NEXT, FULL_LOG, {}, new Date("2026-10-27T08:20:00Z"));
+    // The 10-25 write failed that night and is re-run two days on.
+    const out = await write(NIGHT_RUN, FULL_LOG, {}, new Date("2026-10-27T20:00:00Z"));
+    expect(out.action).toBe("none");
+    expect((await rows()).map((r) => r.night)).toEqual(["2026-10-26"]);
   });
 
   it("never prunes an old night: the table is the history", async () => {

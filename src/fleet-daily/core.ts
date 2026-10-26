@@ -249,27 +249,30 @@ export const STEP_STAMPS: Readonly<Record<string, readonly string[]>> = {
   "fleet-prismic-drift.yml": ["prismic_models_checked_at"],
 };
 
-/** Coverage counts, with every column whose step was still running at the write
- *  stored as null and why: the step stamps after the row is written, and tonight's
- *  run replaces those stamps before the next night's write, so no 0 can stand for it. */
+/** Coverage counts, with every column whose step was still running at the write, or
+ *  was skipped by the guard, stored as null and why: no 0 can stand for a count this
+ *  run could not take (the next night's run replaces those stamps first). */
 export function explainCoverage(
   counts: Record<string, number>,
   steps: Record<string, StepResult | null>,
 ): Record<string, Measured<number>> {
-  const running = new Map<string, number>();
+  const unread = new Map<string, string>();
   for (const [file, cols] of Object.entries(STEP_STAMPS)) {
     const s = steps[file];
-    if (s?.outcome === "running") for (const c of cols) running.set(c, s.runId);
+    // A step still running stamps after the write; a step the guard skipped ran
+    // earlier than this run's start, so neither one's stamps can be counted from it.
+    const why =
+      s?.outcome === "running"
+        ? `run ${s.runId} was still running when this row was written`
+        : s?.outcome === "skipped"
+          ? `skipped by the guard: run ${s.runId ?? "unknown"} ran it before this night's run began`
+          : null;
+    if (why !== null) for (const c of cols) unread.set(c, why);
   }
   return Object.fromEntries(
     Object.entries(counts).map(([col, n]): [string, Measured<number>] => {
-      const id = running.get(col);
-      return [
-        col,
-        id === undefined
-          ? { value: n }
-          : { value: null, reason: `run ${id} was still running when this row was written` },
-      ];
+      const why = unread.get(col);
+      return [col, why === undefined ? { value: n } : { value: null, reason: why }];
     }),
   );
 }

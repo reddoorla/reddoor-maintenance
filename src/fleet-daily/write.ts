@@ -176,8 +176,16 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
     const night = nightOf(i.run.createdAt);
     // Read directly: a night older than the recent rows is still the same night.
     const same = await readRow(i.db, night);
-    if (same && (log.summary!.skipped > 0 || rows.some((r) => r.night > night)))
-      return mergeInto(i, rows, same, log, say);
+    const later = rows.some((r) => r.night > night);
+    if (same && (log.summary!.skipped > 0 || later)) return mergeInto(i, rows, same, log, say);
+    // No row, and a later night is already written (a failed write re-run days on):
+    // every window, stamp and list now belongs to later nights, so nothing written now
+    // could be this night's. The night stays a gap, which trends read as missing.
+    if (!same && later)
+      return {
+        action: "none",
+        why: `night ${night} has no row and a later night is already written; its counts cannot be read now`,
+      };
   }
 
   if (kind.kind === "only") {
