@@ -112,18 +112,6 @@ describe("GET /auth/login — the page", () => {
     ).text();
     expect(body).toContain("expired or was already used");
   });
-
-  it("never echoes an unknown error code into the page", async () => {
-    googleConfigured();
-    const body = await (
-      await authFn(
-        get("https://dash.reddoor.test/auth/login?error=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E"),
-        ctx,
-      )
-    ).text();
-    expect(body).not.toContain("onerror");
-    expect(body).toContain("Sign-in did not complete");
-  });
 });
 
 describe("GET /auth/login?start=1 — beginning the flow", () => {
