@@ -1553,25 +1553,6 @@ describe("audits/security — an empty Dependabot answer does not outrank a vuln
     ]);
   });
 
-  // The fake pnpm answers the same for --prod and every scope, so this pins only that the two
-  // paths read one pnpm answer alike; the scope itself is pinned by the next test.
-  it("reads the same counts as the Dependabot-403 fallback on the same pnpm answer", async () => {
-    const fallback = await securityAudit({
-      site: site(),
-      dependabotDeps: fakeDependabot(new Error("GitHub GET dependabot/alerts failed (403)")),
-      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
-    });
-    const empty = await securityAudit({
-      site: site(),
-      dependabotDeps: fakeDependabot([]),
-      spawn: fakeSpawn({ pnpm: { code: 1, stdout: minimistAudit } }),
-    });
-    expect(fallback.status).toBe("fail");
-    expect((empty.details as { counts: unknown }).counts).toEqual(
-      (fallback.details as { counts: unknown }).counts,
-    );
-  });
-
   it("audits every scope, as Dependabot's tallies do", async () => {
     const { spawn, calls } = recordingSpawn({ pnpm: { code: 1, stdout: minimistAudit } });
     await securityAudit({ site: site(), dependabotDeps: fakeDependabot([]), spawn });

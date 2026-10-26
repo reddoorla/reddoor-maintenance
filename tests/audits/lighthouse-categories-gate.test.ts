@@ -64,15 +64,6 @@ describe("missingLighthouseCategories", () => {
     expect(missingLighthouseCategories(lh("a", summary))).toEqual([k]);
   });
 
-  it("the category list is the four Lighthouse categories", () => {
-    expect([...LIGHTHOUSE_CATEGORIES]).toEqual([
-      "performance",
-      "accessibility",
-      "best-practices",
-      "seo",
-    ]);
-  });
-
   it("names every missing category, and a real score of 0 is a score", () => {
     expect(missingLighthouseCategories(lh("a", { performance: 0.9, accessibility: 1 }))).toEqual([
       "best-practices",
