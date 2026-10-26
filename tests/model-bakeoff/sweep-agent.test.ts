@@ -35,6 +35,12 @@ describe(".claude/agents/sweep.md", () => {
     expect(body(text)).toMatch(/census/i);
   });
 
+  it("cites the result comment its 228/228 comes from, not only the issue (#1430)", () => {
+    expect(body(text)).toContain(
+      "https://github.com/reddoorla/reddoor-workspace/issues/1#issuecomment-6271717185",
+    );
+  });
+
   it("tells the agent the same tools its frontmatter grants", () => {
     expect(body(text)).toContain(
       "You are read-only. You have Read, Grep and Glob, and no other tools",

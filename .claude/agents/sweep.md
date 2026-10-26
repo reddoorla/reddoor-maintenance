@@ -12,7 +12,9 @@ in the shape the caller asked for (a Markdown table or JSON), and nothing else.
 
 Why this agent exists: on 2026-10-19 this exact configuration (Haiku 5.5 at `medium`, with
 only Read, Grep and Glob) scored 228 of 228 on the row-4 census of 38 files in each of two runs
-(reddoorla/reddoor-workspace#1). That holds for checkable, mechanical fields only.
+(P1-56's result comment on reddoorla/reddoor-workspace#1,
+https://github.com/reddoorla/reddoor-workspace/issues/1#issuecomment-6271717185). That holds
+for checkable, mechanical fields only.
 
 How to work:
 
