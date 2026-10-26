@@ -1,0 +1,15 @@
+[
+  {
+    "id": "1430-issue-only-citation",
+    "edits": [
+      {
+        "file": ".claude/agents/sweep.md",
+        "find": "https://github.com/reddoorla/reddoor-workspace/issues/1#issuecomment-6271717185",
+        "replace": "reddoorla/reddoor-workspace#1"
+      }
+    ],
+    "test": "tests/model-bakeoff/sweep-agent.test.ts",
+    "expect": "red",
+    "why": "The body cites only the issue again, not the comment the 228/228 comes from."
+  }
+]
