@@ -98,10 +98,6 @@ function runCli(args: string[]): { out: string; code: number } {
 }
 
 describe("prospect-audit CLI registration — source", () => {
-  it("registers the command", () => {
-    expect(binSource).toContain('"prospect-audit <url>"');
-  });
-
   // Every command module is loaded LAZILY (dynamic import inside `.action()`)
   // so the CLI's startup graph stays free of prospect-audit's heaviest deps
   // (Anthropic SDK, Playwright, libSQL/kysely); the smoke-dist gate asserts

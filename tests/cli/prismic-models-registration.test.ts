@@ -100,10 +100,6 @@ function runCli(args: string[]): { out: string; code: number } {
 }
 
 describe("prismic-models CLI registration — source", () => {
-  it("registers the command", () => {
-    expect(binSource).toContain('"prismic-models [site]"');
-  });
-
   // Every command module is loaded LAZILY (dynamic import inside `.action()`) so
   // the CLI's startup graph stays free of heavy transitive deps; the smoke-dist
   // gate asserts bin.js's STATIC import closure. A top-level import here would

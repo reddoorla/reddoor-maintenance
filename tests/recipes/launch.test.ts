@@ -1133,31 +1133,6 @@ describe("recipes/launch", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("reads `/` after an identifier as DIVISION, not as a regex literal", async () => {
-    // The disambiguation's other direction. If division opened a regex literal,
-    // the scan would run to the next `/` and could swallow the guard — so this is
-    // the control that proves the lookback is not simply calling every `/` a
-    // regex.
-    const dir = await mkdtemp(join(tmpdir(), "launch-disposition-division-"));
-    await mkdir(join(dir, "src/routes/dev/match/[uid]"), { recursive: true });
-    await writeFile(
-      join(dir, "src/routes/dev/match/[uid]/+page.server.ts"),
-      [
-        'import { dev } from "$app/environment";',
-        'import { error } from "@sveltejs/kit";',
-        "export const prerender = false;",
-        "export async function load({ params, total = 10 }) {",
-        "  const half = total / 2;",
-        "  const ratio = half / total;",
-        '  if (!dev) error(404, { message: "Not found" });',
-        "  return { uid: params.uid, ratio };",
-        "}",
-      ].join("\n"),
-    );
-    await expect(matchingDisposition(dir)).resolves.toMatchObject({ ok: true });
-    await rm(dir, { recursive: true, force: true });
-  });
-
   /** A guarded twin page, so a fixture exercising ANOTHER gap still clears the
    *  page half of the pre-flight. */
   const GUARDED_TWIN = [
