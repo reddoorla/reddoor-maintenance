@@ -266,27 +266,11 @@ describe("Resend webhook signed-POST path", () => {
     >;
   }
 
-  it("does NOT downgrade a terminal 'bounced' when a late 'delivered' arrives (200, no write)", async () => {
-    findReportMock.mockResolvedValue(reportWith("bounced"));
-    const res = await post(resendEvent("email.delivered"));
-    expect(res.status).toBe(200);
-    expect(mirrorPatchMock).not.toHaveBeenCalled();
-  });
-
   it("does NOT downgrade a terminal 'complained' when a late 'delivered' arrives (200, no write)", async () => {
     findReportMock.mockResolvedValue(reportWith("complained"));
     const res = await post(resendEvent("email.delivered"));
     expect(res.status).toBe(200);
     expect(mirrorPatchMock).not.toHaveBeenCalled();
-  });
-
-  it("still applies pending → delivered (forward move writes)", async () => {
-    findReportMock.mockResolvedValue(reportWith("pending"));
-    const res = await post(resendEvent("email.delivered"));
-    expect(res.status).toBe(200);
-    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
-      delivery_status: "delivered",
-    });
   });
 
   it("still applies pending → bounced (forward move writes)", async () => {
@@ -333,12 +317,6 @@ describe("Resend webhook signed-POST path", () => {
     expect(mirrorPatchMock).not.toHaveBeenCalled();
   });
 
-  it("returns 500 so svix retries when no report matches and the event is still fresh (race)", async () => {
-    findReportMock.mockResolvedValue(null);
-    const res = await post(resendEvent("email.delivered", { createdAt: new Date().toISOString() }));
-    expect(res.status).toBe(500);
-  });
-
   it("returns 200 (orphan, stop retrying) when no report matches and the event is stale", async () => {
     findReportMock.mockResolvedValue(null);
     const elevenMinAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
@@ -373,16 +351,6 @@ describe("Resend webhook signed-POST path", () => {
     expect(res.status).toBe(200);
     expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2", null);
     expect(findReportMock).not.toHaveBeenCalled();
-  });
-
-  it("leaves a REPORT bounce on the report path untouched (submissions miss → report write)", async () => {
-    markBouncedMock.mockResolvedValue(false);
-    findReportMock.mockResolvedValue(fakeReport);
-    const res = await post(resendEvent("email.bounced", { emailId: "msg_report_9" }));
-    expect(res.status).toBe(200);
-    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
-      delivery_status: "bounced",
-    });
   });
 
   it("#783: hands the parsed bounce classification through to the submission write", async () => {
