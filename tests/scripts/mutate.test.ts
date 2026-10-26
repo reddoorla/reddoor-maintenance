@@ -489,6 +489,87 @@ describe("mutate, against a real repo", () => {
     expect(worktrees(f.dir)).toBe(1);
   });
 
+  // #1657: cockpit/.svelte-kit is git-ignored and made by `svelte-kit sync`, so a fresh
+  // worktree lacks it and every test reaching cockpit/ code failed to transform at baseline.
+  const syncSpy = (fail = false) => {
+    const real = makeRunner();
+    const calls: { cmd: string; args: string[]; cwd: string | undefined }[] = [];
+    const run = Object.assign(
+      (cmd: string, args: string[], o?: Parameters<typeof real>[2]) => {
+        calls.push({ cmd, args, cwd: o?.cwd });
+        if (cmd.endsWith("/node_modules/.bin/svelte-kit"))
+          return Promise.resolve(
+            fail
+              ? { code: 1, stdout: "", stderr: "sync broke", timedOut: false }
+              : { code: 0, stdout: "", stderr: "", timedOut: false },
+          );
+        return real(cmd, args, o);
+      },
+      { active: real.active },
+    );
+    return { run, calls };
+  };
+  const withCockpit = () => {
+    const f = fixture();
+    mkdirSync(join(f.dir, "cockpit"));
+    writeFileSync(join(f.dir, "cockpit", "tsconfig.json"), "{}\n");
+    sh(f.dir, "git", ["add", "-A"]);
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"]);
+    return f;
+  };
+
+  it("runs svelte-kit sync in the worktree, before the first test, when it has cockpit/", async () => {
+    const f = withCockpit();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const { run, calls } = syncSpy();
+    const rep = await withEnv({ MUTATE_FAKE_LOG: f.log }, () =>
+      mutate(opts(p), { cwd: f.dir, run, ...quiet }),
+    );
+    expect(rep.results[0]?.result).toBe("red");
+    const wt = calls.find((c) => c.cmd === "git" && c.args[0] === "worktree")?.args[3];
+    expect(wt).toBeTruthy();
+    const sync = calls.findIndex((c) => c.cmd.endsWith("/node_modules/.bin/svelte-kit"));
+    expect(calls[sync]).toEqual({
+      cmd: join(wt!, "node_modules", ".bin", "svelte-kit"),
+      args: ["sync"],
+      cwd: wt,
+    });
+    expect(sync).toBeLessThan(calls.findIndex((c) => c.cmd.endsWith("vitest")));
+    expect(calls.filter((c) => c.cmd.endsWith("svelte-kit"))).toHaveLength(1);
+  });
+
+  it("does not run svelte-kit sync when the worktree has no cockpit/, nor in place", async () => {
+    const f = fixture();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const plain = syncSpy();
+    await withEnv({ MUTATE_FAKE_LOG: f.log }, () =>
+      mutate(opts(p), { cwd: f.dir, run: plain.run, ...quiet }),
+    );
+    expect(plain.calls.some((c) => c.cmd.endsWith("vitest"))).toBe(true);
+    expect(plain.calls.some((c) => c.cmd.endsWith("svelte-kit"))).toBe(false);
+    const g = withCockpit();
+    const q = sidecar(g.side, [toValue("kill", "fail")]);
+    const inPlace = syncSpy();
+    await withEnv({ MUTATE_FAKE_LOG: g.log }, () =>
+      mutate(opts(q, { inPlace: true }), { cwd: g.dir, run: inPlace.run, ...quiet }),
+    );
+    expect(inPlace.calls.some((c) => c.cmd.endsWith("vitest"))).toBe(true);
+    expect(inPlace.calls.some((c) => c.cmd.endsWith("svelte-kit"))).toBe(false);
+  });
+
+  it("refuses, naming svelte-kit sync, when the sync fails in the worktree", async () => {
+    const f = withCockpit();
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const { run } = syncSpy(true);
+    await withEnv({ MUTATE_FAKE_LOG: f.log }, async () => {
+      await expect(mutate(opts(p), { cwd: f.dir, run, ...quiet })).rejects.toThrow(
+        /svelte-kit sync in the worktree failed:[\s\S]*sync broke/,
+      );
+    });
+    expect(existsSync(f.log)).toBe(false);
+    expect(worktrees(f.dir)).toBe(1);
+  });
+
   it("refuses a dirty tree before running anything, untracked files included", async () => {
     const f = fixture();
     const p = sidecar(f.side, [toValue("kill", "fail")]);
