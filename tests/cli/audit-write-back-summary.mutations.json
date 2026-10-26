@@ -1,0 +1,163 @@
+[
+  {
+    "id": "1-title-ignores-empty-fields",
+    "why": "#1716 title: undo the empty-field-set check, so an unwritten form-e2e prints 'Wrote to Websites[x]' again",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "  if (nothing) return `Websites[",
+        "replace": "  if (false) return `Websites["
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-summary-ignores-empty-fields",
+    "why": "#1716 summary: undo the empty-field-set check in formatWriteSummary",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "  if (nothing) return `→ Websites[",
+        "replace": "  if (false) return `→ Websites["
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-kept-form-e2e-counted",
+    "why": "#1716 title: count a kept form-e2e entry as a written audit type",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": ".filter((w) => !keptVerdicts(w))",
+        "replace": ".filter(() => true)"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-smoke-falls-through",
+    "why": "#1716 per-audit case: drop smoke's case so it falls to the generic line (the old code fell to security)",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "    case \"smoke\":\n      return `smoke: ${(w.counts as SmokeResult).ok}`;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-security-as-fallback",
+    "why": "#1716: restore the old shape, security as the catch-all that every unknown audit falls into",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "      return `${w.audit}: written`;",
+        "replace": "      { const c = w.counts as SecurityCounts; return `security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`; }"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-form-e2e-no-kept-branch",
+    "why": "#1716 per-audit case: a verdict-less form-e2e no longer says it kept the row",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "      if (keptVerdicts(w)) return \"form-e2e: no form verdict this run (kept)\";\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-domain-prints-null",
+    "why": "never print a missing value: certificate days rendered raw",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "${d === null ? \"unknown\" : `${d} days left`}",
+        "replace": "${d} days left"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-nothing-measured-as-kept",
+    "why": "round 1 finding 1: an unmeasured audit collapses back to 'kept'",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "  return `nothing measured: ${e.reason}`;",
+        "replace": "  return \"nothing to write (verdicts kept)\";"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-not-applicable-as-kept",
+    "why": "round 1 finding 1: a not-applicable-only run collapses back to 'kept'",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "  if (e.kind === \"not-applicable\") return \"not applicable, nothing to write\";",
+        "replace": "  if (e.kind === \"not-applicable\") return \"nothing to write (verdicts kept)\";"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-classifier-always-kept",
+    "why": "round 1 finding 1: the shared classifier files every empty write as kept (fleet tests run too)",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  if (plan.unmeasured.length === 0 && ranEmpty.length > 0) {",
+        "replace": "  if (true) {"
+      }
+    ],
+    "test": [
+      "tests/cli/audit-write-back-summary.test.ts",
+      "tests/audits/write-fleet-audits.test.ts",
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/audits/not-applicable-marks.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "11-single-site-drops-classification",
+    "why": "round 1 finding 1: writeBackOneSite stops returning the classification",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  return empty ? { ...plan.summary, empty } : plan.summary;",
+        "replace": "  return plan.summary;"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-lighthouse-raw-null",
+    "why": "round 1 finding 2: a null Lighthouse score prints as raw null",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "(v === null ? \"n/a\" : String(v))",
+        "replace": "String(v)"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-summary.test.ts",
+    "expect": "red"
+  }
+]
