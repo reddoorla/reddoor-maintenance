@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import type { Context } from "@netlify/functions";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Shared in-memory Turso instance across openDb() calls within one test — see
 // the identical workaround (and its rationale) in prospect-report.test.ts /
@@ -398,5 +400,13 @@ describe("prospect-audit-run adapter — health check + routing", () => {
     );
     expect(res.status).toBe(401);
     expect(await res.text()).not.toContain("DASHBOARD_PASSWORD");
+  });
+
+  it("is served at /api/prospect-audit/run by a cockpit route", () => {
+    const route = readFileSync(
+      join(import.meta.dirname, "../../cockpit/src/routes/api/prospect-audit/run/+server.ts"),
+      "utf8",
+    );
+    expect(route).toContain('lib/server/endpoints/prospect-audit-run.js"');
   });
 });
