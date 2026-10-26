@@ -1,0 +1,93 @@
+[
+  {
+    "id": "1-watch-mailed",
+    "why": "A Watch item is mailed",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "      .filter((it) => it.level !== \"watch\")\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-act-for-watch",
+    "why": "The subject says Act: for a Watch item",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "orderAttention(input.needsAttention.filter((it) => levelOfItem(it) !== \"watch\"))",
+        "replace": "orderAttention(input.needsAttention)"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3a-broken-below-attention-sections",
+    "why": "Broken sorts below Attention (the sections)",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    levelSection(\"Broken \u2014 someone outside Reddoor is affected now\", at(\"broken\")),\n    levelSection(\"Attention \u2014 fix this week\", at(\"attention\")),",
+        "replace": "    levelSection(\"Attention \u2014 fix this week\", at(\"attention\")),\n    levelSection(\"Broken \u2014 someone outside Reddoor is affected now\", at(\"broken\")),"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3b-broken-below-attention-order",
+    "why": "Broken sorts below Attention (the order the subject and sections read)",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "LEVEL_RANK[levelOfItem(it)] * 10 + SEVERITY_ORDER[it.severity]",
+        "replace": "SEVERITY_ORDER[it.severity]"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-watch-only-sends",
+    "why": "A night with only Watch items sends",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "      .filter((it) => it.level !== \"watch\")\n",
+        "replace": "      .filter((it) => it.level !== \"watch\" || true)\n"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-no-level-rise",
+    "why": "The level-rise branch is deleted",
+    "edits": [
+      {
+        "file": "src/alerts/digest-send.ts",
+        "find": "      LEVEL_RANK[f.level] < LEVEL_RANK[was.level]",
+        "replace": "      false"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-watch-dropped-before-diff",
+    "why": "Watch items are dropped before diffAttention, so their ages never accrue",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    const diffed = diffAttention(collected, prior, dayKey);",
+        "replace": "    const diffed = diffAttention(\n      collected.filter((it) => levelOf(it, undefined, today) !== \"watch\"),\n      prior,\n      dayKey,\n    );"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  }
+]

@@ -229,7 +229,7 @@ describe("prismic drift wiring — the digest", () => {
     expect(captured[0]!.html).toContain("Espada");
   });
 
-  it("the unknown item lands in the email with SECRET-shaped wording, not model-shaped", async () => {
+  it("the unknown item is Watch: recorded in the snapshot, never mailed (P1-78d)", async () => {
     const records = [
       siteRecord({
         "Prismic Models": "unknown",
@@ -237,18 +237,20 @@ describe("prismic drift wiring — the digest", () => {
       }),
     ];
     const { client, captured } = captureClient("msg_1");
-    await runDigest({
-      digestState: memoryDigestState(),
+    const state = memoryDigestState();
+    const result = await runDigest({
+      digestState: state,
       ...io(records),
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
       now: NOW,
     });
-    const html = captured[0]!.html;
-    expect(html).toContain("Prismic model check could not run");
-    expect(html).toContain("write token rejected (403)");
-    expect(html).not.toContain("diverge from the repo");
+    expect(captured).toHaveLength(0);
+    expect(result.output).toContain("skipped");
+    expect(Object.keys(await state.read()).some((k) => k.startsWith("prismic-unknown:"))).toBe(
+      true,
+    );
   });
 
   it("a clean fleet still skips — the collector adds no noise of its own", async () => {

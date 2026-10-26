@@ -593,7 +593,9 @@ describe("runDigest", () => {
     expect(result.code).toBe(0);
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
-    expect(html).toContain("Needs attention");
+    // P1-78d: a vuln and a bounced report are both Attention, so they sit in its section.
+    expect(html).toContain("Attention — fix this week");
+    expect(html).not.toContain("Broken — ");
     // Both signals present and badged NEW on first sight.
     expect(html).toContain("Acme Co");
     expect(html).toMatch(/NEW/);

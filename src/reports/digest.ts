@@ -21,6 +21,7 @@ import {
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { markWaiting } from "../alerts/waiting.js";
+import { LEVEL_RANK, levelOf, withLevels, type Level } from "../alerts/ladder.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import {
   ageLabel,
@@ -106,23 +107,46 @@ function attentionBadge(status?: AttentionStatus): string {
   return "";
 }
 
+/** An item's level: the one `withLevels` set, or its level with no date. */
+function levelOfItem(it: AttentionItem): Level {
+  return it.level ?? levelOf(it, undefined, new Date(0));
+}
+
+/** P1-78d: worst level first (Broken, then Attention), then by severity; one site's
+ *  items stay together, and a site sorts by its worst item. */
 export function orderAttention(items: readonly AttentionItem[]): AttentionItem[] {
+  const rank = (it: AttentionItem): number =>
+    LEVEL_RANK[levelOfItem(it)] * 10 + SEVERITY_ORDER[it.severity];
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of items) {
     const bucket = bySite.get(it.siteName);
     if (bucket) bucket.push(it);
     else bySite.set(it.siteName, [it]);
   }
-  return [...bySite.values()].flatMap((siteItems) =>
-    [...siteItems].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]),
-  );
+  // Stable sorts: on a tie a site keeps its place, and an item its place in its site.
+  return [...bySite.values()]
+    .map((siteItems) => [...siteItems].sort((a, b) => rank(a) - rank(b)))
+    .sort((a, b) => rank(a[0]!) - rank(b[0]!))
+    .flat();
 }
 
+/** P1-78d: Broken, then Attention, each its own section. Watch never reaches the
+ *  email (runDigest drops it after the diff). Nothing in either: one all-clear. */
 function attentionSection(items: AttentionItem[]): string {
-  const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
   if (items.length === 0) {
+    const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">All clear — nothing needs attention.</p>`;
   }
+  const at = (l: Level) => items.filter((it) => levelOfItem(it) === l);
+  return [
+    levelSection("Broken — someone outside Reddoor is affected now", at("broken")),
+    levelSection("Attention — fix this week", at("attention")),
+  ].join("");
+}
+
+function levelSection(title: string, items: AttentionItem[]): string {
+  if (items.length === 0) return "";
+  const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">${esc(title)}</h2>`;
 
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of orderAttention(items)) {
@@ -221,7 +245,8 @@ export function digestSubject(input: {
 }
 
 function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string {
-  const ordered = orderAttention(input.needsAttention);
+  // P1-78d: only a Broken or Attention item is ever named; Watch is never news.
+  const ordered = orderAttention(input.needsAttention.filter((it) => levelOfItem(it) !== "watch"));
   const changed = [...input.changes.added, ...input.changes.worse];
   const critical = ordered.filter((it) => it.severity === "critical" && touchedBy(it, changed));
   if (critical.length > 0) {
@@ -779,8 +804,17 @@ export async function runDigest(
     // only the site page shows it. Filter the EMAIL list only: `next` (written below)
     // must keep every waiting key so its `firstFlaggedAt` keeps counting, and so the
     // exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
-    const needsAttention = markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0)
-      .filter((it) => it.waiting !== true)
+    // P1-78d: the ladder. Watch items stay in `next` (their ages live there: a Renovate
+    // PR's 7 days count from it) but leave the email, as waiting items do; only Broken
+    // and Attention are mailed, so a night with only Watch items sends nothing.
+    const needsAttention = withLevels(
+      markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0).filter(
+        (it) => it.waiting !== true,
+      ),
+      next,
+      today,
+    )
+      .filter((it) => it.level !== "watch")
       .map((it) => {
         const since = next[it.key]?.firstFlaggedAt;
         return since ? { ...it, ageDays: daysBetween(since, dayKey) } : it;
@@ -800,6 +834,7 @@ export async function runDigest(
         ...(it.kind === "lighthouse" ? { tolerance: LIGHTHOUSE_WORSE_POINTS } : {}),
         ...(it.severity === "critical" ? { critical: true } : {}),
         ...(it.askParts ? { asks: it.askParts } : {}),
+        ...(it.level !== undefined ? { level: it.level } : {}),
       })),
     ];
 
