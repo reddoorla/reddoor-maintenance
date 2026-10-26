@@ -5,7 +5,7 @@ import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn, isSpawnTimeout } from "./util/spawn.js";
 import { siteLabel } from "../util/site.js";
 import { hasSmokeResult } from "./smoke-fields.js";
-import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
+import { PORT_ATTEMPTS, portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
 export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
@@ -190,6 +190,7 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  *
  * A suite that exceeds the budget is a THIRD outcome: it produced no verdict at all,
  * so it is reported as {@link SMOKE_UNMEASURED_PREFIX} and likewise carries no details.
+ * So is a port still taken after every attempt (#1658): the suite never started.
  * That keeps the prior value (right — nothing was learned) while letting
  * fleet-smoke.yml red the run, which is what the write-back gate alone cannot do.
  */
@@ -279,19 +280,23 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   }
 
   // A port taken between the pick and the site's `--strictPort` bind is retried
-  // on a fresh one (P1-27); any other failure is the suite's verdict.
+  // on a fresh one (P1-27); any other failure is the suite's verdict. The last
+  // port tried is kept so a collision that outlasts every attempt can be named.
   let raw;
+  let lastPort = 0;
   try {
     raw = await withPortRetry(
       1,
-      ([port]) =>
-        spawn("pnpm", ["test:smoke"], {
+      ([port]) => {
+        lastPort = port!;
+        return spawn("pnpm", ["test:smoke"], {
           cwd: site.path,
           env: { ...process.env, REDDOOR_SMOKE_PORT: String(port) },
           // Playwright on a cold tree installs chromium, boots the site's dev server,
           // and runs the smoke specs — the shared 30s default starves it (mirrors a11y).
           timeoutMs: SMOKE_TIMEOUT_MS,
-        }),
+        });
+      },
       (result, [port]) => result.code !== 0 && portInUse(spawnOutput(result), port!),
     );
   } catch (err) {
@@ -315,6 +320,18 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     throw err;
+  }
+
+  // Still colliding after the last attempt: the suite never started, so this is no
+  // verdict about the site (#1658). Like a timeout, it carries no details, so the
+  // write-back keeps the prior value and fleet-smoke.yml counts it as never measured.
+  if (raw.code !== 0 && portInUse(spawnOutput(raw), lastPort)) {
+    return {
+      audit: "smoke",
+      site: label,
+      status: "fail",
+      summary: `${SMOKE_UNMEASURED_PREFIX} — port ${lastPort} was already in use on all ${PORT_ATTEMPTS} attempts; no verdict, prior stored value preserved`,
+    };
   }
 
   if (raw.code === 0) {
