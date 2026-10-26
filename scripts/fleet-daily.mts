@@ -31,8 +31,12 @@ export function githubReads(fetch: Fetch, token: string, repo: string): GitHubRe
     return res;
   };
   return {
-    async conductorLog(runId) {
-      const jobs = (await (await get(`actions/runs/${runId}/jobs?per_page=10`)).json()) as {
+    async conductorLog(runId, attempt) {
+      // This attempt's jobs: the bare listing returns the latest attempt's, which after a
+      // re-run is not the one this write is for.
+      const jobs = (await (
+        await get(`actions/runs/${runId}/attempts/${attempt}/jobs?per_page=10`)
+      ).json()) as {
         jobs?: Array<{ id: number; name: string }>;
       };
       const job = jobs.jobs?.find((j) => j.name === "conduct") ?? jobs.jobs?.[0];
@@ -46,7 +50,7 @@ export function githubReads(fetch: Fetch, token: string, repo: string): GitHubRe
       };
       return run.status === "completed" ? (run.conclusion ?? "unknown") : null;
     },
-    async mergesSince(sinceIso) {
+    async mergesSince(sinceIso, untilIso) {
       // First-parent walk from main's head: a squash merge is one first-parent commit,
       // and a merge commit's second parent brings commits that are not merges of their own.
       const bySha = new Map<string, { parents: string[]; message: string }>();
@@ -54,7 +58,7 @@ export function githubReads(fetch: Fetch, token: string, repo: string): GitHubRe
       for (let page = 1; page <= 10; page++) {
         const list = (await (
           await get(
-            `commits?sha=main&since=${encodeURIComponent(sinceIso)}&per_page=100&page=${page}`,
+            `commits?sha=main&since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}&per_page=100&page=${page}`,
           )
         ).json()) as Array<{
           sha: string;

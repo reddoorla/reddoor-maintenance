@@ -301,8 +301,6 @@ export interface DigestStateTable {
   updated_at: string | null;
 }
 
-/** Migration 0048: one row (`id` 1), whose `n` a trigger on every table the
- *  cockpit snapshot reads bumps on every write. Only its changing means anything. */
 export interface FleetDailyTable {
   /** Migration 0049: the Pacific date the night's full conductor run names. */
   night: string;
@@ -311,6 +309,8 @@ export interface FleetDailyTable {
   written_at: string;
 }
 
+/** Migration 0048: one row (`id` 1), whose `n` a trigger on every table the
+ *  cockpit snapshot reads bumps on every write. Only its changing means anything. */
 export interface CockpitVersionTable {
   id: number;
   n: number;

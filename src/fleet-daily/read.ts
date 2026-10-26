@@ -105,12 +105,18 @@ export async function readReportsSent(db: Db): Promise<number> {
   return Number(r.n);
 }
 
-/** `fleet_events` recorded after `sinceIso` (or all it still holds), by type. */
+/** `fleet_events` recorded after `sinceIso` (or all it still holds) and no later
+ *  than `untilIso`, the row's own `written_at`, so the next night's window starts
+ *  exactly where this one ended and nothing is counted twice. */
 export async function readEventsSince(
   db: Db,
   sinceIso: string | null,
+  untilIso: string,
 ): Promise<Record<string, number>> {
-  let q = db.selectFrom("fleet_events").select(["type", sql<number>`count(*)`.as("n")]);
+  let q = db
+    .selectFrom("fleet_events")
+    .select(["type", sql<number>`count(*)`.as("n")])
+    .where("created_at", "<=", untilIso);
   if (sinceIso !== null) q = q.where("created_at", ">", sinceIso);
   const rows = await q.groupBy("type").execute();
   return Object.fromEntries(rows.map((r) => [r.type, Number(r.n)]));
@@ -153,14 +159,17 @@ export const COVERAGE_STAMPS = [
   "deps_behind_packages_at",
 ] as const;
 
-/** Per stamp column: how many sites it stamped at or after `sinceIso`. */
+/** Per stamp column: how many maintained sites it stamped at or after `sinceIso`
+ *  (the same set as the deps lists, so the row agrees with itself). */
 export async function readCoverage(db: Db, sinceIso: string): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const col of COVERAGE_STAMPS) {
     const r = await db
       .selectFrom("site_health")
+      .innerJoin("sites", "sites.id", "site_health.site_id")
       .select(sql<number>`count(*)`.as("n"))
-      .where(col, ">=", sinceIso)
+      .where("sites.status", "=", "maintained")
+      .where(`site_health.${col}`, ">=", sinceIso)
       .executeTakeFirstOrThrow();
     out[col] = Number(r.n);
   }

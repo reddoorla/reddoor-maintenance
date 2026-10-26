@@ -27,12 +27,12 @@
   },
   {
     "id": "2b-delta-wrong-row",
-    "why": "A running total takes its base from the oldest row instead of the newest earlier one",
+    "why": "A running total takes its base from the oldest earlier row instead of the newest",
     "edits": [
       {
         "file": "src/fleet-daily/core.ts",
-        "find": ".filter((r) => r.night < night && pick(r.counts).value !== null)\n    .sort((a, b) => (a.night < b.night ? 1 : -1))[0];",
-        "replace": ".filter((r) => r.night <= night && pick(r.counts).value !== null)\n    .sort((a, b) => (a.night < b.night ? 1 : -1))[0];"
+        "find": ".sort((a, b) => (a.night < b.night ? 1 : -1))[0];\n  if (!earlier)",
+        "replace": ".sort((a, b) => (a.night < b.night ? -1 : 1))[0];\n  if (!earlier)"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -189,6 +189,71 @@
         "file": "src/fleet-daily/write.ts",
         "find": "if (c !== null) concluded.set(id, c);",
         "replace": "if (c === null) concluded.set(id, c);"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-guard-run-replaces",
+    "why": "Review round 1: a full-plan run whose guard skipped steps replaces the night instead of merging into it",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "    if (same) return mergeInto(i, rows, same, log, say);",
+        "replace": "    if (same && false) return mergeInto(i, rows, same, log, say);"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-only-since-own-start",
+    "why": "Review round 1: an --only security re-run counts only its own stamps, nulling the night's readings for sites it failed to re-read",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "          target.counts.run.startedAt,",
+        "replace": "          i.run.startedAt,"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-no-cutoff",
+    "why": "Review round 1: events written after the row's cut-off are counted, then counted again the next night",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    .where(\"created_at\", \"<=\", untilIso);",
+        "replace": "    .where(\"created_at\", \"<=\", \"9999\");"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-coverage-all-sites",
+    "why": "Review round 1: coverage counts non-maintained sites, disagreeing with the deps lists",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "      .where(\"sites.status\", \"=\", \"maintained\")\n      .where(`site_health.${col}`",
+        "replace": "      .where(`site_health.${col}`"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-unread-unexplained",
+    "why": "Review round 1: a list missed because fleet-security was still running reads as an ordinary unread site",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "  if (security?.outcome !== \"running\") return deps;",
+        "replace": "  return deps;"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",

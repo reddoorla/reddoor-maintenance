@@ -15,6 +15,7 @@ import {
   addCounts,
   ageDeps,
   classifyRun,
+  explainUnread,
   fillRunning,
   fullNightSteps,
   LADDER_VERSION,
@@ -25,6 +26,7 @@ import {
   previousRow,
   runningRunIds,
   runningTotal,
+  type ConductorLog,
   type StoredRow,
 } from "./core.js";
 import {
@@ -41,12 +43,12 @@ import {
 import type { ConductorRun, FleetDailyCounts, Measured } from "./types.js";
 
 export type GitHubReads = {
-  /** The conductor job's log text. */
-  conductorLog: (runId: number) => Promise<string>;
+  /** The conductor job's log text, for this attempt. */
+  conductorLog: (runId: number, attempt: number) => Promise<string>;
   /** A run's conclusion, or null while it is still going. */
   runConclusion: (runId: number) => Promise<string | null>;
-  /** First-parent merges on `main` after `sinceIso`. */
-  mergesSince: (sinceIso: string) => Promise<number>;
+  /** First-parent merges on `main` after `sinceIso`, up to `untilIso`. */
+  mergesSince: (sinceIso: string, untilIso: string) => Promise<number>;
 };
 
 export type WriteInputs = {
@@ -97,11 +99,41 @@ export function cockpitCounts(model: CockpitModel): {
 
 const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 
+/** Merge a run's dispatched steps into an existing night. A re-run of the deps
+ *  audit re-reads the package lists, counting any stamp since that night's own full
+ *  run began, so a site whose re-read failed keeps the night's reading. */
+async function mergeInto(
+  i: WriteInputs,
+  rows: readonly StoredRow[],
+  target: StoredRow,
+  log: ConductorLog,
+  say: (line: string) => void,
+): Promise<WriteOutcome> {
+  let counts = mergeOnlySteps(target.counts, log, { id: i.run.id, startedAt: i.run.startedAt });
+  if (log.steps["fleet-security.yml"]?.outcome === "completed") {
+    const prevDeps = runningTotal(rows, target.night, (c) => c.deps).base;
+    counts = {
+      ...counts,
+      deps: await measure("deps", async () =>
+        ageDeps(
+          await readDepsReadings(i.db),
+          prevDeps?.sites ?? null,
+          target.night,
+          target.counts.run.startedAt,
+        ),
+      ),
+    };
+  }
+  await upsertRow(i.db, { ...target, counts });
+  say(`FLEET_DAILY merged run=${i.run.id} into night=${target.night}`);
+  return { action: "merged", night: target.night };
+}
+
 export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
   const say = i.log ?? (() => {});
   if (i.run.headBranch !== "main")
     return { action: "none", why: `conductor ran on ${i.run.headBranch}, not main` };
-  const text = await i.github.conductorLog(i.run.id);
+  const text = await i.github.conductorLog(i.run.id, i.run.attempt);
   const log = parseConductorLog(text);
   const kind = classifyRun(log, i.planned.length);
   if (kind.kind === "unreadable")
@@ -114,6 +146,15 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
   const rows = await readRecentRows(i.db);
   const nowIso = i.now.toISOString();
 
+  // A full plan whose guard skipped any step is a re-run of a night already written
+  // (the 12:19am fallback dispatching a step the clock's dispatch failed on, or
+  // "Re-run failed jobs"): it merges what it ran into that night, never replaces it.
+  if (kind.kind === "full" && log.summary!.skipped > 0) {
+    const night = nightOf(i.run.createdAt);
+    const same = rows.find((r) => r.night === night);
+    if (same) return mergeInto(i, rows, same, log, say);
+  }
+
   if (kind.kind === "only") {
     const target = mergeTarget(rows, i.run.createdAt);
     if (!target)
@@ -121,28 +162,7 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
         action: "none",
         why: `--only run ${i.run.id}: no night's full run started in the 24 hours before it`,
       };
-    let counts = mergeOnlySteps(target.counts, log, { id: i.run.id, startedAt: i.run.startedAt });
-    // A re-run of the deps audit re-reads the package lists for that night.
-    if (
-      counts.steps["fleet-security.yml"]?.outcome === "completed" &&
-      log.steps["fleet-security.yml"]
-    ) {
-      const prevDeps = runningTotal(rows, target.night, (c) => c.deps).base;
-      counts = {
-        ...counts,
-        deps: await measure("deps", async () =>
-          ageDeps(
-            await readDepsReadings(i.db),
-            prevDeps?.sites ?? null,
-            target.night,
-            i.run.startedAt,
-          ),
-        ),
-      };
-    }
-    await upsertRow(i.db, { ...target, counts });
-    say(`FLEET_DAILY merged run=${i.run.id} into night=${target.night}`);
-    return { action: "merged", night: target.night };
+    return mergeInto(i, rows, target, log, say);
   }
 
   const night = nightOf(i.run.createdAt);
@@ -172,14 +192,17 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
   const events = await (async (): Promise<Measured<Record<string, number>>> => {
     const { base, sinceIso } = runningTotal(rows, night, (c) => c.events);
     return measure("fleet_events", async () =>
-      addCounts(base, await readEventsSince(i.db, sinceIso)),
+      addCounts(base, await readEventsSince(i.db, sinceIso, nowIso)),
     );
   })();
 
   const prsMerged = await (async (): Promise<Measured<number>> => {
     const { base, sinceIso } = runningTotal(rows, night, (c) => c.prsMerged);
     const since = sinceIso ?? new Date(i.now.getTime() - THIRTY_DAYS_MS).toISOString();
-    return measure("GitHub merges", async () => (base ?? 0) + (await i.github.mergesSince(since)));
+    return measure(
+      "GitHub merges",
+      async () => (base ?? 0) + (await i.github.mergesSince(since, nowIso)),
+    );
   })();
 
   const counts: FleetDailyCounts = {
@@ -199,11 +222,14 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
     signals: fromModel ? { value: fromModel.signals } : nullBlock,
     coverage: await measure("coverage", () => readCoverage(i.db, i.run.startedAt)),
     deps: await measure("deps", async () =>
-      ageDeps(
-        await readDepsReadings(i.db),
-        runningTotal(rows, night, (c) => c.deps).base?.sites ?? null,
-        night,
-        i.run.startedAt,
+      explainUnread(
+        ageDeps(
+          await readDepsReadings(i.db),
+          runningTotal(rows, night, (c) => c.deps).base?.sites ?? null,
+          night,
+          i.run.startedAt,
+        ),
+        log.steps["fleet-security.yml"],
       ),
     ),
     leads: await measure("leads", () => readLeads(i.db)),

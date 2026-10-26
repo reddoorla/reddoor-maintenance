@@ -117,7 +117,7 @@ async function seed(): Promise<void> {
   );
   // Alpha read tonight; Beta's stamp is from two nights ago (no reading tonight).
   await exec(
-    "INSERT INTO site_health (site_id, deps_behind_packages, deps_behind_packages_at, security_audit_at, last_smoke_at) VALUES (?,?,?,?,?), (?,?,?,?,?), ('recC', NULL, NULL, NULL, NULL)",
+    "INSERT INTO site_health (site_id, deps_behind_packages, deps_behind_packages_at, security_audit_at, last_smoke_at) VALUES (?,?,?,?,?), (?,?,?,?,?), ('recC', NULL, NULL, '2026-10-26T06:31:00.000Z', NULL)",
     [
       "recA",
       JSON.stringify(["vite@5", "kit@2"]),
@@ -180,8 +180,8 @@ function github(over: Partial<GitHubReads> = {}, logs: Record<number, string> = 
   const calls: string[] = [];
   return {
     calls,
-    conductorLog: async (id) => {
-      calls.push(`log ${id}`);
+    conductorLog: async (id, attempt) => {
+      calls.push(`log ${id}/${attempt}`);
       const l = logs[id];
       if (l === undefined) throw new Error(`no log for ${id}`);
       return l;
@@ -355,6 +355,7 @@ describe("a full night", () => {
   it("counts the sites each step stamped since the run started", async () => {
     await write(NIGHT_RUN, FULL_LOG);
     const cov = (await only()).coverage.value!;
+    // Gamma (building) was stamped too, but coverage counts maintained sites only.
     expect(cov.security_audit_at).toBe(1);
     expect(cov.last_smoke_at).toBe(1);
     expect(cov.lighthouse_at).toBe(0);
@@ -378,6 +379,49 @@ describe("the runs that are not a full night", () => {
     );
     expect(out.action).toBe("none");
     expect(await rows()).toEqual(before);
+  });
+
+  it("a guard run that dispatches what the clock's dispatch failed on merges, never replaces the night", async () => {
+    await write(NIGHT_RUN, FULL_LOG);
+    const before = (await only()).steps;
+    const retry = logOf(
+      [
+        ...PLANNED.filter((f) => f !== "fleet-prismic-drift.yml").map(
+          (f) =>
+            `NIGHTLY ${f} skipped: run 1 (created 2026-10-26T06:07:13Z) was dispatched by the conductor within 12 h`,
+        ),
+        "NIGHTLY fleet-prismic-drift.yml dispatched run=110 at=2026-10-26T07:19:05Z",
+        "NIGHTLY fleet-prismic-drift.yml run=110 conclusion=success minutes=4",
+      ],
+      "NIGHTLY_CONDUCTOR_SUMMARY dispatched=1 completed=1 wait_exceeded=0 skipped=7 dispatch_failed=0 total=8",
+    );
+    // "Re-run failed jobs": attempt 2 of the same run, so the same night.
+    const out = await write({ ...NIGHT_RUN, attempt: 2, startedAt: "2026-10-26T07:19:00Z" }, retry);
+    expect(out).toEqual({ action: "merged", night: "2026-10-25" });
+    const c = await only();
+    expect(c.steps["fleet-prismic-drift.yml"]).toEqual({
+      outcome: "completed",
+      runId: 110,
+      conclusion: "success",
+    });
+    for (const f of PLANNED.filter((x) => x !== "fleet-prismic-drift.yml"))
+      expect(c.steps[f]).toEqual(before[f]);
+    expect(c.run.id).toBe(NIGHT_RUN.id);
+    expect(c.run.attempt).toBe(1);
+    expect(c.deps.value!.sites.recA!.packages).toEqual(["kit@2", "vite@5"]);
+  });
+
+  it("reads this attempt's log, not the latest attempt's", async () => {
+    const gh = github({}, { [NIGHT_RUN.id]: FULL_LOG });
+    await writeFleetDaily({
+      db,
+      github: gh,
+      run: { ...NIGHT_RUN, attempt: 3 },
+      planned: PLANNED,
+      cockpit: async () => MODEL,
+      now: new Date("2026-10-26T08:20:00Z"),
+    });
+    expect(gh.calls[0]).toBe(`log ${NIGHT_RUN.id}/3`);
   });
 
   it("an --only run merges its steps into the night and leaves the other steps as they were", async () => {
@@ -484,6 +528,38 @@ describe("the next night", () => {
     expect(next.events).toEqual({ value: { pr_automerged: 2, vuln_cleared: 1 } });
   });
 
+  it("takes the base from the newest earlier row, not an older one", async () => {
+    const third = {
+      ...NIGHT_RUN,
+      id: 9201,
+      createdAt: "2026-10-28T06:07:05Z",
+      startedAt: "2026-10-28T06:07:10Z",
+    };
+    await write(NIGHT_RUN, FULL_LOG, { mergesSince: async () => 10 });
+    await write(NEXT, FULL_LOG, { mergesSince: async () => 3 }, new Date("2026-10-27T08:20:00Z"));
+    await event("e5", "pr_automerged", "2026-10-27T20:00:00Z");
+    await write(third, FULL_LOG, { mergesSince: async () => 2 }, new Date("2026-10-28T08:20:00Z"));
+    const r = (await rows()).find((x) => x.night === "2026-10-27")!.counts;
+    expect(r.prsMerged).toEqual({ value: 15 });
+    expect(r.events).toEqual({ value: { pr_automerged: 2, vuln_cleared: 1 } });
+  });
+
+  it("counts nothing written after the row's own cut-off, so the next night cannot count it twice", async () => {
+    const until: string[] = [];
+    await event("late", "pr_automerged", "2026-10-26T08:20:01Z");
+    await write(NIGHT_RUN, FULL_LOG, {
+      mergesSince: async (_s, u) => {
+        until.push(u);
+        return 1;
+      },
+    });
+    expect((await only()).events).toEqual({ value: { pr_automerged: 1, vuln_cleared: 1 } });
+    expect(until).toEqual(["2026-10-26T08:20:00.000Z"]);
+    await write(NEXT, FULL_LOG, {}, new Date("2026-10-27T08:20:00Z"));
+    const next = (await rows()).find((x) => x.night === "2026-10-26")!.counts;
+    expect(next.events).toEqual({ value: { pr_automerged: 2, vuln_cleared: 1 } });
+  });
+
   it("adds tonight's merges to the previous total, read since that row was written", async () => {
     const since: string[] = [];
     await write(NIGHT_RUN, FULL_LOG, { mergesSince: async () => 30 });
@@ -534,6 +610,19 @@ describe("the dependency lists", () => {
     expect(Object.keys(deps.sites)).toEqual(["recA", "recB"]);
   });
 
+  it("a list the row could not take because fleet-security was still running says so", async () => {
+    await write(
+      NIGHT_RUN,
+      FULL_LOG.replace(
+        "NIGHTLY fleet-security.yml run=104 conclusion=success minutes=20",
+        "NIGHTLY fleet-security.yml run=104 still in_progress after 30 min; moving on, it files its own issue if it fails",
+      ),
+    );
+    const deps = (await only()).deps.value!;
+    expect(deps.sites.recB!.packages).toBeNull();
+    expect(deps.sites.recB!.reason).toContain("fleet-security run 104 was still running");
+  });
+
   it("an --only security run re-reads the lists for that night", async () => {
     await write(NIGHT_RUN, FULL_LOG);
     await exec(
@@ -549,7 +638,10 @@ describe("the dependency lists", () => {
       },
       ONLY_SECURITY_LOG,
     );
-    expect((await only()).deps.value!.sites.recB!.packages).toEqual(["old@1"]);
+    const deps = (await only()).deps.value!;
+    expect(deps.sites.recB!.packages).toEqual(["old@1"]);
+    // Alpha's re-read failed (its stamp did not move): the night's reading stands.
+    expect(deps.sites.recA!.packages).toEqual(["kit@2", "vite@5"]);
   });
 
   it("ages each key across nights, resets one the site upgraded, and skips a null night", () => {

@@ -227,6 +227,28 @@ export function ageDeps(
   return { sites, behind };
 }
 
+/** A deps reading the row could not take because the audit was still running when
+ *  it was written says so, rather than looking like a site that was not read. The
+ *  next night's write cannot recover it: tonight's audit replaces the stamp. */
+export function explainUnread(
+  deps: { sites: Record<string, DepsSite>; behind: number },
+  security: StepResult | undefined,
+): { sites: Record<string, DepsSite>; behind: number } {
+  if (security?.outcome !== "running") return deps;
+  const sites = Object.fromEntries(
+    Object.entries(deps.sites).map(([id, s]) => [
+      id,
+      s.packages === null
+        ? {
+            ...s,
+            reason: `fleet-security run ${security.runId} was still running when this row was written`,
+          }
+        : s,
+    ]),
+  );
+  return { ...deps, sites };
+}
+
 /**
  * A running total across rows: the newest earlier row that holds a value is the
  * base, and `delta` is what happened since that row was written. With no base,
