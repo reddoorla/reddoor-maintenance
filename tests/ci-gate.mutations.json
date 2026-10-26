@@ -4,7 +4,7 @@
     "edits": [
       {
         "file": "tests/ci-gate.test.ts",
-        "find": "              s.if === undefined &&\n",
+        "find": "                s.if === undefined &&\n",
         "replace": ""
       }
     ],
@@ -17,8 +17,8 @@
     "edits": [
       {
         "file": "tests/ci-gate.test.ts",
-        "find": "const jobDir = j.defaults?.run?.[\"working-directory\"] ?? workflowDir;",
-        "replace": "const jobDir = workflowDir;"
+        "find": "dir: j.defaults?.run?.[\"working-directory\"] ?? workflowDir,",
+        "replace": "dir: workflowDir,"
       }
     ],
     "test": "tests/ci-gate.test.ts",
@@ -43,12 +43,38 @@
     "edits": [
       {
         "file": "tests/ci-gate.test.ts",
-        "find": "(s[\"working-directory\"] ?? jobDir) === undefined",
-        "replace": "jobDir === undefined"
+        "find": "atRoot(s[\"working-directory\"] ?? dir)",
+        "replace": "atRoot(dir)"
       }
     ],
     "test": "tests/ci-gate.test.ts",
     "expect": "red",
-    "why": "the pre-#1620 condition (a step's own working-directory) still has a fixture that goes red"
+    "why": "a step's own working-directory is ignored (pre-#1620 condition, and the step-overrides-defaults precedence); their fixtures must go red"
+  },
+  {
+    "id": "defaults-override-step",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "atRoot(s[\"working-directory\"] ?? dir)",
+        "replace": "atRoot(dir ?? s[\"working-directory\"])"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "review round 1: the job/workflow default wins over the step's own working-directory, against GitHub's precedence; the override fixture must go red"
+  },
+  {
+    "id": "drop-dot-normalization",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "dir === undefined || /^\\.\\/?$/.test(dir)",
+        "replace": "dir === undefined"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red",
+    "why": "review round 1: `.` and `./` stop counting as the repo root; the `.`/`./` fixtures must go red"
   }
 ]

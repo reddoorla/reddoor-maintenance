@@ -157,30 +157,50 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
   // `pnpm typecheck` reaches `cockpit:check`, whose first command is the sync.
   const SYNC = /^\s*pnpm (exec svelte-kit sync|typecheck|cockpit:check)\s*$/;
 
-  /**
-   * The jobs of one parsed workflow that run the suite without a qualifying sync before it.
-   * A sync qualifies only when it always runs (no `if:`, #1620) and from the repo root: no
-   * `working-directory` on the step, nor a `defaults.run.working-directory` on its job or
-   * the workflow, which GitHub applies to every `run:` step that sets none (#1620).
-   */
-  function unsyncedSuiteJobs(doc: Workflow): string[] {
+  // GitHub resolves a `run:` step's directory as the step's `working-directory`, else the
+  // job's `defaults.run.working-directory`, else the workflow's; `.` and `./` are the root.
+  const atRoot = (dir: string | undefined) => dir === undefined || /^\.\/?$/.test(dir);
+
+  /** The jobs of one parsed workflow that run the suite, with the suite step's index and
+   *  the `defaults.run.working-directory` their steps inherit. */
+  function jobsRunningSuite(
+    doc: Workflow,
+  ): { job: string; steps: Step[]; at: number; dir: string | undefined }[] {
     const workflowDir = doc.defaults?.run?.["working-directory"];
     return Object.entries(doc.jobs ?? {})
-      .filter(([, j]) => {
+      .map(([job, j]) => {
         const steps = j.steps ?? [];
-        const at = steps.findIndex((s) => SUITE.test(s.run ?? ""));
-        if (at < 0) return false;
-        const jobDir = j.defaults?.run?.["working-directory"] ?? workflowDir;
-        return !steps
-          .slice(0, at)
-          .some(
-            (s) =>
-              SYNC.test(s.run ?? "") &&
-              s.if === undefined &&
-              (s["working-directory"] ?? jobDir) === undefined,
-          );
+        return {
+          job,
+          steps,
+          at: steps.findIndex((s) => SUITE.test(s.run ?? "")),
+          dir: j.defaults?.run?.["working-directory"] ?? workflowDir,
+        };
       })
-      .map(([job]) => job);
+      .filter(({ at }) => at >= 0);
+  }
+
+  /**
+   * The jobs of one parsed workflow that run the suite without a qualifying sync before it.
+   * A sync qualifies only when it runs from the repo root, with the directory resolved as
+   * GitHub does (`atRoot` above), and has no `if:` at all (#1620). The `if:` rule is
+   * deliberately strict: any `if:`, even `success()`, makes the sync conditional, and this
+   * guard cannot evaluate expressions to tell which ones always pass. No workflow uses one.
+   */
+  function unsyncedSuiteJobs(doc: Workflow): string[] {
+    return jobsRunningSuite(doc)
+      .filter(
+        ({ steps, at, dir }) =>
+          !steps
+            .slice(0, at)
+            .some(
+              (s) =>
+                SYNC.test(s.run ?? "") &&
+                s.if === undefined &&
+                atRoot(s["working-directory"] ?? dir),
+            ),
+      )
+      .map(({ job }) => job);
   }
 
   function workflows(): { file: string; doc: Workflow }[] {
@@ -193,15 +213,16 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
       }));
   }
 
+  function suiteJobs(): { where: string }[] {
+    return workflows().flatMap(({ file, doc }) =>
+      jobsRunningSuite(doc).map(({ job }) => ({ where: `${file}:${job}` })),
+    );
+  }
+
   it("finds the jobs it is meant to police", () => {
-    const policed = workflows()
-      .filter(({ doc }) =>
-        Object.values(doc.jobs ?? {}).some((j) =>
-          (j.steps ?? []).some((s) => SUITE.test(s.run ?? "")),
-        ),
-      )
-      .map(({ file }) => file);
-    expect(policed).toEqual(expect.arrayContaining(["ci.yml", "release.yml", "time-travel.yml"]));
+    expect(suiteJobs().map(({ where }) => where.split(":")[0])).toEqual(
+      expect.arrayContaining(["ci.yml", "release.yml", "time-travel.yml"]),
+    );
   });
 
   it("holds for every such job, from the repo root", () => {
@@ -245,6 +266,36 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
         job({ run: "pnpm typecheck" }, { run: { "working-directory": "cockpit" } }),
       ),
     ).toEqual(["test"]);
+  });
+
+  it("accepts `.` and `./` as the repo root at every level", () => {
+    expect(unsyncedSuiteJobs(job({ run: "pnpm typecheck", "working-directory": "." }))).toEqual([]);
+    expect(
+      unsyncedSuiteJobs(job({ run: "pnpm typecheck" }, { run: { "working-directory": "./" } })),
+    ).toEqual([]);
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "." } },
+        ...job({ run: "pnpm typecheck" }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("lets a step's working-directory override the job's and the workflow's defaults", () => {
+    expect(
+      unsyncedSuiteJobs(
+        job(
+          { run: "pnpm typecheck", "working-directory": "." },
+          { run: { "working-directory": "cockpit" } },
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "cockpit" } },
+        ...job({ run: "pnpm typecheck", "working-directory": "./" }),
+      }),
+    ).toEqual([]);
   });
 
   it("refuses a sync moved off the root by the workflow's defaults.run.working-directory", () => {
