@@ -891,9 +891,9 @@ export async function runDigest(
     // PR mailed for the first time on its 7th day).
     const changes = digestChanges(digestLines, sendLog);
     const badged = needsAttention.map((it): AttentionItem => {
-      // No log yet (the first digest, or an unreadable log): every key reads added,
-      // so the snapshot's own NEW/standing is the better answer.
-      if (sendLog.sentOn === null) return it;
+      // An unread log (none stored, or a failed read) says nothing about what was
+      // mailed: every key reads added, so the snapshot's own badge stands.
+      if (sendLogRead !== "ok") return it;
       if (it.status !== "standing" && it.status !== undefined) return it;
       if (changes.added.includes(it.key)) return { ...it, status: "new" };
       if (changes.worse.includes(it.key)) return { ...it, status: "worse" };
