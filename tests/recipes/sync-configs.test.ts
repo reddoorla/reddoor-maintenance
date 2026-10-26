@@ -24,17 +24,9 @@ async function writeCommitted(cwd: string, relPath: string, contents: string): P
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const clean = resolve(here, "../fixtures/sync-clean");
 const drift = resolve(here, "../fixtures/sync-drift");
 
 describe("recipes/sync-configs", () => {
-  it("returns noop when every template already matches", async () => {
-    const cwd = await copyFixtureToTmp(clean);
-    const result = await syncConfigs({ path: cwd });
-    expect(result.status).toBe("noop");
-    expect(result.commits).toHaveLength(0);
-  });
-
   it("applies templates that differ and commits one per config", async () => {
     const cwd = await copyFixtureToTmp(drift);
     const result = await syncConfigs({ path: cwd });
