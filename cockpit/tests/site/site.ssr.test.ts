@@ -3,7 +3,7 @@ import Page from "../../src/routes/s/[slug]/+page.svelte";
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { canonical, renderPage } from "../_helpers/parity.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
-import { CASES, input, pending, type SiteInput } from "./fixtures.js";
+import { CASES, input, pending, siteRow, type SiteInput } from "./fixtures.js";
 
 /**
  * /s/:slug, ported (#582): the page renders what renderSiteDashboardHtml did,
@@ -22,29 +22,22 @@ function rendered(i: SiteInput): string[] {
   return canonical(renderPage(Page, { data: { view } }));
 }
 
-describe("/s/:slug parity with renderSiteDashboardHtml", () => {
-  for (const [name, i] of CASES) {
-    it(name, () => {
-      expect(rendered(i)).toMatchSnapshot();
-    });
-  }
+// The send-timing line's windows: well before the run, inside the hour, under
+// a minute, mid-flight after 16:07, and after the grace window.
+const SEND_TIMING_NOWS = [
+  "2026-06-15T10:00:00.000Z",
+  "2026-06-15T15:30:00.000Z",
+  "2026-06-15T16:06:30.000Z",
+  "2026-06-15T16:30:00.000Z",
+  "2026-06-15T17:20:00.000Z",
+];
+const sendTimingInput = (iso: string): SiteInput =>
+  input({ now: new Date(iso), reports: [pending()] });
 
-  // The send-timing line's windows: well before the run, inside the hour, under
-  // a minute, mid-flight after 16:07, and after the grace window.
-  for (const iso of [
-    "2026-06-15T10:00:00.000Z",
-    "2026-06-15T15:30:00.000Z",
-    "2026-06-15T16:06:30.000Z",
-    "2026-06-15T16:30:00.000Z",
-    "2026-06-15T17:20:00.000Z",
-  ]) {
-    it(`send-timing line at ${iso}`, () => {
-      expect(rendered(input({ now: new Date(iso), reports: [pending()] }))).toMatchSnapshot();
-    });
-  }
-
-  it("submission rows: provenance, reasons, bounces, fan-out, every detail", () => {
-    const rows = [
+const SUBMISSION_ROWS = "submission rows: provenance, reasons, bounces, fan-out, every detail";
+function submissionRowsInput(): SiteInput {
+  return input({
+    submissions: [
       makeSubmissionRow({
         id: "a",
         status: "spam_auto",
@@ -89,8 +82,25 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
         resendMessageId: "re_1",
         submissionId: null,
       }),
-    ];
-    expect(rendered(input({ submissions: rows }))).toMatchSnapshot();
+    ],
+  });
+}
+
+describe("/s/:slug parity with renderSiteDashboardHtml", () => {
+  for (const [name, i] of CASES) {
+    it(name, () => {
+      expect(rendered(i)).toMatchSnapshot();
+    });
+  }
+
+  for (const iso of SEND_TIMING_NOWS) {
+    it(`send-timing line at ${iso}`, () => {
+      expect(rendered(sendTimingInput(iso))).toMatchSnapshot();
+    });
+  }
+
+  it(SUBMISSION_ROWS, () => {
+    expect(rendered(submissionRowsInput())).toMatchSnapshot();
   });
 });
 
@@ -101,7 +111,15 @@ describe("/s/:slug parity with renderSiteDashboardHtml", () => {
  */
 describe("/s/:slug reads only the injected clock", () => {
   afterEach(() => vi.useRealTimers());
-  for (const [name, i] of CASES) {
+  const all: Array<[string, SiteInput]> = [
+    ...CASES,
+    ...SEND_TIMING_NOWS.map((iso): [string, SiteInput] => [
+      `send-timing line at ${iso}`,
+      sendTimingInput(iso),
+    ]),
+    [SUBMISSION_ROWS, submissionRowsInput()],
+  ];
+  for (const [name, i] of all) {
     it(`${name}: the same markup with the wall clock in 2031`, () => {
       const today = rendered(i);
       vi.useFakeTimers();
@@ -109,4 +127,35 @@ describe("/s/:slug reads only the injected clock", () => {
       expect(rendered(i)).toEqual(today);
     });
   }
+});
+
+/**
+ * The fixtures themselves read no clock and postdate nothing (#1601, #1603): a
+ * wall-clock timestamp in a fixture rots the snapshot it reaches, and a row
+ * dated after the view's `now` floors to "just now", so it pins no real age.
+ */
+describe("/s/:slug fixtures", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("build the same site row whatever the wall clock says", () => {
+    const today = siteRow();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2031-01-01T00:00:00.000Z"));
+    expect(siteRow()).toEqual(today);
+  });
+
+  // The stamps that used to read the wall clock, and the generated submissions.
+  // Not every date in the fixture: some cases date a field after now on purpose.
+  it("date the search-console check, the GitHub sweep and every submission before the view's now", () => {
+    for (const [name, i] of CASES) {
+      const stamps = [
+        i.site.searchConsoleCheckedAt,
+        i.site.githubSignalsAt,
+        ...i.submissions.map((s) => s.submittedAt),
+      ].filter((t): t is string => t != null);
+      for (const t of stamps) {
+        expect(Date.parse(t), `${name}: ${t}`).toBeLessThan(i.now.getTime());
+      }
+    }
+  });
 });
