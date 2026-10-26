@@ -195,9 +195,15 @@ function keptVerdicts(w: Write): boolean {
   );
 }
 
-/** True when the write-back built an empty field set: nothing reached the row. */
-function wroteNothing(summary: WriteSummary): boolean {
-  return Object.keys(summary.fields ?? {}).length === 0;
+/** The line for a write that built no field, by the fleet's own classification
+ *  (`emptyWriteOutcome`), or null when something was written. A summary with no
+ *  `empty` (any other WriteSummary producer) is read as written. */
+function nothingWritten(summary: WriteSummary): string | null {
+  const e = summary.empty;
+  if (!e) return null;
+  if (e.kind === "kept") return "nothing to write (verdicts kept)";
+  if (e.kind === "not-applicable") return "not applicable, nothing to write";
+  return `nothing measured: ${e.reason}`;
 }
 
 const verdict = (v: string | null | undefined): string => v ?? "n/a";
@@ -207,7 +213,9 @@ function writeLine(w: Write): string {
   switch (w.audit) {
     case "lighthouse": {
       const s = w.counts as LighthouseScoreWriteback;
-      return `lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
+      // A category the run could not score (NO_LCP nulls performance) is null.
+      const n = (v: number | null) => (v === null ? "n/a" : String(v));
+      return `lighthouse: P=${n(s.performance)} A=${n(s.accessibility)} BP=${n(s.bestPractices)} SEO=${n(s.seo)}`;
     }
     case "a11y":
       return `a11y: ${(w.counts as A11yCounts).violations} violations`;
@@ -250,15 +258,15 @@ function writeLine(w: Write): string {
 }
 
 export function formatWriteSummary(summary: WriteSummary): string {
-  if (wroteNothing(summary))
-    return `→ Websites[${summary.siteName}]: nothing to write (verdicts kept)`;
+  const nothing = nothingWritten(summary);
+  if (nothing) return `→ Websites[${summary.siteName}]: ${nothing}`;
   const lines = summary.writes.map((w) => `  ${writeLine(w)}`);
   return `→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
 }
 
 export function writeBackTitle(summary: WriteSummary): string {
-  if (wroteNothing(summary))
-    return `Websites[${summary.siteName}]: nothing to write (verdicts kept)`;
+  const nothing = nothingWritten(summary);
+  if (nothing) return `Websites[${summary.siteName}]: ${nothing}`;
   const n = summary.writes.filter((w) => !keptVerdicts(w)).length;
   return `Wrote to Websites[${summary.siteName}] (${n} audit type${n === 1 ? "" : "s"})`;
 }

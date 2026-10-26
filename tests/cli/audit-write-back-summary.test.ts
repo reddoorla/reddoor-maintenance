@@ -48,6 +48,36 @@ describe("audit --write-back: nothing to write (#1716)", () => {
     expect(out).not.toContain("undefined");
   });
 
+  // The fleet files these two under `failed` and `notApplicable`, not `kept` (#1735 round 1).
+  it("an audit that measured nothing says so, by the fleet's own classification", async () => {
+    const { summary, mirrored } = await writeBack([
+      { audit: "deps", site: "acme-co", status: "fail", summary: "install failed" },
+    ]);
+    expect(mirrored).toEqual([{}]);
+    expect(writeBackTitle(summary)).toBe(
+      "Websites[Acme Co]: nothing measured: deps: install failed",
+    );
+    expect(formatWriteSummary(summary)).toBe(
+      "→ Websites[Acme Co]: nothing measured: deps: install failed",
+    );
+  });
+
+  it("a run whose every audit said not applicable says so", async () => {
+    const { summary } = await writeBack([
+      {
+        audit: "smoke",
+        site: "acme-co",
+        status: "pass",
+        summary: "no test:smoke script",
+        notApplicable: true,
+      },
+    ]);
+    expect(writeBackTitle(summary)).toBe("Websites[Acme Co]: not applicable, nothing to write");
+    expect(formatWriteSummary(summary)).toBe(
+      "→ Websites[Acme Co]: not applicable, nothing to write",
+    );
+  });
+
   it("an audit that wrote a field still reports the write (positive control)", async () => {
     const { summary } = await writeBack([result("smoke", { ok: "pass", checkedAt: at })]);
     expect(writeBackTitle(summary)).toBe("Wrote to Websites[Acme Co] (1 audit type)");
@@ -116,12 +146,17 @@ describe("formatWriteSummary: one case per audit (#1716)", () => {
 describe("formatWriteSummary: the values a run may leave empty (#1716)", () => {
   it("names an unknown certificate, a missing deploy and a no-form page instead of `null`", async () => {
     const { summary } = await writeBack([
+      // NO_LCP: the performance category is missing, so its score is null.
+      result("lighthouse", {
+        summary: { accessibility: 0.95, "best-practices": 1, seo: 0.92 },
+      }),
       result("domain", { resolved: false, certDaysRemaining: null, checkedAt: at }),
       result("netlify-deploy", { state: null, deployedAt: null, logUrl: null, checkedAt: at }),
       result("function-health", { ok: false, prismic: "skipped", forms: null, checkedAt: at }),
       result("form-e2e", { ok: null, checkedAt: at, turnstileWidget: null }),
     ]);
     expect(formatWriteSummary(summary).split("\n").slice(1)).toEqual([
+      "  lighthouse: P=n/a A=95 BP=100 SEO=92",
       "  domain: certificate unknown",
       "  netlify-deploy: no deploy",
       "  function-health: fail, cms n/a, turnstile n/a",
@@ -135,7 +170,6 @@ describe("formatWriteSummary: an audit it has no case for (#1716)", () => {
     const out = formatWriteSummary({
       siteName: "Acme Co",
       writes: [{ audit: "prismic-models", counts: { pushed: 2 } }],
-      fields: { "Some column": "x" },
     });
     expect(out).toBe("→ wrote to Websites[Acme Co]:\n  prismic-models: written");
   });
