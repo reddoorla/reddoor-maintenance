@@ -267,26 +267,70 @@ describe("assignTier", () => {
     expect(r.acceptedReasons).toEqual(["Best Practices 78"]);
   });
 
+  // The ack names the report it accepts (#1608), so the fixture carries that report
+  // in both columns: tonight's drift and the drift the operator reviewed.
+  const ACKED_DRIFT = "ADDED  page landing (remote only)";
+  const acked = (over: Partial<WebsiteRow> = {}) =>
+    site({
+      prismicModels: "fail",
+      prismicModelsCheckedAt: "2026-06-11T06:00:00Z",
+      prismicModelsDrift: ACKED_DRIFT,
+      prismicAckUntil: "2026-06-20T00:00:00Z",
+      prismicAckDrift: ACKED_DRIFT,
+      ...over,
+    });
+
   // An accepted Prismic divergence must not simply VANISH. The item is suppressed
   // upstream so the site stops nagging, and the card then has to say that a finding
   // exists and when the acceptance runs out — otherwise the operator sees a plain
   // green site and the only record of the decision is a cell nobody opens.
   it("shows an accepted Prismic divergence as a dated chip, not silence", () => {
-    const r = assignTier(
-      site({ prismicModels: "fail", prismicAckUntil: "2026-06-20T00:00:00Z" }),
-      [],
-      NOW,
-    );
+    const r = assignTier(acked(), [], NOW);
     expect(r.tier).toBe("healthy");
     expect(r.acceptedReasons).toEqual(["Prismic drift accepted until 2026-06-20"]);
   });
 
-  it("drops the chip once the ack expires", () => {
+  // #1679: the chip reads the digest's own coverage rule, not the date alone. An ack
+  // is for the report the operator reviewed; a field dropped from another model
+  // tonight is a new finding, and a chip saying "accepted" beside it is false.
+  it("shows no chip when tonight's drift is not the report the ack names", () => {
     const r = assignTier(
-      site({ prismicModels: "fail", prismicAckUntil: "2026-06-01T00:00:00Z" }),
+      acked({ prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle` }),
       [],
       NOW,
     );
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("shows no chip for an ack set before the ack recorded its finding", () => {
+    const r = assignTier(acked({ prismicAckDrift: null }), [], NOW);
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("puts a new finding on an acked site's card, with no accepted chip", () => {
+    const s = acked({ prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle` });
+    const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
+    expect(card.items.map((i) => i.key)).toEqual([`prismic-drift:${s.id}`]);
+    expect(card.tier).toBe("attention");
+    expect(card.acceptedReasons).toEqual([]);
+  });
+
+  // The one card path where the old date-only chip was visible: a `fail` gone stale on
+  // a site no sweep covers (here, no URL) raises no item, so the site reads healthy and
+  // the chip was the only Prismic word on its card, claiming an ack that covers nothing.
+  it("shows no chip on an unswept site whose stale drift the ack does not cover", () => {
+    const s = acked({
+      url: "",
+      prismicModelsCheckedAt: "2026-05-01T06:00:00Z",
+      prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle`,
+    });
+    const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
+    expect(card.items).toEqual([]);
+    expect(card.acceptedReasons).toEqual([]);
+  });
+
+  it("drops the chip once the ack expires", () => {
+    const r = assignTier(acked({ prismicAckUntil: "2026-06-01T00:00:00Z" }), [], NOW);
     expect(r.acceptedReasons).toEqual([]);
   });
 
