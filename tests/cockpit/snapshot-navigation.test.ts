@@ -48,7 +48,7 @@ function ensureBuilt(): void {
   execFileSync("pnpm", ["cockpit:build"], { cwd: ROOT, stdio: "inherit" });
 }
 
-/** The newest file the cockpit build reads: its config, its own sources and the shared `src/`. */
+/** The newest file the cockpit build reads: its config, its own sources, the shared `src/` and the dependencies. */
 function newestSource(): number {
   let newest = statSync(join(ROOT, "vite.cockpit.config.ts")).mtimeMs;
   const walk = (d: string) => {
@@ -60,6 +60,9 @@ function newestSource(): number {
   };
   walk(join(ROOT, "cockpit/src"));
   walk(join(ROOT, "src"));
+  // A kit or adapter bump, or a tsconfig change, rebuilds too.
+  for (const f of ["package.json", "pnpm-lock.yaml", "cockpit/tsconfig.json"])
+    newest = Math.max(newest, statSync(join(ROOT, f)).mtimeMs);
   return newest;
 }
 
@@ -514,6 +517,10 @@ describe("the built app's Netlify surface", () => {
     const publish = /^\s*publish = "([^"]+)"$/m.exec(toml)?.[1];
     expect(publish).toBe("cockpit/build");
     expect(readdirSync(join(ROOT, publish!, "_app/immutable")).length).toBeGreaterThan(0);
+    // ...and from THIS build: adapter 7 clears only its own publish directory,
+    // so a misnamed one leaves an earlier build's assets here, looking right.
+    const version = (dir: string) => readFileSync(join(dir, "_app/version.json"), "utf-8");
+    expect(version(join(ROOT, publish!))).toBe(version(join(OUT, "client")));
     const framework = JSON.parse(readFileSync(join(ROOT, ".netlify/v1/config.json"), "utf-8")) as {
       headers: { for: string; values: Record<string, string> }[];
     };

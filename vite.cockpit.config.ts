@@ -36,6 +36,9 @@ export default defineConfig({
       // state-changing endpoint runs it itself (maintenance#1642).
       csrf: { trustedOrigins: ["*"] },
       outDir: "cockpit/.svelte-kit",
+      // Kit 2 sent each page's CSS as a `Link: rel=preload` header; kit 3 only
+      // does when asked.
+      output: { linkHeaderPreload: true },
     }),
   ],
 });

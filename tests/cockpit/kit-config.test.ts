@@ -65,25 +65,27 @@ describe("the cockpit's SvelteKit config", () => {
           cmd: readFileSync(join(ROOT, ".github/workflows", f), "utf-8"),
         })),
     ];
-    // A sync on a line that does not also name the config file. A backticked
-    // one is prose (time-travel.yml's issue body names the step).
+    // Each command (a line split on `&&`, `||`, `;` and `|`) that syncs must
+    // name the config itself. A backticked one is prose (time-travel.yml's
+    // issue body names the step).
+    const names = new RegExp(`(?:--config|-c)[ =]${CONFIG.replaceAll(".", "\\.")}(?:\\s|$)`);
     const bare = sources.flatMap(({ where, cmd }) =>
       cmd
         .split("\n")
         .filter((line) => !line.trimStart().startsWith("#"))
-        .filter(
-          (line) => /(?<!`)svelte-kit sync/.test(line) && !line.includes(`--config ${CONFIG}`),
-        )
-        .map((line) => `${where}: ${line.trim()}`),
+        .flatMap((line) => line.split(/&&|\|\||;|\|/))
+        .filter((c) => /(?<!`)svelte-kit\s+sync\b/.test(c) && !names.test(c))
+        .map((c) => `${where}: ${c.trim()}`),
     );
     expect(bare).toEqual([]);
   });
 
   it("control: a bare sync's config really is kit's defaults", async () => {
-    // What `svelte-kit sync` with no `--config` resolves here: no Vite config
-    // file, so no kit plugin and kit's own defaults. Proves the test above
-    // guards a real difference, not two spellings of one config.
-    const resolved = await resolveConfig({ configFile: false, root: ROOT }, "build", "production");
+    // What `svelte-kit sync` with no `--config` resolves here: kit's CLI passes
+    // `configFile: undefined` (here: no key), so Vite looks for a
+    // `vite.config.*`. There is none, so no kit plugin and kit's own defaults.
+    // Red if one appears, and proof the test above guards a real difference.
+    const resolved = await resolveConfig({ root: ROOT }, "build", "production");
     expect(resolved.plugins.some((p) => p.name === "vite-plugin-sveltekit-setup")).toBe(false);
   });
 });
