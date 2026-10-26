@@ -200,8 +200,8 @@
       },
       {
         "file": "scripts/pm-cockpit.mts",
-        "find": "import { levelOf } from \"../src/alerts/ladder.js\";",
-        "replace": "import { levelOf } from \"../src/alerts/ladder.js\";\nimport { isFailedDeployStatus } from \"../src/dashboard/fleet-cockpit.js\";"
+        "find": "import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from \"../src/alerts/ladder.js\";",
+        "replace": "import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from \"../src/alerts/ladder.js\";\nimport { isFailedDeployStatus } from \"../src/dashboard/fleet-cockpit.js\";"
       }
     ],
     "test": "tests/scripts/pm-cockpit.test.ts",
