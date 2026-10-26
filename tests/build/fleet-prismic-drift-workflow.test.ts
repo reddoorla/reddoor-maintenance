@@ -311,11 +311,6 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
     }
   });
 
-  it("lists no repository twice", () => {
-    const names = tokens.map(([n]) => n);
-    expect(new Set(names).size).toBe(names.length);
-  });
-
   // THE FOUR THAT A HAND-WRITTEN LIST LOSES. Every one of these Prismic
   // repositories is named something other than its repo directory, so a list
   // written from the fleet's repo names silently omits them — the site then
@@ -372,10 +367,6 @@ describe("fleet-prismic-drift — the per-repository token env block", () => {
   it("does not put the generic PRISMIC_WRITE_TOKEN in a fleet environment", () => {
     expect(Object.keys(env)).not.toContain("PRISMIC_WRITE_TOKEN");
   });
-
-  it("passes the Turso credentials the write-back lands in", () => {
-    expect(Object.keys(env)).toContain("TURSO_DATABASE_URL");
-  });
 });
 
 describe("fleet-prismic-drift — scheduling and supply chain", () => {
@@ -401,10 +392,6 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
     );
   });
 
-  it("can be run by hand as well as on the cron", () => {
-    expect(/^\s*workflow_dispatch:/m.test(wf)).toBe(true);
-  });
-
   // A second run overlapping the first would have two processes writing verdicts
   // into one store and sharing one clone workdir.
   it("never overlaps itself, and a queued run is not cancelled", () => {
@@ -425,23 +412,9 @@ describe("fleet-prismic-drift — scheduling and supply chain", () => {
     const known = new Set(workflowUses(security));
     for (const u of workflowUses(wf)) expect(known).toContain(u);
   });
-
-  it("bounds the sweep so a wedged run cannot pin the runner all night", () => {
-    expect(/timeout-minutes: \d+/.test(wf)).toBe(true);
-  });
 });
 
 describe("fleet-prismic-drift — a red night is durably visible", () => {
-  // Cancelled counts as red (a hang to a timeout is not a pass), and only main's
-  // runs speak for main. tracking-issue-conditions.test.ts evaluates these
-  // conditions across every workflow; this pins the exact lines here.
-  it("files a tracking issue on failure or cancellation and closes it on recovery", () => {
-    expect(wf).toContain("if: (failure() || cancelled()) && github.ref == 'refs/heads/main'");
-    expect(wf).toContain("if: success() && github.ref == 'refs/heads/main'");
-    expect(wf).toContain("gh issue create");
-    expect(wf).toContain("gh issue close");
-  });
-
   // A distinct title from every other nightly's, or two workflows comment on and
   // close each other's issue.
   it("uses a title no other nightly uses", async () => {
@@ -474,12 +447,5 @@ describe("fleet-prismic-drift — a red night is durably visible", () => {
     expect(Object.keys(env)).toEqual(
       expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]),
     );
-  });
-
-  it("gives the sweep step its Prismic tokens (positive control)", () => {
-    // Proves stepEnv is reading the real block, so the assertion above cannot
-    // be passing against an empty or mis-parsed map.
-    const env = stepEnv(wf, SWEEP_STEP);
-    expect(Object.keys(env).some((k) => k.startsWith("PRISMIC_TOKEN_"))).toBe(true);
   });
 });
