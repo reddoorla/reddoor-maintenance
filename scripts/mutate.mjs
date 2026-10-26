@@ -833,7 +833,9 @@ function hasBuildScript(root) {
 
 /** The `svelte-kit` arguments of the repo's `cockpit:sync` script (`svelte-kit sync --config
  *  vite.cockpit.config.ts` since #1740), so the worktree syncs as `pnpm cockpit:check` does;
- *  a bare `sync` when the script is absent or is not a plain `svelte-kit` call. */
+ *  a bare `sync` when the script is absent or does not start with `svelte-kit sync` (e.g.
+ *  `pnpm exec …`). No shell runs it: anything after the flags, such as `&& svelte-check`,
+ *  reaches svelte-kit as arguments, which it rejects or ignores. */
 function cockpitSyncArgs(root) {
   try {
     const script = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).scripts?.[
