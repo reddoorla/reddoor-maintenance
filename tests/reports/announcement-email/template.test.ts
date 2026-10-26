@@ -150,21 +150,21 @@ describe("buildAnnouncementMjml", () => {
       baseData({ gaUsersCurrent: 280, gaUsersPrevious: 275, searchPosition: 3 }),
     );
     expect(mjml).toContain(">ANALYTICS</mj-text>");
-    expect(mjml).toContain("280 Users");
+    expect(mjml).toContain("280 Engaged visits");
     expect(mjml).toContain("▲ 2% vs last period (275 → 280)");
     expect(mjml).toContain("Page 1 Google result (#3) for your brand search");
   });
 
   it("omits the Google-position line when no search position is available (analytics still renders)", () => {
     const mjml = buildAnnouncementMjml(baseData({ gaUsersCurrent: 280 }));
-    expect(mjml).toContain("280 Users");
+    expect(mjml).toContain("280 Engaged visits");
     expect(mjml).not.toContain("Page 1 Google result");
   });
 
   it("hides the ANALYTICS block entirely when there's no GA traffic or search data", () => {
     const mjml = buildAnnouncementMjml(baseData()); // no GA, no search
     expect(mjml).not.toContain(">ANALYTICS</mj-text>");
-    expect(mjml).not.toContain("Users");
+    expect(mjml).not.toMatch(/Users|Engaged visits/);
   });
 
   it("keeps band colors alternating when the analytics block is hidden (no abutting same color)", () => {
@@ -185,7 +185,7 @@ describe("buildAnnouncementMjml", () => {
     const mjml = buildAnnouncementMjml(baseData({ searchPosition: 3 }));
     expect(mjml).toContain(">ANALYTICS</mj-text>");
     expect(mjml).toContain("Page 1 Google result (#3) for your brand search");
-    expect(mjml).not.toContain("Users"); // no user count without GA
+    expect(mjml).not.toMatch(/Users|Engaged visits/); // no user count without GA
   });
 
   it("bakes each pace's cadence into its block intro — no separate WHAT TO EXPECT section", () => {

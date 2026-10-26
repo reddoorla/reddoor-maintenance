@@ -108,7 +108,12 @@ export function lighthouseScoresSection(
     </mj-section>`;
 }
 
-/** The line under "{N} Users": a directional trend vs the previous period when both numbers
+/** What the analytics count is called in every report (P1-73). The number is GA4
+ *  `engagedSessions` (`fetchReportVisits`), not users: a data-centre bot fleet made
+ *  two-thirds of one site's "users" in 2026, and engaged sessions held flat through it. */
+export const VISITS_LABEL = "Engaged visits";
+
+/** The line under "{N} Engaged visits": a directional trend vs the previous period when both numbers
  *  are real, else a graceful fallback. `undefined` = GA unavailable (distinct from a real 0).
  *  Up = green; down/flat = muted grey (a traffic dip isn't a failure). PURE. */
 export function analyticsTrendLine(
@@ -170,11 +175,11 @@ export function hasAnalyticsData(opts: {
 }
 
 /**
- * The "ANALYTICS" block: a big red user count, the trend line, then any 16px `bodyLines`
+ * The "ANALYTICS" block: a big red engaged-visits count, the trend line, then any 16px `bodyLines`
  * (e.g. the announcement's Google-position line) and 12px muted `footnoteLines` (e.g. the
  * report's SEO call-to-action). Callers pass already-escaped line text. PURE.
  *
- * Returns "" when there's no data ({@link hasAnalyticsData} false) — an empty "— Users" block
+ * Returns "" when there's no data ({@link hasAnalyticsData} false) — an empty "— Engaged visits" block
  * reads as broken, so the section (and its data-contextual SEO footnote) is omitted. When a body
  * line exists but no GA count (a GA-less site still ranking on page 1), the user count + trend
  * are suppressed and only the body shows under the label.
@@ -197,7 +202,7 @@ export function analyticsSection(opts: {
   const usersBlock =
     opts.current !== undefined && gaCountVisible(opts)
       ? `
-        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} Users</mj-text>
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} ${VISITS_LABEL}</mj-text>
         ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}`
       : "";
   return `

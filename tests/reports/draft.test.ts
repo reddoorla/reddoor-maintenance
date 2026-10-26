@@ -12,9 +12,9 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 // query as a host filter.
 vi.mock("../../src/reports/ga/client.js", async (importActual) => ({
   ...(await importActual<typeof import("../../src/reports/ga/client.js")>()),
-  fetchPeriodUsers: vi.fn(),
+  fetchReportVisits: vi.fn(),
 }));
-import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
+import { fetchReportVisits } from "../../src/reports/ga/client.js";
 
 // The Search Console client also talks to Google over the network; mock it. Search
 // presence reuses the GA service-account credentials, so the search branch runs whenever
@@ -26,7 +26,7 @@ beforeEach(() => {
   // Default GA OFF so the bulk of tests exercise the pre-GA behavior.
   delete process.env.GA_SUBJECT;
   delete process.env.GA_SA_KEY_PATH;
-  vi.mocked(fetchPeriodUsers).mockReset();
+  vi.mocked(fetchReportVisits).mockReset();
   vi.mocked(fetchSearchPresence).mockReset();
 });
 
@@ -253,21 +253,21 @@ describe("draftReportForSite", () => {
 
     it("previewOnly does NO enrichment by default — the fast no-IO render path", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      vi.mocked(fetchReportVisits).mockResolvedValue({ current: 666, previous: 540 });
       await withTempPreview(async (previewPath) => {
         const result = await draftReportForSite(
           siteFixture({ ga4PropertyId: "471880366" }),
           "Maintenance",
           { previewOnly: true, previewPath },
         );
-        expect(fetchPeriodUsers).not.toHaveBeenCalled();
+        expect(fetchReportVisits).not.toHaveBeenCalled();
         expect(result.reportRow).toBeNull();
       });
     });
 
     it("previewOnly + enrich fetches GA and renders ANALYTICS, still writing nothing", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      vi.mocked(fetchReportVisits).mockResolvedValue({ current: 666, previous: 540 });
       vi.mocked(fetchSearchPresence).mockResolvedValue({
         foundOnPage1: false,
         position: null,
@@ -279,9 +279,13 @@ describe("draftReportForSite", () => {
           "Maintenance",
           { previewOnly: true, enrich: true, previewPath },
         );
-        expect(vi.mocked(fetchPeriodUsers).mock.calls[0]![0].propertyId).toBe("471880366");
+        expect(vi.mocked(fetchReportVisits).mock.calls[0]![0].propertyId).toBe("471880366");
         // The rendered HTML is what the CI credential proof greps for.
         expect(result.html).toContain(">ANALYTICS<");
+        // P1-73: labelled as engaged visits, against the fixed 30-day window.
+        expect(result.html).toContain("666 Engaged visits");
+        expect(result.html).toContain("vs the previous 30 days");
+        expect(result.html).not.toMatch(/\d Users</);
         // Enriching must not have turned this into a writing path.
         expect(result.reportRow).toBeNull();
         expect(result.htmlPath).toBe(previewPath);
@@ -409,10 +413,10 @@ describe("draftReportForSite", () => {
 
     it("writes GA users into the row when configured and the site has a property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      vi.mocked(fetchReportVisits).mockResolvedValue({ current: 666, previous: 540 });
 
       await draftReportForSite(
-        siteFixture({ ga4PropertyId: "471880366" }),
+        siteFixture({ ga4PropertyId: "471880366", url: "https://www.erpfunds.com/" }),
         "Maintenance",
         NO_HEADER,
       );
@@ -420,13 +424,18 @@ describe("draftReportForSite", () => {
       const fields = writer.inserts[0]!.fields;
       expect(fields["GA users (period)"]).toBe(666);
       expect(fields["GA users (prev period)"]).toBe(540);
-      // Queried the site's property.
-      expect(vi.mocked(fetchPeriodUsers).mock.calls[0]![0].propertyId).toBe("471880366");
+      // Queried the site's property, with the draft's own "now" — not the report period,
+      // which since P1-73 no longer sets the GA window.
+      const [query, now] = vi.mocked(fetchReportVisits).mock.calls[0]!;
+      expect(query.propertyId).toBe("471880366");
+      // Only the site's own hosts are counted.
+      expect(query.hostnames).toEqual(["erpfunds.com", "www.erpfunds.com"]);
+      expect(Math.abs(now.getTime() - Date.now())).toBeLessThan(60_000);
     });
 
     it("soft-fails: a GA error leaves the fields unwritten but still creates the draft", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
+      vi.mocked(fetchReportVisits).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
 
       const result = await draftReportForSite(
         siteFixture({ ga4PropertyId: "471880366" }),
@@ -445,7 +454,7 @@ describe("draftReportForSite", () => {
 
       await draftReportForSite(siteFixture({ ga4PropertyId: null }), "Maintenance", NO_HEADER);
 
-      expect(fetchPeriodUsers).not.toHaveBeenCalled();
+      expect(fetchReportVisits).not.toHaveBeenCalled();
       const fields = writer.inserts[0]!.fields;
       expect(fields["GA users (period)"]).toBeUndefined();
     });
@@ -456,12 +465,12 @@ describe("draftReportForSite", () => {
         "Maintenance",
         NO_HEADER,
       );
-      expect(fetchPeriodUsers).not.toHaveBeenCalled();
+      expect(fetchReportVisits).not.toHaveBeenCalled();
     });
 
     it("flags a 'ga' soft-failure when GA is configured but the API errors", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
+      vi.mocked(fetchReportVisits).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
       const result = await draftReportForSite(
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
@@ -1043,7 +1052,7 @@ describe("draftReportForSite → the Turso report writer", () => {
     // soft-fail at` on the Websites row, which the cockpit's per-site
     // analytics-failure signal reads.
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("GA down"));
+    vi.mocked(fetchReportVisits).mockRejectedValue(new Error("GA down"));
     const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
 
     await draftReportForSite(siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
@@ -1069,7 +1078,7 @@ describe("draftReportForSite → the Turso report writer", () => {
     // The other direction of the proof: no soft failure → the mirror is asked
     // to write null, not skipped.
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 10, previous: 8 });
+    vi.mocked(fetchReportVisits).mockResolvedValue({ current: 10, previous: 8 });
     // Search runs too (the brand query defaults to the site name), so it must
     // succeed as well for the enrichment to count as clean.
     vi.mocked(fetchSearchPresence).mockResolvedValue({
@@ -1096,7 +1105,7 @@ describe("draftReportForSite → the Turso report writer", () => {
   describe("#943: persists what the Search Console lookup resolved", () => {
     async function draftWith(over: Partial<WebsiteRow> = { ga4PropertyId: "G-123" }) {
       const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
-      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 10, previous: 8 });
+      vi.mocked(fetchReportVisits).mockResolvedValue({ current: 10, previous: 8 });
       const before = Date.now();
       await draftReportForSite(siteFixture(over), "Maintenance", {
         ...NO_HEADER,

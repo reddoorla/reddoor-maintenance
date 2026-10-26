@@ -78,3 +78,20 @@ describe("audit --fleet --write-back checks total against the resolved roster", 
     expect(output).toContain("\nFLEET_WRITE_GATE verdict=red");
   });
 });
+
+describe("audit --fleet prints FLEET_SMOKE_UNMEASURED only for a sweep that ran smoke (#1665)", () => {
+  it("prints no smoke line for a sweep without smoke", async () => {
+    // fleet-smoke.yml reads `count=0` as proof the fleet was measured; a sweep that
+    // never ran smoke must not print that proof. function-health needs no network
+    // here: neither site has a deployed URL, so both are not applicable.
+    const { output } = await runAuditCommand(undefined, {
+      fleet: join(dir, "fleet.json"),
+      only: "function-health",
+      workdir: join(dir, "work"),
+      cwd: dir,
+    });
+    // The sweep ran and reported (the control): only the smoke line is absent.
+    expect(output).toContain("no deployed URL");
+    expect(output).not.toContain("FLEET_SMOKE_UNMEASURED");
+  });
+});

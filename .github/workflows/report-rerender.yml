@@ -46,7 +46,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      # The refresh re-measures an unapproved draft's Google Indexed item with the
+      # The refresh re-measures an unapproved draft's analytics line with the draft's
+      # own fetchGaVisits (P1-73), which needs GA_SUBJECT and the key below.
+      # It re-measures an unapproved draft's Google Indexed item with the
       # draft's own fetchSearch, and for any unsent report writes the Search
       # Console lookup back to site_health as a draft does (P1-36), so it needs
       # the same Search Console credentials as daily-reports' draft step. Without

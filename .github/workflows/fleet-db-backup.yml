@@ -201,7 +201,10 @@ jobs:
             echo "::warning::monthly Dropbox copy FAILED: dropbox.mjs did not write as the team space (see the account line above); the copy would land elsewhere."
             exit 1
           fi
-          if ! grep -qiE "^ok /Processes & Procedures/Backups/turso/turso-${MONTH}\.sql\.gpg [0-9]+ bytes content_hash [0-9a-f]{64} matches local$" "$out/dropbox.out"; then
+          # A forced re-run in the same month finds the month's file already
+          # there, and dropbox.mjs ends the ok line with one of exactly two notes
+          # (#1391); anything else after "matches local" still fails.
+          if ! grep -qiE "^ok /Processes & Procedures/Backups/turso/turso-${MONTH}\.sql\.gpg [0-9]+ bytes content_hash [0-9a-f]{64} matches local( \(same content as the existing file\)| \(replaced an existing file, rev [0-9a-f]+\))?$" "$out/dropbox.out"; then
             echo "::warning::monthly Dropbox copy FAILED: no hash-matched upload of $name (see dropbox.mjs above)."
             exit 1
           fi

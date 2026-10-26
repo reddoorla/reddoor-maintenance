@@ -26,6 +26,7 @@ import {
   storeRenderedHtml,
   storeChecklistEvidence,
   storeLighthouseScores,
+  storeGaVisits,
   getReportById,
   getReportHtml,
   listAllReports,
@@ -857,6 +858,50 @@ describe("storeLighthouseScores (P1-34)", () => {
       });
     }
     expect(await storeLighthouseScores(db, "recNOPE", LIVE)).toBe(false);
+  });
+});
+
+describe("storeGaVisits (P1-73)", () => {
+  const insert = async (
+    db: Awaited<ReturnType<typeof seeded>>,
+    id: string,
+    over: { approved_to_send?: number; sent_at?: string | null } = {},
+  ) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "GA",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+        ga_users_current: 906,
+        ga_users_previous: 898,
+        ...over,
+      })
+      .execute();
+  const VISITS = { current: 217, previous: 206 };
+
+  it("writes the pair where the reader reads it back", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recGA1");
+    expect(await storeGaVisits(db, "recGA1", VISITS)).toBe(true);
+    const row = (await getReportById(db, "recGA1"))!;
+    expect([row.gaUsersCurrent, row.gaUsersPrevious]).toEqual([217, 206]);
+  });
+
+  it("refuses an approved or a sent row, leaving it as it was", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recGA2", { approved_to_send: 1 });
+    await insert(db, "recGA3", { sent_at: "2026-09-20T09:23:00.000Z" });
+    for (const id of ["recGA2", "recGA3"]) {
+      expect(await storeGaVisits(db, id, VISITS)).toBe(false);
+      const row = (await getReportById(db, id))!;
+      expect([row.gaUsersCurrent, row.gaUsersPrevious]).toEqual([906, 898]);
+    }
+    expect(await storeGaVisits(db, "recNOPE", VISITS)).toBe(false);
   });
 });
 

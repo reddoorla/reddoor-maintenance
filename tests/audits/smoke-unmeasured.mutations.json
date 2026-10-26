@@ -1,0 +1,67 @@
+[
+  {
+    "id": "1658-collision-is-a-verdict",
+    "why": "undoes #1658: a port taken on every attempt falls through to a fail with details",
+    "edits": [
+      {
+        "file": "src/audits/smoke.ts",
+        "find": "  if (raw.code !== 0 && portInUse(spawnOutput(raw), lastPort)) {\n",
+        "replace": "  if (raw.code !== 0 && portInUse(spawnOutput(raw), lastPort) && false) {\n"
+      }
+    ],
+    "test": "tests/audits/smoke.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1658-last-port-never-recorded",
+    "why": "the check reads a port no attempt used, so it never fires",
+    "edits": [
+      {
+        "file": "src/audits/smoke.ts",
+        "find": "        lastPort = port!;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/smoke.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1658-any-port-collision-unmeasured",
+    "why": "a collision on a port the audit did not pick (HMR) would be swallowed as unmeasured",
+    "edits": [
+      {
+        "file": "src/audits/smoke.ts",
+        "find": "  if (raw.code !== 0 && portInUse(spawnOutput(raw), lastPort)) {\n",
+        "replace": "  if (raw.code !== 0 && /is already in use/.test(spawnOutput(raw))) {\n"
+      }
+    ],
+    "test": "tests/audits/smoke.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1665-smoke-line-without-smoke",
+    "why": "undoes the guard #1665 pins: a sweep without smoke prints a count=0 smoke line",
+    "edits": [
+      {
+        "file": "src/cli/commands/audit.ts",
+        "find": "  if (opts.fleet !== undefined && which.includes(\"smoke\") && !opts.json) {\n",
+        "replace": "  if (opts.fleet !== undefined && !opts.json) {\n"
+      }
+    ],
+    "test": "tests/cli/audit-fleet-write-gate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1665-never-measured-list-truncated",
+    "why": "the issue's nit: the warning names only the first unmeasured site",
+    "edits": [
+      {
+        "file": "src/audits/smoke.ts",
+        "find": "    out += `⚠ ${unmeasured.length} site(s) never measured: ${unmeasured.join(\"; \")}\\n`;\n",
+        "replace": "    out += `⚠ ${unmeasured.length} site(s) never measured: ${unmeasured[0]}\\n`;\n"
+      }
+    ],
+    "test": "tests/audits/smoke.test.ts",
+    "expect": "red"
+  }
+]
