@@ -42,7 +42,7 @@ import {
   directVulnEscalatesAt,
   transitiveVulnEscalatesAt,
 } from "../src/alerts/waiting.js";
-import { levelOf, RENOVATE_ATTENTION_DAYS } from "../src/alerts/ladder.js";
+import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 
@@ -154,7 +154,14 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
   };
 }
 
-export type DatedReason = { text: string; day: string | null; how: string | null };
+export type DatedReason = {
+  text: string;
+  day: string | null;
+  how: string | null;
+  /** P1-78b: the item's ladder level, so NEW reads only reasons at the row's own
+   *  level or worse; absent on a watch condition or an approval, which are undated. */
+  level?: Level;
+};
 
 export type PmEntry = {
   group: NeedsYouItem["group"];
@@ -190,6 +197,11 @@ export type PmCockpit = {
   setup: Array<{ siteName: string; url: string; gaps: string[] }>;
   waitingKeys: string[];
 };
+
+/** An item's level: the one the model set, or its level with no date. */
+function itemLevelOf(it: AttentionItem): Level {
+  return it.level ?? levelOf(it, undefined, new Date(0));
+}
 
 function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): DatedReason {
   // OD 87: a held dead letter became an ask when its hold ran out, whatever the
@@ -249,15 +261,23 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
   for (const card of model.cards) {
     const slug = siteSlug(card.site.name);
     for (const it of card.items) {
-      const d = askedFrom(it, inputs.prior, today);
+      const d = { ...askedFrom(it, inputs.prior, today), level: itemLevelOf(it) };
       const k = `${slug}\u0000${it.title}`;
       const was = dated.get(k);
       if (!was || (was.day ?? "") < (d.day ?? "")) dated.set(k, d);
     }
   }
   const sinceDay = since ? new Date(since).toISOString().slice(0, 10) : null;
-  const isNew = (reasons: DatedReason[]): boolean =>
-    sinceDay !== null && reasons.some((r) => r.day !== null && r.day >= sinceDay);
+  // P1-78b: a row is NEW only for a reason at its own level or worse; a day-one
+  // Renovate PR (Watch) on an Attention row is housekeeping, not news.
+  const isNew = (reasons: DatedReason[], group: NeedsYouItem["group"]): boolean =>
+    sinceDay !== null &&
+    reasons.some(
+      (r) =>
+        r.day !== null &&
+        r.day >= sinceDay &&
+        (r.level === undefined || group === "approval" || GROUP_RANK[r.level] <= GROUP_RANK[group]),
+    );
   const entries = buildNeedsYouFeed(model).map((f): PmEntry => {
     const reasons = f.reasons.map(
       (text) => dated.get(`${f.slug}\u0000${text}`) ?? { text, day: null, how: null },
@@ -268,7 +288,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
       slug: f.slug,
       url: f.url,
       reasons,
-      isNew: isNew(reasons),
+      isNew: isNew(reasons, f.group),
       hasCritical: f.hasCritical,
     };
   });
@@ -278,7 +298,8 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
 
   for (const it of model.cardless ?? []) {
     if (it.waiting === true) continue;
-    const reason = askedFrom(it, inputs.prior, today);
+    const level = it.level ?? levelOf(it, inputs.prior[it.key]?.firstFlaggedAt, now);
+    const reason: DatedReason = { ...askedFrom(it, inputs.prior, today), level };
     // A dead letter with a url resolved to a site with no card (archived, or an
     // unrecognized status): it has a page, and the site may already have a row
     // (Watch, or an approval), which it joins. Any
@@ -287,11 +308,10 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     const e = slug ? entries.find((x) => x.slug === slug) : undefined;
     // P1-78b: a cardless item keeps its own level (an unknown-slug dead letter is
     // Broken, the fleet-wide url-probe-stale is Attention), and raises a row it joins.
-    const level = it.level ?? levelOf(it, inputs.prior[it.key]?.firstFlaggedAt, now);
     if (e) {
       e.reasons.push(reason);
       if (GROUP_RANK[level] < GROUP_RANK[e.group]) e.group = level;
-      e.isNew = isNew(e.reasons);
+      e.isNew = isNew(e.reasons, e.group);
       e.hasCritical ||= it.severity === "critical";
     } else
       entries.push({
@@ -300,7 +320,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
         slug,
         url: slug ? `/s/${slug}` : "(no site page)",
         reasons: [reason],
-        isNew: isNew([reason]),
+        isNew: isNew([reason], level),
         hasCritical: it.severity === "critical",
       });
   }

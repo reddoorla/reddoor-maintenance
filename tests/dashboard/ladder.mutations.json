@@ -401,5 +401,18 @@
     ],
     "test": "tests/scripts/pm-cockpit.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4-watch-makes-row-new",
+    "why": "Review round 4: a Watch item new since yesterday makes a Broken or Attention row NEW",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "(r.level === undefined || group === \"approval\" || GROUP_RANK[r.level] <= GROUP_RANK[group]),",
+        "replace": "true,"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
   }
 ]

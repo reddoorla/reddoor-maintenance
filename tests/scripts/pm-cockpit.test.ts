@@ -149,6 +149,29 @@ describe("pm-cockpit — what the cockpit's own feed leaves out is still listed"
     expect(out).toContain(`1 Renovate PR failing CI (escalated ${today})`);
   });
 
+  it("a Watch item new since yesterday does not make an Attention row NEW (P1-78b)", () => {
+    const reddoor = site({
+      id: "recR",
+      name: "Reddoor",
+      url: "https://reddoor.example.com",
+      securityVulnsHigh: 5,
+      renovateFailingCis: 1,
+      githubSignalsAt: NOW.toISOString(),
+    });
+    const base = inputs({ websites: [HEALTHY, reddoor] });
+    const today = NOW.toISOString().slice(0, 10);
+    const prior = {
+      ...base.prior,
+      "vuln:recR": { metric: 5, firstFlaggedAt: "2026-09-01" },
+      "renovate:recR": { metric: 1, firstFlaggedAt: today },
+    };
+    const since = new Date(NOW.getTime() - 86_400_000).toISOString();
+    const out = formatPmCockpit(buildPmCockpit({ ...base, prior }, NOW, since));
+    expect(out).toContain("- Reddoor · attention · /s/reddoor");
+    expect(out).not.toContain("NEW Reddoor");
+    expect(out.split("\n")[0]).toContain(" new=0 ");
+  });
+
   it("prints a stale url probe as Attention, not Broken (P1-78b)", () => {
     const unstamped = { ...HEALTHY, urlCheckedAt: null };
     const out = formatPmCockpit(buildPmCockpit(inputs({ websites: [unstamped] }), NOW));
