@@ -158,8 +158,10 @@
     <table>
       <thead>
         <tr>
-          <th>Completed</th><th>Type</th><th>ID</th><th>GA users</th><th>Search</th><th>Report</th
-          ><th></th>
+          <th>Completed</th><th>Type</th><th>ID</th><th
+            title="Engaged visits over the last 30 complete days once drafted or refreshed after P1-73; users over the report period before that"
+            >GA visits</th
+          ><th>Search</th><th>Report</th><th></th>
         </tr>
       </thead>
       <tbody>

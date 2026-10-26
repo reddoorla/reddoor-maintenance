@@ -64,7 +64,7 @@ export function announcementSiteExtras(
  * One-time onboarding announcement, built from the SAME components as the monthly report so it
  * reads as a testing report with extra explanation: header · intro ("your ongoing care") ·
  * MAINTENANCE CHECKS · TESTING (each: intro with the cadence baked into the copy + the report's
- * checklist rows) · LIGHTHOUSE SCORES · ANALYTICS (users + trend + the Google-position line) ·
+ * checklist rows) · LIGHTHOUSE SCORES · ANALYTICS (engaged visits + trend + the Google-position line) ·
  * RECENT IMPROVEMENTS (conditional; closes with the open-door invitation). Reuses the M6a copy
  * layer (contact/footer honor per-site overrides). No pricing. A pace set to None omits its
  * checklist section. Every band carries equal top/bottom padding (SECTION_PAD).

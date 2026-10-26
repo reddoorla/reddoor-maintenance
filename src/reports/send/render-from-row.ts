@@ -5,6 +5,7 @@ import { resolveCopy } from "../copy.js";
 import { announcementSiteExtras } from "../announcement-email/template.js";
 import { renderReportEmail, type RenderedReportEmail } from "./render-email.js";
 import type { ReportData } from "../types.js";
+import { REPORT_WINDOW_DAYS } from "../ga/window.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { applyReportTypeHeadline } from "../header-image/index.js";
 
@@ -57,8 +58,9 @@ export async function renderReportFromRow(
 
   const slug = siteSlug(site.name);
   const cidName = `${slug}-header`;
-  const gaPeriodDays =
-    report.reportType === "Announcement" ? 30 : windowDays(report.periodStart, report.periodEnd);
+  // Every report's GA numbers cover the same fixed window since P1-73, whatever the
+  // report's period: the last 30 complete days in the property's timezone.
+  const gaPeriodDays = REPORT_WINDOW_DAYS;
   const reportData: ReportData = {
     siteName: site.name,
     siteUrl: site.url,
@@ -88,13 +90,4 @@ export async function renderReportFromRow(
     cidName,
     subjectOverride: report.subjectOverride ?? undefined,
   });
-}
-
-/** Whole days spanned by an ISO period window, or undefined when either bound is missing or the
- *  span isn't positive. Drives the analytics trend's "vs the previous N days" label. */
-export function windowDays(start: string | null, end: string | null): number | undefined {
-  if (!start || !end) return undefined;
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return undefined;
-  return Math.round(ms / (24 * 60 * 60 * 1000));
 }

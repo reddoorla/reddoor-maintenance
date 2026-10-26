@@ -131,7 +131,7 @@ describe("analyticsSection", () => {
       footnoteLines: ["See more data"],
     });
     expect(mjml).toContain(">ANALYTICS</mj-text>");
-    expect(mjml).toContain("12,345 Users");
+    expect(mjml).toContain("12,345 Engaged visits");
     expect(mjml).toContain("vs last period");
     expect(mjml).toContain("Page 1 Google result (#3)");
     expect(mjml).toContain("See more data");
@@ -148,7 +148,7 @@ describe("analyticsSection", () => {
     });
     expect(mjml).toContain(">ANALYTICS</mj-text>");
     expect(mjml).toContain("Page 1 Google result (#3)");
-    expect(mjml).not.toContain("Users"); // no "— Users" / "0 Users"
+    expect(mjml).not.toMatch(/Users|Engaged visits/); // no "— Users" / "0 Engaged visits"
   });
   it("hides the whole block when the previous period is zero and nothing else has data", () => {
     expect(analyticsSection({ current: 7, previous: 0, background: "white" })).toBe("");
@@ -163,7 +163,7 @@ describe("analyticsSection", () => {
     });
     expect(mjml).toContain(">ANALYTICS</mj-text>");
     expect(mjml).toContain("Page 1 Google result (#3)");
-    expect(mjml).not.toContain("Users");
+    expect(mjml).not.toMatch(/Users|Engaged visits/);
   });
   it("threads periodDays into the trend label", () => {
     const mjml = analyticsSection({

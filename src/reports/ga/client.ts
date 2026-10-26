@@ -5,8 +5,12 @@ import { withSubjectFailover } from "./failover.js";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { siteHostnames } from "../../client/site-host.js";
 import { ymd } from "../../util/date.js";
+import { reportWindows, type GaDateRange } from "./window.js";
+
+export { REPORT_WINDOW_DAYS, reportWindows, type GaDateRange } from "./window.js";
 
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
+const ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const MS_PER_DAY = 86_400_000;
 
 export type GaQuery = {
@@ -48,11 +52,100 @@ export function measuredHostnames(siteUrl: string): string[] {
   return siteHostnames(hostnameOf(siteUrl));
 }
 
+/** The request body both report windows share: one metric, the site's own hosts. */
+function reportRequest(
+  property: string,
+  range: GaDateRange,
+  metric: string,
+  hostnames: string[],
+): Record<string, unknown> {
+  return {
+    property,
+    dateRanges: [range],
+    metrics: [{ name: metric }],
+    // Only the site's own hosts. Omitted entirely when we have no usable
+    // hostname, so the number degrades to the unfiltered one instead of to zero.
+    ...(hostnames.length > 0
+      ? {
+          dimensionFilter: {
+            filter: { fieldName: "hostName", inListFilter: { values: hostnames } },
+          },
+        }
+      : {}),
+  };
+}
+
+function firstMetric(resp: {
+  rows?: Array<{ metricValues?: Array<{ value?: string | null }> | null }> | null;
+}): number {
+  const raw = resp.rows?.[0]?.metricValues?.[0]?.value ?? "0";
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function readKey(keyPath: string): { client_email: string; private_key: string } {
+  return JSON.parse(readFileSync(keyPath, "utf8")) as { client_email: string; private_key: string };
+}
+
 /**
- * Fetch GA4 `activeUsers` ("Users") for a report period and the equal-length window
+ * A report's analytics line (P1-73): GA4 `engagedSessions` on the site's own
+ * hosts over {@link reportWindows} — the last 30 complete days in the
+ * property's timezone — and the 30 days before. The email labels it
+ * "Engaged visits".
+ *
+ * Why engaged sessions, not `activeUsers`: from July 2026 a data-centre bot
+ * fleet made 522 of ERP Industrials' 932 users in a month, with 24 engaged
+ * sessions between them. Engaged sessions (10 s or more, two or more pages, or
+ * a conversion) held flat at 180-400 a month through it, and need no bot list
+ * to maintain (the operator, decision 2026-10-26-1521).
+ *
+ * The timezone comes from the Admin API on every call, so a property whose
+ * zone changes is read in its current one. Throws, like
+ * {@link fetchPeriodUsers}, on a non-auth error, a property with no timezone,
+ * or once every subject has failed auth; the caller soft-fails.
+ */
+export async function fetchReportVisits(
+  query: GaQuery,
+  now: Date,
+): Promise<{ current: number; previous: number }> {
+  const key = readKey(query.keyPath);
+  const propertyId = query.propertyId.trim();
+  const property = `properties/${propertyId}`;
+
+  return withSubjectFailover(query.subjects, "GA", async (subject) => {
+    const authClient = new JWT({
+      email: key.client_email,
+      key: key.private_key,
+      scopes: [ANALYTICS_READONLY],
+      subject,
+    });
+    const meta = await authClient.request<{ timeZone?: string }>({
+      url: `${ADMIN_BASE}/properties/${encodeURIComponent(propertyId)}`,
+      method: "GET",
+    });
+    const windows = reportWindows(now, meta.data.timeZone ?? "");
+    const client = new BetaAnalyticsDataClient({ authClient });
+    const run = async (range: GaDateRange): Promise<number> => {
+      const [resp] = await client.runReport(
+        reportRequest(property, range, "engagedSessions", query.hostnames),
+      );
+      return firstMetric(resp);
+    };
+    const current = await run(windows.current);
+    const previous = await run(windows.previous);
+    return { current, previous };
+  });
+}
+
+/**
+ * Fetch GA4 `activeUsers` for a window and the equal-length window
  * immediately before it, via a domain-wide-delegation service account impersonating each
  * of `subjects` in order until one authenticates. Throws on any non-auth API error, or
- * once every subject has failed auth — the caller (draftReportForSite) soft-fails.
+ * once every subject has failed auth.
+ *
+ * No report reads this since P1-73 (they read {@link fetchReportVisits}). The analytics
+ * audit and `launch-check` do: they ask "is this property collecting at all", and any
+ * user, bot or not, is proof that the tag fires.
  *
  * Previous window: same length as the current period, ending the day before `periodStart`.
  */
@@ -61,10 +154,7 @@ export async function fetchPeriodUsers(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<{ current: number; previous: number }> {
-  const key = JSON.parse(readFileSync(query.keyPath, "utf8")) as {
-    client_email: string;
-    private_key: string;
-  };
+  const key = readKey(query.keyPath);
 
   const lengthDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / MS_PER_DAY);
   const prevEnd = new Date(periodStart.getTime() - MS_PER_DAY);
@@ -83,27 +173,15 @@ export async function fetchPeriodUsers(
     const client = new BetaAnalyticsDataClient({ authClient });
 
     const run = async (start: Date, end: Date): Promise<number> => {
-      const [resp] = await client.runReport({
-        property,
-        dateRanges: [{ startDate: ymd(start), endDate: ymd(end) }],
-        metrics: [{ name: "activeUsers" }],
-        // Only the site's own hosts. Omitted entirely when we have no usable
-        // hostname, so the number degrades to the old unfiltered one instead
-        // of to zero.
-        ...(query.hostnames.length > 0
-          ? {
-              dimensionFilter: {
-                filter: {
-                  fieldName: "hostName",
-                  inListFilter: { values: query.hostnames },
-                },
-              },
-            }
-          : {}),
-      });
-      const raw = resp.rows?.[0]?.metricValues?.[0]?.value ?? "0";
-      const n = Number.parseInt(raw, 10);
-      return Number.isFinite(n) ? n : 0;
+      const [resp] = await client.runReport(
+        reportRequest(
+          property,
+          { startDate: ymd(start), endDate: ymd(end) },
+          "activeUsers",
+          query.hostnames,
+        ),
+      );
+      return firstMetric(resp);
     };
 
     const current = await run(periodStart, periodEnd);

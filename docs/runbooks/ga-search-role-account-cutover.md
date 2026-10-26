@@ -8,12 +8,12 @@
 
 ## Why this matters
 
-`@reddoorla/maintenance` reads GA4 "Users" and Search Console presence via **one** service account that uses **domain-wide delegation (DWD)** to _impersonate a Workspace user_ — the **subject**:
+`@reddoorla/maintenance` reads GA4 "Engaged visits" (`engagedSessions`, plus the property's timezone from the GA Admin API `properties.get`) and Search Console presence via **one** service account that uses **domain-wide delegation (DWD)** to _impersonate a Workspace user_ — the **subject**:
 
 - **`GA_SUBJECT`** — a **comma-separated failover list** of impersonated Workspace users, tried in order (e.g. `reports@reddoorla.com,person@reddoorla.com`; a single address is still valid). Read by [`readGaConfig()`](../../src/reports/ga/config.ts) and used by **both** the GA Data API client ([`src/reports/ga/client.ts`](../../src/reports/ga/client.ts)) **and** the Search Console client ([`src/reports/search/client.ts`](../../src/reports/search/client.ts)). When a subject fails auth, the clients fall through to the next one and log a greppable `subject failover` warning ([`src/reports/ga/failover.ts`](../../src/reports/ga/failover.ts)) — a dying primary is visible **before** it becomes a total outage. The list only helps if the backup subject actually has property access, so this cutover is still required.
 - **`GA_SA_KEY_PATH`** — path to the service-account JSON key (defaults to `ga-service-account.json` beside `~/.config/reddoor-maint/credentials.env`).
 
-If that subject is a personal account and the person is offboarded (or loses GA/Search access), **every** site's GA + Search enrichment fails at once. The failure is _soft_: drafting never throws — reports still send, but **with blank analytics** ([`fetchGaUsers`/`fetchSearch`](../../src/reports/draft.ts) return `softFailed: true` and the numbers go blank). So the outage is **silent** unless you're watching the cron log line `⚠ N site(s) had GA/Search enrichment fail — drafted with blank analytics` (and, now, the fleet-wide alert email + the per-site cockpit/digest signal this feature adds).
+If that subject is a personal account and the person is offboarded (or loses GA/Search access), **every** site's GA + Search enrichment fails at once. The failure is _soft_: drafting never throws — reports still send, but **with blank analytics** ([`fetchGaVisits`/`fetchSearch`](../../src/reports/draft.ts) return `softFailed: true` and the numbers go blank). So the outage is **silent** unless you're watching the cron log line `⚠ N site(s) had GA/Search enrichment fail — drafted with blank analytics` (and, now, the fleet-wide alert email + the per-site cockpit/digest signal this feature adds).
 
 Moving the subject to `reports@reddoorla.com` (a role account nobody's offboarding tears down) removes the personal SPOF.
 
@@ -65,7 +65,7 @@ Without changing the production secret, dry-run against the new subject locally.
 GA_SUBJECT=reports@reddoorla.com reddoor-maint report <slug> --preview --enrich
 ```
 
-`--enrich` is required: a plain `--preview` makes no GA or Search Console calls at all, so its output is blank however good the subject is. Open `reports/<slug>/draft.html` and confirm the GA Users + Search lines are **populated** (not blank). Try 2–3 sites spanning different GA4 properties. If any blanks, the property in step 2/3 wasn't granted yet — fix before proceeding.
+`--enrich` is required: a plain `--preview` makes no GA or Search Console calls at all, so its output is blank however good the subject is. Open `reports/<slug>/draft.html` and confirm the GA Engaged visits + Search lines are **populated** (not blank). Try 2–3 sites spanning different GA4 properties. If any blanks, the property in step 2/3 wasn't granted yet — fix before proceeding.
 
 ### 6. Flip the subject (the actual cutover — zero-downtime)
 
@@ -100,5 +100,5 @@ Put the previous subject FIRST in the `GA_SUBJECT` list (or revert to it alone) 
 
 - Single config point: [`src/reports/ga/config.ts`](../../src/reports/ga/config.ts) (`GA_SUBJECT` / `GA_SA_KEY_PATH`).
 - Subject failover (list order, auth-shaped error detection, the `subject failover` warning): [`src/reports/ga/failover.ts`](../../src/reports/ga/failover.ts).
-- Soft-fail behavior: [`fetchGaUsers` / `fetchSearch`](../../src/reports/draft.ts) (`softFailed`), aggregated as `softFailedSites` in [`draftDueReports`](../../src/cli/commands/report.ts).
+- Soft-fail behavior: [`fetchGaVisits` / `fetchSearch`](../../src/reports/draft.ts) (`softFailed`), aggregated as `softFailedSites` in [`draftDueReports`](../../src/cli/commands/report.ts).
 - Fleet-wide failure alert (catches a botched cutover or a future offboarding): see the analytics alert wired into the report cron / digest.
