@@ -200,8 +200,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "    if (same) return mergeInto(i, rows, same, log, say);",
-        "replace": "    if (same && false) return mergeInto(i, rows, same, log, say);"
+        "find": "(log.summary!.skipped > 0 || later)",
+        "replace": "(later)"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -213,8 +213,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "          target.counts.run.startedAt,",
-        "replace": "          i.run.startedAt,"
+        "find": "const since = target.counts.run.startedAt;",
+        "replace": "const since = i.run.startedAt;"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -265,8 +265,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "await measure(\"coverage\", () => readCoverage(i.db, since)),",
-        "replace": "await measure(\"coverage\", () => Promise.resolve(target.counts.coverage.value!)),"
+        "find": "    coverage: keep(\n      await measure(\"coverage\", async () =>\n        explainCoverage(await readCoverage(i.db, since), steps),\n      ),\n      target.counts.coverage,\n    ),",
+        "replace": "    coverage: target.counts.coverage,"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -304,8 +304,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/core.ts",
-        "find": "        id === undefined",
-        "replace": "        true"
+        "find": "      s?.outcome === \"running\"\n        ? `run",
+        "replace": "      false\n        ? `run"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
@@ -317,8 +317,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/write.ts",
-        "find": "if (same && (log.summary!.skipped > 0 || rows.some((r) => r.night > night)))",
-        "replace": "if (same && log.summary!.skipped > 0)"
+        "find": "(log.summary!.skipped > 0 || later)",
+        "replace": "(log.summary!.skipped > 0)"
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
