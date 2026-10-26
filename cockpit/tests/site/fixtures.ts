@@ -25,7 +25,10 @@ export function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     searchConsoleProperty: "sc-domain:acme.example.com",
     searchConsoleOutcome: "resolved",
     searchConsoleResolved: "sc-domain:acme.example.com",
-    searchConsoleCheckedAt: new Date().toISOString(),
+    searchConsoleCheckedAt: "2026-06-10T00:00:00.000Z",
+    // makeWebsiteRow defaults this to the wall clock; pin it, fresh against
+    // input()'s now, so no fixture field reads the clock (#1601).
+    githubSignalsAt: "2026-06-15T06:00:00.000Z",
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
@@ -118,11 +121,15 @@ export function input(over: Partial<SiteInput> = {}): SiteInput {
 
 const HOSTILE = `<img src=x onerror=alert(1)> "q" & 'a'`;
 
+/** `n` submissions, one a day from 2026-05-18 to 06-14 (then round again):
+ *  all before `input()`'s now and inside the spam panel's 30-day window, so
+ *  each row pins a real age, not a floored "just now" (#1603). */
 export function submissions(n: number): SubmissionRow[] {
+  const first = Date.parse("2026-05-18T12:00:00.000Z");
   return Array.from({ length: n }, (_, i) =>
     makeSubmissionRow({
       id: `sub${i}`,
-      submittedAt: `2026-06-${String((i % 28) + 1).padStart(2, "0")}T12:00:00.000Z`,
+      submittedAt: new Date(first + (i % 28) * 86_400_000).toISOString(),
     }),
   );
 }
