@@ -56,12 +56,12 @@
   },
   {
     "id": "5-accept-mutes-attention",
-    "why": "An accept key mutes an Attention reason",
+    "why": "An accept key mutes an Attention reason (here: a site whose accept list names ci reads as if CI were a watch condition)",
     "edits": [
       {
         "file": "src/dashboard/fleet-cockpit.ts",
         "find": "if (level === \"broken\" || level === \"attention\")",
-        "replace": "if (level === \"broken\")"
+        "replace": "if (level === \"broken\" || (level === \"attention\" && !accepted.has(\"ci\")))"
       }
     ],
     "test": "tests/dashboard/ladder.test.ts",
@@ -241,6 +241,84 @@
         "file": "src/dashboard/fleet-cockpit.ts",
         "find": "  if (item.kind === \"vuln\") return item.autoFixExhausted === true;\n",
         "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-watch-item-duplicated",
+    "why": "Review round 1: a Watch-level item is copied into the watch reasons, so it shows twice with a false accept hint",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  const hasWatchItem = items.some((it) => itemLevel(it) === \"watch\");",
+        "replace": "  const hasWatchItem = items.some((it) => itemLevel(it) === \"watch\");\n  for (const it of items) if (itemLevel(it) === \"watch\") { watchReasons.unshift(it.title); watchAcceptKeys.unshift(\"\"); }"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-accepted-url-chip-gone",
+    "why": "Review round 1: an accepted dead roster url leaves no visible chip",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))",
+        "replace": "    false"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-verdict-ignores-cardless",
+    "why": "Review round 1: the verdict reads All clear while an Attention item on no card is on the page",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "  const attention = fed.attention + cardlessAt(\"attention\");",
+        "replace": "  const attention = fed.attention;"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-no-age-sort",
+    "why": "Review round 1: rows are not sorted by age",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    if (x.since !== y.since) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-no-age",
+    "why": "Review round 1: rows carry no age",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "          age: ageOf(i.since, now),",
+        "replace": "          age: null,"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-probe-visible-only",
+    "why": "Review round 1: the stale probe counts only the visible sites, not every non-archived row as the digest does",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectUrlResolveAlerts(deadLetterSites, baseUrl, now).filter(",
+        "replace": "    ...collectUrlResolveAlerts(sites, baseUrl, now).filter("
       }
     ],
     "test": "tests/dashboard/ladder.test.ts",

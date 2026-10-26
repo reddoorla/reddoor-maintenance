@@ -86,6 +86,22 @@ function verdictOf(m: CockpitModel): { tier: string; group: string | null } {
 
 const it_ = (key: string, kind: AttentionItem["kind"]) => ({ key, kind });
 
+/** An approved, unsent Maintenance draft. On a site with no report recipients its
+ *  preflight fails, so it will fail at send: a critical `preflight:` item. */
+function approvedDraft(): ReportRow {
+  return {
+    id: "rep",
+    siteId: "recS",
+    reportType: "Maintenance",
+    period: "2026-10",
+    draftReady: true,
+    approvedToSend: true,
+    sentAt: null,
+    withdrawnAt: null,
+    deliveryStatus: "pending",
+  } as ReportRow;
+}
+
 describe("levelOf places every existing signal", () => {
   const cases: Array<[string, AttentionItem["kind"], string]> = [
     ["url-unresolved:recS", "url", "broken"],
@@ -168,6 +184,8 @@ describe("one signal per site: tier and Needs-you group", () => {
       prior: { "vuln:recS": { metric: 1, firstFlaggedAt: TODAY } },
     });
     expect(verdictOf(m)).toEqual({ tier: "healthy", group: null });
+    // Not on the card either: the card's chips are its items.
+    expect(m.cards[0]!.items).toEqual([]);
   });
 
   it("red default-branch CI is Attention", () => {
@@ -199,6 +217,20 @@ describe("one signal per site: tier and Needs-you group", () => {
     expect(
       verdictOf(model([site({ prismicModels: "unknown", prismicModelsCheckedAt: FRESH })])),
     ).toEqual({ tier: "watch", group: "watch" });
+  });
+
+  it("an approved report that will fail at send is Attention", () => {
+    const m = model([site()], { reports: [approvedDraft()] });
+    expect(m.cards[0]!.items.map((i) => i.kind)).toEqual(["preflight"]);
+    expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
+  });
+
+  it("a Prismic verdict nobody has re-established is Watch", () => {
+    const m = model([
+      site({ prismicModels: "pass", prismicModelsCheckedAt: "2026-09-01T00:00:00Z" }),
+    ]);
+    expect(m.cards[0]!.items.map((i) => i.key)).toEqual(["prismic-stale:recS"]);
+    expect(verdictOf(m)).toEqual({ tier: "watch", group: "watch" });
   });
 
   it("a bounced report is Attention", () => {
@@ -290,6 +322,11 @@ describe("a launching site's mute", () => {
     ]);
   });
 
+  it("a critical preflight (an approved report that will fail at send) breaks it, as today", () => {
+    const m = model([launching()], { reports: [approvedDraft()] });
+    expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
+  });
+
   it("red CI breaks it, as today", () => {
     expect(verdictOf(model([launching({ defaultBranchCi: "failing" })]))).toEqual({
       tier: "attention",
@@ -346,7 +383,22 @@ describe("Mon 10-26, replayed", () => {
   // Sonder: a Renovate PR on its first day.
   const fleet = [
     site({ id: "recR", name: "Reddoor", securityVulnsHigh: 5, renovateFailingCis: 1 }),
-    site({ id: "recN", name: "29 Navy", securityVulnsHigh: 1 }),
+    // 29 Navy's one high vuln was transitive: it waits for the Monday lockfile window.
+    site({
+      id: "recN",
+      name: "29 Navy",
+      securityVulnsHigh: 1,
+      securityAdvisories: [
+        {
+          module: "sharp",
+          severity: "high",
+          title: "t",
+          cves: [],
+          url: null,
+          relationship: "transitive",
+        },
+      ],
+    }),
     site({ id: "recB", name: "Beachfront", renovateFailingCis: 1 }),
     site({ id: "recO", name: "Sonder", renovateFailingCis: 1 }),
     site({ id: "recC", name: "CalTex" }),
