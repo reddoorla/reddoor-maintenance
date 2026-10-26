@@ -32,6 +32,7 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
   it("auditFields with EVERY slice populated emits only healthColumnFor-resolvable keys", () => {
     const fields = auditFields({
       scores: { performance: 98, accessibility: null, bestPractices: 96, seo: 92 },
+      lighthouseFailingAudits: "best-practices/deprecations:w5:3/3",
       a11y: { violations: 0, routesScanned: 1, routesTotal: 2 },
       deps: { drifted: 2, majorBehind: 1, outdated: 3, majorOutdated: 0 },
       security: { critical: 0, high: 0, moderate: 1, low: 2 },
@@ -72,6 +73,7 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
       formE2e: { ok: null, checkedAt: "2026-08-24T07:10:00.000Z" },
     });
     expect(Object.keys(fields).length).toBeGreaterThanOrEqual(25);
+    expect(fields).toHaveProperty("Lighthouse failing audits");
     expect(fields).toHaveProperty("Security lockfile audit");
     expect(fields).toHaveProperty("Last security audit at");
     for (const key of Object.keys(fields)) {
