@@ -2248,17 +2248,54 @@ describe("the /dev/match route imports `dev` from the site's kit major (#1566)",
     expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
   });
 
-  it("does not downgrade a kit 2 site carrying the kit 3 render: it is flagged, not replaced", async () => {
+  // A site that ran the recipe on kit 3 and then declared kit 2 again, or no
+  // kit at all (#1644). Its route imports `$app/env`, which kit 2 does not
+  // have, and the recipe wrote it, so it is ours: replaced with the kit 2 body,
+  // not flagged as hand-edited on every run.
+  for (const spec of ["^2.61.1", null]) {
+    it(`replaces the kit 3 render on a site back on ${spec ?? "no declared kit"}, instead of flagging it`, async () => {
+      const cwd = await siteOnKit(spec);
+      await seed(cwd, ROUTE_SERVER, shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT));
+      const result = await matchHarness(
+        { path: cwd },
+        { ref: "https://ref.test" },
+        { spawn: noopSpawn },
+      );
+      expect(result.status).toBe("applied");
+      expect(await read(cwd, ROUTE_SERVER)).toBe(shippedRoute());
+      expect(result.notes).toContain(`${ROUTE_SERVER} upgraded from a previous version`);
+      expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
+    });
+  }
+
+  it("replaces the kit 3 render of a PREVIOUS body on a kit 2 site", async () => {
+    const prev = MATCH_HARNESS_PREVIOUS[ROUTE_SERVER]![0]!;
     const cwd = await siteOnKit("^2.61.1");
-    const kit3 = shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT);
-    await seed(cwd, ROUTE_SERVER, kit3);
+    await seed(cwd, ROUTE_SERVER, prev.replace(KIT2_IMPORT, KIT3_IMPORT));
     const result = await matchHarness(
       { path: cwd },
       { ref: "https://ref.test" },
       { spawn: noopSpawn },
     );
-    expect(await read(cwd, ROUTE_SERVER)).toBe(kit3);
-    expect(result.notes).toContain(`${ROUTE_SERVER} differs from the shipped template`);
+    expect(await read(cwd, ROUTE_SERVER)).toBe(shippedRoute());
+    expect(result.notes ?? "").not.toContain(`${ROUTE_SERVER} differs`);
+  });
+
+  it("still flags a hand-edited route on a kit 2 site, in either import", async () => {
+    for (const body of [
+      shippedRoute() + "// the site's own line\n",
+      shippedRoute().replace(KIT2_IMPORT, KIT3_IMPORT) + "// the site's own line\n",
+    ]) {
+      const cwd = await siteOnKit("^2.61.1");
+      await seed(cwd, ROUTE_SERVER, body);
+      const result = await matchHarness(
+        { path: cwd },
+        { ref: "https://ref.test" },
+        { spawn: noopSpawn },
+      );
+      expect(await read(cwd, ROUTE_SERVER)).toBe(body);
+      expect(result.notes).toContain(`${ROUTE_SERVER} differs from the shipped template`);
+    }
   });
 });
 

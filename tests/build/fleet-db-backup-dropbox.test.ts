@@ -363,29 +363,40 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
     }
   });
 
-  // Every case above hands the gate CANNED dropbox.mjs lines. This one feeds it
+  // Every case above hands the gate CANNED dropbox.mjs lines. These feed it
   // the lines the REAL `run()` prints for an upload, so a change to the
-  // script's wording breaks this test rather than production.
-  it("PASSES on the lines the real dropbox.mjs prints for a matching upload", async () => {
+  // script's wording breaks this test rather than production. The fake Dropbox
+  // models the monthly copy: the backups folder exists, and the month's file
+  // is `prior` (absent on the month's first copy, present on a forced re-run).
+  async function realLines(prior?: { rev: string; content_hash: string }) {
     const data = Buffer.from(CIPHERTEXT);
     const dir = await mkdtemp(join(tmpdir(), "db-backup-dropbox-real-"));
     const local = join(dir, "turso-2026-11.sql.gpg");
     await writeFile(local, data);
-    const fetch = async (url: string) => {
+    const fetch = async (url: string, init: { body?: unknown }) => {
       const endpoint = url.replace(/^https:\/\/[^/]+\/(2\/)?/, "");
-      const body =
-        endpoint === "oauth2/token"
-          ? { access_token: "tok" }
-          : endpoint === "users/get_current_account"
-            ? {
-                name: { display_name: "Ada Example" },
-                email: "ada@example.com",
-                team: { name: "Example Team" },
-                root_info: { root_namespace_id: "1111111111", home_namespace_id: "2222222222" },
-              }
-            : { path_display: PATH_NOV, size: data.length, content_hash: contentHash(data) };
+      let status = 200;
+      let body: unknown;
+      if (endpoint === "oauth2/token") body = { access_token: "tok" };
+      else if (endpoint === "users/get_current_account")
+        body = {
+          name: { display_name: "Ada Example" },
+          email: "ada@example.com",
+          team: { name: "Example Team" },
+          root_info: { root_namespace_id: "1111111111", home_namespace_id: "2222222222" },
+        };
+      else if (endpoint === "files/get_metadata") {
+        const path = JSON.parse(String(init.body)).path as string;
+        if (path === FOLDER) body = { ".tag": "folder", path_display: FOLDER };
+        else if (path === PATH_NOV && prior)
+          body = { ".tag": "file", path_display: PATH_NOV, ...prior };
+        else {
+          status = 409;
+          body = { error_summary: "path/not_found/..", error: { ".tag": "path" } };
+        }
+      } else body = { path_display: PATH_NOV, size: data.length, content_hash: contentHash(data) };
       return {
-        status: 200,
+        status,
         headers: { get: () => null },
         text: async () => JSON.stringify(body),
       };
@@ -395,12 +406,54 @@ describe("fleet-db-backup › Copy the encrypted dump to Dropbox", () => {
       { fetch, env: SECRETS },
     );
     expect(real.code).toBe(0);
+    return real.lines.join("\n") + "\n";
+  }
+
+  it("PASSES on the lines the real dropbox.mjs prints for a matching upload", async () => {
     const r = await runStep(copy, {
       env: { ...SECRETS, MONTH: "2026-11" },
-      dropboxOut: real.lines.join("\n") + "\n",
+      dropboxOut: await realLines(),
     });
     expect(r.code).toBe(0);
     expect(r.out).not.toContain("::warning::");
+  });
+
+  // A forced re-dispatch (dropbox_copy: true, which the auto-filed issue asks
+  // for) finds the month's file already there, and dropbox.mjs says so (#1391).
+  it("PASSES a same-month re-run whose file already held the same bytes", async () => {
+    const out = await realLines({
+      rev: "015f3a2b1c0d4e5f6",
+      content_hash: contentHash(Buffer.from(CIPHERTEXT)),
+    });
+    expect(out).toContain("matches local (same content as the existing file)");
+    const r = await runStep(copy, { env: { ...SECRETS, MONTH: "2026-11" }, dropboxOut: out });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("::warning::");
+  });
+
+  it("PASSES a same-month re-run that replaced a different file", async () => {
+    const out = await realLines({
+      rev: "015f3a2b1c0d4e5f6",
+      content_hash: contentHash(Buffer.from("an older dump")),
+    });
+    expect(out).toContain("matches local (replaced an existing file, rev 015f3a2b1c0d4e5f6)");
+    const r = await runStep(copy, { env: { ...SECRETS, MONTH: "2026-11" }, dropboxOut: out });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("::warning::");
+  });
+
+  it("FAILS a re-run suffix that is not exactly one dropbox.mjs prints", async () => {
+    for (const suffix of [
+      " (replaced an existing file)",
+      " (replaced an existing file, rev not-hex)",
+      " (same content as the existing file) (not really)",
+    ]) {
+      const r = await runStep(copy, {
+        env: { ...SECRETS, MONTH: "2026-11" },
+        dropboxOut: `${TEAM_ACCOUNT}\n${okLine(PATH_NOV, CIPHERTEXT)}${suffix}\n`,
+      });
+      expect(r.code, suffix).not.toBe(0);
+    }
   });
 });
 

@@ -2526,6 +2526,50 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  // #1604: Prettier breaks a long assertion so its matcher sits on a line of its own.
+  describe("a matcher on a continuation line (#1604)", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+    const multiLine = (from: string, to: string) =>
+      one(
+        [
+          '@@ -10,4 +10,4 @@ it("x", () => {',
+          "   expect(",
+          "     summarize(x),",
+          `-  ${from}`,
+          `+  ${to}`,
+        ].join("\n"),
+      );
+
+    it("a changed matcher under a multi-line expect( is flagged", () => {
+      for (const [from, to] of [
+        [").toBe(false);", ").toBe(true);"],
+        [").not.toBe(1);", ").toBe(1);"],
+        [").resolves.toEqual([1]);", ").resolves.toBeDefined();"],
+        [").rejects.toThrow(/boom/);", ").rejects.toThrow();"],
+        ["  ).toHaveLength(3);", "  ).toHaveLength(4);"],
+        ['))).toMatch("a");', '))).toMatch("b");'],
+      ] as const) {
+        expect(multiLine(from, to), from).toEqual([
+          { file: T, reasons: [`removed assertion not re-added: ${from.trim()}`] },
+        ]);
+      }
+    });
+
+    it("a matcher line re-indented or moved is not flagged", () => {
+      expect(multiLine(").toBe(false);", "    ).toBe(false)")).toEqual([]);
+    });
+
+    it("a removed ) line that closes a call, not an assertion, is not flagged", () => {
+      for (const line of [");", "),", ").toString();", ").toFixed(2);", "]).then(done);", ")"]) {
+        expect(multiLine(line, ""), line).toEqual([]);
+      }
+    });
+
+    it("an added matcher line alone is not flagged", () => {
+      expect(one("@@ -10,2 +10,3 @@\n   expect(\n     x,\n+  ).toBe(true);")).toEqual([]);
+    });
+  });
+
   describe("the Test changes: section", () => {
     it("is found as a label or a heading, and ends at the next heading", () => {
       for (const body of [
