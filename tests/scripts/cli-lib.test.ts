@@ -75,6 +75,7 @@ describe("scripts that use the shared isMain still run main() when invoked direc
     ["land-prs.mjs", ["--frobnicate"], 2, "land-prs:"],
     ["nightly-conductor.mjs", ["--only"], 1, "nightly-conductor: Error: --only needs a value"],
     ["pm-cockpit.mts", ["--frobnicate"], 2, "pm-cockpit:"],
+    ["fleet-daily.mts", [], 1, "fleet-daily: Error: GITHUB_REPOSITORY must be set"],
     ["refresh-disposable-domains.mts", ["--frobnicate"], 1, "refresh-disposable-domains:"],
   ];
   it.each(cases)("%s %j exits %i", (file, args, code, stderr) => {

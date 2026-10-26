@@ -53,13 +53,28 @@ describe("scanOutdated", () => {
     });
     // pnpm outdated exits non-zero when there ARE outdated deps — not an error.
     const { spawn } = spawnStub({ outdated: { code: 1, stdout: outdatedJson, stderr: "" } });
-    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 3, major: 1 });
+    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 3, major: 1, behind: ["vite@5"] });
   });
 
   it("returns zero counts when pnpm outdated reports nothing", async () => {
     const dir = await siteDir(true);
     const { spawn } = spawnStub({ outdated: { code: 0, stdout: "{}", stderr: "" } });
-    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 0, major: 0 });
+    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 0, major: 0, behind: [] });
+  });
+
+  it("names each package a major behind as name@installed-major, sorted (P1-78a)", async () => {
+    const dir = await siteDir(true);
+    const outdatedJson = JSON.stringify({
+      vite: { current: "5.4.0", latest: "7.0.1" },
+      "@sveltejs/kit": { current: "^2.8.0", latest: "3.0.0" },
+      svelte: { current: "5.0.0", latest: "5.55.10" },
+    });
+    const { spawn } = spawnStub({ outdated: { code: 1, stdout: outdatedJson, stderr: "" } });
+    expect(await scanOutdated(dir, spawn)).toEqual({
+      outdated: 3,
+      major: 2,
+      behind: ["@sveltejs/kit@2", "vite@5"],
+    });
   });
 
   it("returns null when pnpm outdated output isn't parseable JSON", async () => {

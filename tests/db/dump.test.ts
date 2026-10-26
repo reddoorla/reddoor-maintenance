@@ -174,7 +174,7 @@ describe("db verify-dump (CLI)", () => {
     const r = await runDbCommand("verify-dump", { file: await dumpToFile() });
     expect(r.code).toBe(0);
     expect(r.output).toMatch(
-      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ hashed=12 mismatches=0/,
+      /DUMP_VERIFY loaded=true tables=\d+ rows=\d+ blob_bytes=\d+ hashed=13 mismatches=0/,
     );
   });
 

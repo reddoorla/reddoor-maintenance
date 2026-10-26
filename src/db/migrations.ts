@@ -709,4 +709,37 @@ export const MIGRATIONS: Migration[] = [
       ),
     ].join("\n"),
   },
+  {
+    // P1-78a: one row of counts per night, the history the cockpit's trends and
+    // the dependency age read. `night` is the Pacific date of the full conductor
+    // run's start less 6 hours; `counts` is JSON of cumulative totals as of the
+    // write. Never pruned: it IS the history. Counted by cockpit_version (the
+    // overview reads it), so its triggers come in the same migration as the table.
+    id: "0049_fleet_daily",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS fleet_daily (
+        night TEXT PRIMARY KEY,
+        counts TEXT NOT NULL,
+        written_at TEXT NOT NULL
+      );`,
+      ...(["INSERT", "UPDATE", "DELETE"] as const).map(
+        (op) =>
+          `CREATE TRIGGER IF NOT EXISTS cockpit_version_fleet_daily_${op.toLowerCase()}
+            AFTER ${op} ON fleet_daily
+            BEGIN UPDATE cockpit_version SET n = n + 1 WHERE id = 1; END;`,
+      ),
+    ].join("\n"),
+  },
+  {
+    // P1-78a: the deps audit's packages a major behind, as JSON `name@installed-major`.
+    // Written only when `pnpm outdated` ran, so a failed install keeps the stored list.
+    id: "0050_site_health_deps_behind_packages",
+    sql: `ALTER TABLE site_health ADD COLUMN deps_behind_packages TEXT;`,
+  },
+  {
+    // P1-78a: when that list was last written. A night it did not advance is a
+    // night with no reading.
+    id: "0051_site_health_deps_behind_packages_at",
+    sql: `ALTER TABLE site_health ADD COLUMN deps_behind_packages_at TEXT;`,
+  },
 ];

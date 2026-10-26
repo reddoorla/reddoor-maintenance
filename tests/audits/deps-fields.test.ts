@@ -51,13 +51,14 @@ describe("depsCountsFromResult", () => {
         entry("d", "major"),
         entry("e", "newer"),
       ],
-      { outdated: 7, major: 2 },
+      { outdated: 7, major: 2, behind: ["a@1", "b@2"] },
     );
     expect(depsCountsFromResult(r)).toEqual({
       drifted: 4,
       majorBehind: 1,
       outdated: 7,
       majorOutdated: 2,
+      behindPackages: ["a@1", "b@2"],
     });
   });
 
@@ -65,8 +66,10 @@ describe("depsCountsFromResult", () => {
     // outdated total and major are computed together by the deps-outdated scan;
     // the mapping must carry BOTH through, not just the total.
     expect(
-      depsCountsFromResult(depsResult([entry("a", "minor")], { outdated: 3, major: 0 })),
-    ).toEqual({ drifted: 1, majorBehind: 0, outdated: 3, majorOutdated: 0 });
+      depsCountsFromResult(
+        depsResult([entry("a", "minor")], { outdated: 3, major: 0, behind: [] }),
+      ),
+    ).toEqual({ drifted: 1, majorBehind: 0, outdated: 3, majorOutdated: 0, behindPackages: [] });
   });
 
   it("reports outdated and majorOutdated as null when the outdated signal wasn't determined", () => {
@@ -75,6 +78,7 @@ describe("depsCountsFromResult", () => {
       majorBehind: 0,
       outdated: null,
       majorOutdated: null,
+      behindPackages: null,
     });
   });
 
@@ -84,6 +88,7 @@ describe("depsCountsFromResult", () => {
       majorBehind: 0,
       outdated: null,
       majorOutdated: null,
+      behindPackages: null,
     });
   });
 

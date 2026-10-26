@@ -1,0 +1,197 @@
+[
+  {
+    "id": "1-rerun-second-row",
+    "why": "A re-run of the same night inserts a second row (the night keyed on this attempt's start, not the run's creation)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "const night = nightOf(i.run.createdAt);",
+        "replace": "const night = nightOf(i.run.startedAt);"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2a-screenouts-legacy",
+    "why": "Screen-outs read from the legacy marked_spam column",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "sql<number>`coalesce(sum(honeypot), 0)`.as(\"honeypot\"),",
+        "replace": "sql<number>`coalesce(sum(honeypot + marked_spam), 0)`.as(\"honeypot\"),"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-delta-wrong-row",
+    "why": "A running total takes its base from the oldest row instead of the newest earlier one",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": ".filter((r) => r.night < night && pick(r.counts).value !== null)\n    .sort((a, b) => (a.night < b.night ? 1 : -1))[0];",
+        "replace": ".filter((r) => r.night <= night && pick(r.counts).value !== null)\n    .sort((a, b) => (a.night < b.night ? 1 : -1))[0];"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-github-fail-zero",
+    "why": "A failed GitHub read writes 0 merges instead of null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "return measure(\"GitHub merges\", async () => (base ?? 0) + (await i.github.mergesSince(since)));",
+        "replace": "return measure(\"GitHub merges\", async () => (base ?? 0) + (await i.github.mergesSince(since).catch(() => 0)));"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-test-sends-counted",
+    "why": "The test-send reports are counted as real sends",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "eb(\"approved_by\", \"not like\", \"%test send%\")",
+        "replace": "eb(\"approved_by\", \"like\", \"%\")"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-pruned",
+    "why": "The fleet-events 30-day prune is applied to fleet_daily",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    .onConflict((oc) => oc.column(\"night\").doUpdateSet(values))\n    .execute();\n}",
+        "replace": "    .onConflict((oc) => oc.column(\"night\").doUpdateSet(values))\n    .execute();\n  await db\n    .deleteFrom(\"fleet_daily\")\n    .where(\"written_at\", \"<\", new Date(Date.parse(row.writtenAt) - 30 * 24 * 3600_000).toISOString())\n    .execute();\n}"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-ladder-1",
+    "why": "ladder_version is written as 1 before P1-78b ships",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "export const LADDER_VERSION = 0;",
+        "replace": "export const LADDER_VERSION = 1;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-no-package-list",
+    "why": "The deps audit stops storing the package list (the row's list comes back empty)",
+    "edits": [
+      {
+        "file": "src/audits/deps-outdated.ts",
+        "find": ".map(([name, e]) => `${name}@${majorOf(e.current!)}`)",
+        "replace": ".map(([name, e]) => `${name}@${majorOf(e.current!)}`)\n      .filter(() => false)"
+      }
+    ],
+    "test": ["tests/audits/deps-outdated.test.ts", "tests/audits/deps.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "8-skip-overwrites",
+    "why": "The skip-only conductor run (dispatched=0) is written as a full night, overwriting its steps",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "if (s.dispatched === 0 && s.dispatchFailed === 0) return { kind: \"skip\" };",
+        "replace": "if (s.dispatched === 0 && s.dispatchFailed === 0 && s.total !== fullTotal) return { kind: \"skip\" };"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-failed-install-clobbers",
+    "why": "A failed frozen install clobbers the stored package list with an empty one",
+    "edits": [
+      {
+        "file": "src/audits/deps-fields.ts",
+        "find": "const behindPackages = details.outdated ? (details.outdated.behind ?? null) : null;",
+        "replace": "const behindPackages = details.outdated ? (details.outdated.behind ?? null) : [];"
+      }
+    ],
+    "test": ["tests/audits/write-audits.test.ts", "tests/audits/deps-fields.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-only-erases",
+    "why": "An --only run erases the steps it did not dispatch",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "steps: { ...target.steps, ...Object.fromEntries(ran) },",
+        "replace": "steps: Object.fromEntries(ran),"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-only-own-row",
+    "why": "A daytime --only run is written as a night of its own",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "  if (s.total === fullTotal) return { kind: \"full\" };\n  return { kind: \"only\" };",
+        "replace": "  return { kind: \"full\" };"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-dispatch-failed-dropped",
+    "why": "A dispatch-failed step is dropped instead of recorded as failed",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "    else if ((m = /NIGHTLY (\\S+) dispatch=failed error=(.*)$/.exec(line)))",
+        "replace": "    else if ((m = /NIGHTLY (\\S+) dispatch=failed-never error=(.*)$/.exec(line)))"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-stale-list-read",
+    "why": "A list whose stamp did not advance is copied into the row as a reading",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "const fresh = r.at !== null && Date.parse(r.at) >= sinceMs;",
+        "replace": "const fresh = r.at !== null;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-running-never-filled",
+    "why": "A wait-exceeded run's conclusion is never filled in the next night",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "if (c !== null) concluded.set(id, c);",
+        "replace": "if (c === null) concluded.set(id, c);"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  }
+]
