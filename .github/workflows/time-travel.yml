@@ -68,14 +68,16 @@ jobs:
       - name: Install the browser the Tier 4 abort harness drives
         run: pnpm exec playwright install --with-deps chromium
 
-      # The cockpit tests load cockpit/.svelte-kit/tsconfig.json, which only `svelte-kit
-      # sync` writes. ci.yml and release.yml get it from `pnpm typecheck` (cockpit:check);
+      # The cockpit tests load the tsconfig and types `svelte-kit sync` writes.
+      # ci.yml and release.yml get them from `pnpm typecheck` (cockpit:check);
       # this job ran the suite alone, so all 35 cockpit files failed to load and the run
-      # was blind to the cockpit's clock bugs (#1616). Its own step, from the repo root
-      # (svelte.config.js is there), so a sync break files the outside-the-suite issue.
-      # tests/ci-gate.test.ts asserts every workflow that runs the suite syncs first.
+      # was blind to the cockpit's clock bugs (#1616). Its own step, from the repo root,
+      # through `cockpit:sync`, which names vite.cockpit.config.ts (a bare sync finds no
+      # config and writes nothing the cockpit reads), so a sync break files the
+      # outside-the-suite issue. tests/ci-gate.test.ts asserts every workflow that runs
+      # the suite syncs first.
       - name: Generate the cockpit's SvelteKit files
-        run: pnpm exec svelte-kit sync
+        run: pnpm cockpit:sync
 
       # tests/time-travel-guard.test.ts asserts the clock actually moved, so a shim that
       # silently fails to apply turns this job RED instead of reporting a hollow green.
