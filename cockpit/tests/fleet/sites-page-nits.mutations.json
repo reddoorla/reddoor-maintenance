@@ -1,0 +1,67 @@
+[
+  {
+    "id": "1619-empty-message-reverted",
+    "why": "#1619 item 1: the default view that hides every site says the filter message again",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{m.hiddenCount > 0 ? \"Every site is archived or external.\" : \"No sites match these filters.\"}",
+        "replace": "No sites match these filters."
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1619-every-empty-says-hidden",
+    "why": "#1619 item 1: an operator's own filter that matches nothing must keep the filter message",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{m.hiddenCount > 0 ? \"Every site",
+        "replace": "{true ? \"Every site"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1636-not-a-live-region",
+    "why": "#1636: the count region loses role=status, so nothing is announced",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<div class=\"visually-hidden\" role=\"status\">",
+        "replace": "<div class=\"visually-hidden\">"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1636-count-ignores-chip",
+    "why": "#1636: the region holds the table's row count, so a chip press changes nothing",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "  {shownCount} site{shownCount === 1 ? \"\" : \"s\"} shown\n",
+        "replace": "  {m.rows.length} site{m.rows.length === 1 ? \"\" : \"s\"} shown\n"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1636-region-only-under-a-chip",
+    "why": "#1636: a region created by the chip press is not announced; it must already exist",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<div class=\"visually-hidden\" role=\"status\">\n  {shownCount} site{shownCount === 1 ? \"\" : \"s\"} shown\n</div>\n",
+        "replace": "{#if filter !== \"all\"}<div class=\"visually-hidden\" role=\"status\">\n  {shownCount} site{shownCount === 1 ? \"\" : \"s\"} shown\n</div>{/if}\n"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  }
+]
