@@ -49,6 +49,29 @@ describe("the Turnstile alarm ages on the verdict's OWN clock", () => {
     );
     expect(items).toEqual([]);
   });
+
+  it("does NOT alarm on a legacy 'fail' with no stamp at all (#1710)", () => {
+    // A null stamp means no form-e2e run ever wrote this verdict: it is a
+    // function-health legacy value. Since #1706 an unreadable /health keeps the
+    // stored verdict, so a site whose /health never reads would page every
+    // morning, un-mutably. Unstamped is as unverified as stale; assignTier's
+    // watch carries it.
+    const items = collectTurnstileGuardrailAlerts(
+      [gated({ formE2eCheckedAt: null, functionHealthCheckedAt: FRESH })],
+      "https://d.example",
+      NOW,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("still alarms when the stamp is unparseable: never silently drop a real failure", () => {
+    const items = collectTurnstileGuardrailAlerts(
+      [gated({ formE2eCheckedAt: "not a date" })],
+      "https://d.example",
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+  });
 });
 
 /**

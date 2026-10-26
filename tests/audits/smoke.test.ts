@@ -11,6 +11,7 @@ import {
   SMOKE_UNMEASURED_PREFIX,
 } from "../../src/audits/smoke.js";
 import { SpawnTimeoutError } from "../../src/audits/util/spawn.js";
+import { PORT_ATTEMPTS } from "../../src/util/port-retry.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 const NOW = new Date("2026-07-06T00:00:00.000Z");
@@ -323,6 +324,59 @@ describe("audits/smoke — a timeout is not a verdict", () => {
     expect(r.status).toBe("fail");
     expect(isUnmeasuredSmoke(r)).toBe(false);
     expect(r.details).toEqual({ ok: "fail", checkedAt: NOW.toISOString() });
+  });
+});
+
+describe("audits/smoke — a port taken on every attempt is not a verdict (#1658)", () => {
+  /** vite's `--strictPort` refusal, naming the port the audit passed in. */
+  const collision = (port: string | undefined) => ({
+    code: 1,
+    stdout: "",
+    stderr: `error when starting dev server:\nError: Port ${port} is already in use`,
+  });
+
+  it("reports a collision on every attempt as NOT MEASURED, with no details", async () => {
+    const site = await siteWithSmokeScript();
+    const ports: string[] = [];
+    const spawn: SpawnFn = async (_c, a, opts) => {
+      if (a[0] !== "test:smoke") return { code: 0, stdout: "", stderr: "" };
+      ports.push(opts!.env!.REDDOOR_SMOKE_PORT!);
+      return collision(opts?.env?.REDDOOR_SMOKE_PORT);
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    // Every attempt ran and collided: the suite itself never started.
+    expect(ports.length).toBe(PORT_ATTEMPTS);
+    expect(r.status).toBe("fail");
+    expect(r.details).toBeUndefined();
+    expect(r.summary.startsWith(SMOKE_UNMEASURED_PREFIX)).toBe(true);
+    expect(r.summary).toContain(`port ${ports.at(-1)}`);
+    expect(isUnmeasuredSmoke(r)).toBe(true);
+  });
+
+  it("one collision then a run still measures the site", async () => {
+    const site = await siteWithSmokeScript();
+    let runs = 0;
+    const spawn: SpawnFn = async (_c, a, opts) => {
+      if (a[0] !== "test:smoke") return { code: 0, stdout: "", stderr: "" };
+      runs += 1;
+      return runs === 1
+        ? collision(opts?.env?.REDDOOR_SMOKE_PORT)
+        : { code: 1, stdout: "  1) [chromium] › a.spec.ts:1:1 › boom\n  1 failed", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(runs).toBe(2);
+    expect(r.details).toEqual({ ok: "fail", checkedAt: NOW.toISOString() });
+    expect(isUnmeasuredSmoke(r)).toBe(false);
+  });
+
+  it("a collision on a port the audit did not pick is the suite's own failure", async () => {
+    // HMR's websocket, say: not retried, and a real verdict about the site.
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) =>
+      a[0] === "test:smoke" ? collision("24678") : { code: 0, stdout: "", stderr: "" };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.details).toEqual({ ok: "fail", checkedAt: NOW.toISOString() });
+    expect(isUnmeasuredSmoke(r)).toBe(false);
   });
 });
 

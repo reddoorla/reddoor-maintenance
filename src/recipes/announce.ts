@@ -1,6 +1,7 @@
 import { analyticsHealthFields, siteSlug } from "../fleet/site-fields.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { readGaConfig } from "../reports/ga/config.js";
+import { REPORT_WINDOW_DAYS } from "../reports/ga/window.js";
 import { searchEnrichment, type ReportEnrichment } from "../reports/report-fields.js";
 import { createReportDraft, findReportForPeriod } from "../reports/create-report.js";
 import type { DraftInput } from "../reports/draft-fields.js";
@@ -11,7 +12,7 @@ import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
 import {
   analyticsEnrolled,
-  fetchGaUsers,
+  fetchGaVisits,
   fetchSearch,
   lookupFields,
   refreshHeaderImage,
@@ -36,9 +37,9 @@ export type AnnounceSiteResult =
 
 export type AnnounceResult = { results: AnnounceSiteResult[] };
 
-/** The traffic/search lookback window (days) the announcement reports on. The trend compares it
- *  against the equal-length prior window, and the email labels it "vs the previous N days". */
-const GA_WINDOW_DAYS = 30;
+/** The search lookback window (days) the announcement reports on. GA's window is
+ *  `REPORT_WINDOW_DAYS`, the same 30 complete days every report counts (P1-73). */
+const SEARCH_WINDOW_DAYS = 30;
 
 export type AnnounceDeps = {
   /** When set, restrict to the single site whose slug matches. Default: all maintenance sites. */
@@ -106,13 +107,13 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
         await refreshHeaderImage(w, deps.refreshHeader ?? {});
       }
 
-      // Traffic + search snapshot over a ~30-day window ending now (fetchPeriodUsers derives
-      // the equal-length previous window for the trend). Reuses the report pipeline's
+      // Traffic + search snapshot: engaged visits over the last 30 complete days in the
+      // property's timezone against the 30 before (fetchGaVisits), search over ~30 days to now. Reuses the report pipeline's
       // soft-failing enrichment: GA/search unconfigured or an API error leaves the numbers
       // null and the email simply omits the traffic section — it never blocks the draft.
       const periodEnd = now;
-      const periodStart = new Date(now.getTime() - GA_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-      const gaResult = await fetchGaUsers(w, periodStart, periodEnd);
+      const periodStart = new Date(now.getTime() - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      const gaResult = await fetchGaVisits(w, now);
       const searchResult = await fetchSearch(w, periodStart, periodEnd);
       const gaUsers = gaResult.value;
       const search = searchResult.value;
@@ -195,7 +196,7 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
         lighthouse: scores,
         gaUsersCurrent: gaUsers?.current,
         gaUsersPrevious: gaUsers?.previous,
-        gaPeriodDays: GA_WINDOW_DAYS,
+        gaPeriodDays: REPORT_WINDOW_DAYS,
         searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
         lastTestedDate: null,
         commentary: null,

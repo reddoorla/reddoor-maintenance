@@ -19,7 +19,7 @@ import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { readGaConfig } from "./ga/config.js";
 import { searchEnrolled } from "./search-enrolled.js";
-import { fetchPeriodUsers, measuredHostnames } from "./ga/client.js";
+import { fetchReportVisits, measuredHostnames, REPORT_WINDOW_DAYS } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
 import { generateHeaderImage } from "./header-image/index.js";
@@ -241,9 +241,7 @@ export async function draftReportForSite(
   // An *error* (vs a legitimate not-configured skip) is recorded in softFailures so the
   // caller can surface a fleet-wide outage in the batch summary.
   const shouldEnrich = options.enrich ?? !options.previewOnly;
-  const gaResult = shouldEnrich
-    ? await fetchGaUsers(siteRow, periodStart, periodEnd)
-    : NO_ENRICHMENT;
+  const gaResult = shouldEnrich ? await fetchGaVisits(siteRow, today) : NO_ENRICHMENT;
   const searchResult = shouldEnrich
     ? await fetchSearch(siteRow, periodStart, periodEnd)
     : // No-IO render path: nothing was attempted, so this is not an environment gap
@@ -289,6 +287,7 @@ export async function draftReportForSite(
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
+    gaPeriodDays: REPORT_WINDOW_DAYS,
     searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
@@ -426,29 +425,30 @@ type Enrichment<T> = { value: T | null; softFailed: boolean };
 const NO_ENRICHMENT: Enrichment<never> = { value: null, softFailed: false };
 
 /**
- * Fetch GA "Users" for the period, soft-failing to null. Returns a null value (no enrichment)
+ * Fetch the report's GA "Engaged visits" ({@link fetchReportVisits}: engaged sessions over
+ * the last 30 complete days in the property's timezone, and the 30 before), soft-failing
+ * to null. The window is fixed, not the report's period: the email says "vs the previous
+ * 30 days" whatever the cadence (P1-73). Returns a null value (no enrichment)
  * when GA isn't configured (`GA_SUBJECT` unset) or the site has no GA4 property ID — those are
  * legitimate skips, `softFailed: false`. When the GA API errors it logs a one-line warning and
  * returns `softFailed: true`. Never throws, so a GA problem can never block a draft; the
  * operator can always enter the numbers by hand.
  */
-export async function fetchGaUsers(
+export async function fetchGaVisits(
   siteRow: WebsiteRow,
-  periodStart: Date,
-  periodEnd: Date,
+  now: Date,
 ): Promise<Enrichment<{ current: number; previous: number }>> {
   const cfg = readGaConfig();
   if (!cfg || !siteRow.ga4PropertyId) return NO_ENRICHMENT;
   try {
-    const value = await fetchPeriodUsers(
+    const value = await fetchReportVisits(
       {
         propertyId: siteRow.ga4PropertyId,
         subjects: cfg.subjects,
         keyPath: cfg.keyPath,
         hostnames: measuredHostnames(siteRow.url),
       },
-      periodStart,
-      periodEnd,
+      now,
     );
     return { value, softFailed: false };
   } catch (e) {
@@ -614,10 +614,10 @@ async function derivePeriodStart(
     .sort();
   const latest = sameType[sameType.length - 1];
   if (!latest) return daysAgo(today, 30);
-  // Half-open periods. The prior report's GA/Search windows are inclusive of its
+  // Half-open periods. The prior report's Search window is inclusive of its
   // periodEnd, so starting this report on the *same* day double-counts that
-  // boundary day across two consecutive reports (and inflates the headline Users
-  // count). Start the next day instead. UTC to stay TZ-consistent with daysAgo.
+  // boundary day across two consecutive reports. Start the next day instead. (GA
+  // no longer reads the period: it counts a fixed 30-day window, P1-73.) UTC to stay TZ-consistent with daysAgo.
   const start = new Date(latest);
   start.setUTCDate(start.getUTCDate() + 1);
   return start;

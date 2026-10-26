@@ -11,10 +11,10 @@ import { reportRowsFrom, websiteRowsFrom, type RawRow } from "../_helpers/raw-ro
 // tests behave exactly as before, and the enrichment test overrides with real data.
 vi.mock("../../src/reports/draft.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/draft.js")>()),
-  fetchGaUsers: vi.fn(),
+  fetchGaVisits: vi.fn(),
   fetchSearch: vi.fn(),
 }));
-import { fetchGaUsers, fetchSearch } from "../../src/reports/draft.js";
+import { fetchGaVisits, fetchSearch } from "../../src/reports/draft.js";
 
 beforeEach(() => {
   // readGaConfig() reads GA_SUBJECT; keep it unset by default so the analytics-health
@@ -23,7 +23,7 @@ beforeEach(() => {
   delete process.env.GA_SUBJECT;
   // Default: enrichment not configured → null (no GA/search written), matching the live
   // soft-skip when GA_SUBJECT / a property ID is unset.
-  vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
+  vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: false });
   vi.mocked(fetchSearch).mockResolvedValue({
     value: null,
     softFailed: false,
@@ -401,7 +401,7 @@ describe("recipes/announce", () => {
   });
 
   it("stores GA visitors + search presence on the drafted row when enrichment returns data", async () => {
-    vi.mocked(fetchGaUsers).mockResolvedValue({
+    vi.mocked(fetchGaVisits).mockResolvedValue({
       value: { current: 280, previous: 275 },
       softFailed: false,
     });
@@ -488,7 +488,7 @@ describe("recipes/announce", () => {
   // to "site has no GA configured"). Mirrors the `--due` draft path's analytics-health write.
   it("stamps the analytics soft-fail timestamp when GA errors during the announcement", async () => {
     process.env.GA_SUBJECT = "tucker@reddoorla.com"; // readGaConfig() != null
-    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: true });
     const seed: Seed = {
       Websites: [
         {
@@ -514,7 +514,7 @@ describe("recipes/announce", () => {
     // This lands on the SITE row, not the report — a different Turso table and a
     // different mirror. The cockpit's per-site analytics-failure signal reads it.
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: true });
     const seed: Seed = {
       Websites: [
         {
@@ -550,7 +550,7 @@ describe("recipes/announce", () => {
 
   it("clears the analytics soft-fail (null) on a clean enrichment so the signal self-heals", async () => {
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchGaUsers).mockResolvedValue({
+    vi.mocked(fetchGaVisits).mockResolvedValue({
       value: { current: 1200, previous: 1000 },
       softFailed: false,
     });
@@ -579,7 +579,7 @@ describe("recipes/announce", () => {
   it("does NOT write analytics health when GA is unconfigured (GA_SUBJECT unset)", async () => {
     // GA_SUBJECT stays unset (beforeEach) → readGaConfig() null → skip the write entirely,
     // even though the fetch soft-failed.
-    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: true });
     const seed: Seed = {
       Websites: [
         {
@@ -698,7 +698,7 @@ describe("announce's Turso writes on the reuse path", () => {
 
   it("a failed analytics-health mirror is warned and the draft continues", async () => {
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
-    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: true });
     const warned = captureWarn();
     const result = await announce(
       A(REUSE_SEED, {
