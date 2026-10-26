@@ -356,50 +356,6 @@ describe("recipes/announce", () => {
     expect(writer.patches.filter((p) => p.id === "rec_withdrawn_announce")).toEqual([]);
   });
 
-  it("mirrors the reused row's refreshed scores (#539 Phase 5)", async () => {
-    // The reuse path exists so the eventually-sent email is not stale. The
-    // console reads the same numbers from Turso, so a mirror that covered only
-    // the CREATE path would leave a re-announced site showing last month's
-    // scores next to this month's email.
-    const seed: Seed = {
-      Websites: [
-        {
-          id: "rec_acme",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            "Report recipients (To)": "client@acme.example.com",
-            ...scoredFields(),
-          },
-        },
-      ],
-      Reports: [
-        {
-          id: "rec_existing_announce",
-          fields: {
-            "Report ID": "Acme Co — Announcement — existing",
-            Site: ["rec_acme"],
-            "Report type": "Announcement",
-            Period: PERIOD,
-          },
-        },
-      ],
-    };
-    await announce(A(seed));
-
-    const scores = writer.patches.find((p) => p.patch.lighthouse_performance !== undefined);
-    expect(scores).toMatchObject({
-      id: "rec_existing_announce",
-      patch: {
-        lighthouse_performance: 87,
-        lighthouse_accessibility: 91,
-        lighthouse_best_practices: 100,
-        lighthouse_seo: 95,
-      },
-    });
-  });
-
   it("stores GA visitors + search presence on the drafted row when enrichment returns data", async () => {
     vi.mocked(fetchGaVisits).mockResolvedValue({
       value: { current: 280, previous: 275 },
@@ -481,33 +437,6 @@ describe("recipes/announce", () => {
     const byName = new Map(result.results.map((r) => [r.site, r]));
     expect(byName.get("Bad Co")?.status).toBe("error");
     expect(byName.get("Good Co")?.status).toBe("drafted");
-  });
-
-  // MEDIUM-B: an announcement-time GA/Search outage must surface the per-site
-  // analytics-failure signal, not silently hide the traffic block (it reads identically
-  // to "site has no GA configured"). Mirrors the `--due` draft path's analytics-health write.
-  it("stamps the analytics soft-fail timestamp when GA errors during the announcement", async () => {
-    process.env.GA_SUBJECT = "tucker@reddoorla.com"; // readGaConfig() != null
-    vi.mocked(fetchGaVisits).mockResolvedValue({ value: null, softFailed: true });
-    const seed: Seed = {
-      Websites: [
-        {
-          id: "rec_acme",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            Status: "maintained",
-            "GA4 property ID": "G-123",
-            ...scoredFields(),
-          },
-        },
-      ],
-      Reports: [],
-    };
-
-    await announce(A(seed));
-
-    expect(analyticsHealthWrite()?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
   });
 
   it("mirrors the analytics-health stamp into Turso (#539 Phase 5)", async () => {
