@@ -57,8 +57,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/submission/view.ts",
-        "find": "relativeTimeFromNow(s.submittedAt, now) : \"—\",",
-        "replace": "relativeTimeFromNow(s.submittedAt, now) : Date.now() > 1.9e12 ? \"?\" : \"—\","
+        "find": "relativeTimeFromNow(s.submittedAt, now) : \"\u2014\",",
+        "replace": "relativeTimeFromNow(s.submittedAt, now) : Date.now() > 1.9e12 ? \"?\" : \"\u2014\","
       }
     ],
     "test": "cockpit/tests/site/site.ssr.test.ts",
@@ -154,5 +154,31 @@
     ],
     "test": "cockpit/tests/site/site.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "1738r2-script-tag-case-sensitive",
+    "edits": [
+      {
+        "file": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+        "find": "<\\/script[^>]*>/gi",
+        "replace": "<\\/script>/g"
+      }
+    ],
+    "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+    "expect": "red",
+    "why": "CodeQL: an upper-case or spaced closing tag drops a .svelte file's script."
+  },
+  {
+    "id": "1738r2-start-transaction-missed",
+    "edits": [
+      {
+        "file": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+        "find": "new Set([\"transaction\", \"startTransaction\"])",
+        "replace": "new Set([\"transaction\"])"
+      }
+    ],
+    "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+    "expect": "red",
+    "why": "Kysely's startTransaction() takes the connection too."
   }
 ]

@@ -35,7 +35,9 @@ const isFile = (p: string) => existsSync(p) && statSync(p).isFile();
 /** The script a file runs: a `.svelte` file's `<script>` blocks, else the file. */
 function scriptOf(file: string, text: string): string {
   if (!file.endsWith(".svelte")) return text;
-  return [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
+  return [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script[^>]*>/gi)]
+    .map((m) => m[1])
+    .join("\n");
 }
 
 const read = (file: string) => scriptOf(file, readFileSync(file, "utf8"));
@@ -59,9 +61,20 @@ function calls(text: string, match: (callee: ts.Expression) => boolean): boolean
   return hit;
 }
 
-/** Whether the code calls `<anything>.transaction(…)`. */
+/** Kysely's two ways to take a connection for a transaction (round 2, #1738). */
+const TRANSACTION_METHODS = new Set(["transaction", "startTransaction"]);
+
+/** Whether the code calls `<anything>.transaction(…)`, `.startTransaction(…)`, or
+ *  either through a string key (`db["transaction"](…)`). */
 const callsTransaction = (text: string) =>
-  calls(text, (c) => ts.isPropertyAccessExpression(c) && c.name.text === "transaction");
+  calls(
+    text,
+    (c) =>
+      (ts.isPropertyAccessExpression(c) && TRANSACTION_METHODS.has(c.name.text)) ||
+      (ts.isElementAccessExpression(c) &&
+        ts.isStringLiteralLike(c.argumentExpression) &&
+        TRANSACTION_METHODS.has(c.argumentExpression.text)),
+  );
 
 /** A specifier to the file it names (`.js` written for a `.ts` source, `$lib`
  *  as SvelteKit maps it); `"package"` for a package or a SvelteKit runtime
@@ -139,6 +152,12 @@ describe("nothing under withDb opens a transaction on the concurrentReads Db (#1
     ].join("\n");
     expect(importsIn(text)).toEqual(["../reports/types.js", "$lib/x.js"]);
     expect(callsTransaction(text)).toBe(true);
+    expect(callsTransaction("export const m = (db: any) => db.startTransaction();")).toBe(true);
+    expect(callsTransaction('export const k = (db: any) => db["transaction"]();')).toBe(true);
+    // CodeQL (#1738): a tag in any case, and a closing tag with whitespace, still count.
+    expect(
+      callsTransaction(scriptOf("x.svelte", '<SCRIPT lang="ts">db.transaction();</SCRIPT >')),
+    ).toBe(true);
     const quiet = [
       "// db.transaction() in a comment",
       "/* db.transaction() in a block */",

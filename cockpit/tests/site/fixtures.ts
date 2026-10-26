@@ -15,7 +15,7 @@ export const cleanEvidence = (type: ReportRow["reportType"]): Record<string, Evi
   Object.fromEntries(
     gatingFields(type).map((f) => [
       f,
-      { result: "pass" as const, checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+      { result: "pass" as const, checkedAt: "2026-06-01T00:00:00.000Z", note: "" },
     ]),
   );
 
@@ -250,7 +250,7 @@ export const CASES: Array<[string, SiteInput]> = [
             ...cleanEvidence("Maintenance"),
             [gatingFields("Maintenance")[0]!]: {
               result: "fail",
-              checkedAt: "2026-07-06T00:00:00.000Z",
+              checkedAt: "2026-06-01T00:00:00.000Z",
               note: `broke ${HOSTILE}`,
             },
           },
@@ -266,7 +266,7 @@ export const CASES: Array<[string, SiteInput]> = [
           autoEvidence: {
             [gatingFields("Maintenance")[0]!]: {
               result: "n/a",
-              checkedAt: "2026-07-06T00:00:00.000Z",
+              checkedAt: "2026-06-01T00:00:00.000Z",
               note: "",
             },
           },
