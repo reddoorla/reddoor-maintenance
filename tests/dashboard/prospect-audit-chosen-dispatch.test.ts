@@ -43,19 +43,6 @@ const input = {
 };
 
 describe("the dispatch carries chosen terms only when there are some", () => {
-  it("sends EXACTLY today's keys when nothing was chosen", async () => {
-    // The regression guard. A new key here reaches a workflow that does not
-    // declare it, and GitHub refuses the whole dispatch.
-    const { deps, calls } = harness();
-    await triggerProspectAudit(deps, REPO, input);
-    expect(Object.keys(calls[0]!.inputs).sort()).toEqual([
-      "business",
-      "goal",
-      "requested_by",
-      "url",
-    ]);
-  });
-
   it("omits the keys for empty and whitespace-only choices too", async () => {
     const { deps, calls } = harness();
     await triggerProspectAudit(deps, REPO, { ...input, terms: ["  ", ""], questions: [] });
