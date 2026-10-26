@@ -545,5 +545,44 @@
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M47-no-svelte-kit-sync",
+    "why": "#1657: the worktree gets no cockpit/.svelte-kit, so a cockpit test fails to transform at baseline",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (existsSync(join(wt, \"cockpit\"))) {",
+        "replace": "      if (false) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M48-sync-without-cockpit",
+    "why": "#1657: sync runs in a repo with no cockpit/ (and no svelte-kit bin), which would refuse every other repo",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "      if (existsSync(join(wt, \"cockpit\"))) {",
+        "replace": "      if (true) {"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M49-sync-failure-ignored",
+    "why": "#1657: a failed sync goes on to a baseline that fails for a reason the refusal does not name",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "        if (rs.code !== 0)\n          throw new Refusal",
+        "replace": "        if (false)\n          throw new Refusal"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
   }
 ]

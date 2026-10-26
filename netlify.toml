@@ -10,9 +10,10 @@
 # The build is the SvelteKit cockpit (#582): the pages (`/`, `/fleet`,
 # `/s/:slug`, `/submissions`, `/audits`), the dashboard's own `/api/*`
 # endpoints and sign-in (`/auth/*`). Its adapter writes them as one function,
-# `sveltekit-render` on `/*`, to `.netlify/functions-internal` (from
-# `svelte.config.js` at the repo root, which is why the config lives there) and
-# the browser assets to `publish`. What stays a function in `functions` has a
+# `sveltekit-render` on `/*`, to `.netlify/v1/functions` (Netlify's Frameworks
+# API; the build runs `vite.cockpit.config.ts` at the repo root, which is why
+# the config lives there) and the browser assets to `publish`, which the
+# adapter takes as its own `publish` option and must name the same directory. What stays a function in `functions` has a
 # caller outside the dashboard (the fleet's contact forms, Resend, the prospect
 # report and its JSON) or runs on a timer (the two clocks). maintenance#1642.
 [build]
