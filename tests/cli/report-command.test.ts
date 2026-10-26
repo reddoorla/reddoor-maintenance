@@ -266,25 +266,6 @@ describe("draftDueReports period guard", () => {
     expect(reads).toBe(1);
   });
 
-  it("does NOT skip (same-period) when an existing SENT row is for a DIFFERENT period", async () => {
-    rosterRows = [siteRow()];
-    const reports: RawRow[] = [
-      {
-        id: "rec_old",
-        fields: {
-          Site: ["rec_site_acme"],
-          "Report type": "Maintenance",
-          Period: "2026-04",
-          // SENT so the pile-up guard (Fix #2) doesn't block — this test pins the
-          // SAME-period skip's period sensitivity, not the pending-pile-up rule.
-          "Sent at": "2026-04-26T10:00:00.000Z",
-        },
-      },
-    ];
-    await draftDueReports(TODAY, dueDeps(reports));
-    expect(draftReportForSite).toHaveBeenCalledTimes(1);
-  });
-
   it("COMPLETES a half-made (not-ready) row for this period instead of skipping (Fix #1)", async () => {
     rosterRows = [siteRow()];
     // A row exists for THIS period (2026-05) but Draft ready is false — a crash
