@@ -2,7 +2,8 @@ import type { WebsiteRow } from "../fleet/site-row.js";
 import { siteSlug } from "../fleet/site-row.js";
 import type { LighthouseScores, ReportData, ReportType } from "./types.js";
 import { resolveCopy } from "./copy.js";
-import { fetchGaUsers, fetchSearch } from "./draft.js";
+import { fetchGaVisits, fetchSearch } from "./draft.js";
+import { REPORT_WINDOW_DAYS } from "./ga/window.js";
 import { announcementSiteExtras } from "./announcement-email/template.js";
 import type { PreparedHeader } from "./send/render-email.js";
 import { autoTickChecklist } from "./auto-tick.js";
@@ -31,9 +32,9 @@ export function scoresFromRow(site: WebsiteRow): LighthouseScores | null {
 /**
  * Assemble the `ReportData` for a report email from a Websites row, for a given report type. Used
  * by the `selftest` command to preview any report type without a Reports row. Reuses the
- * same enrichment helpers as the real drafts (`fetchGaUsers`/`fetchSearch`, `resolveCopy`,
- * `announcementSiteExtras`). The GA window is a fixed 30 days (a no-write preview can't read the
- * real recurrence anchor). `Launch` skips GA entirely — the launch email shows no analytics.
+ * same enrichment helpers as the real drafts (`fetchGaVisits`/`fetchSearch`, `resolveCopy`,
+ * `announcementSiteExtras`). GA counts the same fixed 30 complete days as every report (P1-73);
+ * the search window is 30 days to now (a no-write preview can't read the real recurrence anchor). `Launch` skips GA entirely — the launch email shows no analytics.
  */
 export async function buildReportDataForSite(
   site: WebsiteRow,
@@ -65,14 +66,14 @@ export async function buildReportDataForSite(
   if (type === "Launch") return base;
 
   const periodStart = new Date(now.getTime() - PREVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const gaUsers = (await fetchGaUsers(site, periodStart, now)).value;
+  const gaUsers = (await fetchGaVisits(site, now)).value;
   const searchResult = await fetchSearch(site, periodStart, now);
   const search = searchResult.value;
 
   const withAnalytics: ReportData = {
     ...base,
     ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
-    gaPeriodDays: PREVIEW_WINDOW_DAYS,
+    gaPeriodDays: REPORT_WINDOW_DAYS,
     ...(search?.foundOnPage1 && search.position !== null
       ? { searchPosition: search.position }
       : {}),
