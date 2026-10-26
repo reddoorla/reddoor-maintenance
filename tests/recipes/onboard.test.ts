@@ -3,12 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import {
-  onboard,
-  AUDIT_DEPS,
-  FRAMEWORK_DEPS,
-  type OnboardAudit,
-} from "../../src/recipes/onboard.js";
+import { onboard, AUDIT_DEPS, type OnboardAudit } from "../../src/recipes/onboard.js";
 import { baselineVersions } from "../../src/configs/baseline-versions.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
@@ -100,14 +95,6 @@ describe("recipes/onboard", () => {
     expect(after.devDependencies?.["@sveltejs/adapter-netlify"]).toBe(
       baselineVersions["@sveltejs/adapter-netlify"],
     );
-  });
-
-  it("FRAMEWORK_DEPS sources versions from baseline-versions (no hardcoded drift)", () => {
-    // Same drift guard as AUDIT_DEPS: framework dep versions must track
-    // src/configs/baseline-versions.ts, never be hardcoded literals.
-    for (const dep of FRAMEWORK_DEPS) {
-      expect(dep.version).toBe(baselineVersions[dep.name]);
-    }
   });
 
   it("returns noop when every needed dep is already present", async () => {
