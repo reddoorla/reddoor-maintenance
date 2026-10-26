@@ -343,16 +343,19 @@ export async function matchHarness(
       for (const f of MATCH_HARNESS_FILES) {
         const target = join(cwd, f.rel);
         let template = renderForKit(f.rel, f.template, kitMajor);
-        // On kit 3, every body this recipe shipped is ours in BOTH renders:
+        // On any kit, every body this recipe shipped is ours in BOTH renders:
         // the raw kit 2 one (installed before #1566, or the current body as
-        // the kit 2 template), and its kit 3 render (this release's output,
-        // or a site's own hand fix of the import, as P1-53 made). Replace
-        // either rather than flag it as hand-edited.
+        // the kit 2 template), and its kit 3 render (this release's output on
+        // kit 3, or a site's own hand fix of the import, as P1-53 made).
+        // Replace either rather than flag it as hand-edited: on kit 3 to the
+        // kit 3 render, and on a site back on kit 2 (or no kit) to the kit 2
+        // body, since kit 2 has no `$app/env` (#1644).
         const previous = previousAll[f.rel] ?? [];
-        const previousHere =
-          template === f.template
-            ? previous
-            : [...previous, ...kit3Renders(f.rel, previous), f.template];
+        const previousHere = [
+          ...previous,
+          ...kit3Renders(f.rel, [...previous, f.template]),
+          f.template,
+        ];
         if (f.rel === HARNESS_JSON_RELATIVE) {
           // Patch the PARSED object, never the text. The seed is pretty-printed
           // two-space JSON, so `matrix` renders as a four-line exploded array

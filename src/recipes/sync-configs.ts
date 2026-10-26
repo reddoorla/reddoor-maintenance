@@ -207,7 +207,8 @@ export async function planKitHazards(cwd: string): Promise<KitHazard[]> {
         configs: [SVELTE_CONFIG, "eslint"],
         note:
           "package.json declares @sveltejs/kit with a spec sync-configs cannot read (a catalog, " +
-          "workspace, git or tag spec such as latest), so it left svelte.config.js and eslint.config.js alone: " +
+          "workspace, git or tag spec such as latest, or a range that does not pin one major, " +
+          "such as >=2.61.1), so it left svelte.config.js and eslint.config.js alone: " +
           "check them against the site's real kit major by hand",
       },
     ];

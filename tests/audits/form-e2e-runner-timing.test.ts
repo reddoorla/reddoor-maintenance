@@ -96,6 +96,25 @@ describe("defaultFormRunner waits", () => {
     expect(timeoutOf("waitFor")).toEqual([3100]);
   });
 
+  // #1669 (A9). The post-settle window: how long, once the status region shows, the
+  // runner waits for the action POST before trusting the banner. The mocked POST
+  // answers at once, but the window's timer is still armed, so its delay is read
+  // off setTimeout: 2 s by default, and the option reaches it.
+  it("arms the post-settle window at 2000 ms by default, and at postSettleMs when given", async () => {
+    const delays = (): unknown[] => spy.mock.calls.map((c) => c[1]);
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      await run();
+      expect(delays()).toContain(2000);
+      spy.mockClear();
+      await run({ postSettleMs: 700 });
+      expect(delays()).toContain(700);
+      expect(delays()).not.toContain(2000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   // A settle of 0 is a real value, not "unset": it must reach the wait as 0,
   // not fall back to the 1200 ms default (`??`, never `||`) (#1470).
   it("passes a settleMs of 0 through rather than falling back to the default", async () => {

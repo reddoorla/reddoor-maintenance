@@ -48,9 +48,9 @@ function ensureBuilt(): void {
   execFileSync("pnpm", ["cockpit:build"], { cwd: ROOT, stdio: "inherit" });
 }
 
-/** The newest file the cockpit build reads: its own sources and the shared `src/`. */
+/** The newest file the cockpit build reads: its config, its own sources, the shared `src/` and the dependencies. */
 function newestSource(): number {
-  let newest = 0;
+  let newest = statSync(join(ROOT, "vite.cockpit.config.ts")).mtimeMs;
   const walk = (d: string) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name);
@@ -60,6 +60,9 @@ function newestSource(): number {
   };
   walk(join(ROOT, "cockpit/src"));
   walk(join(ROOT, "src"));
+  // A kit or adapter bump, or a tsconfig change, rebuilds too.
+  for (const f of ["package.json", "pnpm-lock.yaml", "cockpit/tsconfig.json"])
+    newest = Math.max(newest, statSync(join(ROOT, f)).mtimeMs);
   return newest;
 }
 
@@ -458,7 +461,72 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     const page = await context.newPage();
     const res = await page.request.get(`${origin}/__data.json`, { maxRedirects: 0 });
     // The hook answers before any load runs; for a data request SvelteKit's
-    // client expects a redirect as JSON.
-    expect(await res.json()).toEqual({ type: "redirect", location: "/auth/login?returnTo=%2F" });
+    // client expects a redirect as JSON (kit 3 adds its status).
+    expect(await res.json()).toEqual({
+      type: "redirect",
+      status: 302,
+      location: "/auth/login?returnTo=%2F",
+    });
+  });
+});
+
+/**
+ * What Netlify deploys from the same build (P1-69, SvelteKit 3 and
+ * adapter-netlify 7). Kit 2's adapter wrote `.netlify/functions-internal` and
+ * read `publish` from netlify.toml; adapter 7 writes Netlify's Frameworks API
+ * (`.netlify/v1/`) and takes `publish` as its own option, defaulting to `build`,
+ * so the two must name one directory or the deploy publishes no assets.
+ */
+describe("the built app's Netlify surface", () => {
+  /** Every route the sources declare: a page or an endpoint, as kit ids. */
+  function sourceRoutes(): string[] {
+    const routes = join(ROOT, "cockpit/src/routes");
+    const ids: string[] = [];
+    const walk = (d: string) => {
+      const names = readdirSync(d, { withFileTypes: true });
+      if (names.some((e) => e.name === "+page.svelte" || e.name === "+server.ts"))
+        ids.push(`/${d.slice(routes.length + 1)}`.replace(/\/$/, "") || "/");
+      for (const e of names) if (e.isDirectory()) walk(join(d, e.name));
+    };
+    walk(routes);
+    return ids.sort();
+  }
+
+  it("builds every route the sources declare", async () => {
+    const { manifest } = (await import(join(OUT, "server/manifest.js"))) as {
+      manifest: { routes: { id: string }[] };
+    };
+    const source = sourceRoutes();
+    // Control: the walk sees the pages a visitor reaches and the endpoints.
+    expect(source).toEqual(expect.arrayContaining(["/", "/fleet", "/s/[slug]", "/auth/login"]));
+    expect(manifest.routes.map((r) => r.id).sort()).toEqual(source);
+  });
+
+  it("serves them all from one function on /*, as kit 2's build did", () => {
+    const fn = readFileSync(join(ROOT, ".netlify/v1/functions/sveltekit-render.mjs"), "utf-8");
+    const config = /export const config = (\{[\s\S]*?\});/.exec(fn)?.[1];
+    expect(JSON.parse(config ?? "null")).toMatchObject({
+      path: ["/*"],
+      excludedPath: ["/.netlify/*"],
+      preferStatic: true,
+    });
+  });
+
+  it("publishes the browser assets where netlify.toml says, with kit's immutable cache", () => {
+    const toml = readFileSync(join(ROOT, "netlify.toml"), "utf-8");
+    const publish = /^\s*publish = "([^"]+)"$/m.exec(toml)?.[1];
+    expect(publish).toBe("cockpit/build");
+    expect(readdirSync(join(ROOT, publish!, "_app/immutable")).length).toBeGreaterThan(0);
+    // ...and from THIS build: adapter 7 clears only its own publish directory,
+    // so a misnamed one leaves an earlier build's assets here, looking right.
+    const version = (dir: string) => readFileSync(join(dir, "_app/version.json"), "utf-8");
+    expect(version(join(ROOT, publish!))).toBe(version(join(OUT, "client")));
+    const framework = JSON.parse(readFileSync(join(ROOT, ".netlify/v1/config.json"), "utf-8")) as {
+      headers: { for: string; values: Record<string, string> }[];
+    };
+    expect(framework.headers).toContainEqual({
+      for: "/_app/immutable/*",
+      values: { "cache-control": "public, immutable, max-age=31536000" },
+    });
   });
 });

@@ -137,8 +137,10 @@ describe("a workflow that runs the suite checks out the tags the suite reads", (
 /**
  * Every workflow that runs the suite must generate the cockpit's SvelteKit files first.
  *
- * The cockpit tests load `cockpit/.svelte-kit/tsconfig.json`, which only `svelte-kit sync`
- * writes, and only from the repo root (svelte.config.js sits there and sets `outDir`).
+ * The cockpit tests load the tsconfig and types that only `svelte-kit sync` writes, and
+ * only `pnpm cockpit:sync`, from the repo root, gives the sync the cockpit's config
+ * (`vite.cockpit.config.ts`, which sets `files.src` and `outDir`; a bare sync finds no
+ * config and writes defaults for a `src/` app that does not exist).
  * ci.yml and release.yml get it from `pnpm typecheck` → `cockpit:check`; time-travel.yml
  * ran `pnpm test` alone, so once the cockpit suite landed (#1568) every one of its 35
  * files failed to load and the weekly run would have gone red blaming the wall clock
@@ -155,7 +157,7 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
   // smokes the built package and loads no cockpit test.
   const SUITE = /^\s*pnpm (test|test:coverage)(?=\s|$)/m;
   // `pnpm typecheck` reaches `cockpit:check`, whose first command is the sync.
-  const SYNC = /^\s*pnpm (exec svelte-kit sync|typecheck|cockpit:check)\s*$/;
+  const SYNC = /^\s*pnpm (cockpit:sync|typecheck|cockpit:check)\s*$/;
 
   // GitHub resolves a `run:` step's directory as the step's `working-directory`, else the
   // job's `defaults.run.working-directory`, else the workflow's; `.` and `./` are the root.

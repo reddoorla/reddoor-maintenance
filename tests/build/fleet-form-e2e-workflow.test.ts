@@ -231,6 +231,41 @@ describe("fleet-form-e2e — the gate cannot go green having probed nothing", ()
     expect(r.out).toContain("FLEET_FORM_E2E probed=1");
   });
 
+  // #1669 (W6). `runOneAudit` writes a form-e2e that THREW (Chromium missing, say)
+  // as status `fail`, "unexpected error". Such a site was written but never driven,
+  // so a sweep where every site threw probed nothing and must red here.
+  it("FAILS when every site's form-e2e threw: fail rows are not probes", async () => {
+    const thrown = SIX_COVERED.map((s) =>
+      resultBlock(
+        "fail",
+        s,
+        "form-e2e: unexpected error — Error: browserType.launch: Executable doesn't exist",
+      ),
+    ).join("\n");
+    const r = await runGate({ stdout: `${thrown}\n${writeSummary(6, 0)}\n`, exit: 1 });
+    expect(r.out).toContain("FLEET_FORM_E2E probed=0");
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("::error::fleet form-e2e probed no site end to end");
+  });
+
+  // #1669 (W5, W3). Only a form-e2e row at the start of a line is a probe: another
+  // audit's pass row, or a form-e2e row quoted indented inside some other output,
+  // is not one.
+  it("FAILS when the only pass rows are another audit's or an indented quote", async () => {
+    const all = [...SIX_COVERED, ...FIVE_UNCOVERED];
+    const otherAudit = `${"lighthouse".padEnd(12)} ${"pass".padEnd(5)} x\n  lighthouse: perf 98`;
+    const quoted = `  ${"form-e2e".padEnd(12)} ${"pass".padEnd(5)} espada`;
+    const r = await runGate({
+      stdout: `${selfSkips(all)}\n${otherAudit}\n${quoted}\n${writeSummary(11, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.out).toContain("FLEET_FORM_E2E probed=0");
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(
+      "::error::fleet form-e2e probed no site end to end: 11 of 11 self-skipped",
+    );
+  });
+
   // Emitted on EVERY run, zero included — for the same reason
   // FLEET_SMOKE_UNMEASURED is. A marker that only prints when non-zero cannot
   // tell "nobody self-skipped" from "the counter stopped matching".
