@@ -99,9 +99,11 @@ export function cockpitCounts(model: CockpitModel): {
 
 const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 
-/** Merge a run's dispatched steps into an existing night. A re-run of the deps
- *  audit re-reads the package lists, counting any stamp since that night's own full
- *  run began, so a site whose re-read failed keeps the night's reading. */
+/** Merge a run's dispatched steps into an existing night. What the merged steps
+ *  stamped is re-read, counting any stamp since that night's own full run began:
+ *  the coverage, and the package lists when the deps audit ran. A site whose
+ *  re-read failed keeps the night's reading, and a read that fails outright keeps
+ *  the night's block: a merge never trades a stored value for a null. */
 async function mergeInto(
   i: WriteInputs,
   rows: readonly StoredRow[],
@@ -110,17 +112,25 @@ async function mergeInto(
   say: (line: string) => void,
 ): Promise<WriteOutcome> {
   let counts = mergeOnlySteps(target.counts, log, { id: i.run.id, startedAt: i.run.startedAt });
+  const since = target.counts.run.startedAt;
+  const keep = <T>(fresh: Measured<T>, stored: Measured<T>): Measured<T> =>
+    fresh.value === null ? stored : fresh;
+  counts = {
+    ...counts,
+    coverage: keep(
+      await measure("coverage", () => readCoverage(i.db, since)),
+      target.counts.coverage,
+    ),
+  };
   if (log.steps["fleet-security.yml"]?.outcome === "completed") {
     const prevDeps = runningTotal(rows, target.night, (c) => c.deps).base;
     counts = {
       ...counts,
-      deps: await measure("deps", async () =>
-        ageDeps(
-          await readDepsReadings(i.db),
-          prevDeps?.sites ?? null,
-          target.night,
-          target.counts.run.startedAt,
+      deps: keep(
+        await measure("deps", async () =>
+          ageDeps(await readDepsReadings(i.db), prevDeps?.sites ?? null, target.night, since),
         ),
+        target.counts.deps,
       ),
     };
   }

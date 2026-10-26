@@ -14,7 +14,7 @@ import { nightOf, parseConductorLog, ageDeps } from "../../src/fleet-daily/core.
 import { readRecentRows } from "../../src/fleet-daily/read.js";
 import type { FleetDailyCounts } from "../../src/fleet-daily/types.js";
 import type { CockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import { countFirstParentMerges } from "../../scripts/fleet-daily.mjs";
+import { countFirstParentMerges, githubReads } from "../../scripts/fleet-daily.mjs";
 
 const PLANNED = [
   "fleet-db-backup.yml",
@@ -610,6 +610,42 @@ describe("the dependency lists", () => {
     expect(Object.keys(deps.sites)).toEqual(["recA", "recB"]);
   });
 
+  it("a merge re-reads the coverage its steps stamped", async () => {
+    await write(NIGHT_RUN, FULL_LOG);
+    expect((await only()).coverage.value!.last_smoke_at).toBe(1);
+    await exec("UPDATE site_health SET last_smoke_at = ? WHERE site_id = 'recB'", [
+      "2026-10-26T17:20:00.000Z",
+    ]);
+    await write(
+      {
+        ...NIGHT_RUN,
+        id: 9003,
+        createdAt: "2026-10-26T16:51:00Z",
+        startedAt: "2026-10-26T16:51:05Z",
+      },
+      ONLY_SMOKE_LOG,
+    );
+    expect((await only()).coverage.value!.last_smoke_at).toBe(2);
+  });
+
+  it("a deps re-read that fails during a merge keeps the night's reading", async () => {
+    await write(NIGHT_RUN, FULL_LOG);
+    const before = (await only()).deps;
+    await exec("ALTER TABLE site_health RENAME TO site_health_gone");
+    await write(
+      {
+        ...NIGHT_RUN,
+        id: 9004,
+        createdAt: "2026-10-26T17:00:00Z",
+        startedAt: "2026-10-26T17:00:05Z",
+      },
+      ONLY_SECURITY_LOG,
+    );
+    const c = await only();
+    expect(c.deps).toEqual(before);
+    expect(c.coverage.value).not.toBeNull();
+  });
+
   it("a list the row could not take because fleet-security was still running says so", async () => {
     await write(
       NIGHT_RUN,
@@ -739,5 +775,23 @@ describe("first-parent merges", () => {
     ]);
     expect(countFirstParentMerges("h", c)).toBe(3);
     expect(countFirstParentMerges(null, c)).toBe(0);
+  });
+});
+
+describe("the GitHub reads", () => {
+  it("fetches the conductor's jobs for the attempt being written, then that job's log", async () => {
+    const urls: string[] = [];
+    const fetch = (async (url: string) => {
+      urls.push(url);
+      if (url.includes("/jobs?"))
+        return new Response(JSON.stringify({ jobs: [{ id: 77, name: "conduct" }] }));
+      return new Response("log text");
+    }) as unknown as typeof globalThis.fetch;
+    const text = await githubReads(fetch, "t", "o/r").conductorLog(9001, 2);
+    expect(text).toBe("log text");
+    expect(urls).toEqual([
+      "https://api.github.com/repos/o/r/actions/runs/9001/attempts/2/jobs?per_page=10",
+      "https://api.github.com/repos/o/r/actions/jobs/77/logs",
+    ]);
   });
 });
