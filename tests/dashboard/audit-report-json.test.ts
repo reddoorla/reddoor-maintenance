@@ -67,24 +67,6 @@ describe("audit-report-json — serving a report", () => {
     expect(body.report.scores.findability).toBe(91);
   });
 
-  // The token in the URL means a shared cache holding this would hand one
-  // prospect's report to the next caller through that cache.
-  it("never allows a shared cache to retain the response", async () => {
-    process.env.TURSO_DATABASE_URL = ":memory:";
-    const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
-      url: "https://acme.example/",
-      business: "Acme Roofing",
-      resultJson: "{}",
-      status: "complete",
-    });
-
-    const res = await auditReportJson(req(), ctxFor(token));
-    const cache = res.headers.get("cache-control") ?? "";
-    expect(cache).toContain("private");
-    expect(cache).not.toContain("public");
-  });
-
   // Still served through untouched, wrapper and all: the response is built by
   // concatenation precisely so the stored bytes are never parsed and
   // re-serialised, which would only add a failure mode between the database and

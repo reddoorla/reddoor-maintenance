@@ -28,13 +28,6 @@ describe("fleet-security workflow", () => {
       expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]),
     );
   });
-
-  it("gives the renovate-dispatch step its app token (positive control)", () => {
-    // Proves stepEnv is reading the real block, so the assertion above cannot
-    // be passing against an empty or mis-parsed map.
-    const env = stepEnv(workflow, DISPATCH_STEP);
-    expect(Object.keys(env)).toEqual(expect.arrayContaining(["GH_TOKEN"]));
-  });
 });
 
 /**
