@@ -258,5 +258,44 @@
     ],
     "test": "tests/fleet-daily/write.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r2-merge-coverage-stale",
+    "why": "Review round 2: a merge leaves the night's coverage as first written",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "await measure(\"coverage\", () => readCoverage(i.db, since)),",
+        "replace": "await measure(\"coverage\", () => Promise.resolve(target.counts.coverage.value!)),"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-failed-read-clobbers",
+    "why": "Review round 2: a failed re-read during a merge replaces the night's block with null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "fresh.value === null ? stored : fresh;",
+        "replace": "fresh;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-latest-attempt-log",
+    "why": "Review round 2: the job log is read from the latest attempt, not the one being written",
+    "edits": [
+      {
+        "file": "scripts/fleet-daily.mts",
+        "find": "`actions/runs/${runId}/attempts/${attempt}/jobs?per_page=10`",
+        "replace": "`actions/runs/${runId}/jobs?per_page=10`"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
   }
 ]
