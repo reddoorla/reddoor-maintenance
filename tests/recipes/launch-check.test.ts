@@ -140,6 +140,45 @@ describe("launchCheck", () => {
       expect(stateOf(lines, "schedule")).toBe("missing");
     });
 
+    // #1375 item 3: the bound is on the first report the anchor schedules (anchor
+    // plus one cycle), not on the anchor. Checked on 2026-10-14, so the last
+    // allowed first due date is 2027-10-15 (366 days on).
+    it("bounds the first due date, not the anchor, at a year ahead", async () => {
+      const yearly = (day: string) => row({ "maintenence freq": "Yearly", "maintenance day": day });
+      const inside = await launchCheck(yearly("2026-10-15"), goodDeps());
+      expect(stateOf(inside, "schedule")).toBe("ok");
+      const past = await launchCheck(yearly("2026-10-16"), goodDeps());
+      expect(stateOf(past, "schedule")).toBe("missing");
+      expect(detailOf(past, "schedule")).toContain("2027-10-16");
+      expect(detailOf(past, "schedule")).toContain("more than a year ahead");
+      // A Monthly anchor 11 months ahead was inside the old anchor line, but its
+      // first report falls due 2027-10-16.
+      const monthly = (day: string) =>
+        row({ "maintenence freq": "Monthly", "maintenance day": day });
+      const monthlyInside = await launchCheck(monthly("2027-09-15"), goodDeps());
+      expect(stateOf(monthlyInside, "schedule")).toBe("ok");
+      const monthlyPast = await launchCheck(monthly("2027-09-16"), goodDeps());
+      expect(stateOf(monthlyPast, "schedule")).toBe("missing");
+      expect(detailOf(monthlyPast, "schedule")).toContain("more than a year ahead");
+    });
+
+    it("bounds a live row's first due date too", async () => {
+      const day = { "maintenence freq": "Yearly", Status: "maintained" };
+      const inside = await launchCheck(
+        row({ ...day, "maintenance day": "2026-10-15" }),
+        goodDeps(),
+      );
+      expect(stateOf(inside, "schedule")).toBe("ok");
+      const past = await launchCheck(row({ ...day, "maintenance day": "2026-10-16" }), goodDeps());
+      expect(stateOf(past, "schedule")).toBe("missing");
+      expect(detailOf(past, "schedule")).toContain("more than a year ahead");
+      // Date.parse reads "275760" as the last year Date can hold; one more cycle
+      // overflows, which is ahead, not a crash.
+      const edge = await launchCheck(row({ ...day, "maintenance day": "275760" }), goodDeps());
+      expect(stateOf(edge, "schedule")).toBe("missing");
+      expect(detailOf(edge, "schedule")).toContain("more than a year ahead");
+    });
+
     it("parses testing_day too", async () => {
       const lines = await launchCheck(
         row({ "testing freq": "Monthly", "testing day": "banana" }),

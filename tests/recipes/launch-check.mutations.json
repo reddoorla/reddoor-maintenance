@@ -1,0 +1,54 @@
+[
+  {
+    "id": "1375-bound-the-anchor",
+    "why": "undoes #1375 item 3: the year-ahead bound goes back to judging the anchor, so a Yearly anchor two days out puts the first report 367 days ahead unrefused",
+    "edits": [
+      {
+        "file": "src/recipes/launch-check.ts",
+        "find": "  if (firstDue - today > MAX_AHEAD_DAYS * DAY_MS) {\n",
+        "replace": "  if (at - now.getTime() > MAX_AHEAD_DAYS * DAY_MS) {\n"
+      }
+    ],
+    "test": "tests/recipes/launch-check.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1375-bound-off-by-one",
+    "why": "the boundary: a first due date exactly 366 days on must stay ok",
+    "edits": [
+      {
+        "file": "src/recipes/launch-check.ts",
+        "find": "  if (firstDue - today > MAX_AHEAD_DAYS * DAY_MS) {\n",
+        "replace": "  if (firstDue - today >= MAX_AHEAD_DAYS * DAY_MS) {\n"
+      }
+    ],
+    "test": "tests/recipes/launch-check.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1375-bound-pre-launch-only",
+    "why": "the bound applies on a live row too, as the old anchor bound did",
+    "edits": [
+      {
+        "file": "src/recipes/launch-check.ts",
+        "find": "  if (firstDue - today > MAX_AHEAD_DAYS * DAY_MS) {\n",
+        "replace": "  if (preLaunch && firstDue - today > MAX_AHEAD_DAYS * DAY_MS) {\n"
+      }
+    ],
+    "test": "tests/recipes/launch-check.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1375-overflow-unguarded",
+    "why": "without the guard, a live row's \"275760\" makes toISOString throw instead of reading missing",
+    "edits": [
+      {
+        "file": "src/recipes/launch-check.ts",
+        "find": "  if (!Number.isFinite(firstDue)) {\n",
+        "replace": "  if (Number.isNaN(0)) {\n"
+      }
+    ],
+    "test": "tests/recipes/launch-check.test.ts",
+    "expect": "red"
+  }
+]
