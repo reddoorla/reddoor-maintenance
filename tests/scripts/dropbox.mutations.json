@@ -115,5 +115,57 @@
     "test": "tests/scripts/dropbox.test.ts",
     "expect": "red",
     "why": "Round 1 nit: the lookup would run outside the team space, so it could answer for a different folder than the upload writes to."
+  },
+  {
+    "id": "M10-gate-strict-again",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev [0-9a-f]+\\))?$\"",
+        "replace": "matches local$\""
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-dropbox.test.ts",
+    "expect": "red",
+    "why": "CI fix: the pre-#1391 gate fails a forced same-month re-run of the monthly copy."
+  },
+  {
+    "id": "M11-gate-no-same-content",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev [0-9a-f]+\\))?$\"",
+        "replace": "matches local( \\(replaced an existing file, rev [0-9a-f]+\\))?$\""
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-dropbox.test.ts",
+    "expect": "red",
+    "why": "A re-run that found identical bytes is reported FAILED."
+  },
+  {
+    "id": "M12-gate-any-rev",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev [0-9a-f]+\\))?$\"",
+        "replace": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev .*\\))?$\""
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-dropbox.test.ts",
+    "expect": "red",
+    "why": "A rev that is not hex (or trailing text after it) would pass the gate."
+  },
+  {
+    "id": "M13-gate-note-required",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev [0-9a-f]+\\))?$\"",
+        "replace": "matches local( \\(same content as the existing file\\)| \\(replaced an existing file, rev [0-9a-f]+\\))$\""
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-dropbox.test.ts",
+    "expect": "red",
+    "why": "The month's first copy, which prints no note, would be reported FAILED."
   }
 ]
