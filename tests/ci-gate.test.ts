@@ -137,39 +137,88 @@ describe("a workflow that runs the suite checks out the tags the suite reads", (
 /**
  * Every workflow that runs the suite must generate the cockpit's SvelteKit files first.
  *
- * The cockpit tests load `cockpit/.svelte-kit/tsconfig.json`, which only `svelte-kit sync`
- * writes, and only from the repo root (svelte.config.js sits there and sets `outDir`).
+ * The cockpit tests load the tsconfig and types that only `svelte-kit sync` writes, and
+ * only `pnpm cockpit:sync`, from the repo root, gives the sync the cockpit's config
+ * (`vite.cockpit.config.ts`, which sets `files.src` and `outDir`; a bare sync finds no
+ * config and writes defaults for a `src/` app that does not exist).
  * ci.yml and release.yml get it from `pnpm typecheck` → `cockpit:check`; time-travel.yml
  * ran `pnpm test` alone, so once the cockpit suite landed (#1568) every one of its 35
  * files failed to load and the weekly run would have gone red blaming the wall clock
  * (#1616) — and stayed blind to the cockpit's own clock bugs until then.
  */
 describe("a workflow that runs the suite syncs the cockpit before it", () => {
-  type Step = { name?: string; run?: string; "working-directory"?: string };
+  type Step = { name?: string; if?: unknown; run?: string; "working-directory"?: string };
+  type Defaults = { run?: { "working-directory"?: string } };
+  type Workflow = {
+    defaults?: Defaults;
+    jobs?: Record<string, { defaults?: Defaults; steps?: Step[] }>;
+  };
   // Any line of the step, so a `run: |` block is policed too; not `test:dist`, which
   // smokes the built package and loads no cockpit test.
   const SUITE = /^\s*pnpm (test|test:coverage)(?=\s|$)/m;
   // `pnpm typecheck` reaches `cockpit:check`, whose first command is the sync.
-  const SYNC = /^\s*pnpm (exec svelte-kit sync|typecheck|cockpit:check)\s*$/;
+  const SYNC = /^\s*pnpm (cockpit:sync|typecheck|cockpit:check)\s*$/;
 
-  function suiteJobs(): { where: string; steps: Step[]; at: number }[] {
+  // GitHub resolves a `run:` step's directory as the step's `working-directory`, else the
+  // job's `defaults.run.working-directory`, else the workflow's; `.` and `./` are the root.
+  const atRoot = (dir: string | undefined) => dir === undefined || /^\.\/?$/.test(dir);
+
+  /** The jobs of one parsed workflow that run the suite, with the suite step's index and
+   *  the `defaults.run.working-directory` their steps inherit. */
+  function jobsRunningSuite(
+    doc: Workflow,
+  ): { job: string; steps: Step[]; at: number; dir: string | undefined }[] {
+    const workflowDir = doc.defaults?.run?.["working-directory"];
+    return Object.entries(doc.jobs ?? {})
+      .map(([job, j]) => {
+        const steps = j.steps ?? [];
+        return {
+          job,
+          steps,
+          at: steps.findIndex((s) => SUITE.test(s.run ?? "")),
+          dir: j.defaults?.run?.["working-directory"] ?? workflowDir,
+        };
+      })
+      .filter(({ at }) => at >= 0);
+  }
+
+  /**
+   * The jobs of one parsed workflow that run the suite without a qualifying sync before it.
+   * A sync qualifies only when it runs from the repo root, with the directory resolved as
+   * GitHub does (`atRoot` above), and has no `if:` at all (#1620). The `if:` rule is
+   * deliberately strict: any `if:`, even `success()`, makes the sync conditional, and this
+   * guard cannot evaluate expressions to tell which ones always pass. No workflow uses one.
+   */
+  function unsyncedSuiteJobs(doc: Workflow): string[] {
+    return jobsRunningSuite(doc)
+      .filter(
+        ({ steps, at, dir }) =>
+          !steps
+            .slice(0, at)
+            .some(
+              (s) =>
+                SYNC.test(s.run ?? "") &&
+                s.if === undefined &&
+                atRoot(s["working-directory"] ?? dir),
+            ),
+      )
+      .map(({ job }) => job);
+  }
+
+  function workflows(): { file: string; doc: Workflow }[] {
     const dir = resolve(root, ".github/workflows");
     return readdirSync(dir)
       .filter((f) => f.endsWith(".yml"))
-      .flatMap((f) => {
-        const doc = yaml.load(readFileSync(resolve(dir, f), "utf-8")) as {
-          jobs?: Record<string, { steps?: Step[] }>;
-        };
-        return Object.entries(doc.jobs ?? {}).map(([job, j]) => {
-          const steps = j.steps ?? [];
-          return {
-            where: `${f}:${job}`,
-            steps,
-            at: steps.findIndex((s) => SUITE.test(s.run ?? "")),
-          };
-        });
-      })
-      .filter(({ at }) => at >= 0);
+      .map((file) => ({
+        file,
+        doc: yaml.load(readFileSync(resolve(dir, file), "utf-8")) as Workflow,
+      }));
+  }
+
+  function suiteJobs(): { where: string }[] {
+    return workflows().flatMap(({ file, doc }) =>
+      jobsRunningSuite(doc).map(({ job }) => ({ where: `${file}:${job}` })),
+    );
   }
 
   it("finds the jobs it is meant to police", () => {
@@ -179,15 +228,85 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
   });
 
   it("holds for every such job, from the repo root", () => {
-    const offenders = suiteJobs()
-      .filter(
-        ({ steps, at }) =>
-          !steps
-            .slice(0, at)
-            .some((s) => SYNC.test(s.run ?? "") && s["working-directory"] === undefined),
-      )
-      .map(({ where }) => where);
+    const offenders = workflows().flatMap(({ file, doc }) =>
+      unsyncedSuiteJobs(doc).map((job) => `${file}:${job}`),
+    );
     expect(offenders).toEqual([]);
+  });
+
+  // Fixtures: the guard must go red on each way a sync can miss the root or not run.
+  const job = (sync: Step, defaults?: Defaults) => ({
+    jobs: { test: { ...(defaults ? { defaults } : {}), steps: [sync, { run: "pnpm test" }] } },
+  });
+
+  it("accepts a root sync that always runs (the known-good fixture)", () => {
+    expect(unsyncedSuiteJobs(job({ run: "pnpm typecheck" }))).toEqual([]);
+  });
+
+  it("refuses a job with no sync before the suite", () => {
+    expect(unsyncedSuiteJobs({ jobs: { test: { steps: [{ run: "pnpm test" }] } } })).toEqual([
+      "test",
+    ]);
+  });
+
+  it("refuses a sync step with its own working-directory", () => {
+    expect(
+      unsyncedSuiteJobs(job({ run: "pnpm typecheck", "working-directory": "cockpit" })),
+    ).toEqual(["test"]);
+  });
+
+  it("refuses a sync step that can be skipped by its if:", () => {
+    expect(unsyncedSuiteJobs(job({ run: "pnpm typecheck", if: false }))).toEqual(["test"]);
+    expect(
+      unsyncedSuiteJobs(job({ run: "pnpm typecheck", if: "github.event_name == 'push'" })),
+    ).toEqual(["test"]);
+  });
+
+  it("refuses a sync moved off the root by the job's defaults.run.working-directory", () => {
+    expect(
+      unsyncedSuiteJobs(
+        job({ run: "pnpm typecheck" }, { run: { "working-directory": "cockpit" } }),
+      ),
+    ).toEqual(["test"]);
+  });
+
+  it("accepts `.` and `./` as the repo root at every level", () => {
+    expect(unsyncedSuiteJobs(job({ run: "pnpm typecheck", "working-directory": "." }))).toEqual([]);
+    expect(
+      unsyncedSuiteJobs(job({ run: "pnpm typecheck" }, { run: { "working-directory": "./" } })),
+    ).toEqual([]);
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "." } },
+        ...job({ run: "pnpm typecheck" }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("lets a step's working-directory override the job's and the workflow's defaults", () => {
+    expect(
+      unsyncedSuiteJobs(
+        job(
+          { run: "pnpm typecheck", "working-directory": "." },
+          { run: { "working-directory": "cockpit" } },
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "cockpit" } },
+        ...job({ run: "pnpm typecheck", "working-directory": "./" }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses a sync moved off the root by the workflow's defaults.run.working-directory", () => {
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "cockpit" } },
+        ...job({ run: "pnpm typecheck" }),
+      }),
+    ).toEqual(["test"]);
   });
 });
 

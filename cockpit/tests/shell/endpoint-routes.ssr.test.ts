@@ -150,8 +150,13 @@ describe("the cockpit's endpoint routes", () => {
   it("are not fronted by SvelteKit's own origin check, which the old functions never had", () => {
     // It would refuse a form-typed POST with no Origin before the handler's own
     // isCsrfAllowed, which lets that through to auth.
-    // Read as text: the config is untyped JS, and svelte-check refuses its import.
-    const config = readFileSync(join(import.meta.dirname, "../../../svelte.config.js"), "utf8");
+    // Read as text: importing the Vite config would load SvelteKit's plugin into
+    // this Svelte-only project. tests/cockpit/kit-config.test.ts reads the
+    // options kit itself resolves.
+    const config = readFileSync(
+      join(import.meta.dirname, "../../../vite.cockpit.config.ts"),
+      "utf8",
+    );
     expect(config).toMatch(/^\s*csrf: \{ trustedOrigins: \["\*"\] \},$/m);
   });
 });

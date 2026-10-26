@@ -16,6 +16,19 @@ import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 import type { FleetRoster } from "../../fleet/roster.js";
 import type { HealthMirror } from "../../audits/health-mirror.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
+import {
+  auditFields,
+  type A11yCounts,
+  type BrowserAuditFields,
+  type DepsCounts,
+  type DomainResult,
+  type FormE2eResult,
+  type FunctionHealthResult,
+  type NetlifyDeployResult,
+  type SecurityCounts,
+  type SmokeResult,
+} from "../../fleet/site-fields.js";
+import type { LighthouseScoreWriteback } from "../../reports/types.js";
 
 export type AuditCommandOptions = {
   only?: string;
@@ -169,28 +182,93 @@ type WriteSummary = Awaited<
   ReturnType<typeof import("../../audits/write-audits.js").writeBackOneSite>
 >;
 
-function formatWriteSummary(summary: WriteSummary): string {
-  const lines = summary.writes.map((w) => {
-    if (w.audit === "lighthouse") {
-      const s = w.counts as {
-        performance: number;
-        accessibility: number;
-        bestPractices: number;
-        seo: number;
-      };
-      return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
+type Write = WriteSummary["writes"][number];
+
+/** A form-e2e run with no form verdict and no Turnstile opinion (its /health was
+ *  unreadable) builds no field, so it kept the row's verdicts (#1716). Asked of the
+ *  writer's own field builder, so the two cannot disagree. Every other audit's entry
+ *  is pushed only when it carries a value to write. */
+function keptVerdicts(w: Write): boolean {
+  return (
+    w.audit === "form-e2e" &&
+    Object.keys(auditFields({ formE2e: w.counts as FormE2eResult })).length === 0
+  );
+}
+
+/** The line for a write that built no field, by the fleet's own classification
+ *  (`emptyWriteOutcome`), or null when something was written. A summary with no
+ *  `empty` (any other WriteSummary producer) is read as written. */
+function nothingWritten(summary: WriteSummary): string | null {
+  const e = summary.empty;
+  if (!e) return null;
+  if (e.kind === "kept") return "nothing to write (verdicts kept)";
+  if (e.kind === "not-applicable") return "not applicable, nothing to write";
+  return `nothing measured: ${e.reason}`;
+}
+
+const verdict = (v: string | null | undefined): string => v ?? "n/a";
+
+/** One line per audit, read off that audit's own result shape (#1716). */
+function writeLine(w: Write): string {
+  switch (w.audit) {
+    case "lighthouse": {
+      const s = w.counts as LighthouseScoreWriteback;
+      // A category the run could not score (NO_LCP nulls performance) is null.
+      const n = (v: number | null) => (v === null ? "n/a" : String(v));
+      return `lighthouse: P=${n(s.performance)} A=${n(s.accessibility)} BP=${n(s.bestPractices)} SEO=${n(s.seo)}`;
     }
-    if (w.audit === "a11y") {
-      return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
+    case "a11y":
+      return `a11y: ${(w.counts as A11yCounts).violations} violations`;
+    case "deps": {
+      const c = w.counts as DepsCounts;
+      return `deps: ${c.drifted} drifted (${c.majorBehind} major)`;
     }
-    if (w.audit === "deps") {
-      const c = w.counts as { drifted: number; majorBehind: number };
-      return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
+    case "security": {
+      const c = w.counts as SecurityCounts;
+      return `security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
     }
-    const c = w.counts as { critical: number; high: number; moderate: number; low: number };
-    return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
-  });
+    case "domain": {
+      const d = (w.counts as DomainResult).certDaysRemaining;
+      return `domain: certificate ${d === null ? "unknown" : `${d} days left`}`;
+    }
+    case "browser": {
+      const b = w.counts as BrowserAuditFields;
+      const pf = (ok: boolean) => (ok ? "pass" : "fail");
+      return `browser: desktop ${pf(b.desktopOk)}, mobile ${pf(b.mobileOk)}, links ${pf(b.linksOk)}, reachable ${pf(b.reachableOk)}, title/meta ${pf(b.titleMetaOk)}, ${b.brokenLinks} broken link(s)`;
+    }
+    case "netlify-deploy":
+      return `netlify-deploy: ${(w.counts as NetlifyDeployResult).state ?? "no deploy"}`;
+    case "function-health": {
+      const f = w.counts as FunctionHealthResult;
+      return `function-health: ${f.functionHealth}, cms ${verdict(f.cmsReachable)}, turnstile ${verdict(f.turnstileWidget)}`;
+    }
+    case "smoke":
+      return `smoke: ${(w.counts as SmokeResult).ok}`;
+    case "form-e2e": {
+      if (keptVerdicts(w)) return "form-e2e: no form verdict this run (kept)";
+      const f = w.counts as FormE2eResult;
+      const form = f.ok === undefined ? "no form verdict" : f.ok === null ? "n/a (no form)" : f.ok;
+      return `form-e2e: ${form}${f.turnstileWidget !== undefined ? `, turnstile ${verdict(f.turnstileWidget)}` : ""}`;
+    }
+    default:
+      // github-signals and prismic-models report through their own commands; name the
+      // audit rather than guess at a shape this function does not know.
+      return `${w.audit}: written`;
+  }
+}
+
+export function formatWriteSummary(summary: WriteSummary): string {
+  const nothing = nothingWritten(summary);
+  if (nothing) return `→ Websites[${summary.siteName}]: ${nothing}`;
+  const lines = summary.writes.map((w) => `  ${writeLine(w)}`);
   return `→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
+}
+
+export function writeBackTitle(summary: WriteSummary): string {
+  const nothing = nothingWritten(summary);
+  if (nothing) return `Websites[${summary.siteName}]: ${nothing}`;
+  const n = summary.writes.filter((w) => !keptVerdicts(w)).length;
+  return `Wrote to Websites[${summary.siteName}] (${n} audit type${n === 1 ? "" : "s"})`;
 }
 
 /** Listr renderer choice. `--json` → silent so stdout stays clean for piping.
@@ -389,7 +467,7 @@ export async function runAuditCommand(
                 mirrorHealth: (siteId, fields) => siteMirror.health(siteId, fields),
               });
               writeSummary = summary;
-              task.title = `Wrote to Websites[${summary.siteName}] (${summary.writes.length} audit type${summary.writes.length === 1 ? "" : "s"})`;
+              task.title = writeBackTitle(summary);
             },
           },
         ],

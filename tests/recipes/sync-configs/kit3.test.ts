@@ -56,13 +56,21 @@ describe("readKitMajor", () => {
     for (const [spec, major] of [
       ["^2.61.1", 2],
       ["~3.0.1", 3],
-      [">=3.0.0", 3],
       ["3.0.1", 3],
       ["npm:@sveltejs/kit@^3.0.0", 3],
       ["3", 3],
       ["^4.0.0", 4],
       ["^2.0.0 || ^3.0.0", 3],
       [">=3 <4", 3],
+      // Bounded ranges that stay inside one major (#1637).
+      [">= 2.61.1 < 3", 2],
+      [">=2.61.1 <3.0.0", 2],
+      [">=2 <3.x", 2],
+      [">=3.0.0 <=3.4.1", 3],
+      ["2.61.1 - 2.70.3", 2],
+      ["2.x", 2],
+      ["^3.0.0-next.4", 3],
+      ["^2.61.1 || 3.0.0 - 3.2.0", 3],
     ] as const) {
       await setKit(cwd, spec);
       expect(await readKitMajor(cwd), spec).toBe(major);
@@ -78,6 +86,38 @@ describe("readKitMajor", () => {
   it("is 'unreadable' for a spec it cannot read", async () => {
     const cwd = await copyFixtureToTmp(kit3Starter);
     for (const spec of ["catalog:", "workspace:*", "latest", "github:sveltejs/kit"]) {
+      await setKit(cwd, spec);
+      expect(await readKitMajor(cwd), spec).toBe("unreadable");
+    }
+  });
+
+  // pnpm installs the HIGHEST version a range allows, so a range's lower bound
+  // is not its major (#1637): `>=2.61.1` and `2 - 3` install kit 3 today, and
+  // read as 2 they made sync-configs write kit 2 files and match-harness the
+  // kit 2 import. A range with no upper bound, or whose bounds sit in two
+  // majors, cannot be read without knowing what is published, so it is
+  // "unreadable", the path every caller already handles without guessing.
+  it("is 'unreadable' for a range that is open above or spans two majors", async () => {
+    const cwd = await copyFixtureToTmp(kit3Starter);
+    for (const spec of [
+      ">=2.61.1",
+      ">= 2.61.1",
+      ">2.61.1",
+      ">=3.0.0",
+      "2 - 3",
+      "2.61.1 - 3.0.0",
+      ">=2.61.1 <4",
+      ">=2.61.1 <3.1",
+      ">=2.61.1 <3.0.0-next.2",
+      ">=2.61.1 <=3.0.0",
+      "<4",
+      "<=3",
+      "*",
+      "x",
+      "",
+      "^2.61.1 || >=3",
+      "npm:@sveltejs/kit@>=2.61.1",
+    ]) {
       await setKit(cwd, spec);
       expect(await readKitMajor(cwd), spec).toBe("unreadable");
     }
@@ -264,17 +304,21 @@ describe("kit 3 hazards and templates, past the first review", () => {
     expect(diffs.map((d) => d.path)).not.toContain("svelte.config.js");
   });
 
-  it("writes neither kit file for a kit spec it cannot read, and says so", async () => {
-    const cwd = await copyFixtureToTmp(kit3Starter);
-    await setKit(cwd, "catalog:");
-    await rm(join(cwd, KIT_CONFIG_PATH));
-    await rm(join(cwd, "eslint.config.js"));
-    commitAll(cwd, "catalog kit");
-    const diffs = await planTemplateDiffs(cwd, ALL_TEMPLATES);
-    expect(diffs.map((d) => d.path)).not.toContain("svelte.config.js");
-    expect(diffs.map((d) => d.path)).not.toContain("eslint.config.js");
-    expect((await planKitHazards(cwd)).map((h) => h.path)).toEqual(["package.json"]);
-  });
+  // `>=2.61.1` installs kit 3: read as 2, it wrote the svelte.config.js kit 3
+  // refuses to start beside (#1637).
+  for (const spec of ["catalog:", ">=2.61.1"]) {
+    it(`writes neither kit file for a kit spec it cannot read (${spec}), and says so`, async () => {
+      const cwd = await copyFixtureToTmp(kit3Starter);
+      await setKit(cwd, spec);
+      await rm(join(cwd, KIT_CONFIG_PATH));
+      await rm(join(cwd, "eslint.config.js"));
+      commitAll(cwd, "unreadable kit");
+      const diffs = await planTemplateDiffs(cwd, ALL_TEMPLATES);
+      expect(diffs.map((d) => d.path)).not.toContain("svelte.config.js");
+      expect(diffs.map((d) => d.path)).not.toContain("eslint.config.js");
+      expect((await planKitHazards(cwd)).map((h) => h.path)).toEqual(["package.json"]);
+    });
+  }
 
   it("names an eslint.config.js still importing svelte.config.js when the config is inline", async () => {
     const cwd = await copyFixtureToTmp(kit3Starter);
