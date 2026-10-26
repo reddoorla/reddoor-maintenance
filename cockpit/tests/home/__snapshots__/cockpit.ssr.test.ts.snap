@@ -192,7 +192,7 @@ exports[`/ parity with renderCockpitHtml > cardless dead letters 1`] = `
   "    <button class="refresh-fleet" data-refresh-url="/api/fleet/refresh" type="button">",
   "      "↻ Audit fleet"",
   "    <div aria-live="polite" class="rf-status" id="rf-status">",
-  "<details class="cardless">",
+  "<details class="cardless" open="">",
   "  <summary>",
   "    "⚠ Not on any site card (1)"",
   "  <div class="approve-row" data-level="broken">",
@@ -204,6 +204,8 @@ exports[`/ parity with renderCockpitHtml > cardless dead letters 1`] = `
   "    " "",
   "    <span class="muted">",
   "      "2 leads dead-lettered for 'ghost-co', which resolves to NO fleet site — leads are being dropped; run \`ensure-site ghost-co\` then \`db replay-deadletters\`"",
+  "    <span class="muted feed-age">",
+  "      " · since today"",
   "--- text flow ---",
   "| Reddoor fleet cockpit",
   "| 1 site on the Reddoor stack. Sites →",
@@ -211,7 +213,7 @@ exports[`/ parity with renderCockpitHtml > cardless dead letters 1`] = `
   "| 1 healthy · fleet last audited 2w ago",
   "| ↻ Audit fleet",
   "| ⚠ Not on any site card (1)",
-  "| Broken (unknown site: ghost-co) 2 leads dead-lettered for 'ghost-co', which resolves to NO fleet site — leads are being dropped; run \`ensure-site ghost-co\` then \`db replay-deadletters\`",
+  "| Broken (unknown site: ghost-co) 2 leads dead-lettered for 'ghost-co', which resolves to NO fleet site — leads are being dropped; run \`ensure-site ghost-co\` then \`db replay-deadletters\` · since today",
 ]
 `;
 
@@ -261,7 +263,7 @@ exports[`/ parity with renderCockpitHtml > hand-built cards: badges, stuck, acce
   "      " "",
   "      <a class="feed-open" href="/s/beta">",
   "        "Open ▸"",
-  "<details class="cardless">",
+  "<details class="cardless" open="">",
   "  <summary>",
   "    "⚠ Not on any site card (1)"",
   "  <div class="approve-row" data-level="attention">",

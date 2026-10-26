@@ -567,9 +567,9 @@ export type NeedsYouItem = {
   reasons: string[];
   /** Always `/s/${slug}`. */
   url: string;
-  /** P1-78b. The oldest `firstFlaggedAt` among the site's Broken or Attention
-   *  items (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when
-   *  no item is dated. */
+  /** P1-78b. The oldest `firstFlaggedAt` among the site's items at the row's own
+   *  level (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when no
+   *  item at that level is dated. */
   since: string | null;
 };
 
@@ -598,7 +598,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     hasCritical: boolean;
     group: NeedsYouGroup | null;
     approval: boolean;
-    since: string | null;
+    since: { broken?: string; attention?: string };
   };
   const bySlug = new Map<string, Acc>();
   const get = (siteName: string): Acc => {
@@ -612,7 +612,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         hasCritical: false,
         group: null,
         approval: false,
-        since: null,
+        since: {},
       };
       bySlug.set(slug, a);
     }
@@ -635,10 +635,13 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         if (it.severity === "critical") a.hasCritical = true;
       }
       raise(a, card.tier);
+      // The age of each level's oldest item: a Broken row is as old as its oldest
+      // Broken item, never an older Attention one beside it.
       for (const it of card.items) {
         const l = itemLevel(it);
-        if ((l === "broken" || l === "attention") && it.firstFlaggedAt !== undefined)
-          if (a.since === null || it.firstFlaggedAt < a.since) a.since = it.firstFlaggedAt;
+        if (l === "watch" || it.firstFlaggedAt === undefined) continue;
+        const was = a.since[l];
+        if (was === undefined || it.firstFlaggedAt < was) a.since[l] = it.firstFlaggedAt;
       }
     } else if (card.tier === "watch") {
       // Watch-level items first (they are named by title), then the watch reasons.
@@ -681,7 +684,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       siteName: a.siteName,
       reasons: a.reasons,
       url: `/s/${a.slug}`,
-      since: group === "broken" || group === "attention" ? a.since : null,
+      since: group === "broken" || group === "attention" ? (a.since[group] ?? null) : null,
     });
   }
 

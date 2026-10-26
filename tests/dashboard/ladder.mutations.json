@@ -323,5 +323,57 @@
     ],
     "test": "tests/dashboard/ladder.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r2-newest-not-oldest",
+    "why": "Review round 2 (M2): a row takes its newest item's date, not its oldest",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "if (was === undefined || it.firstFlaggedAt < was) a.since[l] = it.firstFlaggedAt;",
+        "replace": "if (was === undefined || it.firstFlaggedAt > was) a.since[l] = it.firstFlaggedAt;"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-watch-sets-age",
+    "why": "Review round 2 (M3): a Watch item's date sets the row's age",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "if (l === \"watch\" || it.firstFlaggedAt === undefined) continue;",
+        "replace": "if (it.firstFlaggedAt === undefined) continue;\n        if (l === \"watch\") { for (const k of [\"broken\", \"attention\"] as const) { const w = a.since[k]; if (w === undefined || it.firstFlaggedAt < w) a.since[k] = it.firstFlaggedAt; } continue; }"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-age-across-levels",
+    "why": "Review round 2: a Broken row takes the age of an older Attention item",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "(a.since[group] ?? null)",
+        "replace": "([a.since.broken, a.since.attention].filter((d): d is string => d !== undefined).sort()[0] ?? null)"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-cardless-no-age",
+    "why": "Review round 2: a cardless Broken item carries no age",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "age: level === \"watch\" ? null : ageOf(i.firstFlaggedAt ?? null, now),",
+        "replace": "age: null,"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
   }
 ]
