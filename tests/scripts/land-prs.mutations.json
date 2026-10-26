@@ -1,0 +1,54 @@
+[
+  {
+    "id": "M1-no-matcher-line-rule",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (!hasCall(t, ASSERTION, withoutGenerics) && !hasCall(t, MATCHER_LINE)) continue;",
+        "replace": "if (!hasCall(t, ASSERTION, withoutGenerics)) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1604: undo the fix, so `).toBe(false);` -> `).toBe(true);` under a multi-line expect( flags nothing again."
+  },
+  {
+    "id": "M2-any-close-paren-line",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "/^\\)+\\s*(\\.\\s*(not|resolves|rejects)\\s*){0,3}\\.\\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*\\s*\\(/;",
+        "replace": "/^\\)/;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1604 over-broad: every removed line opening with `)` (`);`, `),`) would count as an assertion."
+  },
+  {
+    "id": "M3-any-to-method",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*",
+        "replace": "to\\w*"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1604 over-broad: `).toString();` and `).toFixed(2);` would count as matchers."
+  },
+  {
+    "id": "M4-no-modifier-chain",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "(\\.\\s*(not|resolves|rejects)\\s*){0,3}",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(…)` and `).rejects.toThrow(…)` lines would be missed."
+  }
+]
