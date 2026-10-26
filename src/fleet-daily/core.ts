@@ -127,7 +127,13 @@ export function mergeOnlySteps(
   log: ConductorLog,
   run: { id: number; startedAt: string },
 ): FleetDailyCounts {
-  const ran = Object.entries(log.steps).filter(([, s]) => s.outcome !== "skipped");
+  // A step the guard skipped did not run; a dispatch that failed ran nothing either,
+  // so it never overwrites a result the night already holds.
+  const ran = Object.entries(log.steps).filter(
+    ([f, s]) =>
+      s.outcome !== "skipped" &&
+      !(s.outcome === "failed" && target.steps[f] != null && target.steps[f]!.outcome !== "failed"),
+  );
   return {
     ...target,
     steps: { ...target.steps, ...Object.fromEntries(ran) },
@@ -225,6 +231,47 @@ export function ageDeps(
     };
   }
   return { sites, behind };
+}
+
+/** The site_health stamps each conducted step writes. */
+export const STEP_STAMPS: Readonly<Record<string, readonly string[]>> = {
+  "fleet-security.yml": ["security_audit_at", "deps_behind_packages_at"],
+  "fleet-lighthouse.yml": [
+    "lighthouse_at",
+    "domain_checked_at",
+    "browser_checked_at",
+    "deploy_checked_at",
+    "function_health_checked_at",
+    "url_checked_at",
+  ],
+  "fleet-smoke.yml": ["last_smoke_at"],
+  "fleet-form-e2e.yml": ["form_e2e_checked_at"],
+  "fleet-prismic-drift.yml": ["prismic_models_checked_at"],
+};
+
+/** Coverage counts, with every column whose step was still running at the write
+ *  stored as null and why: the step stamps after the row is written, and tonight's
+ *  run replaces those stamps before the next night's write, so no 0 can stand for it. */
+export function explainCoverage(
+  counts: Record<string, number>,
+  steps: Record<string, StepResult | null>,
+): Record<string, Measured<number>> {
+  const running = new Map<string, number>();
+  for (const [file, cols] of Object.entries(STEP_STAMPS)) {
+    const s = steps[file];
+    if (s?.outcome === "running") for (const c of cols) running.set(c, s.runId);
+  }
+  return Object.fromEntries(
+    Object.entries(counts).map(([col, n]): [string, Measured<number>] => {
+      const id = running.get(col);
+      return [
+        col,
+        id === undefined
+          ? { value: n }
+          : { value: null, reason: `run ${id} was still running when this row was written` },
+      ];
+    }),
+  );
 }
 
 /** A deps reading the row could not take because the audit was still running when

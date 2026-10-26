@@ -15,6 +15,7 @@ import {
   addCounts,
   ageDeps,
   classifyRun,
+  explainCoverage,
   explainUnread,
   fillRunning,
   fullNightSteps,
@@ -36,6 +37,7 @@ import {
   readEventsSince,
   readLeads,
   readRecentRows,
+  readRow,
   readReportsSent,
   readScreenouts,
   upsertRow,
@@ -99,11 +101,12 @@ export function cockpitCounts(model: CockpitModel): {
 
 const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 
-/** Merge a run's dispatched steps into an existing night. What the merged steps
- *  stamped is re-read, counting any stamp since that night's own full run began:
- *  the coverage, and the package lists when the deps audit ran. A site whose
- *  re-read failed keeps the night's reading, and a read that fails outright keeps
- *  the night's block: a merge never trades a stored value for a null. */
+/** Merge a run's dispatched steps into an existing night. When that night is the
+ *  newest, what the merged steps stamped is re-read, counting any stamp since its own
+ *  full run began: the coverage, and the package lists when the deps audit ran. A
+ *  site whose re-read failed keeps the night's reading, and a read that fails
+ *  outright keeps the night's block: a merge never trades a stored value for a null.
+ *  An older night takes the steps only: a later night's stamps are not its own. */
 async function mergeInto(
   i: WriteInputs,
   rows: readonly StoredRow[],
@@ -115,10 +118,18 @@ async function mergeInto(
   const since = target.counts.run.startedAt;
   const keep = <T>(fresh: Measured<T>, stored: Measured<T>): Measured<T> =>
     fresh.value === null ? stored : fresh;
+  if (rows.some((r) => r.night > target.night)) {
+    await upsertRow(i.db, { ...target, counts });
+    say(`FLEET_DAILY merged run=${i.run.id} steps into older night=${target.night}`);
+    return { action: "merged", night: target.night };
+  }
+  const steps = counts.steps;
   counts = {
     ...counts,
     coverage: keep(
-      await measure("coverage", () => readCoverage(i.db, since)),
+      await measure("coverage", async () =>
+        explainCoverage(await readCoverage(i.db, since), steps),
+      ),
       target.counts.coverage,
     ),
   };
@@ -156,13 +167,17 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
   const rows = await readRecentRows(i.db);
   const nowIso = i.now.toISOString();
 
-  // A full plan whose guard skipped any step is a re-run of a night already written
-  // (the 12:19am fallback dispatching a step the clock's dispatch failed on, or
-  // "Re-run failed jobs"): it merges what it ran into that night, never replaces it.
-  if (kind.kind === "full" && log.summary!.skipped > 0) {
+  // A full plan over a night already written merges what it ran, never replaces it,
+  // when its guard skipped any step (the 12:19am fallback dispatching a step the
+  // clock's dispatch failed on, or "Re-run failed jobs"), or when a later night exists
+  // ("Re-run all jobs" days later): replacing would re-count windows the later rows
+  // already hold, and stamp the old night with a later night's state.
+  if (kind.kind === "full") {
     const night = nightOf(i.run.createdAt);
-    const same = rows.find((r) => r.night === night);
-    if (same) return mergeInto(i, rows, same, log, say);
+    // Read directly: a night older than the recent rows is still the same night.
+    const same = await readRow(i.db, night);
+    if (same && (log.summary!.skipped > 0 || rows.some((r) => r.night > night)))
+      return mergeInto(i, rows, same, log, say);
   }
 
   if (kind.kind === "only") {
@@ -230,7 +245,9 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
     merges: [],
     sites: fromModel ? { value: fromModel.sites } : nullBlock,
     signals: fromModel ? { value: fromModel.signals } : nullBlock,
-    coverage: await measure("coverage", () => readCoverage(i.db, i.run.startedAt)),
+    coverage: await measure("coverage", async () =>
+      explainCoverage(await readCoverage(i.db, i.run.startedAt), fullNightSteps(log, i.planned)),
+    ),
     deps: await measure("deps", async () =>
       explainUnread(
         ageDeps(

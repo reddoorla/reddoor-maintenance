@@ -356,9 +356,22 @@ describe("a full night", () => {
     await write(NIGHT_RUN, FULL_LOG);
     const cov = (await only()).coverage.value!;
     // Gamma (building) was stamped too, but coverage counts maintained sites only.
-    expect(cov.security_audit_at).toBe(1);
-    expect(cov.last_smoke_at).toBe(1);
-    expect(cov.lighthouse_at).toBe(0);
+    expect(cov.security_audit_at).toEqual({ value: 1 });
+    expect(cov.last_smoke_at).toEqual({ value: 1 });
+    expect(cov.prismic_models_checked_at).toEqual({ value: 0 });
+    // Lighthouse was still running at the write: its stamps land after it, so not 0.
+    expect(cov.lighthouse_at).toEqual({
+      value: null,
+      reason: "run 105 was still running when this row was written",
+    });
+  });
+
+  it("counts a stamp in the same second as a run start given without milliseconds", async () => {
+    await exec(
+      "UPDATE site_health SET last_smoke_at = '2026-10-26T06:07:10.500Z' WHERE site_id = 'recB'",
+    );
+    await write(NIGHT_RUN, FULL_LOG);
+    expect((await only()).coverage.value!.last_smoke_at).toEqual({ value: 2 });
   });
 });
 
@@ -449,6 +462,28 @@ describe("the runs that are not a full night", () => {
     expect(c.merges).toEqual([
       { runId: 9003, startedAt: "2026-10-26T16:51:05Z", steps: ["fleet-smoke.yml"] },
     ]);
+  });
+
+  it("an --only dispatch that failed never overwrites the result the night holds", async () => {
+    await write(NIGHT_RUN, FULL_LOG);
+    const failed = logOf(
+      ["NIGHTLY fleet-smoke.yml dispatch=failed error=POST …/dispatches: 500 boom"],
+      "NIGHTLY_CONDUCTOR_SUMMARY dispatched=0 completed=0 wait_exceeded=0 skipped=0 dispatch_failed=1 total=1",
+    );
+    await write(
+      {
+        ...NIGHT_RUN,
+        id: 9005,
+        createdAt: "2026-10-26T16:51:00Z",
+        startedAt: "2026-10-26T16:51:05Z",
+      },
+      failed,
+    );
+    expect((await only()).steps["fleet-smoke.yml"]).toEqual({
+      outcome: "completed",
+      runId: 106,
+      conclusion: "failure",
+    });
   });
 
   it("a daytime --only run never makes a row of its own date", async () => {
@@ -580,6 +615,26 @@ describe("the next night", () => {
     });
   });
 
+  it("re-running a night after a later one exists merges its steps and keeps its counts", async () => {
+    await write(NIGHT_RUN, FULL_LOG);
+    await event("e9", "pr_automerged", "2026-10-26T12:00:00Z");
+    await write(NEXT, FULL_LOG, {}, new Date("2026-10-27T08:20:00Z"));
+    const before = (await rows()).find((r) => r.night === "2026-10-25")!;
+    // "Re-run all jobs" on the 10-25 conductor, three days on: the guard skips nothing.
+    const out = await write(
+      { ...NIGHT_RUN, attempt: 2, startedAt: "2026-10-28T16:00:00Z" },
+      FULL_LOG.replace("run=106 conclusion=failure", "run=106 conclusion=success"),
+      {},
+      new Date("2026-10-28T16:30:00Z"),
+    );
+    expect(out).toEqual({ action: "merged", night: "2026-10-25" });
+    const after = (await rows()).find((r) => r.night === "2026-10-25")!;
+    expect(after.writtenAt).toBe(before.writtenAt);
+    expect(after.counts.events).toEqual(before.counts.events);
+    expect(after.counts.coverage).toEqual(before.counts.coverage);
+    expect(after.counts.steps["fleet-smoke.yml"]).toMatchObject({ conclusion: "success" });
+  });
+
   it("never prunes an old night: the table is the history", async () => {
     await exec(
       "INSERT INTO fleet_daily (night, counts, written_at) VALUES ('2026-06-01', ?, '2026-06-02T08:00:00Z')",
@@ -612,7 +667,7 @@ describe("the dependency lists", () => {
 
   it("a merge re-reads the coverage its steps stamped", async () => {
     await write(NIGHT_RUN, FULL_LOG);
-    expect((await only()).coverage.value!.last_smoke_at).toBe(1);
+    expect((await only()).coverage.value!.last_smoke_at).toEqual({ value: 1 });
     await exec("UPDATE site_health SET last_smoke_at = ? WHERE site_id = 'recB'", [
       "2026-10-26T17:20:00.000Z",
     ]);
@@ -625,7 +680,7 @@ describe("the dependency lists", () => {
       },
       ONLY_SMOKE_LOG,
     );
-    expect((await only()).coverage.value!.last_smoke_at).toBe(2);
+    expect((await only()).coverage.value!.last_smoke_at).toEqual({ value: 2 });
   });
 
   it("a deps re-read that fails during a merge keeps the night's reading", async () => {

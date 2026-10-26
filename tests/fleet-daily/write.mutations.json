@@ -297,5 +297,70 @@
     ],
     "test": "tests/fleet-daily/write.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r3-running-coverage-zero",
+    "why": "Review round 3: a step still running at the write stores 0 coverage",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "        id === undefined",
+        "replace": "        true"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-older-night-replaced",
+    "why": "Review round 3: re-running a night after a later one exists replaces it, re-counting windows",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "if (same && (log.summary!.skipped > 0 || rows.some((r) => r.night > night)))",
+        "replace": "if (same && log.summary!.skipped > 0)"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-older-night-reread",
+    "why": "Review round 3: a merge into an older night re-reads a later night's stamps",
+    "edits": [
+      {
+        "file": "src/fleet-daily/write.ts",
+        "find": "  if (rows.some((r) => r.night > target.night)) {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-failed-dispatch-overwrites",
+    "why": "Review round 3: an --only dispatch that failed overwrites the night's real result",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "!(s.outcome === \"failed\" && target.steps[f] != null && target.steps[f]!.outcome !== \"failed\"),",
+        "replace": "true,"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-same-second-missed",
+    "why": "Review round 3: a stamp in the run start's second is missed by a text compare",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const at = new Date(sinceIso).toISOString();",
+        "replace": "  const at = sinceIso;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
   }
 ]

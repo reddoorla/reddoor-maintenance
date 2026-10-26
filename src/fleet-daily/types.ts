@@ -65,8 +65,9 @@ export type FleetDailyCounts = {
   }>;
   /** Open alarm items by the key's prefix (`vuln`, `renovate`, `url-unresolved`, …). */
   signals: Measured<Record<string, number>>;
-  /** Per site_health stamp column: sites stamped since the run started. */
-  coverage: Measured<Record<string, number>>;
+  /** Per site_health stamp column: maintained sites stamped since the run started.
+   *  A column whose step was still running at the write is null with a reason. */
+  coverage: Measured<Record<string, Measured<number>>>;
   deps: Measured<{ sites: Record<string, DepsSite>; behind: number }>;
   /** Submissions by status, all time, and how many the client was told about. */
   leads: Measured<{

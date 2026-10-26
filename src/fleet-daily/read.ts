@@ -38,6 +38,18 @@ export async function readRecentRows(db: Db, limit = 7): Promise<StoredRow[]> {
   }));
 }
 
+/** One night's row, or null. */
+export async function readRow(db: Db, night: string): Promise<StoredRow | null> {
+  const r = await db
+    .selectFrom("fleet_daily")
+    .select(["night", "counts", "written_at"])
+    .where("night", "=", night)
+    .executeTakeFirst();
+  return r
+    ? { night: r.night, counts: JSON.parse(r.counts) as FleetDailyCounts, writtenAt: r.written_at }
+    : null;
+}
+
 /** Insert the night, or replace it: a re-run of the same night overwrites. */
 export async function upsertRow(db: Db, row: StoredRow): Promise<void> {
   const values = {
@@ -163,13 +175,16 @@ export const COVERAGE_STAMPS = [
  *  (the same set as the deps lists, so the row agrees with itself). */
 export async function readCoverage(db: Db, sinceIso: string): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
+  // Stamps are `toISOString()` (milliseconds); a run start may come without them, and
+  // "…:12Z" sorts after "…:12.500Z" as text. Compare like with like.
+  const at = new Date(sinceIso).toISOString();
   for (const col of COVERAGE_STAMPS) {
     const r = await db
       .selectFrom("site_health")
       .innerJoin("sites", "sites.id", "site_health.site_id")
       .select(sql<number>`count(*)`.as("n"))
       .where("sites.status", "=", "maintained")
-      .where(`site_health.${col}`, ">=", sinceIso)
+      .where(`site_health.${col}`, ">=", at)
       .executeTakeFirstOrThrow();
     out[col] = Number(r.n);
   }
