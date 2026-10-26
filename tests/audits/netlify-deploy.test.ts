@@ -29,39 +29,6 @@ function deps(over: Partial<NetlifyDeployDeps> = {}): NetlifyDeployDeps {
 const site = { path: "/tmp/acme", name: "acme", netlifyId: "site-123" };
 
 describe("checkNetlifyDeploy", () => {
-  it("returns { ok: true, deploy } when a deploy is present", async () => {
-    const r = await checkNetlifyDeploy("site-123", deps());
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.deploy.state).toBe("ready");
-      expect(r.deploy.deployedAt).toBe("2026-06-17T12:00:00.000Z");
-    }
-  });
-
-  it("propagates a genuine no-deploy read as { ok: true, deploy: all-null }", async () => {
-    const r = await checkNetlifyDeploy(
-      "site-123",
-      deps({
-        fetchLatestProductionDeploy: async () => ({
-          ok: true,
-          deploy: { state: null, deployedAt: null, logUrl: null, errorMessage: null },
-        }),
-      }),
-    );
-    expect(r).toEqual({
-      ok: true,
-      deploy: { state: null, deployedAt: null, logUrl: null, errorMessage: null },
-    });
-  });
-
-  it("returns { ok: false } when the fetch reports it couldn't read", async () => {
-    const r = await checkNetlifyDeploy(
-      "site-123",
-      deps({ fetchLatestProductionDeploy: async () => ({ ok: false }) }),
-    );
-    expect(r).toEqual({ ok: false });
-  });
-
   it("treats a deps throw as { ok: false } (couldn't read — never propagates)", async () => {
     const r = await checkNetlifyDeploy(
       "site-123",

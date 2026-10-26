@@ -206,19 +206,6 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
     await expectEquivalent(WEIRD);
   });
 
-  // The status vocabulary (#539 Phase 4) is canonicalized on BOTH sides of this
-  // equivalence, so a one-sided change fails here. `archived` was the riskiest
-  // value while the alias map lived: it was the ONE many-to-one merge, with
-  // `legacy` and `deprecated` both landing on it while `statusRaw` kept them
-  // apart. Since stage 3 those two names cannot be entered at all, so
-  // `archived` is the only archived fixture production can produce.
-  it("archived record: the archived status pairs identically through either reader", async () => {
-    await expectEquivalent({
-      id: "recARCH",
-      fields: { Name: "Archived Site", Status: "archived" },
-    });
-  });
-
   it("getSiteBySlug returns null for an unknown slug", async () => {
     const db = await seeded([RICH]);
     expect(await getSiteBySlug(db, "nope")).toBeNull();

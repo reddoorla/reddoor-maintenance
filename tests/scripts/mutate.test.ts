@@ -538,6 +538,25 @@ describe("mutate, against a real repo", () => {
     expect(calls.filter((c) => c.cmd.endsWith("svelte-kit"))).toHaveLength(1);
   });
 
+  // Since #1740 the cockpit's SvelteKit config is vite.cockpit.config.ts; a bare
+  // `svelte-kit sync` writes a root .svelte-kit/ instead and the tree is dirty at baseline.
+  it("runs the sync the repo's cockpit:sync script names, so it uses the cockpit's config", async () => {
+    const f = withCockpit();
+    writeFileSync(
+      join(f.dir, "package.json"),
+      JSON.stringify({
+        scripts: { "cockpit:sync": "svelte-kit sync --config vite.cockpit.config.ts" },
+      }),
+    );
+    sh(f.dir, "git", ["add", "-A"]);
+    sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "p"]);
+    const p = sidecar(f.side, [toValue("kill", "fail")]);
+    const { run, calls } = syncSpy();
+    await withEnv({ MUTATE_FAKE_LOG: f.log }, () => mutate(opts(p), { cwd: f.dir, run, ...quiet }));
+    const sync = calls.find((c) => c.cmd.endsWith("/node_modules/.bin/svelte-kit"));
+    expect(sync?.args).toEqual(["sync", "--config", "vite.cockpit.config.ts"]);
+  });
+
   it("does not run svelte-kit sync when the worktree has no cockpit/, nor in place", async () => {
     const f = fixture();
     const p = sidecar(f.side, [toValue("kill", "fail")]);

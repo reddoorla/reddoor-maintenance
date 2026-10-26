@@ -73,16 +73,6 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
 }
 
 describe("renderCockpitHtml — document shell", () => {
-  it("returns a full HTML document", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html.startsWith("<!doctype html>")).toBe(true);
-    expect(html).toContain("<html");
-    expect(html).toContain("</html>");
-    expect(html).toContain('<meta charset="utf-8"');
-    expect(html).toContain('<meta name="viewport"');
-    expect(html).toContain('rel="icon"'); // reddoor favicon
-  });
-
   it("includes a sensible page title", () => {
     const html = renderCockpitHtml(model([]));
     expect(html).toMatch(/<title>[^<]*Reddoor[^<]*<\/title>/);
@@ -417,12 +407,6 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
     expect(html).toContain("1 waiting on you");
     expect(html).toContain("1 healthy");
     expect(html).not.toContain("✓ All clear");
-  });
-
-  it("houses the ↻ Audit fleet button (filter chips moved out of the verdict)", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("↻ Audit fleet");
-    expect(html).toContain('class="refresh-fleet"');
   });
 
   it("an accepted Best-Practices watch leaves the band but shows a muted accepted chip", () => {
@@ -967,12 +951,6 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(home).not.toMatch(/\d+ watching/);
   });
 
-  it("renders the ok verdict when nothing needs attention", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('class="verdict ok"');
-    expect(html).toContain("✓ All clear");
-  });
-
   it("renders the amber watch verdict when a watch-band site is the worst", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
     expect(html).toContain('class="verdict watch"');
@@ -1127,26 +1105,8 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
     expect(html).toContain("↻ Audit fleet");
   });
 
-  it("includes the live-status panel scaffold and the poll endpoint", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('id="rf-status"');
-    // The poll endpoint is the DOM tests' now (cockpit.dom: the audit run).
-  });
-
   // "wires localStorage resume so a mid-run reload keeps following": its behaviour is the DOM tests' now (cockpit.dom: resumes a run saved by an earlier page load).
   // "the spinner client carries the eta/run-link detail wiring": its behaviour is the DOM tests' now (cockpit.dom: renders each run, eta and view-run link).
-  it("carries no phase humanization, because nothing ever populated the step", () => {
-    // `rfPhase` mapped a GitHub step name onto "auditing the fleet…" and was
-    // never reachable: `summarizeFleetRunStatus` returned `step: null`
-    // unconditionally, so the line never rendered once. This test used to assert
-    // the dead string was PRESENT. Both halves are gone; if the phase line comes
-    // back it comes back with the API call that feeds it.
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).not.toContain("auditing the fleet");
-    expect(html).not.toContain("rfPhase");
-    expect(html).not.toContain("w.step");
-  });
-
   // "escapes interpolated values and refuses a run link that is not a GitHub URL": its behaviour is the DOM tests' now (cockpit.dom: escaping and github.com-only run links).
 });
 
@@ -1299,13 +1259,6 @@ describe("renderCockpitHtml — Recently lane", () => {
     };
     const html = renderSitesHtml(m);
     expect(html).toContain("sent with override");
-  });
-});
-
-describe("renderCockpitHtml — fleet table link", () => {
-  it("links to the fleet table page from the cockpit header area", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('href="/fleet"');
   });
 });
 

@@ -584,5 +584,18 @@
     ],
     "test": "tests/scripts/mutate.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M50-sync-ignores-cockpit-config",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "return m ? m[1].split(/\\s+/) : [\"sync\"];",
+        "replace": "return [\"sync\"];"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red",
+    "why": "A bare sync writes a root .svelte-kit/ since #1740 and dirties the tree at baseline."
   }
 ]
