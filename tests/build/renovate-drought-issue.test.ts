@@ -133,6 +133,10 @@ if (group === "issue" && sub === "list") {
 }
 if (group === "issue" && sub === "view") {
   if (process.env.GH_FAIL_VIEW) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+  if (process.env.GH_FAIL_COMMENTS && (flag("--json") ?? "").split(",").includes("comments")) {
+    process.stderr.write("HTTP 502\\n");
+    process.exit(1);
+  }
   const found = issues.find((r) => r.number === Number(rest[0]));
   if (!found) { process.stderr.write("no such issue\\n"); process.exit(1); }
   const fields = (flag("--json") ?? "body").split(",");
@@ -536,6 +540,54 @@ describe("the close step closes only on evidence", () => {
       "<!-- renovate-drought-unseen: reddoorla/espada -->",
     );
     expect(note3[0]!.flag("--body")).not.toMatch(/^WARN {4}reddoorla\/revogen/m);
+  });
+
+  it("a set that flaps between two values posts one note per distinct set, not one a night (#1632)", async () => {
+    const issue = await droughtIssue(950, [
+      { name: "espada", window: FROZEN },
+      { name: "revogen", window: FROZEN },
+    ]);
+    // espada is gone for good; revogen's probe 502s on some nights and
+    // delivers on others, so the unseen set alternates.
+    const fail = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY, probeThrows: true },
+      { name: "pwd", window: HEALTHY },
+    ]);
+    const ok = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY },
+      { name: "pwd", window: HEALTHY },
+    ]);
+    const comments: { body: string }[] = [];
+    const posted: number[] = [];
+    for (const night of [fail, ok, fail, ok, fail]) {
+      const r = await runStep({
+        step: CLOSE_STEP,
+        sweep: night.output,
+        corpus: corpus([{ ...issue, comments: [...comments] }]),
+      });
+      const notes = r.calls.filter((c) => c.sub === "comment");
+      posted.push(notes.length);
+      for (const n of notes) comments.push({ body: n.flag("--body")! });
+    }
+    expect(posted).toEqual([1, 1, 0, 0, 0]);
+  });
+
+  it("posts nothing, and warns, when the issue's comments cannot be read (#1632)", async () => {
+    const issue = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
+    const s = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r = await runStep({
+      step: CLOSE_STEP,
+      sweep: s.output,
+      corpus: corpus([issue]),
+      env: { GH_FAIL_COMMENTS: "1" },
+    });
+    expect(r.calls).toEqual([]);
+    expect(r.out).toContain("::warning::could not read the comments on #950");
   });
 
   it("refuses an issue whose body names no dry repo", async () => {

@@ -29,7 +29,7 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-security.yml",
-        "find": "if [ \"$last\" = \"$marker\" ]; then",
+        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
         "replace": "if false; then"
       }
     ],
@@ -41,8 +41,8 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-security.yml",
-        "find": "if [ \"$last\" = \"$marker\" ]; then",
-        "replace": "if [ -n \"$last\" ]; then"
+        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
+        "replace": "if printf '%s\\n' \"$comments\" | grep -qF \"<!-- renovate-drought-unseen:\"; then"
       }
     ],
     "test": "tests/build/renovate-drought-issue.test.ts",
@@ -79,6 +79,30 @@
         "file": ".github/workflows/fleet-security.yml",
         "find": " \"went to a branch other than the default\" means its feature-update Renovate merges landed on another branch (the staging flow), where they reach production only through the promotion PR, which the sweep does not measure (#1686). None of these",
         "replace": " Neither"
+      }
+    ],
+    "test": "tests/build/renovate-drought-issue.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M7-1632-newest-marker-only",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "if printf '%s\\n' \"$comments\" | grep -qxF \"$marker\"; then",
+        "replace": "if [ \"$(printf '%s\\n' \"$comments\" | grep -F \"<!-- renovate-drought-unseen:\" | tail -n1)\" = \"$marker\" ]; then"
+      }
+    ],
+    "test": "tests/build/renovate-drought-issue.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M8-1632-comments-read-tolerated",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "comments=$(gh issue view \"$n\" --json comments --jq '.comments[]?.body')",
+        "replace": "comments=$(gh issue view \"$n\" --json comments --jq '.comments[]?.body' || true)"
       }
     ],
     "test": "tests/build/renovate-drought-issue.test.ts",

@@ -528,16 +528,22 @@ jobs:
             if [ -n "$unseen" ]; then
               echo "not closing #$n — this sweep did not see deliver:$unseen"
               # Say so on the issue (#1632), once per set of repos: the marker
-              # carries the set, and a night whose set matches the newest marker
-              # posts nothing. A repo that went private or was archived drops out
-              # of the sweep and would otherwise hold the issue in silence.
-              marker="<!-- renovate-drought-unseen:$unseen -->"
+              # carries the set, and a night whose set matches ANY earlier marker
+              # posts nothing, so a set that flaps between two values posts twice,
+              # not nightly. A repo that went private or was archived drops out
+              # of the sweep and would otherwise hold the issue in silence. Only
+              # owner/repo tokens go into the marker, so a hand-edited body cannot
+              # close the HTML comment early.
+              marked=""
+              for repo in $unseen; do
+                [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] && marked="$marked $repo"
+              done
+              marker="<!-- renovate-drought-unseen:$marked -->"
               if ! comments=$(gh issue view "$n" --json comments --jq '.comments[]?.body'); then
                 echo "::warning::could not read the comments on #$n; not commenting, so a failed read never repeats the note"
                 continue
               fi
-              last=$(printf '%s\n' "$comments" | grep -F "<!-- renovate-drought-unseen:" | tail -n1 || true)
-              if [ "$last" = "$marker" ]; then
+              if printf '%s\n' "$comments" | grep -qxF "$marker"; then
                 echo "#$n already names these repos"
                 continue
               fi
