@@ -131,14 +131,14 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
       [item({ key: "turnstile:recSITE", kind: "turnstile" })],
       NOW,
     );
-    expect(alarmed.tier).toBe("attention");
+    expect(alarmed.tier).toBe("broken");
   });
 });
 
 describe("assignTier", () => {
   it("is 'attention' when the site has any attention item", () => {
     const r = assignTier(site(), [item()], NOW);
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.watchReasons).toEqual([]);
   });
 
@@ -170,12 +170,12 @@ describe("assignTier", () => {
       [item({ kind: "lighthouse", severity: "warning" })],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
   });
 
   it("is 'attention' when the latest production deploy failed (no other items)", () => {
-    expect(assignTier(site({ deployStatus: "error" }), [], NOW).tier).toBe("attention");
-    expect(assignTier(site({ deployStatus: "failed" }), [], NOW).tier).toBe("attention");
+    expect(assignTier(site({ deployStatus: "error" }), [], NOW).tier).toBe("broken");
+    expect(assignTier(site({ deployStatus: "failed" }), [], NOW).tier).toBe("broken");
   });
 
   it("does NOT escalate a ready / building / unknown deploy to attention", () => {
@@ -213,14 +213,14 @@ describe("assignTier", () => {
         [item({ kind: "turnstile", severity: "critical", key: "turnstile:recSITE" })],
         NOW,
       ).tier,
-    ).toBe("attention");
+    ).toBe("broken");
     expect(
       assignTier(
         site({ status: "launching" }),
         [item({ kind: "notify-bounce", severity: "critical", key: "notify-bounce:recSITE" })],
         NOW,
       ).tier,
-    ).toBe("attention");
+    ).toBe("broken");
   });
 
   it("a vuln pierces the pre-launch mute ONLY once its Renovate auto-fix is exhausted", () => {
@@ -230,7 +230,7 @@ describe("assignTier", () => {
     expect(assignTier(site({ status: "launching" }), [item()], NOW).tier).toBe("pre-launch");
     expect(
       assignTier(site({ status: "launching" }), [item({ autoFixExhausted: true })], NOW).tier,
-    ).toBe("attention");
+    ).toBe("broken");
   });
 
   it("default-branch CI red pierces the pre-launch mute despite its warning severity", () => {
@@ -239,7 +239,7 @@ describe("assignTier", () => {
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
   });
 
   it("accept keys can never mute a pierced pre-launch alarm", () => {
@@ -253,7 +253,7 @@ describe("assignTier", () => {
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
   });
 
   it("routes an accepted Lighthouse watch category to acceptedReasons and stays healthy", () => {
@@ -319,7 +319,7 @@ describe("assignTier", () => {
     const s = acked({ prismicModelsDrift: `${ACKED_DRIFT}\nREMOVED field hero.subtitle` });
     const card = buildCockpitModel([s], [], {}, "https://x.example", NOW).cards[0]!;
     expect(card.items.map((i) => i.key)).toEqual([`prismic-drift:${s.id}`]);
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("broken");
     expect(card.acceptedReasons).toEqual([]);
   });
 
@@ -559,7 +559,7 @@ describe("assignTier", () => {
 
   it("returns empty acceptedReasons when the site has attention items", () => {
     const r = assignTier(site({ acceptedWatchConditions: ["Best Practices"] }), [item()], NOW);
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.acceptedReasons).toEqual([]);
   });
 });
@@ -746,10 +746,10 @@ describe("buildCockpitModel", () => {
     );
     const bad = m.cards.find((c) => c.site.name === "Bad")!;
     const good = m.cards.find((c) => c.site.name === "Good")!;
-    expect(bad.tier).toBe("attention");
+    expect(bad.tier).toBe("broken");
     expect(bad.items).toHaveLength(1);
     expect(good.tier).toBe("healthy");
-    expect(m.summary).toMatchObject({ attention: 1, healthy: 1, criticalHighVulns: 3 });
+    expect(m.summary).toMatchObject({ broken: 1, healthy: 1, criticalHighVulns: 3 });
   });
 
   it("surfaces bounced lead notifications as a CRITICAL item (notify-bounce wiring)", () => {
@@ -766,7 +766,7 @@ describe("buildCockpitModel", () => {
       new Map([["a", { total: 4, permanent: 4 }]]),
     );
     const espada = m.cards.find((c) => c.site.name === "Espada")!;
-    expect(espada.tier).toBe("attention");
+    expect(espada.tier).toBe("broken");
     expect(espada.items.map((i) => i.key)).toContain("notify-bounce:a");
     const item = espada.items.find((i) => i.kind === "notify-bounce")!;
     expect(item.severity).toBe("critical");
@@ -796,7 +796,7 @@ describe("buildCockpitModel", () => {
       new Map([["espada", 2]]),
     );
     const espada = m.cards.find((c) => c.site.name === "Espada")!;
-    expect(espada.tier).toBe("attention");
+    expect(espada.tier).toBe("broken");
     const item = espada.items.find((i) => i.kind === "deadletter")!;
     expect(item).toMatchObject({ key: "deadletter:espada", severity: "critical", metric: 2 });
     expect(m.cards.find((c) => c.site.name === "Fine")!.tier).toBe("healthy");
@@ -938,14 +938,14 @@ describe("buildCockpitModel", () => {
         new Map([["espada", "2026-06-10T08:00:00.000Z"]]),
       );
       const card = m.cards.find((c) => c.site.name === "Espada")!;
-      expect(card.tier).toBe("attention");
+      expect(card.tier).toBe("broken");
       expect(card.items.map((i) => i.key)).toContain("deadletter:espada");
       expect(m.cardless ?? []).toEqual([]);
     });
 
     it("aged 12 h: CRITICAL on the card and in the feed, with the age in the title", () => {
       const m = model("2026-06-11T00:00:00.000Z");
-      expect(m.cards[0]!.tier).toBe("attention");
+      expect(m.cards[0]!.tier).toBe("broken");
       const item = m.cards[0]!.items.find((i) => i.kind === "deadletter")!;
       expect(item.severity).toBe("critical");
       expect(item.title).toMatch(/^2 leads dead-lettered, the oldest not replayed for 12 h/);
@@ -975,7 +975,7 @@ describe("buildCockpitModel", () => {
       new Map(),
       new Map([["pre-launch", 1]]),
     );
-    expect(m.cards[0]!.tier).toBe("attention");
+    expect(m.cards[0]!.tier).toBe("broken");
     expect(m.cards[0]!.items.map((i) => i.kind)).toContain("deadletter");
   });
 
@@ -998,7 +998,7 @@ describe("buildCockpitModel", () => {
     const card = m.cards.find((c) => c.site.name === "Launching")!;
     expect(card.tier).toBe("pre-launch");
     expect(card.items).toEqual([]); // muted noise never reaches the chips
-    expect(m.summary.attention).toBe(0);
+    expect(m.summary.broken).toBe(0);
     expect(m.summary.preLaunch).toBe(1);
     // A still-muted pre-launch card must never surface as "needs you".
     const feed = buildNeedsYouFeed(m);
@@ -1025,7 +1025,7 @@ describe("buildCockpitModel", () => {
     );
     const card = m.cards.find((c) => c.site.name === "Launching")!;
     expect(card.tier).toBe("pre-launch");
-    expect(m.summary.attention).toBe(0);
+    expect(m.summary.broken).toBe(0);
     expect(m.summary.preLaunch).toBe(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
@@ -1047,7 +1047,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.find((c) => c.site.name === "Launching")!.tier).toBe("attention");
+    expect(m.cards.find((c) => c.site.name === "Launching")!.tier).toBe("broken");
     const feed = buildNeedsYouFeed(m);
     const row = feed.find((r) => r.siteName === "Launching")!;
     expect(row.group).toBe("broken");
@@ -1071,7 +1071,7 @@ describe("buildCockpitModel", () => {
       NOW,
     );
     const card = m.cards.find((c) => c.site.name === "Launching")!;
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("broken");
     expect(card.items).toHaveLength(1);
     expect(card.items[0]!.kind).toBe("ci");
   });
@@ -1102,7 +1102,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    const attn = m.cards.filter((c) => c.tier === "attention").map((c) => c.site.name);
+    const attn = m.cards.filter((c) => c.tier === "broken").map((c) => c.site.name);
     expect(attn).toEqual(["CritHigh", "CritLow", "WarnOnly"]);
   });
 
@@ -1119,7 +1119,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.map((c) => c.tier)).toEqual(["attention", "watch", "healthy", "healthy"]);
+    expect(m.cards.map((c) => c.tier)).toEqual(["broken", "watch", "healthy", "healthy"]);
     expect(m.cards.map((c) => c.site.name)).toEqual(["Bad", "Mid", "Alpha", "Zeta"]);
   });
 
@@ -1202,7 +1202,7 @@ describe("assignTier — structured watchSignals", () => {
 describe("assignTier — an attention site still carries its watch tags (#941)", () => {
   it("an attention item keeps tier 'attention' on a site with a Setup gap, and the gap stays on Setup (#672 step 2)", () => {
     const r = assignTier(site({ status: "maintained", ga4PropertyId: null }), [item()], NOW);
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.setup.map((i) => i.signal)).toEqual(["no-analytics"]);
     expect(r.watchSignals).toEqual([]);
     // Tier-scoped fields stay empty: the card is not on Watch, and nothing that
@@ -1214,7 +1214,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
 
   it("an attention item keeps tier 'attention' and tags a stale repo", () => {
     const r = assignTier(site({ lastCommitAt: "2026-04-01T00:00:00Z" }), [item()], NOW);
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.watchSignals).toEqual(["stale"]);
     expect(r.watchReasons).toEqual([]);
   });
@@ -1227,7 +1227,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       [item({ key: "turnstile:recSITE", kind: "turnstile" })],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.watchSignals).toEqual(["turnstile-unverified"]);
     expect(r.watchReasons).toEqual([]);
   });
@@ -1238,7 +1238,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       [],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.setup.map((i) => i.signal)).toEqual(["no-domain"]);
     expect(r.watchSignals).toEqual([]);
     expect(r.watchReasons).toEqual([]);
@@ -1254,7 +1254,7 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       [item()],
       NOW,
     );
-    expect(r.tier).toBe("attention");
+    expect(r.tier).toBe("broken");
     expect(r.watchSignals).toEqual([]);
     expect(r.setup).toEqual([]);
   });
@@ -1278,10 +1278,10 @@ describe("assignTier — an attention site still carries its watch tags (#941)",
       NOW,
     );
     const broken = m.cards.find((c) => c.site.name === "Broken")!;
-    expect(broken.tier).toBe("attention");
+    expect(broken.tier).toBe("broken");
     expect(broken.setup?.map((i) => i.signal)).toEqual(["search-console-no-property"]);
     expect(broken.watchReasons).toEqual([]);
-    expect(m.summary).toMatchObject({ attention: 1, watch: 0, healthy: 1 });
+    expect(m.summary).toMatchObject({ broken: 1, watch: 0, healthy: 1 });
     expect(m.cards.filter((c) => (c.setup ?? []).length > 0)).toHaveLength(1);
     const feed = buildNeedsYouFeed(m);
     expect(feed).toHaveLength(1);
@@ -1302,9 +1302,9 @@ describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
       BASE,
       NOW,
     );
-    expect(m.cards.find((c) => c.site.name === "Reno")!.tier).toBe("attention");
-    expect(m.cards.find((c) => c.site.name === "CiRed")!.tier).toBe("attention");
-    expect(m.summary).toMatchObject({ renovateFailing: 2, ciRed: 1, attention: 2 });
+    expect(m.cards.find((c) => c.site.name === "Reno")!.tier).toBe("broken");
+    expect(m.cards.find((c) => c.site.name === "CiRed")!.tier).toBe("broken");
+    expect(m.summary).toMatchObject({ renovateFailing: 2, ciRed: 1, broken: 2 });
   });
 
   it("uses lastCommitAt (not audit age) for Watch staleness; null commit is not stale", () => {
@@ -1376,7 +1376,7 @@ describe("fleetLastAuditedAt", () => {
 });
 
 const ZERO_SUMMARY: CockpitSummary = {
-  attention: 0,
+  broken: 0,
   watch: 0,
   healthy: 0,
   preLaunch: 0,
@@ -1396,7 +1396,7 @@ function feedModel(over: Partial<CockpitModel>): CockpitModel {
 function attnCard(name: string, items: AttentionItem[]): SiteCard {
   return {
     site: makeWebsiteRow({ name }),
-    tier: "attention",
+    tier: "broken",
     items,
     watchReasons: [],
     watchSignals: [],

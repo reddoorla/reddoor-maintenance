@@ -1008,7 +1008,7 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     ]);
     expect(html).toContain('data-checklist-for="recREP1"');
     expect(html).toMatch(/pill healthy/); // pass → green
-    expect(html).toMatch(/pill attention/); // fail → red
+    expect(html).toMatch(/pill broken/); // fail → red
     expect(html).toMatch(/pill watch/); // unknown → amber
     // A health-red report keeps its Approve button disabled (server gate).
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);

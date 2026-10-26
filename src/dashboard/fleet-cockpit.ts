@@ -37,7 +37,7 @@ import { isNetlifyAppUrl } from "../util/url.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
 import { searchConsoleMissingLabel } from "./onboarding.js";
 
-export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
+export type Tier = "broken" | "watch" | "healthy" | "pre-launch";
 
 /** Watch-tier thresholds (the soft band beneath the M5 alert floor). */
 const LIGHTHOUSE_FLOOR = 75; // mirrors collectLighthouseAlerts — at/above is not an attention item
@@ -177,7 +177,7 @@ export function assignTier(
     // watch tags either: muted means muted.
     if (items.some(piercesPreLaunchMute))
       return {
-        tier: "attention",
+        tier: "broken",
         watchReasons: [],
         watchAcceptKeys: [],
         watchSignals: [],
@@ -359,7 +359,7 @@ export function assignTier(
   // that were also broken.
   if (broken)
     return {
-      tier: "attention",
+      tier: "broken",
       watchReasons: [],
       watchAcceptKeys: [],
       watchSignals: [...signals],
@@ -448,7 +448,7 @@ export type SubmissionEntry = {
 };
 
 export type CockpitSummary = {
-  attention: number;
+  broken: number;
   watch: number;
   healthy: number;
   /** Count of pre-live "launching" sites still muted as expected pre-launch
@@ -591,7 +591,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     // card is pre-live prep and intentionally never surfaces here as needing you.
     // (A launch-period site with a PIERCING alarm arrives as tier "attention" —
     // assignTier re-tiers it — so genuine pre-launch breaks do reach the feed.)
-    if (card.tier === "attention") {
+    if (card.tier === "broken") {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
       // break. A site with any hard break is broken, and its self-patching vulns are
@@ -668,7 +668,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 }
 
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
-const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2, "pre-launch": 3 };
+const TIER_RANK: Record<Tier, number> = { broken: 0, watch: 1, healthy: 2, "pre-launch": 3 };
 
 /** The fleet attention-item collector run — the SINGLE source of truth for which
  *  signals the cockpit surfaces. buildCockpitModel (over all visible sites) and
@@ -933,7 +933,7 @@ export function buildCockpitModel(
 
   cards.sort((a, b) => {
     if (TIER_RANK[a.tier] !== TIER_RANK[b.tier]) return TIER_RANK[a.tier] - TIER_RANK[b.tier];
-    if (a.tier === "attention") {
+    if (a.tier === "broken") {
       const sevA = a.items.some((i) => i.severity === "critical") ? 0 : 1;
       const sevB = b.items.some((i) => i.severity === "critical") ? 0 : 1;
       if (sevA !== sevB) return sevA - sevB;
@@ -983,7 +983,7 @@ export function buildCockpitModel(
   const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
 
   const summary: CockpitSummary = {
-    attention: cards.filter((c) => c.tier === "attention").length,
+    broken: cards.filter((c) => c.tier === "broken").length,
     watch: cards.filter((c) => c.tier === "watch").length,
     healthy: cards.filter((c) => c.tier === "healthy").length,
     preLaunch: cards.filter((c) => c.tier === "pre-launch").length,

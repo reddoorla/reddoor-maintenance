@@ -80,7 +80,7 @@ describe("/ — the Setup lane", () => {
       gitRepo: null,
     });
     // The site really is broken (its pill is on Sites since #672 step 3).
-    expect(sitesPage([broken, CLEAN])).toContain('class="pill attention"');
+    expect(sitesPage([broken, CLEAN])).toContain('class="pill broken"');
     expect(laneSummary(home([broken, CLEAN]))).toBe("🧰 Setup (1 site)");
   });
 

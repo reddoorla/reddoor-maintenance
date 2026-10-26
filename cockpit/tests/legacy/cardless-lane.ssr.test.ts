@@ -49,7 +49,7 @@ describe("card-less attention items reach the cockpit", () => {
     expect(model.cardless ?? []).toEqual([]);
     const card = model.cards.find((c) => c.site.name === "Acme Co")!;
     expect(card.items.map((i) => i.key)).toContain("deadletter:acme-co");
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("broken");
   });
 
   it("is empty when nothing is card-less", () => {

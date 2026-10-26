@@ -87,7 +87,7 @@ describe("prismic drift wiring — the cockpit", () => {
     const model = buildCockpitModel([site()], [], {}, BASE_URL, NOW);
     const card = model.cards.find((c) => c.site.name === "Espada")!;
     expect(card.items.map((i) => i.key)).toContain("prismic-drift:rec_espada");
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("broken");
   });
 
   it("carries the unknown flavor too — a dead token is not a diverging model", () => {
@@ -115,7 +115,7 @@ describe("prismic drift wiring — the cockpit", () => {
     );
     const card = model.cards.find((c) => c.site.name === "Espada")!;
     expect(card.items.map((i) => i.key)).toContain("prismic-stale:rec_espada");
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("broken");
   });
 
   it("reaches the Needs-you feed, which is what the operator actually reads", () => {
@@ -129,7 +129,7 @@ describe("prismic drift wiring — the cockpit", () => {
   it("reaches the /s/<slug> page header through buildSiteAlarmContext", () => {
     const ctx = buildSiteAlarmContext(site(), [], BASE_URL, NOW);
     expect(ctx.items.map((i) => i.key)).toContain("prismic-drift:rec_espada");
-    expect(ctx.tier).toBe("attention");
+    expect(ctx.tier).toBe("broken");
   });
 
   it("stays quiet on the cockpit for a clean, freshly-swept site", () => {

@@ -168,7 +168,7 @@ async function event(id: string, type: string, createdAt: string): Promise<void>
 
 const MODEL = {
   cards: [
-    { tier: "attention", items: [{ key: "vuln:recA" }, { key: "renovate:recA:12" }], setup: [] },
+    { tier: "broken", items: [{ key: "vuln:recA" }, { key: "renovate:recA:12" }], setup: [] },
     { tier: "watch", items: [], setup: [{ reason: "no GA4" }] },
   ],
   cardless: [{ key: "url-probe-stale" }],
@@ -320,7 +320,7 @@ describe("a full night", () => {
     await write(NIGHT_RUN, FULL_LOG);
     const c = await only();
     expect(c.sites).toEqual({
-      value: { cards: 2, tiers: { attention: 1, watch: 1 }, preLaunch: 1, setup: 1 },
+      value: { cards: 2, tiers: { broken: 1, watch: 1 }, preLaunch: 1, setup: 1 },
     });
     expect(c.signals).toEqual({ value: { vuln: 1, renovate: 1, "url-probe-stale": 1 } });
   });

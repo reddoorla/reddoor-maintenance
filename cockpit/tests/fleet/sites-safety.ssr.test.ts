@@ -47,7 +47,7 @@ describe("Sites — chip text is text", () => {
       cards: [
         card({
           site: acme,
-          tier: "attention",
+          tier: "broken",
           items: [item({ title: "<img src=x onerror=alert(1)> vulns" })],
         }),
       ],

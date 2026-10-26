@@ -372,7 +372,7 @@ export const CASES: Array<[string, SiteInput]> = [
     input({
       alarm: {
         setup: [],
-        tier: "attention",
+        tier: "broken",
         items: [
           { title: "Critical vuln", severity: "critical", kind: "vuln" },
           { title: "Stuck PR", severity: "warning", kind: "renovate", autoFixExhausted: true },

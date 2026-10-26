@@ -108,7 +108,7 @@ export function card(over: Partial<SiteCard> = {}): SiteCard {
 export function handModel(over: Partial<CockpitModel> = {}): CockpitModel {
   return {
     summary: {
-      attention: 0,
+      broken: 0,
       watch: 0,
       healthy: 0,
       preLaunch: 0,
@@ -254,7 +254,7 @@ export function cases(): Array<[string, CockpitModel]> {
               securityVulnsModerate: 0,
               securityVulnsLow: 4,
             }),
-            tier: "attention",
+            tier: "broken",
             items: [
               item({ status: "new", title: `New ${HOSTILE} $& $1` }),
               item({ key: "vuln:y", status: "worse", autoFixExhausted: true, title: "stuck" }),

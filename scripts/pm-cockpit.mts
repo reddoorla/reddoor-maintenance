@@ -260,7 +260,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
   });
 
   for (const card of model.cards) {
-    if (card.tier !== "attention" || card.site.status === "launching") continue;
+    if (card.tier !== "broken" || card.site.status === "launching") continue;
     if (!isFailedDeployStatus(card.site.deployStatus)) continue;
     const slug = siteSlug(card.site.name);
     const reason: DatedReason = {

@@ -853,7 +853,7 @@ exports[`/s/:slug parity with renderSiteDashboardHtml > a health-red pending rep
   "          "approve ≠ send: goes out at the next send, 16:07 UTC (~6h)"",
   "      <ul class="checklist" data-checklist-for="recREP1">",
   "        <li class="check-item">",
-  "          <span class="pill attention" title="broke <img src=x onerror=alert(1)> \\"q\\" & 'a'">",
+  "          <span class="pill broken" title="broke <img src=x onerror=alert(1)> \\"q\\" & 'a'">",
   "            "blocks"",
   "          " Deploy & Function Health "",
   "          <span class="check-note">",

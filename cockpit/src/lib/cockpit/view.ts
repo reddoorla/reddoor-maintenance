@@ -266,7 +266,7 @@ function deployView(site: WebsiteRow, now: Date): DeployView {
 }
 
 const PILL_LABEL: Record<Tier, string> = {
-  attention: "failing",
+  broken: "failing",
   watch: "watch",
   healthy: "ok",
   "pre-launch": "pre-launch",

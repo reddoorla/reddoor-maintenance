@@ -243,7 +243,7 @@ function healthPresentation(status: EvidenceResult): { cls: string; word: string
     case "pass":
       return { cls: "healthy", word: "clear" };
     case "fail":
-      return { cls: "attention", word: "blocks" };
+      return { cls: "broken", word: "blocks" };
     case "n/a":
       return { cls: "na", word: "n/a" };
     default:
@@ -407,7 +407,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
     chips.push({ cls: "chip accepted", title: null, text: `✓ accepted: ${reason}` });
   if (chips.length === 0) return null;
   const label =
-    a.tier === "attention" ? "Needs attention" : a.tier === "watch" ? "Watch" : "Status";
+    a.tier === "broken" ? "Needs attention" : a.tier === "watch" ? "Watch" : "Status";
   return { label, chips };
 }
 

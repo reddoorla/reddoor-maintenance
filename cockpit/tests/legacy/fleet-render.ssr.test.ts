@@ -508,7 +508,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     expect(html).toContain('class="verdict warn"');
     expect(html).toMatch(/⚠ 1 site broken/);
     // The chips are on the Sites row since #672 step 3.
-    expect(renderSitesHtml(m)).toContain('class="pill attention"');
+    expect(renderSitesHtml(m)).toContain('class="pill broken"');
     expect(renderSitesHtml(m)).not.toContain("chip accepted");
   });
 
@@ -769,7 +769,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
         escalated("a"),
       ),
     );
-    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toMatch(/class="pill broken"/);
     expect(html).toContain('data-signals="'); // present on the card
     expect(html).toMatch(/2 critical\/high|3 critical\/high/); // vuln chip text from the collector title
     expect(html).toMatch(/Lighthouse Performance 60/); // lighthouse chip
@@ -789,7 +789,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(html).toMatch(/class="pill pre-launch"/);
-    expect(html).not.toMatch(/class="pill attention"/);
+    expect(html).not.toMatch(/class="pill broken"/);
     // The fleet's only non-green site is pre-launch → calm verdict, not broken.
     expect(home).toContain('class="verdict ok"');
     expect(home).toContain("✓ All clear");
@@ -811,7 +811,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
         }),
       ]),
     );
-    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toMatch(/class="pill broken"/);
     expect(html).not.toMatch(/class="pill pre-launch"/);
     expect(html).not.toContain("✓ All clear");
   });
@@ -943,7 +943,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     // #672 step 3: the verdict is on `/`; the pill and tags on the site's Sites row.
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
-    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toMatch(/class="pill broken"/);
     expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
     expect(html).toMatch(/data-signals="[^"]*\bsearch-console-no-property\b[^"]*"/);
     // Tagged, not re-tiered: the verdict still counts it once, as broken.
