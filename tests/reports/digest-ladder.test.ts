@@ -76,7 +76,7 @@ function site(now: Date, over: Record<string, unknown> = {}): RawRow {
 }
 
 describe("what the digest mails", () => {
-  it("mails Attention, and never a Watch item beside it", async () => {
+  it("mails Attention, and never a Watch item beside it (the email and its send log)", async () => {
     const w = world();
     await run(
       w,
@@ -87,6 +87,8 @@ describe("what the digest mails", () => {
     const html = w.captured[0]!.html;
     expect(html).toContain("Default-branch CI failing");
     expect(html).not.toContain("Renovate PR");
+    const sent = (await w.sendLog.read()).sent;
+    expect(Object.keys(sent)).toEqual(["ci:rec_acme"]);
     // Still in the snapshot: its age counts from there.
     expect(Object.keys(w.snapshot())).toContain("renovate:rec_acme");
   });
@@ -127,6 +129,8 @@ describe("what the digest mails", () => {
     expect(w.captured).toHaveLength(1);
     expect(w.captured[0]!.html).toContain("Attention — fix this week");
     expect(w.captured[0]!.html).toContain("Renovate PR failing CI");
+    // Its first mailing is news, though the snapshot has held it for 7 days.
+    expect(w.captured[0]!.html).toMatch(/>NEW<\/strong> /);
   });
 });
 

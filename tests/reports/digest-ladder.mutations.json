@@ -141,5 +141,18 @@
     ],
     "test": "tests/reports/digest-ladder.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r2-no-mailed-badge",
+    "why": "Review round 2: an item first mailed on its 7th day carries no NEW badge",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "      if (changes.added.includes(it.key)) return { ...it, status: \"new\" };",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
   }
 ]

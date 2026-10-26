@@ -885,14 +885,28 @@ export async function runDigest(
         : await fetchSubmissionsDigestCounts(today);
     const submissions = buildSubmissionsDigestSection(counts, sites);
 
-    const html = renderDigestHtml({ readyForYourYes, needsAttention, submissions });
+    // P1-78d: the badge says what is news in THIS email. An item the last mail did
+    // not carry is NEW, one that rose or grew since is WORSE, though the snapshot,
+    // which also holds the Watch days no mail carried, calls it standing (a Renovate
+    // PR mailed for the first time on its 7th day).
+    const changes = digestChanges(digestLines, sendLog);
+    const badged = needsAttention.map((it): AttentionItem => {
+      // No log yet (the first digest, or an unreadable log): every key reads added,
+      // so the snapshot's own NEW/standing is the better answer.
+      if (sendLog.sentOn === null) return it;
+      if (it.status !== "standing" && it.status !== undefined) return it;
+      if (changes.added.includes(it.key)) return { ...it, status: "new" };
+      if (changes.worse.includes(it.key)) return { ...it, status: "worse" };
+      return it;
+    });
+    const html = renderDigestHtml({ readyForYourYes, needsAttention: badged, submissions });
     const client = options.resend ?? defaultResendClient();
     const to = [operatorEmail()];
     const subject = digestSubject({
       date: digestDateKey(today),
       readyForYourYes,
       needsAttention,
-      changes: digestChanges(digestLines, sendLog),
+      changes,
       lastSentOn: sendLog.sentOn,
     });
     let result: Awaited<ReturnType<typeof client.send>>;
