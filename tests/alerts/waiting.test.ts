@@ -205,10 +205,10 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
     expect(feedFor(flagged("2026-10-01", "vuln:erp"))).toEqual([]);
   });
 
-  it("is on Watch once the window has passed and the vuln is still there", () => {
+  it("is Attention once the window has passed and the vuln is still there (P1-78b)", () => {
     const feed = feedFor(flagged("2026-09-27", "vuln:erp"));
     expect(feed).toHaveLength(1);
-    expect(feed[0]!.group).toBe("watch");
+    expect(feed[0]!.group).toBe("attention");
     expect(feed[0]!.reasons).toEqual([
       "3 critical/high vulns — transitive-only, still present after the 2026-09-28 lockfile window",
     ]);
@@ -219,7 +219,7 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
   });
 
   it("an unread or empty snapshot never hides it", () => {
-    expect(feedFor({}).map((r) => r.group)).toEqual(["watch"]);
+    expect(feedFor({}).map((r) => r.group)).toEqual(["attention"]);
     const m = buildCockpitModel([erp()], [], {}, BASE, NOW);
     expect(m.cards[0]!.items.map((i) => i.kind)).toEqual(["vuln"]);
   });
@@ -279,10 +279,12 @@ describe("a held direct security PR (P1-54: 29 Navy's sharp, 2026-10-13)", () =>
     const row = navy({ renovateFailingCis: 2, githubSignalsAt: "2026-10-19T06:00:00Z" });
     const feed = feedAt(now, row);
     expect(feed).toHaveLength(1);
-    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.group).toBe("attention");
+    // P1-78b: reasons are named worst first: the Attention vuln, then the day-one
+    // Renovate PR, which is Watch.
     expect(feed[0]!.reasons).toEqual([
-      "2 Renovate PRs failing CI",
       "1 critical/high vuln — Renovate has not fixed it since 2026-10-13",
+      "2 Renovate PRs failing CI",
     ]);
   });
 });

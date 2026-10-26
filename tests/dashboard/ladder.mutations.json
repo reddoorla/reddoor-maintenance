@@ -1,0 +1,418 @@
+[
+  {
+    "id": "1-rename-site-missed",
+    "why": "One consumer still reads the old \"attention\" as broken: the site page's Broken header",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "    a.tier === \"broken\"\n      ? \"Broken\"",
+        "replace": "    a.tier === \"attention\"\n      ? \"Broken\""
+      }
+    ],
+    "test": [
+      "cockpit/tests/site/site.ssr.test.ts",
+      "cockpit/tests/legacy/site-alarm-context.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "2-renovate-day1-attention",
+    "why": "renovate: red for 1 day tiers Attention",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": ">= RENOVATE_ATTENTION_DAYS ?",
+        "replace": ">= 0 ?"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-renovate-day7-watch",
+    "why": "renovate: red for 7 days stays Watch",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": ">= RENOVATE_ATTENTION_DAYS ?",
+        "replace": "> RENOVATE_ATTENTION_DAYS ?"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-deploy-no-row",
+    "why": "A failed-deploy-only site gets no Needs-you row, or no age",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectDeployAlerts(sites, baseUrl),\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/scripts/pm-cockpit.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-accept-mutes-attention",
+    "why": "An accept key mutes an Attention reason (here: a site whose accept list names ci reads as if CI were a watch condition)",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "if (level === \"broken\" || level === \"attention\")",
+        "replace": "if (level === \"broken\" || (level === \"attention\" && !accepted.has(\"ci\")))"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-ci-no-pierce",
+    "why": "Red default-branch CI no longer breaks a launching site's mute",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": " || item.severity === \"critical\" || item.kind === \"ci\";",
+        "replace": " || item.severity === \"critical\";"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-url-unresolved-watch",
+    "why": "url-unresolved stays Watch",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": "return it.key === \"url-probe-stale\" ? \"attention\" : \"broken\";",
+        "replace": "return it.key === \"url-probe-stale\" ? \"attention\" : \"watch\";"
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/dashboard/url-resolve-watch.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7b-url-accept-ignored",
+    "why": "url-unresolved's \"url not deployed\" accept stops muting it",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "    if (URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/url-resolve-watch.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-waiting-vuln-on-card",
+    "why": "A self-patching vuln inside its window shows on a card",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  for (const it of tagged) {\n    if (it.waiting === true) continue;",
+        "replace": "  for (const it of tagged) {"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-check-pill-loses-red",
+    "why": "The report-check pill (site/view.ts:246) loses its red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "return { cls: \"broken\", word: \"blocks\" };",
+        "replace": "return { cls: \"attention\", word: \"blocks\" };"
+      }
+    ],
+    "test": ["cockpit/tests/legacy/render.ssr.test.ts", "cockpit/tests/site/site.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-launching-deploy-alarms",
+    "why": "A launching site's failed deploy breaks the mute",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "    if (s.status !== \"maintained\") continue;\n    const state = s.deployStatus;",
+        "replace": "    if (s.status !== \"maintained\" && s.status !== \"launching\") continue;\n    const state = s.deployStatus;"
+      },
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  if (item.kind === \"deploy\") return false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-ladder-0",
+    "why": "fleet_daily still writes ladder_version 0",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "export const LADDER_VERSION = 1;",
+        "replace": "export const LADDER_VERSION = 0;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-launching-deploy-mailed",
+    "why": "A launching site's deploy: is mailed in the digest",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "    if (s.status !== \"maintained\") continue;\n    const state = s.deployStatus;",
+        "replace": "    if (s.status !== \"maintained\" && s.status !== \"launching\") continue;\n    const state = s.deployStatus;"
+      }
+    ],
+    "test": ["tests/reports/digest-collect.test.ts", "tests/dashboard/ladder.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "13-url-no-pierce",
+    "why": "url-unresolved on a launching site leaves the mute in place",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  return itemLevel(item) === \"broken\" || item.severity",
+        "replace": "  return item.severity"
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/dashboard/url-resolve-watch.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "14-pm-loop-kept",
+    "why": "The pm-cockpit failed-deploy loop is kept, so a failed deploy prints two reasons",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  // it, dated by the digest snapshot. The loop that added it here, undated, is gone.\n",
+        "replace": "  // it, dated by the digest snapshot. The loop that added it here, undated, is gone.\n  for (const e of entries)\n    for (const card of model.cards)\n      if (siteSlug(card.site.name) === e.slug && card.site.status !== \"launching\" && isFailedDeployStatus(card.site.deployStatus))\n        e.reasons.push({ text: `latest production deploy ${card.site.deployStatus}`, day: null, how: null });\n"
+      },
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from \"../src/alerts/ladder.js\";",
+        "replace": "import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from \"../src/alerts/ladder.js\";\nimport { isFailedDeployStatus } from \"../src/dashboard/fleet-cockpit.js\";"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15a-probe-stale-broken-pm",
+    "why": "url-probe-stale prints as broken in pm-cockpit",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "const level = it.level ?? levelOf(it, inputs.prior[it.key]?.firstFlaggedAt, now);",
+        "replace": "const level = \"broken\" as const;"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15b-probe-stale-off-triage",
+    "why": "url-probe-stale is missing from the triage page's cardless items",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "      .filter((i) => i.waiting !== true)\n      .map((i) => {",
+        "replace": "      .filter((i) => i.waiting !== true && i.key !== \"url-probe-stale\")\n      .map((i) => {"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-critical-vuln-pierces",
+    "why": "A critical, not-exhausted vulnerability breaks a launching site's mute",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  if (item.kind === \"vuln\") return item.autoFixExhausted === true;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-watch-item-duplicated",
+    "why": "Review round 1: a Watch-level item is copied into the watch reasons, so it shows twice with a false accept hint",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  const hasWatchItem = items.some((it) => itemLevel(it) === \"watch\");",
+        "replace": "  const hasWatchItem = items.some((it) => itemLevel(it) === \"watch\");\n  for (const it of items) if (itemLevel(it) === \"watch\") { watchReasons.unshift(it.title); watchAcceptKeys.unshift(\"\"); }"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-accepted-url-chip-gone",
+    "why": "Review round 1: an accepted dead roster url leaves no visible chip",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))",
+        "replace": "    false"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-verdict-ignores-cardless",
+    "why": "Review round 1: the verdict reads All clear while an Attention item on no card is on the page",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "  const attention = fed.attention + cardlessAt(\"attention\");",
+        "replace": "  const attention = fed.attention;"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-no-age-sort",
+    "why": "Review round 1: rows are not sorted by age",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    if (x.since !== y.since) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-no-age",
+    "why": "Review round 1: rows carry no age",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "          age: ageOf(i.since, now),",
+        "replace": "          age: null,"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-probe-visible-only",
+    "why": "Review round 1: the stale probe counts only the visible sites, not every non-archived row as the digest does",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectUrlResolveAlerts(deadLetterSites, baseUrl, now).filter(",
+        "replace": "    ...collectUrlResolveAlerts(sites, baseUrl, now).filter("
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-newest-not-oldest",
+    "why": "Review round 2 (M2): a row takes its newest item's date, not its oldest",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "if (was === undefined || it.firstFlaggedAt < was) a.since[l] = it.firstFlaggedAt;",
+        "replace": "if (was === undefined || it.firstFlaggedAt > was) a.since[l] = it.firstFlaggedAt;"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-watch-sets-age",
+    "why": "Review round 2 (M3): a Watch item's date sets the row's age",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "if (l === \"watch\" || it.firstFlaggedAt === undefined) continue;",
+        "replace": "if (it.firstFlaggedAt === undefined) continue;\n        if (l === \"watch\") { for (const k of [\"broken\", \"attention\"] as const) { const w = a.since[k]; if (w === undefined || it.firstFlaggedAt < w) a.since[k] = it.firstFlaggedAt; } continue; }"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-age-across-levels",
+    "why": "Review round 2: a Broken row takes the age of an older Attention item",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "(a.since[group] ?? null)",
+        "replace": "([a.since.broken, a.since.attention].filter((d): d is string => d !== undefined).sort()[0] ?? null)"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-cardless-no-age",
+    "why": "Review round 2: a cardless Broken item carries no age",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "age: level === \"watch\" ? null : ageOf(i.firstFlaggedAt ?? null, now),",
+        "replace": "age: null,"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4b-deploy-not-dated",
+    "why": "A failed deploy gets no age: the digest stops collecting deploy:, so digest_state never dates it",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    ...runCollector(\"deploy\", () => collectDeployAlerts(websites, deps.baseUrl)),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-collect.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-renovate-rise-not-new",
+    "why": "Review round 3: a Renovate PR that rose to Attention today is not NEW",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  if (it.kind === \"renovate\" && it.level === \"attention\") {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-watch-makes-row-new",
+    "why": "Review round 4: a Watch item new since yesterday makes a Broken or Attention row NEW",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "(r.level === undefined || group === \"approval\" || GROUP_RANK[r.level] <= GROUP_RANK[group]),",
+        "replace": "true,"
+      }
+    ],
+    "test": "tests/scripts/pm-cockpit.test.ts",
+    "expect": "red"
+  }
+]

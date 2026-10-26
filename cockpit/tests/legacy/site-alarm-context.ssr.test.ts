@@ -111,7 +111,7 @@ describe("buildSiteAlarmContext", () => {
       NOW,
       new Map([["a", { total: 4, permanent: 4 }]]),
     );
-    expect(alarm.tier).toBe("attention");
+    expect(alarm.tier).toBe("broken");
     const bounce = alarm.items.find((i) => i.kind === "notify-bounce")!;
     expect(bounce.severity).toBe("critical");
     expect(bounce.metric).toBe(4);

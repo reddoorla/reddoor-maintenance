@@ -33,7 +33,7 @@ function lane(deadLetters: Record<string, number>, oldest: Record<string, string
     new Map(Object.entries(oldest)),
   );
   const html = withoutComments(renderPage(Page, { data: { view: buildCockpitView(model, NOW) } }));
-  return /<details class="cardless">([\s\S]*?)<\/details>/.exec(html)?.[1] ?? null;
+  return /<details class="cardless"[^>]*>([\s\S]*?)<\/details>/.exec(html)?.[1] ?? null;
 }
 
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();

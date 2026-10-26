@@ -13,6 +13,7 @@ import {
 } from "../../../../src/dashboard/fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/onboarding.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
+import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
 import { isLeadFormType } from "../../../../src/forms/types.js";
 import type { FleetEventType } from "../../../../src/db/fleet-events.js";
 import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
@@ -31,13 +32,22 @@ import { safeUrl } from "../../../../src/util/html.js";
 const DASH = "—";
 
 export type VerdictView = {
-  /** ok = nothing needs you, warn = broken, watch = watch, soft = approvals only. */
-  cls: "ok" | "warn" | "watch" | "soft";
+  /** ok = nothing needs you, warn = broken, attention = fix this week, watch = watch,
+   *  soft = approvals only. */
+  cls: "ok" | "warn" | "attention" | "watch" | "soft";
   line: string;
   meta: string;
 };
 
-export type FeedRowView = { group: NeedsYouGroup; siteName: string; reasons: string; url: string };
+export type FeedRowView = {
+  group: NeedsYouGroup;
+  siteName: string;
+  reasons: string;
+  url: string;
+  /** P1-78b: how long a Broken or Attention row has stood, from the digest's
+   *  `firstFlaggedAt` ("since today", "for 6 days"); null when undated. */
+  age: string | null;
+};
 export type FeedGroupView = { group: NeedsYouGroup; label: string; rows: FeedRowView[] };
 
 export type ChipView = {
@@ -113,34 +123,48 @@ export type CockpitView = {
   /** Attention items on no site card (#786). A held one (OD 87) is left out. A
    *  dead letter carrying a `url` links its site: a site with no card (archived)
    *  still has its page, while a slug that resolves to no site has none. */
-  cardless: Array<{ siteName: string; title: string; href: string | null }>;
+  cardless: Array<{
+    siteName: string;
+    title: string;
+    href: string | null;
+    /** P1-78b: grouped by level, worst first, each row naming its level. */
+    level: Level;
+    levelLabel: string;
+    /** P1-78b: how long it has stood ("for 6 days"); null when undated. */
+    age: string | null;
+  }>;
   inbox: InboxView | null;
 };
 
 /** Per-band site counts for the verdict, derived from the Needs-you feed. */
 function needsYouCounts(feed: NeedsYouItem[]) {
-  let broken = 0;
-  let watch = 0;
-  let approval = 0;
-  for (const i of feed) {
-    if (i.group === "broken") broken++;
-    else if (i.group === "watch") watch++;
-    else approval++;
-  }
-  return { broken, watch, approval };
+  const n = { broken: 0, attention: 0, watch: 0, approval: 0 };
+  for (const i of feed) n[i.group]++;
+  return n;
 }
 
-/** The glance verdict — worst band wins. Green "✓ All clear" on an empty feed;
- *  else red (any broken), amber (watch, nothing broken), or blue (only
- *  approvals). Every lower band's count + the healthy count ride in the meta
- *  line (zero terms omitted), followed by the audit-recency suffix. */
+const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
+/** The glance verdict, on the ladder (P1-78b): "1 site broken · 2 need attention ·
+ *  3 to watch · 1 waiting on your yes". Each band that has sites is named, worst
+ *  first; the colour is the worst band's. Green "✓ All clear" on an empty feed. The
+ *  healthy, pre-launch and archived counts and the audit recency ride in the meta
+ *  line (zero terms omitted). */
 function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictView {
   const auditedIso = fleetLastAuditedAt(model.cards);
   const auditedTerm = auditedIso
     ? `fleet last audited ${relativeTimeFromNow(auditedIso, now)}`
     : null;
   const total = model.cards.length;
-  const { broken, watch, approval } = needsYouCounts(feed);
+  const fed = needsYouCounts(feed);
+  // An item on no site card (an unknown-slug dead letter, the stale url probe) is
+  // still on this page, so it counts in the verdict too: one row each, never "All clear".
+  const cardless = (model.cardless ?? []).filter((i) => i.waiting !== true);
+  const cardlessAt = (l: Level) =>
+    cardless.filter((i) => (i.level ?? levelOf(i, undefined, now)) === l).length;
+  const broken = fed.broken + cardlessAt("broken");
+  const attention = fed.attention + cardlessAt("attention");
+  const { watch, approval } = fed;
   // Pre-launch cards never enter the feed and are neither healthy nor broken.
   const preLaunch = model.summary.preLaunch;
   const preLaunchTerm = preLaunch > 0 ? `${preLaunch} pre-launch` : null;
@@ -149,55 +173,52 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
   const archivedTerm = archivedCount > 0 ? `${archivedCount} archived` : null;
   // Clamp: feed counts include pending-report sites, which may not be among the
   // visible cards, so total − feed could otherwise underflow.
-  const healthy = Math.max(0, total - (broken + watch + approval + preLaunch));
+  const healthy = Math.max(0, total - (fed.broken + fed.attention + watch + approval + preLaunch));
   const make = (cls: VerdictView["cls"], line: string, terms: Array<string | null>) => ({
     cls,
     line,
     meta: terms.filter(Boolean).join(" · "),
   });
 
-  if (broken === 0 && watch === 0 && approval === 0) {
+  if (broken + attention + watch + approval === 0) {
     const healthyWord = healthy > 0 ? `${healthy} site${healthy === 1 ? "" : "s"} healthy` : null;
     return make("ok", "✓ All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
   }
-  const watchTerm = watch > 0 ? `${watch} watching` : null;
-  const approvalTerm = approval > 0 ? `${approval} waiting on you` : null;
+  const line = [
+    broken > 0 ? `${broken} ${plural(broken, "site", "sites")} broken` : null,
+    attention > 0 ? `${attention} ${plural(attention, "needs", "need")} attention` : null,
+    watch > 0 ? `${watch} to watch` : null,
+    approval > 0 ? `${approval} waiting on your yes` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const healthyTerm = healthy > 0 ? `${healthy} healthy` : null;
-  if (broken > 0) {
-    return make("warn", `⚠ ${broken} site${broken === 1 ? "" : "s"} broken`, [
-      watchTerm,
-      approvalTerm,
-      healthyTerm,
-      preLaunchTerm,
-      archivedTerm,
-      auditedTerm,
-    ]);
-  }
-  if (watch > 0) {
-    return make("watch", `${watch} site${watch === 1 ? "" : "s"} to watch`, [
-      approvalTerm,
-      healthyTerm,
-      preLaunchTerm,
-      archivedTerm,
-      auditedTerm,
-    ]);
-  }
-  return make("soft", `${approval} waiting on you`, [
-    healthyTerm,
-    preLaunchTerm,
-    archivedTerm,
-    auditedTerm,
-  ]);
+  const cls: VerdictView["cls"] =
+    broken > 0 ? "warn" : attention > 0 ? "attention" : watch > 0 ? "watch" : "soft";
+  return make(cls, line, [healthyTerm, preLaunchTerm, archivedTerm, auditedTerm]);
 }
 
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
   broken: "Broken",
+  attention: "Attention",
   watch: "Watch",
   approval: "Waiting on your yes",
 };
 
-function feedGroups(feed: NeedsYouItem[]): FeedGroupView[] {
-  return (["broken", "watch", "approval"] as const)
+const LEVEL_LABEL: Record<Level, string> = {
+  broken: "Broken",
+  attention: "Attention",
+  watch: "Watch",
+};
+
+function ageOf(since: string | null, now: Date): string | null {
+  if (since === null) return null;
+  const days = daysFlagged(since, now);
+  return days === 0 ? "since today" : `for ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function feedGroups(feed: NeedsYouItem[], now: Date): FeedGroupView[] {
+  return (["broken", "attention", "watch", "approval"] as const)
     .map((g) => ({
       group: g,
       label: NEEDS_YOU_GROUP_LABEL[g],
@@ -208,6 +229,7 @@ function feedGroups(feed: NeedsYouItem[]): FeedGroupView[] {
           siteName: i.siteName,
           reasons: i.reasons.join(" · "),
           url: i.url,
+          age: ageOf(i.since, now),
         })),
     }))
     .filter((g) => g.rows.length > 0);
@@ -266,7 +288,8 @@ function deployView(site: WebsiteRow, now: Date): DeployView {
 }
 
 const PILL_LABEL: Record<Tier, string> = {
-  attention: "failing",
+  broken: "broken",
+  attention: "attention",
   watch: "watch",
   healthy: "ok",
   "pre-launch": "pre-launch",
@@ -309,7 +332,17 @@ function chips(c: SiteCard): ChipView[] {
 function signals(c: SiteCard): string {
   const kinds = new Set<string>();
   for (const it of c.items) {
-    kinds.add(it.kind === "vuln" ? "vulns" : it.kind === "renovate" ? "prs" : it.kind);
+    // A `url` item tags by its key's flavour, so `url-unresolved` keeps the filter the
+    // Watch candidate it replaced (P1-78b) carried.
+    kinds.add(
+      it.kind === "vuln"
+        ? "vulns"
+        : it.kind === "renovate"
+          ? "prs"
+          : it.kind === "url"
+            ? it.key.split(":")[0]!
+            : it.kind,
+    );
   }
   if (c.items.some((it) => it.autoFixExhausted)) kinds.add("auto-fix-failed");
   for (const sig of c.watchSignals) kinds.add(sig);
@@ -484,15 +517,22 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
     total: model.cards.length,
     verdict: verdict(model, feed, now),
     feedCount: feed.length,
-    feed: feedGroups(feed),
+    feed: feedGroups(feed, now),
     setup: setupLane(model),
     cardless: (model.cardless ?? [])
       .filter((i) => i.waiting !== true)
-      .map((i) => ({
-        siteName: i.siteName,
-        title: i.title,
-        href: i.kind === "deadletter" && i.url ? i.url : null,
-      })),
+      .map((i) => {
+        const level = i.level ?? levelOf(i, undefined, now);
+        return {
+          siteName: i.siteName,
+          title: i.title,
+          href: i.kind === "deadletter" && i.url ? i.url : null,
+          level,
+          levelLabel: LEVEL_LABEL[level],
+          age: level === "watch" ? null : ageOf(i.firstFlaggedAt ?? null, now),
+        };
+      })
+      .sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]),
     inbox: inbox(model, now),
   };
 }

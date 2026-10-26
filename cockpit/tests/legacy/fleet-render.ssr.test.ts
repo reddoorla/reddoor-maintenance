@@ -403,8 +403,8 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
     );
     const html = renderCockpitHtml(m);
     expect(html).toContain('class="verdict watch"');
-    expect(html).toContain("1 site to watch");
-    expect(html).toContain("1 waiting on you");
+    expect(html).toContain("1 to watch");
+    expect(html).toContain("1 waiting on your yes");
     expect(html).toContain("1 healthy");
     expect(html).not.toContain("✓ All clear");
   });
@@ -505,8 +505,8 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
       siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
     ]);
     const html = renderCockpitHtml(m);
-    expect(html).toContain('class="verdict warn"');
-    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).toContain('class="verdict attention"');
+    expect(html).toMatch(/1 needs attention/);
     // The chips are on the Sites row since #672 step 3.
     expect(renderSitesHtml(m)).toContain('class="pill attention"');
     expect(renderSitesHtml(m)).not.toContain("chip accepted");
@@ -789,7 +789,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(html).toMatch(/class="pill pre-launch"/);
-    expect(html).not.toMatch(/class="pill attention"/);
+    expect(html).not.toMatch(/class="pill broken"/);
     // The fleet's only non-green site is pre-launch → calm verdict, not broken.
     expect(home).toContain('class="verdict ok"');
     expect(home).toContain("✓ All clear");
@@ -946,22 +946,22 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/class="pill attention"/);
     expect(html).toMatch(/data-signals="[^"]*\bci\b[^"]*"/);
     expect(html).toMatch(/data-signals="[^"]*\bsearch-console-no-property\b[^"]*"/);
-    // Tagged, not re-tiered: the verdict still counts it once, as broken.
-    expect(home).toMatch(/⚠ 1 site broken/);
+    // Tagged, not re-tiered: the verdict still counts it once, as attention (CI red, P1-78b).
+    expect(home).toMatch(/1 needs attention/);
     expect(home).not.toMatch(/\d+ watching/);
   });
 
   it("renders the amber watch verdict when a watch-band site is the worst", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
     expect(html).toContain('class="verdict watch"');
-    expect(html).toContain("1 site to watch");
+    expect(html).toContain("1 to watch");
     expect(html).not.toContain("✓ All clear");
   });
 
   it("renders the red broken verdict for a sub-floor Lighthouse site", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Down", pScore: 40 })]));
-    expect(html).toContain('class="verdict warn"');
-    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).toContain('class="verdict attention"');
+    expect(html).toMatch(/1 needs attention/);
     expect(html).not.toContain("✓ All clear");
   });
 
@@ -987,8 +987,8 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         escalated("v", 1),
       ),
     );
-    expect(html).toContain('class="verdict watch"');
-    expect(html).toContain("1 site to watch");
+    expect(html).toContain('class="verdict attention"');
+    expect(html).toContain("1 needs attention");
     expect(html).not.toContain("✓ All clear");
     expect(html).not.toContain('class="verdict warn"');
   });
@@ -999,8 +999,8 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         siteRow({ id: "v", name: "Stuck", securityVulnsHigh: 1, securityAutoFixAttempts: 3 }),
       ]),
     );
-    expect(html).toContain('class="verdict warn"');
-    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).toContain('class="verdict attention"');
+    expect(html).toMatch(/1 needs attention/);
   });
 
   // "the fleet-browse filter script has no pending/submissions branch (they moved off the cards)": its behaviour is the DOM tests' now (cockpit/tests/fleet/sites.dom.test.ts: the signal filters).
@@ -1236,7 +1236,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
       ]),
     );
     expect(html).toContain('class="verdict watch"');
-    expect(html).toContain("1 site to watch");
+    expect(html).toContain("1 to watch");
     expect(html).toContain("is not a recognized value");
     expect(html).toContain('href="/s/typo-site"');
   });

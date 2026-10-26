@@ -39,7 +39,10 @@
         {#each g.rows as row, i (i)}
           <div class="feed-row" data-group={row.group}>
             <span class="dot {row.group}"></span>
-            <span class="feed-what"><strong>{row.siteName}</strong> — {row.reasons}</span>
+            <span class="feed-what"
+              ><strong>{row.siteName}</strong> — {row.reasons}{#if row.age}
+                <span class="muted feed-age">&nbsp;· {row.age}</span>{/if}</span
+            >
             <a class="feed-open" href={row.url}>Open ▸</a>
           </div>
         {/each}
@@ -66,13 +69,17 @@
      site with no card links its page; a slug that resolves to no site has no
      page, so it gets no link (OD 87, #1575). -->
 {#if v.cardless.length > 0}
-  <details class="cardless">
+  <!-- Open when it holds an alarm: the verdict counts these rows. -->
+  <details class="cardless" open={v.cardless.some((c) => c.level !== "watch")}>
     <summary>⚠ Not on any site card ({v.cardless.length})</summary>
     {#each v.cardless as item, i (i)}
-      <div class="approve-row">
+      <div class="approve-row" data-level={item.level}>
+        <span class="pill {item.level}">{item.levelLabel}</span>
         <strong
           >{#if item.href}<a href={item.href}>{item.siteName}</a>{:else}{item.siteName}{/if}</strong
-        > <span class="muted">{item.title}</span>
+        > <span class="muted">{item.title}</span>{#if item.age}<span class="muted feed-age"
+            >&nbsp;· {item.age}</span
+          >{/if}
       </div>
     {/each}
   </details>

@@ -12,6 +12,7 @@ import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 function model(over: Partial<CockpitModel> = {}): CockpitModel {
   return {
     summary: {
+      broken: 0,
       attention: 0,
       watch: 0,
       healthy: 0,

@@ -115,14 +115,14 @@ describe("prismic drift wiring — the cockpit", () => {
     );
     const card = model.cards.find((c) => c.site.name === "Espada")!;
     expect(card.items.map((i) => i.key)).toContain("prismic-stale:rec_espada");
-    expect(card.tier).toBe("attention");
+    expect(card.tier).toBe("watch");
   });
 
   it("reaches the Needs-you feed, which is what the operator actually reads", () => {
     const model = buildCockpitModel([site()], [], {}, BASE_URL, NOW);
     const feed = buildNeedsYouFeed(model);
     const entry = feed.find((f) => f.siteName === "Espada")!;
-    expect(entry.group).toBe("broken");
+    expect(entry.group).toBe("attention");
     expect(entry.reasons.join(" ")).toMatch(/Prismic models diverge/);
   });
 

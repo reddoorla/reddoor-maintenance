@@ -87,7 +87,7 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     await sql`ALTER TABLE submission_deadletter DROP COLUMN received_at`.execute(db);
     const alarm = await loadClean();
     expect(alarm).not.toBeNull();
-    expect(alarm!.tier).toBe("attention");
+    expect(alarm!.tier).toBe("broken");
     expect(alarm!.items.map((i) => [i.key, i.waiting])).toEqual([["deadletter:acme", undefined]]);
   });
 
@@ -95,7 +95,7 @@ describe("loadSiteAlarmContext — a held dead letter (OD 87)", () => {
     await deadLetterAt(new Date(NOW.getTime() - 12 * 60 * 60 * 1000));
     await deadLetterAt(new Date(NOW.getTime() - 60 * 1000));
     const alarm = (await loadClean())!;
-    expect(alarm.tier).toBe("attention");
+    expect(alarm.tier).toBe("broken");
     expect(alarm.items[0]!.waiting).toBeUndefined();
     expect(alarm.items[0]!.title).toMatch(
       /^2 leads dead-lettered, the oldest not replayed for 12 h/,

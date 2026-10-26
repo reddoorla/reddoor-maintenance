@@ -101,7 +101,11 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     prismicAckDrift: null,
     urlResolves: null,
     urlStatus: null,
-    urlCheckedAt: null,
+    // P1-78b: the cockpit now runs the roster url probe, whose fleet-wide
+    // `url-probe-stale` fires when no row is fresh. A stamp far ahead of every test
+    // clock reads as fresh (no verdict), so that alarm stays out of every fixture that
+    // is not about it; a test of the probe sets its own stamp.
+    urlCheckedAt: "2100-01-01T00:00:00.000Z",
     searchConsoleOutcome: null,
     searchConsoleResolved: null,
     searchConsoleCheckedAt: null,

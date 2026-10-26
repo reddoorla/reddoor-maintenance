@@ -26,18 +26,23 @@ import {
   collectNotifyBounceAlerts,
   collectDeadLetterAlerts,
   collectPrismicDriftAlerts,
+  collectUrlResolveAlerts,
+  collectDeployAlerts,
   prismicAckCovers,
   urlProbeFresh,
   URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { markWaiting } from "../alerts/waiting.js";
+import { LEVEL_RANK, levelOf, withLevels, worstLevel, type Level } from "../alerts/ladder.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 import { ANALYTICS_OPT_OUT_KEYS, SEARCH_CONSOLE_OPT_OUT_KEYS } from "../fleet/opt-outs.js";
 import { searchConsoleMissingLabel } from "./onboarding.js";
 
-export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
+/** P1-78b: the site's place on the severity ladder (src/alerts/ladder.ts), plus the
+ *  two states that are not a level: healthy, and a launching site's calm pre-launch. */
+export type Tier = "broken" | "attention" | "watch" | "healthy" | "pre-launch";
 
 /** Watch-tier thresholds (the soft band beneath the M5 alert floor). */
 const LIGHTHOUSE_FLOOR = 75; // mirrors collectLighthouseAlerts — at/above is not an attention item
@@ -139,7 +144,17 @@ export type SetupItem = { signal: string; reason: string; acceptKey: string };
  *  site while auto-fix is running). PURE. */
 export function piercesPreLaunchMute(item: AttentionItem): boolean {
   if (item.kind === "vuln") return item.autoFixExhausted === true;
-  return item.severity === "critical" || item.kind === "ci";
+  // P1-78b (batch 3 Q4): any Broken item pierces, but a launching site's failed
+  // deploy stays muted (a site still being built often has one; the collector emits
+  // `deploy:` for maintained sites only, and this keeps the rule if that changes).
+  if (item.kind === "deploy") return false;
+  return itemLevel(item) === "broken" || item.severity === "critical" || item.kind === "ci";
+}
+
+/** An item's level: the one `withLevels` set, or, for a hand-built item that never
+ *  went through the diff, its level with no date (only Renovate reads the date). */
+function itemLevel(item: AttentionItem): Level {
+  return item.level ?? levelOf(item, undefined, new Date(0));
 }
 
 export function assignTier(
@@ -163,10 +178,10 @@ export function assignTier(
   // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
   // an errored/absent Netlify deploy, Renovate warnings — would otherwise force it
-  // to 🔴 attention and read as "broken". Mute those as a calm "pre-launch" tier
+  // to an alarm tier and read as "broken". Mute those as a calm "pre-launch" tier
   // that never alarms and is excluded from the "needs you" feed — but a GENUINE
-  // alarm (piercesPreLaunchMute: any critical item, or CI red) re-tiers the site
-  // to 🔴 attention through the normal machinery. (Only "launching" reaches
+  // alarm (piercesPreLaunchMute: any Broken item but a deploy, any critical item,
+  // or CI red) re-tiers the site to that alarm's level through the normal machinery. (Only "launching" reaches
   // the cockpit — isDashboardVisible = {maintained, launching}.)
   if (site.status === "launching") {
     // Genuine alarms pierce the mute; this attention verdict is decided before the
@@ -177,7 +192,9 @@ export function assignTier(
     // watch tags either: muted means muted.
     if (items.some(piercesPreLaunchMute))
       return {
-        tier: "attention",
+        tier: worstLevel(
+          items.filter(piercesPreLaunchMute).map((it) => ({ level: itemLevel(it) })),
+        )!,
         watchReasons: [],
         watchAcceptKeys: [],
         watchSignals: [],
@@ -193,12 +210,12 @@ export function assignTier(
       setup: [],
     };
   }
-  // Any attention item is 🔴 attention. So is a failed latest production deploy: an
-  // active break, the same severity a sub-floor Lighthouse score gets (which arrives
-  // as an item). The tier is fixed HERE, before acceptance is read, so no accept key
-  // can ever move a broken site; the watch conditions below are still collected for
+  // P1-78b: the worst level among the site's items is its verdict; a failed latest
+  // production deploy arrives as a Broken `deploy:` item, no longer a flag of its own.
+  // The tier is fixed HERE, before acceptance is read, so no accept key can ever move
+  // a Broken or Attention site; the watch conditions below are still collected for
   // it, but only as filter tags (#941).
-  const broken = items.length > 0 || isFailedDeployStatus(site.deployStatus);
+  const level = worstLevel(items.map((it) => ({ level: itemLevel(it) })));
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
   // watch reason is routed to acceptedReasons instead of raising the watch band.
@@ -299,21 +316,6 @@ export function assignTier(
       reason: "Netlify ID not recorded (the deploy check cannot read this site)",
     });
   }
-  // #912. The digest mails a fresh roster-url `fail` for every non-archived row;
-  // the card shows it for the rows that have one. Watch, not an attention item, so
-  // the accept key that mutes the digest item also mutes this, as a visible chip.
-  // A stale verdict is not a current one: the digest's `url-probe-stale` carries it.
-  if (
-    site.status === "maintained" &&
-    site.urlResolves === "fail" &&
-    urlProbeFresh(site.urlCheckedAt, now)
-  ) {
-    candidates.push({
-      signal: "url-unresolved",
-      acceptKeys: URL_NOT_DEPLOYED_KEYS,
-      reason: `roster url ${site.url.trim()} does not resolve (${site.urlStatus ?? "no status"})`,
-    });
-  }
   // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
   // submissions, so a gated site whose widget state ISN'T positively confirmed
   // deserves a nag. A fresh confirmed "fail" is a CRITICAL AttentionItem
@@ -357,15 +359,28 @@ export function assignTier(
   // along too, in `setup`. Before #941 this was an
   // early return with no tags, and every such chip undercounted exactly the sites
   // that were also broken.
-  if (broken)
+  // An Attention item outranks Watch exactly as a Broken one does: accept keys mute
+  // Watch reasons, never a level above it.
+  if (level === "broken" || level === "attention")
     return {
-      tier: "attention",
+      tier: level,
       watchReasons: [],
       watchAcceptKeys: [],
       watchSignals: [...signals],
       acceptedReasons: [],
       setup,
     };
+  // An accepted dead roster url stays VISIBLE, as a muted chip: the collector drops
+  // the Broken item for "url not deployed", and the acceptance would vanish with it.
+  if (
+    site.status === "maintained" &&
+    site.urlResolves === "fail" &&
+    urlProbeFresh(site.urlCheckedAt, now) &&
+    URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))
+  )
+    acceptedReasons.push(
+      `roster url ${site.url.trim()} does not resolve (${site.urlStatus ?? "no status"})`,
+    );
   // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
   // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
   // this the site would read as plainly healthy and the acceptance would be
@@ -380,7 +395,11 @@ export function assignTier(
     acceptedReasons.push(`Prismic drift accepted until ${until}`);
   }
 
-  return watchReasons.length > 0
+  // A Watch-level item (a Renovate PR under 7 days, a Prismic check that could not
+  // run) puts the site on Watch like a watch condition. It stays an item, shown as
+  // its own chip; it is not a watch reason, because no accept key mutes it.
+  const hasWatchItem = items.some((it) => itemLevel(it) === "watch");
+  return watchReasons.length > 0 || hasWatchItem
     ? {
         tier: "watch",
         watchReasons,
@@ -448,6 +467,8 @@ export type SubmissionEntry = {
 };
 
 export type CockpitSummary = {
+  broken: number;
+  /** P1-78b: sites whose worst item is Attention (fix this week). */
   attention: number;
   watch: number;
   healthy: number;
@@ -530,7 +551,7 @@ export type CockpitModel = {
   cardless?: AttentionItem[];
 };
 
-export type NeedsYouGroup = "broken" | "watch" | "approval";
+export type NeedsYouGroup = "broken" | "attention" | "watch" | "approval";
 
 /** One row of the per-site "Needs you" feed: every reason a single site needs the
  *  operator, combined. The feed is navigation-only — the row links once to the page. */
@@ -544,18 +565,28 @@ export type NeedsYouItem = {
   reasons: string[];
   /** Always `/s/${slug}`. */
   url: string;
+  /** P1-78b. The oldest `firstFlaggedAt` among the site's items at the row's own
+   *  level (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when no
+   *  item at that level is dated. */
+  since: string | null;
 };
 
-const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, watch: 1, approval: 2 };
+const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = {
+  broken: 0,
+  attention: 1,
+  watch: 2,
+  approval: 3,
+};
 
 /**
  * Collapse the cockpit model into a per-site "Needs you" feed — ONE row per site,
  * with every reason combined. PURE. A `waiting` item never enters (markWaiting: the
- * fleet is still fixing it on schedule). A vuln whose wait has failed but whose
- * auto-fix is not exhausted is amber `watch`; an exhausted vuln (`item.autoFixExhausted`)
- * is a hard `broken` break, as is any non-vuln attention item; a broken site's escalated vulns
- * are still named among its reasons. The whole watch tier folds into `watch`.
- * Order: broken → watch → approval; within broken, critical-first; then site name.
+ * fleet is still fixing it on schedule). P1-78b: a site's group is its level on the
+ * ladder: Broken, Attention (fix this week) or Watch. Its items are named worst
+ * first; a Watch card names its watch reasons. A vulnerability that reaches the card
+ * has failed its wait (or could not be dated), so it is Attention, never a red card
+ * in the watch group. Order: broken → attention → watch → approval; within broken,
+ * critical-first; then site name.
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   type Acc = {
@@ -563,9 +594,9 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     siteName: string;
     reasons: string[];
     hasCritical: boolean;
-    broken: boolean;
-    watch: boolean;
+    group: NeedsYouGroup | null;
     approval: boolean;
+    since: { broken?: string; attention?: string };
   };
   const bySlug = new Map<string, Acc>();
   const get = (siteName: string): Acc => {
@@ -577,53 +608,50 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         siteName,
         reasons: [],
         hasCritical: false,
-        broken: false,
-        watch: false,
+        group: null,
         approval: false,
+        since: {},
       };
       bySlug.set(slug, a);
     }
     return a;
   };
+  const raise = (a: Acc, g: NeedsYouGroup): void => {
+    if (a.group === null || NEEDS_YOU_GROUP_RANK[g] < NEEDS_YOU_GROUP_RANK[a.group]) a.group = g;
+  };
 
   for (const card of model.cards) {
-    // Only "attention" (broken) and "watch" cards enter the feed; a "pre-launch"
-    // card is pre-live prep and intentionally never surfaces here as needing you.
-    // (A launch-period site with a PIERCING alarm arrives as tier "attention" —
-    // assignTier re-tiers it — so genuine pre-launch breaks do reach the feed.)
-    if (card.tier === "attention") {
-      // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
-      // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
-      // break. A site with any hard break is broken, and its self-patching vulns are
-      // still named on that row: markWaiting keeps a vuln off the card while it waits,
-      // so one that reaches it has failed its wait or could not be dated, and dropping
-      // it hid a held High advisory behind an unrelated CI line (29 Navy, 2026-10-19,
-      // P1-54). Single-source the predicate so the two
-      // partitions can never drift out of lockstep.
-      const isSelfPatchingVuln = (it: AttentionItem): boolean =>
-        it.kind === "vuln" && it.autoFixExhausted !== true;
-      const hardBroken = card.items.filter((it) => !isSelfPatchingVuln(it));
-      const selfPatchingVulns = card.items.filter(isSelfPatchingVuln);
-      if (hardBroken.length > 0) {
-        const a = get(card.site.name);
-        for (const it of hardBroken) {
-          a.reasons.push(it.title);
-          if (it.severity === "critical") a.hasCritical = true;
-        }
-        for (const it of selfPatchingVulns) {
-          a.reasons.push(it.title);
-          if (it.severity === "critical") a.hasCritical = true;
-        }
-        a.broken = true;
-      } else if (selfPatchingVulns.length > 0) {
-        const a = get(card.site.name);
-        for (const it of selfPatchingVulns) a.reasons.push(it.title);
-        a.watch = true;
-      }
-    } else if (card.tier === "watch" && card.watchReasons.length > 0) {
+    // A "pre-launch" card is pre-live prep and never surfaces here. (A launching site
+    // with a PIERCING alarm arrives with that alarm's level — assignTier re-tiers it.)
+    if (card.tier === "broken" || card.tier === "attention") {
       const a = get(card.site.name);
-      for (const r of card.watchReasons) a.reasons.push(r);
-      a.watch = true;
+      const worstFirst = [...card.items].sort(
+        (x, y) => LEVEL_RANK[itemLevel(x)] - LEVEL_RANK[itemLevel(y)],
+      );
+      for (const it of worstFirst) {
+        a.reasons.push(it.title);
+        if (it.severity === "critical") a.hasCritical = true;
+      }
+      raise(a, card.tier);
+      // The age of each level's oldest item: a Broken row is as old as its oldest
+      // Broken item, never an older Attention one beside it.
+      for (const it of card.items) {
+        const l = itemLevel(it);
+        if (l === "watch" || it.firstFlaggedAt === undefined) continue;
+        const was = a.since[l];
+        if (was === undefined || it.firstFlaggedAt < was) a.since[l] = it.firstFlaggedAt;
+      }
+    } else if (card.tier === "watch") {
+      // Watch-level items first (they are named by title), then the watch reasons.
+      const named = [
+        ...card.items.filter((it) => itemLevel(it) === "watch").map((it) => it.title),
+        ...card.watchReasons,
+      ];
+      if (named.length > 0) {
+        const a = get(card.site.name);
+        for (const r of named) a.reasons.push(r);
+        raise(a, "watch");
+      }
     }
   }
 
@@ -640,13 +668,13 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     a.reasons.push(
       `Status "${u.status}" is not a recognized value — fix it in the site's details (site is invisible to fleet ops)`,
     );
-    a.watch = true;
+    raise(a, "watch");
   }
 
   const items: NeedsYouItem[] = [];
   for (const a of bySlug.values()) {
     if (a.reasons.length === 0) continue;
-    const group: NeedsYouGroup = a.broken ? "broken" : a.watch ? "watch" : "approval";
+    const group: NeedsYouGroup = a.group ?? "approval";
     items.push({
       group,
       hasCritical: a.hasCritical,
@@ -654,6 +682,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       siteName: a.siteName,
       reasons: a.reasons,
       url: `/s/${a.slug}`,
+      since: group === "broken" || group === "attention" ? (a.since[group] ?? null) : null,
     });
   }
 
@@ -661,6 +690,12 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     if (NEEDS_YOU_GROUP_RANK[x.group] !== NEEDS_YOU_GROUP_RANK[y.group])
       return NEEDS_YOU_GROUP_RANK[x.group] - NEEDS_YOU_GROUP_RANK[y.group];
     if (x.group === "broken" && x.hasCritical !== y.hasCritical) return x.hasCritical ? -1 : 1;
+    // Then by age, oldest first: a dated row before an undated one.
+    if (x.since !== y.since) {
+      if (x.since === null) return 1;
+      if (y.since === null) return -1;
+      return x.since < y.since ? -1 : 1;
+    }
     return x.siteName.toLowerCase().localeCompare(y.siteName.toLowerCase());
   });
 
@@ -668,7 +703,13 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 }
 
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
-const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2, "pre-launch": 3 };
+const TIER_RANK: Record<Tier, number> = {
+  broken: 0,
+  attention: 1,
+  watch: 2,
+  healthy: 3,
+  "pre-launch": 4,
+};
 
 /** The fleet attention-item collector run — the SINGLE source of truth for which
  *  signals the cockpit surfaces. buildCockpitModel (over all visible sites) and
@@ -712,6 +753,16 @@ function collectFleetAttentionItems(
     // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
     // request-path; a collector that shelled out would 502 in Lambda).
     ...collectPrismicDriftAlerts(sites, baseUrl, now),
+    // P1-78b. The roster url probe joins the cockpit: `url-unresolved:<id>` is Broken
+    // on its site's card (it replaced the Watch candidate), and the fleet-wide
+    // `url-probe-stale` matches no card, so it lands among the cardless items.
+    // The probe's own staleness is counted over the whole roster, as the digest does,
+    // so its metric and key agree with the snapshot; a dead url only on a visible card.
+    ...collectUrlResolveAlerts(deadLetterSites, baseUrl, now).filter(
+      (it) => it.key === "url-probe-stale" || sitesById.has(it.key.slice("url-unresolved:".length)),
+    ),
+    // P1-78b. A maintained site's failed production deploy, as a dated Broken item.
+    ...collectDeployAlerts(sites, baseUrl),
   ];
 }
 
@@ -759,6 +810,8 @@ export function buildSiteAlarmContext(
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
+  // The fleet-wide `url-probe-stale` is about the probe, not this site: it belongs to
+  // no site's page, as it belongs to no card on the cockpit.
   const raw = collectFleetAttentionItems(
     sites,
     sitesById,
@@ -768,11 +821,13 @@ export function buildSiteAlarmContext(
     notifyBounces,
     deadLetters,
     deadLetterOldest,
-  );
+  ).filter((it) => it.key !== "url-probe-stale");
   const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
-  const items = markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0).sort(
-    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
-  );
+  const items = withLevels(
+    markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0),
+    next,
+    now,
+  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
     watchReasons,
@@ -887,11 +942,10 @@ export function buildCockpitModel(
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves
   // the cards (tiers, chips, the Needs-you feed) and stays on the site's own page.
   const diffed = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
-  const tagged = markWaiting(
-    diffed.tagged,
+  const tagged = withLevels(
+    markWaiting(diffed.tagged, diffed.next, now, Object.keys(priorSnapshot).length > 0),
     diffed.next,
     now,
-    Object.keys(priorSnapshot).length > 0,
   );
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
@@ -933,7 +987,7 @@ export function buildCockpitModel(
 
   cards.sort((a, b) => {
     if (TIER_RANK[a.tier] !== TIER_RANK[b.tier]) return TIER_RANK[a.tier] - TIER_RANK[b.tier];
-    if (a.tier === "attention") {
+    if (a.tier === "broken" || a.tier === "attention") {
       const sevA = a.items.some((i) => i.severity === "critical") ? 0 : 1;
       const sevB = b.items.some((i) => i.severity === "critical") ? 0 : 1;
       if (sevA !== sevB) return sevA - sevB;
@@ -983,6 +1037,7 @@ export function buildCockpitModel(
   const cardless = tagged.filter((it) => !cardedNames.has(it.siteName));
 
   const summary: CockpitSummary = {
+    broken: cards.filter((c) => c.tier === "broken").length,
     attention: cards.filter((c) => c.tier === "attention").length,
     watch: cards.filter((c) => c.tier === "watch").length,
     healthy: cards.filter((c) => c.tier === "healthy").length,
