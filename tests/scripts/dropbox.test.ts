@@ -1133,7 +1133,7 @@ describe("run", () => {
 
   it("says plainly when --no-overwrite met an existing file", async () => {
     const local = file("exists.pdf", pattern(3));
-    const { fetch } = session(() => ({
+    const { fetch, calls } = session(() => ({
       status: 409,
       body: { error_summary: "path/conflict/file/..", error: { ".tag": "path" } },
     }));
@@ -1143,6 +1143,8 @@ describe("run", () => {
     );
     expect(r.code).toBe(1);
     expect(r.lines[1]).toBe("exists, not overwritten (--no-overwrite): /X/exists.pdf");
+    // The folder is looked up; the file is not, since nothing can be replaced.
+    expect(metaPaths(calls)).toEqual(["/X"]);
   });
 
   it("reports a conflict in overwrite mode as a failure, not as a kept file", async () => {
