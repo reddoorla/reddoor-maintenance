@@ -6,7 +6,12 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { runDigest, digestSubject, orderAttention } from "../../src/reports/digest.js";
-import { digestChanges, type DigestSendLog } from "../../src/alerts/digest-send.js";
+import {
+  coerceSendLog,
+  digestChanges,
+  nextSent,
+  type DigestSendLog,
+} from "../../src/alerts/digest-send.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
@@ -183,5 +188,30 @@ describe("a rise in level is news", () => {
       added: [],
       worse: [],
     });
+  });
+});
+
+describe("the send log carries each key's level (review round 1)", () => {
+  it("a sent digest records the level each key was mailed at, and a read keeps it", async () => {
+    const w = world();
+    await run(w, [site(day(0), { "Default Branch CI": "failing" })], day(0));
+    const log = await w.sendLog.read();
+    expect(log.sent["ci:rec_acme"]).toMatchObject({ level: "attention" });
+    expect(coerceSendLog(JSON.parse(JSON.stringify(log))).sent["ci:rec_acme"]).toMatchObject({
+      level: "attention",
+    });
+  });
+
+  it("a skipped night keeps the level last mailed", () => {
+    const prior = { k: { metric: 1, level: "broken" as const } };
+    const kept = nextSent(
+      prior,
+      [{ key: "k", metric: 1, level: "attention" }],
+      "2026-10-08",
+      false,
+    );
+    expect(kept.k).toMatchObject({ level: "broken" });
+    const sent = nextSent(prior, [{ key: "k", metric: 1, level: "attention" }], "2026-10-08", true);
+    expect(sent.k).toMatchObject({ level: "attention" });
   });
 });

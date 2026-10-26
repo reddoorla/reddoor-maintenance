@@ -57,8 +57,8 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "      .filter((it) => it.level !== \"watch\")\n",
-        "replace": "      .filter((it) => it.level !== \"watch\" || true)\n"
+        "find": "    if (readyForYourYes.length === 0 && needsAttention.length === 0) {",
+        "replace": "    if (readyForYourYes.length === 0 && collected.length === 0) {"
       }
     ],
     "test": "tests/reports/digest-ladder.test.ts",
@@ -85,6 +85,58 @@
         "file": "src/reports/digest.ts",
         "find": "    const diffed = diffAttention(collected, prior, dayKey);",
         "replace": "    const diffed = diffAttention(\n      collected.filter((it) => levelOf(it, undefined, today) !== \"watch\"),\n      prior,\n      dayKey,\n    );"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-nextsent-drops-level",
+    "why": "Review round 1: nextSent never writes a level",
+    "edits": [
+      {
+        "file": "src/alerts/digest-send.ts",
+        "find": "      ...(sending\n        ? f.level !== undefined",
+        "replace": "      ...(false\n        ? f.level !== undefined"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-coerce-drops-level",
+    "why": "Review round 1: reading the send log drops each key's level",
+    "edits": [
+      {
+        "file": "src/alerts/digest-send.ts",
+        "find": "        ...(v.level === \"broken\" || v.level === \"attention\" || v.level === \"watch\"",
+        "replace": "        ...(false"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-line-without-level",
+    "why": "Review round 1: runDigest's lines carry no level",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "        ...(it.level !== undefined ? { level: it.level } : {}),",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-skip-overwrites-level",
+    "why": "Review round 1: a skipped night overwrites the level last mailed",
+    "edits": [
+      {
+        "file": "src/alerts/digest-send.ts",
+        "find": "        : was?.level !== undefined\n          ? { level: was.level }",
+        "replace": "        : false\n          ? { level: was!.level }"
       }
     ],
     "test": "tests/reports/digest-ladder.test.ts",

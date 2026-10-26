@@ -76,8 +76,10 @@ export function digestChanges(lines: readonly DigestLine[], log: DigestSendLog):
     const was = log.sent[k];
     if (was === undefined) added.push(k);
     else if (f.metric > was.metric + f.tolerance) worse.push(k);
-    // P1-78d: a rise in level is news though the key and its count are unchanged
-    // (a certificate going from Attention to Broken under one key).
+    // P1-78d: a rise in level is news though the key and its count are unchanged.
+    // No key can rise between two mailed levels on today's ladder (Renovate leaves
+    // Watch, which is never mailed, so it arrives as added); this keeps a future
+    // two-level signal, such as a certificate, from rising silently.
     else if (
       f.level !== undefined &&
       was.level !== undefined &&
@@ -128,7 +130,17 @@ export function nextSent(
       metric: was ? baseline(was, f, sending) : f.metric,
       ...(f.critical ? { critical: true } : {}),
       ...(f.tolerance > 0 ? { tolerance: f.tolerance } : {}),
-      ...(f.level !== undefined ? { level: f.level } : {}),
+      // The level last MAILED: a skipped night keeps it, as the metric keeps its
+      // mailed baseline, so a dip and return to the same level is not news.
+      ...(sending
+        ? f.level !== undefined
+          ? { level: f.level }
+          : {}
+        : was?.level !== undefined
+          ? { level: was.level }
+          : f.level !== undefined
+            ? { level: f.level }
+            : {}),
     };
   }
   for (const [k, was] of Object.entries(prior)) {
