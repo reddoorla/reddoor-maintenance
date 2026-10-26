@@ -102,5 +102,57 @@
     ],
     "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "1738r1-two-pass-stripping-imports",
+    "why": "review round 1 finding 1: imports are read after the old block-then-line comment stripping, so a `/*` in a `//` comment hides real imports",
+    "edits": [
+      {
+        "file": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+        "find": "ts.preProcessFile(text, true, true)",
+        "replace": "ts.preProcessFile(text.replace(/\\/\\*[\\s\\S]*?\\*\\//g, \"\").replace(/(^|[^:\"'`])\\/\\/.*$/gm, \"$1\"), true, true)"
+      }
+    ],
+    "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1738r1-two-pass-stripping-calls",
+    "why": "review round 1 finding 1: calls are parsed after the old two-pass stripping, so a `.transaction(` after a `// ... /*` comment is missed",
+    "edits": [
+      {
+        "file": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+        "find": "ts.createSourceFile(\"x.ts\", text,",
+        "replace": "ts.createSourceFile(\"x.ts\", text.replace(/\\/\\*[\\s\\S]*?\\*\\//g, \"\").replace(/(^|[^:\"'`])\\/\\/.*$/gm, \"$1\"),"
+      }
+    ],
+    "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1738r1-alias-skipped",
+    "why": "review round 1 finding 2: a specifier the walk cannot place (`@/x`, `$alias/x`) is skipped silently instead of refused",
+    "edits": [
+      {
+        "file": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+        "find": "  else return null;\n",
+        "replace": "  else return \"skip\";\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/with-db-no-transaction.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1738r1-github-signals-after-now",
+    "why": "review round 1 finding 3: the fixture's githubSignalsAt postdates the view's now",
+    "edits": [
+      {
+        "file": "cockpit/tests/site/fixtures.ts",
+        "find": "    githubSignalsAt: \"2026-06-15T06:00:00.000Z\",\n",
+        "replace": "    githubSignalsAt: \"2026-06-16T06:00:00.000Z\",\n"
+      }
+    ],
+    "test": "cockpit/tests/site/site.ssr.test.ts",
+    "expect": "red"
   }
 ]

@@ -144,10 +144,13 @@ describe("/s/:slug fixtures", () => {
     expect(siteRow()).toEqual(today);
   });
 
-  it("date every timestamp before the view's now", () => {
+  // The stamps that used to read the wall clock, and the generated submissions.
+  // Not every date in the fixture: some cases date a field after now on purpose.
+  it("date the search-console check, the GitHub sweep and every submission before the view's now", () => {
     for (const [name, i] of CASES) {
       const stamps = [
         i.site.searchConsoleCheckedAt,
+        i.site.githubSignalsAt,
         ...i.submissions.map((s) => s.submittedAt),
       ].filter((t): t is string => t != null);
       for (const t of stamps) {
