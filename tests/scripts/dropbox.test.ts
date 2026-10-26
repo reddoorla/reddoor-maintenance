@@ -948,6 +948,35 @@ describe("run", () => {
     expect(metaPaths(calls)).toEqual(["/at-root.pdf"]);
   });
 
+  it("does not call a re-upload of the same bytes a replacement (#1391)", async () => {
+    const data = pattern(6);
+    const local = file("retry.pdf", data);
+    const { fetch } = session(
+      () => ({
+        body: {
+          path_display: "/X/retry.pdf",
+          size: 6,
+          content_hash: contentHash(data),
+          rev: "01a2b3",
+        },
+      }),
+      {
+        "/X": { body: { ".tag": "folder", path_display: "/X" } },
+        "/X/retry.pdf": {
+          body: { ".tag": "file", rev: "01a2b3", content_hash: contentHash(data) },
+        },
+      },
+    );
+    const r = await run(
+      { cmd: "upload", folder: "/X", files: [local], overwrite: true },
+      { fetch, env: ENV },
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines[1]).toBe(
+      `ok /X/retry.pdf 6 bytes content_hash ${contentHash(data)} matches local (same content as the existing file)`,
+    );
+  });
+
   it("says when an upload replaced an existing file, with its old rev (#1391)", async () => {
     const data = pattern(6);
     const local = file("deck.pdf", data);
@@ -957,7 +986,14 @@ describe("run", () => {
       }),
       {
         "/X": { body: { ".tag": "folder", path_display: "/X" } },
-        "/X/deck.pdf": { body: { ".tag": "file", path_display: "/X/deck.pdf", rev: "01a2b3" } },
+        "/X/deck.pdf": {
+          body: {
+            ".tag": "file",
+            path_display: "/X/deck.pdf",
+            rev: "01a2b3",
+            content_hash: contentHash(pattern(7)),
+          },
+        },
       },
     );
     const r = await run(
@@ -969,6 +1005,9 @@ describe("run", () => {
       `ok /X/deck.pdf 6 bytes content_hash ${contentHash(data)} matches local (replaced an existing file, rev 01a2b3)`,
     );
     expect(metaPaths(calls)).toEqual(["/X", "/X/deck.pdf"]);
+    // Each lookup is in the team space, like the upload it guards.
+    for (const c of calls.filter((c) => c.url.endsWith("/files/get_metadata")))
+      expect(c.init.headers["Dropbox-API-Path-Root"]).toBe(rootHeader(ROOT));
     // The file is looked up before the upload: after it, the lookup would find the new copy.
     expect(calls.slice(2).map((c) => c.url.split("/2/")[1])).toEqual([
       "files/get_metadata",

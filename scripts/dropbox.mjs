@@ -506,8 +506,13 @@ export async function run(o, deps) {
         // restore it, so say which rev to look for (#1391).
         const prior = o.overwrite ? await metadata(ctx, dropboxPath(o.folder, f)) : null;
         const r = await uploadFile(ctx, f, o.folder, { overwrite: o.overwrite });
+        // A retry of the same bytes replaced nothing a teammate made, so it is not called one.
         const replaced =
-          prior?.[".tag"] === "file" ? ` (replaced an existing file, rev ${prior.rev})` : "";
+          prior?.[".tag"] !== "file"
+            ? ""
+            : prior.content_hash === r.remoteHash
+              ? " (same content as the existing file)"
+              : ` (replaced an existing file, rev ${prior.rev})`;
         if (r.ok)
           say(`ok ${r.path} ${r.size} bytes content_hash ${r.remoteHash} matches local${replaced}`);
         else {

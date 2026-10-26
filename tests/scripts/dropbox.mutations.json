@@ -69,8 +69,8 @@
     "edits": [
       {
         "file": "scripts/dropbox.mjs",
-        "find": "prior?.[\".tag\"] === \"file\" ? ` (replaced an existing file, rev ${prior.rev})` : \"\";",
-        "replace": "\"\";"
+        "find": "              : ` (replaced an existing file, rev ${prior.rev})`;",
+        "replace": "              : \"\";"
       }
     ],
     "test": "tests/scripts/dropbox.test.ts",
@@ -89,5 +89,31 @@
     "test": "tests/scripts/dropbox.test.ts",
     "expect": "red",
     "why": "Looking up after the upload always finds the new file, so every upload would claim it replaced one."
+  },
+  {
+    "id": "M8-1391-same-bytes-called-replaced",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "            : prior.content_hash === r.remoteHash\n",
+        "replace": "            : false\n"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Round 1 major: a retry of identical bytes would again claim a teammate's file was replaced."
+  },
+  {
+    "id": "M9-lookup-without-path-root",
+    "edits": [
+      {
+        "file": "scripts/dropbox.mjs",
+        "find": "    return await rpc(ctx, \"files/get_metadata\", { path });",
+        "replace": "    return await rpc({ ...ctx, root: undefined }, \"files/get_metadata\", { path });"
+      }
+    ],
+    "test": "tests/scripts/dropbox.test.ts",
+    "expect": "red",
+    "why": "Round 1 nit: the lookup would run outside the team space, so it could answer for a different folder than the upload writes to."
   }
 ]

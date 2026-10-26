@@ -124,9 +124,10 @@ repo's own:
   request. The script mints a token from `DROPBOX_APP_KEY`,
   `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN`, resolves paths in the team
   space, and checks each file's `content_hash`. `<folder>` is a team-space path
-  (`/Design Resources/…`, not one under a personal home folder) and must
-  already exist unless `--mkdir` is given; the `ok` line says when it replaced
-  an existing file, with the old rev. Run `check` first: it names the
+  (`/Design Resources/…` or `/Tucker Lemos/…`, counted from the team root,
+  not from your home folder) and must already exist unless `--mkdir` is
+  given; the `ok` line says when it replaced a different file, with the old
+  rev. Run `check` first: it names the
   account and proves the token holds both write scopes. Only when the API
   cannot upload (`check` fails before naming the account, or prints `MISSING`
   for `files.content.write`) is a file request the fallback:

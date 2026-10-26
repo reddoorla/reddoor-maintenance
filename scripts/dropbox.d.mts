@@ -104,7 +104,12 @@ export function accountLine(ctx: Ctx): string;
 export function metadata(
   ctx: Ctx,
   path: string,
-): Promise<{ ".tag"?: string; rev?: string; path_display?: string } | null>;
+): Promise<{
+  ".tag"?: string;
+  rev?: string;
+  content_hash?: string;
+  path_display?: string;
+} | null>;
 export function probeScopes(ctx: Ctx): Promise<ScopeProbe[]>;
 export function rpc(ctx: Ctx, endpoint: string, arg: unknown): Promise<unknown>;
 export function contentCall(
