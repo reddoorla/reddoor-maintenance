@@ -634,9 +634,11 @@ export async function mutate(o, deps = {}) {
       }
       // cockpit/tsconfig.json extends the git-ignored cockpit/.svelte-kit/tsconfig.json, so a
       // test reaching cockpit/ code fails to transform until it is generated, as
-      // `pnpm cockpit:check` does (#1657).
+      // `pnpm cockpit:check` does (#1657). The arguments come from the repo's own
+      // `cockpit:sync` script: since #1740 it names `--config vite.cockpit.config.ts`, and a
+      // bare `svelte-kit sync` writes an untracked root .svelte-kit/ instead.
       if (existsSync(join(wt, "cockpit"))) {
-        const rs = await run(join(wt, "node_modules", ".bin", "svelte-kit"), ["sync"], {
+        const rs = await run(join(wt, "node_modules", ".bin", "svelte-kit"), cockpitSyncArgs(wt), {
           cwd: wt,
           timeoutMs: o.timeoutMs,
         });
@@ -826,6 +828,22 @@ function hasBuildScript(root) {
     return Boolean(JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).scripts?.build);
   } catch {
     return false;
+  }
+}
+
+/** The `svelte-kit` arguments of the repo's `cockpit:sync` script (`svelte-kit sync --config
+ *  vite.cockpit.config.ts` since #1740), so the worktree syncs as `pnpm cockpit:check` does;
+ *  a bare `sync` when the script is absent or is not a plain `svelte-kit` call. */
+function cockpitSyncArgs(root) {
+  try {
+    const script = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")).scripts?.[
+      "cockpit:sync"
+    ];
+    const m =
+      typeof script === "string" ? /^\s*svelte-kit\s+(sync(?:\s+\S+)*)\s*$/.exec(script) : null;
+    return m ? m[1].split(/\s+/) : ["sync"];
+  } catch {
+    return ["sync"];
   }
 }
 
