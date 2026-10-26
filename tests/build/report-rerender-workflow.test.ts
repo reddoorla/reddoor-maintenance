@@ -77,6 +77,8 @@ describe("report-rerender workflow gate", () => {
       scores: "refreshed",
       scoresChange: "bp:78→100",
       lookup: "resolved",
+      ga: "refreshed",
+      gaChange: "906/898→217/206",
     });
     expect((await runGate({ out: `${real}\n` })).code).toBe(0);
   });
@@ -103,6 +105,8 @@ describe("report-rerender workflow gate", () => {
       scores: "unchanged",
       scoresChange: null,
       lookup: "not-run",
+      ga: "skipped",
+      gaChange: null,
     });
     expect((await runGate({ out: `${refused}\n`, exit: 0 })).code).not.toBe(0);
   });

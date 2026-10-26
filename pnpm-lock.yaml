@@ -72,8 +72,8 @@ importers:
         version: 8.72.0(eslint@10.13.0)(typescript@6.0.3)
     devDependencies:
       '@anthropic-ai/sdk':
-        specifier: ^0.137.0
-        version: 0.137.0(zod@4.6.7)
+        specifier: ^0.120.0
+        version: 0.120.0(zod@4.6.7)
       '@changesets/cli':
         specifier: ^3.0.0
         version: 3.0.3
@@ -112,7 +112,7 @@ importers:
         version: 4.0.9
       '@types/mjml':
         specifier: ^5.0.0
-        version: 5.4.1
+        version: 5.0.0
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5
@@ -170,8 +170,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sdk@0.137.0':
-    resolution: {integrity: sha512-YpEnbPz8kWF1BWthwUCnRhci7OvDLSUO8NFKoevoPkjNkK9CJeibZITgxr9vhqOP8Le61e5tNDHFTxw1dc6Png==}
+  '@anthropic-ai/sdk@0.120.0':
+    resolution: {integrity: sha512-ZlvmNFT/iIF6JD13rxbbMWD8nvGR0RaUp6yMQnoc+4Af0YjVVe/bIdW1XSQQsoxXAtg1NaT6Vak0LKFlJ4d37Q==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1239,8 +1239,8 @@ packages:
   '@types/mjml-core@5.1.0':
     resolution: {integrity: sha512-dYYmvGIHFi4wzsV+zX7UhP4C5QFSKeTjk53uQcadyIpTrrpJSs8JCZEKfSCrbKS7Hev3aR62b2dg58IeuwiR/w==}
 
-  '@types/mjml@5.4.1':
-    resolution: {integrity: sha512-8pB3/pu7nyM9F/auXfs2UwPu5Nnj7EwhkoeZtvbdTVkcHXnVEUziR+N1rK0k/YNNjlJKLE3FxCyW8iczZc1zcQ==}
+  '@types/mjml@5.0.0':
+    resolution: {integrity: sha512-z6P0yjEOVOz6cZVyD3vkPSifzVH0fa9M8BFM8Jl9HtpeFkBJyCZHRLPx1uFnkZijgAYmtO/JfSbp4EF1fNwsXQ==}
 
   '@types/node@22.20.5':
     resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
@@ -2631,8 +2631,8 @@ packages:
   leac@0.6.0:
     resolution: {integrity: sha512-y+SqErxb8h7nE/fiEX07jsbuhrpO9lL8eca7/Y1nuWV2moNlXhyd59iDGcRf6moVyDMbmTNzL40SUyrFU/yDpg==}
 
-  legacy-javascript@0.0.4:
-    resolution: {integrity: sha512-UTmeKBVxnfJcpmpOvzzNnLsQT99BXHpPlc/ZKddIRmWmrR0fw6335I3lq4+sJoP60UTbBNaYsGYVPc65YB1x3A==}
+  legacy-javascript@0.0.3:
+    resolution: {integrity: sha512-1r6MT4dVaJyXt4G07Cm2cQ0AUaLJdefiEp4SmIAylA++gnEQ82YvmzE58RkM5EP0fk5hROLCslUPGnwIYdZQVA==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -4175,9 +4175,8 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@0.137.0(zod@4.6.7)':
+  '@anthropic-ai/sdk@0.120.0(zod@4.6.7)':
     dependencies:
-      '@opentelemetry/api': 1.9.1
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.1.1
     optionalDependencies:
@@ -4796,7 +4795,7 @@ snapshots:
 
   '@paulirish/trace_engine@0.0.53':
     dependencies:
-      legacy-javascript: 0.0.4
+      legacy-javascript: 0.0.3
       third-party-web: 0.30.0
 
   '@pkgjs/parseargs@0.11.0':
@@ -5105,7 +5104,7 @@ snapshots:
 
   '@types/mjml-core@5.1.0': {}
 
-  '@types/mjml@5.4.1':
+  '@types/mjml@5.0.0':
     dependencies:
       '@types/mjml-core': 5.1.0
 
@@ -6691,7 +6690,7 @@ snapshots:
 
   leac@0.6.0: {}
 
-  legacy-javascript@0.0.4: {}
+  legacy-javascript@0.0.3: {}
 
   levn@0.4.1:
     dependencies:

@@ -555,21 +555,13 @@ export function perplexityEngine(
   };
 }
 
-/** The part of a response the engine reads. The rest of `Message` (usage, ids,
- *  model, container, …) is left out on purpose: the SDK adds required-but-
- *  nullable fields there in minor releases (0.137 added `Message.diagnostics`
- *  and `Usage.speed`), and each one broke a hand-built test fixture without
- *  touching anything this engine uses. */
-export type ClaudeProbeResponse = Pick<Anthropic.Message, "content" | "stop_reason">;
-
 /** The seam over `client.messages.create` — narrowed to the non-streaming
  *  overload, since that's the only shape this engine ever asks for. Typed
  *  against the real `@anthropic-ai/sdk` request/response types so a test can
- *  inject a stub with no cast, the same way `perplexityEngine` injects `fetch`;
- *  the real client's `Message` is assignable to `ClaudeProbeResponse`. */
+ *  inject a stub with no cast, the same way `perplexityEngine` injects `fetch`. */
 export type ClaudeMessageCreate = (
   params: Anthropic.MessageCreateParamsNonStreaming,
-) => Promise<ClaudeProbeResponse>;
+) => Promise<Anthropic.Message>;
 
 async function defaultClaudeMessageCreate(): Promise<ClaudeMessageCreate> {
   const { default: AnthropicClient } = await import("@anthropic-ai/sdk");
@@ -582,7 +574,7 @@ const MAX_CLAUDE_TURNS = 4;
 /** Claude with the web-search server tool. `pause_turn` is resumed explicitly —
  *  the SDK does not do it for you, and an unresumed pause silently truncates.
  *
- *  Typed against the real `@anthropic-ai/sdk` 0.120 and 0.137 response shapes, verified
+ *  Typed against the real `@anthropic-ai/sdk` 0.120.0 response shapes, verified
  *  against the installed `.d.ts` (no casts): `Message.content` (the response)
  *  and `MessageParam.content` (the request) are structurally compatible, so the
  *  paused assistant turn is pushed back as-is. `WebSearchToolResultBlock.content`
