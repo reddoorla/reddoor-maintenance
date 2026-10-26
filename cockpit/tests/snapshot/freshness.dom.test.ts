@@ -450,6 +450,36 @@ describe("startFreshness: when the open cockpit checks", () => {
         c.stop();
       }));
 
+    // #1718: no post starts during this check, so only the baseline's move tells
+    // it that the 42 it reads is the page's own.
+    it("a late post's answer landing while a check asks says nothing, though no post started during it", () =>
+      withTimers(async () => {
+        const s = { n: 41 };
+        let reply: (r: Response) => void = () => undefined;
+        const d = deps(() => new Promise<Response>((r) => (reply = r)));
+        const e = env();
+        const onNewer = vi.fn();
+        const c = startFreshness(() => snapshot, d, e.env, onNewer);
+        let answer: (r: Response) => void = () => undefined;
+        const posting = c.aroundOwnWrite(
+          () =>
+            new Promise<Response>((r) => {
+              s.n = 42; // the write lands; its answer is slow
+              answer = r;
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS); // the post no longer holds checks off
+        e.fire("focus"); // the check starts against 41 and reads 42
+        await flush();
+        expect(d.fetch).toHaveBeenCalledTimes(1);
+        answer(answered(41, 42)); // the post's answer arrives before the check's reply
+        await posting;
+        reply(new Response(JSON.stringify({ ok: true, version: s.n })));
+        await flush();
+        expect(onNewer).not.toHaveBeenCalled();
+        c.stop();
+      }));
+
     it("the post's own answer and error come back unchanged", () =>
       withTimers(async () => {
         const { d } = store(41);
