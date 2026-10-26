@@ -315,17 +315,46 @@ function securityResultToWrite(sec: AuditResult, target: WebsiteRow): AuditResul
   return neverAudited && live ? sec : null;
 }
 
+/** Why a site's write built no field, or null when it built one (or Lighthouse missed,
+ *  which throws on its own). One classification for both write-back paths (#1716): the
+ *  fleet files these under `kept`, `notApplicable` and `failed`, and the single-site CLI
+ *  prints the same three. */
+export type EmptyWrite =
+  | { kind: "kept"; reason: string }
+  | { kind: "not-applicable" }
+  | { kind: "nothing-measured"; reason: string };
+
+export function emptyWriteOutcome(plan: AuditWritePlan, results: AuditResult[]): EmptyWrite | null {
+  const { fields } = plan.summary;
+  if ((!!fields && Object.keys(fields).length > 0) || plan.lighthouseMiss) return null;
+  // Nothing to write is not a write (#1605). A site whose audits all said "not applicable"
+  // is counted as such; one whose audits measured nothing is a failure, named by what each
+  // audit said, and never `written` with its row still serving last month's verdict.
+  // An audit that applied, ran and still had nothing to write kept the row's
+  // verdicts (#1698); only a site whose every audit said n/a is not applicable.
+  const ranEmpty = results.filter((r) => PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true);
+  if (plan.unmeasured.length === 0 && ranEmpty.length > 0) {
+    return { kind: "kept", reason: ranEmpty.map((r) => `${r.audit}: ${r.summary}`).join("; ") };
+  }
+  if (plan.unmeasured.length === 0) return { kind: "not-applicable" };
+  return {
+    kind: "nothing-measured",
+    reason: plan.unmeasured.map((u) => `${u.audit}: ${u.summary}`).join("; "),
+  };
+}
+
 export async function writeBackOneSite(args: {
   websites: WebsiteRow[];
   slug: string;
   results: AuditResult[];
   mirrorHealth: (siteId: string, fields: FieldSet) => Promise<unknown>;
-}): Promise<WriteSummary> {
+}): Promise<WriteSummary & { empty?: EmptyWrite }> {
   const plan = planAuditWrite(args);
   const { siteId, fields } = plan.summary;
   if (siteId && fields) await args.mirrorHealth(siteId, fields);
   if (plan.lighthouseMiss) throw plan.lighthouseMiss;
-  return plan.summary;
+  const empty = emptyWriteOutcome(plan, args.results);
+  return empty ? { ...plan.summary, empty } : plan.summary;
 }
 
 export type FleetWriteResult = {
@@ -609,25 +638,11 @@ export async function writeFleetAudits(args: {
       if (r.notApplicable === true) note(notApplicableAudits, r.audit, slug);
     }
     const hasFields = !!summary.fields && Object.keys(summary.fields).length > 0;
-    // Nothing to write is not a write (#1605). A site whose audits all said "not applicable"
-    // is counted as such; one whose audits measured nothing is a failure, named by what each
-    // audit said, and never `written` with its row still serving last month's verdict.
-    if (!hasFields && !plan.lighthouseMiss) {
-      // An audit that applied, ran and still had nothing to write kept the row's
-      // verdicts (#1698); only a site whose every audit said n/a is not applicable.
-      const ranEmpty = siteResults.filter(
-        (r) => PERSISTED_AUDITS.has(r.audit) && r.notApplicable !== true,
-      );
-      if (plan.unmeasured.length === 0 && ranEmpty.length > 0) {
-        kept.push({ slug, reason: ranEmpty.map((r) => `${r.audit}: ${r.summary}`).join("; ") });
-      } else if (plan.unmeasured.length === 0) {
-        notApplicable.push(slug);
-      } else {
-        failed.push({
-          slug,
-          error: `nothing measured: ${plan.unmeasured.map((u) => `${u.audit}: ${u.summary}`).join("; ")}`,
-        });
-      }
+    const empty = emptyWriteOutcome(plan, siteResults);
+    if (empty) {
+      if (empty.kind === "kept") kept.push({ slug, reason: empty.reason });
+      else if (empty.kind === "not-applicable") notApplicable.push(slug);
+      else failed.push({ slug, error: `nothing measured: ${empty.reason}` });
       continue;
     }
     if (summary.siteId && summary.fields && hasFields) {

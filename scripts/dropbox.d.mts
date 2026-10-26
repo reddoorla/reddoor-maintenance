@@ -48,7 +48,7 @@ export interface Ctx extends Deps {
 
 export type Options =
   | { cmd: "check" }
-  | { cmd: "upload"; folder: string; files: string[]; overwrite: boolean }
+  | { cmd: "upload"; folder: string; files: string[]; overwrite: boolean; mkdir?: boolean }
   | { cmd: "close-request"; ids: string[] }
   | { cmd: "hash"; files: string[] };
 
@@ -101,6 +101,15 @@ export function rootHeader(rootNamespaceId: string): string;
 export function mintToken(deps: Deps): Promise<string>;
 export function connect(deps: Deps): Promise<Ctx>;
 export function accountLine(ctx: Ctx): string;
+export function metadata(
+  ctx: Ctx,
+  path: string,
+): Promise<{
+  ".tag"?: string;
+  rev?: string;
+  content_hash?: string;
+  path_display?: string;
+} | null>;
 export function probeScopes(ctx: Ctx): Promise<ScopeProbe[]>;
 export function rpc(ctx: Ctx, endpoint: string, arg: unknown): Promise<unknown>;
 export function contentCall(

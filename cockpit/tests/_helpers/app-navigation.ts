@@ -1,5 +1,5 @@
 import { onMount } from "svelte";
-import type { AfterNavigate } from "@sveltejs/kit";
+import type { AfterNavigate } from "$app/navigation";
 
 /**
  * `$app/navigation` for the cockpit's vitest projects, which run Svelte
