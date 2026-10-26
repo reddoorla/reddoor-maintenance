@@ -41,7 +41,8 @@ export type ReportData = {
   reportType: ReportType;
   completedOn: Date;
   lighthouse: LighthouseScores;
-  /** GA "Users" for the period / previous period. `undefined` = GA unavailable (not
+  /** GA "Engaged visits" (`engagedSessions`, P1-73) for the last 30 complete days / the 30
+   *  before; the `gaUsers*` names are the stored columns'. `undefined` = GA unavailable (not
    *  configured, no property ID, or fetch failed) — rendered as "—", distinct from a real 0.
    *  `| undefined` is explicit so callers can pass `undefined` under exactOptionalPropertyTypes. */
   gaUsersCurrent?: number | undefined;

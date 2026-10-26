@@ -987,6 +987,24 @@ export async function storeLighthouseScores(
   return res.numUpdatedRows > 0n;
 }
 
+/** P1-73: a re-measured analytics pair (engaged visits, last 30 complete days)
+ *  into an unsent, unapproved report, guarded like `storeLighthouseScores`.
+ *  The columns keep their `ga_users_*` names. Returns whether a row matched. */
+export async function storeGaVisits(
+  db: Db,
+  reportId: string,
+  visits: { current: number; previous: number },
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ ga_users_current: visits.current, ga_users_previous: visits.previous })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
 /** By report id (the PK) — approve-report's read. */
 export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
   const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
