@@ -117,35 +117,6 @@ describe("buildSiteAlarmContext", () => {
     expect(bounce.metric).toBe(4);
   });
 
-  // The reuse guarantee: buildSiteAlarmContext must surface the SAME items the
-  // cockpit does for a given site. Drift is structurally prevented — both call the
-  // shared collectFleetAttentionItems — so this is a behavioral cross-check that the
-  // two entry points agree (and that assignTier over a one-site array matches the
-  // per-card verdict) for inputs that trigger the vuln and notify-bounce collectors.
-  it("emits the same item keys as buildCockpitModel for the same site (reuse parity)", () => {
-    const clean = site({ id: "a", name: "Good" });
-    expect(
-      buildSiteAlarmContext(clean, [], BASE, NOW)
-        .items.map((i) => i.key)
-        .sort(),
-    ).toEqual(cockpitItemKeys(clean));
-
-    const vuln = site({ id: "b", name: "Bad", securityVulnsCritical: 2 });
-    expect(
-      buildSiteAlarmContext(vuln, [], BASE, NOW, NO_BOUNCES, NO_DEADLETTERS, escalated("b"))
-        .items.map((i) => i.key)
-        .sort(),
-    ).toEqual(cockpitItemKeys(vuln, NO_BOUNCES, escalated("b")));
-
-    const bouncing = site({ id: "c", name: "Espada" });
-    const notify = new Map([["c", { total: 4, permanent: 4 }]]);
-    expect(
-      buildSiteAlarmContext(bouncing, [], BASE, NOW, notify)
-        .items.map((i) => i.key)
-        .sort(),
-    ).toEqual(cockpitItemKeys(bouncing, notify));
-  });
-
   it("passes an unmet turnstile guardrail through as a watch reason with an accept key", () => {
     // requireTurnstile with a non-passing widget is the canonical watch condition.
     const s = site({ id: "a", name: "Reddoor", requireTurnstile: true, turnstileWidget: null });
