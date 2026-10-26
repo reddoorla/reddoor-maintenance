@@ -389,9 +389,10 @@ const TURNSTILE_WIDGET_STALE_DAYS = 3;
  * site's real leads (token-less submissions escalate to spam_auto with notify skipped),
  * so the operator's inbox just goes quiet. PURE. Keyed `turnstile:<siteId>`. Because
  * this is an AttentionItem it rides assignTier's items short-circuit, which sits ABOVE
- * the accepted-watch mute loop — an accept key can never silence it. A null verdict or
- * a stale sweep is NOT alarmed here; assignTier raises those as an acceptable
- * "can't verify" watch instead. `now` injected, defaults to wall-clock.
+ * the accepted-watch mute loop — an accept key can never silence it. A null verdict,
+ * a stale sweep, or a "fail" with no form-e2e stamp (#1710) is NOT alarmed here;
+ * assignTier raises those as an acceptable "can't verify" watch instead. `now`
+ * injected, defaults to wall-clock.
  */
 export function collectTurnstileGuardrailAlerts(
   sites: WebsiteRow[],
@@ -410,12 +411,15 @@ export function collectTurnstileGuardrailAlerts(
     // and stamp are now written in the SAME FieldSet (`formE2eFields`), so they
     // always move together; `turnstile-freshness.test.ts` pins that coupling.
     const at = s.formE2eCheckedAt;
-    if (at !== null) {
-      const ageMs = now.getTime() - Date.parse(at);
-      // Parseable and beyond the window → stale, downgraded to assignTier's watch.
-      // Unparseable (NaN) keeps the item — never silently drop a real failure.
-      if (Number.isFinite(ageMs) && ageMs > TURNSTILE_WIDGET_STALE_DAYS * MS_PER_DAY) continue;
-    }
+    // No stamp: no form-e2e run wrote this "fail", so it is a function-health
+    // legacy value, as unverified as a stale one (#1710). Since #1706 an
+    // unreadable /health keeps the stored verdict, so alarming here would page
+    // every morning, un-mutably, for a site whose /health never reads.
+    if (at === null) continue;
+    const ageMs = now.getTime() - Date.parse(at);
+    // Parseable and beyond the window → stale, downgraded to assignTier's watch.
+    // Unparseable (NaN) keeps the item — never silently drop a real failure.
+    if (Number.isFinite(ageMs) && ageMs > TURNSTILE_WIDGET_STALE_DAYS * MS_PER_DAY) continue;
     items.push({
       key: `turnstile:${s.id}`,
       kind: "turnstile",

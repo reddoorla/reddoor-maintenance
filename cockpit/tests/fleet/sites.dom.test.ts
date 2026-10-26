@@ -151,3 +151,60 @@ describe("Sites — what the signal filters say (#1589)", () => {
     expect(chip("vulns").getAttribute("aria-pressed")).toBe("false");
   });
 });
+
+describe("Sites — the chip count reaches a screen reader (#1636)", () => {
+  // The visible "· K shown" sits in `.meta`, which is not a live region. A
+  // visually hidden status region that is always in the page carries the count,
+  // so pressing a chip changes its text and the change is announced.
+  const live = () => target.querySelectorAll<HTMLElement>('.visually-hidden[role="status"]');
+
+  it("is always present and its text follows each chip press", () => {
+    render();
+    expect(live()).toHaveLength(1);
+    expect(live()[0]!.textContent!.trim()).toBe("4 sites shown");
+    chip("vulns").click();
+    flushSync();
+    expect(live()[0]!.textContent!.trim()).toBe("1 site shown");
+    chip("url-unresolved").click();
+    flushSync();
+    expect(live()[0]!.textContent!.trim()).toBe("0 sites shown");
+    chip("all").click();
+    flushSync();
+    expect(live()).toHaveLength(1);
+    expect(live()[0]!.textContent!.trim()).toBe("4 sites shown");
+  });
+});
+
+describe("Sites — when the default view hides every site (#1619)", () => {
+  const empty = () =>
+    [...target.querySelectorAll<HTMLElement>(".empty")].map((e) => e.textContent!.trim());
+
+  function mountWith(statuses: Array<"archived" | "external" | "maintained">, query = "") {
+    const model = cases()[10]![1];
+    const rows = statuses.map((status, i) => ({
+      ...model.cards[0]!.site,
+      id: `recH${i}`,
+      name: `Hidden ${i}`,
+      status,
+      statusRaw: status,
+    }));
+    const data = {
+      model: buildFleetTableModel(rows, parseFleetTableQuery(new URLSearchParams(query))),
+      sites: buildSitesView(model, NOW),
+    };
+    app = mount(Page, { target, props: { data: JSON.parse(JSON.stringify(data)) } });
+    flushSync();
+  }
+
+  it("says every site is archived or external, not that a filter matched nothing", () => {
+    mountWith(["archived", "external"]);
+    expect(empty()).toEqual(["Every site is archived or external."]);
+    // The meta line still offers the way to see them.
+    expect(target.querySelector(".meta a")!.textContent).toBe("Show all");
+  });
+
+  it("keeps the filter message when a filter the operator chose matches nothing", () => {
+    mountWith(["archived", "external"], "q=zzz");
+    expect(empty()).toEqual(["No sites match these filters."]);
+  });
+});

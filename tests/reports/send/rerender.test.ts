@@ -239,9 +239,11 @@ describe("rerenderReport — health evidence (#890)", () => {
         scores: "unchanged",
         scoresChange: null,
         lookup: "not-run",
+        ga: "skipped",
+        gaChange: null,
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=skipped scores=unchanged lookup=not-run",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=skipped scores=unchanged lookup=not-run ga=skipped",
     );
   });
 });
@@ -392,9 +394,11 @@ describe("rerenderReport — Google Indexed re-measure", () => {
         scores: "site-missing",
         scoresChange: null,
         lookup: "not-run",
+        ga: "skipped",
+        gaChange: null,
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=no-header evidence=unchanged search=unavailable scores=site-missing lookup=not-run",
+      "REPORT_RERENDER report=recREP status=no-header evidence=unchanged search=unavailable scores=site-missing lookup=not-run ga=skipped",
     );
   });
 
@@ -410,9 +414,11 @@ describe("rerenderReport — Google Indexed re-measure", () => {
         scores: "unchanged",
         scoresChange: null,
         lookup: "not-run",
+        ga: "skipped",
+        gaChange: null,
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=measured scores=unchanged lookup=not-run",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=reticked search=measured scores=unchanged lookup=not-run ga=skipped",
     );
   });
 });
@@ -467,9 +473,11 @@ describe("rerenderReport — Lighthouse scores (P1-34)", () => {
         scores: "refreshed",
         scoresChange: "bp:78→100",
         lookup: "not-run",
+        ga: "skipped",
+        gaChange: null,
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=unchanged search=skipped scores=refreshed scores_change=bp:78→100 lookup=not-run",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=unchanged search=skipped scores=refreshed scores_change=bp:78→100 lookup=not-run ga=skipped",
     );
   });
 
@@ -847,9 +855,134 @@ describe("rerenderReport — Search Console lookup write-back (P1-36)", () => {
         scores: "locked",
         scoresChange: null,
         lookup: "resolved",
+        ga: "skipped",
+        gaChange: null,
       }),
     ).toBe(
-      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=locked search=skipped scores=locked lookup=resolved",
+      "REPORT_RERENDER report=recREP status=rendered bytes=10 header=turso evidence=locked search=skipped scores=locked lookup=resolved ga=skipped",
     );
+  });
+});
+
+describe("rerenderReport — analytics line (P1-73)", () => {
+  // ERP's pending 2026-10 draft: activeUsers over its own period, stored before P1-73.
+  const OLD = report({ gaUsersCurrent: 906, gaUsersPrevious: 898 });
+  const VISITS = { current: 217, previous: 206 };
+
+  it("re-measures an unsent, unapproved report's analytics as of now, stores them, and renders with them", async () => {
+    const measuredAt: Date[] = [];
+    const written: Array<{ id: string; visits: unknown }> = [];
+    const rendered: ReportRow[] = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => OLD,
+        measureVisits: async (_site, now) => {
+          measuredAt.push(now);
+          return { value: VISITS };
+        },
+        storeVisits: async (id, visits) => {
+          written.push({ id, visits });
+          return true;
+        },
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(measuredAt).toEqual([NOW]);
+    expect(written).toEqual([{ id: "recREP", visits: VISITS }]);
+    expect(rendered[0]).toMatchObject({ gaUsersCurrent: 217, gaUsersPrevious: 206 });
+    expect(r).toMatchObject({ status: "rendered", ga: "refreshed", gaChange: "906/898→217/206" });
+    expect(formatRerenderResult(r)).toMatch(/ ga=refreshed ga_change=906\/898→217\/206$/);
+  });
+
+  it("never re-measures an approved report: what was approved is what is sent", async () => {
+    let measured = false;
+    let written = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => report({ ...OLD, approvedToSend: true }),
+        measureVisits: async () => {
+          measured = true;
+          return { value: VISITS };
+        },
+        storeVisits: async () => (written = true),
+      }),
+      "recREP",
+    );
+    expect(measured).toBe(false);
+    expect(written).toBe(false);
+    expect(r).toMatchObject({ status: "rendered", ga: "locked", gaChange: null });
+  });
+
+  it("keeps the stored numbers when GA is unavailable, and says so", async () => {
+    let written = false;
+    const rendered: ReportRow[] = [];
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => OLD,
+        measureVisits: async () => ({ value: null }),
+        storeVisits: async () => (written = true),
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(written).toBe(false);
+    expect(rendered[0]).toMatchObject({ gaUsersCurrent: 906, gaUsersPrevious: 898 });
+    expect(r).toMatchObject({ ga: "unavailable" });
+  });
+
+  it("writes nothing when the numbers already match, and renders what it read when the write matched nothing", async () => {
+    let writes = 0;
+    const same = await rerenderReport(
+      deps({
+        getReport: async () => report({ gaUsersCurrent: 217, gaUsersPrevious: 206 }),
+        measureVisits: async () => ({ value: VISITS }),
+        storeVisits: async () => (writes++, true),
+      }),
+      "recREP",
+    );
+    expect(same).toMatchObject({ ga: "unchanged" });
+    expect(writes).toBe(0);
+
+    const rendered: ReportRow[] = [];
+    const lost = await rerenderReport(
+      deps({
+        getReport: async () => OLD,
+        measureVisits: async () => ({ value: VISITS }),
+        storeVisits: async () => false,
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(lost).toMatchObject({ ga: "not-written", gaChange: null });
+    expect(rendered[0]).toMatchObject({ gaUsersCurrent: 906 });
+  });
+
+  it("never measures a Launch report, whose email shows no analytics", async () => {
+    let measured = false;
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => report({ reportType: "Launch" }),
+        measureVisits: async () => ((measured = true), { value: VISITS }),
+        storeVisits: async () => true,
+      }),
+      "recREP",
+    );
+    expect(measured).toBe(false);
+    expect(r).toMatchObject({ ga: "skipped" });
+  });
+
+  it("is skipped when no GA fetch is wired", async () => {
+    const r = await rerenderReport(deps({ getReport: async () => OLD }), "recREP");
+    expect(r).toMatchObject({ ga: "skipped" });
   });
 });

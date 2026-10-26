@@ -52,6 +52,12 @@
     · {m.hiddenCount} archived or external hidden · <a href={showHiddenHref(m)}>Show all</a>
   {/if}
 </div>
+<!-- The chip count for a screen reader (#1636): `.meta` is not a live region,
+     so this one, always in the page, carries the count and a chip press
+     changes its text. -->
+<div class="visually-hidden" role="status">
+  {shownCount} site{shownCount === 1 ? "" : "s"} shown
+</div>
 <form class="filters" method="get" action="/fleet">
   <!-- The sort rides along as hidden inputs, so Apply never silently drops the
        operator's ranking on a filter change. -->
@@ -75,7 +81,11 @@
     >{/each}
 </div>
 {#if m.rows.length === 0}
-  <div class="empty">No sites match these filters.</div>
+  <!-- hiddenCount is non-zero only on the default view, where an empty table
+       means every site was hidden, not that a filter matched nothing (#1619). -->
+  <div class="empty">
+    {m.hiddenCount > 0 ? "Every site is archived or external." : "No sites match these filters."}
+  </div>
 {:else}
   {#if filter !== "all" && shownCount === 0}
     <div class="empty" role="status">No sites carry this signal.</div>

@@ -102,7 +102,7 @@ async function sweep(repos: Repo[]): Promise<{ output: string; code: number }> {
   return runProtectionAuditCommand({ org: "reddoorla" }, deps);
 }
 
-type Issue = { number: number; title: string; body: string };
+type Issue = { number: number; title: string; body: string; comments?: { body: string }[] };
 
 /** A `gh` that pages `issue list` like the real one (30 rows by default,
  *  `--search` narrows first), hands `--jq` to the real `jq`, and logs every
@@ -133,10 +133,16 @@ if (group === "issue" && sub === "list") {
 }
 if (group === "issue" && sub === "view") {
   if (process.env.GH_FAIL_VIEW) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
+  if (process.env.GH_FAIL_COMMENTS && (flag("--json") ?? "").split(",").includes("comments")) {
+    process.stderr.write("HTTP 502\\n");
+    process.exit(1);
+  }
   const found = issues.find((r) => r.number === Number(rest[0]));
   if (!found) { process.stderr.write("no such issue\\n"); process.exit(1); }
   const fields = (flag("--json") ?? "body").split(",");
-  const json = JSON.stringify(Object.fromEntries(fields.map((f) => [f, found[f]])));
+  const json = JSON.stringify(
+    Object.fromEntries(fields.map((f) => [f, f === "comments" ? (found.comments ?? []) : found[f]])),
+  );
   const expr = flag("--jq");
   process.stdout.write(expr ? jq(expr, json) : json);
   process.exit(0);
@@ -153,7 +159,8 @@ type Call = { sub: string; args: string[]; flag: (n: string) => string | undefin
 
 async function runStep(opts: {
   step: string;
-  sweep: string;
+  /** The protection audit's output; null means the audit never wrote one. */
+  sweep: string | null;
   corpus?: Issue[];
   env?: Record<string, string>;
 }): Promise<{ code: number; out: string; calls: Call[]; outputs: Record<string, string> }> {
@@ -164,7 +171,7 @@ async function runStep(opts: {
   await mkdir(bin, { recursive: true });
   await writeFile(join(dir, "corpus.json"), JSON.stringify(opts.corpus ?? []), "utf-8");
   await writeFile(join(dir, "gh-stub.mjs"), GH_STUB, "utf-8");
-  await writeFile(join(dir, "protection.out"), opts.sweep, "utf-8");
+  if (opts.sweep !== null) await writeFile(join(dir, "protection.out"), opts.sweep, "utf-8");
   await writeFile(join(dir, "gh.log"), "", "utf-8");
   await writeFile(join(dir, "github-output"), "", "utf-8");
   await writeFile(join(bin, "gh"), `#!/bin/sh\nexec node "${join(dir, "gh-stub.mjs")}" "$@"\n`);
@@ -314,6 +321,30 @@ describe("a drought opens its own issue", () => {
     expect(dry).toMatch(/^WARN {4}reddoorla\/espada — no feature update has LANDED/m);
     expect(dry).not.toContain("williamson-homes");
     expect(rest).toMatch(/^WARN {4}reddoorla\/williamson-homes — renovate outcome UNMEASURED/m);
+  });
+
+  it("the body explains all three UNMEASURED reasons, the off-default one included (#1714)", async () => {
+    // reddoor-website's shape since #1686: its feature merges go to staging.
+    const STAGING: RenovateMergeWindow = {
+      merges: [],
+      offDefault: [{ headRef: "renovate/all-minor-patch", mergedAt: daysAgo(3) }],
+      truncated: false,
+    };
+    const s = await sweep([
+      { name: "espada", window: FROZEN },
+      { name: "reddoor-website", window: STAGING },
+    ]);
+    expect(s.output).toMatch(
+      /^WARN {4}reddoorla\/reddoor-website — renovate outcome UNMEASURED.*went to a branch other than the default/m,
+    );
+    const r = await runStep({ step: OPEN_STEP, sweep: s.output });
+    const body = r.calls.find((c) => c.sub === "create")!.flag("--body")!;
+    expect(body).toContain("last MERGED into the default branch on each public repo");
+    expect(body).toContain('"window is FULL" means');
+    expect(body).toContain('"never merged" means');
+    expect(body).toContain(
+      '"went to a branch other than the default" means its feature-update Renovate merges landed on another branch (the staging flow), where they reach production only through the promotion PR, which the sweep does not measure (#1686).',
+    );
   });
 
   it("a repo whose probe threw stays on the line as UNMEASURED, and still holds an issue that named it", async () => {
@@ -467,6 +498,96 @@ describe("the close step closes only on evidence", () => {
     expect(r.calls.filter((c) => c.sub === "close")).toEqual([]);
     expect(r.out).toContain("did not see deliver");
     expect(r.out).toContain("reddoorla/espada");
+  });
+
+  it("says on the issue which named repos left the sweep, once per set of repos (#1632)", async () => {
+    const issue = await droughtIssue(950, [
+      { name: "espada", window: FROZEN },
+      { name: "revogen", window: FROZEN },
+    ]);
+    // espada went private; revogen's probe throws, so it is UNMEASURED.
+    const s = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: FROZEN, probeThrows: true },
+      { name: "pwd", window: HEALTHY },
+    ]);
+    expect(s.output).toContain("RENOVATE_OUTCOME drought=0 ");
+    // Night 1: one comment naming both repos and why each holds the issue.
+    const r1 = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([issue]) });
+    expect(r1.calls.filter((c) => c.sub === "close")).toEqual([]);
+    const notes = r1.calls.filter((c) => c.sub === "comment");
+    expect(notes.map((c) => c.args[0])).toEqual(["950"]);
+    const note = notes[0]!.flag("--body")!;
+    expect(note).toMatch(/^reddoorla\/espada — not in tonight's sweep at all/m);
+    expect(note).toMatch(/^WARN {4}reddoorla\/revogen — renovate outcome UNMEASURED/m);
+    expect(note).toContain("<!-- renovate-drought-unseen: reddoorla/espada reddoorla/revogen -->");
+    // Night 2, the same sweep: the issue already carries that note, with a
+    // later comment after it, so nothing is posted.
+    const noted: Issue = { ...issue, comments: [{ body: note }, { body: "a human reply" }] };
+    const r2 = await runStep({ step: CLOSE_STEP, sweep: s.output, corpus: corpus([noted]) });
+    expect(r2.calls).toEqual([]);
+    expect(r2.out).toContain("not closing #950");
+    // Night 3: revogen delivers, espada is still gone. A different set, so a
+    // new note, naming espada alone.
+    const s3 = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r3 = await runStep({ step: CLOSE_STEP, sweep: s3.output, corpus: corpus([noted]) });
+    const note3 = r3.calls.filter((c) => c.sub === "comment");
+    expect(note3.map((c) => c.args[0])).toEqual(["950"]);
+    expect(note3[0]!.flag("--body")).toContain(
+      "<!-- renovate-drought-unseen: reddoorla/espada -->",
+    );
+    expect(note3[0]!.flag("--body")).not.toMatch(/^WARN {4}reddoorla\/revogen/m);
+  });
+
+  it("a set that flaps between two values posts one note per distinct set, not one a night (#1632)", async () => {
+    const issue = await droughtIssue(950, [
+      { name: "espada", window: FROZEN },
+      { name: "revogen", window: FROZEN },
+    ]);
+    // espada is gone for good; revogen's probe 502s on some nights and
+    // delivers on others, so the unseen set alternates.
+    const fail = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY, probeThrows: true },
+      { name: "pwd", window: HEALTHY },
+    ]);
+    const ok = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY },
+      { name: "pwd", window: HEALTHY },
+    ]);
+    const comments: { body: string }[] = [];
+    const posted: number[] = [];
+    for (const night of [fail, ok, fail, ok, fail]) {
+      const r = await runStep({
+        step: CLOSE_STEP,
+        sweep: night.output,
+        corpus: corpus([{ ...issue, comments: [...comments] }]),
+      });
+      const notes = r.calls.filter((c) => c.sub === "comment");
+      posted.push(notes.length);
+      for (const n of notes) comments.push({ body: n.flag("--body")! });
+    }
+    expect(posted).toEqual([1, 1, 0, 0, 0]);
+  });
+
+  it("posts nothing, and warns, when the issue's comments cannot be read (#1632)", async () => {
+    const issue = await droughtIssue(950, [{ name: "espada", window: FROZEN }]);
+    const s = await sweep([
+      { name: "espada", window: HEALTHY, visibility: "private" },
+      { name: "revogen", window: HEALTHY },
+    ]);
+    const r = await runStep({
+      step: CLOSE_STEP,
+      sweep: s.output,
+      corpus: corpus([issue]),
+      env: { GH_FAIL_COMMENTS: "1" },
+    });
+    expect(r.calls).toEqual([]);
+    expect(r.out).toContain("::warning::could not read the comments on #950");
   });
 
   it("refuses an issue whose body names no dry repo", async () => {
@@ -631,6 +752,14 @@ describe("the read step without an outcome line", () => {
       expect([value, await firesOn(OPEN_STEP, value)]).toEqual([value, open]);
       expect([value, await firesOn(CLOSE_STEP, value)]).toEqual([value, close]);
     }
+  });
+
+  it("says the protection audit did not run when it wrote no output at all (#1652)", async () => {
+    const r = await runStep({ step: READ_STEP, sweep: null });
+    expect(r.code).toBe(0);
+    expect(r.outputs.drought).toBe("unknown");
+    expect(r.out).toContain("::warning::renovate outcome: the protection audit did not run");
+    expect(r.out).not.toContain("printed no RENOVATE_OUTCOME line");
   });
 
   it("says drought=unknown and warns", async () => {
