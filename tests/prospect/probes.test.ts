@@ -13,6 +13,7 @@ import {
   PROBE_MODEL,
   type VisibilityEngine,
   type ClaudeMessageCreate,
+  type ClaudeProbeResponse,
 } from "../../src/prospect/probes.js";
 
 const engine = (
@@ -539,34 +540,13 @@ describe("perplexityEngine", () => {
 });
 
 describe("claudeWebSearchEngine", () => {
-  const usage: Anthropic.Usage = {
-    cache_creation: null,
-    cache_creation_input_tokens: null,
-    cache_read_input_tokens: null,
-    inference_geo: null,
-    input_tokens: 10,
-    output_tokens: 10,
-    output_tokens_details: null,
-    server_tool_use: null,
-    service_tier: null,
-  };
-
+  // Only the fields the engine reads (ClaudeProbeResponse), so a new required
+  // field on Message or Usage in an SDK minor no longer breaks typecheck here.
   function claudeMessage(
     content: Anthropic.ContentBlock[],
     stop_reason: Anthropic.StopReason,
-  ): Anthropic.Message {
-    return {
-      id: "msg_test",
-      container: null,
-      content,
-      model: PROBE_MODEL,
-      role: "assistant",
-      stop_details: null,
-      stop_reason,
-      stop_sequence: null,
-      type: "message",
-      usage,
-    };
+  ): ClaudeProbeResponse {
+    return { content, stop_reason };
   }
 
   function textBlock(
@@ -659,6 +639,21 @@ describe("claudeWebSearchEngine", () => {
       );
     const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
     expect([...out.citedDomains].sort()).toEqual(["acme.example", "bestroofs.example"]);
+  });
+
+  it("answers from the text block when the tool result comes first", async () => {
+    // A real web-search response leads with the search result and puts the
+    // prose after it, so the answer cannot be read off the first block.
+    const createMessage: ClaudeMessageCreate = async () =>
+      claudeMessage(
+        [
+          toolResultBlock([searchResultBlock("https://bestroofs.example/")]),
+          textBlock("Acme Roofing is in Boise."),
+        ],
+        "end_turn",
+      );
+    const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect(out.answer).toBe("Acme Roofing is in Boise.");
   });
 
   it("does not throw when a web-search tool result is the error variant", async () => {
