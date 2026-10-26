@@ -632,6 +632,17 @@ export async function mutate(o, deps = {}) {
         symlinkSync(join(root, "node_modules"), join(wt, "node_modules"), "dir");
         ignore.push("?? node_modules");
       }
+      // cockpit/tsconfig.json extends the git-ignored cockpit/.svelte-kit/tsconfig.json, so a
+      // test reaching cockpit/ code fails to transform until it is generated, as
+      // `pnpm cockpit:check` does (#1657).
+      if (existsSync(join(wt, "cockpit"))) {
+        const rs = await run(join(wt, "node_modules", ".bin", "svelte-kit"), ["sync"], {
+          cwd: wt,
+          timeoutMs: o.timeoutMs,
+        });
+        if (rs.code !== 0)
+          throw new Refusal(`svelte-kit sync in the worktree failed:\n${tail(rs)}`);
+      }
     }
     const work = st.work;
 
