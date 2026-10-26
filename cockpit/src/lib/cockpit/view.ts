@@ -13,7 +13,7 @@ import {
 } from "../../../../src/dashboard/fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/onboarding.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
-import { LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
+import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
 import { isLeadFormType } from "../../../../src/forms/types.js";
 import type { FleetEventType } from "../../../../src/db/fleet-events.js";
 import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
@@ -39,7 +39,15 @@ export type VerdictView = {
   meta: string;
 };
 
-export type FeedRowView = { group: NeedsYouGroup; siteName: string; reasons: string; url: string };
+export type FeedRowView = {
+  group: NeedsYouGroup;
+  siteName: string;
+  reasons: string;
+  url: string;
+  /** P1-78b: how long a Broken or Attention row has stood, from the digest's
+   *  `firstFlaggedAt` ("since today", "for 6 days"); null when undated. */
+  age: string | null;
+};
 export type FeedGroupView = { group: NeedsYouGroup; label: string; rows: FeedRowView[] };
 
 export type ChipView = {
@@ -146,7 +154,15 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
     ? `fleet last audited ${relativeTimeFromNow(auditedIso, now)}`
     : null;
   const total = model.cards.length;
-  const { broken, attention, watch, approval } = needsYouCounts(feed);
+  const fed = needsYouCounts(feed);
+  // An item on no site card (an unknown-slug dead letter, the stale url probe) is
+  // still on this page, so it counts in the verdict too: one row each, never "All clear".
+  const cardless = (model.cardless ?? []).filter((i) => i.waiting !== true);
+  const cardlessAt = (l: Level) =>
+    cardless.filter((i) => (i.level ?? levelOf(i, undefined, now)) === l).length;
+  const broken = fed.broken + cardlessAt("broken");
+  const attention = fed.attention + cardlessAt("attention");
+  const { watch, approval } = fed;
   // Pre-launch cards never enter the feed and are neither healthy nor broken.
   const preLaunch = model.summary.preLaunch;
   const preLaunchTerm = preLaunch > 0 ? `${preLaunch} pre-launch` : null;
@@ -155,7 +171,7 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
   const archivedTerm = archivedCount > 0 ? `${archivedCount} archived` : null;
   // Clamp: feed counts include pending-report sites, which may not be among the
   // visible cards, so total − feed could otherwise underflow.
-  const healthy = Math.max(0, total - (broken + attention + watch + approval + preLaunch));
+  const healthy = Math.max(0, total - (fed.broken + fed.attention + watch + approval + preLaunch));
   const make = (cls: VerdictView["cls"], line: string, terms: Array<string | null>) => ({
     cls,
     line,
@@ -193,7 +209,13 @@ const LEVEL_LABEL: Record<Level, string> = {
   watch: "Watch",
 };
 
-function feedGroups(feed: NeedsYouItem[]): FeedGroupView[] {
+function ageOf(since: string | null, now: Date): string | null {
+  if (since === null) return null;
+  const days = daysFlagged(since, now);
+  return days === 0 ? "since today" : `for ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function feedGroups(feed: NeedsYouItem[], now: Date): FeedGroupView[] {
   return (["broken", "attention", "watch", "approval"] as const)
     .map((g) => ({
       group: g,
@@ -205,6 +227,7 @@ function feedGroups(feed: NeedsYouItem[]): FeedGroupView[] {
           siteName: i.siteName,
           reasons: i.reasons.join(" · "),
           url: i.url,
+          age: ageOf(i.since, now),
         })),
     }))
     .filter((g) => g.rows.length > 0);
@@ -492,7 +515,7 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
     total: model.cards.length,
     verdict: verdict(model, feed, now),
     feedCount: feed.length,
-    feed: feedGroups(feed),
+    feed: feedGroups(feed, now),
     setup: setupLane(model),
     cardless: (model.cardless ?? [])
       .filter((i) => i.waiting !== true)

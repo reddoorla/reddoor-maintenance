@@ -9,8 +9,10 @@ import {
   assignTier,
   buildCockpitModel,
   buildNeedsYouFeed,
+  buildSiteAlarmContext,
   type CockpitModel,
 } from "../../src/dashboard/fleet-cockpit.js";
+import { siteSlug as siteSlugOf } from "../../src/fleet/site-row.js";
 import { levelOf, RENOVATE_ATTENTION_DAYS } from "../../src/alerts/ladder.js";
 import { collectDeployAlerts } from "../../src/alerts/digest-collectors.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
@@ -19,7 +21,7 @@ import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
 import type { NotifyBounceCounts } from "../../src/db/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { buildCockpitView } from "../../cockpit/src/lib/cockpit/view.js";
+import { buildCockpitView, buildSitesView } from "../../cockpit/src/lib/cockpit/view.js";
 
 const NOW = new Date("2026-10-26T16:00:00Z");
 const TODAY = "2026-10-26";
@@ -379,5 +381,78 @@ describe("Mon 10-26, replayed", () => {
     const v = buildCockpitView(m, NOW).verdict;
     expect(v.line).toBe("2 need attention · 2 to watch");
     expect(v.cls).toBe("attention");
+  });
+});
+
+describe("review round 1 (P1-78b)", () => {
+  it("a Watch-level item is one chip on the Sites row and one item on the site page, with no accept hint", () => {
+    const m = model([site({ renovateFailingCis: 1 })]);
+    const chips = buildSitesView(m, NOW).cards[siteSlugOf("Solo")]!.chips;
+    expect(chips.filter((c) => c.text === "1 Renovate PR failing CI")).toHaveLength(1);
+    expect(chips.some((c) => c.title !== null)).toBe(false);
+    const ctx = buildSiteAlarmContext(
+      site({ renovateFailingCis: 1 }),
+      [],
+      BASE,
+      NOW,
+      new Map(),
+      new Map(),
+      PRIOR,
+    );
+    expect(ctx.tier).toBe("watch");
+    expect(ctx.items.map((i) => i.key)).toEqual(["renovate:recS"]);
+    expect(ctx.watchReasons).toEqual([]);
+    // The feed still names it.
+    expect(buildNeedsYouFeed(m)[0]!.reasons).toEqual(["1 Renovate PR failing CI"]);
+  });
+
+  it('an accepted "url not deployed" stays visible as an accepted chip', () => {
+    const m = model([
+      site({
+        urlResolves: "fail",
+        urlStatus: "404",
+        urlCheckedAt: FRESH,
+        acceptedWatchConditions: ["url not deployed"],
+      }),
+    ]);
+    expect(m.cards[0]!.tier).toBe("healthy");
+    expect(m.cards[0]!.acceptedReasons).toEqual([
+      "roster url https://solo.example.com does not resolve (404)",
+    ]);
+  });
+
+  it("the verdict counts an item on no card: never All clear while one is on the page", () => {
+    const v = buildCockpitView(model([site({ urlCheckedAt: "2026-10-01T00:00:00.000Z" })]), NOW);
+    expect(v.verdict.line).toBe("1 needs attention");
+    expect(v.verdict.cls).toBe("attention");
+  });
+
+  it("Broken and Attention rows carry their age, oldest first within a group", () => {
+    const m = model(
+      [
+        site({ id: "recY", name: "Young", defaultBranchCi: "failing" }),
+        site({ id: "recO", name: "Old", defaultBranchCi: "failing" }),
+      ],
+      {
+        prior: {
+          "ci:recY": { metric: 1, firstFlaggedAt: daysAgo(1) },
+          "ci:recO": { metric: 1, firstFlaggedAt: daysAgo(6) },
+        },
+      },
+    );
+    expect(buildNeedsYouFeed(m).map((r) => [r.siteName, r.since])).toEqual([
+      ["Old", daysAgo(6)],
+      ["Young", daysAgo(1)],
+    ]);
+    const rows = buildCockpitView(m, NOW).feed[0]!.rows;
+    expect(rows.map((r) => r.age)).toEqual(["for 6 days", "for 1 day"]);
+  });
+
+  it("the stale probe counts every non-archived row, as the digest does", () => {
+    const m = model([
+      site({ urlCheckedAt: null }),
+      site({ id: "recB", name: "Building", status: "building", urlCheckedAt: null }),
+    ]);
+    expect((m.cardless ?? []).map((i) => [i.key, i.metric])).toEqual([["url-probe-stale", 2]]);
   });
 });

@@ -39,7 +39,10 @@
         {#each g.rows as row, i (i)}
           <div class="feed-row" data-group={row.group}>
             <span class="dot {row.group}"></span>
-            <span class="feed-what"><strong>{row.siteName}</strong> — {row.reasons}</span>
+            <span class="feed-what"
+              ><strong>{row.siteName}</strong> — {row.reasons}{#if row.age}
+                <span class="muted feed-age">&nbsp;· {row.age}</span>{/if}</span
+            >
             <a class="feed-open" href={row.url}>Open ▸</a>
           </div>
         {/each}

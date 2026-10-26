@@ -6,6 +6,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
   "autoFiltered": 0,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -22,6 +23,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -167,6 +169,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -359,6 +362,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countUnreplay
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -386,6 +390,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countUnreplay
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -699,6 +704,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listAllReport
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -715,6 +721,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listAllReport
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -1021,6 +1028,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -1037,6 +1045,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -1182,6 +1191,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -1365,6 +1375,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -1381,6 +1392,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -1526,6 +1538,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -1708,6 +1721,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -1724,6 +1738,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:acme",
           "kind": "deadletter",
           "level": "broken",
@@ -1746,6 +1761,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -1879,6 +1895,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -2071,6 +2088,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -2087,6 +2105,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -2232,6 +2251,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -2420,6 +2440,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -2436,6 +2457,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -2570,6 +2592,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "vuln:recA",
           "kind": "vuln",
           "level": "attention",
@@ -2592,6 +2615,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -2784,6 +2808,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
   "autoFiltered": 1,
   "cardless": [
     {
+      "firstFlaggedAt": "2026-10-20",
       "key": "url-probe-stale",
       "kind": "url",
       "level": "attention",
@@ -2800,6 +2825,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
       "acceptedReasons": [],
       "items": [
         {
+          "firstFlaggedAt": "2026-10-20",
           "key": "deadletter:beta",
           "kind": "deadletter",
           "level": "broken",
@@ -2945,6 +2971,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
             "health-gate: Maint: Security Updates",
             "health-gate: Maint: Uptime Checked",
           ],
+          "firstFlaggedAt": "2026-10-20",
           "key": "preflight:rep1:pending",
           "kind": "preflight",
           "level": "attention",
@@ -3137,6 +3164,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countN
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -3148,6 +3176,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countN
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -3171,6 +3200,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countN
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -3482,6 +3512,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countU
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -3493,6 +3524,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countU
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -3514,6 +3546,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countU
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -3825,6 +3858,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > listSu
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -3836,6 +3870,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > listSu
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -3846,6 +3881,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > listSu
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -3869,6 +3905,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > listSu
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -4059,6 +4096,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > oldest
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -4070,6 +4108,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > oldest
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -4080,6 +4119,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > oldest
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -4101,6 +4141,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > oldest
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -4412,6 +4453,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readDi
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -4422,6 +4464,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readDi
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -4432,6 +4475,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readDi
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -4455,6 +4499,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readDi
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -4766,6 +4811,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -4777,6 +4823,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -4787,6 +4834,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -4810,6 +4858,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -5117,6 +5166,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -5128,6 +5178,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -5138,6 +5189,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -5161,6 +5213,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",
@@ -5468,6 +5521,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > the wh
     "acceptedReasons": [],
     "items": [
       {
+        "firstFlaggedAt": "2026-10-19",
         "key": "vuln:recA",
         "kind": "vuln",
         "level": "attention",
@@ -5479,6 +5533,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > the wh
         "waiting": true,
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "notify-bounce:recA",
         "kind": "notify-bounce",
         "level": "broken",
@@ -5489,6 +5544,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > the wh
         "url": "https://dash.example/s/acme",
       },
       {
+        "firstFlaggedAt": "2026-10-20",
         "key": "deadletter:acme",
         "kind": "deadletter",
         "level": "broken",
@@ -5512,6 +5568,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > the wh
           "health-gate: Maint: Security Updates",
           "health-gate: Maint: Uptime Checked",
         ],
+        "firstFlaggedAt": "2026-10-20",
         "key": "preflight:rep1:pending",
         "kind": "preflight",
         "level": "attention",

@@ -79,11 +79,19 @@ export function worstLevel(items: ReadonlyArray<{ level?: Level }>): Level | nul
   return worst;
 }
 
-/** Set each item's `level` from its `firstFlaggedAt` in the diff's next snapshot. */
+/** Set each item's `level`, and its `firstFlaggedAt` (its age on the triage page),
+ *  from the diff's next snapshot. */
 export function withLevels<T extends AttentionItem>(
   items: readonly T[],
   next: Readonly<Record<string, { firstFlaggedAt: string }>>,
   now: Date,
 ): T[] {
-  return items.map((it) => ({ ...it, level: levelOf(it, next[it.key]?.firstFlaggedAt, now) }));
+  return items.map((it) => {
+    const first = next[it.key]?.firstFlaggedAt;
+    return {
+      ...it,
+      level: levelOf(it, first, now),
+      ...(first !== undefined ? { firstFlaggedAt: first } : {}),
+    };
+  });
 }

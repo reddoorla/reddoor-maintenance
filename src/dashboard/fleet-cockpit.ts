@@ -29,6 +29,8 @@ import {
   collectUrlResolveAlerts,
   collectDeployAlerts,
   prismicAckCovers,
+  urlProbeFresh,
+  URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { markWaiting } from "../alerts/waiting.js";
@@ -370,6 +372,17 @@ export function assignTier(
       acceptedReasons: [],
       setup,
     };
+  // An accepted dead roster url stays VISIBLE, as a muted chip: the collector drops
+  // the Broken item for "url not deployed", and the acceptance would vanish with it.
+  if (
+    site.status === "maintained" &&
+    site.urlResolves === "fail" &&
+    urlProbeFresh(site.urlCheckedAt, now) &&
+    URL_NOT_DEPLOYED_KEYS.some((k) => accepted.has(k))
+  )
+    acceptedReasons.push(
+      `roster url ${site.url.trim()} does not resolve (${site.urlStatus ?? "no status"})`,
+    );
   // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
   // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
   // this the site would read as plainly healthy and the acceptance would be
@@ -385,12 +398,10 @@ export function assignTier(
   }
 
   // A Watch-level item (a Renovate PR under 7 days, a Prismic check that could not
-  // run) puts the site on Watch like a watch condition, and is named among its reasons.
-  const watchItems = items.filter((it) => itemLevel(it) === "watch");
-  watchReasons.unshift(...watchItems.map((it) => it.title));
-  // No accept token: an item is not a watch condition, and no key mutes it.
-  watchAcceptKeys.unshift(...watchItems.map(() => ""));
-  return watchReasons.length > 0
+  // run) puts the site on Watch like a watch condition. It stays an item, shown as
+  // its own chip; it is not a watch reason, because no accept key mutes it.
+  const hasWatchItem = items.some((it) => itemLevel(it) === "watch");
+  return watchReasons.length > 0 || hasWatchItem
     ? {
         tier: "watch",
         watchReasons,
@@ -556,6 +567,10 @@ export type NeedsYouItem = {
   reasons: string[];
   /** Always `/s/${slug}`. */
   url: string;
+  /** P1-78b. The oldest `firstFlaggedAt` among the site's Broken or Attention
+   *  items (`YYYY-MM-DD`): the row's age. Null on a Watch or approval row, or when
+   *  no item is dated. */
+  since: string | null;
 };
 
 const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = {
@@ -583,13 +598,22 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     hasCritical: boolean;
     group: NeedsYouGroup | null;
     approval: boolean;
+    since: string | null;
   };
   const bySlug = new Map<string, Acc>();
   const get = (siteName: string): Acc => {
     const slug = siteSlug(siteName);
     let a = bySlug.get(slug);
     if (!a) {
-      a = { slug, siteName, reasons: [], hasCritical: false, group: null, approval: false };
+      a = {
+        slug,
+        siteName,
+        reasons: [],
+        hasCritical: false,
+        group: null,
+        approval: false,
+        since: null,
+      };
       bySlug.set(slug, a);
     }
     return a;
@@ -611,10 +635,22 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         if (it.severity === "critical") a.hasCritical = true;
       }
       raise(a, card.tier);
-    } else if (card.tier === "watch" && card.watchReasons.length > 0) {
-      const a = get(card.site.name);
-      for (const r of card.watchReasons) a.reasons.push(r);
-      raise(a, "watch");
+      for (const it of card.items) {
+        const l = itemLevel(it);
+        if ((l === "broken" || l === "attention") && it.firstFlaggedAt !== undefined)
+          if (a.since === null || it.firstFlaggedAt < a.since) a.since = it.firstFlaggedAt;
+      }
+    } else if (card.tier === "watch") {
+      // Watch-level items first (they are named by title), then the watch reasons.
+      const named = [
+        ...card.items.filter((it) => itemLevel(it) === "watch").map((it) => it.title),
+        ...card.watchReasons,
+      ];
+      if (named.length > 0) {
+        const a = get(card.site.name);
+        for (const r of named) a.reasons.push(r);
+        raise(a, "watch");
+      }
     }
   }
 
@@ -645,6 +681,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       siteName: a.siteName,
       reasons: a.reasons,
       url: `/s/${a.slug}`,
+      since: group === "broken" || group === "attention" ? a.since : null,
     });
   }
 
@@ -652,6 +689,12 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     if (NEEDS_YOU_GROUP_RANK[x.group] !== NEEDS_YOU_GROUP_RANK[y.group])
       return NEEDS_YOU_GROUP_RANK[x.group] - NEEDS_YOU_GROUP_RANK[y.group];
     if (x.group === "broken" && x.hasCritical !== y.hasCritical) return x.hasCritical ? -1 : 1;
+    // Then by age, oldest first: a dated row before an undated one.
+    if (x.since !== y.since) {
+      if (x.since === null) return 1;
+      if (y.since === null) return -1;
+      return x.since < y.since ? -1 : 1;
+    }
     return x.siteName.toLowerCase().localeCompare(y.siteName.toLowerCase());
   });
 
@@ -712,7 +755,11 @@ function collectFleetAttentionItems(
     // P1-78b. The roster url probe joins the cockpit: `url-unresolved:<id>` is Broken
     // on its site's card (it replaced the Watch candidate), and the fleet-wide
     // `url-probe-stale` matches no card, so it lands among the cardless items.
-    ...collectUrlResolveAlerts(sites, baseUrl, now),
+    // The probe's own staleness is counted over the whole roster, as the digest does,
+    // so its metric and key agree with the snapshot; a dead url only on a visible card.
+    ...collectUrlResolveAlerts(deadLetterSites, baseUrl, now).filter(
+      (it) => it.key === "url-probe-stale" || sitesById.has(it.key.slice("url-unresolved:".length)),
+    ),
     // P1-78b. A maintained site's failed production deploy, as a dated Broken item.
     ...collectDeployAlerts(sites, baseUrl),
   ];

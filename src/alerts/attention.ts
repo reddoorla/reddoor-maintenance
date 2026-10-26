@@ -99,6 +99,9 @@ export type AttentionItem = {
   /** P1-78b. The item's place on the severity ladder (src/alerts/ladder.ts), set
    *  by `withLevels` once the diff has dated it. Absent before that. */
   level?: Level;
+  /** P1-78b. The day the digest snapshot first flagged it (`diffAttention`'s next),
+   *  set with `level`: the triage row's age. */
+  firstFlaggedAt?: string;
 };
 
 /** The digest "Submissions (24h)" telemetry block. bySite lists only sites with

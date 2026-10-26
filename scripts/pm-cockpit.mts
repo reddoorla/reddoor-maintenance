@@ -272,7 +272,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     const reason = askedFrom(it, inputs.prior, today);
     // A dead letter with a url resolved to a site with no card (archived, or an
     // unrecognized status): it has a page, and the site may already have a row
-    // (Watch, or an approval), which it joins as the deploy loop above does. Any
+    // (Watch, or an approval), which it joins. Any
     // other cardless item, and a dead letter for a slug no site owns, has no page.
     const slug = it.kind === "deadletter" && it.url ? it.key.slice("deadletter:".length) : "";
     const e = slug ? entries.find((x) => x.slug === slug) : undefined;
