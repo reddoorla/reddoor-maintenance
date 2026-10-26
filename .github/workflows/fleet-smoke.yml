@@ -100,15 +100,19 @@ jobs:
             echo "::warning::fleet smoke: $skipped"
           fi
 
-          # "Never measured" gate. A site whose `test:smoke` exceeds its budget produces
-          # no verdict at all, and the write-back deliberately preserves the prior
-          # value rather than record a false fail — so the row keeps serving its last
-          # GREEN result. Until #1605 such a site also counted as written; the write
-          # gate below now files it as failed too, but this check runs first because
-          # it names the cause. reddoor and
-          # beachfront-dentistry sat like that for four nights while this workflow
-          # reported success every morning. Only a suite that RAN and failed is data;
-          # one that never ran is a broken measurement, and reds the run.
+          # "Never measured" gate. A site with a smoke suite whose run produced no
+          # verdict (since #1611, any smoke result without one: a `test:smoke` past its
+          # budget, a port in use on every attempt, deps that would not install, pnpm
+          # missing, an unexpected error) keeps its prior value, because the write-back
+          # deliberately preserves it rather than record a false fail — so the row
+          # keeps serving its last GREEN result. Until #1605 such a site also counted
+          # as written; the write gate below now counts it too (a warning, red only
+          # above a quarter of the fleet), but this check runs first, reds on one
+          # site, and names the cause. reddoor and beachfront-dentistry sat like that
+          # for four nights of timeouts while this workflow reported success every
+          # morning. Only a suite that RAN and failed is data; one that never ran is a
+          # broken measurement, and reds the run. A site with no `test:smoke` script
+          # is not applicable, not unmeasured.
           #
           # An ABSENT line is itself a failure: it means the CLI crashed before the
           # summary or predates the gate. A `count=0` line is the proof it swept clean.
@@ -125,13 +129,14 @@ jobs:
 
           # The write gate's own verdict (#1605), computed by fleetWriteGate in
           # write-audits.ts so five workflows cannot drift apart. It reds on what the
-          # counts above cannot see: a site that measured nothing (deps would not
-          # install, no lockfile), a site the run resolved that never reached
+          # counts above cannot see: a site the run resolved that never reached
           # write-back, a failure that recurs every night (no row to write to), and
           # one audit that measured nothing across more than a quarter of the fleet.
-          # It runs before the bare counts below: a fleet whose deps would not install
-          # also reads `wrote=0`, and "check the Turso creds" would send triage the
-          # wrong way.
+          # A site whose smoke measured nothing (deps would not install, a timeout)
+          # never reaches this gate: the never-measured check above reds on it first
+          # (#1611). The gate runs before the bare counts below: a fleet that wrote
+          # nothing also reads `wrote=0`, and "check the Turso creds" would send
+          # triage the wrong way when the cause is something else.
           # The CLI's exit status cannot carry this (a failing audit exits 1 by
           # design, so the step tolerates it), so the verdict line is the contract,
           # and an absent line is red.
@@ -161,8 +166,9 @@ jobs:
             exit 1
           fi
 
-          # A green gate can still carry warnings (one site whose deps would not
-          # install), so say what was measured rather than claim all of it.
+          # A green run can still carry warnings (a site not written or never reaching
+          # write-back, within the 25% tolerance; a site skipped at prep), so say what
+          # was measured rather than claim all of it.
           na=$(grep -oE "FLEET_WRITE_SUMMARY .* na=[0-9]+" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 | grep -oE " na=[0-9]+" | cut -d= -f2 || true)
           echo "fleet smoke: $wrote site(s) measured and written, ${na:-0} without a smoke suite"
 
