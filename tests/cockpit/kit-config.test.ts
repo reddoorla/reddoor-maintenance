@@ -59,7 +59,7 @@ describe("the cockpit's SvelteKit config", () => {
     const sources = [
       ...Object.entries(pkg.scripts).map(([name, cmd]) => ({ where: `package.json ${name}`, cmd })),
       ...readdirSync(join(ROOT, ".github/workflows"))
-        .filter((f) => f.endsWith(".yml"))
+        .filter((f) => /\.ya?ml$/.test(f))
         .map((f) => ({
           where: f,
           cmd: readFileSync(join(ROOT, ".github/workflows", f), "utf-8"),
@@ -68,13 +68,19 @@ describe("the cockpit's SvelteKit config", () => {
     // Each command (a line split on `&&`, `||`, `;` and `|`) that syncs must
     // name the config itself. A backticked one is prose (time-travel.yml's
     // issue body names the step).
-    const names = new RegExp(`(?:--config|-c)[ =]${CONFIG.replaceAll(".", "\\.")}(?:\\s|$)`);
+    // `--config X`, `--config=X` or `-c X` (kit reads `-c=X` as the file
+    // `=X`), optionally `./`-prefixed or quoted.
+    const file = CONFIG.replaceAll(".", "\\.");
+    const names = new RegExp(`(?:--config[ =]|-c )(["']?)(?:\\./)?${file}\\1(?:\\s|$)`);
+    // `svelte-kit`, `svelte-kit@3`, with any options before the command.
+    const sync = /(?<!`)svelte-kit(?:@\S+)?\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*sync\b/;
     const bare = sources.flatMap(({ where, cmd }) =>
       cmd
+        .replace(/\\\n/g, " ")
         .split("\n")
         .filter((line) => !line.trimStart().startsWith("#"))
         .flatMap((line) => line.split(/&&|\|\||;|\|/))
-        .filter((c) => /(?<!`)svelte-kit\s+sync\b/.test(c) && !names.test(c))
+        .filter((c) => sync.test(c) && !names.test(c))
         .map((c) => `${where}: ${c.trim()}`),
     );
     expect(bare).toEqual([]);
