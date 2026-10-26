@@ -582,7 +582,7 @@ const MAX_CLAUDE_TURNS = 4;
 /** Claude with the web-search server tool. `pause_turn` is resumed explicitly —
  *  the SDK does not do it for you, and an unresumed pause silently truncates.
  *
- *  Typed against the real `@anthropic-ai/sdk` response shapes, verified
+ *  Typed against the real `@anthropic-ai/sdk` 0.120 and 0.137 response shapes, verified
  *  against the installed `.d.ts` (no casts): `Message.content` (the response)
  *  and `MessageParam.content` (the request) are structurally compatible, so the
  *  paused assistant turn is pushed back as-is. `WebSearchToolResultBlock.content`

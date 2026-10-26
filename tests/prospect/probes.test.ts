@@ -642,8 +642,9 @@ describe("claudeWebSearchEngine", () => {
   });
 
   it("answers from the text block when the tool result comes first", async () => {
-    // A real web-search response leads with the search result and puts the
-    // prose after it, so the answer cannot be read off the first block.
+    // In a real web-search response the prose comes after the tool blocks
+    // (server_tool_use, then web_search_tool_result), so the answer cannot be
+    // read off the first block.
     const createMessage: ClaudeMessageCreate = async () =>
       claudeMessage(
         [
