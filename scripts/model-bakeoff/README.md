@@ -43,7 +43,7 @@ These are workspace#1's nine steps, with where each one happens.
    the model's documented default, written out: Haiku 5.5 and Opus 5.5 default to `medium`.
 5. **Score deterministically**, with the normalisation below.
 6. **Referee every disagreement.** `score` groups the distinct arm-versus-reference
-   disagreements and writes `referee-args.json`, numbered as the next referee round. Run the
+   disagreements and writes `<run>.referee-args.json`, numbered as the next referee round. Run the
    workflow with it, `collect` again, and `score` again. Rulings from every round are kept. A
    ruling can credit an arm, and can refute the reference. An arm that agreed with a refuted
    reference loses that check. A value the arm left out is never credited.
@@ -77,9 +77,14 @@ and never inside it: the arms are told `<run>/input` and `<run>/work/<id>`, so a
 or a Grep over the run does not reach the truth file (#1492). `score` reads it there, and refuses
 a run prepared before the move, whose `truth.json` is still inside it. Copy or move the two
 together. A file outside the run is still readable by an arm that goes looking; for a task that
-lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. The run
-directory holds one other route to the answer: once `collect` has run, `runs.json` holds the
-gold's output, which an arm launched after it (the per-arm `only` flow) can read (#1540).
+lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. For the
+same reason `collect` writes the agents it read to `<run>.runs.json`, and `score` writes the
+referee's args to `<run>.referee-args.json` and its result to `<run>.result.json`, all beside the
+run: they hold the gold's output, every disagreement's REFERENCE value, and each arm's errors with
+the expected value, which an arm launched after a `collect` or an interim `score` (the per-arm
+`only` flow) could otherwise read (#1540). Both steps refuse a run that still holds `runs.json`,
+`referee-args.json` or `result.json` inside it; move or delete it first. `prepare` refuses an
+`--out` that any of these sibling files already sits beside.
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
 `scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
@@ -90,7 +95,7 @@ node scripts/model-bakeoff/bakeoff.mjs collect --run <run> --transcripts <transc
 node scripts/model-bakeoff/bakeoff.mjs score --run <run>
 ```
 
-If `score` reports unruled disagreements, run the workflow again with `<run>/referee-args.json`,
+If `score` reports unruled disagreements, run the workflow again with `<run>.referee-args.json`,
 then `collect` (with that run's transcript directory) and `score` again.
 
 `collect` refuses, and writes nothing, when:
@@ -102,7 +107,7 @@ then `collect` (with that run's transcript directory) and `score` again.
 - a prompt holds a marker but not exactly one, at its end (a prompt with no marker is skipped);
 - a referee marker is not `r<round>-<chunk>`.
 
-`score` exits non-zero on any of these problems, and `<run>/result.json` holds the full result:
+`score` exits non-zero on any of these problems, and `<run>.result.json` holds the full result:
 
 - `args.dir` is not `<run>/input`, or the input changed;
 - the reference lists one item twice (the first entry is used), or has an item with no key (it
@@ -231,6 +236,20 @@ tool and a different system prompt. Production fan-outs, such as
 `.claude/workflows/refute-claims.workflow.js`, still launch the default agent, so a result
 measured under the type is a result for the type.
 
+### A task whose agents run as another type, answering in text
+
+A task may export `agentType` (default `bakeoff-readonly`) and `textOutput: true`. `score` then
+holds every agent of the run, referees included, to that type, and an agent with no schema output
+is scored from the last fenced `json` block of its last word (`finalText` in `runs.json`): the text of its final turn, or the report a background subagent hands back. An agent whose transcript ends on a tool call has no last word and scores as no output. This
+is for measuring a built-in agent as it is, which the workflow cannot launch: `explore-questions`
+(row 10) runs as the built-in `Explore`. `prompts --run <run>` prints, for each agent, the exact
+prompt, model and effort the workflow would give it (the workflow script itself runs, with its
+`agent()` calls recorded instead of made) and the `subagent_type` to launch it with through the
+Agent tool. Launch each with that `model` and `effort` on the call. `prompts --run <run> --referee`
+does the same from the referee args (`<run>.referee-args.json`), adding how to write the rulings in text. Then `collect` the
+session's `subagents/` directory and `score` as usual: `collect` keeps only transcripts that carry
+a marker.
+
 ## Item tasks: one agent per item
 
 A task that exports `items(dir)` (an array of `{ id, prompt, schema }`) and
@@ -246,7 +265,7 @@ the task.
 `args.only` (a list of arm ids, `gold` included) runs a subset of the arms. A workflow runs at
 most `min(16, CPUs - 2)` agents at once, two in a 4-CPU cloud container, so a large item run is
 launched as one workflow per arm with `only`, and `collect` is run once per transcript
-directory: it merges into the run's `runs.json`.
+directory: it merges into the run's `<run>.runs.json`.
 
 A task may also export `secrets` (strings, such as its answer key's file name): `score` reports
 any agent whose Bash commands or Read, Grep or Glob inputs name one. It sees names only: a glob
@@ -285,7 +304,7 @@ The rule counts against the key, as registered, but the score column applies the
 rulings. So a ruling that credits a run (an "unclear" ruled fine against a "confirmed" label)
 shows there as correct and in the decision as an error, and can fail the run next to a perfect
 score. The decision prints a line naming every check where that happened ("Referee rulings this
-rule does not apply …", or "none"), and `result.json` keeps them as `decision.rulingChanges`
+rule does not apply …", or "none"), and `<run>.result.json` keeps them as `decision.rulingChanges`
 (#1493). A ruling that refutes the key is already a reason the control may not rank.
 
 The 2026-10-19 run (`results/2026-10-19-refute-repo.json`) saturated. Production passed both
@@ -362,7 +381,7 @@ Add `tasks/<id>.mjs` exporting:
 - `summarize({ reference, checksByArm, rulings, outputs, arms })` and `formatSummary(summary)`:
   optional. `arms` is every arm `score` should have scored (the gold too when a truth exists),
   so a task can count an arm with no transcript (which `checksByArm` leaves out) instead of
-  judging its group without it. `score` stores the summary in `result.json` as `summary` and
+  judging its group without it. `score` stores the summary in `<run>.result.json` as `summary` and
   prints it under the table.
 
 Arms run in the repository checkout, and the Bash check reports writes, not reads. A task built from
@@ -409,24 +428,36 @@ what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked exam
   agent's own code does when it runs its tests, so an agent can write outside its work dir
   unreported.
 - t4's `observe` runs the gates (below), about two minutes an agent, and caches each result in
-  `<run>/evaluated.json`. Delete that file to evaluate again.
+  `<run>/evaluated.json` under a key: a hash of the task module, the agent's transcript path and
+  its structured output. An agent with no output yet (still running) is evaluated but never
+  cached, and a change to the module or the output evaluates again (#1500). A failure is cached
+  like any result, so delete that file (or its `<id>` entry) to evaluate again, for example after
+  a gate timed out. An agent that ended with no output is evaluated afresh on every `score`.
 - t4 marks only its `gates` collection `mechanical`: an exit code has nothing for a referee to read.
 - An item with `mechanical: true` in `observe`'s output makes that item's field checks mechanical
   too (an agent's own report cannot do this); t4 marks a held-out
   test that never ran (a crash, a missing export), which has no failure for a referee to read.
 - `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
   an arm that differs, but its `refCorrect: false` on a field check refutes nothing, so the arms that matched the
-  reference keep that check and no contradiction is reported. t4's held-out tests are `refFixed`,
-  since passing the plan's own test is never wrong.
+  reference keep that check and no contradiction is reported. `score` still lists each such ruling
+  under `referenceDisputes` in the result, and prints it under the table, so a reader sees that the
+  referee disagreed. t4's held-out tests are `refFixed`, since passing the plan's own test is never
+  wrong.
 
 t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` from the pinned
 commit and copies in only the files the plan names, so a change the agent leaves anywhere else (a
 `package.json` script, a config) can fail scope but does not reach a gate. That is a tripwire, not
 a sandbox: the gates execute the agent's code, which can write anywhere the scorer can (another
-agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. Running each agent
+agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. So t4 exports
+`writes: true`, and `prepare` refuses it unless given `--unsandboxed`. The run's args and its
+result then record `unsandboxed: true`, and `score` prints that the transcripts need an audit (#1501). Running each agent
 and each gate in its own namespace would close that; until then, read the plan's files of every
 agent for `node:fs`, `child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
-agent's own `vitest run` there, with no secrets in the environment. Then the plan's own test file, taken
+agent's own `vitest run` there, with no secrets in the environment. Every install and gate pnpm
+reads an empty config directory made for that one step, instead of the caller's `~/.npmrc`, pnpm
+`rc` or `config.yaml`, which an agent can write: a `global-pnpmfile` or `script-shell` named there would
+otherwise run inside the scorer. The pin is archived from a bare repository the scorer fetches it
+into, not from the `--root` clone, whose own filter drivers `git archive` would apply. Then the plan's own test file, taken
 from the implementing commit, replaces the agent's version and runs alone, in a second tree
 (`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
 `(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
@@ -439,7 +470,9 @@ failure's first line and the paths of the agent's code and of the test as run. E
 is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files that differ from the pinned commit are a
 non-empty subset of the files the plan names. They are found by `git status` with the scorer's own
 repository of the pin as `--git-dir` and the agent's tree as `--work-tree`, never with the agent's
-`.git`: its config could name an `fsmonitor` to run, and its index could hide a change.
+`.git`: its config could name an `fsmonitor` to run, and its index could hide a change. A file the
+tree's own ignore rules hide still counts unless the pin's rules ignore it too, so a new
+`sub/.gitignore` holding `*` cannot hide itself or a stray file beside it.
 
 Every install, the agents' and the scorer's, copies packages out of the pnpm store
 (`package-import-method=copy`). pnpm's default hardlinks every `node_modules` file to one store
@@ -501,7 +534,7 @@ and store path. The truth's files (`<run>.truth.json` beside the run, its temp d
 readable by an agent that goes looking, as in every task; `collect` lists each agent's Bash
 commands, so check them for a read of either.
 
-`result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
+`<run>.result.json` gives each arm a `byCollection` score (`correct/total` per collection) beside the
 total, because 104 of this task's 117 checks (packages and disk) follow from the one `pnpm update`.
 
 ## The ledger

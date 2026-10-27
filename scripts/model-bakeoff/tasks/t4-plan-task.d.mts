@@ -3,6 +3,7 @@ import type { Collection } from "../lib/score.mjs";
 export const id: string;
 export const title: string;
 export const row: number;
+export const writes: boolean;
 export const PIN: string;
 export const IMPL: string;
 export const HELD_OUT_FILE: string;
@@ -41,8 +42,28 @@ export function run(
   args: string[],
   timeout?: number,
 ): { status: number | null; error?: string; stdout: string; stderr: string };
-export function observe(work: string): Record<string, unknown>;
-export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;
+export function install(
+  cwd: string,
+  store?: string,
+): { status: number | null; error?: string; stdout: string; stderr: string };
+export function pnpmConfigEnv(dir: string): Record<string, string>;
+export function snapshot(root: string, sha: string, to: string): void;
+export function observe(
+  work: string,
+  structured?: unknown,
+  agent?: unknown,
+): Record<string, unknown>;
+export function evaluationKey(
+  structured: unknown,
+  agent?: { transcript?: string },
+  moduleSha?: string,
+): string | null;
+export function cachedEvaluation(
+  runDir: string,
+  id: string,
+  key: string | null,
+  compute: () => unknown,
+): unknown;
 export function ownTestsGate(
   ownRun: { status: number | null; error?: string } | null,
   report: unknown,

@@ -14,9 +14,18 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { prepare, truthPath, type Task } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import {
+  formatResult,
+  prepare,
+  refereeArgsPath,
+  resultPath,
+  runsPath,
+  truthPath,
+  type Task,
+} from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as figmaInventory from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import * as pnpmUpdate from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
+import * as exploreQuestions from "../../scripts/model-bakeoff/tasks/explore-questions.mjs";
 import * as refuteClaims from "../../scripts/model-bakeoff/tasks/refute-claims.mjs";
 import * as refuteRepo from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
 import * as seededReview from "../../scripts/model-bakeoff/tasks/seeded-review.mjs";
@@ -25,6 +34,7 @@ import * as t5Census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 
 // Typecheck is the test here: each task's hooks must fit the harness's Task type.
 const TASKS: Task[] = [
+  exploreQuestions,
   figmaInventory,
   pnpmUpdate,
   refuteClaims,
@@ -78,6 +88,7 @@ describe("prepare", () => {
 
   it("covers every task module", () => {
     expect(TASKS.map((t) => t.id).sort()).toEqual([
+      "explore-questions",
       "figma-inventory",
       "pnpm-update",
       "refute-claims",
@@ -142,6 +153,18 @@ describe("prepare", () => {
     expect(readFileSync(truthPath(out), "utf8")).toBe("{}\n");
   });
 
+  // A stale <run>.runs.json from a deleted run would be merged into the new one (#1540).
+  it("refuses an --out that a runs, referee-args or result file already sits beside", async () => {
+    for (const path of [runsPath, refereeArgsPath, resultPath]) {
+      const out = fresh();
+      writeFileSync(path(out), "{}\n");
+      await expect(prepare({ out, root: src }, fake())).rejects.toThrow(
+        `${path(out)} exists; pick a fresh --out`,
+      );
+      expect(existsSync(out)).toBe(false);
+    }
+  });
+
   it("removes the truth it wrote when a later step fails", async () => {
     quiet();
     const out = fresh();
@@ -161,6 +184,39 @@ describe("prepare", () => {
       "fake: a task with observe() needs a truth; the gold cannot be the reference",
     );
     expect(existsSync(out)).toBe(false);
+  });
+
+  // A task whose agents write and run code has no sandbox (#1501): the caller must say so.
+  it("refuses a writing task without --unsandboxed, before building anything", async () => {
+    const out = fresh();
+    await expect(prepare({ out, root: src }, fake({ writes: true }))).rejects.toThrow(
+      "fake: its agents write and run code with no sandbox (#1501); pass --unsandboxed to accept that",
+    );
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("records an accepted unsandboxed run in its args, and only for a writing task", async () => {
+    quiet();
+    const out = fresh();
+    await prepare({ out, root: src, unsandboxed: true }, fake({ writes: true }));
+    expect(JSON.parse(readFileSync(join(out, "workflow-args.json"), "utf8")).unsandboxed).toBe(
+      true,
+    );
+    const plain = fresh();
+    await prepare({ out: plain, root: src, unsandboxed: true }, fake());
+    expect(JSON.parse(readFileSync(join(plain, "workflow-args.json"), "utf8")).unsandboxed).toBe(
+      undefined,
+    );
+  });
+
+  it("says in the result that a run was unsandboxed", () => {
+    const r = { reference: "script truth", disagreements: 0, unruled: 0, arms: [], problems: [] };
+    expect(formatResult({ ...r, unsandboxed: true })).toContain("Ran unsandboxed (#1501)");
+    expect(formatResult(r)).not.toContain("unsandboxed");
+  });
+
+  it("marks t4-plan-task as a writing task", () => {
+    expect(t4PlanTask.writes).toBe(true);
   });
 
   it("leaves no run dir when setup throws, so the same --out works again", async () => {

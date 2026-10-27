@@ -25,7 +25,7 @@ import {
   scoreRun,
 } from "./lib/score.mjs";
 import { LOWER_BOUND_NOTE, formatCost } from "./lib/ledger.mjs";
-import { readAgentTranscript } from "./lib/transcripts.mjs";
+import { readAgentTranscript, textStructured } from "./lib/transcripts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
@@ -43,6 +43,40 @@ const writeJson = (p, v) => writeFileSync(p, JSON.stringify(v, null, 1) + "\n");
  */
 export function truthPath(run) {
   return `${resolve(run)}.truth.json`;
+}
+
+/**
+ * Where `collect` keeps the agents it read, and where `score` writes the referee's args: beside
+ * the run too. Both hold the reference's values (the gold's output, each disagreement's
+ * REFERENCE), and an arm launched after a `collect` (the per-arm `only` flow) could read them
+ * inside the run (#1540).
+ */
+export function runsPath(run) {
+  return `${resolve(run)}.runs.json`;
+}
+export function refereeArgsPath(run) {
+  return `${resolve(run)}.referee-args.json`;
+}
+// score's result lists each arm's errors with the reference's value beside them.
+export function resultPath(run) {
+  return `${resolve(run)}.result.json`;
+}
+
+// The files a run kept inside it before the move. Neither collect nor score reads, merges or
+// writes past one, which would leave the old copy for a later arm to read.
+const MOVED = {
+  "runs.json": runsPath,
+  "referee-args.json": refereeArgsPath,
+  "result.json": resultPath,
+};
+function refuseInsideRuns(run) {
+  for (const [name, to] of Object.entries(MOVED)) {
+    const old = join(run, name);
+    if (existsSync(old))
+      throw new Error(
+        `${old} is inside the run, where its arms could read it (#1540). Move it to ${to(run)} (or delete it) first.`,
+      );
+  }
 }
 
 export async function loadTask(name) {
@@ -122,9 +156,18 @@ export async function prepare(opts, task) {
       `${task.id}: a task with observe() needs a truth; the gold cannot be the reference`,
     );
   }
+  // A task whose agents write and run code has no sandbox (#1501): its agents' Bash writes and
+  // reads go untracked, and its gates run their code. Building one needs the caller to say so.
+  if (task.writes && !opts.unsandboxed) {
+    throw new Error(
+      `${task.id}: its agents write and run code with no sandbox (#1501); pass --unsandboxed to accept that, and audit the transcripts before reporting`,
+    );
+  }
   const run = resolve(opts.out);
   // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
-  for (const p of [run, truthPath(run)]) {
+  // The files collect and score write beside the run too: a stale one would be merged into this
+  // run (#1540).
+  for (const p of [run, truthPath(run), runsPath(run), refereeArgsPath(run), resultPath(run)]) {
     if (lstatSync(p, { throwIfNoEntry: false })) throw new Error(`${p} exists; pick a fresh --out`);
   }
   const input = join(run, "input");
@@ -142,6 +185,7 @@ export async function prepare(opts, task) {
     }
     const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
     const args = extractArgs(task, input, arms);
+    if (task.writes) args.unsandboxed = true;
     mkdirSync(args.work, { recursive: true });
     const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
     if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
@@ -266,12 +310,13 @@ function recordedAgentType(meta) {
 function collect(opts) {
   const run = resolve(opts.run);
   const files = walk(resolve(opts.transcripts)).filter((f) => /agent-[^/]*\.jsonl$/.test(f));
-  const prior = existsSync(join(run, "runs.json")) ? readJson(join(run, "runs.json")) : {};
+  refuseInsideRuns(run);
+  const prior = existsSync(runsPath(run)) ? readJson(runsPath(run)) : {};
   const found = files.map(collectFile);
   const args = readJson(join(run, "workflow-args.json"));
   const { agents, errors } = mergeAgents(prior, found, args);
   if (errors.length) throw new Error(`collect refused:\n  ${errors.join("\n  ")}`);
-  writeJson(join(run, "runs.json"), agents);
+  writeJson(runsPath(run), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
       `${k}: agentType=${a.agentType ?? "none"} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${formatCost(a.cost, a.unfinished, a.requests, 4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
@@ -279,13 +324,32 @@ function collect(opts) {
   }
 }
 
+/**
+ * For a task whose agents answer in text, each agent with no schema output gets the last ```json
+ * block of its final message as its output; any other task's agents are returned as they are.
+ */
+export function withTextOutputs(task, agents) {
+  if (!task.textOutput) return { ...agents };
+  return Object.fromEntries(
+    Object.entries(agents).map(([k, a]) => [
+      k,
+      a.structured ? a : { ...a, structured: textStructured(a.finalText) },
+    ]),
+  );
+}
+
+/** The agent type a task's agents run as. */
+export const typeOf = (task) => task.agentType ?? AGENT_TYPE;
+
 const MODEL_IDS = {
   haiku: "claude-haiku-5-5",
   sonnet: "claude-sonnet-5-5",
   opus: "claude-opus-5-5",
 };
 
-export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
+// `agentType` is the type the task's agents run as: bakeoff-readonly unless the task names one
+// (explore-questions runs as the built-in Explore).
+export function verifyRan(arm, agent, work, { needOutput = true, agentType = AGENT_TYPE } = {}) {
   const problems = [];
   const label = agent.marker ? agentKey(agent.marker) : arm.id;
   const want = MODEL_IDS[arm.model] || arm.model;
@@ -305,10 +369,10 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
     );
   } else if (agent.agentType === null) {
     problems.push(
-      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${AGENT_TYPE}`,
+      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${agentType}`,
     );
-  } else if (agent.agentType !== AGENT_TYPE) {
-    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${AGENT_TYPE}`);
+  } else if (agent.agentType !== agentType) {
+    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${agentType}`);
   }
   if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);
   if (agent.forbidden.length)
@@ -345,7 +409,7 @@ export function combineItems(task, args, agents, arm) {
       problems.push(`${key}: no transcript found`);
       continue;
     }
-    problems.push(...verifyRan(arm, a, workDir(args.work, key)));
+    problems.push(...verifyRan(arm, a, workDir(args.work, key), { agentType: typeOf(task) }));
     parts.push(a);
     if (a.structured) outputs[item.id] = a.structured;
   }
@@ -403,7 +467,7 @@ export function scoreArms(task, args, agents, reference, truth) {
     }
     // An item run's arm record is assembled from item agents `combineItems` already checked.
     if (!args.items) {
-      const p = verifyRan(arm, a, workDir(args.work, arm.id));
+      const p = verifyRan(arm, a, workDir(args.work, arm.id), { agentType: typeOf(task) });
       problems.push(...p);
       if (p.length) invalid.push(arm.id);
     }
@@ -442,7 +506,8 @@ async function score(opts) {
   const run = resolve(opts.run);
   const args = readJson(join(run, "workflow-args.json"));
   const task = await loadTask(args.task);
-  const transcripts = readJson(join(run, "runs.json"));
+  refuseInsideRuns(run);
+  const transcripts = readJson(runsPath(run));
   const problems = [];
   // Arms `score` found a problem in, for a task's decision hook.
   const invalid = new Set();
@@ -456,10 +521,10 @@ async function score(opts) {
       else invalid.add(h.split(/[/:]/)[0]);
     }
   }
-  const agents = { ...transcripts };
+  const agents = withTextOutputs(task, transcripts);
   if (Array.isArray(args.items)) {
     for (const arm of [args.gold, ...args.arms]) {
-      const { record, problems: p } = combineItems(task, args, transcripts, arm);
+      const { record, problems: p } = combineItems(task, args, agents, arm);
       problems.push(...p);
       if (p.length) invalid.add(arm.id);
       if (record) agents[arm.id] = record;
@@ -511,7 +576,10 @@ async function score(opts) {
   const unruled = disagreements.filter((d) => !rulings[d.id]);
   for (const [k, a] of referees) {
     const work = workDir(args.work, k.replace(":", "-"));
-    const p = verifyRan(REFEREE, a, work, { needOutput: unruled.length > 0 });
+    const p = verifyRan(REFEREE, a, work, {
+      needOutput: unruled.length > 0,
+      agentType: typeOf(task),
+    });
     problems.push(...p);
     blockers.push(...p);
   }
@@ -520,7 +588,7 @@ async function score(opts) {
     const chunks = [];
     for (let i = 0; i < unruled.length; i += REFEREE_CHUNK)
       chunks.push(unruled.slice(i, i + REFEREE_CHUNK));
-    writeJson(join(run, "referee-args.json"), {
+    writeJson(refereeArgsPath(run), {
       mode: "referee",
       task: args.task,
       dir: args.dir,
@@ -533,7 +601,10 @@ async function score(opts) {
       ),
     });
   }
-  const { per, referenceErrors, contradictions, realExtras } = finalScores(checksByArm, rulings);
+  const { per, referenceErrors, referenceDisputes, contradictions, realExtras } = finalScores(
+    checksByArm,
+    rulings,
+  );
   for (const c of realExtras) {
     const p = `${c}: the referee ruled this item real, so the reference is missing it and its field values went unscored; fix the reference and score again`;
     problems.push(p);
@@ -546,10 +617,12 @@ async function score(opts) {
   const result = {
     task: args.task,
     reference: truth ? "script truth" : "gold run",
+    ...(args.unsandboxed ? { unsandboxed: true } : {}),
     problems,
     disagreements: disagreements.length,
     unruled: unruled.length,
     referenceErrors,
+    referenceDisputes,
     arms: all
       .filter((a) => agents[a.id])
       .map((a) => ({
@@ -589,12 +662,12 @@ async function score(opts) {
       },
     );
   }
-  writeJson(join(run, "result.json"), result);
+  writeJson(resultPath(run), result);
   console.log(formatResult(result));
   if (result.summary && typeof task.formatSummary === "function") {
     console.log(task.formatSummary(result.summary));
   }
-  if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
+  if (unruled.length) console.log(`\nreferee args: ${refereeArgsPath(run)}`);
   if (problems.length) process.exitCode = 1;
 }
 
@@ -612,7 +685,7 @@ export function byCollection(byField) {
 
 export function formatResult(r) {
   const lines = [
-    `Reference: ${r.reference}. Distinct disagreements: ${r.disagreements} (${r.unruled} unruled).`,
+    `Reference: ${r.reference}. Distinct disagreements: ${r.disagreements} (${r.unruled} unruled).${r.unsandboxed ? " Ran unsandboxed (#1501): audit the transcripts before reporting." : ""}`,
     "",
     "| Arm | Asked | Ran (transcripts) | Score | Cost per run | Requests | Long-prompt requests |",
     "|---|---|---|---|---|---|---|",
@@ -624,6 +697,13 @@ export function formatResult(r) {
   }
   // Only a priced cost prints ≥, so only one explains the note.
   if (r.arms.some((a) => a.unfinished && a.cost !== null)) lines.push("", LOWER_BOUND_NOTE);
+  if (r.referenceDisputes?.length) {
+    lines.push(
+      "",
+      "Reference disputes (the reference is right by construction, so its matches keep these checks):",
+      ...r.referenceDisputes.map((d) => `- ${d.check}: reference ${d.reference}. ${d.note}`.trim()),
+    );
+  }
   if (r.decision?.lines) lines.push("", ...r.decision.lines);
   if (r.problems.length) lines.push("", "Problems:", ...r.problems.map((p) => `- ${p}`));
   return lines.join("\n");
@@ -671,7 +751,63 @@ function split(opts) {
   }
 }
 
-const COMMANDS = { prepare, collect, score, split };
+/**
+ * The agents the workflow would spawn for these args, each with the exact prompt, model and
+ * effort: the workflow script itself runs, with a runtime that records its agent() calls instead
+ * of spawning them. For a task whose agents answer in text, launched one by one with the Agent
+ * tool (`subagent_type` the task's agentType), a referee's prompt also says how to write its
+ * rulings, just before its marker.
+ */
+export async function launches(args, source, task) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, opts });
+    return {};
+  };
+  const parallel = (thunks) => Promise.all(thunks.map((t) => t()));
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const body = new AsyncFunction(
+    "args",
+    "agent",
+    "parallel",
+    "phase",
+    "log",
+    source.replace(/^export const meta/m, "const meta"),
+  );
+  const result = await body(
+    args,
+    agent,
+    parallel,
+    () => {},
+    () => {},
+  );
+  if (!calls.length) throw new Error(`the workflow launched nothing: ${JSON.stringify(result)}`);
+  return calls.map(({ prompt, opts }) => ({
+    label: opts.label,
+    model: opts.model,
+    effort: opts.effort,
+    subagent_type: typeOf(task),
+    prompt:
+      task.textOutput && args.mode === "referee"
+        ? prompt.replace(/\n\n(\(BAKEOFF-REFEREE: [^)]*\))$/, `\n\n${RULINGS_IN_TEXT}\n\n$1`)
+        : prompt,
+  }));
+}
+
+export const RULINGS_IN_TEXT =
+  'The TASK\'s answer format above is the participants\', not yours. End your final message with one fenced ```json block, and nothing after it, holding exactly {"rulings": [{"id": "<id>", "armCorrect": true or false, "refCorrect": true or false, "note": "<note>"}, …]}.';
+
+// prompts: what to launch by hand, for a task whose agents cannot run in the workflow. `--referee`
+// reads the referee args score wrote instead of the run's workflow args.
+async function prompts(opts) {
+  const run = resolve(opts.run);
+  const args = readJson(opts.referee ? refereeArgsPath(run) : join(run, "workflow-args.json"));
+  const task = await loadTask(args.task);
+  const source = readFileSync(join(REPO, ".claude/workflows/model-bakeoff.workflow.js"), "utf8");
+  console.log(JSON.stringify(await launches(args, source, task), null, 1));
+}
+
+const COMMANDS = { prepare, collect, score, split, prompts };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { positionals, values } = parseArgs({
@@ -681,14 +817,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       out: { type: "string" },
       root: { type: "string" },
       arms: { type: "string" },
+      unsandboxed: { type: "boolean" },
       run: { type: "string" },
       transcripts: { type: "string" },
+      referee: { type: "boolean" },
     },
   });
   const cmd = COMMANDS[positionals[0]];
   if (!cmd) {
     console.error(
-      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir>",
+      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] [--unsandboxed] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir> | prompts --run <dir> [--referee]",
     );
     process.exit(2);
   }
