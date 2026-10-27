@@ -1027,5 +1027,31 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r6-sort-header-no-underline",
+    "why": "Round 6: the Sites table's sort headers lose their underline, indistinguishable from plain headers",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.num {",
+        "replace": "table.fleet th a {\n  text-decoration: none;\n}\ntable.fleet td.num {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-deploy-no-hover",
+    "why": "Round 6: a linked deploy badge loses its hover underline",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": "a.metric.deploy:hover {\n  text-decoration: underline;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
