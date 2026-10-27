@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +31,9 @@ import {
   manifest,
   mergeAgents,
   secretReads,
+  refereeArgsPath,
+  resultPath,
+  runsPath,
   truthPath,
   type Collected,
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
@@ -788,7 +799,7 @@ describe("score on an item run", () => {
     writeFileSync(join(run, "manifest.json"), JSON.stringify(manifest(input)));
     writeFileSync(truthPath(run), JSON.stringify(task.truth(input)));
     writeFileSync(join(run, "workflow-args.json"), JSON.stringify(args));
-    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    writeFileSync(runsPath(run), JSON.stringify(runs));
     return run;
   };
   const score = (run: string) => {
@@ -797,7 +808,7 @@ describe("score on an item run", () => {
     } catch {
       // A saturated or incomplete run exits 1; the result file is what is checked.
     }
-    return JSON.parse(readFileSync(join(run, "result.json"), "utf8"));
+    return JSON.parse(readFileSync(resultPath(run), "utf8"));
   };
 
   it("scores a clean run without inventing a problem, and finds a changed input", () => {
@@ -816,7 +827,7 @@ describe("score on an item run", () => {
 
   it("faults an item agent or a referee that did not run as the read-only type", () => {
     const run = build();
-    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    const runs = JSON.parse(readFileSync(runsPath(run), "utf8"));
     runs["opus-xhigh-2/r01"].agentType = "workflow-subagent";
     delete runs["gold/r02"].agentType;
     runs["referee:r1-1"] = {
@@ -827,7 +838,7 @@ describe("score on an item run", () => {
       structured: { rulings: [] },
       agentType: "workflow-subagent",
     };
-    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    writeFileSync(runsPath(run), JSON.stringify(runs));
     const r = score(run);
     expect(r.problems).toEqual([
       "gold/r02: no agent type in runs.json, which predates the agent-type check; collect again to read it from the .meta.json (a run launched before 2026-10-20 then shows as the default agent and must be launched again)",
@@ -845,7 +856,7 @@ describe("score on an item run", () => {
 
   it("hands the referee's rulings to the decision, which names the check a ruling credited", () => {
     const run = build();
-    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    const runs = JSON.parse(readFileSync(runsPath(run), "utf8"));
     const c = DATA.claims.find((x) => x.label === "confirmed")!;
     runs[`opus-xhigh-2/${c.id}`].structured.verdict = "unclear";
     const id = `verdicts ${c.id} / verdict :: unclear`;
@@ -856,7 +867,7 @@ describe("score on an item run", () => {
       efforts: ["high"],
       structured: { rulings: [{ id, armCorrect: true, refCorrect: true, note: "n" }] },
     };
-    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    writeFileSync(runsPath(run), JSON.stringify(runs));
     const r = score(run);
     expect(r.arms.find((a: { id: string }) => a.id === "opus-xhigh-2").score).toBe("73/73");
     expect(r.decision.rulingChanges).toEqual([
@@ -886,9 +897,57 @@ describe("score on an item run", () => {
     );
   });
 
+  it("writes an unruled disagreement's referee args beside the run, not inside it (#1540)", () => {
+    const run = build();
+    const runs = JSON.parse(readFileSync(runsPath(run), "utf8"));
+    const c = DATA.claims.find((x) => x.label === "confirmed")!;
+    runs[`opus-xhigh-2/${c.id}`].structured.verdict = "unclear";
+    writeFileSync(runsPath(run), JSON.stringify(runs));
+    const r = score(run);
+    expect(r.unruled).toBe(1);
+    const args = JSON.parse(readFileSync(refereeArgsPath(run), "utf8"));
+    expect(args.chunks[0][0].REFERENCE).toBe("confirmed");
+    expect(readdirSync(run).filter((f) => /runs|referee|result/.test(f))).toEqual([]);
+    expect(existsSync(resultPath(run))).toBe(true);
+  });
+
+  it("refuses to score a run that still holds referee-args.json or result.json inside it (#1540)", () => {
+    for (const name of ["referee-args.json", "result.json"]) {
+      const run = build();
+      writeFileSync(join(run, name), "{}\n");
+      let err = "";
+      try {
+        execFileSync(process.execPath, [CLI, "score", "--run", run], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+      } catch (e) {
+        err = String((e as { stderr: string }).stderr);
+      }
+      expect(err).toContain(`${join(run, name)} is inside the run`);
+    }
+  });
+
+  it("refuses to score a run whose runs.json is still inside it (#1540)", () => {
+    const run = build();
+    renameSync(runsPath(run), join(run, "runs.json"));
+    let err = "";
+    try {
+      execFileSync(process.execPath, [CLI, "score", "--run", run], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      err = String((e as { stderr: string }).stderr);
+    }
+    expect(err).toContain(
+      `${join(run, "runs.json")} is inside the run, where its arms could read it (#1540). Move it to ${runsPath(run)} (or delete it) first.`,
+    );
+  });
+
   it("stops the ranking when the referee ran on the wrong model or broke a rule", () => {
     const run = build();
-    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    const runs = JSON.parse(readFileSync(runsPath(run), "utf8"));
     runs["referee:r1-1"] = {
       ...runs["gold/r01"],
       transcript: "/t/referee.jsonl",
@@ -898,7 +957,7 @@ describe("score on an item run", () => {
       structured: { rulings: [] },
       writes: ["/etc/passwd"],
     };
-    writeFileSync(join(run, "runs.json"), JSON.stringify(runs));
+    writeFileSync(runsPath(run), JSON.stringify(runs));
     const r = score(run);
     const why = r.decision.reasons.join("\n");
     expect(why).toMatch(

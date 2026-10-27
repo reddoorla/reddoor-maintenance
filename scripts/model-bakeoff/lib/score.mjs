@@ -228,6 +228,8 @@ export function finalScores(checksByArm, rulings = {}) {
   const per = {};
   const referenceErrors = [];
   const seenRefError = new Set();
+  const referenceDisputes = [];
+  const seenDispute = new Set();
   const verdicts = new Map();
   const itemOf = (c) => `${c.collection}\u0000${c.key}`;
   const checkItem = new Map();
@@ -240,6 +242,12 @@ export function finalScores(checksByArm, rulings = {}) {
       if (!verdicts.has(c.check)) verdicts.set(c.check, { yes: [], no: [], odd: false });
       const v = verdicts.get(c.check);
       v[r.refCorrect === false && !c.refFixed ? "no" : "yes"].push(r);
+      // The reference is right by construction, so the arms that matched it keep the check; the
+      // ruling still says the referee thought otherwise, which a reader needs to see (#1500).
+      if (r.refCorrect === false && c.refFixed && !seenDispute.has(c.check)) {
+        seenDispute.add(c.check);
+        referenceDisputes.push({ check: c.check, reference: c.refRaw, note: r.note || "" });
+      }
       if ((c.field === PRESENT || c.field === EXTRA) && r.armCorrect === r.refCorrect) v.odd = true;
     }
   }
@@ -291,5 +299,5 @@ export function finalScores(checksByArm, rulings = {}) {
     per[arm] = p;
   }
   const realExtras = [...refWrong.keys()].filter((check) => check.endsWith(`/ ${EXTRA}`));
-  return { per, referenceErrors, contradictions, realExtras };
+  return { per, referenceErrors, referenceDisputes, contradictions, realExtras };
 }

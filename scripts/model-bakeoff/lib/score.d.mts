@@ -77,6 +77,7 @@ export function finalScores(
 ): {
   per: Record<string, ArmScore>;
   referenceErrors: { check: string; reference: string; note: string }[];
+  referenceDisputes: { check: string; reference: string; note: string }[];
   contradictions: string[];
   realExtras: string[];
 };
