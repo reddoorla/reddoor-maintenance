@@ -25,6 +25,7 @@ import { screenOutsSince } from "../src/db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../src/db/digest-state.js";
 import {
   buildCockpitModel,
+  type CockpitModel,
   buildNeedsYouFeed,
   buildSiteAlarmContext,
   type NeedsYouItem,
@@ -247,12 +248,10 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
   return { text: it.title, day: was.firstFlaggedAt, how: "first flagged" };
 }
 
-export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string): PmCockpit {
-  if (Object.keys(inputs.prior).length === 0)
-    throw new Error(
-      "the digest snapshot is empty, missing or unreadable (readDigestState cannot tell these apart): nothing could be marked waiting, so every just-wait item would read as an ask. If the fleet truly has no attention items, the digest wrote an empty snapshot and this refusal is the cost of not guessing",
-    );
-  const model = buildCockpitModel(
+/** The cockpit model from the inputs `loadCockpitInputs` read, every input threaded:
+ *  shared by this script and the fleet_daily writer, so neither can drop one. */
+export function cockpitFromInputs(inputs: CockpitInputs, now: Date): CockpitModel {
+  return buildCockpitModel(
     inputs.websites,
     inputs.reports,
     inputs.prior,
@@ -267,6 +266,14 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     inputs.deadLetterOldest,
     inputs.deps ?? null,
   );
+}
+
+export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string): PmCockpit {
+  if (Object.keys(inputs.prior).length === 0)
+    throw new Error(
+      "the digest snapshot is empty, missing or unreadable (readDigestState cannot tell these apart): nothing could be marked waiting, so every just-wait item would read as an ask. If the fleet truly has no attention items, the digest wrote an empty snapshot and this refusal is the cost of not guessing",
+    );
+  const model = cockpitFromInputs(inputs, now);
   const today = now.toISOString().slice(0, 10);
   const dated = new Map<string, DatedReason>();
   for (const card of model.cards) {

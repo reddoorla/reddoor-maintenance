@@ -338,5 +338,252 @@
     ],
     "test": "tests/alerts/production-signals.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r1t-scope-gone",
+    "why": "Review round 1: the maintained-only scope is dropped, so a launching site's dead domain or render fail alarms",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "  return sites.filter((s) => s.status === \"maintained\");",
+        "replace": "  return sites;"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-links-stale",
+    "why": "Review round 1: a stale links fail reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        (s.brokenLinks ?? 0) > 0 &&\n        freshWithin(s.browserCheckedAt, PRODUCTION_STALE_DAYS, now),",
+        "replace": "        (s.brokenLinks ?? 0) > 0,"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-deps-mixed-watch",
+    "why": "Review round 1: one package past 90 days beside a fresh one reads Watch",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    if (old.length > 0) {",
+        "replace": "    if (old.length > 0 && old.length === packages.length) {"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-deps-behind-dropped",
+    "why": "Review round 1: the cockpit drops dependencies behind",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...depsItems.behind,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-snapshot-no-deps",
+    "why": "Review round 1: the cockpit snapshot never reads fleet_daily",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "() => readLatestDeps(db), null)",
+        "replace": "async () => null, null)"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-snapshot-fleet-no-deps",
+    "why": "Review round 1: the snapshot's fleet page drops the deps reading",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "      deps: s.deps,\n",
+        "replace": "      deps: null,\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-snapshot-site-no-deps",
+    "why": "Review round 1: the snapshot's site page drops the deps reading",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "    deps: s.deps,\n  };",
+        "replace": "    deps: null,\n  };"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-pm-no-deps-read",
+    "why": "Review round 1: pm-cockpit never reads fleet_daily",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  const deps = await readLatestDeps(db);",
+        "replace": "  const deps = null;"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-model-no-deps",
+    "why": "Review round 1: pm-cockpit's and the fleet_daily writer's model drop deps",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "    inputs.deadLetterOldest,\n    inputs.deps ?? null,\n  );\n}",
+        "replace": "    inputs.deadLetterOldest,\n    null,\n  );\n}"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-digest-no-deps",
+    "why": "Review round 1: runDigest never passes its fleet_daily read to collectAttention",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "      fleetDeps: await readLatestDepsSafely(options),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-digest-deps-throws",
+    "why": "Review round 1: a failed fleet_daily read kills the digest",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "  } catch (e) {\n    console.warn(`⚠ fleet_daily dependency readings unavailable: ${(e as Error).message}`);\n    return null;\n  }",
+        "replace": "  } finally {\n  }"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-report-no-deps",
+    "why": "Review round 1: the digest command passes no fleet_daily reader",
+    "edits": [
+      {
+        "file": "src/cli/commands/report.ts",
+        "find": "        latestDeps: async () => {",
+        "replace": "        latestDepz: async () => {"
+      }
+    ],
+    "test": "tests/cli/report-digest.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-a11y-no-stamp",
+    "why": "Review round 1: the a11y counts are written without their stamp",
+    "edits": [
+      {
+        "file": "src/fleet/site-fields.ts",
+        "find": "    \"A11y Checked At\": new Date().toISOString(),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-install-retry-ignored",
+    "why": "Review round 1: an unfrozen retry that works is reported as a failure",
+    "edits": [
+      {
+        "file": "src/audits/util/install-site.ts",
+        "find": "      if (retry.code !== 0) return",
+        "replace": "      if (true) return"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-a11y-no-browser",
+    "why": "Review round 1: the fleet sweep never installs the site's own chromium",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "{ browser: true }",
+        "replace": "{ browser: false }"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-browser-unproven-pass",
+    "why": "Review round 1: a browser run that checked no link reads pass",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "summary.linksOk === true",
+        "replace": "summary.linksOk !== false"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-a11y-total-unknown",
+    "why": "Review round 1: an a11y run with an unknown total reads as measured",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        s.a11yRoutesTotal !== null &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-future-stamp-stale",
+    "why": "Review round 1: a stamp in the future reads stale",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "  return Number.isFinite(ageMs) && ageMs <= days * MS_PER_DAY;",
+        "replace": "  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= days * MS_PER_DAY;"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-rotate-sitewide",
+    "why": "Review round 1 (brief #10's other half): a package's age is taken from the site's oldest package, so rotating packages reach Attention",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "      firstSeen: Object.fromEntries(packages.map((k) => [k, before[k] ?? night])),",
+        "replace": "      firstSeen: Object.fromEntries(packages.map((k) => [k, Object.values(before).sort()[0] ?? night])),"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
   }
 ]

@@ -487,6 +487,16 @@ export function sharedTitleSuffix(titles: string[]): string | null {
  * Every fail names its offenders (desktopFailures/mobileFailures/brokenLinkUrls, mirroring
  * unreachableUrls) so a red box is actionable, never a bare "fail".
  */
+/** The browser audit's status: a pass needs every verdict proven. Links checked on no
+ *  page (`linksOk` null, P1-78c) are not proven, so the run is a warn, never a pass. */
+export function browserStatus(
+  summary: Pick<BrowserSummary, "desktopOk" | "mobileOk" | "linksOk" | "templateOk">,
+): AuditResult["status"] {
+  return summary.desktopOk && summary.mobileOk && summary.linksOk === true && summary.templateOk
+    ? "pass"
+    : "warn";
+}
+
 export function summarizeBrowser(
   routes: RouteResult[],
   links: LinkResult[],
@@ -704,10 +714,7 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
       (canonical.offsiteLocation
         ? `; base url redirects OFF-SITE to ${canonical.offsiteLocation} — not followed; update the site's url`
         : "");
-    const status: AuditResult["status"] =
-      summary.desktopOk && summary.mobileOk && summary.linksOk === true && summary.templateOk
-        ? "pass"
-        : "warn";
+    const status = browserStatus(summary);
     return {
       audit: "browser",
       site: label,
