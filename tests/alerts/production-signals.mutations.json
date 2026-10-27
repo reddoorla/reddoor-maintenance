@@ -813,8 +813,8 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "        \"a sampled page did not answer 2xx or 3xx\",\n        \"critical\",",
-        "replace": "        \"a sampled page did not answer 2xx or 3xx\",\n        \"warning\","
+        "find": "\"a sampled page did not answer 2xx or 3xx\", \"critical\"),",
+        "replace": "\"a sampled page did not answer 2xx or 3xx\", \"warning\"),"
       }
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
