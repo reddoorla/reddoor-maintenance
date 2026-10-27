@@ -251,6 +251,8 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     for (const yml of [
       `${base}      - run: echo renovate done\n`,
       `${base}      - run: npx renovate\n`, // inside the disabled job: it cannot run either
+      `${base}  setup1:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install renovate\n`,
+      `${base}  setup2:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm add -D renovate\n`,
       `${base}  notify:\n    needs: renovate\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "Renovate finished"\n`,
       base.replace(
         "jobs:\n",
@@ -282,6 +284,20 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
       "npx renovate@41.0.0",
       "npx --yes renovate@latest",
       "pnpm dlx renovate@39",
+      // Review round 4: each runs Renovate in bash.
+      "docker run --rm ghcr.io/renovatebot/renovate:39",
+      "yarn renovate",
+      "pnpm renovate",
+      "npm run renovate",
+      "env LOG_LEVEL=debug renovate",
+      "exec renovate",
+      "sudo renovate",
+      "time renovate",
+      `bash -c "renovate"`,
+      "npx 'renovate'",
+      `npx "renovate@39"`,
+      "corepack pnpm dlx renovate",
+      "sudo -E renovate",
     ]) {
       const yml = place("false", "job").replace(
         "jobs:\n",

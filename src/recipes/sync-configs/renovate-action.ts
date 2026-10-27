@@ -40,8 +40,9 @@ import type { ConfigName } from "../../types.js";
  * it is written — see that function's own doc comment for exactly what
  * guarantee this is (and, as importantly, isn't).
  *
- * Every check below runs against a COMMENT-STRIPPED copy of the file (see
- * `stripComments`). A raw-text `.match()`/`.includes()` takes the FIRST hit
+ * Every string check below runs against a COMMENT-STRIPPED copy of the file
+ * (see `stripComments`); `renovateNeverRuns` alone reads the raw file, through
+ * js-yaml, which knows a comment from a value. A raw-text `.match()`/`.includes()` takes the FIRST hit
  * anywhere in the file, comments included — a canonical pin, cron, or job
  * body sitting in a `#` comment above the real (non-compliant) line reads as
  * compliant, and worse, `withRenovatePinsFrom` would scrape a sha out of a
@@ -63,10 +64,9 @@ function escapeRegExp(s: string): string {
  *
  * Full-line only: a trailing `# vX.Y.Z` after a real `uses:` line is
  * meaningful (it's the human-readable version tag) and must survive — only
- * strip a line whose first non-whitespace character is `#`. This is safe
- * specifically because this workflow's YAML has no block scalars (`|`/`>`),
- * so there is no line in a compliant or non-compliant renovate.yml where a
- * leading `#` is literal string content rather than a comment.
+ * strip a line whose first non-whitespace character is `#`. The template has
+ * no block scalars (`|`/`>`), so a leading `#` there is always a comment; a
+ * site's block scalar holding one could only hide a string, never invent one.
  */
 function stripComments(contents: string): string {
   return contents.replace(/^[ \t]*#[^\n]*$/gm, "");
@@ -332,30 +332,49 @@ function renovateNeverRuns(contents: string): string | null {
   return blockedAt;
 }
 
+/** Words that run the command after them: `env LOG_LEVEL=debug renovate`. */
+const COMMAND_PREFIXES = new Set(["env", "exec", "sudo", "time", "nohup", "command", "corepack"]);
+
 /**
- * Whether a `run:` script runs Renovate: a command that is `renovate`, called
- * directly or through npx, pnpx, bunx, `pnpm dlx`, `yarn dlx` or `npm exec`
- * (past their flags, with or without `@<version>`), or the `renovate/renovate`
- * image. Naming it is not
- * running it: `echo renovate done`, or `npx --package renovate --
- * renovate-config-validator`.
+ * Whether a `run:` script runs Renovate: a command that is `renovate` (with
+ * or without `@<version>`, quoted or not), called directly, after a prefix
+ * such as `env` or `sudo` or `bash -c`, through npx, pnpx or bunx, or through
+ * pnpm, yarn or npm (`dlx`, `exec`, `run`, or pnpm and yarn running a bin by
+ * name), past their flags. Naming the command is not running it (`echo
+ * renovate done`, `npx --package renovate -- renovate-config-validator`), but
+ * naming the `renovate/renovate` or `ghcr.io/renovatebot/renovate` image
+ * anywhere counts, which errs toward a miss.
  */
 function runsRenovate(script: string): boolean {
-  if (/\brenovate\/renovate\b/.test(script)) return true;
+  if (/\brenovate(?:bot)?\/renovate\b/.test(script)) return true;
   for (const segment of script.split(/[\n;&|()]+/)) {
-    const words = segment.trim().split(/\s+/);
+    const words = segment
+      .trim()
+      .split(/\s+/)
+      .map((w) => w.replace(/^["']+|["']+$/g, ""));
     let i = 0;
-    while (/^[A-Za-z_]\w*=/.test(words[i] ?? "")) i++;
+    for (;;) {
+      const w = words[i] ?? "";
+      if (/^[A-Za-z_]\w*=/.test(w) || COMMAND_PREFIXES.has(w)) {
+        i += 1;
+        while ((words[i] ?? "").startsWith("-")) i += 1; // `sudo -E`, `env -i`
+      } else if ((w === "bash" || w === "sh") && words[i + 1] === "-c") i += 2;
+      else break;
+    }
     let runner = false;
-    if (["npx", "pnpx", "bunx"].includes(words[i] ?? "")) {
+    const tool = words[i] ?? "";
+    if (["npx", "pnpx", "bunx"].includes(tool)) {
       runner = true;
       i += 1;
-    } else if (
-      ["pnpm", "yarn", "npm"].includes(words[i] ?? "") &&
-      ["dlx", "exec"].includes(words[i + 1] ?? "")
-    ) {
-      runner = true;
-      i += 2;
+    } else if (["pnpm", "yarn", "npm"].includes(tool)) {
+      if (["dlx", "exec", "run", "run-script"].includes(words[i + 1] ?? "")) {
+        runner = true;
+        i += 2;
+      } else if (tool !== "npm") {
+        // `pnpm renovate` and `yarn renovate` run the bin by name.
+        runner = true;
+        i += 1;
+      }
     }
     while (runner && i < words.length) {
       const w = words[i]!;
@@ -405,7 +424,6 @@ function alwaysFalse(value: unknown, fromSource: Set<string>): boolean {
     if (inner.includes("${{") || inner.includes("}}")) return false;
     const literal = /^\s*'((?:[^']|'')*)'\s*$/.exec(inner);
     text = literal ? literal[1]!.replaceAll("''", "'") : inner;
-    if (text.includes("${{")) return false;
   }
   text = text.trim();
   if (text === "") return false;
