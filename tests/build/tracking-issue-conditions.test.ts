@@ -291,6 +291,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
   it("finds every tracking-issue open and close step in .github/workflows", () => {
     expect(opens(all).map(id)).toEqual([
       "daily-reports.yml › Open/update the daily-reports-failing tracking issue",
+      "fleet-a11y.yml › Open/update the weekly-a11y-failure tracking issue",
       "fleet-config-drift.yml › Open/update the config-drift tracking issue",
       "fleet-config-drift.yml › Open/update the config-drift-sweep-failing tracking issue",
       "fleet-db-backup.yml › Open/update the backup-failure tracking issue",
@@ -314,6 +315,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
     ]);
     expect(closes(all).map(id)).toEqual([
       "daily-reports.yml › Close the daily-reports-failing issue on recovery",
+      "fleet-a11y.yml › Close the weekly-a11y-failure issue on recovery",
       "fleet-config-drift.yml › Close the config-drift issue on a clean sweep",
       "fleet-config-drift.yml › Close the config-drift-sweep-failing issue on recovery",
       "fleet-db-backup.yml › Close the backup-failure issue on recovery",
@@ -834,8 +836,8 @@ exit 1
 
   // The population this block judges. The list above pins the names; this pins
   // that the block itself saw all of them, so a filter here cannot shrink it.
-  it("finds all 21 open steps", () => {
-    expect(opens(all)).toHaveLength(21);
+  it("finds all 22 open steps", () => {
+    expect(opens(all)).toHaveLength(22);
   });
 
   // POSITIVE CONTROL first: with no existing issue each step creates one with a
@@ -1215,10 +1217,11 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
   });
 
-  it("finds all eighteen workflows", async () => {
+  it("finds all nineteen workflows", async () => {
     expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
       "ci.yml",
       "daily-reports.yml",
+      "fleet-a11y.yml",
       "fleet-config-drift.yml",
       "fleet-daily.yml",
       "fleet-db-backup.yml",

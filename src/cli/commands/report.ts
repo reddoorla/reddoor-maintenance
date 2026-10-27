@@ -97,6 +97,10 @@ export async function runReportCommand(
         baseUrl: dashboardBaseUrl(),
         roster: async () => listSites(await fleetDb.get()),
         allReports: async () => listAllReports(await fleetDb.get()),
+        latestDeps: async () => {
+          const { readLatestDeps } = await import("../../fleet-daily/read.js");
+          return readLatestDeps(await fleetDb.get());
+        },
       });
     } finally {
       await fleetDb.close();

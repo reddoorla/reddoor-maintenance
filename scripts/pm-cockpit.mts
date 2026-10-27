@@ -25,6 +25,7 @@ import { screenOutsSince } from "../src/db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../src/db/digest-state.js";
 import {
   buildCockpitModel,
+  type CockpitModel,
   buildNeedsYouFeed,
   buildSiteAlarmContext,
   type NeedsYouItem,
@@ -44,6 +45,8 @@ import {
 } from "../src/alerts/waiting.js";
 import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
+import { readLatestDeps } from "../src/fleet-daily/read.js";
+import { isCockpitOnly, type LatestDeps } from "../src/alerts/production-signals.js";
 import { isMain } from "./lib/cli.mjs";
 
 const USAGE = "usage: pnpm tsx scripts/pm-cockpit.mts [--since <iso with Z or offset>]";
@@ -119,6 +122,9 @@ export type CockpitInputs = {
   deadLetters: ReadonlyMap<string, number>;
   /** OD 87: the oldest unreplayed row per slug, the clock of a known site's hold. */
   deadLetterOldest: ReadonlyMap<string, string>;
+  /** P1-78c. The latest `fleet_daily` dependency readings; optional, so a test that
+   *  builds inputs by hand needs none. */
+  deps?: LatestDeps | null;
 };
 
 export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInputs> {
@@ -139,6 +145,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
   );
   const deadLetters = await countUnreplayedDeadLettersBySlug(db);
   const deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
+  const deps = await readLatestDeps(db);
   return {
     websites,
     reports,
@@ -151,6 +158,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
     notifyBounces,
     deadLetters,
     deadLetterOldest,
+    deps,
   };
 }
 
@@ -211,6 +219,9 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
     if (at !== null)
       return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };
   }
+  // P1-78c: a cockpit-only Watch item never reaches the digest's snapshot, so it has
+  // no first-flagged day; it prints undated, like every other Watch reason, never NEW.
+  if (isCockpitOnly(it)) return { text: it.title, day: null, how: null };
   const was = prior[it.key];
   if (was === undefined) return { text: it.title, day: today, how: "first flagged" };
   if (it.kind === "vuln" && it.autoFixExhausted === true)
@@ -237,12 +248,10 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
   return { text: it.title, day: was.firstFlaggedAt, how: "first flagged" };
 }
 
-export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string): PmCockpit {
-  if (Object.keys(inputs.prior).length === 0)
-    throw new Error(
-      "the digest snapshot is empty, missing or unreadable (readDigestState cannot tell these apart): nothing could be marked waiting, so every just-wait item would read as an ask. If the fleet truly has no attention items, the digest wrote an empty snapshot and this refusal is the cost of not guessing",
-    );
-  const model = buildCockpitModel(
+/** The cockpit model from the inputs `loadCockpitInputs` read, every input threaded:
+ *  shared by this script and the fleet_daily writer, so neither can drop one. */
+export function cockpitFromInputs(inputs: CockpitInputs, now: Date): CockpitModel {
+  return buildCockpitModel(
     inputs.websites,
     inputs.reports,
     inputs.prior,
@@ -255,7 +264,22 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     inputs.notifyBounces,
     inputs.deadLetters,
     inputs.deadLetterOldest,
+    inputs.deps ?? null,
   );
+}
+
+/** The cockpit model the fleet_daily writer counts, from the store: every input read and
+ *  threaded, dependency readings included (review round 5 pinned it). */
+export async function nightCockpit(db: Db, now: Date): Promise<CockpitModel> {
+  return cockpitFromInputs(await loadCockpitInputs(db, now), now);
+}
+
+export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string): PmCockpit {
+  if (Object.keys(inputs.prior).length === 0)
+    throw new Error(
+      "the digest snapshot is empty, missing or unreadable (readDigestState cannot tell these apart): nothing could be marked waiting, so every just-wait item would read as an ask. If the fleet truly has no attention items, the digest wrote an empty snapshot and this refusal is the cost of not guessing",
+    );
+  const model = cockpitFromInputs(inputs, now);
   const today = now.toISOString().slice(0, 10);
   const dated = new Map<string, DatedReason>();
   for (const card of model.cards) {
@@ -337,6 +361,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
       inputs.deadLetters,
       inputs.prior,
       inputs.deadLetterOldest,
+      inputs.deps ?? null,
     );
     for (const it of ctx.items) if (it.waiting === true) waitingKeys.push(it.key);
   }

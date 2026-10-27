@@ -40,6 +40,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     a11yViolations: null,
     a11yRoutesScanned: null,
     a11yRoutesTotal: null,
+    a11yCheckedAt: null,
     depsDrifted: null,
     depsMajorBehind: null,
     depsOutdated: null,

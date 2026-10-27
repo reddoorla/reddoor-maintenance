@@ -2,12 +2,14 @@
  * P1-78a: the Turso half of the nightly `fleet_daily` writer. Nightly only, never
  * on a request path, so the all-time counts here may scan their tables (the
  * EXPLAIN gate covers `src/db/`, the request path's modules). The overview reads
- * the row this writes, not these queries.
+ * the row this writes, not these queries. The one exception is `readLatestDeps`,
+ * which the cockpit calls: a week of rows by primary key, newest first.
  */
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
+import type { LatestDeps } from "../alerts/production-signals.js";
 
 const failed = (what: string, e: unknown): { value: null; reason: string } => ({
   value: null,
@@ -36,6 +38,19 @@ export async function readRecentRows(db: Db, limit = 7): Promise<StoredRow[]> {
     counts: JSON.parse(r.counts) as FleetDailyCounts,
     writtenAt: r.written_at,
   }));
+}
+
+/** The dependency readings for the deps alarm (P1-78c): the newest row that holds one,
+ *  aged to the newest night. A night whose deps measure failed (`value: null`) carries the
+ *  run, as the writer does (`runningTotal`), rather than dropping every deps item for a
+ *  night and re-dating it the next (review round 2); each site's own `at` still gates
+ *  staleness. A week of rows by primary key, so it stays cheap on the request path. Null
+ *  before the first reading. */
+export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
+  const rows = await readRecentRows(db, 7);
+  const withReading = rows.find((r) => r.counts.deps?.value != null);
+  const deps = withReading?.counts.deps?.value;
+  return deps ? { night: rows[0]!.night, sites: deps.sites } : null;
 }
 
 /** One night's row, or null. */

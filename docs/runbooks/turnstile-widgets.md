@@ -102,17 +102,17 @@ so they are corrected here rather than quietly edited away.
 Cloudflare's always-pass test sitekey … it exercises the form, never the real
 widget". Read the code: `CF_TEST_SITEKEY` (`src/audits/form-e2e.ts:12`) reaches
 exactly one expression — `` const tokenValue = `testmode-${testSitekey}` ``
-(`:1153`) — which is injected at `:1284` as the **value** of a hidden
+(`:1167`) — which is injected at `:1298` as the **value** of a hidden
 `cf-turnstile-response` input. Nothing writes `data-sitekey` and nothing calls
 `page.route`; the one `addInitScript` installs the testMode marker guard
 (#1736), which sets that same token value and never touches the widget. **The site's real widget renders with its real
-key on every nightly run**, which the code's own comment at `:1361–1363` already
+key on every nightly run**, which the code's own comment at `:1375–1377` already
 knew: "the Turnstile widget inserts its OWN input with that name while it
 renders (an erroring widget included)".
 
 So the nightly probe is already generating the evidence and discarding it. It
 launches a browser against 6 sites' live contact forms (the audited fleet is 13;
-7 refuse at the `forms.testMode` preflight, `form-e2e.ts:1100–1106`). Wiring the
+7 refuse at the `forms.testMode` preflight, `form-e2e.ts:1114–1120`). Wiring the
 110200 observation into a verdict is the open work.
 
 **2. The smoke suite's 110200 guard cannot fire in the fleet run.**

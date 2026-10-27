@@ -11,6 +11,7 @@ import {
 } from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
+import { installSiteDeps } from "./util/install-site.js";
 import type { AuditContext } from "./util/inject.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
@@ -127,6 +128,11 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  the spec and reproduced verbatim in the summary, exactly as the reason
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
+/** The skips a site declared on purpose; they leave the stored route total. */
+const DECLARED_SKIP_REASONS: ReadonlySet<string> = new Set([
+  PLACEHOLDER_SKIP_REASON,
+  ABSENT_FIXTURE_SKIP_REASON,
+]);
 
 /** Prefixed to the help of a `client-error` that was THROWN WHILE the reveal
  *  pass (#100) was running. It marks a time window, not a cause. The pass runs
@@ -1150,10 +1156,23 @@ export function describeNoResults(raw: SpawnResult): string {
   return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`;
 }
 
+/** Set to "1" by `fleet-a11y.yml`: install a fresh clone before auditing it (P1-78c). */
+export const A11Y_INSTALL_ENV = "REDDOOR_A11Y_INSTALL";
+
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
   const site = ctx.site;
   const label = siteLabel(site);
+
+  // P1-78c: the weekly fleet sweep (fleet-a11y.yml) runs on fresh clones, which have
+  // no node_modules and no browser at the site's own Playwright revision. Only that
+  // workflow opts in, so a site's own CI gate and a local run are unchanged.
+  if (process.env[A11Y_INSTALL_ENV] === "1") {
+    const notReady = await installSiteDeps(site.path, spawn, { browser: true });
+    if (notReady !== null) {
+      return { audit: "a11y", site: label, status: "skip", summary: `a11y: ${notReady}` };
+    }
+  }
 
   // specDir lives INSIDE site.path (not /tmp) so the spec's
   // `import AxeBuilder from "@axe-core/playwright"` resolves via Node's
@@ -1426,9 +1445,21 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         .map((note) => `; ${note}`)
         .join("");
 
-    // #910: the same two numbers the summary's count phrase prints, stored so a
-    // run that covered 1 of 2 routes is a different row from one that covered 2.
-    const routes = { scanned: axePages.length - skippedRoutes.length, total: axePages.length };
+    // #910: stored so a run that covered 1 of 2 routes is a different row from
+    // one that covered 2. P1-78c: a skip the site declared (a fixture its source
+    // does not have, or its own routes while it points at the placeholder
+    // Prismic repo) leaves the total as well as the scanned count, because the
+    // ladder reads scanned < total as "not measured", and a site skipping a
+    // fixture it never had would otherwise read partial every week and its
+    // alarm could never fire (operator, 2026-10-27, decision
+    // 2026-10-27-1021-p1-78c-after-five-rounds (a)). Those are the only two
+    // reasons the spec writes today; a skip with any new reason would still
+    // count as missing coverage. The summary's "N of M" keeps naming them.
+    const declaredSkips = skippedRoutes.filter((r) => DECLARED_SKIP_REASONS.has(r.reason)).length;
+    const routes = {
+      scanned: axePages.length - skippedRoutes.length,
+      total: axePages.length - declaredSkips,
+    };
 
     return {
       audit: "a11y",

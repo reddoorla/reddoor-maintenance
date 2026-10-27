@@ -719,10 +719,16 @@ async function deleteBranch(ctx, n, branch) {
 // `Test changes:` section naming each listed file. A flag is cheap: it costs the author
 // one line saying why. It is not a verdict that the change is wrong.
 
-// tests/, test/ and e2e/ at the repo root (or a package's root); __tests__/ anywhere. A
-// `test/` folder inside app code (a SvelteKit `src/routes/test/`) is not a test directory.
-const TEST_DIR = /^(packages\/[^/]+\/)?(tests?|e2e)\/|(^|\/)__tests__\//;
-const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
+// tests/, test/, spec/ and e2e/ at the repo root (or a package's root); __tests__/ anywhere;
+// in any case (#1617). A `test/` folder inside app code (a SvelteKit `src/routes/test/`) is
+// not a test directory.
+const TEST_DIR = /^(packages\/[^/]+\/)?(tests?|spec|e2e)\/|(^|\/)__tests__\//i;
+const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+// A test directory also holds fixtures and baselines (#1617): code is what can hold an
+// assertion or a skip, so only code is scanned, and a deleted fixture is named as one.
+const CODE = /\.([cm]?[jt]sx?|svelte|vue|astro)$/i;
+// A test runner's config, whose include and exclude decide which tests run at all.
+const RUNNER_CONFIG = /(^|\/)(vitest|vite|playwright|jest)\.(config|workspace)\.[cm]?[jt]s$/i;
 // A call, not a word, tested on a line's code (see `codeOf`) with its generics taken out
 // (see `withoutGenerics`): `expect(`, `expect.soft(`, `expectTypeOf(`, `assert(`,
 // `assert.equal(`, `assertEquals(`, `assertType(`, `expect (x)`. Strings are blanked first,
@@ -733,8 +739,10 @@ const ASSERTION = /\b(expect|expectTypeOf|assert|assertType|assert[A-Z]\w*)(\s*\
 // .toBe(false);` leaves `).toBe(false);` on a line with no `expect(`. A line whose code
 // opens with `)` and goes on to a matcher, through `.not`, `.resolves` or `.rejects`, is an
 // assertion line. A `)` that closes any other call (`);`, `).toString()`) is not.
+// #1755: it may open with `})` or `])` (an object or array argument closed first), and an
+// `expectTypeOf` chain goes through `.returns` or `.parameters` to a generic matcher.
 const MATCHER_LINE =
-  /^\)+\s*(\.\s*(not|resolves|rejects)\s*){0,3}\.\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\w*\s*\(/;
+  /^[)\]}](\s*[)\]}])*\s*(\.\s*(not|resolves|rejects|returns|parameters|instance)\s*){0,3}\.\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\w*\s*\(/;
 // A skip, tested on a line's code:
 // - a modifier on the test API, called or not: `it.skip(`, `describe.skip.each(…)`,
 //   `cond ? it.skip : it`, `it.runIf(false)(`, Playwright's `test.fixme(` and `test.fail(`;
@@ -761,6 +769,16 @@ const SKIP = new RegExp(
     `\\.\\s*(${SKIP_WORDS})\\s*\\(\\s*(true\\b|false\\b|["'\`]|$)`,
     `(^|[{;)?:]|=>|&&|\\|\\||\\b(?:else|return))\\s*(await\\s+)?skip(If)?\\s*\\([^()]*\\)\\s*(;|\\}|$)`,
     `(^|[^\\w.$])x(it|test|describe)\\s*[.(]`,
+    // A test's options object (#1617): `it("a", { skip: true }, …)`.
+    `(^|[{,])\\s*(skip|todo|only)\\s*:\\s*true\\b`,
+  ].join("|"),
+);
+// An added `.only` (#1617): every other test in the file stops running. `fit` and
+// `fdescribe` too.
+const ONLY = new RegExp(
+  [
+    `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*only\\b`,
+    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|\\w[\\w.]*(\\[[^\\]]*\\])?\\s*,|$)`,
   ].join("|"),
 );
 // The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
@@ -779,6 +797,9 @@ export function isTestFile(path) {
   const p = String(path ?? "");
   return TEST_DIR.test(p) || TEST_NAME.test(p);
 }
+
+/** A test file that is code, so it can hold an assertion or a skip; else a fixture. */
+const isTestCode = (path) => isTestFile(path) && CODE.test(path);
 
 /** The removed and added lines of a unified-diff `patch`, trimmed, without their marker. */
 function patchLines(patch) {
@@ -800,10 +821,11 @@ function patchLines(patch) {
  *  text), a quote opened right after a `/` (a regex literal `/'/`), or a comment began
  *  after code (a regex literal `/\//`). One pass, linear. */
 function codeOf(line) {
-  if (/^\*(?!\/)/.test(line)) return { code: "", retry: false };
+  if (/^\*(?!\/)/.test(line)) return { code: "", retry: false, open: false };
   let out = "";
   let quote = "";
   let retry = false;
+  let afterSlash = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (quote) {
@@ -816,6 +838,7 @@ function codeOf(line) {
     }
     if (c === '"' || c === "'" || c === "`") {
       if (line[i - 1] === "/") retry = true;
+      afterSlash = line[i - 1] === "/";
       quote = c;
       out += c;
     } else if (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
@@ -828,7 +851,14 @@ function codeOf(line) {
       i = end + 1;
     } else out += c;
   }
-  return { code: out.trim(), retry: retry || quote !== "" };
+  // Only a template literal runs onto the next line; an unclosed ' or " is a misread
+  // (a regex literal, a JSX apostrophe), not an open string.
+  return {
+    code: out.trim(),
+    retry: retry || quote !== "",
+    // A backtick right after `/` is a regex literal's, not a template literal.
+    open: quote === "`" && !afterSlash,
+  };
 }
 
 /** Whether `re` finds a call on the line: on its code, and also on the raw line when
@@ -874,6 +904,82 @@ function lineKey(t) {
   return out.replace(/;$/, "");
 }
 
+/** `t` without a trailing `// …` comment, so `-expect(x).toBe(1); // flaky` →
+ *  `+expect(x).toBe(1);` is not a removal (#1617). The `//` must follow whitespace after a
+ *  `;`, `,` or closing bracket, outside a string: `"http://a"` and a regex's `\//` are
+ *  not comments, and are compared whole. */
+function withoutTrailingComment(t) {
+  let quote = "";
+  let last = ""; // the last character before any spaces just read; one pass, linear
+  let spaced = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = "";
+      last = c;
+      spaced = false;
+      continue;
+    }
+    if (c === "/" && t[i + 1] === "/" && spaced && ";,)]}".includes(last) && last !== "") {
+      return t.slice(0, i).trimEnd();
+    }
+    if (/\s/.test(c)) {
+      spaced = true;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    last = c;
+    spaced = false;
+  }
+  return t;
+}
+const matchKey = (t) => lineKey(withoutTrailingComment(t));
+
+/** The brackets a line's code opens, less those it closes. */
+function netBrackets(code) {
+  let n = 0;
+  for (const c of code) {
+    if (c === "(" || c === "[" || c === "{") n++;
+    else if (c === ")" || c === "]" || c === "}") n--;
+  }
+  return n;
+}
+
+// A line that opens an expected value: a matcher (`.toEqual({`, `).toMatchObject([`) or an
+// `assert` call. A bare `expect(` does not: its argument is the value under test.
+const OPENS_VALUE =
+  /\.\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\w*\s*\(|\bassert\w*(\s*\.\s*\w+){0,3}\s*\(/;
+
+/** The removed lines of `patch` that sit inside an assertion's expected value written
+ *  across lines (#1755): `expect(x).toEqual({` then `-  a: 1,`. Read on the old side
+ *  (context and removed lines), hunk by hunk, by bracket depth from the line that opens
+ *  the value (see `OPENS_VALUE`). A value whose opening line is outside the hunk's context is not seen. */
+function valueLines(patch) {
+  const out = [];
+  let depth = 0;
+  for (const raw of String(patch).split("\n")) {
+    if (raw.startsWith("@@")) {
+      depth = 0;
+      continue;
+    }
+    if (raw.startsWith("+") || raw.startsWith("\\")) continue;
+    const t = raw.slice(1).trim();
+    if (t.length > MAX_LINE) continue;
+    const { code, open } = codeOf(t);
+    const net = netBrackets(code);
+    if (depth > 0) {
+      if (raw.startsWith("-")) out.push(t);
+      depth = Math.max(0, depth + net);
+    } else if (net > 0 && !open && hasCall(t, OPENS_VALUE, withoutGenerics)) {
+      // Not when a quote is left open (a template literal running on): bracket depth
+      // cannot follow its lines.
+      depth = net;
+    }
+  }
+  return out;
+}
+
 /** How many times each line occurs: a removed line is matched by one added copy, so
  *  removing an assertion twice and adding it back once still loses one. */
 function lineCounts(lines) {
@@ -893,7 +999,7 @@ function takeOne(counts, line) {
  *  path that the runner's own include may still not collect (this repo's vitest reads only
  *  `tests/**\/*.test.ts`), which nothing here can see. */
 function renamedAway(before, after) {
-  if (!isTestFile(before)) return "";
+  if (!isTestCode(before)) return "";
   if (!isTestFile(after)) return `test file renamed to ${after}, which is not a test`;
   if (TEST_NAME.test(before) && !TEST_NAME.test(after)) {
     return `test file renamed to ${after}, which is not named as a test`;
@@ -917,13 +1023,51 @@ export function testChangeFlags(files) {
     const name = String(f?.filename ?? "");
     const before = typeof f?.previous_filename === "string" ? f.previous_filename : "";
     if (f?.status === "removed" && isTestFile(name)) {
-      out.push({ file: name, reasons: ["test file deleted"] });
+      out.push({
+        file: name,
+        reasons: [
+          isTestCode(name) ? "test file deleted" : "fixture deleted (not a test's code): say why",
+        ],
+      });
+      continue;
+    }
+    const config = RUNNER_CONFIG.test(name) || RUNNER_CONFIG.test(before);
+    if (config && typeof f?.patch !== "string") {
+      out.push({
+        file: name,
+        reasons: [
+          f?.status === "renamed"
+            ? `test runner config renamed from ${before}`
+            : "test runner config changed, and GitHub left out the patch: read the diff",
+        ],
+      });
+      continue;
+    }
+    if (config) {
+      // Any changed line: an include or exclude is often a multi-line array, and
+      // Playwright's grep and grepInvert pick tests too, so no keyword list is safe.
+      const { removed, added } = patchLines(f.patch);
+      const addedLeft = lineCounts(added.map(matchKey));
+      const removedLeft = lineCounts(removed.map(matchKey));
+      const changed = [
+        ...removed
+          .filter((t) => codeOf(t).code !== "" && !takeOne(addedLeft, matchKey(t)))
+          .map((t) => `-${t}`),
+        ...added
+          .filter((t) => codeOf(t).code !== "" && !takeOne(removedLeft, matchKey(t)))
+          .map((t) => `+${t}`),
+      ];
+      const reasons = [
+        ...(f?.status === "renamed" ? [`test runner config renamed from ${before}`] : []),
+        ...changed.map((t) => `test runner config changed: ${t}`),
+      ];
+      if (reasons.length > 0) out.push({ file: name, reasons });
       continue;
     }
     // A renamed test is flagged for the rename and still scanned: `git mv` plus an edit
     // must not hide a weakened assertion behind the rename's one line.
     const away = f?.status === "renamed" ? renamedAway(before, name) : "";
-    if (!away && !isTestFile(name)) continue;
+    if (!away && !isTestCode(name)) continue;
     const file = away ? before : name;
     if (typeof f.patch !== "string") {
       if (away) out.push({ file, reasons: [away] });
@@ -936,25 +1080,31 @@ export function testChangeFlags(files) {
       continue;
     }
     const { removed, added } = patchLines(f.patch);
-    const addedLeft = lineCounts(added.map(lineKey));
-    const removedLeft = lineCounts(removed.map(lineKey));
+    const addedLeft = lineCounts(added.map(matchKey));
+    const removedLeft = lineCounts(removed.map(matchKey));
+    const valueLeft = lineCounts(valueLines(f.patch));
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
       if (t.length > MAX_LINE) {
-        if (!takeOne(addedLeft, lineKey(t))) reasons.push(tooLong(t));
+        if (!takeOne(addedLeft, matchKey(t))) reasons.push(tooLong(t));
         continue;
       }
-      if (!hasCall(t, ASSERTION, withoutGenerics) && !hasCall(t, MATCHER_LINE)) continue;
-      if (!takeOne(addedLeft, lineKey(t))) reasons.push(`removed assertion not re-added: ${t}`);
+      const assertion =
+        hasCall(t, ASSERTION, withoutGenerics) || hasCall(t, MATCHER_LINE, withoutGenerics);
+      if (!takeOne(valueLeft, t) && !assertion) continue;
+      if (!takeOne(addedLeft, matchKey(t))) reasons.push(`removed assertion not re-added: ${t}`);
     }
     for (const t of added) {
       if (t.length > MAX_LINE) {
-        if (!takeOne(removedLeft, lineKey(t))) reasons.push(tooLong(t));
+        if (!takeOne(removedLeft, matchKey(t))) reasons.push(tooLong(t));
         continue;
       }
-      if (!hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
-      if (!takeOne(removedLeft, lineKey(t))) reasons.push(`added skip: ${t}`);
+      const only = hasCall(t, ONLY);
+      if (!only && !hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
+      if (!takeOne(removedLeft, matchKey(t))) {
+        reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
+      }
     }
     if (reasons.length > 0) out.push({ file, reasons });
   }
@@ -1165,7 +1315,23 @@ async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
       section === null
         ? `add a "Test changes:" line or heading to the PR body naming ${missing.join(", ")}, each with why its test changed, then land again`
         : `the "Test changes:" section does not name ${missing.join(", ")}; add each, with why its test changed, then land again`;
-    throw new Stop(`${count}: ${fix}${at}`);
+    // Say why a file the author did write is not counted (#1617, rounds 2 and 3).
+    const visible = readerText(visibleBody(pr.body).join("\n"));
+    const raw = String(pr.body ?? "");
+    const named = (text, file) =>
+      new RegExp(`${nameBefore(refs)}${escapeRe(file)}(?![\\w/-]|\\.\\w)`).test(text);
+    const notes = missing
+      .map((file) =>
+        named(visible, file)
+          ? section === null
+            ? `; ${file} is written in the body, but not under a "Test changes:" line or heading`
+            : `; ${file} is written outside the "Test changes:" section, which ends at a heading, or at a blank line followed by anything but a list item`
+          : named(raw, file)
+            ? `; ${file} is written only where a reader cannot see it (an HTML comment, a fenced block or a link's destination), which does not count`
+            : "",
+      )
+      .join("");
+    throw new Stop(`${count}: ${fix}${notes}${at}`);
   }
   if (key !== seen) {
     ctx.log(
@@ -1350,7 +1516,9 @@ async function landOne(ctx, n) {
   // can add a flagged change or drop the section that named it.
   await checkTestChanges(ctx, n, pr, {
     seen: testChanges,
-    at: `; seen on the merging head ${short(pr.headRefOid)}`,
+    // The file list is read unpinned, so it can be one push newer than this head; the
+    // merge itself is pinned to it.
+    at: `; checked before merging head ${short(pr.headRefOid)}`,
   });
   const sha = pr.headRefOid;
   const mergeCommit = await merge(ctx, n, pr, method);

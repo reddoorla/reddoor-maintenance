@@ -14,7 +14,8 @@ import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
 const execFileAsync = promisify(execFile);
 
 /**
- * #1605, run through the workflows' own text. Five nightlies read
+ * #1605, run through the workflows' own text. Five nightlies (and, since P1-78c, the
+ * weekly fleet-a11y) read
  * `FLEET_WRITE_SUMMARY`; each now also reads the `FLEET_WRITE_GATE` verdict the
  * write-back prints. This file extracts each step's bash and executes it against a
  * stubbed `node` whose stdout is what the REAL `runFleetWriteBack` printed for the
@@ -45,6 +46,12 @@ const STEPS = [
     step: "Fleet security + deps audit + write-back",
     exit: 1,
     label: "fleet security",
+  },
+  {
+    file: "fleet-a11y.yml",
+    step: "Fleet a11y audit + write-back",
+    exit: 1,
+    label: "fleet a11y",
   },
   {
     file: "fleet-form-e2e.yml",

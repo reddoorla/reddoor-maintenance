@@ -107,6 +107,8 @@ export type WebsiteRow = {
    *  covers only the scanned routes. null = not stored by that run. */
   a11yRoutesScanned: number | null;
   a11yRoutesTotal: number | null;
+  /** When the a11y counts were last written (P1-78c). Weekly, so fresh for 8 days. */
+  a11yCheckedAt: string | null;
   /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
   depsDrifted: number | null;
   depsMajorBehind: number | null;

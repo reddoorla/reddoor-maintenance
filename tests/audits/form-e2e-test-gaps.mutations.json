@@ -52,26 +52,13 @@
     "expect": "red"
   },
   {
-    "id": "1669-A9-settle-4500",
-    "why": "#1669 A9: the post-settle window rises to 4.5 s",
-    "edits": [
-      {
-        "file": "src/audits/form-e2e.ts",
-        "find": "const POST_SETTLE_MS = 2_000;",
-        "replace": "const POST_SETTLE_MS = 4_500;"
-      }
-    ],
-    "test": "tests/audits/form-e2e-runner-timing.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "1669-marker-always",
-    "why": "#1669: carriesProbeMarker accepts any body, so a same-site beacon is read as the action",
+    "why": "#1669: carriesProbeMarker accepts any readable body, so a same-site beacon is read as the action (find re-pointed by #1668)",
     "edits": [
       {
         "file": "src/audits/form-e2e.ts",
-        "find": "return postData === null || postData.includes(\"testMode\");",
-        "replace": "return true;"
+        "find": ": postData.includes(\"testMode\");",
+        "replace": ": true;"
       }
     ],
     "test": "tests/audits/form-e2e.test.ts",
@@ -79,12 +66,12 @@
   },
   {
     "id": "1669-marker-null-dropped",
-    "why": "#1669: carriesProbeMarker drops an unreadable (null) body, so a file-upload form's action is never read",
+    "why": "#1669: carriesProbeMarker drops an unreadable (null) multipart body, so a file-upload form's action is never read (find re-pointed by #1668)",
     "edits": [
       {
         "file": "src/audits/form-e2e.ts",
-        "find": "return postData === null || postData.includes(\"testMode\");",
-        "replace": "return postData !== null && postData.includes(\"testMode\");"
+        "find": "? /multipart\\/form-data/i.test(contentType ?? \"\")",
+        "replace": "? false"
       }
     ],
     "test": "tests/audits/form-e2e.test.ts",

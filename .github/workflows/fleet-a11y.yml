@@ -1,0 +1,170 @@
+name: fleet-a11y
+
+# P1-78c. The weekly accessibility sweep: axe over each maintained site's fixtures and its
+# opted-in routes (package.json#reddoor.a11yRoutes), writing the violation counts, the routes
+# scanned and the a11y_checked_at stamp. Weekly, not nightly, and its own workflow, never part
+# of fleet-lighthouse: `a11y` is not a checkout-free audit (it clones, installs, builds and
+# previews each site), so adding it to fleet-lighthouse's --only would clone the whole fleet
+# every night. A verdict holds 8 days (production-signals.ts A11Y_STALE_DAYS), so one missed
+# Sunday goes stale rather than silently claiming the present; a failed run opens a tracking
+# issue so it is never quietly stale.
+on:
+  schedule:
+    # Sunday night, 10:23pm PDT / 9:23pm PST (Monday 05:23 UTC).
+    - cron: "23 5 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-a11y
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the weekly-a11y-failure tracking issue
+
+jobs:
+  a11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # The OS libraries chromium needs on a bare runner. Each site then installs the
+      # browser at its OWN Playwright revision (REDDOOR_A11Y_INSTALL below).
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Fleet a11y audit + write-back
+        id: sweep
+        # Sequential: each site builds and previews on its own port. ~17 sites at a few
+        # minutes each (install, build, preview, axe).
+        timeout-minutes: 120
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # A fresh clone has no node_modules: the audit installs it, and the site's
+          # own Playwright chromium, before it builds (src/audits/util/install-site.ts).
+          REDDOOR_A11Y_INSTALL: "1"
+        run: |
+          set -o pipefail
+          # A site with violations exits non-zero by design; the gate keys on the
+          # machine-readable lines, as every fleet sweep does.
+          node dist/cli/bin.js audit \
+            --fleet turso \
+            --only a11y \
+            --write-back \
+            --concurrency 1 \
+            --workdir /tmp/fleet-a11y | tee /tmp/audit.out || true
+
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a command
+          # substitution would abort the step before the explicit diagnostic below runs.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet a11y printed no write summary — the run crashed before write-back (check the Turso creds / clone)."
+            exit 1
+          fi
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Surface every partial miss as a visible annotation, even one within
+          # tolerance — a tolerated single-site flake is then never invisible.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/audit.out | tail -n1 || true)
+            echo "::warning::fleet a11y: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
+          # private repo whose clone fails) is dropped rather than crashing the run
+          # (resilient fleet prep). Raise it so the misconfigured site row gets fixed.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet a11y: $skipped"
+          fi
+
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet a11y printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet a11y: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet a11y: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
+          # Total write-back failure: nothing landed at all (creds/API/inventory). This
+          # is the silent-green hazard — every site's accessibility verdict would go stale
+          # while the job reported success.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet a11y wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write. A single
+          # known-flaky site stays green-with-warning; a real outage reds.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet a11y: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      - name: Open/update the weekly-a11y-failure tracking issue
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Weekly fleet a11y failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The weekly **fleet-a11y** run failed, so accessibility verdicts go stale after 8 days.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: it was stopped (a timeout or a manual cancel) before it finished.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the weekly-a11y-failure issue on recovery
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Weekly fleet a11y failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the weekly fleet-a11y run is green again." && echo "closed #$n"
+          done

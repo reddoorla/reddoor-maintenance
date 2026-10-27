@@ -32,6 +32,7 @@ function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
     rawSubmissionEnums: new Map(),
     screenOuts: [],
     audits: [],
+    deps: null,
     ...over,
   };
 }
