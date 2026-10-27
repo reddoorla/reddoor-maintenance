@@ -501,3 +501,82 @@ describe("the evidence key (#1502)", () => {
     expect(key("opus-low-1")).toBe("failed: boom [opus-low-1]");
   });
 });
+
+describe("the scorer's pnpm (#1498)", () => {
+  // An agent can write the caller's pnpm config with Bash. Neither the hook nor the shell they name
+  // may run inside the scorer: not on its install, and not on a gate's `pnpm <script>`.
+  it("reads no hook or script-shell from the caller's pnpm config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-pnpmrc-"));
+    {
+      const ran = (what: string) => join(dir, `${what}-ran`);
+      writeFileSync(
+        join(dir, "hook.cjs"),
+        `require("fs").writeFileSync(${JSON.stringify(ran("hook"))}, "")\n`,
+      );
+      writeFileSync(join(dir, "shell.sh"), `#!/bin/sh\ntouch ${ran("shell")}\n`, { mode: 0o755 });
+      const rc = `global-pnpmfile=${join(dir, "hook.cjs")}\nscript-shell=${join(dir, "shell.sh")}\n`;
+      const home = join(dir, "home");
+      mkdirSync(join(home, ".config", "pnpm"), { recursive: true });
+      writeFileSync(join(home, ".npmrc"), rc);
+      writeFileSync(join(home, ".config", "pnpm", "rc"), rc);
+      // pnpm 11 reads its global settings from config.yaml, pnpm 10 from the rc files.
+      writeFileSync(
+        join(home, ".config", "pnpm", "config.yaml"),
+        `globalPnpmfile: ${join(dir, "hook.cjs")}\nscriptShell: ${join(dir, "shell.sh")}\n`,
+      );
+      const proj = join(dir, "proj");
+      mkdirSync(proj);
+      writeFileSync(
+        join(proj, "package.json"),
+        '{"name":"p","version":"1.0.0","scripts":{"x":"true"}}\n',
+      );
+      // The lockfile is made with no rc at all, as the pin's is.
+      execFileSync("pnpm", ["install", "--offline"], {
+        cwd: proj,
+        env: { ...process.env, HOME: join(dir, "clean"), XDG_CONFIG_HOME: join(dir, "clean") },
+      });
+      const saved = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME };
+      process.env.HOME = home;
+      process.env.XDG_CONFIG_HOME = join(home, ".config");
+      vi.resetModules();
+      try {
+        const fresh = await import("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs");
+        expect(fresh.install(proj).status).toBe(0);
+        expect(fresh.run(proj, "pnpm", ["run", "x"]).status).toBe(0);
+        expect(existsSync(ran("hook"))).toBe(false);
+        expect(existsSync(ran("shell"))).toBe(false);
+      } finally {
+        process.env.HOME = saved.HOME;
+        if (saved.XDG === undefined) delete process.env.XDG_CONFIG_HOME;
+        else process.env.XDG_CONFIG_HOME = saved.XDG;
+        vi.resetModules();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+});
+
+describe("the scorer's snapshot of the pin (#1498)", () => {
+  it("runs no filter driver from the --root clone's own config or info/attributes", () =>
+    withTmp("t4-root-filter-", (dir) => {
+      const root = join(dir, "root");
+      mkdirSync(root);
+      const sh = (...a: string[]) =>
+        execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...a], {
+          encoding: "utf8",
+        }).trim();
+      sh("init", "-q");
+      writeFileSync(join(root, "a.ts"), "a\n");
+      sh("add", "-A");
+      sh("commit", "-qm", "pin");
+      const pin = sh("rev-parse", "HEAD");
+      const ran = join(dir, "filter-ran");
+      sh("config", "filter.evil.smudge", `touch ${ran}; cat`);
+      mkdirSync(join(root, ".git", "info"), { recursive: true });
+      writeFileSync(join(root, ".git", "info", "attributes"), "* filter=evil\n");
+      const to = join(dir, "out");
+      task.snapshot(root, pin, to);
+      expect(readFileSync(join(to, "a.ts"), "utf8")).toBe("a\n");
+      expect(existsSync(ran)).toBe(false);
+    }));
+});
