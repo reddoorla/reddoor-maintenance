@@ -181,6 +181,16 @@ describe("one token sheet", () => {
     );
   });
 
+  it("the dark theme defines no token the light theme lacks", () => {
+    const t = stripComments(read(TOKENS));
+    const light = Object.keys(declarations(blockAfter(t, ":root {")));
+    for (const sel of [':root[data-theme="dark"]', ':root:not([data-theme="light"])']) {
+      expect(
+        Object.keys(declarations(blockAfter(t, sel))).filter((k) => !light.includes(k)),
+      ).toEqual([]);
+    }
+  });
+
   it("no token is an alias for another, so a red cannot hide behind a new name", () => {
     const t = stripComments(read(TOKENS));
     expect([...t.matchAll(/(--[\w-]+)\s*:\s*var\(/g)].map((m) => m[1])).toEqual([]);
@@ -489,6 +499,63 @@ describe("red marks Broken only", () => {
       }),
     );
     expect(offenders).toEqual([]);
+  });
+
+  // Round 5: the partner rule ran one way only. A rule that sets a fill's text
+  // partner must lay that fill (or name broken, inside the red band), or the
+  // white text lands on paper.
+  it("a fill's text partner is only ever set where that fill is laid", () => {
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p)).flatMap(([sel, body]) => {
+        const text = /(?:^|;|\s)color\s*:\s*var\((--on-(?:ink|broken))\)/.exec(body)?.[1];
+        if (!text) return [];
+        const fill = text === "--on-ink" ? "--ink" : "--broken-fill";
+        const lays = new RegExp(`background(?:-color)?\\s*:\\s*var\\(${fill}\\)`).test(body);
+        const inBand = text === "--on-broken" && sel.split(",").every((x) => namesBroken(x));
+        return lays || inBand ? [] : [`${rel(p)}: ${sel} sets ${text} without ${fill}`];
+      }),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // Round 5: "--rule" (1.74:1) as text passed. Text takes a tested text token.
+  it("text colour is only ever a tested text token", () => {
+    const TEXT = new Set([
+      "--ink",
+      "--ink-muted",
+      "--ink-dark",
+      "--broken",
+      "--on-ink",
+      "--on-broken",
+    ]);
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p)).flatMap(([sel, body]) =>
+        [...body.matchAll(/(?:^|;|\s)color\s*:\s*var\((--[\w-]+)\)/g)]
+          .filter((m) => !TEXT.has(m[1]!))
+          .map((m) => `${rel(p)}: ${sel} → ${m[1]}`),
+      ),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // Round 5: anything inside the Broken verdict that sets its own colour needs a
+  // .verdict.broken override, or it lands on red (.rf-status in muted was 1.03:1).
+  it("every class drawn inside the verdict that sets a colour is overridden on the red band", () => {
+    const sheet = rules(read(join(SRC, "routes/cockpit.css")));
+    const overridden = new Set(
+      sheet
+        .filter(([, b]) => /var\(--on-broken\)/.test(b))
+        .flatMap(([sel]) => sel.split(","))
+        .map((x) => x.trim())
+        .filter((x) => x.startsWith(".verdict.broken "))
+        .map((x) => x.slice(".verdict.broken ".length)),
+    );
+    const coloured = sheet
+      .filter(([sel, b]) => /(^|\s|\.)(rf-|verdict-)/.test(sel) && /(?:^|;|\s)color\s*:/.test(b))
+      .flatMap(([sel]) => sel.split(","))
+      .map((x) => x.trim())
+      .filter((x) => !x.startsWith(".verdict"));
+    expect(coloured.filter((c) => !overridden.has(c))).toEqual([]);
   });
 
   it("the red focus ring appears only on a focus selector", () => {
