@@ -1284,8 +1284,49 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
         "(2 fixtures + 1 from package.json; 1 skipped: / — placeholder Prismic repo) " +
         "(+1 hydration smoke)",
     );
-    // #910: the stored counts are the summary's "2 of 3" — the site's own route
-    // is in the total, and a placeholder skip is subtracted like any other.
+    // #910 stored the summary's "2 of 3". P1-78c (operator, 2026-10-27): a skip
+    // the site declared leaves the total too, so the run reads complete and the
+    // ladder can raise its violations. The summary above still says "2 of 3".
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
+  });
+
+  // P1-78c: the other declared reason, an absent fixture, leaves the total too.
+  it("stores a run that skipped only an absent fixture as complete", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        violations: [],
+        skipped: [
+          {
+            route: "animate-in demo",
+            path: "/dev/animate-in",
+            status: 404,
+            reason: "fixture not in this site's source",
+          },
+        ],
+      }),
+    });
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
+  });
+
+  // FAIL PROOF for the same rule: a skip with any other reason is missing
+  // coverage and stays in the total, so the run still reads partial.
+  it("keeps a skip with an undeclared reason in the total", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/"] });
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn({
+        totalViolations: 0,
+        byImpact: {},
+        violations: [],
+        skipped: [{ route: "/", path: "/", status: 404, reason: "some new reason" }],
+      }),
+    });
     expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 3 });
   });
 
@@ -1545,7 +1586,9 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect(result.summary).toContain("fixture not in this site's source");
   });
 
-  it("puts the scanned and total route counts on details, the numbers the summary says (#910)", async () => {
+  // #910 stored the summary's "1 of 2"; P1-78c (operator, 2026-10-27) takes a
+  // declared skip out of the stored total, while the summary keeps "1 of 2".
+  it("puts the scanned and total route counts on details, a declared skip out of both (#910, P1-78c)", async () => {
     const { result } = await auditSite(
       async (dir) => {
         await writePkg(dir, {});
@@ -1553,7 +1596,7 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
       },
       { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
     );
-    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 2 });
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 1 });
   });
 
   it("a run that skipped nothing reads every route scanned (#910)", async () => {

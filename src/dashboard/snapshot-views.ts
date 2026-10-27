@@ -20,6 +20,7 @@ import { parseFleetTableQuery, buildFleetTableModel } from "./fleet-table.js";
 import type { FleetTableModel } from "./fleet-table.js";
 import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
 import { buildSiteAlarm, type SiteAlarmInputs } from "./site-alarm-verdict.js";
+import type { LatestDeps } from "../alerts/production-signals.js";
 import type { SiteDashboardData, SubmissionsPageLoad } from "./page-data.js";
 
 /**
@@ -82,6 +83,8 @@ export type CockpitSnapshot = {
   screenOuts: ScreenOutBucket[] | null;
   /** Null when the read failed: `/audits` answers 502. */
   audits: ProspectAuditListItem[] | null;
+  /** P1-78c. The latest `fleet_daily` dependency readings; null when absent or failed. */
+  deps: LatestDeps | null;
 };
 
 /** A read the page cannot do without failed when the snapshot was taken. The page
@@ -106,6 +109,8 @@ export function assembleCockpitModel(
     autoFilteredCount: number;
     deadLetters: ReadonlyMap<string, number>;
     deadLetterOldestRead: ReadonlyMap<string, string>;
+    /** P1-78c. The latest `fleet_daily` dependency readings. */
+    deps: LatestDeps | null;
   },
   baseUrl: string,
   now: Date,
@@ -144,6 +149,7 @@ export function assembleCockpitModel(
     notifyBounces,
     i.deadLetters,
     deadLetterOldest,
+    i.deps,
   );
 }
 
@@ -227,6 +233,7 @@ export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): Cockpit
               .length,
       deadLetters: s.deadLetters,
       deadLetterOldestRead: s.deadLetterOldest,
+      deps: s.deps,
     },
     s.baseUrl,
     now,
@@ -294,6 +301,7 @@ export function siteDashboardFromSnapshot(
     deadLetterOldest:
       deadLetterCount > 0 && oldest !== null ? new Map([[slug, oldest]]) : new Map(),
     prior: s.digest,
+    deps: s.deps,
   };
   const alarm = buildSiteAlarm(site, reports, s.baseUrl, now, inputs);
   return { site, reports, submissions, spamTotals, alarm };

@@ -20,6 +20,16 @@ describe("runReportCommand --digest routing", () => {
     expect(res).toEqual({ output: "Digest sent to ops@reddoorla.com", code: 0 });
   });
 
+  it("passes the digest its fleet_daily reader, so dependencies age in the mail (P1-78c)", async () => {
+    const runDigest = vi.fn(async () => ({ output: "ok", code: 0 }));
+    vi.doMock("../../src/reports/digest.js", () => ({ runDigest }));
+    const { runReportCommand } = await import("../../src/cli/commands/report.js");
+    await runReportCommand(undefined, { digest: true });
+    expect(runDigest).toHaveBeenCalledWith(
+      expect.objectContaining({ latestDeps: expect.any(Function) }),
+    );
+  });
+
   it("takes precedence over --due so the daily workflow can run both as separate invocations", async () => {
     const runDigest = vi.fn(async () => ({ output: "ok", code: 0 }));
     vi.doMock("../../src/reports/digest.js", () => ({ runDigest }));

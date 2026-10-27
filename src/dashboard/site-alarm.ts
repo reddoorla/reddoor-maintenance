@@ -9,6 +9,8 @@ import {
 import { countNotifyBouncedForSite, type NotifyBounceCounts } from "../db/submissions.js";
 import { screenOutsSince } from "../db/screenouts.js";
 import { readDigestState } from "../db/digest-state.js";
+import { readLatestDeps } from "../fleet-daily/read.js";
+import type { LatestDeps } from "../alerts/production-signals.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../alerts/digest-collectors.js";
 import type { SiteAlarmContext } from "./fleet-cockpit.js";
@@ -63,7 +65,7 @@ export async function readSiteAlarmInputs(
   slug: string,
   now: Date,
 ): Promise<SiteAlarmInputs> {
-  const [bounces, deadLetterCount, oldest, prior] = await Promise.all([
+  const [bounces, deadLetterCount, oldest, prior, deps] = await Promise.all([
     // bounce chip simply absent
     orElse<NotifyBounceCounts | null>(
       () => countNotifyBouncedForSite(db, site.id, screenOutsSince(now, NOTIFY_BOUNCE_WINDOW_DAYS)),
@@ -77,6 +79,8 @@ export async function readSiteAlarmInputs(
     orElse<string | null>(() => oldestUnreplayedDeadLetterForSlug(db, slug), null),
     // nothing waits on an empty snapshot
     orElse<DigestSnapshot>(() => readDigestState(db), {}),
+    // P1-78c: the dependency alarm simply absent
+    orElse<LatestDeps | null>(() => readLatestDeps(db), null),
   ]);
   return {
     notifyBounces:
@@ -85,6 +89,7 @@ export async function readSiteAlarmInputs(
     deadLetterOldest:
       deadLetterCount > 0 && oldest !== null ? new Map([[slug, oldest]]) : new Map(),
     prior,
+    deps,
   };
 }
 

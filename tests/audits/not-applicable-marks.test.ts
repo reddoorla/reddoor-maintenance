@@ -209,6 +209,23 @@ describe("through the write gate", () => {
   });
 });
 
+// Every property-position `notApplicable`: `notApplicable: x`, its quoted key
+// `"notApplicable": x` (#1651), or the shorthand `{ notApplicable }` /
+// `, notApplicable,`. Reads such as `r.notApplicable` do not match.
+const MARK = /(?<![.\w])(["']?)notApplicable\1\s*(:\s*([^,\n}]+)|(?=[,}]))/g;
+const marks = (src: string) => [...src.matchAll(MARK)].map((m) => m[3]?.trim() ?? "(shorthand)");
+
+describe("the census pattern", () => {
+  it("finds a mark however its key is written, and no read", () => {
+    expect(marks("return { notApplicable: true };")).toEqual(["true"]);
+    expect(marks('return { "notApplicable": true };')).toEqual(["true"]);
+    expect(marks("return { 'notApplicable': false };")).toEqual(["false"]);
+    expect(marks("return { status, notApplicable };")).toEqual(["(shorthand)"]);
+    expect(marks("if (r.notApplicable) skip(r);")).toEqual([]);
+    expect(marks('if (r["notApplicable"]) skip(r);')).toEqual([]);
+  });
+});
+
 /** Every `notApplicable: true` in the audits, by file. A new by-design skip is added
  *  here on purpose; a mark on a skip that means "the measurement broke" (pnpm or npx
  *  missing, no lockfile, the live runner off) would drop that site from its audit's
@@ -223,10 +240,8 @@ describe("the census of not-applicable marks", () => {
       // it produces no AuditResult.
       if (!f.endsWith(".ts") || f === "write-audits.ts") continue;
       const src = readFileSync(join(audits, f), "utf-8");
-      // Every property-position `notApplicable`: `notApplicable: x`, or the shorthand
-      // `{ notApplicable }` / `, notApplicable,`. Reads such as `r.notApplicable` do not match.
-      for (const m of src.matchAll(/(?<![.\w])notApplicable\b\s*(:\s*([^,\n}]+)|(?=[,}]))/g)) {
-        const value = m[2]?.trim();
+      for (const m of src.matchAll(MARK)) {
+        const value = m[3]?.trim();
         if (value === "true") found[f] = (found[f] ?? 0) + 1;
         else other.push(`${f}: ${m[0]}`);
       }

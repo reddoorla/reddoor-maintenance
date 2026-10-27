@@ -4,8 +4,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (!hasCall(t, ASSERTION, withoutGenerics) && !hasCall(t, MATCHER_LINE)) continue;",
-        "replace": "if (!hasCall(t, ASSERTION, withoutGenerics)) continue;"
+        "find": "hasCall(t, ASSERTION, withoutGenerics) || hasCall(t, MATCHER_LINE, withoutGenerics);",
+        "replace": "hasCall(t, ASSERTION, withoutGenerics);"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -17,8 +17,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "/^\\)+\\s*(\\.\\s*(not|resolves|rejects)\\s*){0,3}\\.\\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*\\s*\\(/;",
-        "replace": "/^\\)/;"
+        "find": "/^[)\\]}](\\s*[)\\]}])*\\s*(\\.\\s*(not|resolves|rejects|returns|parameters|instance)\\s*){0,3}\\.\\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*\\s*\\(/;",
+        "replace": "/^[)\\]}]/;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -30,8 +30,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*",
-        "replace": "to\\w*"
+        "find": "to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*\\s*\\(/;",
+        "replace": "to\\w*\\s*\\(/;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -43,12 +43,155 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "(\\.\\s*(not|resolves|rejects)\\s*){0,3}",
+        "find": "(\\.\\s*(not|resolves|rejects|returns|parameters|instance)\\s*){0,3}",
         "replace": ""
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(…)` and `).rejects.toThrow(…)` lines would be missed."
+  },
+  {
+    "id": "M5-test-dir-case-sensitive",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "|(^|\\/)__tests__\\//i;",
+        "replace": "|(^|\\/)__tests__\\//;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: `Tests/a.ts` would not be a test again."
+  },
+  {
+    "id": "M6-only-not-flagged",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const only = hasCall(t, ONLY);",
+        "replace": "const only = false;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: an added `it.only(` would pass unnamed."
+  },
+  {
+    "id": "M7-fixture-is-a-test",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "isTestCode(name) ? \"test file deleted\" : \"fixture deleted (not a test's code): say why\",",
+        "replace": "\"test file deleted\","
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a deleted fixture would read as a deleted test."
+  },
+  {
+    "id": "M8-fixtures-scanned",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (!away && !isTestCode(name)) continue;",
+        "replace": "if (!away && !isTestFile(name)) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a fixture's text and its left-out patch would be flagged again."
+  },
+  {
+    "id": "M9-no-value-lines",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (!takeOne(valueLeft, t) && !assertion) continue;",
+        "replace": "if (!assertion) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1755: a changed line of an expected value written across lines would pass."
+  },
+  {
+    "id": "M10-close-only-matcher-line",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "/^[)\\]}](\\s*[)\\]}])*",
+        "replace": "/^\\)(\\s*[)\\]}])*"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1755: `}).toEqual(` and `]).toStrictEqual(` lines would pass."
+  },
+  {
+    "id": "M11-trailing-comment-kept",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const matchKey = (t) => lineKey(withoutTrailingComment(t));",
+        "replace": "const matchKey = (t) => lineKey(t);"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: dropping a trailing `// flaky` would read as a removed assertion."
+  },
+  {
+    "id": "M12-runner-config-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    const config = RUNNER_CONFIG.test(name) || RUNNER_CONFIG.test(before);",
+        "replace": "    const config = false;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a vitest.config exclude would pass unnamed."
+  },
+  {
+    "id": "M13-options-skip",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    `(^|[{,])\\\\s*(skip|todo|only)\\\\s*:\\\\s*true\\\\b`,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: `{ skip: true }` in a test's options would pass."
+  },
+  {
+    "id": "M14-retry-not-open-quote",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "} else if (net > 0 && !open && hasCall(t, OPENS_VALUE, withoutGenerics)) {",
+        "replace": "} else if (net > 0 && !codeOf(t).retry && hasCall(t, OPENS_VALUE, withoutGenerics)) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1812 r2: a trailing comment on the matcher line would hide the expected value again."
+  },
+  {
+    "id": "M15-any-quote-open",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "open: quote === \"`\" && !afterSlash,",
+        "replace": "open: quote !== \"\","
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1812 r3: a regex quote or a JSX apostrophe on the matcher line would hide the expected value again."
   }
 ]

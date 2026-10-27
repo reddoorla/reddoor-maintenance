@@ -114,6 +114,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
     a11yRoutesScanned: (f["A11y Routes Scanned"] as number | undefined) ?? null,
     a11yRoutesTotal: (f["A11y Routes Total"] as number | undefined) ?? null,
+    a11yCheckedAt: (f["A11y Checked At"] as string | undefined) ?? null,
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
     depsOutdated: (f["Deps Outdated"] as number | undefined) ?? null,
@@ -218,9 +219,12 @@ export type NetlifyDeployResult = {
 export type BrowserAuditFields = {
   desktopOk: boolean;
   mobileOk: boolean;
-  linksOk: boolean;
-  reachableOk: boolean;
-  titleMetaOk: boolean;
+  /** null = no link checked, not measured (P1-78c). */
+  linksOk: boolean | null;
+  /** null = no route sampled, not measured (P1-78c). */
+  reachableOk: boolean | null;
+  /** null = no route sampled, not measured (P1-78c). */
+  titleMetaOk: boolean | null;
   brokenLinks: number;
   checkedAt: string;
 };
@@ -275,6 +279,8 @@ function a11yFields(counts: A11yCounts): FieldSet {
     "A11y Violations": counts.violations,
     "A11y Routes Scanned": counts.routesScanned,
     "A11y Routes Total": counts.routesTotal,
+    // P1-78c: the counts and their stamp travel together.
+    "A11y Checked At": new Date().toISOString(),
   };
 }
 
@@ -351,6 +357,10 @@ function netlifyDeployFields(result: NetlifyDeployResult): FieldSet {
   return fields as FieldSet;
 }
 
+function passFail(ok: boolean | null): "pass" | "fail" | null {
+  return ok === null ? null : ok ? "pass" : "fail";
+}
+
 function browserFields(r: BrowserAuditFields): FieldSet {
   return {
     "Crossbrowser OK": r.desktopOk,
@@ -358,13 +368,13 @@ function browserFields(r: BrowserAuditFields): FieldSet {
     "Links OK": r.linksOk,
     "Broken links": r.brokenLinks,
     "Browser checked at": r.checkedAt,
-    // NEW tri-state single-select verdicts (empty = never ran). The browser audit only produces a
-    // BrowserAuditFields when it actually ran (hasBrowserResult guards on checkedAt), so each verdict
-    // is always a concrete boolean here — serialize true→"pass", false→"fail". The existing boolean
-    // columns above are deliberately NOT retrofitted (out of scope).
-    "Uptime Reachable": r.reachableOk ? "pass" : "fail",
-    "Titles & Meta OK": r.titleMetaOk ? "pass" : "fail",
-  };
+    // Tri-state single-select verdicts (empty = never ran, or ran and sampled nothing). The browser
+    // audit only produces a BrowserAuditFields when it actually ran (hasBrowserResult guards on
+    // checkedAt); a run that sampled no route stores null, not "fail" (P1-78c), so "site down"
+    // never fires on an audit that measured nothing. "Links OK" above is null the same way.
+    "Uptime Reachable": passFail(r.reachableOk),
+    "Titles & Meta OK": passFail(r.titleMetaOk),
+  } as FieldSet;
 }
 
 function functionHealthFields(r: FunctionHealthResult): FieldSet {

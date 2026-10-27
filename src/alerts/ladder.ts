@@ -64,6 +64,27 @@ export function levelOf(
       // Three flavours share the kind: a real divergence is Attention; the check
       // that could not run, or has gone stale, is monitor health.
       return it.key.startsWith("prismic-drift:") ? "attention" : "watch";
+    // P1-78c, the production signals (production-signals.ts).
+    case "uptime":
+    case "domain":
+    case "function-health":
+    case "cms":
+    case "render":
+    case "form":
+      return "broken";
+    case "cert":
+      // Two flavours: 7 days or fewer (or expired) is Broken, 8 to 30 Attention.
+      return it.key.startsWith("cert-expiring:") ? "broken" : "attention";
+    case "links":
+    case "titles":
+    case "a11y":
+      return "attention";
+    case "deps":
+      // A package behind for over 90 days is Attention; any package behind, Watch.
+      return it.key.startsWith("deps-far:") ? "attention" : "watch";
+    case "smoke":
+    case "search-console":
+      return "watch";
     case "renovate":
       return daysFlagged(firstFlaggedAt, now) >= RENOVATE_ATTENTION_DAYS ? "attention" : "watch";
   }

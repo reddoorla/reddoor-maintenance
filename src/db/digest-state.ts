@@ -215,12 +215,16 @@ export async function readDigestSendLogChecked(db: Db): Promise<DigestRead<Diges
     return { value: EMPTY_SEND_LOG, state: "corrupt" };
   }
   // Valid JSON of the wrong shape (null, an array, a renamed field) decodes to
-  // "never sent" just as truncated JSON does, so it is corrupt too.
+  // "never sent" just as truncated JSON does, so it is corrupt too. The writer
+  // always writes all three fields, so one missing or mistyped field is a hand
+  // edit (#1639: `{"sentOn":…,"sent":"x"}` read as ok with `sent` empty).
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
   const shaped =
-    typeof raw === "object" &&
-    raw !== null &&
-    !Array.isArray(raw) &&
-    ["sentOn", "sent", "readySince"].some((k) => k in raw);
+    isPlainObject(raw) &&
+    (raw.sentOn === null || typeof raw.sentOn === "string") &&
+    isPlainObject(raw.sent) &&
+    isPlainObject(raw.readySince);
   return shaped
     ? { value: coerceSendLog(raw), state: "ok" }
     : { value: EMPTY_SEND_LOG, state: "corrupt" };

@@ -20,6 +20,17 @@ import {
   collectDeployAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
+import {
+  collectA11yAlerts,
+  collectDepsAlerts,
+  collectDomainAlerts,
+  collectFunctionHealthAlerts,
+  collectLinkAlerts,
+  collectRenderAlerts,
+  collectTitleMetaAlerts,
+  collectUptimeAlerts,
+  type LatestDeps,
+} from "../alerts/production-signals.js";
 import { markWaiting } from "../alerts/waiting.js";
 import { LEVEL_RANK, levelOf, withLevels, type Level } from "../alerts/ladder.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
@@ -332,6 +343,9 @@ export type CollectAttentionDeps = {
    *  site's hold. Omitted with `deadLetters` → read from libSQL beside it; omitted
    *  while `deadLetters` is given → empty, and nothing is held. */
   deadLetterOldest?: ReadonlyMap<string, string>;
+  /** P1-78c. The latest `fleet_daily` dependency readings, which date a package a
+   *  major behind. Omitted or null → no dependency items. */
+  fleetDeps?: LatestDeps | null;
 };
 
 /** Per-site bounced-notification counts for the notify-bounce collector, read from
@@ -717,6 +731,23 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // the triage row its age. Maintained only (collectDeployAlerts): a launching
     // site's failed deploy stays muted, as on the cockpit.
     ...runCollector("deploy", () => collectDeployAlerts(websites, deps.baseUrl)),
+    // P1-78c. The Broken and Attention production signals, as on the cockpit, so
+    // each is mailed and the snapshot ages it. The Watch ones (dependencies behind,
+    // Search Console) are the cockpit's only: no age needed, no mail. The live form
+    // test is built but not registered until its probe is fixed (fleet-cockpit.ts).
+    ...runCollector("uptime", () => collectUptimeAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("domain", () => collectDomainAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("function-health", () =>
+      collectFunctionHealthAlerts(websites, deps.baseUrl, now),
+    ),
+    ...runCollector("render", () => collectRenderAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("links", () => collectLinkAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("titles", () => collectTitleMetaAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("a11y", () => collectA11yAlerts(websites, deps.baseUrl, now)),
+    ...runCollector(
+      "deps",
+      () => collectDepsAlerts(websites, deps.fleetDeps ?? null, deps.baseUrl, now).far,
+    ),
   ];
 }
 
@@ -778,7 +809,21 @@ export type DigestRunOptions = {
    * for exactly this reason; this threads the same lever one layer out.
    */
   now?: Date;
+  /** P1-78c. The latest `fleet_daily` dependency readings; production reads Turso
+   *  (report.ts). Optional and defensive: a failed read drops the dependency items. */
+  latestDeps?: () => Promise<LatestDeps | null>;
 };
+
+/** The dependency readings, or null: a failed read drops one signal, never the digest. */
+async function readLatestDepsSafely(options: DigestRunOptions): Promise<LatestDeps | null> {
+  if (!options.latestDeps) return null;
+  try {
+    return await options.latestDeps();
+  } catch (e) {
+    console.warn(`⚠ fleet_daily dependency readings unavailable: ${(e as Error).message}`);
+    return null;
+  }
+}
 
 export async function runDigest(
   options: DigestRunOptions,
@@ -823,6 +868,7 @@ export async function runDigest(
       websites,
       reports,
       now: today,
+      fleetDeps: await readLatestDepsSafely(options),
     });
     // #609: the prior snapshot is Turso's digest_state row.
     const prior = await (options.digestState?.read ?? readDigestStateFromDb)();
