@@ -91,10 +91,9 @@
     gap: 0.75rem;
     align-items: center;
     padding: 0.5rem 0.75rem;
-    border: 1px solid currentColor;
-    border-radius: 6px;
-    background: Canvas;
-    color: CanvasText;
+    border: 1px solid var(--control-border);
+    background: var(--surface);
+    color: var(--ink);
     font-size: 0.875rem;
   }
 </style>

@@ -116,7 +116,7 @@ details.inbox > summary {
 .verdict.broken :focus-visible {
   outline-color: var(--on-broken);
 }
-/* P1-78b: Attention, interim until P1-78e's tokens: a dark outline, never red. */
+/* Attention: a dark outline, never red (P1-78b, on the tokens in P1-78e). */
 .verdict.attention {
   background: transparent;
   color: inherit;

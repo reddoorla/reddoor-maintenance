@@ -43,8 +43,19 @@ const rel = (p: string) => p.slice(SRC.length);
 const read = (p: string) => readFileSync(p, "utf8");
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** A colour written as a value: hex, or an rgb/hsl function. */
-const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/;
+/** A colour written as a value: hex, an rgb/hsl function, or a named colour or
+ *  system colour as a declaration's value (review round 1: `color: red` slipped by). */
+const RAW_COLOUR =
+  /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|:\s*(?:[^;]*\s)?(?:red|green|blue|orange|yellow|purple|pink|gray|grey|black|white|silver|maroon|navy|teal|olive|lime|aqua|fuchsia|crimson|tomato|gold|Canvas|CanvasText|ButtonFace|ButtonText)\b/i;
+
+/** Each Svelte component's own <style> block, as [path, css]. */
+const SVELTE_STYLES: Array<[string, string]> = filesUnder(SRC, ".svelte").flatMap((p) => {
+  const src = readFileSync(p, "utf8");
+  const open = src.indexOf("<style>");
+  return open < 0
+    ? []
+    : [[p, src.slice(open + 7, src.indexOf("</style>", open))] as [string, string]];
+});
 
 describe("one token sheet", () => {
   it("finds the stylesheets it checks", () => {
@@ -62,6 +73,39 @@ describe("one token sheet", () => {
         .flatMap((line, i) =>
           RAW_COLOUR.test(line) ? [`${rel(p)}:${i + 1}: ${line.trim()}`] : [],
         ),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("no component's own <style> block carries a raw colour", () => {
+    const hits = SVELTE_STYLES.flatMap(([p, css]) =>
+      stripComments(css)
+        .split("\n")
+        .flatMap((line, i) =>
+          RAW_COLOUR.test(line) ? [`${rel(p)}:${i + 1}: ${line.trim()}`] : [],
+        ),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("the raw-colour pattern catches a named colour (positive control)", () => {
+    expect(RAW_COLOUR.test("  color: red;")).toBe(true);
+    expect(RAW_COLOUR.test("  border: 1px solid Canvas;")).toBe(true);
+    expect(RAW_COLOUR.test("  color: var(--broken);")).toBe(false);
+    expect(RAW_COLOUR.test("  text-decoration: underline;")).toBe(false);
+  });
+
+  // The guide: square corners, except its 4px controls, and round dots.
+  it("corners are square except the control radius and round dots", () => {
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const hits = sheets.flatMap(([p, css]) =>
+      [...stripComments(css).matchAll(/border-radius\s*:\s*([^;]+);/g)]
+        .map((m) => m[1]!.trim())
+        .filter((v) => !["var(--radius-control)", "50%", "0"].includes(v))
+        .map((v) => `${rel(p)}: ${v}`),
     );
     expect(hits).toEqual([]);
   });
@@ -120,6 +164,11 @@ describe("dark mode", () => {
     expect(system).toEqual(stored);
     const light = declarations(blockAfter(tokens, ":root {"));
     expect(light["--ground"]).not.toBe(stored["--ground"]);
+  });
+
+  it("a dark theme, stored or from the system, tells the browser so (native controls, scrollbars)", () => {
+    expect(blockAfter(tokens, ':root[data-theme="dark"]')).toMatch(/color-scheme:\s*dark/);
+    expect(blockAfter(tokens, ':root:not([data-theme="light"])')).toMatch(/color-scheme:\s*dark/);
   });
 
   it("every token the light theme sets, the dark theme sets too", () => {
@@ -244,6 +293,29 @@ describe("red marks Broken only", () => {
     expect(sets(".verdict.broken :focus-visible", "outline-color")).toBe(true);
   });
 
+  it("the red focus ring appears only on a focus selector", () => {
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p))
+        .filter(([, body]) => /var\(--focus\)/.test(body))
+        .filter(([sel]) => !/:focus/.test(sel))
+        .map(([sel]) => `${rel(p)}: ${sel}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  // The brief: Attention and Watch differ by word, weight and position.
+  it("an Attention pill is bold and a Watch pill is not", () => {
+    const health = rules(read(join(SRC, "lib/cockpit/health.css")));
+    const weight = (selector: string) =>
+      health
+        .filter(([sel]) => sel === selector)
+        .map(([, b]) => /font-weight\s*:\s*([^;]+);/.exec(b)?.[1]?.trim())
+        .find(Boolean);
+    expect(weight(".pill")).toBe("700");
+    expect(weight(".pill.attention")).toBeUndefined();
+    expect(weight(".pill.watch")).toBe("var(--weight-text)");
+  });
+
   it("an Attention or Watch marker is never red", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
@@ -265,6 +337,24 @@ const GLYPH = /\p{Extended_Pictographic}|[✓✗↻▸↗▲▼☐]|️/u;
 function glyphs(lines: string[]): string[] {
   return lines.filter((l) => GLYPH.test(l));
 }
+
+describe("no emoji in the cockpit's code, outside comments", () => {
+  // A backstop for strings no fixture renders (review round 1: a warn-only
+  // preflight chip). Comments may name the old glyphs; code may not.
+  it("no glyph in any .ts or .svelte under cockpit/src, once comments are removed", () => {
+    const code = (src: string) =>
+      src
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+    const hits = [...filesUnder(SRC, ".ts"), ...filesUnder(SRC, ".svelte")].flatMap((p) =>
+      code(read(p))
+        .split("\n")
+        .flatMap((line, i) => (GLYPH.test(line) ? [`${rel(p)}:${i + 1}: ${line.trim()}`] : [])),
+    );
+    expect(hits).toEqual([]);
+  });
+});
 
 describe("no emoji in any rendered page", () => {
   beforeAll(() => {
@@ -371,6 +461,15 @@ describe("type", () => {
     expect(html).toContain("https://use.typekit.net/noj4tji.css");
     expect(html).toMatch(/fonts\.googleapis\.com\/css2\?family=Besley/);
   });
+  it("swaps each font sheet in once it loads, so it never blocks first paint and does apply", () => {
+    for (const href of ["use.typekit.net/noj4tji.css", "fonts.googleapis.com/css2?family=Besley"]) {
+      const at = html.indexOf(href);
+      const tag = html.slice(html.lastIndexOf("<link", at), html.indexOf("/>", at));
+      expect(tag, href).toMatch(/media="print"/);
+      expect(tag, href).toMatch(/onload="this\.media\s*=\s*'all'"/);
+    }
+  });
+
   it("sets Pragmatica as the body family, with tabular numerals", () => {
     const base = stripComments(read(join(SRC, "lib/base.css")));
     const body = blockAfter(base, "body {");

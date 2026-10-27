@@ -64,7 +64,7 @@
   background: var(--broken-fill);
   color: var(--on-broken);
 }
-/* P1-78b: interim until P1-78e's tokens, a dark outline, never red. */
+/* P1-78b: on the tokens (P1-78e), a dark outline, never red. */
 .pill.attention {
   background: transparent;
   color: inherit;
@@ -74,7 +74,7 @@
   background: transparent;
   border: 1px solid var(--rule);
   color: var(--ink);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-text);
 }
 .pill.healthy {
   background: transparent;

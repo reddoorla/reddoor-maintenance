@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import ThemeToggle from "../../src/lib/ThemeToggle.svelte";
 import { THEME_KEY } from "../../src/lib/theme.js";
@@ -65,17 +65,53 @@ describe("theme toggle", () => {
     expect(button().textContent).toBe("Theme: system");
   });
 
-  it("still toggles the page when storage refuses", () => {
-    const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = () => {
+  // Review round 1: a Storage.prototype stub never fired under happy-dom, so this
+  // test passed with the try/catch removed. The spy is on the instance, and is
+  // asserted to have thrown.
+  it("still toggles the page when storage refuses a write", () => {
+    const refuse = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
-    };
+    });
     try {
       start();
       click();
+      expect(refuse).toHaveBeenCalled();
+      expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+      expect(button().textContent).toBe("Theme: light");
+    } finally {
+      refuse.mockRestore();
+    }
+  });
+
+  it("starts on system when reading the stored choice throws", () => {
+    const refuse = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    try {
+      localStorage.setItem(THEME_KEY, "dark");
+      start();
+      expect(refuse).toHaveBeenCalled();
+      expect(button().textContent).toBe("Theme: system");
+    } finally {
+      refuse.mockRestore();
+    }
+  });
+
+  it("starts on system, and still toggles, when the storage itself cannot be reached", () => {
+    const desc = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError");
+      },
+    });
+    try {
+      start();
+      expect(button().textContent).toBe("Theme: system");
+      click();
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     } finally {
-      Storage.prototype.setItem = original;
+      Object.defineProperty(window, "localStorage", desc);
     }
   });
 });

@@ -60,6 +60,14 @@ describe("the shell", () => {
     expect(root.querySelector("nav")).not.toBeNull();
   });
 
+  // P1-78e: the theme toggle is in the shell, so it is on every page.
+  it("carries the theme toggle in the header, signed in or not", () => {
+    expect(
+      shell("/", "op@example.com").root.querySelector("header [data-theme-toggle]"),
+    ).not.toBeNull();
+    expect(shell("/", null).root.querySelector("header [data-theme-toggle]")).not.toBeNull();
+  });
+
   it("carries the favicon in the head", () => {
     expect(shell("/").head).toContain('rel="icon"');
   });
