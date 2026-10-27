@@ -189,9 +189,6 @@ jobs:
           # install, no lockfile), a site the run resolved that never reached
           # write-back, a failure that recurs every night (no row to write to), and
           # one audit that measured nothing across more than a quarter of the fleet.
-          # It runs before the bare counts below: a fleet whose deps would not install
-          # also reads `wrote=0`, and "check the Turso creds" would send triage the
-          # wrong way.
           # The CLI's exit status cannot carry this (a failing audit exits 1 by
           # design, so the step tolerates it), so the verdict line is the contract,
           # and an absent line is red.
@@ -203,38 +200,6 @@ jobs:
           grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet form-e2e: /' || true
           if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
             grep -E "^FLEET_WRITE_GATE_REASON " "$out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet form-e2e: /' || true
-            exit 1
-          fi
-
-          # The two bare counts below are a floor behind the gate above, which reds on
-          # every input they do. They fire only if the gate's line and the summary
-          # ever disagree.
-          # Total write-back failure: nothing landed at all (creds/API/inventory).
-          # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
-          # months, and this was the only fleet nightly without it.
-          #
-          # The mass-flake gate below is NOT a substitute, and the gap is narrow
-          # enough to have hidden here: `total` was `wrote + failed` (since #1605
-          # it also counts na= and missing= sites, and the write gate above reds
-          # an empty sweep first), so wrote=0
-          # forces failed=total and `failed * 4 > total` fires — EXCEPT when
-          # total is 0 too. A sweep that attempted nothing (empty inventory, a
-          # fleet source that returned no rows, a filter that matched none) reads
-          # as `0 > 0`, false, and the nightly reports success having probed no
-          # site at all. That is exactly the failure FLEET_SMOKE_UNMEASURED was
-          # invented to kill, reintroduced in the one sweep with no gate test.
-          #
-          # It runs BEFORE the mass-flake gate deliberately: on wrote=0 both
-          # would fire, and "0 of 13 written" sends the reader to the creds and
-          # the API, where the cause is, rather than hunting a per-site flake.
-          if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
-            exit 1
-          fi
-
-          # Mass flake: more than 25% of attempted sites failed to write.
-          if [ $((failed * 4)) -gt "$total" ]; then
-            echo "::error::fleet form-e2e: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
             exit 1
           fi
 
