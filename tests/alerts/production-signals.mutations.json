@@ -605,8 +605,8 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "(packages.length > old.length ? `; ${packages.length} packages a major behind in all` : \"\")",
-        "replace": "\"\""
+        "find": "            ? `; ${packages.length} packages a major behind in all`\n",
+        "replace": "            ? \"\"\n"
       }
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
