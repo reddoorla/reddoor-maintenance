@@ -268,6 +268,12 @@ export function cockpitFromInputs(inputs: CockpitInputs, now: Date): CockpitMode
   );
 }
 
+/** The cockpit model the fleet_daily writer counts, from the store: every input read and
+ *  threaded, dependency readings included (review round 5 pinned it). */
+export async function nightCockpit(db: Db, now: Date): Promise<CockpitModel> {
+  return cockpitFromInputs(await loadCockpitInputs(db, now), now);
+}
+
 export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string): PmCockpit {
   if (Object.keys(inputs.prior).length === 0)
     throw new Error(

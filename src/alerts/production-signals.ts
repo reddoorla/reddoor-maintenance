@@ -118,6 +118,13 @@ export function collectUptimeAlerts(
     );
 }
 
+/** A certificate item's metric: it rises as expiry nears (the cockpit sorts a higher metric
+ *  first, and the digest reads a rise as WORSE), so it is the days used of the 30-day window,
+ *  not the days left (review round 5). */
+export function certUrgency(days: number): number {
+  return CERT_ATTENTION_DAYS + 1 - days;
+}
+
 /** The domain audit's certificate verdict. A fresh run that stored no certificate days did
  *  not resolve or found no usable TLS: the domain is dead. Otherwise the days left decide:
  *  7 or fewer (or expired) is Broken, 8 to 30 is Attention. */
@@ -150,7 +157,15 @@ export function collectDomainAlerts(
     } else if (days <= CERT_BROKEN_DAYS) {
       const when = days < 0 ? "expired" : `expires in ${days} day${days === 1 ? "" : "s"}`;
       items.push(
-        item(s, baseUrl, "cert", "cert-expiring", `TLS certificate ${when}`, "critical", days),
+        item(
+          s,
+          baseUrl,
+          "cert",
+          "cert-expiring",
+          `TLS certificate ${when}`,
+          "critical",
+          certUrgency(days),
+        ),
       );
     } else if (days <= CERT_ATTENTION_DAYS) {
       items.push(
@@ -161,7 +176,7 @@ export function collectDomainAlerts(
           "cert",
           `TLS certificate expires in ${days} days`,
           "warning",
-          days,
+          certUrgency(days),
         ),
       );
     }
@@ -179,7 +194,11 @@ export function collectFunctionHealthAlerts(
   const items: AttentionItem[] = [];
   for (const s of maintained(sites)) {
     if (!freshWithin(s.functionHealthCheckedAt, PRODUCTION_STALE_DAYS, now)) continue;
-    if (s.functionHealth === "fail")
+    // The site template's /health answers ok:false exactly when Prismic errored, and the
+    // function itself ran (recipes/health-endpoint/template.ts), so a CMS failure is one
+    // fault: the cms: item names it, and function-health: would blame the wrong thing
+    // (review round 5).
+    if (s.functionHealth === "fail" && s.cmsReachable !== "fail")
       items.push(
         item(
           s,

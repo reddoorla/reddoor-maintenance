@@ -754,5 +754,96 @@
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r5-cms-blames-function",
+    "why": "Review round 5: a CMS outage also raises 'a server function is erroring'",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    if (s.functionHealth === \"fail\" && s.cmsReachable !== \"fail\")",
+        "replace": "    if (s.functionHealth === \"fail\")"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-cert-days-metric",
+    "why": "Review round 5: a certificate's metric is its days left, so the nearest sorts last and never reads WORSE",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "  return CERT_ATTENTION_DAYS + 1 - days;",
+        "replace": "  return days;"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-links-metric-1",
+    "why": "Review round 5: a growing broken-link count is never WORSE",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        `${n} broken link${n === 1 ? \"\" : \"s\"}`,\n        \"warning\",\n        n,\n",
+        "replace": "        `${n} broken link${n === 1 ? \"\" : \"s\"}`,\n        \"warning\",\n        1,\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-a11y-zero",
+    "why": "Review round 5: a clean a11y scan raises '0 accessibility violations'",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        (s.a11yViolations ?? 0) > 0 &&",
+        "replace": "        (s.a11yViolations ?? 0) >= 0 &&"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-uptime-warning",
+    "why": "Review round 5: site down is a warning, so it ranks below a render fail",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        \"site down: a sampled page did not load (no 2xx or 3xx)\",\n        \"critical\",",
+        "replace": "        \"site down: a sampled page did not load (no 2xx or 3xx)\",\n        \"warning\","
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-night-no-deps",
+    "why": "Review round 5: the fleet_daily writer's model drops the deps readings",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  return cockpitFromInputs(await loadCockpitInputs(db, now), now);",
+        "replace": "  return cockpitFromInputs({ ...(await loadCockpitInputs(db, now)), deps: null }, now);"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5-a11y-concurrency",
+    "why": "Review round 5: fleet-a11y runs every site at once on one runner",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "            --concurrency 1 \\\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/build/fleet-a11y-workflow.test.ts",
+    "expect": "red"
   }
 ]

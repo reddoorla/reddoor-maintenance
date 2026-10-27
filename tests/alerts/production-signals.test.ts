@@ -170,13 +170,19 @@ describe("domain and certificate", () => {
 
 describe("server function and CMS (Broken)", () => {
   it("a fresh function-health fail and a fresh CMS fail are each Broken", () => {
-    const items = collectFunctionHealthAlerts(
+    const fn = collectFunctionHealthAlerts(
+      [site({ functionHealth: "fail", cmsReachable: "pass", functionHealthCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(keys(fn)).toEqual(["function-health:recS"]);
+    const cms = collectFunctionHealthAlerts(
       [site({ functionHealth: "fail", cmsReachable: "fail", functionHealthCheckedAt: FRESH })],
       BASE,
       NOW,
     );
-    expect(keys(items)).toEqual(["function-health:recS", "cms:recS"]);
-    expect(items.map(level)).toEqual(["broken", "broken"]);
+    expect(keys(cms)).toEqual(["cms:recS"]);
+    expect([...fn, ...cms].map(level)).toEqual(["broken", "broken"]);
   });
 
   it("a stale stamp reads nothing", () => {
@@ -423,7 +429,7 @@ const everything = site({
   certDaysRemaining: 5,
   domainCheckedAt: FRESH,
   functionHealth: "fail",
-  cmsReachable: "fail",
+  cmsReachable: "pass",
   functionHealthCheckedAt: FRESH,
   crossbrowserOk: false,
   mobileOk: true,
@@ -442,6 +448,14 @@ const everything = site({
   searchConsoleCheckedAt: FRESH,
   maintenanceFreq: "Monthly",
 });
+/** The CMS down on its own row, since a CMS outage is one item (review round 5). */
+const cmsDown = site({
+  id: "recC",
+  name: "Cms Co",
+  functionHealth: "fail",
+  cmsReachable: "fail",
+  functionHealthCheckedAt: FRESH,
+});
 const farDeps: LatestDeps = {
   night: "2026-10-25",
   sites: {
@@ -457,7 +471,6 @@ const BROKEN_AND_ATTENTION = [
   "uptime:recS",
   "cert-expiring:recS",
   "function-health:recS",
-  "cms:recS",
   "render:recS",
   "links:recS",
   "titles:recS",
@@ -468,7 +481,7 @@ const BROKEN_AND_ATTENTION = [
 describe("registration: Broken and Attention in both lists, Watch in the cockpit's only", () => {
   it("the cockpit carries every new signal, Watch included", () => {
     const m = buildCockpitModel(
-      [everything],
+      [everything, cmsDown],
       [],
       {},
       BASE,
@@ -482,16 +495,18 @@ describe("registration: Broken and Attention in both lists, Watch in the cockpit
       new Map(),
       farDeps,
     );
-    const onCard = keys(m.cards[0]!.items);
+    const card = m.cards.find((c) => c.site.id === "recS")!;
+    const onCard = keys(card.items);
     for (const k of BROKEN_AND_ATTENTION) expect(onCard).toContain(k);
     expect(onCard).toContain("search-console:recS");
-    expect(m.cards[0]!.tier).toBe("broken");
+    expect(card.tier).toBe("broken");
+    expect(keys(m.cards.find((c) => c.site.id === "recC")!.items)).toContain("cms:recC");
   });
 
   it("the digest collects every Broken and Attention signal, so each one ages", async () => {
     const items = await collectAttention({
       baseUrl: BASE,
-      websites: [everything],
+      websites: [everything, cmsDown],
       reports: [],
       now: NOW,
       notifyBounces: new Map(),
@@ -500,6 +515,7 @@ describe("registration: Broken and Attention in both lists, Watch in the cockpit
     });
     const k = keys(items);
     for (const want of BROKEN_AND_ATTENTION) expect(k).toContain(want);
+    expect(k).toContain("cms:recC");
   });
 
   it("the digest never collects a Watch signal (smoke, dependencies behind, Search Console)", async () => {

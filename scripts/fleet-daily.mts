@@ -8,7 +8,7 @@ import { writeFleetDaily, type GitHubReads } from "../src/fleet-daily/write.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 import { NIGHTLIES } from "./nightly-conductor.mjs";
-import { cockpitFromInputs, loadCockpitInputs } from "./pm-cockpit.mjs";
+import { nightCockpit } from "./pm-cockpit.mjs";
 
 const API = "https://api.github.com";
 const TIMEOUT_MS = 30_000;
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       cockpit: async () => {
         // P1-78c: the same assembly pm-cockpit uses, so the dependency readings (the
         // newest stored night's; tonight's row is still being written) are not dropped.
-        return cockpitFromInputs(await loadCockpitInputs(db, now), now);
+        return nightCockpit(db, now);
       },
       now,
       log: (l) => process.stdout.write(`${l}\n`),

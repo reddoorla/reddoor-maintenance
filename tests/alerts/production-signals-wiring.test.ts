@@ -42,6 +42,7 @@ import {
   cockpitFromInputs,
   formatPmCockpit,
   loadCockpitInputs,
+  nightCockpit,
 } from "../../scripts/pm-cockpit.mjs";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -108,7 +109,7 @@ describe("only a maintained site's verdicts alarm", () => {
   it("the same row, maintained, raises each one (the control)", () => {
     const s = [site(failing)];
     expect(collectDomainAlerts(s, BASE, NOW)).toHaveLength(1);
-    expect(collectFunctionHealthAlerts(s, BASE, NOW)).toHaveLength(2);
+    expect(collectFunctionHealthAlerts(s, BASE, NOW)).toHaveLength(1);
     expect(collectRenderAlerts(s, BASE, NOW)).toHaveLength(1);
     expect(collectLinkAlerts(s, BASE, NOW)).toHaveLength(1);
     expect(collectTitleMetaAlerts(s, BASE, NOW)).toHaveLength(1);
@@ -380,6 +381,119 @@ describe("review round 2 (P1-78c, tests lens)", () => {
   });
 });
 
+describe("review round 5 (P1-78c)", () => {
+  it("a CMS outage is one Broken item, the CMS, not also a server function erroring", () => {
+    const items = collectFunctionHealthAlerts(
+      [site({ functionHealth: "fail", cmsReachable: "fail", functionHealthCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(items.map((i) => i.key)).toEqual(["cms:recS"]);
+  });
+
+  it("a function that errors with the CMS fine is the function", () => {
+    const items = collectFunctionHealthAlerts(
+      [site({ functionHealth: "fail", cmsReachable: "pass", functionHealthCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(items.map((i) => i.key)).toEqual(["function-health:recS"]);
+  });
+
+  it("the nearest certificate sorts first, and one drawing closer reads WORSE", () => {
+    const at = (id: string, name: string, days: number) =>
+      site({ id, name, certDaysRemaining: days, domainCheckedAt: FRESH });
+    const m = buildCockpitModel(
+      [at("recZ", "Zulu", 29), at("recA", "Alpha", 9)],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.cards.filter((c) => c.tier === "attention").map((c) => c.site.name)).toEqual([
+      "Alpha",
+      "Zulu",
+    ]);
+    const b = buildCockpitModel(
+      [at("recZ", "Zulu", 6), at("recA", "Alpha", -5)],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(b.cards.filter((c) => c.tier === "broken").map((c) => c.site.name)).toEqual([
+      "Alpha",
+      "Zulu",
+    ]);
+    const [day9] = collectDomainAlerts([at("recA", "Alpha", 9)], BASE, NOW);
+    const [day8] = collectDomainAlerts([at("recA", "Alpha", 8)], BASE, NOW);
+    expect(day8!.metric).toBeGreaterThan(day9!.metric);
+  });
+
+  it("a links or a11y count that grows is a larger metric (WORSE)", () => {
+    const links = (n: number) =>
+      collectLinkAlerts(
+        [site({ linksOk: false, brokenLinks: n, browserCheckedAt: FRESH })],
+        BASE,
+        NOW,
+      )[0]!.metric;
+    expect(links(9)).toBeGreaterThan(links(2));
+    const a11y = (n: number) =>
+      collectA11yAlerts(
+        [
+          site({
+            a11yViolations: n,
+            a11yRoutesScanned: 3,
+            a11yRoutesTotal: 3,
+            a11yCheckedAt: FRESH,
+          }),
+        ],
+        BASE,
+        NOW,
+      )[0]!.metric;
+    expect(a11y(5)).toBeGreaterThan(a11y(2));
+  });
+
+  it("a complete, clean a11y scan raises nothing", () => {
+    expect(
+      collectA11yAlerts(
+        [
+          site({
+            a11yViolations: 0,
+            a11yRoutesScanned: 3,
+            a11yRoutesTotal: 3,
+            a11yCheckedAt: FRESH,
+          }),
+        ],
+        BASE,
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("site down is critical, so it ranks first among Broken", () => {
+    expect(
+      collectUptimeAlerts([site({ reachableOk: "fail", browserCheckedAt: FRESH })], BASE, NOW)[0]!
+        .severity,
+    ).toBe("critical");
+  });
+
+  it("wording: one day, and both render surfaces", () => {
+    const [one] = collectDomainAlerts(
+      [site({ certDaysRemaining: 1, domainCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(one!.title).toBe("TLS certificate expires in 1 day");
+    const [both] = collectRenderAlerts(
+      [site({ crossbrowserOk: false, mobileOk: false, browserCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(both!.title).toBe("pages fail to render on desktop and mobile");
+  });
+});
+
 describe("readLatestDeps carries a night whose deps measure failed (review round 2)", () => {
   let dir: string;
   let db: Db;
@@ -467,6 +581,9 @@ describe("fleet_daily's dependency readings reach every surface", () => {
     const inputs = await loadCockpitInputs(db, NOW);
     const m = cockpitFromInputs(inputs, NOW);
     expect(m.cards.flatMap((c) => c.items.map((i) => i.key))).toContain("deps-far:recS");
+    // the model the fleet_daily writer counts, read from the store the same way
+    const night = await nightCockpit(db, NOW);
+    expect(night.cards.flatMap((c) => c.items.map((i) => i.key))).toContain("deps-far:recS");
     expect(formatPmCockpit(buildPmCockpit(inputs, NOW))).toContain(
       "1 package a major behind for over 90 days: svelte@4",
     );

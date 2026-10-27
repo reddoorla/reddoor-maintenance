@@ -57,6 +57,8 @@ describe("fleet-a11y.yml", () => {
     const run = stepRunScript(await source(), "Fleet a11y audit + write-back");
     expect(run).toMatch(/--only a11y \\/);
     expect(run).toContain("--write-back");
+    // one site at a time: each installs, builds and previews on its own port
+    expect(run).toMatch(/--concurrency 1 \\/);
     expect(stepEnv(await source(), "Fleet a11y audit + write-back").REDDOOR_A11Y_INSTALL).toBe(
       '"1"',
     );
