@@ -840,5 +840,114 @@
     ],
     "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4t-red-on-red-verdict",
+    "why": "Round 4 tests lens 1: the Broken verdict's text is red on red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken {\n  background: var(--broken-fill);\n  color: var(--on-broken);",
+        "replace": ".verdict.broken {\n  background: var(--broken-fill);\n  color: var(--broken);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-ink-on-ink-nav",
+    "why": "Round 4 tests lens 2: the current nav item is ink on ink",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  background: var(--ink);\n  color: var(--on-ink);\n  border-color: var(--ink);\n  font-weight: var(--weight-bold);",
+        "replace": "  background: var(--ink);\n  border-color: var(--ink);\n  font-weight: var(--weight-bold);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-fifth-red",
+    "why": "Round 4 tests lens 3: a new red token on Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #d71920;\n",
+        "replace": "  --focus: #d71920;\n  --alert: #c8102e;\n"
+      },
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n  background: transparent;\n  color: inherit;",
+        "replace": ".pill.attention {\n  background: transparent;\n  color: var(--alert);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-site-pill-weight",
+    "why": "Round 4 tests lens 4: /s/:slug pills lose their weight",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": ".pill {\n  font-size: 0.75rem;\n  padding: 0.1rem 0.5rem;\n  font-weight: 700;\n}",
+        "replace": ".pill {\n  font-size: 0.75rem;\n  padding: 0.1rem 0.5rem;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-h1-sans",
+    "why": "Round 4 tests lens 5: the h1 is not the serif",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  font-family: var(--font-serif);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-body-white",
+    "why": "Round 4 tests lens 6: the body loses the paper ground",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  color: var(--ink);\n  background: var(--ground);\n",
+        "replace": "  color: var(--ink);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-style-expr",
+    "why": "Round 4 tests lens 7: a style={...} expression sets red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "<div class=\"shell-account\">",
+        "replace": "<div class=\"shell-account\" style={`color: var(--broken)`}>"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-toggle-padding",
+    "why": "Round 4 operator: the toggle loses its own padding",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ".theme-toggle {\n  padding: 0.2rem 0.6rem;\n",
+        "replace": ".theme-toggle {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
