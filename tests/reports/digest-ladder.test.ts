@@ -320,6 +320,11 @@ describe("the send log carries each key's level (review round 1)", () => {
     expect(coerceSendLog(JSON.parse(JSON.stringify(log))).sent["ci:rec_acme"]).toMatchObject({
       level: "attention",
     });
+    // Every mailed level survives a read, Broken included (review round 5).
+    const broken = { ...log, sent: { k: { metric: 1, level: "broken" as const } } };
+    expect(coerceSendLog(JSON.parse(JSON.stringify(broken))).sent.k).toMatchObject({
+      level: "broken",
+    });
   });
 
   it("a skipped night keeps the level last mailed", () => {
