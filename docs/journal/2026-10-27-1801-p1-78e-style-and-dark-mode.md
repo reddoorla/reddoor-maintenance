@@ -53,9 +53,9 @@ The guide has one red, used for "bad", and no status palette. Its brand faces ar
   - Placeholders were 4.26:1 on paper.
   - The gate missed red arriving by alias, by `:not(.broken)`, or by `content:`.
 - **Round 4:** only gate gaps (red on red and ink on ink passed). Every fill now sets its tested text partner, and the token set is closed. The toggle's own rule, dropped in round 3, is back; it measures 27.6px, not the 26px the round-4 commit message gave.
-- **Round 5:** the correctness and operator lenses were clean; the tests lens's verdict is in the PR body.
+- **Round 5:** the correctness and operator lenses were clean for the second round in a row. The tests lens found three more gate gaps, each a one-line edit that would hide text: a partner colour set without its fill, `--rule` used as text, and a new colour inside the red band. All three are closed and pinned. Five dirty rounds sent the PR to the operator (`decisions/2026-10-27-1813-p1-78e-after-five-rounds.md`).
 
-The sidecar grew from the brief's 7 mutants to 72, every one red.
+The sidecar grew from the brief's 7 mutants to 78, every one red.
 
 **Beliefs corrected on contact.**
 
