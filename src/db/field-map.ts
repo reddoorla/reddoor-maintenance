@@ -139,6 +139,7 @@ export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   "A11y Violations": "a11y_violations",
   "A11y Routes Scanned": "a11y_routes_scanned",
   "A11y Routes Total": "a11y_routes_total",
+  "A11y Checked At": "a11y_checked_at",
   "Deps Drifted": "deps_drifted",
   "Deps Major Behind": "deps_major_behind",
   "Deps Outdated": "deps_outdated",

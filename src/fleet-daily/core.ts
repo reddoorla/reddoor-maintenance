@@ -325,5 +325,6 @@ export function addCounts(
   return out;
 }
 
-/** The ladder version this build writes: 1 since P1-78b put the cockpit on the severity ladder. */
-export const LADDER_VERSION = 1;
+/** The ladder version this build writes: 1 since P1-78b put the cockpit on the severity ladder,
+ *  2 since P1-78c wired the production signals (the Broken and Attention counts change again). */
+export const LADDER_VERSION = 2;

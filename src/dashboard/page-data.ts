@@ -35,6 +35,8 @@ import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./s
 import type { SubmissionsPageModel } from "./submissions-page.js";
 import { readSiteAlarmInputs, buildSiteAlarm } from "./site-alarm.js";
 import { orElse } from "./or-else.js";
+import { readLatestDeps } from "../fleet-daily/read.js";
+import type { LatestDeps } from "../alerts/production-signals.js";
 
 /**
  * What each operator page reads, one function per page, so the Netlify
@@ -69,6 +71,7 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     autoFilteredCount,
     deadLetters,
     deadLetterOldestRead,
+    deps,
   ] = await Promise.all([
     listSites(db),
     // approve strip + delivery signals simply absent — triage still renders
@@ -94,6 +97,8 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     // (every dead letter alarms). Read in the same wave as the count, and used
     // only when the count found dead letters, as when it was read after it.
     orElse<ReadonlyMap<string, string>>(() => oldestUnreplayedDeadLetterBySlug(db), new Map()),
+    // P1-78c: the dependency alarm simply absent
+    orElse<LatestDeps | null>(() => readLatestDeps(db), null),
   ]);
   return assembleCockpitModel(
     {
@@ -106,6 +111,7 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
       autoFilteredCount,
       deadLetters,
       deadLetterOldestRead,
+      deps,
     },
     baseUrl,
     now,

@@ -32,6 +32,19 @@ import {
   urlProbeFresh,
   URL_NOT_DEPLOYED_KEYS,
 } from "../alerts/digest-collectors.js";
+import {
+  collectA11yAlerts,
+  collectDepsAlerts,
+  collectDomainAlerts,
+  collectFunctionHealthAlerts,
+  collectLinkAlerts,
+  collectRenderAlerts,
+  collectSearchConsoleAlerts,
+  collectTitleMetaAlerts,
+  collectUptimeAlerts,
+  type LatestDeps,
+  undated,
+} from "../alerts/production-signals.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { markWaiting } from "../alerts/waiting.js";
 import { LEVEL_RANK, levelOf, withLevels, worstLevel, type Level } from "../alerts/ladder.js";
@@ -737,7 +750,11 @@ function collectFleetAttentionItems(
   // which ignores status, so an archived site's slug is known, not "NO fleet site",
   // and OD 87 holds it on both surfaces alike.
   deadLetterSites: WebsiteRow[] = sites,
+  // P1-78c. The latest `fleet_daily` row's per-site dependency readings, from which
+  // a package's age is read. Null on a blip or before the first night: no deps items.
+  deps: LatestDeps | null = null,
 ): AttentionItem[] {
+  const depsItems = collectDepsAlerts(sites, deps, baseUrl, now);
   return [
     ...collectVulnAlerts(sites, baseUrl),
     ...collectLighthouseAlerts(sites, baseUrl),
@@ -763,6 +780,22 @@ function collectFleetAttentionItems(
     ),
     // P1-78b. A maintained site's failed production deploy, as a dated Broken item.
     ...collectDeployAlerts(sites, baseUrl),
+    // P1-78c. The production signals the nightly audits store (production-signals.ts).
+    // Broken and Attention are also in the digest's collectAttention; Watch
+    // (dependencies behind, Search Console) is the cockpit's only. The live form test
+    // and smoke are built but NOT registered: every failure on 2026-10-26 was false
+    // (#1736, #1737, #1777), and the operator chose to wire each once its probe is
+    // fixed (workspace decisions/2026-10-27-0131-p1-78c-form-and-smoke-wiring.md).
+    ...collectUptimeAlerts(sites, baseUrl, now),
+    ...collectDomainAlerts(sites, baseUrl, now),
+    ...collectFunctionHealthAlerts(sites, baseUrl, now),
+    ...collectRenderAlerts(sites, baseUrl, now),
+    ...collectLinkAlerts(sites, baseUrl, now),
+    ...collectTitleMetaAlerts(sites, baseUrl, now),
+    ...collectA11yAlerts(sites, baseUrl, now),
+    ...depsItems.far,
+    ...depsItems.behind,
+    ...collectSearchConsoleAlerts(sites, baseUrl, now),
   ];
 }
 
@@ -807,6 +840,8 @@ export function buildSiteAlarmContext(
   // OD 87, as in collectFleetAttentionItems. A held dead letter shows here as a
   // `waiting:` chip, the precedent #1199 set for a vuln Renovate is still fixing.
   deadLetterOldest: ReadonlyMap<string, string> = new Map(),
+  // P1-78c, as in collectFleetAttentionItems.
+  deps: LatestDeps | null = null,
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
@@ -821,13 +856,17 @@ export function buildSiteAlarmContext(
     notifyBounces,
     deadLetters,
     deadLetterOldest,
+    sites,
+    deps,
   ).filter((it) => it.key !== "url-probe-stale");
   const { next } = diffAttention(raw, priorSnapshot, now.toISOString().slice(0, 10));
   const items = withLevels(
     markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0),
     next,
     now,
-  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  )
+    .map(undated)
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
     watchReasons,
@@ -877,6 +916,8 @@ export function buildCockpitModel(
   // OD 87, as in collectFleetAttentionItems: a held dead letter leaves the card and
   // the Needs-you feed until two replay cycles after its oldest row.
   deadLetterOldest: ReadonlyMap<string, string> = new Map(),
+  // P1-78c, as in collectFleetAttentionItems.
+  deps: LatestDeps | null = null,
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -937,6 +978,7 @@ export function buildCockpitModel(
     // Visible rows LAST, so where two rows' names give one slug the visible site
     // (the card the operator watches) wins it, not an archived namesake.
     [...websites.filter((w) => !isDashboardVisible(w)), ...visible],
+    deps,
   );
   // Read-only diff: tag NEW/WORSE exactly as the email does. `next` is never written;
   // it only carries each key's `firstFlaggedAt` into markWaiting. A waiting item leaves
@@ -946,7 +988,7 @@ export function buildCockpitModel(
     markWaiting(diffed.tagged, diffed.next, now, Object.keys(priorSnapshot).length > 0),
     diffed.next,
     now,
-  );
+  ).map(undated);
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
   // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if

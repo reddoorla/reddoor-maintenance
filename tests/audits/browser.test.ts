@@ -89,17 +89,18 @@ describe("summarizeBrowser", () => {
     expect(s.brokenLinks).toBe(2);
   });
 
-  it("fail-safe: empty observations are NOT ok (prove, don't assume)", () => {
+  it("fail-safe: empty observations are NOT ok (prove, don't assume); links are not measured (P1-78c)", () => {
     const s = summarizeBrowser([], [], {});
-    expect(s).toMatchObject({ desktopOk: false, mobileOk: false, linksOk: false });
+    expect(s).toMatchObject({ desktopOk: false, mobileOk: false, linksOk: null });
   });
 
-  it("fail-safe: linksOk is FALSE when zero links were actually checked (no false 'all resolve')", () => {
+  it("linksOk is null, not measured, when zero links were actually checked: never a pass, never a fail (P1-78c)", () => {
     // A route loaded fine but link discovery yielded nothing (SPA / chromium evaluate threw).
-    // brokenLinks is 0 but nothing was proven → must NOT pass.
+    // brokenLinks is 0 but nothing was proven → must NOT pass, and must not raise the
+    // broken-links alarm either (LA Homelessness ×2 on 2026-10-26 checked no link).
     const s = summarizeBrowser([route("https://a.com/", true, true)], [], { "/": 1 });
     expect(s.brokenLinks).toBe(0);
-    expect(s.linksOk).toBe(false);
+    expect(s.linksOk).toBeNull();
   });
 
   it("fail-safe: a route that produced NO desktop/mobile observations is not excused", () => {
@@ -182,8 +183,8 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     ).toBe(false);
   });
 
-  it("reachableOk false for empty observations (prove, don't assume)", () => {
-    expect(summarizeBrowser([], [], {}).reachableOk).toBe(false);
+  it("reachableOk is null, not measured, for empty observations: never 'site down' (P1-78c)", () => {
+    expect(summarizeBrowser([], [], {}).reachableOk).toBeNull();
   });
 
   it("titleMetaOk true when every route has a non-empty title + meta, all titles unique", () => {
@@ -452,8 +453,8 @@ describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
     expect(s.note).not.toContain("https://a.com/d: title");
   });
 
-  it("titleMetaOk false for empty observations (nothing proven)", () => {
-    expect(summarizeBrowser([], [], {}).titleMetaOk).toBe(false);
+  it("titleMetaOk is null, not measured, for empty observations (P1-78c)", () => {
+    expect(summarizeBrowser([], [], {}).titleMetaOk).toBeNull();
   });
 
   // 2026-07-16 honesty fix: a bare pass/fail was unactionable — the operator could not see WHICH

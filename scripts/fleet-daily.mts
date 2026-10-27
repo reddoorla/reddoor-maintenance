@@ -4,12 +4,11 @@
 // is only the IO: the GitHub REST reads (GITHUB_TOKEN, `actions: read` and `contents: read`)
 // and the Turso connection (the nightly steps' existing TURSO_* secrets).
 import { openDb, readDbConfig } from "../src/db/client.js";
-import { buildCockpitModel } from "../src/dashboard/fleet-cockpit.js";
 import { writeFleetDaily, type GitHubReads } from "../src/fleet-daily/write.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 import { NIGHTLIES } from "./nightly-conductor.mjs";
-import { loadCockpitInputs } from "./pm-cockpit.mjs";
+import { nightCockpit } from "./pm-cockpit.mjs";
 
 const API = "https://api.github.com";
 const TIMEOUT_MS = 30_000;
@@ -124,21 +123,9 @@ async function main(): Promise<void> {
       },
       planned: NIGHTLIES.map((n) => n.file),
       cockpit: async () => {
-        const inp = await loadCockpitInputs(db, now);
-        return buildCockpitModel(
-          inp.websites,
-          inp.reports,
-          inp.prior,
-          inp.baseUrl,
-          now,
-          inp.newSubmissions,
-          inp.spamTotals,
-          inp.recentEvents,
-          inp.autoFilteredCount,
-          inp.notifyBounces,
-          inp.deadLetters,
-          inp.deadLetterOldest,
-        );
+        // P1-78c: the same assembly pm-cockpit uses, so the dependency readings (the
+        // newest stored night's; tonight's row is still being written) are not dropped.
+        return nightCockpit(db, now);
       },
       now,
       log: (l) => process.stdout.write(`${l}\n`),

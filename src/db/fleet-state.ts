@@ -118,6 +118,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     a11yViolations: num(r.a11y_violations),
     a11yRoutesScanned: num(r.a11y_routes_scanned),
     a11yRoutesTotal: num(r.a11y_routes_total),
+    a11yCheckedAt: str(r.a11y_checked_at),
     depsDrifted: num(r.deps_drifted),
     depsMajorBehind: num(r.deps_major_behind),
     depsOutdated: num(r.deps_outdated),
