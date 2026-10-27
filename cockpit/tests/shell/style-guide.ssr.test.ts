@@ -112,7 +112,7 @@ describe("one token sheet", () => {
     const COLOUR_PROP =
       /(^|-)(color|background|border(?!-(radius|collapse|spacing|width|style))|outline(?!-(offset|width|style))|shadow|fill|stroke|text-decoration|column-rule)(-|$)/;
     const ALLOWED =
-      /^(transparent|currentcolor|inherit|initial|unset|none|0|solid|dashed|dotted|double|inset|underline|auto|no-repeat|center|cover|[\d.]+(px|rem|em|%)?|-[\d.]+(px|rem|em)?)$/i;
+      /^(transparent|currentcolor|inherit|initial|unset|none|0|solid|dashed|dotted|double|inset|underline|auto|no-repeat|center|cover|thin|medium|thick|left|right|top|bottom|[\d.]+(px|rem|em|%)?|-[\d.]+(px|rem|em)?)$/i;
     const sheets: Array<[string, string]> = [
       ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
       ...SVELTE_STYLES,
@@ -147,10 +147,50 @@ describe("one token sheet", () => {
     expect(hits).toEqual([]);
   });
 
+  // Round 4: a fifth red ("--alert: #c8102e") passed the hex list. The token set
+  // is closed: a new colour token fails here and gets reviewed.
+  it("the token sheet holds exactly the reviewed tokens", () => {
+    const light = declarations(blockAfter(stripComments(read(TOKENS)), ":root {"));
+    expect(Object.keys(light).sort()).toEqual(
+      [
+        "--band",
+        "--broken",
+        "--broken-fill",
+        "--control-border",
+        "--focus",
+        "--font-sans",
+        "--font-serif",
+        "--ground",
+        "--ink",
+        "--ink-dark",
+        "--ink-muted",
+        "--on-broken",
+        "--on-ink",
+        "--radius-control",
+        "--rule",
+        "--space-1",
+        "--space-2",
+        "--space-3",
+        "--space-4",
+        "--space-5",
+        "--space-6",
+        "--surface",
+        "--weight-bold",
+        "--weight-text",
+      ].sort(),
+    );
+  });
+
   it("no token is an alias for another, so a red cannot hide behind a new name", () => {
     const t = stripComments(read(TOKENS));
     expect([...t.matchAll(/(--[\w-]+)\s*:\s*var\(/g)].map((m) => m[1])).toEqual([]);
     expect([...RED_TOKENS].sort()).toEqual(["--broken", "--broken-fill", "--focus"]);
+  });
+
+  it("the page ground is the paper token and the heading is the serif", () => {
+    const base = stripComments(read(join(SRC, "lib/base.css")));
+    expect(blockAfter(base, "body {")).toMatch(/background:\s*var\(--ground\)/);
+    expect(blockAfter(base, "h1 {")).toMatch(/font-family:\s*var\(--font-serif\)/);
   });
 
   it("the serif token is Besley, the sans token Pragmatica", () => {
@@ -201,7 +241,8 @@ describe("one token sheet", () => {
           // An attribute or a style: directive that sets any colour (round 2:
           // style:color={"#666"} and style="color: red" slipped by).
           /style="[^"]*(color|background|border|outline|fill|stroke)/i.test(line) ||
-          /style:(color|background|border|outline|fill|stroke)/i.test(line)
+          /style:(color|background|border|outline|fill|stroke)/i.test(line) ||
+          /style=\{[^}]*(color|background|border|outline|fill|stroke)/i.test(line)
             ? [`${rel(p)}:${i + 1}`]
             : [],
         ),
@@ -223,8 +264,11 @@ function declarations(block: string): Record<string, string> {
 }
 
 function blockAfter(css: string, selector: string): string {
-  const at = css.indexOf(selector);
-  if (at < 0) return "";
+  // At the start of a line, so "body {" never matches inside "tbody {" (round 4).
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`(^|\\n)[ \\t]*${esc}`).exec(css);
+  if (!m) return "";
+  const at = m.index + m[0].length - selector.length;
   const open = css.indexOf("{", at);
   return css.slice(open + 1, css.indexOf("}", open));
 }
@@ -348,7 +392,7 @@ describe("red marks Broken only", () => {
   it("a rule naming broken sets its text colour only to the on-broken or broken token", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
-        .filter(([sel]) => /broken/.test(sel))
+        .filter(([sel]) => namesBroken(sel))
         .flatMap(([sel, body]) =>
           [...body.matchAll(/(?:^|;|\s)color\s*:\s*([^;]+);/g)]
             .filter((m) => !/^var\(--(on-broken|broken)\)$/.test(m[1]!.trim()))
@@ -361,7 +405,7 @@ describe("red marks Broken only", () => {
   it("nothing on a red fill is dimmed", () => {
     const dimmed = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
-        .filter(([sel, body]) => /broken/.test(sel) && /opacity\s*:/.test(body))
+        .filter(([sel, body]) => namesBroken(sel) && /opacity\s*:/.test(body))
         .map(([sel]) => `${rel(p)}: ${sel}`),
     );
     expect(dimmed).toEqual([]);
@@ -425,6 +469,28 @@ describe("red marks Broken only", () => {
     expect(filled("routes/cockpit.css", ".dot.broken")).toBe(true);
   });
 
+  // Round 4: red text on the red fill, and ink on an ink fill, both passed. A
+  // rule that lays a fill sets that fill's tested partner as its text colour.
+  it("every filled rule sets its fill's tested text partner", () => {
+    const PARTNER: Record<string, string> = {
+      "--broken-fill": "--on-broken",
+      "--ink": "--on-ink",
+    };
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p)).flatMap(([sel, body]) => {
+        const fill = /(?:^|;|\s)background(?:-color)?\s*:\s*var\((--[\w-]+)\)/.exec(body)?.[1];
+        if (!fill || !(fill in PARTNER)) return [];
+        // A dot carries no text.
+        if (sel.split(",").every((x) => /\.dot\b/.test(x))) return [];
+        const text = /(?:^|;|\s)color\s*:\s*var\((--[\w-]+)\)/.exec(body)?.[1];
+        return text === PARTNER[fill]
+          ? []
+          : [`${rel(p)}: ${sel} (${fill} with ${text ?? "no colour"})`];
+      }),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it("the red focus ring appears only on a focus selector", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
@@ -444,6 +510,12 @@ describe("red marks Broken only", () => {
         .map(([, b]) => /font-weight\s*:\s*([^;]+);/.exec(b)?.[1]?.trim())
         .find(Boolean);
     expect(weight(".pill")).toBe("700");
+    // Round 4: /s/:slug's own .pill weight was unpinned.
+    const sitePill = rules(read(join(SRC, "routes/s/[slug]/site.css")))
+      .filter(([sel]) => sel === ".pill")
+      .map(([, b]) => /font-weight\s*:\s*([^;]+);/.exec(b)?.[1]?.trim())
+      .find(Boolean);
+    expect(sitePill).toBe("700");
     expect(weight(".pill.attention")).toBeUndefined();
     expect(weight(".pill.watch")).toBe("var(--weight-text)");
     // Round 3: /s/:slug had its own bold Watch pill.
@@ -671,6 +743,14 @@ describe("layout and weight the round-2 review pinned", () => {
 
   // Round 3: the browser's placeholder grey was 4.26:1 on paper, and on the API
   // key field the placeholder is the only sign a key is stored.
+  // Round 4: round 3 dropped the toggle's own rule, leaving it at the browser's
+  // padding, 23px tall.
+  it("the theme toggle keeps its own padding and border", () => {
+    const toggle = blockAfter(stripComments(read(join(SRC, "lib/base.css"))), ".theme-toggle {");
+    expect(toggle).toMatch(/padding:\s*0\.2rem 0\.6rem/);
+    expect(toggle).toMatch(/border:\s*1px solid var\(--control-border\)/);
+  });
+
   it("placeholders are the muted ink at full strength", () => {
     const base = stripComments(read(join(SRC, "lib/base.css")));
     const ph = blockAfter(base, "::placeholder {");
