@@ -128,6 +128,11 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  the spec and reproduced verbatim in the summary, exactly as the reason
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
+/** The skips a site declared on purpose; they leave the stored route total. */
+const DECLARED_SKIP_REASONS: ReadonlySet<string> = new Set([
+  PLACEHOLDER_SKIP_REASON,
+  ABSENT_FIXTURE_SKIP_REASON,
+]);
 
 /** Prefixed to the help of a `client-error` that was THROWN WHILE the reveal
  *  pass (#100) was running. It marks a time window, not a cause. The pass runs
@@ -1440,9 +1445,20 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
         .map((note) => `; ${note}`)
         .join("");
 
-    // #910: the same two numbers the summary's count phrase prints, stored so a
-    // run that covered 1 of 2 routes is a different row from one that covered 2.
-    const routes = { scanned: axePages.length - skippedRoutes.length, total: axePages.length };
+    // #910: stored so a run that covered 1 of 2 routes is a different row from
+    // one that covered 2. P1-78c: a skip the site declared (a fixture its source
+    // does not have, or its own routes while it points at the placeholder
+    // Prismic repo) leaves the total as well as the scanned count, because the
+    // ladder reads scanned < total as "not measured", and a site skipping a
+    // fixture it never had would otherwise read partial every week and its
+    // alarm could never fire (operator, 2026-10-27, decision
+    // 2026-10-27-1021-p1-78c-after-five-rounds (a)). Any other skip still
+    // counts as missing coverage. The summary's "N of M" keeps naming them.
+    const declaredSkips = skippedRoutes.filter((r) => DECLARED_SKIP_REASONS.has(r.reason)).length;
+    const routes = {
+      scanned: axePages.length - skippedRoutes.length,
+      total: axePages.length - declaredSkips,
+    };
 
     return {
       audit: "a11y",

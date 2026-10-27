@@ -845,5 +845,57 @@
     ],
     "test": "tests/build/fleet-a11y-workflow.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r6-a11y-declared-out",
+    "why": "Operator decision (a): a declared skip stays in the stored total, so a site skipping an absent fixture reads partial every week",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "      total: axePages.length - declaredSkips,\n",
+        "replace": "      total: axePages.length,\n"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-a11y-all-skips-out",
+    "why": "Every skip leaves the total, so an undeclared skip reads complete",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "skippedRoutes.filter((r) => DECLARED_SKIP_REASONS.has(r.reason)).length",
+        "replace": "skippedRoutes.length"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-a11y-placeholder-not-declared",
+    "why": "The placeholder Prismic skip is not counted as declared",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "  PLACEHOLDER_SKIP_REASON,\n  ABSENT_FIXTURE_SKIP_REASON,\n]);",
+        "replace": "  ABSENT_FIXTURE_SKIP_REASON,\n]);"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-a11y-absent-not-declared",
+    "why": "The absent-fixture skip is not counted as declared",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "  PLACEHOLDER_SKIP_REASON,\n  ABSENT_FIXTURE_SKIP_REASON,\n]);",
+        "replace": "  PLACEHOLDER_SKIP_REASON,\n]);"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
   }
 ]

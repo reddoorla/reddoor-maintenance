@@ -314,7 +314,9 @@ export function collectTitleMetaAlerts(
 }
 
 /** Accessibility violations from a complete weekly run: every route scanned, stamped within
- *  8 days. A partial run (scanned < total, or either count unknown) is not measured. */
+ *  8 days. A partial run (scanned < total, or either count unknown) is not measured. A skip
+ *  the site declared (an absent fixture, the placeholder Prismic repo) is out of both counts,
+ *  so it does not make a run partial (`a11yAudit`'s stored `routes`). */
 export function collectA11yAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
