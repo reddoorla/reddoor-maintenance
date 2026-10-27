@@ -923,5 +923,148 @@
     ],
     "test": "tests/alerts/production-signals.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r6-sc-window",
+    "why": "Round 6: Search Console read on the nightly 3 days, not the report cadence",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "freshWithin(s.searchConsoleCheckedAt, searchConsoleFreshDays(s), now)",
+        "replace": "freshWithin(s.searchConsoleCheckedAt, PRODUCTION_STALE_DAYS, now)"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-domain-warning",
+    "why": "Round 6: a dead domain is not critical",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "\"domain does not resolve, or has no usable TLS certificate\",\n          \"critical\",",
+        "replace": "\"domain does not resolve, or has no usable TLS certificate\",\n          \"warning\","
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-cert-expiring-warning",
+    "why": "Round 6: an expiring certificate is not critical",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "`TLS certificate ${when}`,\n          \"critical\",",
+        "replace": "`TLS certificate ${when}`,\n          \"warning\","
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-cms-warning",
+    "why": "Round 6: an unreachable CMS is not critical",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "\"the CMS is unreachable from the site\", \"critical\"",
+        "replace": "\"the CMS is unreachable from the site\", \"warning\""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-expired-boundary",
+    "why": "Round 6: a certificate one day past expiry reads '-1 days'",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "days < 0 ? \"expired\"",
+        "replace": "days < -1 ? \"expired\""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-a11y-singular",
+    "why": "Round 6: one finding reads 'findings'",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "accessibility finding${n === 1 ? \"\" : \"s\"}",
+        "replace": "accessibility finding${n === 1 ? \"s\" : \"s\"}"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-deps-metric",
+    "why": "Round 6: the deps Watch metric is not its package count",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "          \"warning\",\n          packages.length,",
+        "replace": "          \"warning\",\n          1,"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-base-slash",
+    "why": "Round 6: a trailing-slash base URL gives //s/slug",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "const root = baseUrl.replace(/\\/$/, \"\");",
+        "replace": "const root = baseUrl;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-verdict-missing-key",
+    "why": "Round 6: a missing browser verdict key reads not measured",
+    "edits": [
+      {
+        "file": "src/audits/browser-fields.ts",
+        "find": "return v === null ? null : v === true;",
+        "replace": "return v == null ? null : v === true;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-install-enoent",
+    "why": "Round 6: a runner with no pnpm throws instead of skipping",
+    "edits": [
+      {
+        "file": "src/audits/util/install-site.ts",
+        "find": "      if (/ENOENT/.test(String(err))) return \"pnpm not available\";\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/install-site.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-link-singular",
+    "why": "Round 6: one broken link reads 'links'",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "`${n} broken link${n === 1 ? \"\" : \"s\"}`",
+        "replace": "`${n} broken links`"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
   }
 ]
