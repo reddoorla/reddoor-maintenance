@@ -889,23 +889,32 @@ describe("the gates' box (#1501, Linux only)", () => {
           const mark = String(4000 + (process.pid % 1000));
           // In a child of its own: run() blocks the event loop, so a timeout that failed to kill
           // the box would hang vitest instead of failing this test.
-          const t0 = Date.now();
-          const out = execFileSync(
-            process.execPath,
-            [
-              "--input-type=module",
-              "-e",
-              `import { run } from ${JSON.stringify(T4)};
-               const box = { hide: [], writable: [${JSON.stringify(dir)}], tmp: ${JSON.stringify(dir)} };
-               process.stdout.write(JSON.stringify(run(${JSON.stringify(dir)}, "sh", ["-c", "sleep ${mark}"], 3000, box)));`,
-            ],
-            { encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" },
-          );
-          const r = JSON.parse(out);
-          expect(Date.now() - t0).toBeLessThan(15_000);
-          expect(r.error).toBe("ETIMEDOUT");
-          const left = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
-          expect(left.split("\n").filter((l) => l.trim() === `sleep ${mark}`)).toEqual([]);
+          try {
+            const t0 = Date.now();
+            const out = execFileSync(
+              process.execPath,
+              [
+                "--input-type=module",
+                "-e",
+                `import { run } from ${JSON.stringify(T4)};
+                 const box = { hide: [], writable: [${JSON.stringify(dir)}], tmp: ${JSON.stringify(dir)} };
+                 process.stdout.write(JSON.stringify(run(${JSON.stringify(dir)}, "sh", ["-c", "sleep ${mark}"], 3000, box)));`,
+              ],
+              { encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" },
+            );
+            const r = JSON.parse(out);
+            expect(Date.now() - t0).toBeLessThan(15_000);
+            expect(r.error).toBe("ETIMEDOUT");
+            const left = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
+            expect(left.split("\n").filter((l) => l.trim() === `sleep ${mark}`)).toEqual([]);
+          } finally {
+            // A box that outlived its step (a broken kill) is not left running after the test.
+            try {
+              execFileSync("pkill", ["-KILL", "-f", `sleep ${mark}`]);
+            } catch {
+              // pkill exits 1 when nothing matches, as it should.
+            }
+          }
         }),
       30_000,
     );
