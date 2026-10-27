@@ -1,4 +1,0 @@
-# The daily PM pass — moved
-
-Moved on 2026-10-20 to `reddoorla/reddoor-workspace` `pm-pass.md`, the home base; history before that date is this file's git log.
-This file is frozen (`tests/docs/moved-files.test.ts`): change the home-base copy, never this one.

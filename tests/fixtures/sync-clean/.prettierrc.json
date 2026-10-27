@@ -1,6 +1,0 @@
-{
-  "trailingComma": "all",
-  "singleQuote": false,
-  "printWidth": 100,
-  "plugins": ["prettier-plugin-svelte"]
-}
