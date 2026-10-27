@@ -150,7 +150,9 @@ describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
   it("prints no FLEET_WRITE_GATE lines, only the summary", async () => {
     for (const mirror of [async () => true, async () => false]) {
       const r = await run(mirror);
-      expect(r.output).toContain("FLEET_WRITE_SUMMARY wrote=3 failed=0 total=3");
+      expect(r.output).toMatch(
+        /\nFLEET_WRITE_SUMMARY wrote=3 failed=0 total=3 mirrored=\d mirror_failed=0 mirror_missed=\d na=0 missing=0 kept=0$/,
+      );
       expect(r.output).not.toContain("FLEET_WRITE_GATE");
     }
   });
