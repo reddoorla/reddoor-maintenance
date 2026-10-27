@@ -1,0 +1,72 @@
+import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import type { InventoryProvider, Site } from "../types.js";
+import { isHttpUrl } from "../util/url.js";
+
+function validate(raw: unknown): Site[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("inventory JSON must be an array of sites");
+  }
+  return raw.map((entry, i) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`inventory entry ${i} is not an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.path !== "string" || e.path.length === 0) {
+      throw new Error(`inventory entry ${i} is missing required field: path`);
+    }
+    if (!isAbsolute(e.path)) {
+      throw new Error(
+        `inventory entry ${i}: path must be absolute (got "${e.path}"). ` +
+          `Relative paths are rejected so cwd at invocation can't change which site is targeted.`,
+      );
+    }
+    const site: Site = { path: e.path };
+    if (typeof e.name === "string") site.name = e.name;
+    if (typeof e.repoUrl === "string") site.repoUrl = e.repoUrl;
+    // Carry gitRepo/deployedUrl like the Turso provider does, so a JSON
+    // inventory can drive checkout (clone-from-gitRepo) and deployed-URL audits.
+    if (typeof e.gitRepo === "string") site.gitRepo = e.gitRepo;
+    // Scheme-allowlist deployedUrl before it can reach Chrome/lhci (same SSRF /
+    // local-file gate as the Turso provider). A non-http(s) value is dropped
+    // with a warning rather than trusted into the deployed audit.
+    if (typeof e.deployedUrl === "string") {
+      if (isHttpUrl(e.deployedUrl)) {
+        site.deployedUrl = e.deployedUrl;
+      } else {
+        console.warn(
+          `[inventory] entry ${i}: ignoring deployedUrl that is not http(s): ${JSON.stringify(e.deployedUrl)}`,
+        );
+      }
+    }
+    // The row's GA4 property, for the analytics audit. A string or an explicit
+    // null ("the row has none") is carried; absent stays absent, which the
+    // audit reads as "no row", never as "no property".
+    if (typeof e.ga4PropertyId === "string" || e.ga4PropertyId === null) {
+      site.ga4PropertyId = e.ga4PropertyId;
+    }
+    if (typeof e.meta === "object" && e.meta !== null) {
+      site.meta = e.meta as Record<string, unknown>;
+    }
+    return site;
+  });
+}
+
+export function fromJsonFile(path: string): InventoryProvider {
+  return async () => {
+    const text = await readFile(path, "utf-8");
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      // A bare JSON.parse SyntaxError ("Unexpected token … at position N") names
+      // neither the file nor that it's the inventory — useless to an operator
+      // running a fleet command. Rethrow with the path for an actionable message,
+      // preserving the original SyntaxError as `cause`.
+      throw new Error(`could not parse inventory file ${path}: ${(e as Error).message}`, {
+        cause: e,
+      });
+    }
+    return validate(raw);
+  };
+}

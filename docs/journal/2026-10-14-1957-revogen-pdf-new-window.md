@@ -1,0 +1,7 @@
+## 2026-10-14 — Revogen: every PDF link opens in a new window (reddoorla/revogen#99, `3fe3719`)
+
+Erik asked in #revogen whether PDF links should open in a new window. Meagan, the client, said yes, and she wanted no step for editors to take. The rule now lives in one place, revogen's `src/lib/links.ts`. A link gets `target="_blank" rel="noopener noreferrer"` in two cases: when it is a Media link with a `.pdf` name or kind `document`, or when its URL **path** ends in `.pdf`. The query is ignored, so Dropbox `…pdf?rlkey=…&dl=0` links count. Buttons get the rule through `DelayedLink`, and rich-text hyperlinks get it through a new `RichText` wrapper. The PR had 25 tests, and each of the 8 named mutations turned at least one red. Review round 1 found only minors, filed as revogen#95–#98.
+
+One belief was corrected on contact: every revogen slice passed only `button.url` to `DefaultButton`. Because of that, an editor's "open in new tab" on a button had never reached the page. The thread described the brochure as a Dropbox link, but the live "Multi-Product Brochure" button was a Prismic Media upload on `/surgical-grafts`.
+
+Revogen has no `staging` branch. Its `main` ruleset requires zero approvals and only `ci / ci`, so `land-prs.mjs` merged it without the operator. By `date -u`, the Netlify production deploy was live 1m36s after the merge. Read at 19:57:06Z, the live anchor on https://revogen.com/surgical-grafts carries `target="_blank" rel="noopener noreferrer"`.

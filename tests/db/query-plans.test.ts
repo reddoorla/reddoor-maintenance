@@ -1,0 +1,1309 @@
+/** The EXPLAIN-query-plan gate (#539 Phase 1 guard-rail, built before Phase 2's
+ *  readers land): every query the request-path db modules actually execute is
+ *  captured at the driver and run through EXPLAIN QUERY PLAN; a raw full-table
+ *  scan of a real table fails the build. Three closures keep the gate honest:
+ *
+ *  1. Module completeness — every file in src/db must be classified GATED or
+ *     EXEMPT (with a written justification). A new Phase 2 reader module fails
+ *     the build until it is brought under the gate.
+ *  2. Export completeness — every function a gated module exports must be
+ *     exercised by a scenario (or listed pure). A new query function fails the
+ *     build until the gate sees its plan.
+ *  3. Vacuity — every scenario must capture at least one statement. Several db
+ *     functions legitimately early-return without touching the db
+ *     (markSubmissionsSpamRetro([]), listRecentSubmissionsForEmail("")); a
+ *     scenario that silently exercised nothing is a harness failure, not a pass.
+ */
+import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  openCapturingDb,
+  schemaTables,
+  explainQueryPlan,
+  rawScanTables,
+} from "./query-plan-harness.js";
+import * as submissions from "../../src/db/submissions.js";
+import * as screenouts from "../../src/db/screenouts.js";
+import * as fleetEvents from "../../src/db/fleet-events.js";
+import * as deadletter from "../../src/db/deadletter.js";
+import * as fleetState from "../../src/db/fleet-state.js";
+import * as digestState from "../../src/db/digest-state.js";
+import * as prospectAudits from "../../src/db/prospect-audits.js";
+import * as cockpitVersion from "../../src/db/cockpit-version.js";
+import type { Db } from "../../src/db/client.js";
+import type { SubmissionFilter } from "../../src/db/submissions.js";
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const SRC_DB_DIR = path.join(ROOT, "src/db");
+/** The request path: every Netlify function, plus everything they import. */
+const NETLIFY_FUNCTIONS_DIR = path.join(ROOT, "netlify/functions");
+/** The SvelteKit cockpit's server code (#582): its load functions, form
+ *  actions and hook serve requests as the Netlify page functions do. */
+const COCKPIT_SRC_DIR = path.join(ROOT, "cockpit/src");
+
+/** Modules whose exported query functions the gate exercises below. */
+const GATED_MODULES: Record<string, Record<string, unknown>> = {
+  "submissions.ts": submissions,
+  "screenouts.ts": screenouts,
+  "fleet-events.ts": fleetEvents,
+  "deadletter.ts": deadletter,
+  "fleet-state.ts": fleetState,
+  "prospect-audits.ts": prospectAudits,
+  "digest-state.ts": digestState,
+  "cockpit-version.ts": cockpitVersion,
+};
+
+/** Modules the gate deliberately does not plan-check. Every entry needs a reason
+ *  a reviewer can veto. */
+const EXEMPT_MODULES: Record<string, string> = {
+  "client.ts": "connection factory — no queries of its own",
+  "lazy-fleet-db.ts":
+    "lazily opens client.ts's connection for a CLI command and closes it — no queries of its own",
+  "migrate.ts": "migration runner — DDL, not a query path",
+  "busy.ts": "SQLITE_BUSY retry around a caller-supplied statement — issues no SQL of its own",
+  "migrations.ts": "DDL scripts",
+  "schema.ts": "types only",
+  "field-map.ts": "column maps + pure record mappers — no queries of its own",
+  "dump.ts": "backup dump — full-table reads by design",
+  "header-images.ts":
+    "header plate store + per-site read for the CLI, drafting and send — by-PK, not request-path",
+  "site-mirror.ts":
+    "write wrapper — issues no SQL of its own, delegates to " +
+    "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
+  "mirror-write.ts": "error policy around a caller-supplied write — issues no SQL of its own",
+  "site-create.ts":
+    "#646 step 3 transaction wrapper — issues no SQL of its own: it runs fleet-state's " +
+    "insertSiteRows inside one transaction and delegates to updateSiteIdentity/getSiteBySlug, " +
+    "all gated below. It cannot run HERE: a libSQL transaction on this harness's shared " +
+    ":memory: client hands the connection away and every later scenario would see an empty db",
+  "usage.ts":
+    "plan-quota headroom — reads the Turso PLATFORM HTTP API, never the database; " +
+    "issues no SQL at all",
+};
+
+/** Exported functions that never issue SQL (id minting, date math). */
+const PURE_EXPORTS = new Set([
+  "newSubmissionId",
+  "screenOutsSince",
+  "newDeadLetterId",
+  "generateToken",
+  "isValidToken",
+  "newProspectAuditId",
+  // Pure string normalisation — computes the lineage key, never queries on it.
+  "siteKey",
+  // Pure membership test on NO_REPORT_STATUSES.
+  "hasNoReport",
+]);
+
+/** Raw scans accepted with a written justification. Empty today — the 0008
+ *  indexes cover every hot path — but the mechanism stays so a future entry is
+ *  a reviewed, named decision instead of a silent regression.
+ *
+ *  `requestPath` is the one part of `why` a machine can check (MED-11 of the
+ *  2026-09-02 review). Two entries here said "BATCH ONLY … no longer runs on a
+ *  request path" while `site-dashboard.mts` was still calling both on every
+ *  `/s/:slug` load: the claim was true of the handler that was fixed and false
+ *  of the one that was not, and nothing compared it to the code. Declaring it as
+ *  a boolean lets `requestPath claims match the import graph` below do that
+ *  comparison — and makes a future handler that reintroduces the call fail the
+ *  gate instead of inheriting a stale sentence. */
+const ALLOWED_RAW_SCANS: Array<{
+  scenario: string;
+  table: string;
+  /** Whether a Netlify function can reach this scenario's query. Checked. */
+  requestPath: boolean;
+  why: string;
+}> = [
+  {
+    scenario: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
+    table: "sites",
+    requestPath: true,
+    why: "reads all ~44 sites by design; bounded by fleet size, not data growth",
+  },
+  {
+    scenario: "listAllReports (cockpit fleet read)",
+    table: "reports",
+    requestPath: true,
+    why: "the cockpit reads every report today (13 rows, ~44/month growth) — window it before Phase 4's report review adds volume",
+  },
+  {
+    scenario: "listSendableReports (the send queue)",
+    table: "reports",
+    requestPath: false,
+    why: "same table and same bound as listAllReports above — the send reads the queue once a day over a table sized by the fleet's report cadence; a partial index on three low-cardinality columns would not change the plan",
+  },
+  {
+    scenario: "listApprovedUnqueuedReports (the send queue's cross-check, #1613)",
+    table: "reports",
+    requestPath: false,
+    why: "the send queue's own scan without its draft_ready term, read once by the same daily send",
+  },
+  // The two SubmissionFilter shapes that cannot be served by any B-tree index.
+  // Both are `LIKE '%…%'` with a LEADING wildcard — `search` ORs it across four
+  // columns, `reason` applies it to a `',' || spam_reason || ','` expression — and
+  // SQLite has no index form for either. The count sibling has no LIMIT to stop it
+  // early, so it decodes the whole table.
+  //
+  // Accepted rather than fixed, on two grounds: /submissions is operator-only
+  // (behind the dashboard gate), so the frequency is bounded by one person's
+  // typing rather than by fleet traffic; and the alternative is an FTS5 virtual
+  // table plus triggers, which is a real feature, not a tweak.
+  //
+  // NOT accepted forever. `submissions` is the one unbounded-growth table (354
+  // rows today, append-only, one per fleet lead) and Turso meters row scans, so
+  // the cost of one search rises linearly and never falls. Revisit at ~10k rows,
+  // or sooner if the submissions page ever becomes client-facing — at which point
+  // the answer is FTS5 for `search` and a normalised reason table for `reason`.
+  {
+    scenario: "countSubmissionsFiltered: search",
+    table: "submissions",
+    requestPath: true,
+    why: "LIKE '%term%' across name/email/message/phone — unindexable in SQLite without FTS5; operator-only page, revisit at ~10k rows",
+  },
+  {
+    scenario: "countSubmissionsFiltered: reason",
+    table: "submissions",
+    requestPath: true,
+    why: "comma-boundary LIKE on a concatenation expression — no index can serve it; operator-only page, revisit at ~10k rows",
+  },
+  // Unindexable-by-shape aggregates, made VISIBLE by tightening the detector (an
+  // index-ordered SCAN with no LIMIT reads every row, and Turso bills rows). All
+  // four were invisible under the old "any USING is fine" rule.
+  //
+  // These are not "fine" — they are accepted for now and named so a reviewer can
+  // veto them. The real fix is MED-16 of the 2026-08-26 review: these cockpit
+  // strips are slow-moving "since a window" numbers that belong in the nightly
+  // digest_state singleton the homepage already reads by primary key. That trade
+  // makes the figures up to 24h stale, which is an operator call, not mine.
+  {
+    scenario: "countSubmissionsFiltered: no filters",
+    table: "submissions",
+    requestPath: true,
+    why: "COUNT(*) with no WHERE and no LIMIT — an unfiltered total cannot be anything but a full read; request path (submissions page), 354 rows today",
+  },
+  {
+    scenario: "countNotifyBouncedBySite",
+    table: "submissions",
+    requestPath: false,
+    why: "BATCH ONLY — the nightly digest computes it into the cockpit roll-up, and the fleet homepage reads that row by primary key. True of fleet-homepage.mts since MED-16 and of site-dashboard.mts only since MED-11, which replaced its call with countNotifyBouncedForSite (per-site, index-served)",
+  },
+  {
+    scenario: "listScreenOutsSince (window on date + marked-spam count)",
+    table: "spam_screenouts",
+    requestPath: false,
+    why: "BATCH ONLY — same roll-up, same two-handler history: site-dashboard.mts kept calling this per request until MED-11 moved it to screenOutTotalsForSite. Bounded by sites × days regardless",
+  },
+  // The cockpit snapshot (home base briefs/2026-10-21-cockpit-one-snapshot.md):
+  // read on each full page load of a signed-in browser (never for a path no page
+  // owns), and kept in the browser, which derives every page from it as it
+  // navigates, in place of a set of slices per page.
+  {
+    scenario: "listAllSubmissions (the cockpit snapshot)",
+    table: "submissions",
+    requestPath: true,
+    why: "the snapshot reads the whole table on every full page load (then client navigation reads nothing) so the browser can derive /submissions and every per-site list; 681 rows on 2026-10-21, the brief's stop is 1 MB gzipped",
+  },
+  {
+    scenario: "listSiteSlugs (the cockpit snapshot)",
+    table: "sites",
+    requestPath: true,
+    why: "every site's slug, as listSites reads every site; bounded by fleet size",
+  },
+  {
+    scenario: "countSubmissionsSinceBySite (digest telemetry)",
+    table: "submissions",
+    requestPath: false,
+    why: "batch only — the digest cron, once a day; a full read is the correct shape for a per-site tally",
+  },
+];
+
+// ————————————————————————————————————————————————————————————————————————————
+// Request-path reachability — the machine-checkable half of an allowlist `why`.
+// ————————————————————————————————————————————————————————————————————————————
+
+/** Resolve a RELATIVE import specifier to the source file on disk. The runtime
+ *  imports carry `.js` extensions (NodeNext); the files are `.ts` / `.mts`. */
+function resolveLocalImport(fromFile: string, spec: string): string | null {
+  if (!spec.startsWith(".")) return null;
+  const base = path.resolve(path.dirname(fromFile), spec);
+  const candidates = [
+    base.replace(/\.js$/, ".ts"),
+    base.replace(/\.js$/, ".mts"),
+    `${base}.ts`,
+    `${base}.mts`,
+    path.join(base, "index.ts"),
+  ];
+  return candidates.find((c) => fs.existsSync(c) && fs.statSync(c).isFile()) ?? null;
+}
+
+const IMPORT_CLAUSE = /(?:^|[\s;])(?:import|export)\s+([\s\S]*?)\s*from\s*["']([^"']+)["']/g;
+
+export type RequestPathGraph = {
+  /** Every module a Netlify function or the cockpit's server code can reach
+   *  through local imports. */
+  files: Set<string>;
+  /** Gated-db-module export name → the request-path files that import it. */
+  importers: Map<string, string[]>;
+  /** `import * as x from "…/src/db/<gated>.js"` sites — the one shape the
+   *  name-based reader above cannot see through. Must stay empty. */
+  namespaceImports: string[];
+};
+
+/**
+ * Walk the local import graph out from `netlify/functions/**` and the cockpit's
+ * `cockpit/src/**` TypeScript, and record which
+ * request-path modules import which gated-db-module exports.
+ *
+ * Reads IMPORT BINDINGS, not call sites. A `grep` for `name(` matches the
+ * function's own declaration and its mentions inside doc comments (there are
+ * several — `fleet-cockpit.ts`, `digest-collectors.ts` and `migrations.ts` all
+ * name these functions in prose). An import binding has neither ambiguity: it
+ * names the module the symbol came from, so the answer is about THIS `src/db`
+ * function and nothing else.
+ */
+function requestPathGraph(): RequestPathGraph {
+  const gated = new Set(Object.keys(GATED_MODULES));
+  const files = new Set<string>();
+  const importers = new Map<string, string[]>();
+  const namespaceImports: string[] = [];
+  const queue = [
+    ...fs
+      .readdirSync(NETLIFY_FUNCTIONS_DIR)
+      .filter((f) => /\.(ts|mts)$/.test(f))
+      .map((f) => path.join(NETLIFY_FUNCTIONS_DIR, f)),
+    // `.svelte` components are not walked: they hold markup and browser code,
+    // and every cockpit read runs in a `.ts` load, action or view builder.
+    ...fs
+      .readdirSync(COCKPIT_SRC_DIR, { recursive: true })
+      .map(String)
+      .filter((f) => /\.ts$/.test(f) && !f.endsWith(".d.ts"))
+      .map((f) => path.join(COCKPIT_SRC_DIR, f)),
+  ];
+
+  while (queue.length > 0) {
+    const file = queue.pop()!;
+    if (files.has(file)) continue;
+    files.add(file);
+    const src = fs.readFileSync(file, "utf8");
+    IMPORT_CLAUSE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = IMPORT_CLAUSE.exec(src)) !== null) {
+      const [, clause = "", spec = ""] = m;
+      const target = resolveLocalImport(file, spec);
+      if (target === null) continue;
+      if (!files.has(target)) queue.push(target);
+      const isGatedDbModule =
+        path.dirname(target) === SRC_DB_DIR && gated.has(path.basename(target));
+      // A type-only import executes no query.
+      if (!isGatedDbModule || /^\s*type\s/.test(clause)) continue;
+      if (/\*\s+as\s/.test(clause)) {
+        namespaceImports.push(`${path.relative(ROOT, file)} -> ${spec}`);
+        continue;
+      }
+      for (const piece of /\{([\s\S]*)\}/.exec(clause)?.[1]?.split(",") ?? []) {
+        const name = piece
+          .trim()
+          .replace(/^type\s+/, "")
+          .split(/\s+as\s+/)[0]
+          ?.trim();
+        if (name === undefined || name === "") continue;
+        importers.set(name, [...(importers.get(name) ?? []), path.relative(ROOT, file)]);
+      }
+    }
+  }
+  return { files, importers, namespaceImports };
+}
+
+type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
+
+const SINCE_DATE = "2026-08-01";
+const SINCE_ISO = "2026-08-01T00:00:00.000Z";
+
+/**
+ * One representative value per `SubmissionFilter` key.
+ *
+ * The gate used to name its scenarios by hand, and that is how three request-path
+ * raw scans shipped green: `countSubmissionsFiltered` had exactly two scenarios
+ * (`{}` and `{siteId}`), both of which happen to land on an index, while its
+ * `search` / `reason` / `formType` shapes were never planned at all. Its
+ * `listSubmissionsFiltered` sibling — same filter, same request — did get an
+ * "every WHERE shape" scenario, and the export-completeness check passed because
+ * it matches function NAMES, not predicate shapes.
+ *
+ * Driving both functions off this one record fixes the class rather than the three
+ * instances: adding a key to `SubmissionFilter` without adding it here fails
+ * `covers every SubmissionFilter key`, and every key that IS here gets planned
+ * against every filtered function automatically.
+ */
+const FILTER_CASES = {
+  siteId: { siteId: "recA" },
+  formType: { formType: "contact" as const },
+  status: { status: "new" as const },
+  search: { search: "ada" },
+  from: { from: SINCE_ISO },
+  to: { to: "2026-08-31T23:59:59.000Z" },
+  reason: { reason: "keywords" },
+} satisfies Record<keyof SubmissionFilter, SubmissionFilter>;
+
+/** Every filter shape × every function that takes a `SubmissionFilter`, plus the
+ *  unfiltered case each runs on a bare page load. */
+function submissionFilterMatrix(): Scenario[] {
+  const filtered: Array<{
+    fn: string;
+    run: (db: Db, f: SubmissionFilter) => Promise<unknown>;
+  }> = [
+    {
+      fn: "listSubmissionsFiltered",
+      run: (db, f) => submissions.listSubmissionsFiltered(db, f, { limit: 50, offset: 0 }),
+    },
+    { fn: "countSubmissionsFiltered", run: (db, f) => submissions.countSubmissionsFiltered(db, f) },
+  ];
+  const out: Scenario[] = [];
+  for (const { fn, run } of filtered) {
+    out.push({ name: `${fn}: no filters`, covers: [fn], run: (db) => run(db, {}) });
+    for (const [key, filter] of Object.entries(FILTER_CASES)) {
+      out.push({ name: `${fn}: ${key}`, covers: [fn], run: (db) => run(db, filter) });
+    }
+    // Everything at once — the shape the submissions page sends when the operator
+    // has filled in the whole filter bar.
+    out.push({
+      name: `${fn}: every filter at once`,
+      covers: [fn],
+      run: (db) => run(db, Object.assign({}, ...Object.values(FILTER_CASES)) as SubmissionFilter),
+    });
+  }
+  return out;
+}
+
+/** ≥ MIN_DUP_BODY_LEN chars and ≥ MIN_SIMILAR_TOKENS distinct tokens, so the
+ *  duplicate scan passes BOTH eligibility gates and actually queries. */
+const LONG_MESSAGE =
+  "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike " +
+  "november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
+
+function scenarios(state: { createdId: string; reservedId: string }): Scenario[] {
+  let prospectToken = "";
+  return [
+    {
+      name: "createSubmission (seeds the db; display number = MAX+1 subquery)",
+      covers: ["createSubmission", "getSubmissionById"],
+      run: async (db) => {
+        const row = await submissions.createSubmission(db, {
+          siteId: "recA",
+          formType: "contact",
+          name: "Ada",
+          email: "ada@example.com",
+          message: LONG_MESSAGE,
+          submittedAt: new Date("2026-08-10T12:00:00.000Z"),
+        });
+        state.createdId = row.id;
+      },
+    },
+    {
+      name: "listAllSubmissions (the cockpit snapshot)",
+      covers: ["listAllSubmissions"],
+      run: (db) => submissions.listAllSubmissions(db),
+    },
+    {
+      name: "listNewSubmissions (cockpit unread strip)",
+      covers: ["listNewSubmissions"],
+      run: (db) => submissions.listNewSubmissions(db),
+    },
+    {
+      name: "listSubmissionsForSite",
+      covers: ["listSubmissionsForSite"],
+      run: (db) => submissions.listSubmissionsForSite(db, { id: "recA", name: "Acme" }),
+    },
+    {
+      name: "setSubmissionStatusRow",
+      covers: ["setSubmissionStatusRow"],
+      run: (db) => submissions.setSubmissionStatusRow(db, state.createdId, "read"),
+    },
+    {
+      name: "stampNotified",
+      covers: ["stampNotified"],
+      run: (db) => submissions.stampNotified(db, state.createdId, "sent", "re_gate_msg"),
+    },
+    {
+      name: "stampFanout",
+      covers: ["stampFanout"],
+      run: (db) => submissions.stampFanout(db, state.createdId, "crm:ok"),
+    },
+    ...submissionFilterMatrix(),
+    {
+      name: "countAutoSpamSince",
+      covers: ["countAutoSpamSince"],
+      run: (db) => submissions.countAutoSpamSince(db, SINCE_DATE),
+    },
+    {
+      name: "countSubmissionsSinceBySite (digest telemetry)",
+      covers: ["countSubmissionsSinceBySite"],
+      run: (db) => submissions.countSubmissionsSinceBySite(db, SINCE_ISO),
+    },
+    {
+      name: "findRecentDuplicateSubmissions (spray scan)",
+      covers: ["findRecentDuplicateSubmissions"],
+      run: (db) => submissions.findRecentDuplicateSubmissions(db, LONG_MESSAGE, SINCE_DATE),
+    },
+    {
+      name: "listRecentSubmissionsForEmail (repeat-sender scan)",
+      covers: ["listRecentSubmissionsForEmail"],
+      run: (db) => submissions.listRecentSubmissionsForEmail(db, "ada@example.com", SINCE_DATE),
+    },
+    {
+      name: "markSubmissionsSpamRetro (non-empty ids — [] early-returns)",
+      covers: ["markSubmissionsSpamRetro"],
+      run: (db) => submissions.markSubmissionsSpamRetro(db, [state.createdId], "retro-dup"),
+    },
+    {
+      name: "listSpamReasonsFiltered (facet tally)",
+      covers: ["listSpamReasonsFiltered"],
+      run: (db) => submissions.listSpamReasonsFiltered(db, {}),
+    },
+    {
+      name: "backfillSubmission",
+      covers: ["backfillSubmission"],
+      run: (db) =>
+        submissions.backfillSubmission(db, {
+          id: "sub_backfill_gate",
+          submissionId: 999,
+          siteId: "recB",
+          formType: "newsletter",
+          name: "Bea",
+          email: "bea@example.com",
+          phone: null,
+          message: null,
+          extraFields: null,
+          sourceUrl: null,
+          utm: null,
+          submittedAt: "2026-08-11T00:00:00.000Z",
+          status: "new",
+          notifyStatus: "skipped",
+          resendMessageId: null,
+          spamScore: null,
+          spamReason: null,
+          fanoutStatus: null,
+        }),
+    },
+    {
+      name: "rescoreSubmissionSpam",
+      covers: ["rescoreSubmissionSpam"],
+      run: (db) => submissions.rescoreSubmissionSpam(db, "sub_backfill_gate", 80, "retro-rescore"),
+    },
+    {
+      name: "markFilteredAsRead (bulk triage with id-subquery)",
+      covers: ["markFilteredAsRead"],
+      run: (db) => submissions.markFilteredAsRead(db, { siteId: "recA" }),
+    },
+    {
+      name: "markNotifyBouncedByMessageId (webhook bounce lookup)",
+      covers: ["markNotifyBouncedByMessageId"],
+      run: (db) => submissions.markNotifyBouncedByMessageId(db, "re_gate_msg"),
+    },
+    {
+      name: "countNotifyBouncedBySite",
+      covers: ["countNotifyBouncedBySite"],
+      run: (db) => submissions.countNotifyBouncedBySite(db, SINCE_DATE),
+    },
+    {
+      // MED-11: the per-site form the /s/:slug bounce chip runs instead. It has
+      // NO allowlist entry, and must not need one — `idx_submissions_site_
+      // submitted` serves it as a SEARCH, which is the whole reason the request
+      // path is allowed to run it.
+      name: "countNotifyBouncedForSite (/s/:slug bounce chip)",
+      covers: ["countNotifyBouncedForSite"],
+      run: (db) => submissions.countNotifyBouncedForSite(db, "recA", SINCE_DATE),
+    },
+    {
+      // #783. The operator's acknowledge write — by primary key, so it plans as
+      // a single-row seek rather than a scan of the fleet's one unbounded table.
+      name: "ackNotifyBounce (operator clears a diagnosed false alarm)",
+      covers: ["ackNotifyBounce"],
+      run: (db) => submissions.ackNotifyBounce(db, "sub_gate_ack", new Date()),
+    },
+    {
+      name: "recordScreenOut (ingest-path upsert)",
+      covers: ["recordScreenOut"],
+      run: (db) => screenouts.recordScreenOut(db, "recA", "honeypot", "2026-08-10"),
+    },
+    {
+      name: "listScreenOutBucketsSince (the cockpit snapshot)",
+      covers: ["listScreenOutBucketsSince"],
+      run: (db) => screenouts.listScreenOutBucketsSince(db, SINCE_DATE),
+    },
+    {
+      name: "listScreenOutsSince (window on date + marked-spam count)",
+      covers: ["listScreenOutsSince"],
+      run: (db) => screenouts.listScreenOutsSince(db, SINCE_DATE),
+    },
+    {
+      // MED-11: the per-site form the /s/:slug spam panel runs instead. Two
+      // statements, both SEARCHes — the (site_id, date) primary key and
+      // `idx_submissions_site_submitted`. No allowlist entry, by design.
+      name: "screenOutTotalsForSite (/s/:slug spam panel)",
+      covers: ["screenOutTotalsForSite"],
+      run: (db) => screenouts.screenOutTotalsForSite(db, "recA", SINCE_DATE),
+    },
+    {
+      name: "backfillScreenoutBucket",
+      covers: ["backfillScreenoutBucket"],
+      run: (db) =>
+        screenouts.backfillScreenoutBucket(db, {
+          siteId: "recA",
+          date: "2026-08-09",
+          honeypot: 2,
+          tooFast: 1,
+          markedSpam: 0,
+        }),
+    },
+    {
+      name: "recordFleetEvent",
+      covers: ["recordFleetEvent"],
+      run: (db) =>
+        fleetEvents.recordFleetEvent(db, {
+          id: "evt_gate_1",
+          ts: "2026-08-10T00:00:00.000Z",
+          type: "pr_automerged",
+          siteId: null,
+          siteName: null,
+          summary: "gate probe",
+          data: null,
+        }),
+    },
+    {
+      name: "listFleetEvents (feed window)",
+      covers: ["listFleetEvents"],
+      run: (db) => fleetEvents.listFleetEvents(db, { sinceIso: SINCE_ISO, limit: 50 }),
+    },
+    {
+      name: "pruneFleetEvents",
+      covers: ["pruneFleetEvents"],
+      run: (db) => fleetEvents.pruneFleetEvents(db, "2026-01-01T00:00:00.000Z"),
+    },
+    {
+      name: "getSiteBySlug (form ingest / site detail lookup)",
+      covers: ["getSiteBySlug"],
+      run: (db) => fleetState.getSiteBySlug(db, "acme-gallery"),
+    },
+    {
+      name: "getSiteById (approve-report lookup)",
+      covers: ["getSiteById"],
+      run: (db) => fleetState.getSiteById(db, "recA"),
+    },
+    {
+      name: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
+      covers: ["listSites"],
+      run: (db) => fleetState.listSites(db),
+    },
+    {
+      name: "listSiteSlugs (the cockpit snapshot)",
+      covers: ["listSiteSlugs"],
+      run: (db) => fleetState.listSiteSlugs(db),
+    },
+    {
+      name: "listAllReports (cockpit fleet read)",
+      covers: ["listAllReports"],
+      run: (db) => fleetState.listAllReports(db),
+    },
+    {
+      name: "listSendableReports (the send queue)",
+      covers: ["listSendableReports"],
+      run: (db) => fleetState.listSendableReports(db),
+    },
+    {
+      name: "listApprovedUnqueuedReports (the send queue's cross-check, #1613)",
+      covers: ["listApprovedUnqueuedReports"],
+      run: (db) => fleetState.listApprovedUnqueuedReports(db),
+    },
+    {
+      name: "listReportsForSite (site page)",
+      covers: ["listReportsForSite"],
+      run: (db) => fleetState.listReportsForSite(db, "recA"),
+    },
+    {
+      name: "getReportById (approve gate read)",
+      covers: ["getReportById"],
+      run: (db) => fleetState.getReportById(db, "recA"),
+    },
+    {
+      // #646 (Phase 6 step 2): the resend-webhook's report lookup. Runs on
+      // every Resend delivery/bounce event for a report, so
+      // the plan must land on idx_reports_resend_message (0027), not a scan of
+      // the HTML-bearing reports table.
+      name: "findReportByMessageId (resend-webhook report lookup)",
+      covers: ["findReportByMessageId"],
+      run: (db) => fleetState.findReportByMessageId(db, "msg_probe"),
+    },
+    {
+      name: "getReportHtml (preview route)",
+      covers: ["getReportHtml"],
+      run: (db) => fleetState.getReportHtml(db, "recA"),
+    },
+    {
+      name: "mirrorSiteField (editor write-through)",
+      covers: ["mirrorSiteField"],
+      run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
+    },
+    {
+      // #609. Both readers need the WHOLE snapshot, which is exactly why it is
+      // one JSON row rather than a keyed table: this stays a primary-key lookup
+      // instead of the raw scan a "give me every key" query would be.
+      name: "readDigestState (digest diff + fleet-homepage NEW badges)",
+      covers: ["readDigestState", "readDigestStateChecked"],
+      run: (db) => digestState.readDigestState(db),
+    },
+    {
+      name: "writeDigestState (singleton upsert)",
+      covers: ["writeDigestState"],
+      run: (db) => digestState.writeDigestState(db, {}, "2026-08-26T00:00:00.000Z"),
+    },
+    {
+      // The cockpit roll-up (MED-16). It exists precisely so the fleet homepage
+      // stops aggregating over `submissions` per request — so this read landing
+      // on anything but a primary-key lookup would defeat its own purpose.
+      // The cockpit's "has anything changed?" read, once a minute per open tab:
+      // one row by primary key, or it would cost what it exists to save.
+      name: "readCockpitVersion (the cockpit snapshot's change counter)",
+      covers: ["readCockpitVersion"],
+      run: (db) => cockpitVersion.readCockpitVersion(db),
+    },
+    {
+      name: "readCockpitRollup (fleet-homepage spam + bounce strips)",
+      covers: ["readCockpitRollup"],
+      run: (db) => digestState.readCockpitRollup(db),
+    },
+    {
+      name: "writeCockpitRollup (nightly digest upsert)",
+      covers: ["writeCockpitRollup"],
+      run: (db) =>
+        digestState.writeCockpitRollup(db, {
+          spamTotals: { honeypot: 0, tooFast: 0, markedSpam: 0 },
+          notifyBounces: {},
+          windowDays: { screenOuts: 30, bounces: 14 },
+          computedAt: "2026-08-26T00:00:00.000Z",
+        }),
+    },
+    {
+      name: "readDigestSendLog (what the digest last sent, P1-20)",
+      covers: ["readDigestSendLog", "readDigestSendLogChecked"],
+      run: (db) => digestState.readDigestSendLog(db),
+    },
+    {
+      name: "writeDigestSendLog (digest send-log upsert)",
+      covers: ["writeDigestSendLog"],
+      run: (db) =>
+        digestState.writeDigestSendLog(
+          db,
+          { sentOn: "2026-09-29", sent: {}, readySince: {} },
+          "2026-09-29T00:00:00.000Z",
+        ),
+    },
+    {
+      // The site-create mirror (#539 Phase 5). Three upserts, each resolving its
+      // conflict on a PK — an unindexed conflict target would scan `sites` on
+      // every bootstrap, and that table carries the header-image BLOBs.
+      name: "mirrorSiteInsert (ensure-site write-through)",
+      covers: ["mirrorSiteInsert"],
+      run: (db) =>
+        fleetState.mirrorSiteInsert(
+          db,
+          { id: "recA", fields: { Name: "Acme Gallery" } },
+          "2026-08-25T12:00:00.000Z",
+        ),
+    },
+    {
+      // #646 step 3: the Turso-native creator's insert (run inside a transaction by
+      // src/db/site-create.ts — the SQL is identical, so it is planned here
+      // directly). Three plain INSERTs; `sites.slug` is checked by its UNIQUE
+      // index, which must stay an index probe, not a scan of the BLOB-bearing table.
+      name: "insertSiteRows (Turso-native ensure-site create)",
+      covers: ["insertSiteRows"],
+      run: (db) =>
+        fleetState.insertSiteRows(
+          db,
+          {
+            id: "site_01ARYZ6S41TSV4RRFFQ69G5FAV",
+            slug: "gate-new-site",
+            name: "gate-new-site",
+            status: "building",
+            url: null,
+            pointOfContact: null,
+            gitRepo: "reddoorla/gate-new-site",
+          },
+          "2026-09-17T00:00:00.000Z",
+        ),
+    },
+    {
+      // #646 step 3: ensure-site's fill-blanks / --name write. By PK, never by slug.
+      name: "updateSiteIdentity (ensure-site fill-blanks + rename)",
+      covers: ["updateSiteIdentity"],
+      run: (db) =>
+        fleetState.updateSiteIdentity(db, "site_01ARYZ6S41TSV4RRFFQ69G5FAV", {
+          name: "Gate New Site",
+          url: "https://gate.example.com",
+        }),
+    },
+    {
+      // The multi-column form (#539 Phase 5). Same by-PK predicate, but it is
+      // the one the one-off writers go through, so it is gated in its own right
+      // rather than inheriting mirrorSiteField's verdict.
+      name: "mirrorSiteFields (one-off writers' write-through)",
+      covers: ["mirrorSiteFields"],
+      run: (db) =>
+        fleetState.mirrorSiteFields(db, "recA", {
+          Status: "maintained",
+          "Launched at": "2026-08-25",
+        }),
+    },
+    {
+      name: "mirrorReportPatch (approve/webhook write-through)",
+      covers: ["mirrorReportPatch"],
+      run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
+    },
+    {
+      // P1-28: the conditioned approve / withdraw writes. The state predicates
+      // ride on the PK lookup, so the plan must still land on it.
+      name: "patchReportIfOpen (conditioned approve / withdraw)",
+      covers: ["patchReportIfOpen"],
+      run: async (db) => {
+        await fleetState.patchReportIfOpen(db, "recA", { approved_to_send: 1 }, "approvable");
+        await fleetState.patchReportIfOpen(
+          db,
+          "recA",
+          { withdrawn_at: "2026-09-30T00:00:00.000Z" },
+          "withdrawable",
+        );
+      },
+    },
+    {
+      // #1262: the conditioned unapprove rides on the PK lookup too.
+      name: "unapproveReportIfUnsent (conditioned unapprove)",
+      covers: ["unapproveReportIfUnsent"],
+      run: (db) =>
+        fleetState.unapproveReportIfUnsent(
+          db,
+          "recA",
+          new Date("2026-10-08T00:00:00.000Z"),
+          "dashboard",
+        ),
+    },
+    {
+      // #1262: the send batch's claim, conditioned on the row still sendable.
+      name: "claimReportForSend (the send's claim before Resend)",
+      covers: ["claimReportForSend"],
+      run: (db) =>
+        fleetState.claimReportForSend(
+          db,
+          "recA",
+          "2026-10-08T15:11:12.000Z",
+          new Date("2026-10-08T16:07:00.000Z"),
+        ),
+    },
+    {
+      name: "releaseSendClaim (a refused send drops its claim)",
+      covers: ["releaseSendClaim"],
+      run: (db) => fleetState.releaseSendClaim(db, "recA"),
+    },
+    {
+      // The create-side mirror (#539 Phase 5). Its upsert resolves the conflict
+      // on `reports.id`, so the plan must land on the PK — an unindexed
+      // conflict target would scan the whole HTML-bearing table on every draft.
+      name: "mirrorReportInsert (create-side write-through)",
+      covers: ["mirrorReportInsert"],
+      run: (db) =>
+        fleetState.mirrorReportInsert(db, { id: "recA", fields: { "Report ID": "acme-2026-08" } }),
+    },
+    {
+      // #646 step 4: the Turso-native report create. A plain INSERT — unlike the
+      // mirror's upsert above it has no conflict target, because the id was just
+      // minted — but it is planned in its own right: it is the one write that
+      // makes a report EXIST, and a future index or trigger on `reports` that
+      // turned it into a scan would do so on every nightly draft.
+      name: "insertReportRow (Turso-native report create)",
+      covers: ["insertReportRow"],
+      run: (db) =>
+        fleetState.insertReportRow(db, {
+          id: "report_01ARYZ6S41TSV4RRFFQ69G5FAV",
+          fields: { "Report ID": "acme-2026-09", Site: ["recA"], "Report type": "Maintenance" },
+        }),
+    },
+    {
+      // Writes a whole rendered body by PK. Gated like every other reports
+      // write: an unindexed predicate here would scan a table whose rows carry
+      // ~50–90 KB of HTML each.
+      name: "storeRenderedHtml (on-demand preview refresh)",
+      covers: ["storeRenderedHtml"],
+      run: (db) => fleetState.storeRenderedHtml(db, "recA", "<html>x</html>"),
+    },
+    {
+      name: "storeChecklistEvidence (preview refresh re-checks an unsent draft)",
+      covers: ["storeChecklistEvidence"],
+      run: (db) => fleetState.storeChecklistEvidence(db, "recA", {}, {}),
+    },
+    {
+      name: "storeLighthouseScores (preview refresh takes the site's current scores)",
+      covers: ["storeLighthouseScores"],
+      run: (db) =>
+        fleetState.storeLighthouseScores(db, "recA", {
+          performance: 1,
+          accessibility: 1,
+          bestPractices: 1,
+          seo: 1,
+        }),
+    },
+    {
+      name: "storeGaVisits (preview refresh re-measures an unsent draft's analytics, P1-73)",
+      covers: ["storeGaVisits"],
+      run: (db) => fleetState.storeGaVisits(db, "recA", { current: 1, previous: 1 }),
+    },
+    {
+      name: "mirrorHealthFields (nightly audit write-through)",
+      covers: ["mirrorHealthFields"],
+      run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),
+    },
+    {
+      name: "mirrorScheduleFields (next-due write-through)",
+      covers: ["mirrorScheduleFields"],
+      run: (db) =>
+        fleetState.mirrorScheduleFields(
+          db,
+          "recA",
+          { "Next maintenance at": "2026-09-01" },
+          "2026-08-24T00:00:00.000Z",
+        ),
+    },
+    {
+      name: "createDeadLetter",
+      covers: ["createDeadLetter"],
+      run: (db) =>
+        deadletter.createDeadLetter(db, {
+          siteSlug: "acme",
+          payload: { name: "Ada" },
+          turnstile: { outcome: "pass", hostname: "acme.example.com" },
+          error: "gate probe",
+          receivedAt: new Date("2026-08-10T00:00:00.000Z"),
+        }),
+    },
+    {
+      name: "listUnreplayedDeadLetters",
+      covers: ["listUnreplayedDeadLetters"],
+      run: (db) => deadletter.listUnreplayedDeadLetters(db),
+    },
+    {
+      // MED-10(c): the same query, returning the undecodable rows alongside the
+      // decodable ones instead of throwing on the first of them.
+      // `listUnreplayedDeadLetters` now delegates here, so this is the plan that
+      // actually runs for both.
+      name: "readUnreplayedDeadLetters (replay reads the queue)",
+      covers: ["readUnreplayedDeadLetters"],
+      run: (db) => deadletter.readUnreplayedDeadLetters(db),
+    },
+    {
+      // #645: the dropped-lead alarm's input. It runs on a DASHBOARD request, so
+      // its plan matters — and it must never carry lead payloads across.
+      name: "countUnreplayedDeadLettersBySlug (deadletter attention alarm)",
+      covers: ["countUnreplayedDeadLettersBySlug"],
+      run: (db) => deadletter.countUnreplayedDeadLettersBySlug(db),
+    },
+    {
+      // MED-11: the per-slug form /s/:slug runs instead of building the whole
+      // map. The plan reads SEARCH either way — what 0028 changes is WHICH index
+      // serves it, and therefore how many rows are visited. Asserted precisely in
+      // deadletter-per-slug-plan.test.ts, which this gate cannot express.
+      name: "countUnreplayedDeadLettersForSlug (/s/:slug dropped-lead chip)",
+      covers: ["countUnreplayedDeadLettersForSlug"],
+      run: (db) => deadletter.countUnreplayedDeadLettersForSlug(db, "acme"),
+    },
+    {
+      // OD 87: the hold's clock, the oldest unreplayed row per slug. Runs on a
+      // DASHBOARD request beside the count, on the count's plan; the per-slug form
+      // is covering on 0044's index. Both asserted in deadletter-per-slug-plan.test.ts.
+      name: "oldestUnreplayedDeadLetterBySlug (deadletter alarm hold)",
+      covers: ["oldestUnreplayedDeadLetterBySlug"],
+      run: (db) => deadletter.oldestUnreplayedDeadLetterBySlug(db),
+    },
+    {
+      name: "oldestUnreplayedDeadLetterForSlug (/s/:slug held dead letter)",
+      covers: ["oldestUnreplayedDeadLetterForSlug"],
+      run: (db) => deadletter.oldestUnreplayedDeadLetterForSlug(db, "acme"),
+    },
+    {
+      // #786: the operator's write-off. Reads the target ids under the same
+      // predicate the alarm counts on, then updates them by id — an operator
+      // gesture, not a request path, but it touches the queue the alarm reads.
+      //
+      // Creates its OWN row rather than abandoning the shared `acme` fixture:
+      // the markDeadLetterReplayed scenario below needs that one still queued,
+      // and taking it made this gate fail with "dead-letter row vanished" —
+      // which says nothing about query plans. Scenarios here share one database
+      // and run in order, so a scenario that CONSUMES state has to bring it.
+      name: "abandonDeadLetters (operator resolves a dead slug by decision)",
+      covers: ["abandonDeadLetters"],
+      run: async (db) => {
+        await deadletter.createDeadLetter(db, {
+          siteSlug: "gate-abandon",
+          payload: { name: "Ada" },
+          turnstile: { outcome: "pass", hostname: "acme.example.com" },
+          error: "gate probe",
+          receivedAt: new Date("2026-08-10T00:00:00.000Z"),
+        });
+        await deadletter.abandonDeadLetters(db, {
+          slug: "gate-abandon",
+          by: "gate",
+          reason: "query-plan gate probe",
+          now: new Date("2026-09-15T00:00:00.000Z"),
+        });
+      },
+    },
+    {
+      name: "markDeadLetterReplayed",
+      covers: ["markDeadLetterReplayed"],
+      run: async (db) => {
+        const [row] = await deadletter.listUnreplayedDeadLetters(db);
+        if (!row) throw new Error("dead-letter row vanished");
+        await deadletter.markDeadLetterReplayed(
+          db,
+          row.id,
+          "accepted",
+          "sub_x",
+          new Date("2026-08-11T00:00:00.000Z"),
+        );
+      },
+    },
+    {
+      name: "createProspectAudit (prospect-audit CLI write)",
+      covers: ["createProspectAudit"],
+      run: async (db) => {
+        const { token } = await prospectAudits.createProspectAudit(db, {
+          url: "https://prospect.example.com",
+          business: "Prospect Co",
+          resultJson: "{}",
+        });
+        prospectToken = token;
+      },
+    },
+    {
+      name: "getProspectAuditByToken (public /r/{token} read)",
+      covers: ["getProspectAuditByToken"],
+      run: (db) => prospectAudits.getProspectAuditByToken(db, prospectToken),
+    },
+    {
+      name: "listRecentProspectAudits (cockpit /audits listing)",
+      covers: ["listRecentProspectAudits"],
+      run: (db) => prospectAudits.listRecentProspectAudits(db, 5),
+    },
+    {
+      name: "setProspectAuditOverrides (operator edits a report)",
+      covers: ["setProspectAuditOverrides"],
+      run: async (db) => {
+        await prospectAudits.setProspectAuditOverrides(db, prospectToken, {
+          "composed:headlineFinding": { original: "a", text: "b" },
+        });
+      },
+    },
+    {
+      name: "touchProspectAuditOpened (prospect opens /r/{token})",
+      covers: ["touchProspectAuditOpened"],
+      run: (db) => prospectAudits.touchProspectAuditOpened(db, prospectToken),
+    },
+    {
+      // #907: the cap's count runs INSIDE the reservation's INSERT, so its plan
+      // is on every start of an audit — cockpit and CLI alike.
+      name: "countProspectAuditsTowardCap (daily-cap refusal message)",
+      covers: ["countProspectAuditsTowardCap"],
+      run: (db) => prospectAudits.countProspectAuditsTowardCap(db, new Date()),
+    },
+    {
+      name: "reserveProspectAudit (cockpit dispatch / CLI start: conditional INSERT)",
+      covers: ["reserveProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.reserveProspectAudit(db, {
+          url: "https://reserved.example.com",
+          business: null,
+          claimed: false,
+        });
+      },
+    },
+    {
+      name: "claimProspectAuditReservation (dispatched CLI adopts the cockpit's row)",
+      covers: ["claimProspectAuditReservation"],
+      run: async (db) => {
+        const claimed = await prospectAudits.claimProspectAuditReservation(
+          db,
+          "https://reserved.example.com",
+          new Date(),
+        );
+        if (!claimed) throw new Error("claim scenario found nothing to claim");
+        state.reservedId = claimed.id;
+      },
+    },
+    {
+      name: "finishProspectAudit (CLI completes its reserved row)",
+      covers: ["finishProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.finishProspectAudit(db, state.reservedId, {
+          url: "https://reserved.example.com",
+          business: null,
+          status: "complete",
+          resultJson: "{}",
+        });
+      },
+    },
+    {
+      name: "failProspectAudit (CLI marks its reserved row failed after a paid throw)",
+      covers: ["failProspectAudit"],
+      run: async (db) => {
+        const r = await prospectAudits.reserveProspectAudit(db, {
+          url: "https://failed.example.com",
+          business: null,
+          claimed: true,
+        });
+        if (r.kind !== "reserved") throw new Error("fail scenario could not reserve");
+        await prospectAudits.failProspectAudit(db, r.id);
+      },
+    },
+    {
+      name: "releaseProspectAuditReservation (failed dispatch gives its slot back)",
+      covers: ["releaseProspectAuditReservation"],
+      run: (db) =>
+        prospectAudits.releaseProspectAuditReservation(db, state.reservedId, {
+          onlyIfUnclaimed: true,
+        }),
+    },
+  ];
+}
+
+describe("EXPLAIN-query-plan gate", () => {
+  it("classifies every src/db module as gated or exempt", () => {
+    const files = fs.readdirSync(SRC_DB_DIR).filter((f) => f.endsWith(".ts"));
+    const unclassified = files.filter((f) => !(f in GATED_MODULES) && !(f in EXEMPT_MODULES));
+    expect(unclassified, "new src/db module must be gated or exempted with a reason").toEqual([]);
+    const stale = [...Object.keys(GATED_MODULES), ...Object.keys(EXEMPT_MODULES)].filter(
+      (f) => !files.includes(f),
+    );
+    expect(stale, "classification names a module that no longer exists").toEqual([]);
+  });
+
+  it("every exported query function of a gated module is exercised by a scenario", () => {
+    const exercised = new Set(
+      scenarios({ createdId: "", reservedId: "" }).flatMap((s) => s.covers),
+    );
+    const missing: string[] = [];
+    for (const [file, mod] of Object.entries(GATED_MODULES)) {
+      for (const [name, value] of Object.entries(mod)) {
+        if (typeof value !== "function") continue;
+        if (PURE_EXPORTS.has(name)) continue;
+        if (!exercised.has(name)) missing.push(`${file}#${name}`);
+      }
+    }
+    expect(missing, "unexercised db export — add a scenario or mark it pure").toEqual([]);
+    // The reverse direction: a scenario claiming to cover a function that does
+    // not exist (renamed export) is a silent coverage hole.
+    const allExports = new Set(
+      Object.values(GATED_MODULES).flatMap((mod) =>
+        Object.entries(mod)
+          .filter(([, v]) => typeof v === "function")
+          .map(([name]) => name),
+      ),
+    );
+    const phantom = [...exercised].filter((name) => !allExports.has(name));
+    expect(phantom, "scenario covers a function that is not exported").toEqual([]);
+  });
+
+  it("the filter matrix plans every SubmissionFilter key against every filtered function", () => {
+    // `FILTER_CASES` is `satisfies Record<keyof SubmissionFilter, …>`, so a new
+    // filter key fails to compile until it is added — this asserts the other
+    // direction at runtime, and that both functions really are driven off it.
+    const names = submissionFilterMatrix().map((s) => s.name);
+    for (const fn of ["listSubmissionsFiltered", "countSubmissionsFiltered"]) {
+      for (const key of Object.keys(FILTER_CASES)) {
+        expect(names, `${fn} has no scenario for the ${key} filter`).toContain(`${fn}: ${key}`);
+      }
+      expect(names).toContain(`${fn}: no filters`);
+      expect(names).toContain(`${fn}: every filter at once`);
+    }
+  });
+
+  it("no query a gated module executes raw-scans a table", async () => {
+    const h = await openCapturingDb();
+    const tables = await schemaTables(h.client);
+    const state = { createdId: "", reservedId: "" };
+    const violations: Array<{ scenario: string; table: string; detail: string; sql: string }> = [];
+    const observed = new Set<string>();
+    let statementCount = 0;
+    let scenarioCount = 0;
+
+    for (const scenario of scenarios(state)) {
+      const before = h.captured.length;
+      await scenario.run(h.db);
+      const stmts = h.captured.slice(before);
+      expect(
+        stmts.length,
+        `scenario "${scenario.name}" executed no SQL — vacuous, fix its arguments`,
+      ).toBeGreaterThan(0);
+      scenarioCount++;
+      for (const stmt of stmts) {
+        statementCount++;
+        const details = await explainQueryPlan(h.client, stmt);
+        for (const table of rawScanTables(details, tables, stmt.sql)) {
+          observed.add(`${scenario.name}|${table}`);
+          const allowed = ALLOWED_RAW_SCANS.some(
+            (a) => a.scenario === scenario.name && a.table === table,
+          );
+          if (!allowed) {
+            violations.push({
+              scenario: scenario.name,
+              table,
+              detail: details.join(" | "),
+              sql: stmt.sql,
+            });
+          }
+        }
+      }
+    }
+
+    console.log(
+      `DB_QUERY_PLAN scenarios=${scenarioCount} statements=${statementCount} raw_scans=${violations.length}`,
+    );
+    expect(violations, "raw full-table scan — add an index or an ALLOWED_RAW_SCANS entry").toEqual(
+      [],
+    );
+
+    // An allowlist entry that no longer describes a real scan is dead permission:
+    // it keeps a name exempted after the scenario is renamed or an index makes it
+    // unnecessary, and silently re-permits a future regression that happens to
+    // reuse the name. Every entry must still be earning its place.
+    const stale = ALLOWED_RAW_SCANS.filter((a) => !observed.has(`${a.scenario}|${a.table}`)).map(
+      (a) => `${a.scenario} -> ${a.table}`,
+    );
+    expect(stale, "ALLOWED_RAW_SCANS entry no longer matches a real raw scan — delete it").toEqual(
+      [],
+    );
+  });
+
+  // ————— Prove the instrument (both directions) before trusting its verdict —————
+
+  it("detector unit: flags a bare SCAN of a real table, nothing else", () => {
+    const tables = new Set(["submissions"]);
+    expect(rawScanTables(["SCAN submissions"], tables)).toEqual(["submissions"]);
+    expect(
+      rawScanTables(
+        [
+          "SEARCH submissions USING INDEX idx_submissions_site_submitted (site_id=?)",
+          "SCAN 2 CONSTANT ROWS",
+          "SCAN (subquery-1)",
+          "USE TEMP B-TREE FOR ORDER BY",
+        ],
+        tables,
+      ),
+    ).toEqual([]);
+  });
+
+  it("detector unit: an index-ordered SCAN counts unless a LIMIT can stop it", () => {
+    // The old rule skipped anything containing `USING`, on the reasoning that an
+    // index-ordered traversal under a LIMIT stops early. True — but only when
+    // there IS a limit. An aggregate has none and reads every row through the
+    // index, which on a row-scan-metered store costs exactly what a raw scan does.
+    const tables = new Set(["submissions"]);
+    const indexScan = ["SCAN submissions USING COVERING INDEX idx_submissions_status"];
+
+    // Both states, so this cannot pass by always answering the same way.
+    expect(rawScanTables(indexScan, tables, "select count(*) from submissions")).toEqual([
+      "submissions",
+    ]);
+    expect(rawScanTables(indexScan, tables, "select * from submissions limit 50")).toEqual([]);
+
+    // With no SQL supplied the detector cannot know, and must not silently excuse.
+    expect(rawScanTables(indexScan, tables)).toEqual(["submissions"]);
+    // A SEARCH is a seek, not a traversal — never flagged, limit or no limit.
+    expect(
+      rawScanTables(
+        ["SEARCH submissions USING INDEX idx_submissions_status (status=?)"],
+        tables,
+        "select count(*) from submissions where status = ?",
+      ),
+    ).toEqual([]);
+  });
+
+  it("live known-bad probe: an unindexed predicate IS reported as a raw scan", async () => {
+    const h = await openCapturingDb();
+    const tables = await schemaTables(h.client);
+    // email has no index — this genuinely full-scans.
+    const details = await explainQueryPlan(h.client, {
+      sql: "SELECT * FROM submissions WHERE email = ?",
+      args: ["x@example.com"],
+    });
+    expect(rawScanTables(details, tables)).toEqual(["submissions"]);
+  });
+
+  // ————— MED-11: the allowlist's stated reason, checked against the code —————
+  //
+  // `mirror-write.test.ts` has a "no exemption is stale" test; the check
+  // below is its equivalent here, and it is stricter in one way that matters:
+  // that one asks whether an exemption still names a real FILE, this one asks
+  // whether an exemption's stated REASON is still true. The 08-26 brief named
+  // the failure mode twice before it shipped anyway — an allowlist keyed on a
+  // scenario name whose justification nothing ever re-reads.
+
+  it("the request-path graph reaches the db layer at all (vacuity guard)", () => {
+    const { files, importers, namespaceImports } = requestPathGraph();
+    // Without this, every claim below passes by finding nothing.
+    expect(files.size).toBeGreaterThan(50);
+    // The /s/:slug handler reads through the shared page loaders (#582), so the
+    // per-slug lookup's importer is page-data.ts, which the handler reaches.
+    expect(
+      importers.get("getSiteBySlug") ?? [],
+      "the per-slug site lookup is imported by the shared page loaders — if this is " +
+        "empty the import reader has stopped working, not the request path",
+    ).toContain("src/dashboard/page-data.ts");
+    expect(files).toContain(path.join(ROOT, "src/dashboard/page-data.ts"));
+    expect(files).toContain(path.join(ROOT, "cockpit/src/hooks.server.ts"));
+    // The known-bad direction: a batch-only function must NOT appear.
+    expect(importers.get("countSubmissionsSinceBySite") ?? []).toEqual([]);
+    // `import * as db from "…/submissions.js"` would hide every call behind one
+    // binding. None exist today; if one lands, this gate must be taught to read
+    // it rather than silently start passing.
+    expect(
+      namespaceImports,
+      "a namespace import of a gated db module blinds the requestPath check",
+    ).toEqual([]);
+  });
+
+  it("every ALLOWED_RAW_SCANS requestPath claim matches the import graph", () => {
+    const { importers } = requestPathGraph();
+    const covers = new Map(
+      scenarios({ createdId: "", reservedId: "" }).map((s) => [s.name, s.covers]),
+    );
+    const wrong: string[] = [];
+    for (const entry of ALLOWED_RAW_SCANS) {
+      const fns = covers.get(entry.scenario);
+      expect(fns, `ALLOWED_RAW_SCANS names no such scenario: ${entry.scenario}`).toBeDefined();
+      const reached = (fns ?? []).flatMap((fn) => importers.get(fn) ?? []);
+      const actual = reached.length > 0;
+      if (actual !== entry.requestPath) {
+        wrong.push(
+          entry.requestPath
+            ? `${entry.scenario}: claims requestPath:true, but no Netlify function imports ${(fns ?? []).join("/")}`
+            : `${entry.scenario}: claims requestPath:false ("${entry.why.slice(0, 48)}…"), but ${[...new Set(reached)].join(", ")} imports it`,
+        );
+      }
+    }
+    expect(
+      wrong,
+      "an ALLOWED_RAW_SCANS entry's stated reason no longer describes the code",
+    ).toEqual([]);
+  });
+
+  it("live known-good probe: an indexed predicate is SEARCHed and not flagged", async () => {
+    const h = await openCapturingDb();
+    const tables = await schemaTables(h.client);
+    const details = await explainQueryPlan(h.client, {
+      sql: "SELECT * FROM submissions WHERE site_id = ? ORDER BY submitted_at DESC",
+      args: ["recA"],
+    });
+    expect(details.some((d) => d.startsWith("SEARCH submissions USING INDEX"))).toBe(true);
+    expect(rawScanTables(details, tables)).toEqual([]);
+  });
+});

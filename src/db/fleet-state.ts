@@ -1,0 +1,1044 @@
+/** The fleet-state READ layer.
+ *
+ *  The raw values live in `sites`/`site_health`/`site_schedule`; coercion to
+ *  `WebsiteRow` happens HERE, reusing the same coercers `mapRow`
+ *  (`src/fleet/site-fields.ts`) applies (`toVerdict`, `toFrequency`,
+ *  `parseNotifyRouting`, `parseSecurityAdvisories`, `trimToNull`, all in
+ *  `src/fleet/site-row.ts`) so there is one truth for each.
+ *
+ *  The equivalence instrument (tests/db/fleet-state.test.ts) pins this module
+ *  to `mapRow` field-by-field: for a fixture record, `mapRow(rec)` must
+ *  deep-equal the row read back through here after `mirrorSiteInsert` has
+ *  written it. A new WebsiteRow field fails that test until this module
+ *  carries it.
+ *
+ *  `headerImage` is the ONE deliberate exception (design D5): the bytes live in
+ *  `sites.header_image*`, which the header-image CLI writes on every generation.
+ *
+ *  The `url` is "" because the bytes live in the row itself, not behind a signed
+ *  URL — which is why `url` is NOT a usable handle. A consumer that needs the
+ *  image calls `loadHeaderImage(db, siteId)` for the bytes; the send path does
+ *  exactly that.
+ */
+import { sql, type Selectable, type Updateable } from "kysely";
+import type { Db } from "./client.js";
+import type { ReportsTable, SiteHealthTable, SiteScheduleTable, SitesTable } from "./schema.js";
+import {
+  SITE_FIELDS,
+  siteValueFor,
+  healthColumnFor,
+  scheduleColumnFor,
+  mapReportRecord,
+  mapWebsiteRecord,
+  type RawRecord,
+} from "./field-map.js";
+import type { CellValue } from "../fleet/site-fields.js";
+import {
+  toReportType,
+  parseAutoEvidence,
+  type ReportRow,
+  type DeliveryStatus,
+} from "../reports/report-row.js";
+import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
+import type { EvidenceRecord } from "../reports/auto-tick.js";
+import type { LighthouseScores } from "../reports/types.js";
+import { canonicalizeStatus } from "../fleet/site-status.js";
+import { toSearchConsoleOutcome } from "../fleet/search-console-evidence.js";
+import {
+  parseNotifyRouting,
+  parseSecurityAdvisories,
+  parseSecurityLockfileAudit,
+  toFrequency,
+  toPrismicModelsVerdict,
+  toVerdict,
+  trimToNull,
+  type WebsiteRow,
+} from "../fleet/site-row.js";
+
+type JoinedRow = Record<string, unknown>;
+
+const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
+/** Stored 1/0/null (field-map's b01n) → boolean | null. */
+const bool = (v: unknown): boolean | null => (typeof v === "number" ? v !== 0 : null);
+
+/** Stored JSON array (siteValueFor-normalized) → the trimmed string[] mapRow yields. */
+function parseAwc(raw: unknown): string[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function rowFromJoined(r: JoinedRow): WebsiteRow {
+  const name = String(r.name ?? "");
+  const headerFilename = str(r.header_image_filename);
+  const headerType = str(r.header_image_type);
+  return {
+    id: String(r.id),
+    name,
+    url: str(r.url) ?? "",
+    // `sites.status` holds the RAW cell verbatim (field-map's `siteValueFor`
+    // stores it as given). Canonicalizing HERE — the twin of mapRow's seam — is
+    // what keeps the #558 equivalence instrument green.
+    status: canonicalizeStatus(r.status),
+    statusRaw: str(r.status),
+    pointOfContact: str(r.point_of_contact),
+    maintenanceFreq: toFrequency(r.maintenance_freq, `${name} maintenance`),
+    testingFreq: toFrequency(r.testing_freq, `${name} testing`),
+    maintenanceFreqRaw: str(r.maintenance_freq),
+    testingFreqRaw: str(r.testing_freq),
+    maintenanceDay: str(r.maintenance_day),
+    testingDay: str(r.testing_day),
+    ga4PropertyId: str(r.ga4_property_id),
+    searchQuery: str(r.search_query),
+    searchConsoleProperty: str(r.search_console_property),
+    analyticsSoftFailAt: str(r.analytics_soft_fail_at),
+    gitRepo: str(r.git_repo),
+    reportRecipientsTo: str(r.report_recipients_to),
+    reportRecipientsCc: str(r.report_recipients_cc),
+    acceptedWatchConditions: parseAwc(r.accepted_watch_conditions),
+    headerImage:
+      headerFilename !== null && headerType !== null
+        ? { url: "", filename: headerFilename, type: headerType }
+        : null,
+    pScore: num(r.p_score),
+    rScore: num(r.r_score),
+    bpScore: num(r.bp_score),
+    seoScore: num(r.seo_score),
+    lastLighthouseAuditAt: str(r.lighthouse_at),
+    lighthouseFailingAudits: str(r.lighthouse_failing_audits),
+    a11yViolations: num(r.a11y_violations),
+    a11yRoutesScanned: num(r.a11y_routes_scanned),
+    a11yRoutesTotal: num(r.a11y_routes_total),
+    depsDrifted: num(r.deps_drifted),
+    depsMajorBehind: num(r.deps_major_behind),
+    depsOutdated: num(r.deps_outdated),
+    depsMajorOutdated: num(r.deps_major_outdated),
+    securityVulnsCritical: num(r.vulns_critical),
+    securityVulnsHigh: num(r.vulns_high),
+    securityVulnsModerate: num(r.vulns_moderate),
+    securityVulnsLow: num(r.vulns_low),
+    securityAutoFixAttempts: num(r.auto_fix_attempts),
+    lastSecurityAuditAt: str(r.security_audit_at),
+    securityAdvisories: parseSecurityAdvisories(r.security_advisories),
+    securityLockfileAudit: parseSecurityLockfileAudit(r.security_lockfile_audit),
+    certDaysRemaining: num(r.cert_days_remaining),
+    domainCheckedAt: str(r.domain_checked_at),
+    netlifyId: trimToNull(r.netlify_id),
+    deployStatus: str(r.deploy_status),
+    lastDeployAt: str(r.last_deploy_at),
+    deployLogUrl: str(r.deploy_log_url),
+    deployCheckedAt: str(r.deploy_checked_at),
+    functionHealth: toVerdict(r.function_health),
+    cmsReachable: toVerdict(r.cms_reachable),
+    turnstileWidget: toVerdict(r.turnstile_widget),
+    functionHealthCheckedAt: str(r.function_health_checked_at),
+    crossbrowserOk: bool(r.crossbrowser_ok),
+    mobileOk: bool(r.mobile_ok),
+    linksOk: bool(r.links_ok),
+    brokenLinks: num(r.broken_links),
+    browserCheckedAt: str(r.browser_checked_at),
+    reachableOk: toVerdict(r.uptime_reachable),
+    titleMetaOk: toVerdict(r.titles_meta_ok),
+    copyIntro: trimToNull(r.copy_intro),
+    copyContact: trimToNull(r.copy_contact),
+    copyFooter: trimToNull(r.copy_footer),
+    launchedAt: str(r.launched_at),
+    newsletterWebhook: trimToNull(r.newsletter_webhook),
+    notifyRouting: parseNotifyRouting(r.notify_routing),
+    notifyRoutingRaw: trimToNull(r.notify_routing),
+    mailchimpApiKey: trimToNull(r.mailchimp_api_key),
+    mailchimpAudienceId: trimToNull(r.mailchimp_audience_id),
+    requireTurnstile: typeof r.require_turnstile === "number" ? r.require_turnstile !== 0 : false,
+    renovateFailingCis: num(r.renovate_failing_cis),
+    defaultBranchCi: str(r.default_branch_ci),
+    lastCommitAt: str(r.last_commit_at),
+    githubSignalsAt: str(r.github_signals_at),
+    smokeOk: toVerdict(r.smoke_ok),
+    lastSmokeAt: str(r.last_smoke_at),
+    formE2eOk: toVerdict(r.form_e2e_ok),
+    formE2eCheckedAt: str(r.form_e2e_checked_at),
+    prismicModels: toPrismicModelsVerdict(r.prismic_models),
+    prismicModelsCheckedAt: str(r.prismic_models_checked_at),
+    prismicModelsDrift: str(r.prismic_models_drift),
+    prismicAckUntil: str(r.prismic_ack_until),
+    prismicAckDrift: str(r.prismic_ack_drift),
+    urlResolves: toVerdict(r.url_resolves),
+    urlStatus: str(r.url_status),
+    urlCheckedAt: str(r.url_checked_at),
+    searchConsoleOutcome: toSearchConsoleOutcome(r.search_console_outcome),
+    searchConsoleResolved: str(r.search_console_resolved),
+    searchConsoleCheckedAt: str(r.search_console_checked_at),
+    nextMaintenanceAt: str(r.next_maintenance_at),
+    nextTestingAt: str(r.next_testing_at),
+  };
+}
+
+/** Every sites column EXCEPT the header-image BLOB. Since the 2026-08-24
+ *  backfill, header_image holds 0.7–3.5 MB JPEGs — a selectAll would haul
+ *  megabytes into every site lookup (per LEAD on the ingest path, ×44 on the
+ *  fleet list) and Turso bills the bytes. WebsiteRow only needs the metadata
+ *  columns; the bytes have their own dedicated readers when a consumer wants
+ *  them. Kept in lockstep with SitesTable by the blob-exclusion test. */
+const SITE_COLUMNS = [
+  "sites.id",
+  "sites.slug",
+  "sites.name",
+  "sites.url",
+  "sites.status",
+  "sites.point_of_contact",
+  "sites.maintenance_freq",
+  "sites.testing_freq",
+  "sites.maintenance_day",
+  "sites.testing_day",
+  "sites.ga4_property_id",
+  "sites.search_query",
+  "sites.search_console_property",
+  "sites.git_repo",
+  "sites.netlify_id",
+  "sites.report_recipients_to",
+  "sites.report_recipients_cc",
+  "sites.copy_intro",
+  "sites.copy_contact",
+  "sites.copy_footer",
+  "sites.newsletter_webhook",
+  "sites.mailchimp_api_key",
+  "sites.mailchimp_audience_id",
+  "sites.notify_routing",
+  "sites.require_turnstile",
+  "sites.accepted_watch_conditions",
+  "sites.prismic_ack_until",
+  "sites.prismic_ack_drift",
+  "sites.launched_at",
+  "sites.header_image_filename",
+  "sites.header_image_type",
+  "sites.header_image_generated_at",
+  "sites.legacy",
+] as const;
+
+/** The three-table join every read composes from. site_health/site_schedule
+ *  rows are inserted alongside sites by insertSiteRows, but LEFT JOIN anyway —
+ *  a site row must never vanish from a surface because a health row is absent. */
+function joined(db: Db) {
+  return db
+    .selectFrom("sites")
+    .leftJoin("site_health", "site_health.site_id", "sites.id")
+    .leftJoin("site_schedule", "site_schedule.site_id", "sites.id")
+    .select(SITE_COLUMNS)
+    .selectAll(["site_health", "site_schedule"]);
+}
+
+/** The site-detail editor's write (Phase 2): the cell into `sites`, so a
+ *  Turso-reading page renders the edit immediately. The column mapping is the
+ *  field map's own `SITE_FIELDS` — one truth — and the value gets its
+ *  empty-clears-to-null semantics. Throws on a column the field map doesn't
+ *  claim (the lockstep test makes that unreachable for the editor's
+ *  allowlist); the caller routes a failure through `mirrorWrite`.
+ *
+ *  Handles the non-text columns too (`Require Turnstile` is a checkbox,
+ *  `Accepted Watch Conditions` a multi-select): the coercion is NOT repeated
+ *  here, it is delegated to the field map's own `siteValueFor`, the same path
+ *  `mapWebsiteRecord` takes. */
+export async function mirrorSiteField(
+  db: Db,
+  siteId: string,
+  column: string,
+  value: CellValue,
+): Promise<void> {
+  await mirrorSiteFields(db, siteId, { [column]: value });
+}
+
+/** The multi-column form, and where the work actually happens (#539 Phase 5).
+ *
+ *  The launch stamp is why it exists: `launchedFields` flips `Status` AND stamps
+ *  `Launched at` in one FieldSet, and writing those as two separate UPDATEs would
+ *  open a window where Turso says a site is maintained but never launched.
+ *
+ *  Same contract as {@link mirrorHealthFields}, deliberately — it takes a
+ *  column-named FieldSet from the pure builders, and returns whether a `sites`
+ *  row matched: a site with no row updates 0 rows → false, so the caller can
+ *  count it honestly instead of claiming it mirrored. An empty FieldSet runs no
+ *  SQL and returns true — nothing to mirror is not a miss. */
+export async function mirrorSiteFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  const patch: Record<string, string | number | null> = {};
+  for (const [column, value] of Object.entries(fields)) {
+    const col = SITE_FIELDS[column];
+    if (!col) throw new Error(`mirrorSiteFields: importer claims no sites column for '${column}'`);
+    // Empty text still clears to null (the field map's `s()` does the same); the
+    // non-text columns get their own coercion inside siteValueFor.
+    patch[col] = siteValueFor(col, value);
+  }
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
+    .updateTable("sites")
+    .set(patch as Updateable<SitesTable>)
+    .where("id", "=", siteId)
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
+}
+
+/** Upsert a site's three rows from a column-named record (#539 Phase 5). It
+ *  served the #645 heal's ADOPT; since #646 step 3 a new site is created by
+ *  {@link insertSiteRows} instead.
+ *
+ *  `ensure-site` CREATED a row, and every other site mirror is an UPDATE, which
+ *  does nothing at all for a row that does not exist yet — so a site
+ *  bootstrapped at 09:05 was invisible until the 09:20 sync, and every mirror
+ *  the rest of the bootstrap fired reported `mirrored=missed` with nothing to
+ *  update.
+ *
+ *  Maps with `mapWebsiteRecord`, so the rows are exactly what that one mapping
+ *  produces rather than a column list someone has to remember to extend.
+ *
+ *  All THREE rows, not just `sites`: a later `mirrorHealthFields` would return
+ *  `missed` forever with no row to hit.
+ *
+ *  Upserts rather than inserts. The header_image* columns survive a re-run by
+ *  construction — `mapWebsiteRecord` does not carry them (design D5), so the
+ *  conflict branch cannot blank a stored plate whose bytes live in no other
+ *  store. */
+export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: string): Promise<void> {
+  const { site, health, schedule } = mapWebsiteRecord(rec, computedAt);
+  await db
+    .insertInto("sites")
+    .values(site)
+    .onConflict((oc) => oc.column("id").doUpdateSet(site))
+    .execute();
+  await db
+    .insertInto("site_health")
+    .values(health)
+    .onConflict((oc) => oc.column("site_id").doUpdateSet(health))
+    .execute();
+  await db
+    .insertInto("site_schedule")
+    .values(schedule)
+    .onConflict((oc) => oc.column("site_id").doUpdateSet(schedule))
+    .execute();
+}
+
+/** The nightly health writers' Turso write (#539 Phase 3). Takes the
+ *  column-named FieldSet from the pure builders (`auditFields` /
+ *  `gitHubSignalsFields`). Resolution + coercion come from the field map's
+ *  healthColumnFor — one truth; a column no site_health column claims throws
+ *  (same contract as mirrorSiteField). Partial by design: absent fields stay
+ *  untouched, matching gitHubSignalsFields' deliberate omission of a null
+ *  lastCommitAt. Returns whether a site_health row matched: a site with no row
+ *  updates 0 rows → false, so the caller can count it honestly
+ *  (mirror_missed) instead of claiming it mirrored. An empty FieldSet runs no
+ *  SQL and returns true: nothing to mirror is not a miss. */
+export async function mirrorHealthFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  // Per-column value types (number vs text) are guaranteed by healthColumnFor's
+  // coercion — the numeric/text split lives there, once — so the patch builds
+  // untyped and casts at the .set() boundary (mapWebsiteRecord's own idiom).
+  const patch: Record<string, string | number | null> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    const m = healthColumnFor(field);
+    if (!m)
+      throw new Error(`mirrorHealthFields: importer claims no site_health column for '${field}'`);
+    patch[m.col] = m.coerce(value);
+  }
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
+    .updateTable("site_health")
+    .set(patch as Updateable<SiteHealthTable>)
+    .where("site_id", "=", siteId)
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
+}
+
+/** A site as the Turso-native creator INSERTS it (#646 step 3). Only the columns
+ *  `ensure-site` owns; everything else starts at its schema default (null, or 0
+ *  for `require_turnstile`). */
+export type NewSiteRow = {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  url: string | null;
+  pointOfContact: string | null;
+  gitRepo: string | null;
+};
+
+/** Insert a brand-new site's three rows: `sites`, `site_health`, `site_schedule`.
+ *
+ *  Plain INSERTs, not upserts — the id was just minted, so a conflict on any of
+ *  the three primary keys, or on `sites.slug`, means something is wrong and must
+ *  fail loudly rather than overwrite. Atomicity is the CALLER's: `src/db/site-
+ *  create.ts` runs this inside one transaction (a Kysely `Transaction` is a
+ *  `Db`), so a failure on the third insert leaves none of the three behind.
+ *  Why all three: every reader LEFT JOINs the companions, but the nightly health
+ *  and schedule writers are UPDATEs, and an UPDATE that matches no row throws
+ *  (`mirrored=missed`). */
+export async function insertSiteRows(db: Db, site: NewSiteRow, computedAt: string): Promise<void> {
+  await db
+    .insertInto("sites")
+    .values({
+      id: site.id,
+      slug: site.slug,
+      name: site.name,
+      status: site.status,
+      url: site.url,
+      point_of_contact: site.pointOfContact,
+      git_repo: site.gitRepo,
+      require_turnstile: 0,
+    })
+    .execute();
+  await db.insertInto("site_health").values({ site_id: site.id }).execute();
+  await db
+    .insertInto("site_schedule")
+    .values({
+      site_id: site.id,
+      next_maintenance_at: null,
+      next_testing_at: null,
+      computed_at: computedAt,
+    })
+    .execute();
+}
+
+/** The columns `ensure-site` may change on an EXISTING site: its fill-blanks
+ *  inputs and the `--name` retitle. `slug` is absent BY TYPE — it is the stable
+ *  external handle (URLs, `/api/forms/:slug`, deployed sites) and no rename may
+ *  move it (operator decision 2026-09-17). */
+export type SiteIdentityPatch = {
+  name?: string;
+  url?: string;
+  pointOfContact?: string;
+  gitRepo?: string;
+};
+
+/** Apply a {@link SiteIdentityPatch} to one `sites` row by PK. Returns whether a
+ *  row matched; an empty patch runs no SQL and returns true (nothing to write is
+ *  not a miss) — the same contract as {@link mirrorSiteFields}. */
+export async function updateSiteIdentity(
+  db: Db,
+  siteId: string,
+  patch: SiteIdentityPatch,
+): Promise<boolean> {
+  const set: Updateable<SitesTable> = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.url !== undefined) set.url = patch.url;
+  if (patch.pointOfContact !== undefined) set.point_of_contact = patch.pointOfContact;
+  if (patch.gitRepo !== undefined) set.git_repo = patch.gitRepo;
+  if (Object.keys(set).length === 0) return true;
+  const res = await db.updateTable("sites").set(set).where("id", "=", siteId).executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** The site_schedule twin of {@link mirrorHealthFields}, for the nightly
+ *  next-due write-back. `computedAt` stamps when THIS computation ran. Empty
+ *  fields → full no-op (no lone computed_at stamp for a write that carried
+ *  nothing). Same return contract as mirrorHealthFields: false when the UPDATE
+ *  matched no site_schedule row, true otherwise — including the empty-fields
+ *  no-op. */
+export async function mirrorScheduleFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+  computedAt: string,
+): Promise<boolean> {
+  const patch: Record<string, string | null> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    const m = scheduleColumnFor(field);
+    if (!m)
+      throw new Error(
+        `mirrorScheduleFields: importer claims no site_schedule column for '${field}'`,
+      );
+    patch[m.col] = m.coerce(value);
+  }
+  if (Object.keys(patch).length === 0) return true;
+  patch.computed_at = computedAt;
+  const res = await db
+    .updateTable("site_schedule")
+    .set(patch as Updateable<SiteScheduleTable>)
+    .where("site_id", "=", siteId)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** By slug: siteSlug(Name), stored in the UNIQUE sites.slug column. */
+export async function getSiteBySlug(db: Db, slug: string): Promise<WebsiteRow | null> {
+  const r = await joined(db).where("sites.slug", "=", slug).executeTakeFirst();
+  return r ? rowFromJoined(r as JoinedRow) : null;
+}
+
+/** By site id (the PK) — approve-report's lookup shape. */
+export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null> {
+  const r = await joined(db).where("sites.id", "=", id).executeTakeFirst();
+  return r ? rowFromJoined(r as JoinedRow) : null;
+}
+
+/** Every site, one row each.
+ *  Name-ordered for determinism (no consumer is order-sensitive — the cockpit
+ *  groups and sorts itself). */
+export async function listSites(db: Db): Promise<WebsiteRow[]> {
+  const rows = await joined(db).orderBy("sites.name").execute();
+  return rows.map((r) => rowFromJoined(r as JoinedRow));
+}
+
+/** Every site's stored slug, by id: what `getSiteBySlug` matches, for the cockpit
+ *  snapshot (`src/dashboard/snapshot.ts`). Not a `WebsiteRow` field. */
+export async function listSiteSlugs(db: Db): Promise<Array<{ id: string; slug: string }>> {
+  return db.selectFrom("sites").select(["id", "slug"]).execute();
+}
+
+// ————————————————————————— reports —————————————————————————
+
+/** stable checklist key → `field` name. The store keeps stable keys
+ *  (mapReportRecord); `ReportRow.checklist` exposes `field` names — one
+ *  derived map, built from the checklist definitions themselves. */
+const CHECKLIST_FIELD_BY_KEY: ReadonlyMap<string, string> = new Map(
+  [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.key, i.field]),
+);
+
+function checklistFromStored(raw: string | null): Record<string, boolean> {
+  let stored: Record<string, unknown> = {};
+  if (typeof raw === "string" && raw.trim() !== "") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        stored = parsed as Record<string, unknown>;
+    } catch {
+      // fall through to all-false — a bad blob must not throw the page
+    }
+  }
+  const out: Record<string, boolean> = {};
+  for (const [key, field] of CHECKLIST_FIELD_BY_KEY) out[field] = Boolean(stored[key]);
+  return out;
+}
+
+/**
+ * `hasRenderedHtml` is passed separately rather than read off `r`, because the
+ * list read deliberately does not fetch the body (see REPORT_LIST_COLUMNS) and
+ * only ever needed its null-ness. Taking it as an argument means a list row and a
+ * full row are both honest inputs, and nothing here can start depending on body
+ * CONTENT without the type changing to say so.
+ */
+function reportRowFromDb(
+  r: Omit<Selectable<ReportsTable>, "rendered_html">,
+  hasRenderedHtml: boolean,
+): ReportRow {
+  const p = r.lighthouse_performance;
+  const a = r.lighthouse_accessibility;
+  const b = r.lighthouse_best_practices;
+  const seo = r.lighthouse_seo;
+  const lighthouse =
+    typeof p === "number" &&
+    typeof a === "number" &&
+    typeof b === "number" &&
+    typeof seo === "number"
+      ? { performance: p, accessibility: a, bestPractices: b, seo }
+      : null;
+  return {
+    id: r.id,
+    reportId: r.report_id ?? "",
+    siteId: r.site_id ?? "",
+    reportType: toReportType(r.report_type ?? undefined),
+    period: r.period,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    completedOn: r.completed_on,
+    lighthouse,
+    gaUsersCurrent: r.ga_users_current,
+    gaUsersPrevious: r.ga_users_previous,
+    searchFoundPage1: bool(r.search_found_page1),
+    searchPosition: r.search_position,
+    lastTestedDate: r.last_tested_date,
+    commentary: r.commentary,
+    subjectOverride: r.subject_override,
+    draftReady: r.draft_ready !== 0,
+    approvedToSend: r.approved_to_send !== 0,
+    sentAt: r.sent_at,
+    approvedAt: r.approved_at,
+    approvedBy: r.approved_by,
+    deliveryStatus: (r.delivery_status ?? "pending") as DeliveryStatus,
+    // The body lives IN the row (rendered_html) — the link points at the
+    // dashboard's own preview route.
+    renderedHtmlAttachment: hasRenderedHtml
+      ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
+      : null,
+    resendMessageId: r.resend_message_id,
+    checklist: checklistFromStored(r.checklist),
+    autoEvidence: parseAutoEvidence(r.checklist_auto_evidence),
+    sendOverride: r.send_override !== 0,
+    overrideReason: r.override_reason,
+    overrideBy: r.override_by,
+    overrideAt: r.override_at,
+    withdrawnAt: r.withdrawn_at,
+    withdrawnBy: r.withdrawn_by,
+    sendStartedAt: r.send_started_at,
+  };
+}
+
+/** Every reports column EXCEPT the rendered_html body — the exact hazard
+ *  SITE_COLUMNS guards against on `sites`, on the table where it currently costs
+ *  more. Live, all 16 reports carry a body: 1.17 MB total, avg 73 KB. A list read
+ *  wants the body only to know WHETHER there is one, so `has_rendered_html`
+ *  computes that in SQL and the bytes stay in the database. Kept in lockstep with
+ *  ReportsTable by the body-exclusion test. */
+export const REPORT_LIST_COLUMNS = [
+  "id",
+  "site_id",
+  "report_id",
+  "report_type",
+  "period",
+  "period_start",
+  "period_end",
+  "completed_on",
+  "lighthouse_performance",
+  "lighthouse_accessibility",
+  "lighthouse_best_practices",
+  "lighthouse_seo",
+  "ga_users_current",
+  "ga_users_previous",
+  "search_found_page1",
+  "search_position",
+  "last_tested_date",
+  "commentary",
+  "subject_override",
+  "draft_ready",
+  "approved_to_send",
+  "approved_at",
+  "approved_by",
+  "send_override",
+  "override_reason",
+  "override_by",
+  "override_at",
+  "sent_at",
+  "delivery_status",
+  "resend_message_id",
+  "checklist",
+  "checklist_auto_evidence",
+  "withdrawn_at",
+  "withdrawn_by",
+  "unapproved_at",
+  "unapproved_by",
+  "send_started_at",
+] as const;
+
+/** The one thing a list read still needs from the body: whether there IS one.
+ *  Computed in SQLite so the bytes never cross the wire. */
+const HAS_RENDERED_HTML = sql<number>`(rendered_html is not null)`.as("has_rendered_html");
+
+/** Newest-period-first (every consumer filters/sorts itself). */
+export async function listAllReports(db: Db): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
+}
+
+/** Served by idx_reports_site.
+ *  Body-free for the same reason as listAllReports: the site-detail page renders
+ *  a link, never the HTML. */
+export async function listReportsForSite(db: Db, siteId: string): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .where("site_id", "=", siteId)
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
+}
+
+/** The send queue — `Draft ready` ∧ `Approved to send` ∧ `Sent at` BLANK, as a
+ *  WHERE, so the three-part rule is stated once, in SQL, and
+ *  tests/reports/send/sendable-predicate.test.ts drives every combination of the
+ *  three columns through it. A withdrawn row (P1-28) is never sendable, even
+ *  if something approved it.
+ *
+ *  Body-free like the other list reads: the send renders from the row, and
+ *  `rendered_html` is fetched separately by the paths that want the stored body.
+ *  It scans `reports` (16 rows, ~44/month) exactly as `listAllReports` does, and
+ *  the query-plan gate carries that as a named allowance rather than a silent one. */
+export async function listSendableReports(db: Db): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .where("draft_ready", "=", 1)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
+}
+
+/** #1613. Reports the operator approved that the send queue cannot see:
+ *  approved, unsent and unwithdrawn, but not draft-ready. The approve write
+ *  requires `draft_ready = 1`, yet the drafting path can still clear it on an
+ *  approved row (announce's reuse path hands `queueDraft` a row that may be
+ *  approved, and a pending higher-tier draft for the site blocks it). Such a
+ *  report waits for a send no run will make. ONE query, the queue's own WHERE
+ *  with `draft_ready = 0`, so there is no second read to race an approval
+ *  landing between them. Same scan, same bound, as the queue. */
+export async function listApprovedUnqueuedReports(
+  db: Db,
+): Promise<Array<{ id: string; reportId: string }>> {
+  const rows = await db
+    .selectFrom("reports")
+    .select(["id", "report_id"])
+    .where("approved_to_send", "=", 1)
+    .where("draft_ready", "=", 0)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .orderBy("id")
+    .execute();
+  return rows.map((r) => ({ id: r.id, reportId: r.report_id ?? r.id }));
+}
+
+/** Columns a report writer patches into Turso (same pattern as
+ *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
+ *  status, and — since #539 Phase 5 — the drafting path's queue flag and a
+ *  re-run's refreshed scores.
+ *
+ *  `rendered_html` stays deliberately OUT even though the drafting path now
+ *  writes it: bodies go through `storeRenderedHtml`, so a request handler
+ *  holding a patch cannot accidentally write megabytes of HTML. */
+export type ReportMirrorPatch = Partial<
+  Pick<
+    ReportsTable,
+    | "approved_to_send"
+    | "approved_at"
+    | "approved_by"
+    | "send_override"
+    | "override_reason"
+    | "override_by"
+    | "override_at"
+    | "delivery_status"
+    // Phase 4 report review: the console edits commentary and re-renders the
+    // page immediately after the write, so the mirror has to carry it or the
+    // operator sees their own save as a no-op.
+    | "commentary"
+    // Phase 5 drafting path. `draft_ready` is the queue flag `queueDraft`
+    // writes — for the new draft AND for every row it supersedes, so without it
+    // the console shows a site with two queued reports.
+    | "draft_ready"
+    // A re-run (announce/launch reuse) refreshes an existing row's scores so the
+    // eventually-sent email is not stale; the console reads the same numbers.
+    | "lighthouse_performance"
+    | "lighthouse_accessibility"
+    | "lighthouse_best_practices"
+    | "lighthouse_seo"
+    | "ga_users_current"
+    | "ga_users_previous"
+    | "search_found_page1"
+    | "search_position"
+    | "completed_on"
+    // #643 (the freeze): the send batch mirrors its own `Sent at` stamp. These
+    // used to stay out because the hourly sync converged them; that sync is
+    // retired, and the console's already-sent guards (approve, the commentary
+    // lock, re-render) read `sent_at` from Turso — an unmirrored stamp would
+    // disarm all three for every post-flip send.
+    | "sent_at"
+    | "resend_message_id"
+    // P1-28: the dashboard's "Don't send".
+    | "withdrawn_at"
+    | "withdrawn_by"
+  >
+>;
+
+/** Write a report patch into Turso so the page re-render after an
+ *  approve/override/bounce shows the new state immediately. Callers route
+ *  failures through `mirrorWrite`, which throws on a failure or a missed row;
+ *  an empty patch is a no-op, never invalid SQL.
+ *
+ *  Returns whether the UPDATE matched a row (#647). Same contract as
+ *  `mirrorSiteFields`: this module has no error policy of its own, so the
+ *  count is REPORTED and the boundary (`mirrorWrite`, `makeReportMirror`)
+ *  makes a miss fatal, because no importer exists to converge a row that was
+ *  never inserted. Discarding the count is what let a stamp for a row Turso
+ *  never held mirror "successfully". An empty patch reports `true`: nothing to
+ *  write is not a miss. */
+export async function mirrorReportPatch(
+  db: Db,
+  reportId: string,
+  patch: ReportMirrorPatch,
+): Promise<boolean> {
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
+    .updateTable("reports")
+    .set(patch)
+    .where("id", "=", reportId)
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-28: the approve and withdraw writes, conditioned on the state their
+ *  handler decided on. Both require the row ready, unsent and unwithdrawn (ready
+ *  so a supersede between the read and the write wins); a withdraw also
+ *  requires it unapproved. Returns whether a row matched, so a
+ *  write that lost a race to the other one is a refusal, not a silent overwrite. */
+export async function patchReportIfOpen(
+  db: Db,
+  reportId: string,
+  patch: ReportMirrorPatch,
+  guard: "approvable" | "withdrawable",
+): Promise<boolean> {
+  let q = db
+    .updateTable("reports")
+    .set(patch)
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("draft_ready", "=", 1);
+  if (guard === "withdrawable") q = q.where("approved_to_send", "=", 0);
+  const res = await q.executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262: take back an approval, conditioned on the row still being approved,
+ *  unsent, unwithdrawn and unclaimed, so a send that has started wins and this
+ *  matches nothing. Clears the approval and the send-anyway flag with it (a later plain
+ *  approve must not inherit a health-gate bypass); the override's reason, by and
+ *  at stay as its record. Returns whether a row matched. */
+export async function unapproveReportIfUnsent(
+  db: Db,
+  reportId: string,
+  at: Date,
+  by: string,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({
+      approved_to_send: 0,
+      approved_at: null,
+      approved_by: null,
+      send_override: 0,
+      unapproved_at: at.toISOString(),
+      unapproved_by: by,
+    })
+    .where("id", "=", reportId)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("send_started_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262 (Operator decisions 100): the send batch's claim on one report, taken
+ *  right before Resend is called. Conditioned on the row still being sendable
+ *  under the approval the queue read: every approve writes a new `approved_at`
+ *  and an unapprove clears it, so an unapprove, withdraw or re-approve that
+ *  landed after the queue was read wins, and the report (whose body was
+ *  rendered from the stale read) is skipped. A re-run re-claims a row whose
+ *  earlier claim never got a `sent_at`. Returns whether a row matched. */
+export async function claimReportForSend(
+  db: Db,
+  reportId: string,
+  approvedAt: string | null,
+  at: Date,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ send_started_at: at.toISOString() })
+    .where("id", "=", reportId)
+    .where((eb) =>
+      approvedAt === null ? eb("approved_at", "is", null) : eb("approved_at", "=", approvedAt),
+    )
+    .where("draft_ready", "=", 1)
+    .where("approved_to_send", "=", 1)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #1262: drop a claim whose send Resend refused outright. Only on an unsent
+ *  row: a stamped row keeps its claim as part of its record. */
+export async function releaseSendClaim(db: Db, reportId: string): Promise<void> {
+  await db
+    .updateTable("reports")
+    .set({ send_started_at: null })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .execute();
+}
+
+/** Upsert a report row from a column-named record (#539 Phase 5; a new draft
+ *  is inserted by {@link insertReportRow} since #646 step 4).
+ *
+ *  Every other report mirror is an UPDATE, which silently does nothing for a row
+ *  that does not exist yet — so a draft created at 09:05 was invisible to the
+ *  Turso-backed console until the 09:20 sync. Maps with `mapReportRecord`, so the
+ *  row is exactly what that one mapping produces rather than a column list
+ *  someone has to remember to extend.
+ *
+ *  Upsert, not insert, and the conflict branch drops `rendered_html`: the body is
+ *  written later by a separate sharp-bearing step, so a re-mirror carrying null
+ *  would blank a render that had already succeeded. */
+export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> {
+  const row = mapReportRecord(rec, null);
+  const { rendered_html: _rh, ...rowSansHtml } = row;
+  void _rh;
+  await db
+    .insertInto("reports")
+    .values(row)
+    .onConflict((oc) => oc.column("id").doUpdateSet(rowSansHtml))
+    .execute();
+}
+
+/** Insert a BRAND-NEW report row (#646 step 4). The report id was just minted
+ *  (`report_<ULID>`) and Turso owns the row.
+ *
+ *  A plain INSERT, deliberately not `mirrorReportInsert`'s upsert: a conflict
+ *  HERE means the freshly minted id already exists — which must fail loudly,
+ *  never silently overwrite a report. Same reasoning as `insertSiteRows`.
+ *
+ *  Maps with `mapReportRecord`, like the create mirror it replaces, so a drafted
+ *  row is shaped by that one mapping rather than by a second column list. The caller
+ *  builds the record's fields with `draftFields` (`src/reports/draft-fields.ts`),
+ *  whose keys are that mapper's own vocabulary. */
+export async function insertReportRow(db: Db, rec: RawRecord): Promise<void> {
+  await db.insertInto("reports").values(mapReportRecord(rec, null)).execute();
+}
+
+/**
+ * Store a freshly rendered report body, replacing whatever was there.
+ *
+ * Deliberately NOT part of `ReportMirrorPatch`: that patch is the request path's
+ * write-through (approve, override, delivery status), and a rendered body is
+ * produced by a batch job with sharp, never by a dashboard POST. Keeping it out
+ * means a handler cannot accidentally write megabytes of HTML from a request.
+ *
+ * It REPLACES unconditionally. The importer's `when-missing` mode skipped a report
+ * that already had a body — correct for an import, wrong here: a refresh whose
+ * entire purpose is showing the newest commentary must overwrite.
+ */
+export async function storeRenderedHtml(db: Db, reportId: string, html: string): Promise<void> {
+  await db.updateTable("reports").set({ rendered_html: html }).where("id", "=", reportId).execute();
+}
+
+export async function storeChecklistEvidence(
+  db: Db,
+  reportId: string,
+  checklist: Record<string, boolean>,
+  autoEvidence: Record<string, EvidenceRecord>,
+  search: { searchFoundPage1: boolean | null; searchPosition: number | null } | null = null,
+): Promise<boolean> {
+  const stored: Record<string, boolean> = {};
+  for (const [key, field] of CHECKLIST_FIELD_BY_KEY) stored[key] = checklist[field] === true;
+  const res = await db
+    .updateTable("reports")
+    .set({
+      checklist: JSON.stringify(stored),
+      checklist_auto_evidence: JSON.stringify(autoEvidence),
+      ...(search
+        ? {
+            search_found_page1:
+              search.searchFoundPage1 === null ? null : search.searchFoundPage1 ? 1 : 0,
+            search_position: search.searchPosition,
+          }
+        : {}),
+    })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-34: the site row's current Lighthouse scores into an unsent, unapproved
+ *  report, guarded like `storeChecklistEvidence`. Returns whether a row matched. */
+export async function storeLighthouseScores(
+  db: Db,
+  reportId: string,
+  scores: LighthouseScores,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({
+      lighthouse_performance: scores.performance,
+      lighthouse_accessibility: scores.accessibility,
+      lighthouse_best_practices: scores.bestPractices,
+      lighthouse_seo: scores.seo,
+    })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-73: a re-measured analytics pair (engaged visits, last 30 complete days)
+ *  into an unsent, unapproved report, guarded like `storeLighthouseScores`.
+ *  The columns keep their `ga_users_*` names. Returns whether a row matched. */
+export async function storeGaVisits(
+  db: Db,
+  reportId: string,
+  visits: { current: number; previous: number },
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ ga_users_current: visits.current, ga_users_previous: visits.previous })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** By report id (the PK) — approve-report's read. */
+export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
+  const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
+  return r ? reportRowFromDb(r, r.rendered_html !== null) : null;
+}
+
+/** By Resend message id — the resend-webhook's report lookup (#539 Phase 6 step 2,
+ *  #646): the first matching row, or null. Served by idx_reports_resend_message
+ *  (0027), and body-free like the list reads — the webhook needs the row's id
+ *  and current delivery status, never the HTML. `resend_message_id` is stamped
+ *  by the send path's `reportSentMirror` (#643) and was imported for historical
+ *  rows. */
+export async function findReportByMessageId(db: Db, messageId: string): Promise<ReportRow | null> {
+  const r = await db
+    .selectFrom("reports")
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
+    .where("resend_message_id", "=", messageId)
+    .limit(1)
+    .executeTakeFirst();
+  return r ? reportRowFromDb(r, r.has_rendered_html !== 0) : null;
+}
+
+/** The preview route's read: the stored rendered body, or null when the report
+ *  has none (imported while its signed URL was expired, or predates rendering). */
+export async function getReportHtml(
+  db: Db,
+  id: string,
+): Promise<{ html: string; reportId: string | null } | null> {
+  const r = await db
+    .selectFrom("reports")
+    .select(["rendered_html", "report_id"])
+    .where("id", "=", id)
+    .executeTakeFirst();
+  if (!r || r.rendered_html === null) return null;
+  return { html: r.rendered_html, reportId: r.report_id };
+}

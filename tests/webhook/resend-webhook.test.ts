@@ -1,0 +1,469 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Webhook } from "svix";
+import {
+  STATUS_MAP,
+  isStatusDowngrade,
+  classifyUnmatchedEvent,
+  ORPHAN_RETRY_WINDOW_MS,
+} from "../../src/reports/webhook-events.js";
+import resendWebhook from "../../netlify/functions/resend-webhook.mjs";
+
+// The report lookup and the status write are Turso's (fleet-state, mocked below).
+// The real-database version of these paths lives in resend-webhook-turso.test.ts.
+
+// The bounce path additionally maps the event onto a SUBMISSION via libSQL; mock
+// both db modules so no real database is opened. markNotifyBouncedByMessageId
+// defaults to "no match" (see beforeEach) — the report path must stay untouched
+// for report email ids.
+vi.mock("../../src/db/client.js", () => ({
+  openDb: vi.fn().mockResolvedValue({}),
+  readDbConfig: vi.fn().mockReturnValue({ url: ":memory:" }),
+}));
+vi.mock("../../src/db/submissions.js", () => ({
+  markNotifyBouncedByMessageId: vi.fn(),
+}));
+// The Turso patch inside `mirrorWrite` is the write that must SUCCEED (#612) —
+// a healthy-path test therefore needs a working mirror. Unmocked, the real
+// mirrorReportPatch would run against the fake db object and throw, which
+// mirrorWrite correctly turns into a 500.
+vi.mock("../../src/db/fleet-state.js", () => ({
+  findReportByMessageId: vi.fn(),
+  mirrorReportPatch: vi.fn(),
+}));
+import { openDb } from "../../src/db/client.js";
+import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
+import { findReportByMessageId, mirrorReportPatch } from "../../src/db/fleet-state.js";
+
+// Imports the real STATUS_MAP from the webhook handler so a drift between code
+// and "expected" mapping fails this test. (Previously this file declared its
+// own copy of STATUS_MAP and asserted on it — drift-blind.)
+describe("Resend webhook event → Delivery status mapping", () => {
+  it("maps delivered/bounced/complained", () => {
+    expect(STATUS_MAP["email.delivered"]).toBe("delivered");
+    expect(STATUS_MAP["email.bounced"]).toBe("bounced");
+    expect(STATUS_MAP["email.complained"]).toBe("complained");
+  });
+
+  it("ignores unmapped event types (no status change)", () => {
+    expect(STATUS_MAP["email.sent"]).toBeUndefined();
+    expect(STATUS_MAP["email.delivery_delayed"]).toBeUndefined();
+    expect(STATUS_MAP["email.opened"]).toBeUndefined();
+  });
+});
+
+describe("isStatusDowngrade — monotonic delivery-status ordering", () => {
+  it("flags a terminal failure being overwritten by delivered/pending as a downgrade", () => {
+    expect(isStatusDowngrade("bounced", "delivered")).toBe(true);
+    expect(isStatusDowngrade("bounced", "pending")).toBe(true);
+    expect(isStatusDowngrade("complained", "delivered")).toBe(true);
+    expect(isStatusDowngrade("complained", "pending")).toBe(true);
+    expect(isStatusDowngrade("delivered", "pending")).toBe(true);
+  });
+
+  it("allows forward moves and same-rank rewrites (not a downgrade)", () => {
+    expect(isStatusDowngrade("pending", "delivered")).toBe(false);
+    expect(isStatusDowngrade("pending", "bounced")).toBe(false);
+    expect(isStatusDowngrade("pending", "complained")).toBe(false);
+    expect(isStatusDowngrade("delivered", "bounced")).toBe(false);
+    expect(isStatusDowngrade("delivered", "complained")).toBe(false);
+    // bounced and complained share a rank — neither downgrades the other.
+    expect(isStatusDowngrade("bounced", "complained")).toBe(false);
+    expect(isStatusDowngrade("complained", "bounced")).toBe(false);
+    expect(isStatusDowngrade("delivered", "delivered")).toBe(false);
+  });
+});
+
+describe("classifyUnmatchedEvent — orphan-vs-retry aging", () => {
+  const NOW = Date.parse("2026-06-12T12:00:00.000Z");
+
+  it("retries inside the race window (delivery beat the sent stamp)", () => {
+    const createdAt = new Date(NOW - 1000).toISOString(); // 1s ago
+    const { decision, ageMs } = classifyUnmatchedEvent(createdAt, NOW);
+    expect(decision).toBe("retry");
+    expect(ageMs).toBe(1000);
+  });
+
+  it("treats an event older than the window as a terminal orphan", () => {
+    const createdAt = new Date(NOW - (ORPHAN_RETRY_WINDOW_MS + 1)).toISOString();
+    const { decision } = classifyUnmatchedEvent(createdAt, NOW);
+    expect(decision).toBe("orphan");
+  });
+
+  it("retries exactly at the window boundary (strictly-greater check)", () => {
+    const createdAt = new Date(NOW - ORPHAN_RETRY_WINDOW_MS).toISOString();
+    expect(classifyUnmatchedEvent(createdAt, NOW).decision).toBe("retry");
+  });
+
+  it("conservatively retries when created_at is missing or unparseable (can't be aged)", () => {
+    expect(classifyUnmatchedEvent(undefined, NOW)).toEqual({ decision: "retry", ageMs: 0 });
+    expect(classifyUnmatchedEvent("not-a-date", NOW)).toEqual({ decision: "retry", ageMs: 0 });
+  });
+
+  it("clamps a FUTURE created_at to age 0 (no negative age → no stretched-out retry)", () => {
+    // Clock skew / spoofed timestamp 11 min in the future. Without the clamp,
+    // ageMs went negative and `ageMs > windowMs` was always false → "retry"
+    // stretched out by the whole future offset. Clamped to 0 → normal window.
+    const future = new Date(NOW + 11 * 60_000).toISOString();
+    expect(classifyUnmatchedEvent(future, NOW)).toEqual({ decision: "retry", ageMs: 0 });
+  });
+
+  it("honours a custom window", () => {
+    const createdAt = new Date(NOW - 5000).toISOString();
+    expect(classifyUnmatchedEvent(createdAt, NOW, 1000).decision).toBe("orphan");
+    expect(classifyUnmatchedEvent(createdAt, NOW, 10_000).decision).toBe("retry");
+  });
+});
+
+describe("Resend webhook GET health check", () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.RESEND_WEBHOOK_SECRET;
+    delete process.env.TURSO_DATABASE_URL;
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  // The health check exists so the operator can curl the deployed URL right
+  // after wiring Netlify env vars and confirm both (a) the function is reachable
+  // and (b) the required env vars made it through. Reports presence-only,
+  // never values.
+  it("returns 200 with all env vars absent when nothing is set", async () => {
+    // @ts-expect-error — Netlify Context is unused for GET
+    const res = await resendWebhook(new Request("https://x/", { method: "GET" }), {});
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      service: string;
+      env: Record<string, boolean>;
+    };
+    expect(body.status).toBe("ok");
+    expect(body.service).toBe("reddoor-resend-webhook");
+    expect(body.env).toEqual({
+      RESEND_WEBHOOK_SECRET: false,
+      TURSO_DATABASE_URL: false,
+    });
+  });
+
+  it("reports each env var as present once it's set, but never the value", async () => {
+    process.env.RESEND_WEBHOOK_SECRET = "whsec_top_secret_should_not_leak";
+    process.env.TURSO_DATABASE_URL = "libsql://secret-db-should-not-leak.turso.io";
+    // @ts-expect-error — Netlify Context is unused for GET
+    const res = await resendWebhook(new Request("https://x/", { method: "GET" }), {});
+    const raw = await res.text();
+    const body = JSON.parse(raw) as { env: Record<string, boolean> };
+    expect(body.env).toEqual({
+      RESEND_WEBHOOK_SECRET: true,
+      TURSO_DATABASE_URL: true,
+    });
+    // Defense-in-depth: the body must never contain a secret value, even
+    // accidentally via a typo on the key name. Operators may share the curl
+    // output in a support ticket.
+    expect(raw).not.toContain("whsec_top_secret_should_not_leak");
+    expect(raw).not.toContain("secret-db-should-not-leak");
+  });
+
+  it("ignores GET requests entirely if the method isn't GET (POST still uses the existing flow)", async () => {
+    // For POST without env vars set, the existing 500-on-missing-env behaviour
+    // still applies — health check must not short-circuit POSTs.
+    // @ts-expect-error — Netlify Context is unused
+    const res = await resendWebhook(new Request("https://x/", { method: "POST", body: "{}" }), {});
+    expect(res.status).toBe(500);
+    expect(await res.text()).toMatch(/RESEND_WEBHOOK_SECRET missing/);
+  });
+});
+
+// A working svix test secret (svix's own docs use this shape). It only needs to
+// round-trip sign→verify in-process; it is never a real Resend secret.
+const TEST_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+
+// Build a signed POST exactly as Resend/svix would: a fresh svix-timestamp (so
+// the signature passes svix's replay tolerance) wrapping a Resend event body.
+// `createdAt` controls the *event's own* age, which is what the freshness-window
+// logic keys off — independent of the svix delivery timestamp.
+function signedResendPost(event: unknown): Request {
+  const body = JSON.stringify(event);
+  const msgId = "msg_test_2k9";
+  const timestamp = new Date();
+  const signature = new Webhook(TEST_SECRET).sign(msgId, timestamp, body);
+  return new Request("https://x/webhook", {
+    method: "POST",
+    body,
+    headers: {
+      "svix-id": msgId,
+      "svix-timestamp": String(Math.floor(timestamp.getTime() / 1000)),
+      "svix-signature": signature,
+      "content-type": "application/json",
+    },
+  });
+}
+
+function resendEvent(
+  type: string,
+  opts: { emailId?: string; createdAt?: string; bounce?: unknown } = {},
+): Record<string, unknown> {
+  return {
+    type,
+    created_at: opts.createdAt ?? new Date().toISOString(),
+    data: {
+      email_id: opts.emailId ?? "msgId_abc123",
+      ...(opts.bounce === undefined ? {} : { bounce: opts.bounce }),
+    },
+  };
+}
+
+const findReportMock = vi.mocked(findReportByMessageId);
+const markBouncedMock = vi.mocked(markNotifyBouncedByMessageId);
+const openDbMock = vi.mocked(openDb);
+const mirrorPatchMock = vi.mocked(mirrorReportPatch);
+const fakeReport = { id: "recReport123" } as Awaited<ReturnType<typeof findReportByMessageId>>;
+
+describe("Resend webhook signed-POST path", () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  beforeEach(() => {
+    process.env.RESEND_WEBHOOK_SECRET = TEST_SECRET;
+    findReportMock.mockReset();
+    markBouncedMock.mockReset();
+    // Default: the message id is NOT a submission notification, so every existing
+    // report-path expectation below still holds for bounce/complaint events.
+    markBouncedMock.mockResolvedValue(false);
+    openDbMock.mockReset();
+    openDbMock.mockResolvedValue({} as Awaited<ReturnType<typeof openDb>>);
+    // Default: the authoritative Turso patch succeeds AND matched the row
+    // (the healthy world). `false` is the #647 outcome: the row was never there.
+    mirrorPatchMock.mockReset();
+    mirrorPatchMock.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  async function post(event: unknown): Promise<Response> {
+    // @ts-expect-error — Netlify Context is unused in the handler
+    return resendWebhook(signedResendPost(event), {});
+  }
+
+  it("maps a delivered event to a Delivery-status update", async () => {
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.delivered", { emailId: "msgId_xyz" }));
+    expect(res.status).toBe(200);
+    expect(findReportMock).toHaveBeenCalledWith(expect.anything(), "msgId_xyz");
+    // Post-freeze the Turso row is the authoritative record of the status.
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "delivered",
+    });
+  });
+
+  // Build a matched report row carrying a specific current Delivery status, so
+  // the handler's monotonic guard has something to compare against.
+  function reportWith(status: string): Awaited<ReturnType<typeof findReportByMessageId>> {
+    return { id: "recReport123", deliveryStatus: status } as Awaited<
+      ReturnType<typeof findReportByMessageId>
+    >;
+  }
+
+  it("does NOT downgrade a terminal 'complained' when a late 'delivered' arrives (200, no write)", async () => {
+    findReportMock.mockResolvedValue(reportWith("complained"));
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("still applies pending → bounced (forward move writes)", async () => {
+    findReportMock.mockResolvedValue(reportWith("pending"));
+    const res = await post(resendEvent("email.bounced"));
+    expect(res.status).toBe(200);
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "bounced",
+    });
+  });
+
+  it("rejects a tampered/invalid signature with 400", async () => {
+    const good = signedResendPost(resendEvent("email.delivered"));
+    const body = await good.text();
+    const tampered = new Request("https://x/webhook", {
+      method: "POST",
+      body,
+      headers: {
+        "svix-id": good.headers.get("svix-id")!,
+        "svix-timestamp": good.headers.get("svix-timestamp")!,
+        "svix-signature": "v1,deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef=",
+      },
+    });
+    // @ts-expect-error — Netlify Context is unused
+    const res = await resendWebhook(tampered, {});
+    expect(res.status).toBe(400);
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges an unmapped event type with 200 and no write", async () => {
+    const res = await post(resendEvent("email.opened"));
+    expect(res.status).toBe(200);
+    expect(findReportMock).not.toHaveBeenCalled();
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges a mapped event missing data.email_id with 200 and no write", async () => {
+    const res = await post({
+      type: "email.delivered",
+      created_at: new Date().toISOString(),
+      data: {},
+    });
+    expect(res.status).toBe(200);
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 (orphan, stop retrying) when no report matches and the event is stale", async () => {
+    findReportMock.mockResolvedValue(null);
+    const elevenMinAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const res = await post(resendEvent("email.delivered", { createdAt: elevenMinAgo }));
+    expect(res.status).toBe(200);
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to 500 (retry) for an unmatched event with a missing/unparseable created_at", async () => {
+    findReportMock.mockResolvedValue(null);
+    const res = await post({ type: "email.delivered", data: { email_id: "msgId_no_ts" } });
+    expect(res.status).toBe(500);
+  });
+
+  // ── submission-notification bounces (the Espada failure mode) ──────────────
+  // A lead notification's bounce carries the submission's resend_message_id, not
+  // a Reports row id. The handler checks submissions FIRST on bounce/complaint;
+  // a match short-circuits with 200 and the report path is never consulted.
+
+  it("maps a bounce onto the matching SUBMISSION (200, no report lookup)", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_sub_1" }));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1", null);
+    expect(findReportMock).not.toHaveBeenCalled();
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+  });
+
+  it("maps a COMPLAINT onto the matching submission too (either way the lead didn't land)", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(resendEvent("email.complained", { emailId: "msg_sub_2" }));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2", null);
+    expect(findReportMock).not.toHaveBeenCalled();
+  });
+
+  it("#783: hands the parsed bounce classification through to the submission write", async () => {
+    // The whole point. Before this the payload's `bounce` object was dropped, so
+    // a content rejection by the client's own filter was stored identically to a
+    // dead mailbox — and the alarm accused the address in both cases.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_classified",
+        bounce: {
+          message: "552 5.7.1 Message rejected as spam by Content Filtering",
+          subType: "ContentRejected",
+          type: "Transient",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_classified", {
+      type: "Transient",
+      subType: "ContentRejected",
+      message: "552 5.7.1 Message rejected as spam by Content Filtering",
+    });
+  });
+
+  it("#783: passes a PERMANENT classification through unchanged", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    await post(
+      resendEvent("email.bounced", {
+        emailId: "msg_dead",
+        bounce: { message: "550 no such user", subType: "General", type: "Permanent" },
+      }),
+    );
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_dead", {
+      type: "Permanent",
+      subType: "General",
+      message: "550 no such user",
+    });
+  });
+
+  it("#783: a malformed bounce object degrades to no classification, not a 500", async () => {
+    // Third-party wire format: a shape change must cost the diagnosis, never the
+    // delivery record, and must not make the webhook 500 into an hours-long
+    // svix redelivery loop.
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(
+      resendEvent("email.bounced", { emailId: "msg_weird", bounce: "Permanent" }),
+    );
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_weird", null);
+  });
+
+  it("never consults submissions for a delivered event (bounce/complaint only)", async () => {
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent on a svix replay: the re-matched bounce returns 200 again", async () => {
+    markBouncedMock.mockResolvedValue(true); // helper re-matches the already-bounced row
+    const event = resendEvent("email.bounced", { emailId: "msg_replayed" });
+    expect((await post(event)).status).toBe(200);
+    expect((await post(event)).status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledTimes(2);
+    expect(findReportMock).not.toHaveBeenCalled();
+  });
+
+  it("fails CLOSED when libSQL is down: 500 so Resend redelivers", async () => {
+    // A status that never reached the store is NOT recorded: the handler must
+    // 500 so Resend retries the event. The
+    // monotonic guard makes the redelivery idempotent, and the bounce lookup's
+    // own fall-through (submissions → report path) still happens first.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    openDbMock.mockRejectedValue(new Error("turso down"));
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_during_outage" }));
+    expect(res.status).toBe(500);
+    // Since #646 step 2 the report LOOKUP is Turso too, so an outage stops the
+    // request before any write.
+    expect(mirrorPatchMock).not.toHaveBeenCalled();
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("Turso report lookup failed");
+    errorSpy.mockRestore();
+  });
+
+  it("#646: a failed authoritative write 500s so svix redelivers", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    findReportMock.mockResolvedValue(fakeReport);
+    mirrorPatchMock.mockRejectedValue(new Error("SQLITE_BUSY"));
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_busy" }));
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("internal error");
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "bounced",
+    });
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("SQLITE_BUSY");
+    errorSpy.mockRestore();
+  });
+
+  it("#647: a status for a report row Turso never held is `missed`, not a green 200", async () => {
+    // Before #647 the patch's row count was thrown away, so a delivery status
+    // for a row that never reached Turso "mirrored" fine and the handler said
+    // OK — the one outcome the freeze calls a bug, invisible. Post-freeze
+    // nothing converges it, so this is a 500 like any other lost mirror.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mirrorPatchMock.mockResolvedValue(false);
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_ghost_row" }));
+    expect(res.status).toBe(500);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("mirrored=missed");
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "bounced",
+    });
+    errorSpy.mockRestore();
+  });
+});

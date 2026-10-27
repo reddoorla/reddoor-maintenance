@@ -1,0 +1,1399 @@
+import { describe, it, expect } from "vitest";
+import {
+  collectProtectionCoverage,
+  partitionAcceptedGaps,
+  rulesetBypassSummary,
+  renovateGaps,
+  renovateBlockedGaps,
+  dashboardVocabularyGaps,
+  resolveBlockedBranches,
+  BLOCKED_STALE_DAYS,
+  secretScanningGaps,
+  ACCEPTED_GAPS,
+  RENOVATE_WORKFLOW_FILE,
+  type AcceptedGap,
+  type ProtectionCoverageDeps,
+} from "../../src/audits/protection-coverage.js";
+import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
+import type { ExistingRuleset } from "../../src/github/rulesets.js";
+import {
+  parseBlockedBranches,
+  parseUnknownSections,
+  isMachineAuthor,
+} from "../../src/github/gh.js";
+import type {
+  BranchRequiredChecks,
+  BranchTip,
+  DependencyDashboard,
+  RenovateMergeWindow,
+  WorkflowHealth,
+} from "../../src/github/gh.js";
+
+const ORG = "reddoorla";
+const NOW = new Date("2026-08-02T18:00:00Z");
+const FRESH_RUN = "2026-08-02T13:00:00Z"; // hours old — well inside the window
+
+function sound(id: number, check: string | null = "ci / ci"): ExistingRuleset {
+  return { ...desiredRuleset(check), id };
+}
+
+type RepoRow = {
+  name: string;
+  visibility?: string;
+  archived?: boolean;
+  secretScanning?: string;
+  pushProtection?: string;
+};
+
+function makeDeps(
+  repos: RepoRow[],
+  rulesetsByRepo: Record<string, ExistingRuleset[]>,
+  healthByRepo: Record<string, WorkflowHealth> = {},
+  dashboardByRepo: Record<string, DependencyDashboard> = {},
+  // Default tip: a machine author, i.e. an orphan. Blocked branches in these
+  // fixtures stand for the August 2026 incident unless a test says otherwise.
+  tipByBranch: Record<string, BranchTip | null> = {},
+  // Default: a repo with nothing open. The alert clause's PASS control is the
+  // default state of every other fixture in this file, so a regression that
+  // made an empty alert list read as a gap would fail the whole suite.
+  alertsByRepo: Record<string, number | "unavailable"> = {},
+  // Default: a repo that merged a grouped feature update hours ago, i.e. the
+  // outcome metric's healthy state. Every existing assertion in this file
+  // therefore doubles as a PASS control for it — a regression that turned a
+  // delivering repo into a gap would redden the whole suite.
+  mergeWindowByRepo: Record<string, RenovateMergeWindow> = {},
+  // Default: no Renovate config file anywhere, i.e. Renovate targets the
+  // default branch alone — the state of every fixture written before #892, so
+  // each of them doubles as the "unchanged behaviour" control. Files are keyed
+  // `owner/repo:path` (presets live in OTHER repos); branch reads are keyed
+  // `owner/repo:branch`. An Error value is a read that THROWS (a refusal).
+  renovate: {
+    files?: Record<string, string | Error>;
+    branches?: Record<string, BranchRequiredChecks | null | Error>;
+    defaultBranch?: string;
+  } = {},
+): ProtectionCoverageDeps & {
+  healthCalls: string[];
+  alertCalls: string[];
+  fileReads: string[];
+  branchCalls: string[];
+  rulesetCalls: string[];
+} {
+  const rulesetCalls: string[] = [];
+  const healthCalls: string[] = [];
+  const alertCalls: string[] = [];
+  const fileReads: string[] = [];
+  const branchCalls: string[] = [];
+  return {
+    healthCalls,
+    alertCalls,
+    fileReads,
+    branchCalls,
+    rulesetCalls,
+    repoTextFile: async (repo, path) => {
+      fileReads.push(`${repo}:${path}`);
+      const hit = renovate.files?.[`${repo}:${path}`];
+      if (hit instanceof Error) throw hit;
+      return hit ?? null;
+    },
+    defaultBranch: async () => renovate.defaultBranch ?? "main",
+    branchRequiredChecks: async (repo, branch) => {
+      branchCalls.push(`${repo}:${branch}`);
+      const key = `${repo}:${branch}`;
+      if (!renovate.branches || !(key in renovate.branches))
+        throw new Error(`fixture has no branch ${key}`);
+      const hit = renovate.branches[key]!;
+      if (hit instanceof Error) throw hit;
+      return hit;
+    },
+    openSecretAlerts: async (repo) => {
+      alertCalls.push(repo);
+      return alertsByRepo[repo] ?? 0;
+    },
+    renovateMergeWindow: async (repo) =>
+      mergeWindowByRepo[repo] ?? {
+        merges: [{ headRef: "renovate/all-minor-patch", mergedAt: FRESH_RUN }],
+        truncated: false,
+      },
+    dependencyDashboard: async (repo) =>
+      dashboardByRepo[repo] ?? { present: true, blockedBranches: [], unknownSections: [] },
+    branchTip: async (_repo, branch) =>
+      branch in tipByBranch
+        ? tipByBranch[branch]!
+        : { authorIsMachine: true, committedAt: FRESH_RUN },
+    listOrgRepos: async () =>
+      repos.map((r) => ({
+        name: r.name,
+        visibility: r.visibility ?? "public",
+        archived: r.archived ?? false,
+        secretScanning: r.secretScanning ?? "enabled",
+        pushProtection: r.pushProtection ?? "enabled",
+      })),
+    listRepoRulesets: async (repo) =>
+      (rulesetsByRepo[repo] ?? []).map((rs) => ({ id: rs.id, name: rs.name })),
+    getRuleset: async (repo, id) => {
+      rulesetCalls.push(`${repo}:${id}`);
+      const found = (rulesetsByRepo[repo] ?? []).find((rs) => rs.id === id);
+      if (!found) throw new Error(`no ruleset ${id} on ${repo}`);
+      return found;
+    },
+    workflowHealth: async (repo, filename) => {
+      healthCalls.push(`${repo}:${filename}`);
+      return healthByRepo[repo] ?? { present: true, state: "active", lastSuccessAt: FRESH_RUN };
+    },
+  };
+}
+
+describe("collectProtectionCoverage", () => {
+  it("a sound fleet ruleset is covered; the CI gate is reported, not judged", async () => {
+    const deps = makeDeps([{ name: "espada" }, { name: "dotgithub" }], {
+      "reddoorla/espada": [sound(1)],
+      "reddoorla/dotgithub": [sound(2, null)], // refs rules only — .github's legitimate state
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    // The outcome measurement rides on every judged row — including this one,
+    // which is the metric's PASS control inside the posture suite.
+    const delivering = {
+      state: "delivering",
+      days: 0,
+      lastBranch: "renovate/all-minor-patch",
+      lastMergedAt: FRESH_RUN,
+    };
+    expect(rows).toEqual([
+      {
+        repo: "reddoorla/espada",
+        status: "covered",
+        detail: `"${FLEET_RULESET_NAME}"`,
+        renovateOutcome: delivering,
+        rulesetBypass: { read: 1, unread: 0 },
+      },
+      {
+        repo: "reddoorla/dotgithub",
+        status: "covered",
+        detail: `"${FLEET_RULESET_NAME}" — NO CI gate (refs rules only)`,
+        renovateOutcome: delivering,
+        rulesetBypass: { read: 1, unread: 0 },
+      },
+    ]);
+    expect(deps.healthCalls).toEqual([
+      `reddoorla/espada:${RENOVATE_WORKFLOW_FILE}`,
+      `reddoorla/dotgithub:${RENOVATE_WORKFLOW_FILE}`,
+    ]);
+  });
+
+  it("coverage is judged by SHAPE, not name — a differently-named sound ruleset counts", async () => {
+    const mainProtection = { ...sound(9, null), name: "Main Protection" };
+    const rows = await collectProtectionCoverage(
+      ORG,
+      makeDeps([{ name: "reddoor-maintenance" }], {
+        "reddoorla/reddoor-maintenance": [mainProtection],
+      }),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain("Main Protection");
+  });
+
+  it("no rulesets at all is a gap", async () => {
+    const rows = await collectProtectionCoverage(ORG, makeDeps([{ name: "fresh-site" }], {}), NOW);
+    expect(rows).toEqual([
+      {
+        repo: "reddoorla/fresh-site",
+        status: "gap",
+        detail: "no repo rulesets at all",
+        renovateOutcome: {
+          state: "delivering",
+          days: 0,
+          lastBranch: "renovate/all-minor-patch",
+          lastMergedAt: FRESH_RUN,
+        },
+        rulesetBypass: { read: 0, unread: 0 },
+      },
+    ]);
+  });
+
+  it("a ruleset with a bypass actor is a gap, with the gap named per ruleset", async () => {
+    const armed = { ...sound(3), bypass_actors: [{ actor_id: 5 }] };
+    const rows = await collectProtectionCoverage(
+      ORG,
+      makeDeps([{ name: "espada" }], { "reddoorla/espada": [armed] }),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("bypass actor");
+    expect(rows[0]!.detail).toContain(FLEET_RULESET_NAME);
+  });
+
+  it("secret scanning or push protection off is a gap even with a sound ruleset", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      makeDeps(
+        [
+          { name: "espada", secretScanning: "disabled" },
+          { name: "hedloc", pushProtection: "disabled" },
+        ],
+        { "reddoorla/espada": [sound(1)], "reddoorla/hedloc": [sound(2)] },
+      ),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("secret scanning disabled");
+    expect(rows[1]!.status).toBe("gap");
+    expect(rows[1]!.detail).toContain("push protection disabled");
+  });
+
+  it("an unreadable secret-scanning state is a gap, never fine", () => {
+    expect(
+      secretScanningGaps(
+        "reddoorla/espada",
+        { secretScanning: "unavailable", pushProtection: "unavailable" },
+        0,
+      ),
+    ).toHaveLength(2);
+  });
+
+  // The three cases below are the alert-OUTCOME clause, in the order the
+  // instrument has to earn trust: the PASS control first (a check that has
+  // only ever failed is an untested assertion), then the FAIL control, then
+  // the unreadable-token case. The fixtures are the three repos the sweep was
+  // run against for real on 2026-09-14: erp-industrial and espada returned 0,
+  // beachfront-dentistry returned 1 (a google_api_key open since 2026-08-06).
+  it("PASS control: a public repo with zero open secret-scanning alerts is covered", async () => {
+    const deps = makeDeps(
+      [{ name: "erp-industrial" }, { name: "espada" }],
+      { "reddoorla/erp-industrial": [sound(1)], "reddoorla/espada": [sound(2)] },
+      {},
+      {},
+      {},
+      { "reddoorla/erp-industrial": 0, "reddoorla/espada": 0 },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    // It reached the endpoint for both — a "covered" reached by never asking
+    // is the silent-green failure this clause exists to remove.
+    expect(deps.alertCalls).toEqual(["reddoorla/erp-industrial", "reddoorla/espada"]);
+  });
+
+  it("FAIL control: one open alert is exactly one gap, and it names the repo", async () => {
+    const deps = makeDeps(
+      [{ name: "beachfront-dentistry" }],
+      { "reddoorla/beachfront-dentistry": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/beachfront-dentistry": 1 },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail.split(" | ")).toHaveLength(1);
+    expect(rows[0]!.detail).toContain("1 open secret-scanning alert");
+    expect(rows[0]!.detail).toContain("reddoorla/beachfront-dentistry");
+  });
+
+  it("a token that cannot read alerts is unverified, never fine", async () => {
+    const deps = makeDeps(
+      [{ name: "espada" }],
+      { "reddoorla/espada": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/espada": "unavailable" },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("unverified");
+    expect(
+      secretScanningGaps(
+        "reddoorla/espada",
+        { secretScanning: "enabled", pushProtection: "enabled" },
+        "unavailable",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("scanning that is OFF is not also reported as unreadable alerts", async () => {
+    // The endpoint 404s by construction when scanning is disabled, and the
+    // disabled scanning is already named. A second "unverified" line here
+    // would attach noise to a cause the row already states.
+    const deps = makeDeps(
+      [{ name: "fresh-clone", secretScanning: "disabled" }],
+      { "reddoorla/fresh-clone": [sound(1)] },
+      {},
+      {},
+      {},
+      { "reddoorla/fresh-clone": "unavailable" },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.detail.split(" | ")).toEqual([
+      "secret scanning disabled (fleet floor is enabled)",
+    ]);
+    expect(deps.alertCalls).toEqual([]);
+  });
+
+  it("a dead renovate workflow is a gap: absent, disabled, never-run, or stale", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      makeDeps(
+        [{ name: "a" }, { name: "b" }, { name: "c" }, { name: "d" }],
+        {
+          "reddoorla/a": [sound(1)],
+          "reddoorla/b": [sound(2)],
+          "reddoorla/c": [sound(3)],
+          "reddoorla/d": [sound(4)],
+        },
+        {
+          "reddoorla/a": { present: false },
+          "reddoorla/b": { present: true, state: "disabled_inactivity", lastSuccessAt: FRESH_RUN },
+          "reddoorla/c": { present: true, state: "active", lastSuccessAt: null },
+          // 5 days quiet at a twice-daily cron = 10 missed runs, never jitter.
+          "reddoorla/d": { present: true, state: "active", lastSuccessAt: "2026-07-28T13:00:00Z" },
+        },
+      ),
+      NOW,
+    );
+    expect(rows.map((r) => r.status)).toEqual(["gap", "gap", "gap", "gap"]);
+    expect(rows[0]!.detail).toContain("no renovate workflow");
+    expect(rows[1]!.detail).toContain("disabled_inactivity");
+    expect(rows[2]!.detail).toContain("never succeeded");
+    expect(rows[3]!.detail).toContain("last succeeded 5d ago");
+    // The disabled-state heal advice must lead with re-ENABLING — a disabled
+    // workflow rejects dispatches (HTTP 403), so "dispatch it" alone dead-ends.
+    expect(rows[1]!.detail).toContain("re-enable");
+  });
+
+  it("a success inside the 3-day window is NOT stale", () => {
+    expect(
+      renovateGaps({ present: true, state: "active", lastSuccessAt: "2026-07-31T06:00:00Z" }, NOW),
+    ).toEqual([]);
+  });
+
+  it("an unparseable last-success timestamp is a gap, never fresh", () => {
+    // Without the NaN guard, NaN > threshold is false and garbage reads as
+    // healthy — the exact couldn't-verify-is-fine hole this sweep must not have.
+    const gaps = renovateGaps({ present: true, state: "active", lastSuccessAt: "garbage" }, NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain("unreadable");
+  });
+
+  it("gap reasons from every surface combine into one row", async () => {
+    const armed = { ...sound(3), bypass_actors: [{ actor_id: 5 }] };
+    const rows = await collectProtectionCoverage(
+      ORG,
+      makeDeps(
+        [{ name: "espada", secretScanning: "disabled" }],
+        { "reddoorla/espada": [armed] },
+        { "reddoorla/espada": { present: false } },
+      ),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("bypass actor");
+    expect(rows[0]!.detail).toContain("secret scanning disabled");
+    expect(rows[0]!.detail).toContain("no renovate workflow");
+  });
+
+  it("private and archived repos are skipped, never gaps — and never probed", async () => {
+    const deps = makeDeps(
+      [
+        { name: "the-tower", visibility: "private", secretScanning: "disabled" },
+        { name: "reddoor-test", visibility: "private", archived: true },
+      ],
+      {},
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["skipped", "skipped"]);
+    expect(deps.healthCalls).toEqual([]);
+  });
+
+  it("a probe failure is a GAP (couldn't-verify must never read as fine), and doesn't sink the sweep", async () => {
+    const deps = makeDeps([{ name: "flaky" }, { name: "espada" }], {
+      "reddoorla/espada": [sound(1)],
+    });
+    deps.listRepoRulesets = async (repo) => {
+      if (repo === "reddoorla/flaky") throw new Error("api 500");
+      return [{ id: 1, name: FLEET_RULESET_NAME }];
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]).toEqual({
+      repo: "reddoorla/flaky",
+      status: "gap",
+      detail: "probe failed: api 500",
+      rulesetBypass: { read: 0, unread: 0 },
+    });
+    expect(rows[1]!.status).toBe("covered");
+  });
+
+  it("a workflowHealth throw is a gap too (same contract as ruleset probes)", async () => {
+    const deps = makeDeps([{ name: "espada" }], { "reddoorla/espada": [sound(1)] });
+    deps.workflowHealth = async () => {
+      throw new Error("HTTP 500");
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("probe failed");
+  });
+
+  it("an accepted gap reports as SKIPPED with reason+expiry — never covered, never a nightly alarm", async () => {
+    const deps = makeDeps(
+      [{ name: "x" }],
+      { "reddoorla/x": [sound(1)] },
+      { "reddoorla/x": { present: false } },
+    );
+    const ack: AcceptedGap = {
+      repo: "reddoorla/x",
+      detailPrefix: "no renovate workflow",
+      reason: "pending decision",
+      until: "2026-08-16",
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW, [ack]);
+    expect(rows[0]!.status).toBe("skipped");
+    expect(rows[0]!.detail).toContain("no renovate workflow");
+    expect(rows[0]!.detail).toContain("accepted until 2026-08-16");
+    expect(rows[0]!.detail).toContain("pending decision");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+});
+
+describe("partitionAcceptedGaps", () => {
+  const RENOVATE_ACK: AcceptedGap = {
+    repo: "reddoorla/x",
+    detailPrefix: "no renovate workflow",
+    reason: "pending decision",
+    until: "2026-08-16",
+  };
+
+  it("acceptance is surface-scoped: other gaps on the same repo stay LIVE", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/x",
+      ["no renovate workflow (dependency updates never run here)", "secret scanning disabled"],
+      NOW,
+      [RENOVATE_ACK],
+    );
+    expect(live).toEqual(["secret scanning disabled"]);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toContain("[accepted until 2026-08-16: pending decision]");
+  });
+
+  it("acceptance is repo-scoped: the same gap on another repo stays live", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/y",
+      ["no renovate workflow (dependency updates never run here)"],
+      NOW,
+      [RENOVATE_ACK],
+    );
+    expect(live).toHaveLength(1);
+    expect(accepted).toEqual([]);
+  });
+
+  it("acceptance EXPIRES: past `until` the gap returns on its own", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/x",
+      ["no renovate workflow (dependency updates never run here)"],
+      new Date("2026-08-16T00:00:00Z"), // expiry day — already live again
+      [RENOVATE_ACK],
+    );
+    expect(live).toHaveLength(1);
+    expect(accepted).toEqual([]);
+  });
+
+  it("every real ACCEPTED_GAPS entry is well-formed: parseable expiry, non-empty scope", () => {
+    for (const a of ACCEPTED_GAPS) {
+      expect(Number.isNaN(Date.parse(a.until)), `${a.repo} until`).toBe(false);
+      expect(a.repo).toMatch(/^reddoorla\//);
+      expect(a.detailPrefix.length).toBeGreaterThan(0);
+      expect(a.reason.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/** Shape of a real blocked dashboard, trimmed to the sections that matter and
+ *  with each marker TYPE as Renovate actually emits it: `unschedule-branch=`
+ *  under "Awaiting Schedule", `rebase-branch=` under both "Open" and the
+ *  blocked section. "Open" is the one that makes section-scoping load-bearing
+ *  — 11 fleet repos carry healthy `rebase-branch=` markers there right now, so
+ *  a body-wide grep would report all of them as blocked. */
+const REAL_DASHBOARD_BODY = `This issue lists Renovate updates and detected dependencies.
+
+## Awaiting Schedule
+
+The following updates are awaiting their schedule.
+
+ - [ ] <!-- unschedule-branch=renovate/cookie-0.7.0-1.x -->chore(deps): update dependency cookie to v1
+ - [ ] <!-- unschedule-branch=renovate/typescript-6.x -->chore(deps): update typescript
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 Create all awaiting schedule PRs at once 🔐
+
+## PR Edited (Blocked)
+
+The following updates have been manually edited so Renovate will no longer make changes.
+
+ - [ ] <!-- rebase-branch=renovate/all-minor-patch -->fix(deps): update all non-major dependencies (\`@reddoorla/maintenance\`, \`vite\`)
+ - [ ] <!-- rebase-branch=renovate/kit-2.x -->chore(deps): update kit
+
+## Open
+
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/jsdom-30.x -->chore(deps): update dependency jsdom to v30
+ - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
+
+## Detected Dependencies
+
+ - \`@reddoorla/maintenance ^0.75.0\` → [Updates: \`^0.79.0\`]
+`;
+
+describe("parseBlockedBranches", () => {
+  it("extracts only the branches under the PR Edited (Blocked) heading", () => {
+    expect(parseBlockedBranches(REAL_DASHBOARD_BODY)).toEqual([
+      "renovate/all-minor-patch",
+      "renovate/kit-2.x",
+    ]);
+  });
+
+  it("a healthy dashboard whose ONLY rebase markers are under Open yields nothing", () => {
+    // The live shape of 11 fleet repos. Drop just the blocked section; the
+    // `rebase-branch=` marker under "Open" must not be mistaken for a freeze.
+    const healthy = REAL_DASHBOARD_BODY.replace(/## PR Edited \(Blocked\)[\s\S]*?(?=## Open)/, "");
+    expect(healthy).toContain("rebase-branch=renovate/jsdom-30.x");
+    expect(parseBlockedBranches(healthy)).toEqual([]);
+  });
+
+  it("reads the pre-43 heading too, so an older Renovate is not silently clean", () => {
+    // Renovate renamed this section in 43.0.0. The fleet's major follows
+    // whatever renovatebot/github-action bakes in, so both must parse.
+    const legacy = REAL_DASHBOARD_BODY.replace("## PR Edited (Blocked)", "## Edited/Blocked");
+    expect(parseBlockedBranches(legacy)).toEqual(["renovate/all-minor-patch", "renovate/kit-2.x"]);
+  });
+
+  it("a `###` category subheading does NOT close the blocked section", () => {
+    // Renovate emits `### <category>` INSIDE a section when
+    // dependencyDashboardCategory is set; treating it as a boundary would
+    // truncate the blocked list to nothing.
+    expect(
+      parseBlockedBranches(
+        "## PR Edited (Blocked)\n### npm\n - [ ] <!-- rebase-branch=a -->x\n### Others\n - [ ] <!-- rebase-branch=b -->y\n## Open\n - [ ] <!-- rebase-branch=c -->z",
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("the next heading closes the section", () => {
+    expect(
+      parseBlockedBranches(
+        "## PR Edited (Blocked)\n - [ ] <!-- rebase-branch=a -->x\n## Open\n - [ ] <!-- rebase-branch=b -->y",
+      ),
+    ).toEqual(["a"]);
+  });
+
+  it("dedupes across the joined bodies of multiple dashboards", () => {
+    const doubled = `${REAL_DASHBOARD_BODY}\n# ---\n${REAL_DASHBOARD_BODY}`;
+    expect(parseBlockedBranches(doubled)).toEqual(["renovate/all-minor-patch", "renovate/kit-2.x"]);
+  });
+
+  it("empty body is not blocked", () => {
+    expect(parseBlockedBranches("")).toEqual([]);
+  });
+});
+
+describe("parseUnknownSections", () => {
+  it("a real dashboard uses only headings we know", () => {
+    expect(parseUnknownSections(REAL_DASHBOARD_BODY)).toEqual([]);
+  });
+
+  it("both the pre-43 and post-43 blocked spellings are known vocabulary", () => {
+    expect(parseUnknownSections("## Edited/Blocked\n## Ignored or Blocked")).toEqual([]);
+    expect(parseUnknownSections("## PR Edited (Blocked)\n## PR Closed (Blocked)")).toEqual([]);
+  });
+
+  it("reports a heading Renovate is not known to emit", () => {
+    expect(parseUnknownSections(`${REAL_DASHBOARD_BODY}\n## Frozen Updates\n`)).toEqual([
+      "Frozen Updates",
+    ]);
+  });
+
+  it("ignores the `# ---` join separator and `###` subheadings", () => {
+    expect(parseUnknownSections("# ---\n### npm\n### Others")).toEqual([]);
+  });
+});
+
+describe("isMachineAuthor", () => {
+  it("the App identity is a machine (GitHub type Bot)", () => {
+    expect(
+      isMachineAuthor({
+        type: "Bot",
+        login: "reddoor-renovate[bot]",
+        email: "312185038+reddoor-renovate[bot]@users.noreply.github.com",
+        name: "reddoor-renovate[bot]",
+      }),
+    ).toBe(true);
+  });
+
+  it("REGRESSION: the retired `renovate-bot` PAT identity is a machine despite type User", () => {
+    // This is the identity whose orphaned branches froze nine repos. GitHub
+    // reports it as type `User`, so a rule keyed on the Bot type alone would
+    // have missed the exact incident this audit exists to catch.
+    expect(
+      isMachineAuthor({
+        type: "User",
+        login: "renovate-bot",
+        email: "renovate-bot@whitesourcesoftware.com",
+        name: "Renovate Bot",
+      }),
+    ).toBe(true);
+  });
+
+  it("a human operator is not a machine", () => {
+    expect(
+      isMachineAuthor({
+        type: "User",
+        login: "tucksravin",
+        email: "43099664+tucksravin@users.noreply.github.com",
+        name: "Tucker Lemos",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("dashboardVocabularyGaps", () => {
+  it("known vocabulary is not a gap", () => {
+    expect(
+      dashboardVocabularyGaps({ present: true, blockedBranches: [], unknownSections: [] }),
+    ).toEqual([]);
+  });
+
+  it("an absent dashboard cannot have drifted", () => {
+    expect(dashboardVocabularyGaps({ present: false })).toEqual([]);
+  });
+
+  it("REGRESSION: unrecognised vocabulary is a gap, so a rename cannot silently clean the fleet", () => {
+    const [gap] = dashboardVocabularyGaps({
+      present: true,
+      blockedBranches: [],
+      unknownSections: ["Frozen Updates"],
+    });
+    expect(gap).toContain("Frozen Updates");
+    expect(gap).toMatch(/no longer be trusted/i);
+  });
+});
+
+describe("resolveBlockedBranches", () => {
+  const tip = (over: Partial<BranchTip>): BranchTip => ({
+    authorIsMachine: true,
+    committedAt: FRESH_RUN,
+    ...over,
+  });
+  const deps = (t: BranchTip | null) => ({ branchTip: async () => t });
+  const dash = (branches: string[]): DependencyDashboard => ({
+    present: true,
+    blockedBranches: branches,
+    unknownSections: [],
+  });
+
+  it("a machine-authored tip is an orphan immediately — nothing will ever clear it", async () => {
+    const got = await resolveBlockedBranches(
+      ORG,
+      dash(["renovate/all-minor-patch"]),
+      deps(tip({})),
+      NOW,
+    );
+    expect(got).toEqual([{ branch: "renovate/all-minor-patch", orphaned: true }]);
+  });
+
+  it("REGRESSION: a human's in-flight branch is NOT a gap — routine fleet practice", async () => {
+    // Pushing a commit onto an open Renovate PR makes Renovate file it under
+    // "PR Edited (Blocked)". That heading means "a human owns this now", not a
+    // fault, and the remediation would delete their commits.
+    const got = await resolveBlockedBranches(
+      ORG,
+      dash(["renovate/jsdom-30.x"]),
+      deps(tip({ authorIsMachine: false })),
+      NOW,
+    );
+    expect(got).toEqual([{ branch: "renovate/jsdom-30.x", orphaned: false }]);
+    expect(renovateBlockedGaps(got)).toEqual([]);
+  });
+
+  it("a human's branch left past the stale window IS a gap — the backstop", async () => {
+    const stale = new Date(NOW.getTime() - (BLOCKED_STALE_DAYS + 1) * 86_400_000).toISOString();
+    const got = await resolveBlockedBranches(
+      ORG,
+      dash(["renovate/jsdom-30.x"]),
+      deps(tip({ authorIsMachine: false, committedAt: stale })),
+      NOW,
+    );
+    expect(got[0]!.orphaned).toBe(true);
+  });
+
+  it("a branch that no longer exists is not a gap — that is a stale dashboard", async () => {
+    expect(await resolveBlockedBranches(ORG, dash(["renovate/gone"]), deps(null), NOW)).toEqual([]);
+  });
+});
+
+describe("renovateBlockedGaps", () => {
+  it("nothing blocked is clean", () => {
+    expect(renovateBlockedGaps([])).toEqual([]);
+  });
+
+  it("names every orphaned branch and tells the reader how to unblock it", () => {
+    const [gap] = renovateBlockedGaps([
+      { branch: "renovate/all-minor-patch", orphaned: true },
+      { branch: "renovate/jsdom-30.x", orphaned: false },
+    ]);
+    expect(gap).toContain("renovate/all-minor-patch");
+    // the human-owned branch is not named, and does not inflate the count
+    expect(gap).not.toContain("renovate/jsdom-30.x");
+    expect(gap).toContain("1 branch(es)");
+    expect(gap).toContain("BLOCKED");
+    expect(gap).toMatch(/delete the branch/i);
+  });
+});
+
+describe("effectiveness is judged separately from liveness", () => {
+  it("REGRESSION: a green, fresh renovate run is still a gap when a branch is blocked", async () => {
+    // The exact August 2026 shape: workflow active, succeeded hours ago —
+    // liveness is spotless — yet updates were frozen for a week.
+    const deps = makeDeps(
+      [{ name: "alamo-anatomy" }],
+      { "reddoorla/alamo-anatomy": [sound(1)] },
+      { "reddoorla/alamo-anatomy": { present: true, state: "active", lastSuccessAt: FRESH_RUN } },
+      {
+        "reddoorla/alamo-anatomy": {
+          present: true,
+          blockedBranches: ["renovate/all-minor-patch"],
+          unknownSections: [],
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("renovate/all-minor-patch");
+    // and liveness itself reported nothing wrong
+    expect(renovateGaps({ present: true, state: "active", lastSuccessAt: FRESH_RUN }, NOW)).toEqual(
+      [],
+    );
+  });
+
+  it("a dashboard probe that THROWS is a gap, never a silent pass", async () => {
+    const deps = makeDeps([{ name: "espada" }], { "reddoorla/espada": [sound(1)] });
+    deps.dependencyDashboard = async () => {
+      throw new Error("boom");
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("probe failed");
+  });
+});
+
+describe("the renovate outcome metric rides along but never becomes a gap", () => {
+  const dry: Record<string, RenovateMergeWindow> = {
+    "reddoorla/espada": {
+      merges: [{ headRef: "renovate/all-minor-patch", mergedAt: "2026-06-01T00:00:00Z" }],
+      truncated: false,
+    },
+  };
+
+  it("a two-month drought leaves the repo COVERED and the sweep exit code clean", async () => {
+    // The whole point of shipping this as a measurement: the fleet has been in
+    // exactly this state since 2026-08-12, and the nightly posture issue must
+    // not open, hold open, or fail to close because of it. `gaps` is the only
+    // thing that files an issue, so the assertion is on `status`.
+    const deps = makeDeps(
+      [{ name: "espada" }],
+      { "reddoorla/espada": [sound(1)] },
+      {},
+      {},
+      {},
+      {},
+      dry,
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.renovateOutcome).toMatchObject({ state: "drought", days: 62 });
+  });
+
+  it("a real gap still gaps, and carries the outcome alongside", async () => {
+    const deps = makeDeps([{ name: "espada" }], {}, {}, {}, {}, {}, dry);
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("no repo rulesets at all");
+    // Reported, not merged into the gap text — the tracking issue body is
+    // built by grepping the gap line, and this must not leak into it.
+    expect(rows[0]!.detail).not.toContain("LANDED");
+    expect(rows[0]!.renovateOutcome?.state).toBe("drought");
+  });
+
+  it("skipped repos carry no outcome — unverified must not read as measured", async () => {
+    const deps = makeDeps([{ name: "old", archived: true }], {}, {}, {}, {}, {}, dry);
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("skipped");
+    expect(rows[0]!.renovateOutcome).toBeUndefined();
+  });
+});
+
+/**
+ * #892. The ruleset floor above judges the DEFAULT branch, but Renovate merges
+ * into whatever `baseBranchPatterns` names. On 2026-09-21 exactly one repo
+ * differed — reddoor-website, `"baseBranchPatterns": ["staging"]` — and its
+ * `staging` carried a deletion-only ruleset: nothing required CI there, so a
+ * Renovate automerge could land with no check run at all. These fixtures are
+ * that repo's shape, plus the controls that prove the check PASSES on a
+ * protected base and stays silent where there is nothing to judge.
+ */
+describe("Renovate base branches are judged too (#892)", () => {
+  const WEBSITE = "reddoorla/reddoor-website";
+  const PRESET = "github>reddoorla/.github:renovate-config";
+  const cfg = (o: Record<string, unknown>) => JSON.stringify({ extends: [PRESET], ...o });
+  // What reddoor-website's staging carried when #892 was filed: a ruleset that
+  // forbids deletion and nothing else.
+  const deletionOnly: BranchRequiredChecks = { rules: [{ type: "deletion" }], classicContexts: [] };
+  // A staging ruleset as GET rulesets/{id} returns it. `bypass: undefined`
+  // is the response with NO bypass_actors field, which GitHub documents for a
+  // caller without write access to the ruleset (#981).
+  const STAGING_RULESET = 2;
+  const stagingRuleset = (
+    id: number,
+    bypass: unknown[] | undefined,
+    name = `staging CI ${id}`,
+  ): ExistingRuleset => ({
+    id,
+    name,
+    enforcement: "active",
+    ...(bypass === undefined ? {} : { bypass_actors: bypass }),
+    conditions: { ref_name: { include: ["refs/heads/staging"], exclude: [] } },
+    rules: [{ type: "required_status_checks" }],
+  });
+  const gatedBy = (...ids: Array<number | undefined>): BranchRequiredChecks => ({
+    rules: [
+      { type: "deletion", ruleset_id: 1 },
+      ...ids.map((id) =>
+        id === undefined
+          ? { type: "required_status_checks" }
+          : { type: "required_status_checks", ruleset_id: id },
+      ),
+    ],
+    classicContexts: [],
+  });
+  const rulesetGated = gatedBy(STAGING_RULESET);
+  const classicGated: BranchRequiredChecks = { rules: [], classicContexts: ["ci / ci"] };
+
+  function website(
+    files: Record<string, string | Error>,
+    branches: Record<string, BranchRequiredChecks | null | Error> = {},
+    stagingRulesets: ExistingRuleset[] = [stagingRuleset(STAGING_RULESET, [])],
+  ) {
+    return makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ...stagingRulesets] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      { files, branches },
+    );
+  }
+
+  it("FAIL: Renovate targets staging and nothing requires CI there — a gap naming reddoor-website:staging", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("NO required status check");
+    expect(rows[0]!.detail).toContain("baseBranchPatterns in renovate.json");
+    // The default branch is still judged by the ruleset floor, not re-probed.
+    expect(deps.branchCalls).toEqual([`${WEBSITE}:staging`]);
+  });
+
+  it("FAIL: the pre-rename `baseBranches` key is read the same way", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranches: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("baseBranches in renovate.json");
+  });
+
+  it("PASS control: staging gated by a ruleset's required_status_checks rule is covered", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: rulesetGated },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(
+      `"${FLEET_RULESET_NAME}"; renovate base reddoor-website:staging requires status checks ` +
+        `no one can bypass ("staging CI 2")`,
+    );
+    expect(deps.rulesetCalls).toContain(`${WEBSITE}:${STAGING_RULESET}`);
+  });
+
+  it("PASS control: staging gated by CLASSIC branch protection is covered too, with no ruleset read", async () => {
+    // The classic case is unchanged (#981): a classic required context gates
+    // on its own, so the ruleset behind the branch's rules is never asked for.
+    // Ruleset 77 is not in the fixture, so reading it would throw.
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: { ...gatedBy(77), classicContexts: ["ci / ci"] } },
+      [],
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain(
+      "renovate base reddoor-website:staging requires status checks",
+    );
+    expect(deps.rulesetCalls).toEqual([`${WEBSITE}:1`]);
+
+    const plain = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: classicGated },
+    );
+    expect((await collectProtectionCoverage(ORG, plain, NOW))[0]!.status).toBe("covered");
+  });
+
+  it("UNCHANGED: no Renovate config at all is not a gap, and probes no branch", async () => {
+    const deps = website({});
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(`"${FLEET_RULESET_NAME}"`);
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("UNCHANGED: a config that names no base branch (the fleet's shape) judges the default branch alone", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: cfg({}),
+      "reddoorla/.github:renovate-config.json": JSON.stringify({ extends: ["config:recommended"] }),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toBe(`"${FLEET_RULESET_NAME}"`);
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("the default branch named as a base (by name or `$default`) is not probed a second time", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["$default", "main"] }),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("config lives on the DEFAULT branch only: it is read there, first file wins, and staging is still judged", async () => {
+    // Renovate reads its repo config (and therefore baseBranchPatterns) from
+    // the default branch; `staging` carrying no renovate.json of its own is
+    // the normal case and must not read as "no config". The first file in
+    // Renovate's own search order wins, so a stale .github/renovate.json is
+    // never consulted.
+    const deps = website(
+      {
+        [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }),
+        [`${WEBSITE}:.github/renovate.json`]: cfg({}),
+      },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(deps.fileReads).toEqual([`${WEBSITE}:renovate.json`]);
+  });
+
+  it("reads renovate.jsonc — Renovate 44's SECOND config name — so a base branch there is not missed", async () => {
+    // JSONC is JSON with comments (and, in practice, trailing commas).
+    const jsonc = `{
+  // staging is where integration happens
+  "extends": ["${PRESET}"],
+  "baseBranchPatterns": ["staging"], /* the one non-default base */
+}
+`;
+    const deps = website(
+      { [`${WEBSITE}:renovate.jsonc`]: jsonc },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("baseBranchPatterns in renovate.jsonc");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+  });
+
+  it("reads .github/renovate.json and renovate.json5 (comments, bare keys, trailing commas)", async () => {
+    const json5 = `// staging is the integration branch
+{
+  extends: ['${PRESET}'],
+  baseBranchPatterns: ['staging',], /* trailing comma */
+}
+`;
+    for (const path of [".github/renovate.json", "renovate.json5"]) {
+      const text = path.endsWith("5") ? json5 : cfg({ baseBranchPatterns: ["staging"] });
+      const deps = website(
+        { [`${WEBSITE}:${path}`]: text },
+        { [`${WEBSITE}:staging`]: deletionOnly },
+      );
+      const rows = await collectProtectionCoverage(ORG, deps, NOW);
+      expect(rows[0]!.status, path).toBe("gap");
+      expect(rows[0]!.detail, path).toContain(`baseBranchPatterns in ${path}`);
+      expect(rows[0]!.detail, path).toContain("reddoor-website:staging");
+    }
+  });
+
+  it("a base branch set only in a resolvable org preset is judged; the repo's own value wins over it", async () => {
+    const preset = {
+      "reddoorla/.github:renovate-config.json": JSON.stringify({ baseBranchPatterns: ["staging"] }),
+    };
+    const fromPreset = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({}), ...preset },
+      { [`${WEBSITE}:staging`]: deletionOnly },
+    );
+    const rows = await collectProtectionCoverage(ORG, fromPreset, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain(`baseBranchPatterns in ${PRESET}`);
+
+    const overridden = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["$default"] }),
+      ...preset,
+    });
+    const rows2 = await collectProtectionCoverage(ORG, overridden, NOW);
+    expect(rows2[0]!.status).toBe("covered");
+    expect(overridden.branchCalls).toEqual([]);
+  });
+
+  it("a base branch that does not exist is not a gap (Renovate cannot merge into it)", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: null },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging does not exist");
+  });
+
+  it("a REFUSED config read is unverified — never 'no required status check', and never sinks the other surfaces", async () => {
+    const deps = website({
+      [`${WEBSITE}:renovate.json`]: new Error("repoTextFile failed: HTTP 403"),
+    });
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("unverified, not clean");
+    expect(rows[0]!.detail).toContain("HTTP 403");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("probe failed");
+    expect(deps.branchCalls).toEqual([]);
+  });
+
+  it("a REFUSED org-preset read is a NOTE, not a gap — one refusal must not gap every repo that extends it", async () => {
+    // Measured, not hypothesised: the first live run of this check, from a
+    // session that could not see reddoorla/.github, returned exactly this
+    // refusal for reddoor-maintenance. 27 repos extend that one preset.
+    const refusal = new Error(
+      "repoTextFile(reddoorla/.github/renovate-config.json) failed: gh: GitHub access to this repository is not enabled for this session. (HTTP 403)",
+    );
+    const deps = makeDeps(
+      [{ name: "espada" }, { name: "caltex-landing" }],
+      { "reddoorla/espada": [sound(1)], "reddoorla/caltex-landing": [sound(2)] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          "reddoorla/espada:renovate.json": cfg({}),
+          "reddoorla/caltex-landing:renovate.json": cfg({}),
+          "reddoorla/.github:renovate-config.json": refusal,
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    expect(rows[0]!.detail).toBe(
+      `"${FLEET_RULESET_NAME}"; renovate preset ${PRESET} (HTTP 403) unread — base branches judged without it`,
+    );
+    // A failed read is not cached: the second repo asks again rather than
+    // inheriting the first repo's blip.
+    expect(
+      deps.fileReads.filter((f) => f === "reddoorla/.github:renovate-config.json"),
+    ).toHaveLength(2);
+  });
+
+  it("a readable org preset is read ONCE per sweep, however many repos extend it", async () => {
+    const deps = makeDeps(
+      [{ name: "espada" }, { name: "caltex-landing" }],
+      { "reddoorla/espada": [sound(1)], "reddoorla/caltex-landing": [sound(2)] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          "reddoorla/espada:renovate.json": cfg({}),
+          "reddoorla/caltex-landing:renovate.json": cfg({}),
+          "reddoorla/.github:renovate-config.json": JSON.stringify({
+            extends: ["config:recommended"],
+          }),
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows.map((r) => r.status)).toEqual(["covered", "covered"]);
+    expect(
+      deps.fileReads.filter((f) => f === "reddoorla/.github:renovate-config.json"),
+    ).toHaveLength(1);
+  });
+
+  it("a REFUSED branch read is unverified and names the branch — never 'no required status check'", async () => {
+    const deps = website(
+      { [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["staging"] }) },
+      { [`${WEBSITE}:staging`]: new Error("branchRequiredChecks failed: HTTP 403") },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("unverified, not clean");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+  });
+
+  it("an unparseable config and an unexpanded pattern are unverified, not silently default-only", async () => {
+    const broken = website({ [`${WEBSITE}:renovate.json`]: "{ nope" });
+    const r1 = await collectProtectionCoverage(ORG, broken, NOW);
+    expect(r1[0]!.status).toBe("gap");
+    expect(r1[0]!.detail).toContain("unverified, not clean");
+
+    const pattern = website({
+      [`${WEBSITE}:renovate.json`]: cfg({ baseBranchPatterns: ["/^release\\/.*/"] }),
+    });
+    const r2 = await collectProtectionCoverage(ORG, pattern, NOW);
+    expect(r2[0]!.status).toBe("gap");
+    expect(r2[0]!.detail).toContain("/^release\\/.*/");
+    expect(r2[0]!.detail).toContain("unverified, not clean");
+    expect(pattern.branchCalls).toEqual([]);
+  });
+});
+
+/**
+ * #981: a required check only gates Renovate if no one can bypass it. The
+ * preset's invariant (3) (.github#35) says Renovate waits for CI only where the
+ * base branch "has a required check that the App cannot bypass", and names
+ * this sweep as its instrument. The join is GitHub's own: `rules/branches/{b}`
+ * names the ruleset behind each rule, and that ruleset's `bypass_actors` says
+ * who can skip it.
+ */
+describe("a Renovate base branch's required check must not be bypassable (#981)", () => {
+  const WEBSITE = "reddoorla/reddoor-website";
+  const config = {
+    [`${WEBSITE}:renovate.json`]: JSON.stringify({ baseBranchPatterns: ["staging"] }),
+  };
+  const APP = { actor_id: 1234, actor_type: "Integration", bypass_mode: "pull_request" };
+  const ADMIN = { actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" };
+  const ruleset = (id: number, bypass: unknown[] | undefined): ExistingRuleset => ({
+    id,
+    name: `staging CI ${id}`,
+    enforcement: "active",
+    ...(bypass === undefined ? {} : { bypass_actors: bypass }),
+    conditions: { ref_name: { include: ["refs/heads/staging"], exclude: [] } },
+    rules: [{ type: "required_status_checks" }],
+  });
+  const gated = (...ids: Array<number | undefined>): BranchRequiredChecks => ({
+    rules: ids.map((id) =>
+      id === undefined
+        ? { type: "required_status_checks" }
+        : { type: "required_status_checks", ruleset_id: id },
+    ),
+    classicContexts: [],
+  });
+  function site(staging: BranchRequiredChecks, rulesets: ExistingRuleset[]) {
+    return makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ...rulesets] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      { files: config, branches: { [`${WEBSITE}:staging`]: staging } },
+    );
+  }
+
+  it("FAIL: the only gating ruleset lets the Renovate App bypass in pull_request mode — a gap with a Fix clause", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(2), [ruleset(2, [APP])]), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    const d = rows[0]!.detail;
+    expect(d).toContain("reddoor-website:staging");
+    expect(d).toContain('"staging CI 2" has 1 bypass actor');
+    expect(d).toContain(
+      "Fix: empty that bypass list, or drop staging from the Renovate base branches",
+    );
+    expect(d).not.toContain("NO required status check");
+    expect(d).not.toContain("unverified");
+  });
+
+  it("FAIL: every gating ruleset is bypassable — each is named with its actor count", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(2, 3), [ruleset(2, [APP]), ruleset(3, [APP, ADMIN])]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain('"staging CI 2" has 1 bypass actor');
+    expect(rows[0]!.detail).toContain('"staging CI 3" has 2 bypass actor');
+  });
+
+  it("PASS: ONE bypass-free gating ruleset is enough, whatever another one allows", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(3, 2), [ruleset(2, []), ruleset(3, [ADMIN])]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.detail).toContain('no one can bypass ("staging CI 2")');
+  });
+
+  it("UNVERIFIED: a ruleset read WITHOUT a bypass_actors field is not read as 'no bypass actors'", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(2), [ruleset(2, undefined)]), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("no bypass_actors field");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("no one can bypass");
+  });
+
+  it("UNVERIFIED: a required_status_checks rule with no ruleset_id cannot be joined, so it is not a gate", async () => {
+    const rows = await collectProtectionCoverage(ORG, site(gated(undefined), []), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("no ruleset_id");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+  });
+
+  it("UNVERIFIED: a getRuleset that THROWS is neither covered nor 'no required status check'", async () => {
+    // Ruleset 9 is not in the fixture, so getRuleset throws for it.
+    const rows = await collectProtectionCoverage(ORG, site(gated(9), []), NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("reddoor-website:staging");
+    expect(rows[0]!.detail).toContain("no ruleset 9");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).not.toContain("NO required status check");
+    expect(rows[0]!.detail).not.toContain("probe failed");
+    // The failed read is neither read nor unread: only the floor's ruleset 1.
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+
+  it("PASS: a bypass-free ruleset wins over an unknown one, whichever comes first", async () => {
+    for (const staging of [gated(undefined, 2), gated(9, 2), gated(3, 2)]) {
+      const rows = await collectProtectionCoverage(
+        ORG,
+        site(staging, [ruleset(2, []), ruleset(3, undefined)]),
+        NOW,
+      );
+      expect(rows[0]!.status, JSON.stringify(staging)).toBe("covered");
+      expect(rows[0]!.detail).toContain('no one can bypass ("staging CI 2")');
+    }
+  });
+
+  it("an unknown ruleset beside a KNOWN bypassable one is still unverified, not a flat gap", async () => {
+    const rows = await collectProtectionCoverage(
+      ORG,
+      site(gated(2, 3), [ruleset(2, [APP]), ruleset(3, undefined)]),
+      NOW,
+    );
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("(unverified, not clean)");
+    expect(rows[0]!.detail).toContain('"staging CI 2" has 1 bypass actor');
+  });
+
+  it("counts every ruleset read and those read without bypass_actors, once each per repo", async () => {
+    // Ruleset 2 is read by the default-branch floor (it is listed) AND joined
+    // from staging; it is read once and counted once.
+    const present = site(gated(2), [ruleset(2, [])]);
+    const r1 = await collectProtectionCoverage(ORG, present, NOW);
+    expect(r1[0]!.rulesetBypass).toEqual({ read: 2, unread: 0 });
+    expect(present.rulesetCalls.filter((c) => c === `${WEBSITE}:2`)).toHaveLength(1);
+
+    const missing = site(gated(2), [ruleset(2, undefined)]);
+    const r2 = await collectProtectionCoverage(ORG, missing, NOW);
+    expect(r2[0]!.rulesetBypass).toEqual({ read: 2, unread: 1 });
+  });
+
+  it("the default-branch floor's rulesets are counted even when no base branch is judged", async () => {
+    const { bypass_actors: _dropped, ...noField } = sound(2);
+    const noBase = makeDeps([{ name: "espada" }], {
+      "reddoorla/espada": [sound(1), noField],
+    });
+    const rows = await collectProtectionCoverage(ORG, noBase, NOW);
+    expect(rows[0]!.status).toBe("covered");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 1 });
+  });
+  it("a failed ruleset read is not cached: a second branch joined to the same ruleset reads it again", async () => {
+    const deps = makeDeps(
+      [{ name: "reddoor-website" }],
+      { [WEBSITE]: [sound(1), ruleset(5, [])] },
+      {},
+      {},
+      {},
+      {},
+      {},
+      {
+        files: {
+          [`${WEBSITE}:renovate.json`]: JSON.stringify({ baseBranchPatterns: ["staging", "next"] }),
+        },
+        branches: { [`${WEBSITE}:staging`]: gated(5), [`${WEBSITE}:next`]: gated(5) },
+      },
+    );
+    const real = deps.getRuleset;
+    let failures = 0;
+    deps.listRepoRulesets = async () => [{ id: 1, name: FLEET_RULESET_NAME }];
+    deps.getRuleset = async (repo, id) => {
+      if (id === 5 && failures++ === 0) {
+        deps.rulesetCalls.push(`${repo}:${id}`);
+        throw new Error("HTTP 502");
+      }
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.detail).toContain("reddoor-website:staging unverified");
+    expect(rows[0]!.detail).toContain(
+      "reddoor-website:next requires status checks no one can bypass",
+    );
+    expect(deps.rulesetCalls.filter((c) => c === `${WEBSITE}:5`)).toHaveLength(2);
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 2, unread: 0 });
+  });
+
+  it("a probe-failed row still counts the sibling reads that finished after the failure", async () => {
+    const deps = makeDeps([{ name: "espada" }], {
+      "reddoorla/espada": [sound(1), sound(2)],
+    });
+    const real = deps.getRuleset;
+    deps.getRuleset = async (repo, id) => {
+      if (id === 1) throw new Error("HTTP 502");
+      await new Promise((r) => setTimeout(r, 5));
+      return real(repo, id);
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toBe("probe failed: HTTP 502");
+    expect(rows[0]!.rulesetBypass).toEqual({ read: 1, unread: 0 });
+  });
+  it("RULESET_BYPASS sums every row that carries a count, probe-failed rows included", () => {
+    expect(
+      rulesetBypassSummary([
+        {
+          repo: "reddoorla/a",
+          status: "gap",
+          detail: "probe failed: x",
+          rulesetBypass: { read: 1, unread: 1 },
+        },
+        {
+          repo: "reddoorla/b",
+          status: "covered",
+          detail: "",
+          renovateOutcome: { state: "unmeasured", reason: "x" },
+          rulesetBypass: { read: 2, unread: 0 },
+        },
+        { repo: "reddoorla/c", status: "skipped", detail: "archived" },
+      ]),
+    ).toBe("RULESET_BYPASS unread=1 read=3");
+  });
+});

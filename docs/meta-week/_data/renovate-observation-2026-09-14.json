@@ -1,0 +1,470 @@
+{
+  "observedAt": "2026-09-14T19:00:00Z",
+  "observer": "S7 / meta-week lane 2",
+  "method": "gh repo list reddoorla --limit 100; then per repo, ONE GraphQL query for refs(refPrefix:refs/heads/, query:renovate/) with tip committedDate, ONE REST call for open PRs, ONE REST call for the last 100 closed PRs. Calls issued sequentially from node execFileSync, never from a shell for-loop (gh fails x509 inside one in this sandbox, and a loop that finds nothing is the instrument failing).",
+  "orgTotals": {
+    "repos": 32,
+    "publicNonArchived": 26,
+    "archived": [
+      "the-tower",
+      "the-pointe",
+      "reddoor-test"
+    ],
+    "private": [
+      "claude-skills",
+      "reddoor-rfp-analyses",
+      "reddoor-prospect-runner",
+      "reddoor-test"
+    ]
+  },
+  "branchScan": {
+    "renovateRefs": 136,
+    "prlessRefs": 123,
+    "prlessRefsWithTipOlderThan8Days": 15,
+    "reposWithAllMinorPatchBranch": 26,
+    "ofThosePrless": 26,
+    "allMinorPatchTipDatesUtc": {
+      "earliest": "2026-09-14T02:27:40Z",
+      "latest": "2026-09-14T17:58:17Z",
+      "allOn": "2026-09-14"
+    }
+  },
+  "comparisonToBrief0907": {
+    "source": "docs/meta-week/06-priorities-system.md S7, measured 2026-09-07",
+    "reposWithAllMinorPatch": {
+      "2026-09-07": 25,
+      "2026-09-14": 26
+    },
+    "allPrless": {
+      "2026-09-07": true,
+      "2026-09-14": true
+    },
+    "prlessRenovateBranchesOrgWide": {
+      "2026-09-07": 103,
+      "2026-09-14": 123
+    },
+    "reading": "Renovate REWROTE every grouped branch on Monday 2026-09-14 (all 26 tips dated today, 02:27Z-17:58Z) and opened a PR on none of them. The brief predicted the Monday re-scan would show whether the PR-less branches convert. They did not convert. This is the live condition stated precisely: not a Renovate that refuses to touch the branch, but a Renovate that touches it every week and never opens a PR."
+  },
+  "outcomeMetric": {
+    "field": "renovateOutcome",
+    "emittedBy": "reddoor-maint protection-audit --org reddoorla",
+    "thresholdDays": 21,
+    "failControl": "RENOVATE_OUTCOME drought=21 delivering=0 unmeasured=5 threshold=21d",
+    "passControl": "RENOVATE_OUTCOME drought=0 delivering=20 unmeasured=6 threshold=21d",
+    "passControlInstant": "2026-08-10T12:00:00Z",
+    "failControlInstant": "2026-09-14T12:00:00Z"
+  },
+  "dashboardObservationReddoorStarter97": {
+    "observedAt": "2026-09-14T02:29:29Z (issue updated_at)",
+    "sectionHeading": "## Pending Status Checks",
+    "checkboxMarker": "unpend-branch=renovate/all-minor-patch",
+    "alsoPending": [
+      "renovate/major-vitest-monorepo",
+      "renovate/pnpm-12.x",
+      "renovate/lock-file-maintenance"
+    ],
+    "briefSaid": "## Awaiting Schedule with unschedule-branch=renovate/all-minor-patch",
+    "correction": "The brief quotes a section and checkbox marker that the dashboard no longer carries. As of 2026-09-14 the grouped branch sits under Pending Status Checks and its marker is unpend-branch, not unschedule-branch. Nothing was ticked by this session - the operator decides.",
+    "branchStatusReadings": {
+      "combinedStatus": "success",
+      "statusCount": 1,
+      "onlyStatusContext": "renovate/stability-days",
+      "checkRuns": 0
+    },
+    "openQuestionNotResolvedHere": "Renovate says the branch awaits pending status checks while GitHub reports the combined status as success (its single status being Renovate own stability-days check) with zero check runs. These two readings disagree. The mechanism is NOT settled by this observation and no preset or packageRules change was made."
+  },
+  "perRepo": {
+    "reddoor-maintenance": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 12,
+      "prlessRefs": 11,
+      "allMinorPatchTip": "2026-09-14T17:07:16Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": true,
+      "lastFeatureUpdateMerged": null
+    },
+    "1836dig": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 3,
+      "prlessRefs": 3,
+      "allMinorPatchTip": "2026-09-14T04:39:20Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:11:36Z",
+        "daysAgo": 32
+      }
+    },
+    "vida-legacy-foundation": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T04:35:57Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": null
+    },
+    "reddoor-md-pdf": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 7,
+      "prlessRefs": 7,
+      "allMinorPatchTip": "2026-09-14T17:58:17Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": null
+    },
+    "data-dynamiq": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 4,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:57:46Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:11:57Z",
+        "daysAgo": 32
+      }
+    },
+    "medical-solutions-of-texas": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:57:20Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:23Z",
+        "daysAgo": 32
+      }
+    },
+    "the-pointe-burbank": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T17:56:58Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:43Z",
+        "daysAgo": 32
+      }
+    },
+    "gallerysonder": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T03:40:30Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/typescript-6.x",
+        "mergedAt": "2026-08-12T20:04:36Z",
+        "daysAgo": 32
+      }
+    },
+    "la-homelessness-initiative": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 3,
+      "prlessRefs": 3,
+      "allMinorPatchTip": "2026-09-14T17:49:58Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:11Z",
+        "daysAgo": 32
+      }
+    },
+    "reddoor-starter": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T02:28:53Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": true,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:29Z",
+        "daysAgo": 32
+      }
+    },
+    "reddoor-starter-blux": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 4,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:46:51Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": null
+    },
+    "revogen": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T17:46:20Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:19:52Z",
+        "daysAgo": 32
+      }
+    },
+    "canvas-starter": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T17:45:58Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:11:50Z",
+        "daysAgo": 32
+      }
+    },
+    "the-tower-burbank": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T17:36:39Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:49Z",
+        "daysAgo": 32
+      }
+    },
+    "composition-hospitality": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:26:18Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-10T19:46:26Z",
+        "daysAgo": 34
+      }
+    },
+    "caltex-landing": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 4,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:23:42Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:11:45Z",
+        "daysAgo": 32
+      }
+    },
+    "la-homelessness-youth": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 3,
+      "prlessRefs": 3,
+      "allMinorPatchTip": "2026-09-14T17:21:55Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:17Z",
+        "daysAgo": 32
+      }
+    },
+    "erp-industrial": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 6,
+      "allMinorPatchTip": "2026-09-14T17:18:16Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:02Z",
+        "daysAgo": 32
+      }
+    },
+    "hedloc": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 4,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T17:18:19Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/cookie-0.7.0-1.x",
+        "mergedAt": "2026-08-10T17:55:31Z",
+        "daysAgo": 34
+      }
+    },
+    "vineyard-custom-homes": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T17:10:38Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:19:58Z",
+        "daysAgo": 32
+      }
+    },
+    "espada": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 7,
+      "prlessRefs": 7,
+      "allMinorPatchTip": "2026-09-14T17:09:29Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:37:20Z",
+        "daysAgo": 32
+      }
+    },
+    "alamo-anatomy": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 6,
+      "allMinorPatchTip": "2026-09-14T17:09:10Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:17:55Z",
+        "daysAgo": 32
+      }
+    },
+    "29-navy": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 6,
+      "prlessRefs": 4,
+      "allMinorPatchTip": "2026-09-14T04:35:13Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": null
+    },
+    "reddoor-website": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 5,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T04:13:54Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": true,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T20:12:34Z",
+        "daysAgo": 32
+      }
+    },
+    ".github": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 1,
+      "prlessRefs": 1,
+      "allMinorPatchTip": "2026-09-14T02:37:24Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-12T12:50:34Z",
+        "daysAgo": 32
+      }
+    },
+    "beachfront-dentistry": {
+      "visibility": "public",
+      "archived": false,
+      "renovateRefs": 7,
+      "prlessRefs": 5,
+      "allMinorPatchTip": "2026-09-14T02:27:40Z",
+      "allMinorPatchHasOpenPr": false,
+      "mergeWindowTruncated": false,
+      "lastFeatureUpdateMerged": {
+        "branch": "renovate/all-minor-patch",
+        "mergedAt": "2026-08-13T05:02:28Z",
+        "daysAgo": 32
+      }
+    },
+    "claude-skills": {
+      "visibility": "private",
+      "archived": false,
+      "renovateRefs": 0,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    },
+    "reddoor-rfp-analyses": {
+      "visibility": "private",
+      "archived": false,
+      "renovateRefs": 0,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    },
+    "reddoor-prospect-runner": {
+      "visibility": "private",
+      "archived": false,
+      "renovateRefs": 0,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    },
+    "the-tower": {
+      "visibility": "public",
+      "archived": true,
+      "renovateRefs": 0,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    },
+    "the-pointe": {
+      "visibility": "public",
+      "archived": true,
+      "renovateRefs": 1,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    },
+    "reddoor-test": {
+      "visibility": "private",
+      "archived": true,
+      "renovateRefs": 0,
+      "prlessRefs": 0,
+      "allMinorPatchTip": null,
+      "allMinorPatchHasOpenPr": null
+    }
+  }
+}

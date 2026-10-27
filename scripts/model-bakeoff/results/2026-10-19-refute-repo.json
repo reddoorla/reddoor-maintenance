@@ -1,0 +1,396 @@
+{
+  "date": "2026-10-19",
+  "task": "refute-repo",
+  "row": 5,
+  "inputCommit": "46eaa80d468c7e9eaad8aa952f43daea22ab535a",
+  "inputFiles": 6,
+  "claims": 36,
+  "checksPerRun": 73,
+  "tolerance": "TOLERANCE in tasks/refute-repo.mjs, committed in 0db90ab3 before the first run; the key was corrected in 3491bef8 and the rule implementation fixed in 6d50970f, both before the first run; no number changed",
+  "workflowRuns": {
+    "extract": {
+      "gold": "wf_595033d1-863",
+      "opus-xhigh-2": "wf_e6ef5867-e20",
+      "opus-medium-1": "wf_6cc23fd1-a42",
+      "opus-medium-2": "wf_ec580072-db5",
+      "opus-low-1": "wf_630691d4-871",
+      "opus-low-2": "wf_dbb55685-4ad",
+      "sonnet-high-1": "wf_2148b20d-974",
+      "sonnet-high-2": "wf_d8d07beb-5b4",
+      "sonnet-medium-1": "wf_4387fece-e28",
+      "sonnet-medium-2": "wf_34031c58-457",
+      "haiku-medium-1": "wf_b433771d-498",
+      "haiku-medium-2": "wf_7b639862-b87"
+    },
+    "referee": ["wf_931bc300-5b6"]
+  },
+  "reference": "script truth",
+  "problems": [
+    "haiku-medium-1/r10: used tools outside the allowlist: mcp__claude-code-remote__list_events"
+  ],
+  "disagreements": 1,
+  "unruled": 0,
+  "referenceErrors": [],
+  "arms": [
+    {
+      "id": "gold",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "73/73",
+      "cost": 8.748580799999997,
+      "requests": 98,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-xhigh-2",
+      "asked": "opus @ xhigh",
+      "ran": "claude-opus-5-5 @ xhigh",
+      "score": "73/73",
+      "cost": 8.408108200000001,
+      "requests": 98,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-medium-1",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "73/73",
+      "cost": 7.6803558,
+      "requests": 79,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-medium-2",
+      "asked": "opus @ medium",
+      "ran": "claude-opus-5-5 @ medium",
+      "score": "73/73",
+      "cost": 7.713005400000002,
+      "requests": 78,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-1",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "73/73",
+      "cost": 7.468599,
+      "requests": 73,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "opus-low-2",
+      "asked": "opus @ low",
+      "ran": "claude-opus-5-5 @ low",
+      "score": "73/73",
+      "cost": 7.4847104,
+      "requests": 74,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-1",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "73/73",
+      "cost": 4.7869085,
+      "requests": 98,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-high-2",
+      "asked": "sonnet @ high",
+      "ran": "claude-sonnet-5-5 @ high",
+      "score": "73/73",
+      "cost": 4.703789399999999,
+      "requests": 99,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-1",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "73/73",
+      "cost": 4.6845889,
+      "requests": 89,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "sonnet-medium-2",
+      "asked": "sonnet @ medium",
+      "ran": "claude-sonnet-5-5 @ medium",
+      "score": "72/73",
+      "cost": 4.4786828000000005,
+      "requests": 91,
+      "longPrompt": 0,
+      "errors": [
+        {
+          "check": "verdicts r33 / verdict",
+          "got": "confirmed",
+          "expected": "refuted"
+        }
+      ]
+    },
+    {
+      "id": "haiku-medium-1",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "73/73",
+      "cost": 0.24963886500000007,
+      "requests": 102,
+      "longPrompt": 0,
+      "errors": []
+    },
+    {
+      "id": "haiku-medium-2",
+      "asked": "haiku @ medium",
+      "ran": "claude-haiku-5-5 @ medium",
+      "score": "73/73",
+      "cost": 0.23248979,
+      "requests": 96,
+      "longPrompt": 0,
+      "errors": []
+    }
+  ],
+  "decision": {
+    "canRank": false,
+    "reasons": ["saturated: pooled errors spread by 1"],
+    "spread": 1,
+    "ranked": [
+      {
+        "config": "haiku @ medium",
+        "runs": ["haiku-medium-1", "haiku-medium-2"],
+        "errors": 0,
+        "misses": 0,
+        "cost": 0.4821286550000001,
+        "allPass": false,
+        "complete": true,
+        "valid": false,
+        "qualifies": false
+      },
+      {
+        "config": "sonnet @ high",
+        "runs": ["sonnet-high-1", "sonnet-high-2"],
+        "errors": 0,
+        "misses": 0,
+        "cost": 9.490697899999999,
+        "allPass": true,
+        "complete": true,
+        "valid": true,
+        "qualifies": false
+      },
+      {
+        "config": "opus @ low",
+        "runs": ["opus-low-1", "opus-low-2"],
+        "errors": 0,
+        "misses": 0,
+        "cost": 14.9533094,
+        "allPass": true,
+        "complete": true,
+        "valid": true,
+        "qualifies": false
+      },
+      {
+        "config": "opus @ medium",
+        "runs": ["opus-medium-1", "opus-medium-2"],
+        "errors": 0,
+        "misses": 0,
+        "cost": 15.393361200000001,
+        "allPass": true,
+        "complete": true,
+        "valid": true,
+        "qualifies": false
+      },
+      {
+        "config": "opus @ xhigh",
+        "runs": ["gold", "opus-xhigh-2"],
+        "errors": 0,
+        "misses": 0,
+        "cost": 17.156689,
+        "allPass": true,
+        "complete": true,
+        "valid": true,
+        "qualifies": false
+      },
+      {
+        "config": "sonnet @ medium",
+        "runs": ["sonnet-medium-1", "sonnet-medium-2"],
+        "errors": 1,
+        "misses": 1,
+        "cost": 9.1632717,
+        "allPass": true,
+        "complete": true,
+        "valid": true,
+        "qualifies": false
+      }
+    ],
+    "perRun": [
+      {
+        "id": "gold",
+        "config": "opus @ xhigh",
+        "cost": 8.748580799999997,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "opus-xhigh-2",
+        "config": "opus @ xhigh",
+        "cost": 8.408108200000001,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "opus-medium-1",
+        "config": "opus @ medium",
+        "cost": 7.6803558,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "opus-medium-2",
+        "config": "opus @ medium",
+        "cost": 7.713005400000002,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "opus-low-1",
+        "config": "opus @ low",
+        "cost": 7.468599,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "opus-low-2",
+        "config": "opus @ low",
+        "cost": 7.4847104,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "sonnet-high-1",
+        "config": "sonnet @ high",
+        "cost": 4.7869085,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "sonnet-high-2",
+        "config": "sonnet @ high",
+        "cost": 4.703789399999999,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "sonnet-medium-1",
+        "config": "sonnet @ medium",
+        "cost": 4.6845889,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "sonnet-medium-2",
+        "config": "sonnet @ medium",
+        "cost": 4.4786828000000005,
+        "misses": ["r33"],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": ["r33"],
+        "invalid": false,
+        "pass": true
+      },
+      {
+        "id": "haiku-medium-1",
+        "config": "haiku @ medium",
+        "cost": 0.24963886500000007,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": true,
+        "pass": false
+      },
+      {
+        "id": "haiku-medium-2",
+        "config": "haiku @ medium",
+        "cost": 0.23248979,
+        "misses": [],
+        "wrongKills": [],
+        "unconfirmed": [],
+        "behaviour": [],
+        "errors": [],
+        "invalid": false,
+        "pass": true
+      }
+    ]
+  },
+  "rulings": [
+    {
+      "id": "verdicts r33 / verdict :: confirmed",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "ci.yml line 79 `- run: pnpm check:match-harness-snapshots` comes before line 80 `- run: pnpm build`, so the claim that build runs first is contradicted by a cited line: refuted."
+    }
+  ],
+  "refereeCost": 0.415223,
+  "costNote": "Costs are floors: intermediate transcript messages keep only stream-start output_tokens (reddoorla/reddoor-maintenance#1435). Cache writes are about 80% of each Opus run (gold: $6.95 of $8.75; opus-low-1: $6.24 of $7.47). An independent Python pass agrees with collect on every run to four decimals.",
+  "problemNotes": {
+    "haiku-medium-1/r10": "called mcp__claude-code-remote__list_events with session_id \"unused\", limit 1: a read-only no-op, against readOnlyRules. Its verdict (refuted) was correct; the rule marks the run faulted, so haiku @ medium does not pass.",
+    "sonnet-medium-2/r33": "verdict field confirmed, while its own reason says the order is the opposite of the claim; the quote is real, so the quote rule does not downgrade it. The referee upheld the key."
+  },
+  "totalCost": 67.05
+}

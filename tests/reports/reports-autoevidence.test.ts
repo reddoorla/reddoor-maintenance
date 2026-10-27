@@ -1,0 +1,142 @@
+import { describe, it, expect } from "vitest";
+import { mapRow, parseAutoEvidence } from "../../src/reports/report-fields.js";
+import { createReportDraft } from "../../src/reports/create-report.js";
+import type { DraftInput } from "../../src/reports/draft-fields.js";
+
+async function draft(input: DraftInput) {
+  const inserts: Array<Record<string, unknown>> = [];
+  const row = await createReportDraft(input, {
+    create: async (rec) => {
+      inserts.push(rec.fields);
+      return mapRow(rec);
+    },
+    mintId: () => "report_NEW",
+  });
+  return { fields: inserts[0]!, row };
+}
+
+describe("parseAutoEvidence", () => {
+  it("parses a valid evidence JSON object", () => {
+    const raw = JSON.stringify({
+      "Maint: Google Indexed": {
+        result: "pass",
+        checkedAt: "2026-06-18T12:00:00.000Z",
+        note: "Page 1 (#3)",
+      },
+    });
+    const ev = parseAutoEvidence(raw);
+    expect(ev?.["Maint: Google Indexed"]?.result).toBe("pass");
+  });
+
+  it("returns null on non-string / malformed / array input", () => {
+    expect(parseAutoEvidence(undefined)).toBeNull();
+    expect(parseAutoEvidence("")).toBeNull();
+    expect(parseAutoEvidence("{not json")).toBeNull();
+    expect(parseAutoEvidence("[]")).toBeNull();
+  });
+
+  it("drops entries with an invalid inner shape and coerces note to a string", () => {
+    const raw = JSON.stringify({
+      "Maint: Google Indexed": { result: "bogus", note: "x" }, // bad result → dropped
+      "Maint: Security Updates": { result: "pass" }, // missing note/checkedAt → coerced
+    });
+    const ev = parseAutoEvidence(raw);
+    expect(ev?.["Maint: Google Indexed"]).toBeUndefined();
+    expect(ev?.["Maint: Security Updates"]).toEqual({ result: "pass", checkedAt: null, note: "" });
+  });
+
+  it("returns null when no entry has a valid shape", () => {
+    expect(parseAutoEvidence(JSON.stringify({ x: { result: "nope" } }))).toBeNull();
+  });
+
+  it("accepts an 'n/a' result (the widened union — a per-site not-applicable state)", () => {
+    const raw = JSON.stringify({
+      "Test: Form Functionality": {
+        result: "n/a",
+        checkedAt: "2026-07-06T12:00:00.000Z",
+        note: "No contact form on this site",
+      },
+    });
+    const ev = parseAutoEvidence(raw);
+    expect(ev?.["Test: Form Functionality"]?.result).toBe("n/a");
+  });
+});
+
+describe("createReportDraft writes checklist booleans + auto-evidence", () => {
+  it("ticks supplied checklist fields and writes the evidence JSON", async () => {
+    const { fields } = await draft({
+      reportId: "Acme Co — Maintenance — 2026-06-18",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-06-01T00:00:00Z"),
+      periodEnd: new Date("2026-06-18T00:00:00Z"),
+      completedOn: new Date("2026-06-18T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+      checklistTicks: ["Maint: Google Indexed"],
+      autoEvidence: {
+        "Maint: Google Indexed": {
+          result: "pass",
+          checkedAt: "2026-06-18T12:00:00.000Z",
+          note: "Page 1 (#3)",
+        },
+      },
+    });
+    expect(fields["Maint: Google Indexed"]).toBe(true);
+    expect(typeof fields["Checklist auto-evidence"]).toBe("string");
+    const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
+    expect(ev["Maint: Google Indexed"].result).toBe("pass");
+  });
+
+  it("omits the evidence field and ticks nothing when no auto-checks supplied", async () => {
+    const { fields } = await draft({
+      reportId: "Acme Co — Maintenance — 2026-06-18",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-06-01T00:00:00Z"),
+      periodEnd: new Date("2026-06-18T00:00:00Z"),
+      completedOn: new Date("2026-06-18T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+    });
+    expect(fields["Checklist auto-evidence"]).toBeUndefined();
+    expect(fields["Maint: Google Indexed"]).toBeUndefined();
+  });
+
+  it("persists an 'unknown' evidence record for an unmeasured gating item (the inversion)", async () => {
+    const { fields } = await draft({
+      reportId: "Acme Co — Maintenance — 2026-07-06",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-07-01T00:00:00Z"),
+      periodEnd: new Date("2026-07-06T00:00:00Z"),
+      completedOn: new Date("2026-07-06T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+      autoEvidence: {
+        "Maint: Uptime Checked": { result: "unknown", checkedAt: null, note: "Not yet measured" },
+      },
+    });
+    const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
+    expect(ev["Maint: Uptime Checked"].result).toBe("unknown");
+  });
+});
+
+describe("ReportRow carries the override audit fields", () => {
+  it("defaults sendOverride=false and the reason/by/at to null on a fresh draft", async () => {
+    const { row } = await draft({
+      reportId: "Acme Co — Maintenance — 2026-07-06",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-07-01T00:00:00Z"),
+      periodEnd: new Date("2026-07-06T00:00:00Z"),
+      completedOn: new Date("2026-07-06T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+    });
+    expect(row.sendOverride).toBe(false);
+    expect(row.overrideReason).toBeNull();
+    expect(row.overrideBy).toBeNull();
+    expect(row.overrideAt).toBeNull();
+  });
+});

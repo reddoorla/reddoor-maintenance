@@ -1,0 +1,379 @@
+import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { describe, it, expect, vi } from "vitest";
+import { collectAttention } from "../../src/reports/digest.js";
+import { websiteRowsFrom, reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
+
+const BASE_URL = "https://reddoor-maintenance.netlify.app";
+
+/** #646 step 4: `collectAttention` no longer reads any store — the run's two
+ *  datasets are handed to it. */
+const rowsOf = (tables: { Websites: RawRow[]; Reports: RawRow[] }) => ({
+  websites: websiteRowsFrom(tables.Websites),
+  reports: reportRowsFrom(tables.Reports),
+});
+
+/** A site row carrying the nightly-persisted GitHub-signal fields the renovate/ci
+ *  collectors read (NOT a live sweep — those fields are written by github-signals).
+ *  `GitHub Signals At` is stamped fresh (now) so the staleness gate the collectors
+ *  apply treats the persisted CI/Renovate values as trustworthy. collectAttention
+ *  here uses the wall-clock `now`, so a real-time fresh timestamp is correct. */
+function signalSite(over: Partial<RawRow["fields"]> = {}): RawRow {
+  return {
+    id: "rec_site_acme",
+    fields: {
+      Name: "Acme Co",
+      url: "https://acme.example.com",
+      "Security Vulns Critical": 2,
+      "Renovate Failing CIs": 1,
+      "Default Branch CI": "failing",
+      "GitHub Signals At": new Date().toISOString(),
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
+      ...over,
+    },
+  };
+}
+
+function vulnSite(): RawRow {
+  return {
+    id: "rec_site_acme",
+    fields: {
+      Name: "Acme Co",
+      url: "https://acme.example.com",
+      "Security Vulns Critical": 2,
+      "URL Resolves": "pass",
+      "URL Checked At": new Date().toISOString(),
+    },
+  };
+}
+
+/** A bounced report on a site that exists — collectDeliveryFailures should keep it. */
+function bouncedReport(): RawRow {
+  return {
+    id: "rec_report_bounced",
+    fields: {
+      "Report ID": "Acme Co — Maintenance — 2026-06",
+      Site: ["rec_site_acme"],
+      "Report type": "Maintenance",
+      Period: "2026-06",
+      "Delivery status": "bounced",
+    },
+  };
+}
+
+describe("collectAttention", () => {
+  it("mails a maintained site's failed production deploy, and never a launching site's (P1-78b)", async () => {
+    const row = (id: string, status: string): RawRow => ({
+      id,
+      fields: {
+        Name: id,
+        url: `https://${id}.example.com`,
+        Status: status,
+        "Deploy status": "error",
+        "URL Resolves": "pass",
+        "URL Checked At": new Date().toISOString(),
+      },
+    });
+    const tables = {
+      Reports: [],
+      Websites: [row("live", "maintained"), row("early", "launching")],
+    };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    expect(items.filter((i) => i.kind === "deploy").map((i) => i.key)).toEqual(["deploy:live"]);
+  });
+
+  it("builds sitesById and merges both collectors' items", async () => {
+    const tables = { Reports: [bouncedReport()], Websites: [vulnSite()] };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toContain("vuln:rec_site_acme");
+    expect(keys).toContain("delivery:rec_report_bounced");
+  });
+
+  it("surfaces a low-Lighthouse-score site alongside vuln + delivery", async () => {
+    // Acme carries a critical vuln (vuln item), a bounced report (delivery item),
+    // AND a Performance score below the 75 floor (lighthouse item).
+    const acme: RawRow = {
+      id: "rec_site_acme",
+      fields: {
+        Name: "Acme Co",
+        url: "https://acme.example.com",
+        "Security Vulns Critical": 2,
+        pScore: 55,
+      },
+    };
+    const tables = { Reports: [bouncedReport()], Websites: [acme] };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toContain("vuln:rec_site_acme");
+    expect(keys).toContain("delivery:rec_report_bounced");
+    expect(keys).toContain("lighthouse:rec_site_acme:performance");
+    const lh = items.find((i) => i.kind === "lighthouse")!;
+    expect(lh.title).toBe("Lighthouse Performance 55 (below 75)");
+    expect(lh.metric).toBe(45); // 100 - 55
+  });
+
+  it("isolates a failing collector: a throw in one yields [] for it, the other still returns", async () => {
+    const tables = { Reports: [bouncedReport()], Websites: [vulnSite()] };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Force collectVulnAlerts to throw; collectDeliveryFailures must still contribute.
+    const collectors = await import("../../src/alerts/digest-collectors.js");
+    vi.spyOn(collectors, "collectVulnAlerts").mockImplementation(() => {
+      throw new Error("vuln collector boom");
+    });
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    expect(items.map((i) => i.key)).toEqual(["delivery:rec_report_bounced"]);
+    expect(items.some((i) => i.kind === "vuln")).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("emits renovate + ci items from the PERSISTED fields, keyed by siteId (cockpit-aligned)", async () => {
+    // The github-signals nightly sweep persists `Renovate Failing CIs` + `Default
+    // Branch CI`; the digest reads those, NOT a live GitHub sweep. The keys are
+    // `renovate:<siteId>` / `ci:<siteId>` — the SAME keys buildCockpitModel emits,
+    // which is what lets the shared Digest State snapshot badge NEW/WORSE correctly.
+    const tables = { Reports: [bouncedReport()], Websites: [signalSite()] };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toContain("vuln:rec_site_acme");
+    expect(keys).toContain("delivery:rec_report_bounced");
+    expect(keys).toContain("renovate:rec_site_acme");
+    expect(keys).toContain("ci:rec_site_acme");
+    const ren = items.find((i) => i.kind === "renovate")!;
+    expect(ren.title).toBe("1 Renovate PR failing CI");
+    expect(ren.severity).toBe("warning");
+    const ci = items.find((i) => i.kind === "ci")!;
+    expect(ci.title).toBe("Default-branch CI failing");
+  });
+
+  it("ignores renovate/ci on a site whose GitHub-signals sweep is stale (injected now)", async () => {
+    // A repo that stopped being swept keeps its last CI/Renovate values forever.
+    // With an injected `now` 5 days after the (here, ~4-day-old) sweep, the gate
+    // drops the CI/Renovate items so the operator doesn't see a phantom alert.
+    const sweptAt = "2026-06-01T00:00:00Z";
+    const now = new Date("2026-06-06T00:00:00Z"); // 5 days later → > 3-day floor
+    const tables = {
+      Reports: [],
+      Websites: [signalSite({ "GitHub Signals At": sweptAt })],
+    };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL, now });
+    expect(items.some((i) => i.kind === "renovate")).toBe(false);
+    expect(items.some((i) => i.kind === "ci")).toBe(false);
+    // The vuln collector (a different sweep) is unaffected and still contributes.
+    expect(items.some((i) => i.kind === "vuln")).toBe(true);
+  });
+
+  it("emits NO renovate/ci items for a site whose persisted fields are clean/absent", async () => {
+    // No "Renovate Failing CIs" / "Default Branch CI" → null → both collectors skip.
+    const tables = { Reports: [bouncedReport()], Websites: [vulnSite()] };
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+    expect(items.some((i) => i.kind === "renovate")).toBe(false);
+    expect(items.some((i) => i.kind === "ci")).toBe(false);
+    // The other collectors still contribute.
+    expect(items.some((i) => i.kind === "vuln")).toBe(true);
+    expect(items.some((i) => i.kind === "delivery")).toBe(true);
+  });
+
+  it("emits a notify-bounce item from injected per-site counts, keyed like the cockpit", async () => {
+    // The digest path takes the same pre-fetched counts shape the cockpit threads
+    // (countNotifyBouncedBySite → Map<siteId, {total, permanent}> since #783); the
+    // key must be the cockpit's `notify-bounce:<siteId>` so the shared snapshot
+    // diffs NEW/WORSE across both.
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const items = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      notifyBounces: new Map([["rec_site_acme", { total: 3, permanent: 3 }]]),
+    });
+    const nb = items.find((i) => i.kind === "notify-bounce")!;
+    expect(nb).toMatchObject({
+      key: "notify-bounce:rec_site_acme",
+      siteName: "Acme Co",
+      severity: "critical",
+      metric: 3,
+    });
+  });
+
+  it("emits a deadletter item from injected per-slug counts (#645)", async () => {
+    // The digest is the surface that carries BOTH flavours: a slug the fleet
+    // knows, and a slug it does not — the latter has no cockpit card by
+    // construction, and it is the flavour that means leads are being dropped.
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const items = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+    });
+    const known = items.find((i) => i.key === "deadletter:acme-co")!;
+    expect(known).toMatchObject({ kind: "deadletter", siteName: "Acme Co", severity: "critical" });
+    const ghost = items.find((i) => i.key === "deadletter:ghost-co")!;
+    expect(ghost).toMatchObject({ siteName: "(unknown site: ghost-co)", severity: "critical" });
+    expect(ghost.url).toBeUndefined();
+  });
+
+  it("carries the oldest received_at onto a known slug only (OD 87)", async () => {
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const items = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      deadLetters: new Map([
+        ["acme-co", 2],
+        ["ghost-co", 1],
+      ]),
+      deadLetterOldest: new Map([
+        ["acme-co", "2026-10-20T06:00:00.000Z"],
+        ["ghost-co", "2026-10-20T06:00:00.000Z"],
+      ]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBe(
+      "2026-10-20T06:00:00.000Z",
+    );
+    expect(items.find((i) => i.key === "deadletter:ghost-co")!.oldestReceivedAt).toBeUndefined();
+  });
+
+  it("a visible site keeps a slug its archived namesake's name also gives", async () => {
+    // listSites orders by name, byte order: "Acme Co" sorts after "ACME CO", so
+    // without visible-last ordering the archived row would win the slug.
+    const items = await collectAttention({
+      websites: [
+        makeWebsiteRow({ id: "recVIS", name: "ACME CO", status: "maintained" }),
+        makeWebsiteRow({ id: "recOLD", name: "Acme Co", status: "archived" }),
+      ],
+      reports: [],
+      baseUrl: BASE_URL,
+      deadLetters: new Map([["acme-co", 1]]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
+  });
+
+  it("a visible site keeps a slug a pre-launch namesake's name also gives (#1573)", async () => {
+    // A building site has no card either; it is hidden like an archived one, so
+    // the visible site wins the slug even with the building row listed after it.
+    const items = await collectAttention({
+      websites: [
+        makeWebsiteRow({ id: "recVIS", name: "ACME CO", status: "maintained" }),
+        makeWebsiteRow({ id: "recNEW", name: "Acme Co", status: "building" }),
+      ],
+      reports: [],
+      baseUrl: BASE_URL,
+      deadLetters: new Map([["acme-co", 1]]),
+    });
+    expect(items.find((i) => i.key === "deadletter:acme-co")!.siteName).toBe("ACME CO");
+  });
+
+  it("given counts but no ages, holds nothing and reads no store (OD 87)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const tables = { Reports: [], Websites: [vulnSite()] };
+      const items = await collectAttention({
+        ...rowsOf(tables),
+        baseUrl: BASE_URL,
+        deadLetters: new Map([["acme-co", 1]]),
+      });
+      expect(items.find((i) => i.key === "deadletter:acme-co")!.oldestReceivedAt).toBeUndefined();
+      // A store read here would fail (no TURSO env under test) and say so.
+      expect(warn.mock.calls.flat().join(" ")).not.toMatch(/dead-letter/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("emits no deadletter item when the queue is empty", async () => {
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const none = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      deadLetters: new Map(),
+    });
+    expect(none.some((i) => i.kind === "deadletter")).toBe(false);
+  });
+
+  it("emits no notify-bounce item when counts are empty or below the 2-bounce floor", async () => {
+    const tables = { Reports: [], Websites: [vulnSite()] };
+    const none = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      notifyBounces: new Map(),
+    });
+    expect(none.some((i) => i.kind === "notify-bounce")).toBe(false);
+    const single = await collectAttention({
+      ...rowsOf(tables),
+      baseUrl: BASE_URL,
+      notifyBounces: new Map([["rec_site_acme", { total: 1, permanent: 1 }]]),
+    });
+    expect(single.some((i) => i.kind === "notify-bounce")).toBe(false);
+  });
+
+  it("emits the roster-url items from the persisted probe verdict (#912)", async () => {
+    const now = new Date("2020-01-02T09:23:00Z");
+    const tables = {
+      Reports: [],
+      Websites: [
+        {
+          id: "rec_pointe",
+          fields: {
+            Name: "The Pointe Burbank",
+            Status: "building",
+            url: "https://the-pointe-burbank.netlify.app",
+            "URL Resolves": "fail",
+            "URL Status": "404 netlify-site-not-found",
+            "URL Checked At": "2020-01-02T08:05:00.000Z",
+          },
+        },
+        {
+          id: "rec_aged",
+          fields: {
+            Name: "Aged Probe",
+            url: "https://aged.example.com",
+            "URL Resolves": "pass",
+            "URL Checked At": "2019-12-20T08:05:00.000Z",
+          },
+        },
+      ],
+    };
+    // A 2020 clock: were the wiring to drop `now`, the wall clock would read the
+    // stamp as stale and the fail item would vanish.
+    const items = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL, now });
+    const fail = items.find((i) => i.key === "url-unresolved:rec_pointe")!;
+    expect(fail).toMatchObject({ kind: "url", siteName: "The Pointe Burbank" });
+    expect(fail.title).toContain("404 netlify-site-not-found");
+    expect(items.find((i) => i.key === "url-probe-stale")).toMatchObject({ metric: 1 });
+  });
+
+  it("digest and cockpit produce the SAME renovate/ci keys for one site (key-space pinned)", async () => {
+    // The crux of the fix: the digest path (collectAttention) and the cockpit path
+    // (buildCockpitModel) must emit IDENTICAL diff keys for the same site, so the
+    // Digest State snapshot the digest writes lets the cockpit badge NEW/WORSE. If
+    // these key-spaces ever diverge again, this assertion breaks.
+    const siteId = "rec_site_acme";
+    const tables = {
+      Reports: [],
+      Websites: [
+        signalSite({
+          // a maintained Status makes the site cockpit-visible
+          Status: "maintained",
+          "Renovate Failing CIs": 2,
+          "Default Branch CI": "failing",
+        }),
+      ],
+    };
+    const digestItems = await collectAttention({ ...rowsOf(tables), baseUrl: BASE_URL });
+
+    // Same fake rows → cockpit path.
+    const websites = websiteRowsFrom(tables.Websites);
+    const { buildCockpitModel } = await import("../../src/dashboard/fleet-cockpit.js");
+    const cockpit = buildCockpitModel(websites, [], {}, BASE_URL, new Date());
+    const cockpitKeys = cockpit.cards.flatMap((c) => c.items.map((i) => i.key));
+
+    // The digest must emit renovate:<siteId> and ci:<siteId> for this site …
+    expect(digestItems.map((i) => i.key)).toContain(`renovate:${siteId}`);
+    expect(digestItems.map((i) => i.key)).toContain(`ci:${siteId}`);
+    // … and those must be the EXACT keys the cockpit produces for the same site.
+    expect(cockpitKeys).toContain(`renovate:${siteId}`);
+    expect(cockpitKeys).toContain(`ci:${siteId}`);
+  });
+});

@@ -1,0 +1,1080 @@
+#!/usr/bin/env node
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { cac } from "cac";
+import type { AuditName, RecipeName } from "../types.js";
+import { loadCredentialsIntoEnv } from "../util/credentials.js";
+import { resolvePackageVersion } from "./version.js";
+
+// Command modules are loaded LAZILY (dynamic `import()` inside each `.action()`),
+// never eagerly at the top. An eager `import { runReportCommand } from
+// "./commands/report.js"` would pull EVERY command's transitive dependency chain
+// into the CLI's startup graph — report/announce/launch drag in mjml + resend +
+// @google-analytics/data, `db` drags in the libSQL/kysely stack, etc. Those heavy
+// packages are `devDependencies` (this repo's CLI/functions/audits use them); a
+// consuming fleet site installs @reddoorla/maintenance only for `./forms` +
+// `./configs/*` and runs just `reddoor-maint audit --only a11y` in CI. Lazy
+// loading keeps that path (and `--help`/`--version`) free of the report/db
+// chains, so those packages never land in a consumer's node_modules. The
+// smoke-dist gate asserts bin.js's STATIC import closure stays free of them.
+
+// Load credentials from ~/.config/reddoor-maint/credentials.env before any
+// command runs, so TURSO_DATABASE_URL/RESEND_API_KEY/etc. are
+// available from any cwd. Shell-exported env vars still win. Silent on
+// missing file — commands that need the credentials will fail with their
+// own clear error.
+loadCredentialsIntoEnv();
+
+const here = dirname(fileURLToPath(import.meta.url));
+const version = resolvePackageVersion(here);
+
+const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
+  deps: "Diff site package.json against the bundled baseline version map.",
+  lighthouse: "Run @lhci/cli autorun using the canonical lighthouserc.",
+  a11y: "Playwright + axe against the canonical a11y routes.",
+  security:
+    "GitHub Dependabot alerts (prod+dev) for repo-backed sites; falls back to pnpm/npm audit (prod-deps) with no repo/token.",
+  lint: "ESLint + Prettier using the canonical configs.",
+  domain: "DNS resolve + TLS cert expiry against the deployed URL (checkout-free).",
+  browser:
+    "Playwright across desktop engines + mobile devices + link-check against the deployed URL (checkout-free).",
+  "netlify-deploy":
+    "Latest production deploy health via the Netlify API by site id (checkout-free; needs NETLIFY_PAT).",
+  "function-health":
+    "GET {deployedUrl}/health and read its ok/prismic/forms status (checkout-free).",
+  smoke: "Run the site's own `pnpm test:smoke` suite in its checkout (clone-based).",
+  "form-e2e":
+    "Submit the real production contact form in test-mode against the deployed URL (checkout-free).",
+  analytics:
+    "Pair the site's GA4 tag against the property ID on its fleet row, and check the live site actually loads it. Advisory: it warns, never fails.",
+};
+
+const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
+  "sync-configs": "Overwrite a site's canonical configs to match @reddoorla/maintenance.",
+  "bump-deps": "Bump dependencies and commit the lockfile change.",
+  "svelte-4-to-5": "Run the 7-commit Svelte 4 → 5 upgrade recipe.",
+  "svelte-codemods":
+    "Apply Svelte 5 gotcha codemods to an already-migrated site (state_referenced_locally, etc.).",
+  "convert-to-pnpm": "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
+  onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
+  "a11y-fixtures-page":
+    "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "analytics-tag":
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
+  "health-endpoint":
+    "Write src/routes/health/+server.ts (function-health probe for the report gate).",
+  "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
+  "self-updating":
+    "Bootstrap Renovate + repo protection (writes renovate configs via PR, wires ruleset, disables platform auto-merge; ci.yml comes from the starter and is deliberately not managed).",
+  "prismic-ci":
+    "Add the Prismic model delivery workflow to a site via PR (dry delta comment on PRs, push to Prismic on merge to main).",
+  "match-harness":
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
+  init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
+};
+
+/** Run a command thunk and surface its result, falling back to a clean error
+ * message on throw. Wraps the ~10-line try/catch every `.action()` used to
+ * duplicate. `verbose` flips between full stack and message-only.
+ *
+ * On success it sets `process.exitCode` and RETURNS rather than calling
+ * `process.exit()` right after `console.log()`. `process.exit()` does not wait
+ * for stdout to flush when stdout is a pipe, so a large `--json` payload piped
+ * to another process would get truncated mid-write. Setting `exitCode` and
+ * returning lets Node drain stdout and exit naturally with the right code. A
+ * non-zero `code` still yields a non-zero process exit.
+ *
+ * The error path keeps `process.exit()` — error messages are small (one line),
+ * always go to stderr, and exiting immediately is the desired fail-fast. */
+export async function runOrExit(
+  fn: () => Promise<{ output: string; code: number }>,
+  opts: { verbose?: boolean },
+): Promise<void> {
+  try {
+    const { output, code } = await fn();
+    console.log(output);
+    process.exitCode = code;
+    return;
+  } catch (err) {
+    const e = err as { exitCode?: number; message?: string; stack?: string };
+    console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
+    process.exit(e.exitCode ?? 1);
+  }
+}
+
+const cli = cac("reddoor-maint");
+
+cli.option("--cwd <path>", "Override working directory (default: process.cwd())");
+cli.option("--verbose", "Verbose output (full stack on errors)");
+
+cli.command("list-audits", "Print the available audits.").action(() => {
+  for (const [name, desc] of Object.entries(AUDIT_DESCRIPTIONS)) {
+    console.log(`${name.padEnd(12)} ${desc}`);
+  }
+});
+
+cli.command("list-recipes", "Print the available recipes.").action(() => {
+  for (const [name, desc] of Object.entries(RECIPE_DESCRIPTIONS)) {
+    console.log(`${name.padEnd(16)} ${desc}`);
+  }
+});
+
+cli
+  .command("audit [site]", "Run audits against a site (default: cwd).")
+  .option("--only <names>", "Comma-separated audit names (e.g. deps,lighthouse)")
+  .option("--json", "Machine-readable JSON output")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .option(
+    "--write-back [slug]",
+    "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
+  )
+  .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
+  .option(
+    "--url <url>",
+    "Audit this deployed URL with lighthouse (no dev server); single-site. Pair with --only lighthouse — other audits still use the local checkout.",
+  )
+  .option(
+    "--concurrency <n>",
+    "Max sites to audit in parallel in --fleet mode (default: all at once). Use 1 for sequential (CI).",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        only?: string;
+        json?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+        writeBack?: string | boolean;
+        failOnViolations?: boolean;
+        url?: string;
+        concurrency?: string;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/audit.js")).runAuditCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("sync-configs [site]", "Sync canonical configs into a site.")
+  .option("--only <names>", "Comma-separated config names (e.g. eslint,prettier)")
+  .option("--dry", "Print diff without writing")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        only?: string;
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/sync-configs.js")).runSyncConfigsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("bump-deps [site]", "Bump dependencies.")
+  .option("--group <group>", "patch | minor | major", { default: "minor" })
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        group?: string;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/bump-deps.js")).runBumpDepsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "self-updating [site]",
+    "Bootstrap a repo to keep itself updated (Renovate + protection; platform auto-merge off; ci.yml is the starter's, not managed here).",
+  )
+  .option("--dry", "List what would be enabled without writing or opening PRs")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/self-updating.js")).runSelfUpdatingCommand(site, opts),
+        opts,
+      ),
+  );
+
+// Fleet-wide, this opens ONE PULL REQUEST PER REPOSITORY and never pushes to a
+// client's main. `--dry` exists because that is the only way to see the blast
+// radius before firing it. Both directions of the flag ↔ option link are pinned
+// by tests/cli/prismic-ci-command.test.ts.
+cli
+  .command(
+    "prismic-ci [site]",
+    "Add the Prismic model delivery workflow to a site via PR (one PR per repo; never pushes to main).",
+  )
+  .option("--dry", "List the sites that would be offered the workflow, without opening any PR")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/prismic-ci.js")).runPrismicCiCommand(site, opts),
+        opts,
+      ),
+  );
+
+// EVERY flag below must be one the command actually reads, and every option the
+// command reads must appear below. cac rejects an unknown option outright, so a
+// missing line here is a hard error in whatever workflow types the flag; a line
+// here with no handler is the silent no-op — it parses, it lands in `opts`, and
+// nothing ever looks at it. Both directions are pinned by
+// tests/cli/prismic-models-registration.test.ts, the second one at the type level
+// against `PrismicModelsCommandOptions`.
+cli
+  .command(
+    "prismic-models [site]",
+    "Compare a site's Prismic models against its repo (dry by default).",
+  )
+  .option(
+    "--apply",
+    "Push local models to Prismic. Never deletes — remote-only models are reported.",
+  )
+  .option("--pull", "Write remote-only models into the repo (single-site; review + PR the result).")
+  .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database. Read-only.',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .option("--write-back", "Fleet mode: persist each site's verdict to its Websites row")
+  .option(
+    "--comment-file <path>",
+    "Write the report to this file (the CI workflow posts it as a PR comment)",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        apply?: boolean;
+        pull?: boolean;
+        tokens?: boolean;
+        fleet?: string;
+        workdir?: string;
+        writeBack?: boolean;
+        commentFile?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prismic-models.js")).runPrismicModelsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "prismic-sync [site]",
+    "Bring Prismic's changed and remote-only models into the repo (never deletes, never writes Prismic).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file, or "turso": clone each site fresh and sync it (a dry run without --stage).',
+  )
+  .option("--workdir <path>", "Fleet mode: where the fresh clones go")
+  .option("--open-prs", "--stage publish: push the prismic-sync branch and open or update one PR")
+  .option("--stage <stage>", "Fleet mode in the nightly's jobs: fetch, or publish")
+  .option("--out <dir>", "--stage fetch: where the plan and each site's build input go")
+  .option("--plan <dir>", "--stage publish: the fetch stage's --out")
+  .option("--built <dir>", "--stage publish: the build stage's outputs, one directory per site")
+  .action(
+    async (
+      site,
+      opts: {
+        fleet?: string;
+        workdir?: string;
+        openPrs?: boolean;
+        stage?: string;
+        out?: string;
+        plan?: string;
+        built?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/prismic-sync.js")).runPrismicSyncCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
+  .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      upgrade: string,
+      site: string | undefined,
+      opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/upgrade.js")).runUpgradeCommand(upgrade, site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "convert-to-pnpm [site]",
+    "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/convert-to-pnpm.js")).runConvertToPnpmCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("svelte-codemods [site]", "Apply Svelte 5 gotcha codemods to an already-migrated site.")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/svelte-codemods.js")).runSvelteCodemodsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "analytics-tag <site>",
+    "Start GA4 on the production host: write src/hooks.client.ts and enable the analytics CSP hosts.",
+  )
+  .option("--measurement-id <id>", "The site's GA4 web-stream ID (G-XXXXXXXXXX). Required.")
+  .option(
+    "--production-host <host>",
+    "Hostname the tag is gated on, e.g. www.example.com. Required.",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        measurementId?: string | number;
+        productionHost?: string | number;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/analytics-tag.js")).runAnalyticsTagCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "video <input>",
+    "Encode a background-video master into the fleet's web renditions, optionally uploading them to a site's Prismic media library.",
+  )
+  .option("--out <dir>", "Output directory (default: ./video-out)")
+  .option("--name <slug>", "Basename for the outputs (default: the input's basename, slugified)")
+  .option("--max-height <n>", "Cap the main renditions' height in pixels (default: 1080)")
+  .option(
+    "--upload <prismic-repo>",
+    "After encoding, upload each output to this Prismic repository's media library (needs PRISMIC_TOKEN_<REPO>)",
+  )
+  .action(
+    async (
+      input: string,
+      opts: {
+        out?: string;
+        name?: string;
+        maxHeight?: string | number;
+        upload?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/video.js")).runVideoCommand(input, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "health-endpoint [site]",
+    "Write src/routes/health/+server.ts (function-health probe for the report gate).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/health-endpoint.js")).runHealthEndpointCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "match-harness [site]",
+    "Install the matching-a-page gate harness (dev-guarded /dev/match/[uid] route + matching/ scripts) for a live-reference rebuild.",
+  )
+  .option("--ref <url>", "Reference (live) site URL the harness gates against — required")
+  .option("--cand <url>", "Candidate origin (default http://localhost:5173)")
+  .option("--matrix <list>", "Breakpoint matrix, comma-separated (default 1440,834,390)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        ref?: string;
+        cand?: string;
+        matrix?: string | number;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/match-harness.js")).runMatchHarnessCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "smoke-suite [site]",
+    "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () => (await import("./commands/smoke-suite.js")).runSmokeSuiteCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "onboard [site]",
+    "Install @reddoorla/maintenance + audit deps on a site (run after convert-to-pnpm).",
+  )
+  .option("--audits <names>", "Comma-separated audit subset: lighthouse,a11y (default: both)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        audits?: string;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/onboard.js")).runOnboardCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "init [site]",
+    "One-shot guided onboarding: convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit.",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "turso" to read the fleet roster from the database',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(async () => (await import("./commands/init.js")).runInitCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "launch <site>",
+    "Check launch readiness, bootstrap + first-audit a site, then draft its launch email for approval.",
+  )
+  .option(
+    "--allow-missing <step>",
+    "Launch past a launch-check step that is not ok (repeatable or comma-separated)",
+  )
+  .action(
+    async (
+      site: string,
+      opts: { cwd?: string; verbose?: boolean; allowMissing?: string | string[] },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("launch-check <site>", "Check a site's launch readiness, one line per step (read-only).")
+  .action(async (site: string, opts: { verbose?: boolean }) =>
+    runOrExit(
+      async () => (await import("./commands/launch-check.js")).runLaunchCheckCommand(site),
+      opts,
+    ),
+  );
+
+cli
+  .command("header-image [site]", "Generate a site's report header image from its live homepage.")
+  .option("--all", "Every live site with no Header image yet (backfill)")
+  .option("--force", "With --all, regenerate sites that already have one")
+  .option(
+    "--write-back",
+    "Store it as the site's header plate in Turso instead of writing a local file",
+  )
+  .option("--out-dir <path>", "Directory for local output (default: reports/)")
+  .option("--settle-ms <ms>", "Override the post-load settle delay for slow/animated homepages")
+  .option(
+    "--consent-selector <css>",
+    "Extra CSS selector(s) to hide before the shutter (consent UI the heuristic misses)",
+  )
+  .action(
+    async (
+      site: string | undefined,
+      opts: {
+        all?: boolean;
+        force?: boolean;
+        writeBack?: boolean;
+        outDir?: string;
+        settleMs?: string;
+        consentSelector?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/header-image.js")).runHeaderImageCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "announce [site]",
+    "Draft the monthly-report announcement email for maintenance sites (all, or one) for approval.",
+  )
+  .action(async (site: string | undefined, opts: { cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () => (await import("./commands/announce.js")).runAnnounceCommand(site, opts),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "forms-notify-target [site]",
+    "Show who a form submission would email, and optionally flip the pre-launch guard (read-back confirmed).",
+  )
+  .option("--set <on|off>", "Flip the guard: on = route to operator, off = restore.")
+  .option("--restore <status>", "Status to restore with --set off. Required; never inferred.")
+  .action(
+    async (
+      site: string | undefined,
+      opts: { set?: string; restore?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/forms-notify-target.js")).runFormsNotifyTargetCommand(
+            site,
+            opts,
+          ),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "selftest <kind> [site]",
+    "Operator self-tests. kind=email: preview a report email for a site (or --all) to yourself.",
+  )
+  .option("--type <type>", "Report type: announcement (default) | maintenance | testing | launch")
+  .option("--to <addr>", "Recipient(s), comma-separated. Default: OPERATOR_EMAIL.")
+  .option("--all", "Send a preview for every maintenance site (to --to/operator).")
+  .option("--dry-run", "Render only; write reports/<slug>/selftest-<type>.html; do not send.")
+  .action(
+    async (
+      kind: string,
+      site: string | undefined,
+      opts: {
+        type?: string;
+        to?: string;
+        all?: boolean;
+        dryRun?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/selftest.js")).runSelftestCommand(kind, site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "preflight [site]",
+    "Read-only pre-send checks: recipients, header image, pending drafts, schedule hygiene.",
+  )
+  .option("--type <type>", "Report type: announcement (default) | maintenance | testing")
+  .option(
+    "--all",
+    "Fleet mode: announcement→maintenance sites; maintenance/testing→all schedulable sites.",
+  )
+  .action(
+    async (
+      site: string | undefined,
+      opts: { type?: string; all?: boolean; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/preflight.js")).runPreflightCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "ensure-site <slug>",
+    "Create/verify a site's fleet row in Turso (new sites get a site_<ULID> id).",
+  )
+  .option("--name <display name>", "Human Name for the row (client-facing copy uses it verbatim).")
+  .option("--url <url>", "Deployed URL (e.g. the Netlify site URL).")
+  .option("--contact <email>", "point of contact — the client address reports resolve to.")
+  .option("--git-repo <owner/repo>", "GitHub identity. Default on create: reddoorla/<slug>.")
+  .action(
+    async (
+      slug: string,
+      opts: {
+        name?: string;
+        url?: string;
+        contact?: string;
+        gitRepo?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/ensure-site.js")).runEnsureSiteCommand(slug, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "prospect-audit <url>",
+    "AEO/SEO audit an external prospect's site and publish the report.",
+  )
+  .option(
+    "--business <name>",
+    "The prospect's business name (defaults to what the model reads off the site).",
+  )
+  .option(
+    "--competitors <list>",
+    "Comma-separated competitor domains to add comparison probes for.",
+  )
+  .option(
+    "--goal <goal>",
+    "What the site should get a visitor to do: book, enquire, call, visit, buy, demo or partner. Defaults to what the model reads off the site.",
+  )
+  .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
+  .option("--out <file>", "Also write the rendered report to this file.")
+  .option("--json", "Print the raw result JSON instead of the report summary.")
+  .option(
+    "--email",
+    "Email the internal sheet (scores, what wasn't measured, top fixes, the link) to PROSPECT_AUDIT_RECIPIENTS.",
+  )
+  .option(
+    "--terms <list>",
+    "Comma-separated search terms for the visibility section, chosen by hand. Blank generates them from the site, as before.",
+  )
+  .option(
+    "--questions <list>",
+    "Comma-separated buyer questions, chosen by hand. Blank asks the goal's fixed set. A chosen set gets its own version key, so comparisons never mix sets.",
+  )
+  .action(
+    async (
+      url: string,
+      opts: {
+        business?: string;
+        goal?: string;
+        competitors?: string;
+        probes?: boolean;
+        out?: string;
+        json?: boolean;
+        email?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prospect-audit.js")).runProspectAuditCommand(url, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command("report [site]", "Draft or send maintenance/testing reports.")
+  .option("--due", "Scan all Websites and draft overdue reports.")
+  .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
+  .option(
+    "--preview",
+    "Single-site dry run; writes reports/<slug>/draft.html, never touches the store.",
+  )
+  .option(
+    "--enrich",
+    "With --preview: also fetch GA + Search Console, so the render exercises those credentials for real. Still writes nothing.",
+  )
+  .option(
+    "--send-ready",
+    "Send all Reports with Draft ready=true AND Approved to send=true AND Sent at IS NULL.",
+  )
+  .option(
+    "--digest",
+    "Email the operator one daily digest of reports ready for approval (skips when empty).",
+  )
+  .option(
+    "--rerender <reportId>",
+    "Regenerate one UNSENT report's stored HTML from its current row, so the console preview shows edited commentary. Refuses a sent report.",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        due?: boolean;
+        type?: string;
+        preview?: boolean;
+        enrich?: boolean;
+        sendReady?: boolean;
+        digest?: boolean;
+        rerender?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/report.js")).runReportCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "github-signals",
+    "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write each site's row.",
+  )
+  .option("--fleet", "Run across every site in the fleet roster.")
+  .option("--write-back", "Write each site's signals back to its Websites row.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/github-signals.js")).runGitHubSignalsCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "protection-audit",
+    "Verify every public org repo carries a sound branch ruleset (empty bypass, PR-required).",
+  )
+  .option("--org <org>", "GitHub org to sweep (enumerated from the API, never a hand list).")
+  .action(async (opts: { org?: string; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/protection-audit.js")).runProtectionAuditCommand({
+          org: opts.org,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "roster-urls",
+    "Probe every non-archived roster url and store whether it resolves (site_health).",
+  )
+  .option("--fleet", "Probe every non-archived site in the Turso roster.")
+  .option("--write-back", "Write url_resolves / url_status / url_checked_at to site_health.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/roster-urls.js")).runRosterUrlsCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "search-console-recheck",
+    "Re-run the Search Console lookup for maintained sites whose stored outcome is no-property (site_health).",
+  )
+  .option("--fleet", "Re-check every maintained no-property site in the Turso roster.")
+  .option("--write-back", "Write search_console_outcome / _resolved / _checked_at to site_health.")
+  .action(async (opts: { fleet?: boolean; writeBack?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/search-console-recheck.js")).runSearchConsoleRecheckCommand({
+          fleet: opts.fleet,
+          writeBack: opts.writeBack,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "db <action>",
+    "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
+  )
+  .option("--file <path>", "verify-dump / restore: the dump file to load")
+  .option(
+    "--org <slug>",
+    "usage: Turso org slug (default: TURSO_ORG, else discovered from the token). The token itself comes from TURSO_FLEET_USAGE — never a flag, since argv is readable from ps.",
+  )
+  .option(
+    "--url <url>",
+    "restore: the TARGET database to load into. Required, never defaulted — a restore " +
+      "that could fall back to the ambient TURSO_DATABASE_URL is one keystroke from " +
+      "overwriting production.",
+  )
+  .option(
+    "--abandon <slug-or-id>",
+    "replay-deadletters: mark a slug's queued leads (or one dl_… row) abandoned — terminal " +
+      "by decision, dropped from the replay queue and the cockpit alarm, row and payload kept.",
+  )
+  .option(
+    "--reason <text>",
+    "replay-deadletters --abandon: why the leads are being written off. Required.",
+  )
+  .option(
+    "--by <who>",
+    "replay-deadletters --abandon: who decided (default: OPERATOR_EMAIL, else 'operator').",
+  )
+  .action(
+    async (
+      action: string,
+      opts: {
+        file?: string;
+        url?: string;
+        org?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
+  );
+
+cli
+  .command(
+    "submissions <action>",
+    "Operate on stored form submissions. rescore: re-run the CURRENT spam classifier over the status='new' backlog (dry-run by default; only 'new' rows are ever touched).",
+  )
+  .option("--dry-run", "Print the would-be re-buckets without writing (the default).")
+  .option(
+    "--apply",
+    "Write the re-buckets: status → spam_auto, spam_score/spam_reason replaced with the new verdict + 'retro-rescore' marker.",
+  )
+  .action(
+    async (
+      action: string,
+      opts: { dryRun?: boolean; apply?: boolean; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/submissions.js")).runSubmissionsCommand(action, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "renovate-dispatch",
+    "Trigger Renovate on fleet sites the security sweep flagged with critical/high vulns.",
+  )
+  .option("--fleet", "Run across every active, repo-backed site in the fleet roster.")
+  .action(async (opts: { fleet?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/renovate-dispatch.js")).runRenovateDispatchCommand({
+          fleet: opts.fleet,
+          // #539 Phase 5: mirror the auto-fix counter into site_health.
+          siteMirror: await (await import("../db/site-mirror.js")).makeSiteMirror(),
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
+    "blux <action> [dir]",
+    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN). validate: content coverage of a rendered site against the export answer key. grid: parse rendered index.html → grid-tree.json (layout tree). convert: parse+classify index.html + assemble IR → migration-plan.json + blux-presentation.json + theme.css (+ map-config.json), offline. catalog: parse each page + classify every band to a blux_section → migration-plan.json only (no sidecar), offline.",
+  )
+  .option(
+    "--out <dir>",
+    "Output directory for emit/grid/convert/catalog (default: <exportDir>/blux-out)",
+  )
+  .option("--converted-base <url>", "Converted-site base URL for the review manifest")
+  .option("--blux-base <url>", "Original Blux site base URL (default: https://<site.json domain>)")
+  .option(
+    "--probe",
+    "Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network)",
+  )
+  .option(
+    "--against <target>",
+    "validate: rendered HTML of the converted site — a file path or http(s) URL",
+  )
+  .option(
+    "--site <slug>",
+    "freeze/migrate-frozen: site slug naming <slug>.slots.json (default: slugified dir name)",
+  )
+  .option(
+    "--extra-slots <path>",
+    "freeze: JSON declaring slots the template has no token for (video poster, a panel rebuilt from a baked image). Keys must start with 'x.'",
+  )
+  .action(
+    async (
+      action: string,
+      dir: string | undefined,
+      opts: {
+        out?: string;
+        convertedBase?: string;
+        bluxBase?: string;
+        probe?: boolean;
+        against?: string;
+        site?: string;
+        extraSlots?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/blux.js")).runBluxCommand(action, dir, opts),
+        opts,
+      ),
+  );
+
+cli.help();
+cli.version(version);
+
+// A typo'd / unrecognized subcommand (e.g. `reddoor-maint auditt`) otherwise
+// falls through cac with no matched command and exits 0 — a cron/CI typo would
+// "succeed" silently. cac emits `command:*` at the end of parse() exactly when
+// a positional arg was given but matched no command (a bare `reddoor-maint`,
+// `--help`, and `--version` do NOT trigger it: they have no leading positional
+// or are handled before this fires). Turn that into a clear stderr error +
+// non-zero exit. process.argv[2] is the first positional, i.e. the bad command.
+cli.on("command:*", () => {
+  const unknown = cli.args[0] ?? process.argv[2] ?? "";
+  console.error(
+    `error: unknown command '${unknown}'. Run 'reddoor-maint --help' to see available commands.`,
+  );
+  process.exit(1);
+});
+
+cli.parse();

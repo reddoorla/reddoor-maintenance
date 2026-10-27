@@ -1,0 +1,326 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 749021,
+  "by": [
+    "repo",
+    "lane"
+  ],
+  "total": {
+    "requests": 76270,
+    "in": 1596631,
+    "out": 66882037,
+    "cacheCreate": 315544924,
+    "cacheRead": 13920225096
+  },
+  "groups": [
+    {
+      "key": "-Users-tuckerlemos | main",
+      "requests": 13,
+      "in": 37,
+      "out": 11401,
+      "cacheCreate": 40417,
+      "cacheRead": 753137
+    },
+    {
+      "key": "29-navy | main",
+      "requests": 2103,
+      "in": 4208,
+      "out": 1867083,
+      "cacheCreate": 7276098,
+      "cacheRead": 628171015
+    },
+    {
+      "key": "29-navy | subagent",
+      "requests": 3505,
+      "in": 14925,
+      "out": 1470314,
+      "cacheCreate": 10280415,
+      "cacheRead": 371456851
+    },
+    {
+      "key": "Broken | main",
+      "requests": 7940,
+      "in": 68354,
+      "out": 9810687,
+      "cacheCreate": 27328219,
+      "cacheRead": 2478036947
+    },
+    {
+      "key": "Broken | subagent",
+      "requests": 9403,
+      "in": 280831,
+      "out": 8209162,
+      "cacheCreate": 39250018,
+      "cacheRead": 835829082
+    },
+    {
+      "key": "a-budget | main",
+      "requests": 37,
+      "in": 78,
+      "out": 62600,
+      "cacheCreate": 138836,
+      "cacheRead": 3573139
+    },
+    {
+      "key": "a-budget | subagent",
+      "requests": 16,
+      "in": 3995,
+      "out": 2944,
+      "cacheCreate": 68080,
+      "cacheRead": 249154
+    },
+    {
+      "key": "beachfront-dentistry | main",
+      "requests": 1159,
+      "in": 17079,
+      "out": 1194155,
+      "cacheCreate": 3948941,
+      "cacheRead": 269629300
+    },
+    {
+      "key": "beachfront-dentistry | subagent",
+      "requests": 95,
+      "in": 32484,
+      "out": 21606,
+      "cacheCreate": 244667,
+      "cacheRead": 2195126
+    },
+    {
+      "key": "caldea | main",
+      "requests": 624,
+      "in": 8531,
+      "out": 679857,
+      "cacheCreate": 3051328,
+      "cacheRead": 60337965
+    },
+    {
+      "key": "caldea | subagent",
+      "requests": 292,
+      "in": 174290,
+      "out": 209135,
+      "cacheCreate": 998957,
+      "cacheRead": 5773243
+    },
+    {
+      "key": "data-dynamiq | main",
+      "requests": 29,
+      "in": 57,
+      "out": 23887,
+      "cacheCreate": 46508,
+      "cacheRead": 3718242
+    },
+    {
+      "key": "dont-lose-your-head | main",
+      "requests": 1334,
+      "in": 30158,
+      "out": 1928119,
+      "cacheCreate": 4866253,
+      "cacheRead": 336189405
+    },
+    {
+      "key": "dont-lose-your-head | subagent",
+      "requests": 872,
+      "in": 116392,
+      "out": 1407293,
+      "cacheCreate": 5518697,
+      "cacheRead": 53294563
+    },
+    {
+      "key": "gallerysonder | main",
+      "requests": 892,
+      "in": 1788,
+      "out": 729742,
+      "cacheCreate": 2336811,
+      "cacheRead": 180796990
+    },
+    {
+      "key": "gallerysonder | subagent",
+      "requests": 129,
+      "in": 16061,
+      "out": 14621,
+      "cacheCreate": 804740,
+      "cacheRead": 13541599
+    },
+    {
+      "key": "invitations | main",
+      "requests": 147,
+      "in": 295,
+      "out": 171360,
+      "cacheCreate": 363482,
+      "cacheRead": 33504970
+    },
+    {
+      "key": "invitations | subagent",
+      "requests": 422,
+      "in": 918,
+      "out": 53255,
+      "cacheCreate": 1686311,
+      "cacheRead": 38679460
+    },
+    {
+      "key": "octagonal-led-turn-counter | main",
+      "requests": 548,
+      "in": 1097,
+      "out": 755448,
+      "cacheCreate": 4016688,
+      "cacheRead": 140167763
+    },
+    {
+      "key": "octagonal-led-turn-counter | subagent",
+      "requests": 838,
+      "in": 17922,
+      "out": 1042807,
+      "cacheCreate": 4729694,
+      "cacheRead": 40970668
+    },
+    {
+      "key": "reddoor-maintenance | main",
+      "requests": 5290,
+      "in": 17169,
+      "out": 4489713,
+      "cacheCreate": 19994309,
+      "cacheRead": 1562499031
+    },
+    {
+      "key": "reddoor-maintenance | subagent",
+      "requests": 4348,
+      "in": 105488,
+      "out": 4258401,
+      "cacheCreate": 19898741,
+      "cacheRead": 518456337
+    },
+    {
+      "key": "reddoor-starter | main",
+      "requests": 989,
+      "in": 11799,
+      "out": 1081366,
+      "cacheCreate": 4397550,
+      "cacheRead": 289689726
+    },
+    {
+      "key": "reddoor-starter | subagent",
+      "requests": 1761,
+      "in": 22267,
+      "out": 480036,
+      "cacheCreate": 11685850,
+      "cacheRead": 191745751
+    },
+    {
+      "key": "reddoor-website | main",
+      "requests": 8420,
+      "in": 78656,
+      "out": 8603336,
+      "cacheCreate": 30248983,
+      "cacheRead": 2477910204
+    },
+    {
+      "key": "reddoor-website | subagent",
+      "requests": 5447,
+      "in": 279566,
+      "out": 4107987,
+      "cacheCreate": 33531452,
+      "cacheRead": 459387570
+    },
+    {
+      "key": "revogen | main",
+      "requests": 654,
+      "in": 8160,
+      "out": 486686,
+      "cacheCreate": 1205520,
+      "cacheRead": 160987615
+    },
+    {
+      "key": "revogen | subagent",
+      "requests": 6,
+      "in": 8039,
+      "out": 177,
+      "cacheCreate": 44380,
+      "cacheRead": 0
+    },
+    {
+      "key": "scriptorium-setup | main",
+      "requests": 406,
+      "in": 1217,
+      "out": 550089,
+      "cacheCreate": 1666151,
+      "cacheRead": 69870348
+    },
+    {
+      "key": "scriptorium-setup | subagent",
+      "requests": 577,
+      "in": 55106,
+      "out": 503617,
+      "cacheCreate": 2206965,
+      "cacheRead": 41934137
+    },
+    {
+      "key": "songbook | main",
+      "requests": 2313,
+      "in": 4642,
+      "out": 1940373,
+      "cacheCreate": 6556023,
+      "cacheRead": 655795024
+    },
+    {
+      "key": "songbook | subagent",
+      "requests": 3663,
+      "in": 23080,
+      "out": 4406003,
+      "cacheCreate": 15249630,
+      "cacheRead": 272767380
+    },
+    {
+      "key": "the-bench | main",
+      "requests": 59,
+      "in": 130,
+      "out": 47649,
+      "cacheCreate": 282819,
+      "cacheRead": 4581927
+    },
+    {
+      "key": "the-bench | subagent",
+      "requests": 34,
+      "in": 39442,
+      "out": 2748,
+      "cacheCreate": 22037,
+      "cacheRead": 242407
+    },
+    {
+      "key": "vida-legacy-foundation | main",
+      "requests": 3156,
+      "in": 34189,
+      "out": 3535578,
+      "cacheCreate": 12557585,
+      "cacheRead": 853457696
+    },
+    {
+      "key": "vida-legacy-foundation | subagent",
+      "requests": 7773,
+      "in": 70937,
+      "out": 1511229,
+      "cacheCreate": 31553735,
+      "cacheRead": 704713527
+    },
+    {
+      "key": "welcome-to-the-flower-court | main",
+      "requests": 526,
+      "in": 10539,
+      "out": 1065780,
+      "cacheCreate": 5020521,
+      "cacheRead": 130422608
+    },
+    {
+      "key": "welcome-to-the-flower-court | subagent",
+      "requests": 450,
+      "in": 36705,
+      "out": 145793,
+      "cacheCreate": 2427513,
+      "cacheRead": 28895189
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "run": "wf_a71f1d25-e50",
+  "date": "2026-09-14",
+  "note": "the 11 continue-after-block candidates nominated by the census AFTER its four fixes (a31b1b89..28bda792); same skeptic prompt as census-refute.json, two concurrent",
+  "usage": {
+    "agents": 12,
+    "subagentTokens": 751307,
+    "toolCalls": 39,
+    "durationMs": 448922
+  },
+  "counts": {
+    "candidates": 11,
+    "confirmed": 1,
+    "refuted": 10,
+    "unclear": 0
+  },
+  "verdicts": [
+    {
+      "i": 100,
+      "verdict": "refuted",
+      "reason": "The continue was routine, and the expensive part of the window is a new operator request, not re-orientation. At 02:51:24 the operator types \"you hit a session limit, continue\"; 14 seconds later the assistant picks up exactly where it left off — it reports the prior fan-out's results were already on disk (\"80 of 88 agents completed\"), copies the task output, extracts 46 findings, applies them and commits `e54b3e1`. There is no re-reading, no re-derivation of lost context, no repeated tool work: total re-orientation cost is one `cp` and one `ctx_execute_file` inside ~15 seconds. The ~30 minutes and ~90 subagents that follow are driven by a fresh operator turn at 02:59:20 — \"rerun the lenses before we go\" — which is a verification pass over Rev 4 (a revision that did not exist before the 46 fixes landed), plus a regression lens explicitly checking those fixes. That is new, requested work, not work redone because of the block. The one genuinely block-attributable loss is small and the assistant compensated for it deliberately: 8 corpus verifiers died on the limit, so it capped findings per lens \"so the verification pass has room to finish this time\". The heuristic's own framing (\"cost = the 30 minutes after the continue\") charges an operator-requested fan-out to the block.",
+      "wasteShare": 0.05,
+      "quote": "02:59:20 USER rerun the lenses before we go",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "songbook",
+      "ts": "2026-08-25T01:34:31.962Z",
+      "cost": {
+        "requests": 310,
+        "in": 620,
+        "out": 466241,
+        "cacheCreate": 2499208,
+        "cacheRead": 14043523
+      }
+    },
+    {
+      "i": 101,
+      "verdict": "confirmed",
+      "reason": "The block is real and its cost is visible in the transcript, but far smaller than the heuristic assumes. At 20:14 the session hit \"You've hit your session limit · resets 2pm\"; at 21:33 the operator typed \"hit a session limit continue\". Re-orientation itself was cheap and legitimate — one ctx_execute state check, mandated by the repo's own \"re-verify after any pause\" rule, which correctly surfaced that the main checkout had moved to a human's branch. The genuine waste is not re-orientation but re-execution: the block killed three in-flight adversarial review lenses on PR #569 (\"All three #569 reviewers were killed mid-flight, so the review must re-run\"), and at 21:33:49/21:34:01/21:34:11 all three were re-dispatched with the same 3-lens prompt, burning ~75k output tokens (23866 + 20015 + 31444) to redo work already partly paid for before the block. That is the fanout tax the class names — a block during a wide fanout kills N agents at once. Everything else in the post-continue stretch is productive first-pass work, not re-derivation: the next-due diff-guard proved read-only against live production data (would_write=0 would_skip=44), a #539 issue comment, two fold-in agents acting on real findings from the re-run lenses (15 surviving mutations changed the merge decision), the operator-approved vocabulary rename slice, and a memory file corrected because it had been producing false evidence. So the heuristic's stated cost model (\"cost = the 30 minutes after the continue\") is wrong — those 30 minutes were among the most productive in the window — but the episode kind is right and a concrete duplicated spend exists.",
+      "wasteShare": 0.15,
+      "quote": "All three #569 reviewers were killed mid-flight, so the review must re-run",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "reddoor-maintenance",
+      "ts": "2026-08-24T20:14:09.037Z",
+      "cost": {
+        "requests": 208,
+        "in": 416,
+        "out": 240038,
+        "cacheCreate": 1329419,
+        "cacheRead": 25219090
+      }
+    },
+    {
+      "i": 102,
+      "verdict": "refuted",
+      "reason": "The window is a routine resume, not a waste episode. A session-limit block lands at 18:29; the operator returns 168 minutes later and types \"hit a session limit continue on\" — a normal restart after waiting out the reset, not a correction or a forced redo. The only re-orientation visible is ONE cheap Bash call at 21:18:49 (`git status --short; git log --oneline -3` plus a grep), which is exactly the \"re-verify after any pause\" step the repo's own CLAUDE.md mandates. Everything after it is dense, forward-moving work with no re-derivation: a CSP fix, six Prismic asset uploads, document create/update, a pushed branch + `gh pr create`, a rebase and force-with-lease, PR-22 check gating, a whole new `feat/es-locale` branch (locale core, route move to `[[lang=lang]]`, Seo/Nav/site-config edits, `pnpm lint`/`pnpm check`), and an a11y build investigation ending in a real finding (\"the placeholder is not being substituted in the built pages\"). The heuristic charges the entire 30 post-continue minutes as the cost of the block; the transcript shows those 30 minutes are the session's actual output. No file is re-read that wasn't legitimately being edited, no work is repeated, and the large cache-read figure is ordinary context replay across 28 requests of real work.",
+      "wasteShare": 0,
+      "quote": "21:18:49 [Bash] git status --short; git log --oneline -3",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "vida-legacy-foundation",
+      "ts": "2026-09-02T18:29:48.825Z",
+      "cost": {
+        "requests": 28,
+        "in": 2445,
+        "out": 140362,
+        "cacheCreate": 644465,
+        "cacheRead": 14746007
+      }
+    },
+    {
+      "i": 103,
+      "verdict": "refuted",
+      "reason": "This is a routine resume after a session limit, not re-orientation waste. The block lands at 23:28:53 and the operator's \"continuem, you hit a limit\" comes at 02:59:51 — the lagMin=211 is just the operator waiting for the quota window to reset (the block message itself says \"resets 7:50pm\"), not a session spinning. After the continue the session re-orients in about 100 seconds and two cheap Bash calls (a `date` check, then reading its own subagent transcript directory) and by 03:01:41 has already emitted the substantive deliverable — a 173 KB findings file with a counts table. It re-read no source files, redid no prior work, and asked the operator for nothing. Everything after that is the fanout itself: ~20 workflow-subagents doing the skeptic-verification task, which is exactly the work the session was for and accounts for essentially all of the window's 131k output / 13.4M cache-read. The heuristic is charging the productive half of a parallel verification run to a block that cost two tool calls to recover from.",
+      "wasteShare": 0,
+      "quote": "03:01:41 ASSISTANT The full findings (173 KB, with each fix and test case) are at `~/.config/reddoor-maint/batches/skeptic-findings.md`.",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "reddoor-website",
+      "ts": "2026-09-05T23:28:53.329Z",
+      "cost": {
+        "requests": 210,
+        "in": 5974,
+        "out": 131456,
+        "cacheCreate": 1904780,
+        "cacheRead": 13420126
+      }
+    },
+    {
+      "i": 104,
+      "verdict": "refuted",
+      "reason": "The window contains a session-limit block and a routine \"continue\", but no re-orientation cost whatsoever. The very first assistant turn 29 seconds after the continue resumes substantive work mid-stream, naming a specific defect already found (\"a silent false-compliment (non-Latin sites scoring '0% JS-dependent' when they were never measured)\") and dispatching fixes. There is no re-reading of the plan, no re-exploration, no restated context — the session picks up exactly where it left off. The remaining 30 minutes are straight plan execution: Task 7 (82 tests), a hand review of the scoring null paths that catches a real edge, Task 8 (90 tests, three catches including a `null → 0%` leak into the prompt), a code-review agent pass yielding four prompt/schema fixes plus a page-selection bias, and Task 9 begun at 98 tests green. Every subagent dispatch is a distinct task with a distinct prompt; nothing is duplicated. The limit block itself was an account cap, not a consequence of waste, and the 79-minute lag was the operator away, costing no tokens. The heuristic is measuring the cost of productive work that happened to sit after a block boundary.",
+      "wasteShare": 0,
+      "quote": "02:51:58 ASSISTANT Task 6's review surfaced a silent false-compliment (non-Latin sites scoring \"0% JS-dependent\" when they were never measured) plus schema false-negatives. Sending fixes:",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "reddoor-website",
+      "ts": "2026-08-25T01:32:48.231Z",
+      "cost": {
+        "requests": 121,
+        "in": 242,
+        "out": 129329,
+        "cacheCreate": 1437360,
+        "cacheRead": 15283185
+      }
+    },
+    {
+      "i": 105,
+      "verdict": "refuted",
+      "reason": "The block is real (session limit at 18:28, operator types \"hit a session limit, continue on\" at 21:17), but the 30 minutes charged to it are not re-orientation waste. Only the first ~6 minutes are recovery, and even those are productive salvage: the assistant reads the run journal to rescue the 33 findings the killed verify lanes had raised and marks them unverified rather than lose them, then commits the review brief (909b231). When the operator explicitly asks whether the lost verify work is worth rerunning, the assistant declines to redo most of it (\"nothing was lost that can't be recovered, and only a little of it is worth rerunning\") — that is cost-avoidance, not re-derivation. The operator then opens new scope (\"go ahead and do your recs\") and the remaining ~20 minutes are ordinary TDD feature work with no relation to the block: a RED girder-climb check written and watched to fail, a real magnet/anchor bug fixed across part.gd/girder.gd/layers.gd, the full board taken green at 19 suites / 767 checks, and two further commits (9821141 plus a docs/link pass). The `_grip` → `_admit` rename was forced by a name collision with treads.gd — normal dev friction, not lost context. Nothing in the window shows a file or fact being re-read because the block erased it; the \"continue\" prompt is the routine resumption the heuristic's default assumes is waste.",
+      "wasteShare": 0,
+      "quote": "Board green: 19 suites, 767 checks. Committing the fix with its docs.",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "Broken",
+      "ts": "2026-09-02T18:28:04.935Z",
+      "cost": {
+        "requests": 40,
+        "in": 21898,
+        "out": 98686,
+        "cacheCreate": 477317,
+        "cacheRead": 15839776
+      }
+    },
+    {
+      "i": 106,
+      "verdict": "refuted",
+      "reason": "The \"continue\" is routine resumption, not a re-orientation cost. The block landed at 20:21; the operator came back 72 min later (a normal overnight/limit-reset gap, not time the session spent burning tokens — the window's spend is all after 21:33). The very first assistant line after the continue names the exact task it was on (\"Picking up the ratchet/pupil pass\"), i.e. context survived the block; there is no re-deriving of lost state, no re-reading of a prior plan, no \"let me figure out where we were\". The ~30 min that follows is uninterrupted productive work: read the drawing code, ask the operator one disambiguating question, get answer \"c is what i meant, do it\", write RED checks first, confirm RED on all four, implement, GREEN 80/80 then 349 across twelve suites, screenshot-verify, journal, commit, push, deploy live. That ends in shipped, verified output — the opposite of waste. Two nits that do not move the verdict: ~90 seconds of work on option B before the operator interrupted at 21:41 to ask for ASCII sketches (a scope clarification the assistant then honored, cheaply), and cellRunPanel.gd read four times in one minute at 21:46 — normal re-reading of a large file being restructured, not post-block re-derivation. Also the nominated class \"fanout\" has no basis here: the window dispatches zero subagents, so there is nothing that could have kept spending in parallel.",
+      "wasteShare": 0,
+      "quote": "21:33:28 ASSISTANT Picking up the ratchet/pupil pass. Let me look at the current portrait code and the real sprite's ratchet drawing.",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "Broken",
+      "ts": "2026-08-24T20:21:22.320Z",
+      "cost": {
+        "requests": 38,
+        "in": 76,
+        "out": 93814,
+        "cacheCreate": 179196,
+        "cacheRead": 5744376
+      }
+    },
+    {
+      "i": 107,
+      "verdict": "refuted",
+      "reason": "The block is real (session limit at 18:29, operator types \"hit a session limit continue on\" at 21:17 once the quota reset), but the window shows a routine resumption, not re-orientation thrash. Within 20 seconds of the continue the assistant spends five cheap Bash/Read calls mining its own transcript and tool-results to recover the already-completed subagent findings — a deliberate cheap recovery instead of re-running the fanout — and by 21:20 it delivers the finished four-reader review (\"I verified every finding I'm repeating here against the stored data or the code\"). Everything after that is new forward work: an AskUserQuestion, targeted reads of report/accuracy/prompt code, a written implementation plan (docs/superpowers/plans/2026-09-02-prospect-ready-report.md), then RED tests and source edits. The only genuine loss is the one review pass that died mid-flight at the limit (\"A fifth pass died on the session limit\"), and its spend was before this window, not in the metered 30 minutes. The single duplicated command (the \"renderProspectReport consumers\" grep run at 21:25:36 and again at 21:26:03) is trivial. The 82k output / 8.3M cache-read is the cost of writing the plan and test/source edits, not of re-deriving lost context.",
+      "wasteShare": 0,
+      "quote": "The review is done. Four independent readers went through the live report",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "reddoor-website",
+      "ts": "2026-09-02T18:29:42.304Z",
+      "cost": {
+        "requests": 19,
+        "in": 4667,
+        "out": 82100,
+        "cacheCreate": 503148,
+        "cacheRead": 8333522
+      }
+    },
+    {
+      "i": 108,
+      "verdict": "refuted",
+      "reason": "The block is real (session limit at 20:37, operator typed \"hit a session limit contineu\" at 21:34 after the reset), but the transcript shows no re-orientation cost at all — which is the entire premise of this kind. 13 seconds after the continue the session is already issuing browser calls, and 20 seconds after it the assistant is mid-task with full context intact: it knows a Chrome login window is open for the operator, knows which production deploy it was verifying, and knows the two changes it expected live. No files are re-read, no state is re-derived, no plan is restated. The 30 minutes the heuristic bills as \"cost after the continue\" are ordinary forward work: verifying reddoorla.com's og:image and card asset, then driving the GHL workflow builder through an OOPIF via a hand-written CDP client, editing an SMS body, catching an invalid `{{contact.full_name}}` chip against repo memory, saving and verifying by read-back, and refusing to click Delete until the panel's identity was confirmed. The window is expensive because CDP-driving a virtualizing vue-flow canvas inside an iframe is expensive, not because of the block. There is a genuine dead end inside it — the ~5-minute detour into \"real\" CDP input events that ends \"Real input has been a no-op all along\" — but that is browser-automation flailing, not continue-after-block, and it is a small slice of the window; it also produced the correct conclusion that synthetic events were what worked. The 57-minute lag is the operator waiting for the limit to reset, which costs no tokens. A routine \"continue\" after a limit window closes is the mechanism working, not waste.",
+      "wasteShare": 0,
+      "quote": "21:34:41 ASSISTANT The login page is up in a visible Chrome window for you. While you log in, verifying the production deploy:",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "reddoor-website",
+      "ts": "2026-08-24T20:37:18.678Z",
+      "cost": {
+        "requests": 125,
+        "in": 250,
+        "out": 69496,
+        "cacheCreate": 665815,
+        "cacheRead": 39141200
+      }
+    },
+    {
+      "i": 109,
+      "verdict": "refuted",
+      "reason": "The heuristic's claimed cost is \"re-orientation after the block,\" and the transcript shows none. The operator typed \"hit the session limit continue\" at 21:33:52 and the very next assistant line resumes with full state intact (\"Picking up where I left off — the clean header generated locally\"), naming the exact artifact in flight. There is no re-reading of prior files to rebuild context, no re-derivation, no restatement of the plan — within 9 seconds it is running the verification it had queued, and within 90 seconds it has shipped the fix, opened PR #570 and confirmed #568 merged. The 80-minute lag is just wall-clock until the operator returned; it bought no tokens. Everything after the continue is productive forward work: visual verification of both header variants, commit/PR, a test send, then a new operator question about Figma at 21:52 that drives a genuine hunt for the design file (found: Web-Maintenance-Email mQ3hy2d9JnOG9ljCzbZS8j). The large cache-read (16.8M) is the ordinary cost of ~88 requests over a long, dense context, not of re-establishing lost context. There IS real rework in the window — the assistant ran `update-branch` after the CI watch, then misdiagnosed the blocked merge twice before finding a genuine `smoke-dist` failure it had caused by renaming plate.png without running `pnpm test:dist`, plus a silently-swallowed non-fast-forward push — but that is self-inflicted churn it caught and corrected itself, unrelated to the limit block, and it produced the real fix that merged at 21:48. It matches none of the six listed kinds (the operator never corrected a claim; the assistant corrected its own), so it is not a mislabelled-but-real episode of this taxonomy.",
+      "wasteShare": 0,
+      "quote": "Picking up where I left off — the clean header generated locally. Let me visually verify both variants before shipping.",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "beachfront-dentistry",
+      "ts": "2026-08-24T20:13:24.021Z",
+      "cost": {
+        "requests": 88,
+        "in": 400,
+        "out": 43064,
+        "cacheCreate": 367583,
+        "cacheRead": 16831231
+      }
+    },
+    {
+      "i": 110,
+      "verdict": "refuted",
+      "reason": "The block is real (session limit at 00:34:38, operator types \"you hit a limit continue\" 96 min later), but the transcript shows no re-orientation cost, which is the only thing this kind claims. Eleven seconds after the continue the assistant resumes mid-task with full context intact — it names exactly where it left off (\"where the loop spec went green\") and goes straight to productive work: full unit suite, vitest, ledger edit, `git add` of the two files it had been working on, PR #42 body update, CI watch on run 33706907589, and a Netlify preview verification, ending with a delivered preview URL and green CI. There is not one re-read of a previously-read file, no re-derivation, no re-exploration, no repeated search — the things \"cost = re-orientation after the block\" would have to point at. The ~1.97M cache-read is the session's accumulated context being replayed across 12 requests, which would have been paid on these same 12 requests with or without a block; the block moved the work in time, it did not duplicate it. The \"fanout\" class is also unsupported: the window contains zero subagent dispatches ([agent] lines) — every call is direct Bash/Edit. The only genuine slack is ~2 minutes of duplicated `gh run watch` on the same run id (02:15:14 backgrounded, 02:15:58 foregrounded) plus one closing message acknowledging the background watch as \"confirming what I already reported\" — a rounding error, and unrelated to the block.",
+      "wasteShare": 0,
+      "quote": "Picking up where the loop spec went green. Running the full unit suite now, then the whole interaction suite alone on a fresh server.",
+      "betterKind": "",
+      "kind": "continue-after-block",
+      "class": "fanout",
+      "repo": "beachfront-dentistry",
+      "ts": "2026-09-03T00:34:38.308Z",
+      "cost": {
+        "requests": 12,
+        "in": 920,
+        "out": 9547,
+        "cacheCreate": 160732,
+        "cacheRead": 1968601
+      }
+    }
+  ],
+  "critique": {
+    "blindSpots": [
+      "Killed-in-flight agent prefixes. Every heuristic looks at PROMPTS; the actual loss is an Agent whose result never came back. Measure it structurally: join each Agent tool_use id to its tool_result in the parent transcript; any agent jsonl with no matching result is 100% dead spend, priced by max-per-message output + cache tokens. On the one confirmed episode this gives 32,729 output / ~1.57M ctx over 26 requests exactly, with no window-guessing, and it also catches Ctrl-C, TaskStop, crashes and orphaned background agents, not just limit blocks.",
+      "Fanout redundancy measured on OUTPUTS rather than prompts. Jaccard over Agent prompts is the wrong instrument in both directions: deliberately-different lenses in one fanout score low while being highly redundant, and here two runs of the literally identical lens scored only 0.46-0.55. Measure: normalize each agent's returned findings (file+line+claim), dedupe across the fanout, and report unique-finding yield per agent and marginal yield of the Nth agent. MEMORY already records that one adversarial round beat 8 parallel lenses - that is a yield curve nobody has ever plotted.",
+      "Work that completed correctly and was never used. No prompt shape at all. Measure: for each subagent result or written artifact, check whether any later assistant turn quotes it, any commit touches it, or any PR body cites it within N turns; flag expensive unreferenced outputs. This is what killed the '33 findings from the dead verify lanes' and would price reports written for nobody.",
+      "Instruments that can never pass - the repo's own #1 rule, and the source of all three 2026-08-12 incidents. Measure from git, not transcripts: for every commit that introduces a gate/check/probe, look for a PASS on a known-good input before its first reported FAIL; flag any check whose entire history is FAIL. Transcript-side tell: a failing assertion resolved by editing the assertion rather than the system.",
+      "Silent-zero results built on (urllib '0 hits', grep blind to UTF-8, would_write=0). Measure: flag any tool result that is empty/zero-count and is then cited in a conclusion without a positive control, using a per-command-class baseline (this grep shape returns N elsewhere, 0 here). Charge everything downstream of the false zero.",
+      "Self-caught dead ends. The correction heuristic needs an OPERATOR correction; when the assistant catches itself there is no prompt to key on. Measure: detect assistant self-negation ('has been a no-op all along', 'that was wrong', 'I caused that') and charge the span back to the first tool call on that approach. This is the only way to see the ~5-minute CDP 'real input events' detour or the smoke-dist rename churn.",
+      "Cross-session rework. All six heuristics are intra-session or identical-prompt, so a defect shipped by session A and paid for by session B is invisible. Measure: link fix/revert commits and workJournal 'supersedes' forward-pointers back to the introducing commit, and charge session B's tokens to session A's skipped verification.",
+      "Rediscovery of things already written down. Measure: similarity of a session's stated conclusions against MEMORY.md / docs/workJournal.md, conditioned on whether the session actually read that file first; a high-similarity conclusion reached without the read is re-derivation.",
+      "Polling and waiting spend: repeated `gh run watch` / status calls on one resource id, including one window that watched the same run backgrounded and then foregrounded. Measure: repeated identical commands against the same resource id, and the tokens between first and last poll.",
+      "The census itself has no positive control. 10 of 11 nominations were refuted and the survivor was right for a different reason, which by the repo's own rule makes the instrument the suspect. Measure: seed a known waste episode (e.g. this confirmed one, or any unreturned-agent window) and require the detector to flag it before any FAIL it produces is reported."
+    ],
+    "misclassified": [
+      "continue-after-block @ reddoor-maintenance 2026-08-24T20:14:09Z - the KIND is wrong. 'continue-after-block' names re-orientation cost, and the skeptic showed re-orientation was one ctx_execute state check mandated by CLAUDE.md. The real defect is a fanout killed mid-flight with its prefix discarded, i.e. redo, and the correct detector is 'Agent tool_use with no tool_result', not 'continue after a limit'. The trigger also fired on the wrong evidence: the block was 20:14:09 and the continue 21:33, 79 minutes later, so the stated 'continue within 10 minutes' rule does not describe this episode.",
+      "Same episode - the COST is wrong in both directions. The reason charges '~75k output tokens (23866 + 20015 + 31444)' for the re-dispatch, but that re-run was necessary work and its findings changed the merge decision. The waste is only the discarded prefix of the three killed lenses: 11,353 + 9,410 + 11,966 = 32,729 output tokens and ~1.57M context over 26 requests (agent-ae3ffd42915dedb3b, agent-ab15833871b85c793, agent-a9546d32800e37e67, all last-timestamped at or just before 20:14:08). Roughly 33k, not 75k, and not 'the 30 minutes after the continue'.",
+      "Same episode - the sibling heuristic that should own it would have missed it. Word-level Jaccard between each killed lens prompt and its re-dispatch is 0.46 / 0.46 / 0.55, below any usual duplicate threshold, while the Agent `description` fields ('Review #569: security lens', etc.) are byte-identical across the boundary. Match dispatches on description equality plus cross-boundary time, not on full-prompt similarity."
+    ],
+    "strongestConfirmed": [
+      "ONLY ONE episode was confirmed, so there are not five to rank. #1 (the confirmed one): reddoor-maintenance 2026-08-24, three #569 review lenses dispatched 20:10:21/35/49, killed by the session limit at 20:14:09, re-dispatched 21:33:49/21:34:01/21:34:11. Evidence is complete and mechanical - parent transcript /Users/tuckerlemos/.claude/projects/-Users-tuckerlemos-Documents-GitHub-reddoor-maintenance/04ebfa83-654f-4fc7-a814-113f3f020dad.jsonl line 624 ('All three #569 reviewers were killed mid-flight, so the review must re-run') plus the three orphaned agent transcripts in that session's subagents/ directory. Show it with the corrected number: ~33k output / 1.57M context thrown away, not 75k.",
+      "#2 (NOT a census episode - refuted window, same real loss): the 02:51 window where '8 corpus verifiers died on the limit'. The skeptic refuted the nomination correctly, because the heuristic charged an operator-requested fan-out, but the dead 8 verifiers are exactly the pattern of #1 and were never priced. Worth showing as proof the pattern repeats.",
+      "#3 (NOT a census episode - refuted window, same real loss): the 18:29/21:17 window where 'a fifth pass died on the session limit' and the assistant had to mine its own transcript to rescue 33 findings the killed verify lanes had raised. Same shape again, and it shows the recovery cost as well as the lost prefix.",
+      "#4 (NOT a census episode - kind missing from the taxonomy): the ~5-minute CDP detour ending 'Real input has been a no-op all along'. Real, self-caught, cheap to detect by self-negation phrasing, and invisible to every listed heuristic because no operator ever corrected it.",
+      "#5 (NOT a census episode - kind missing from the taxonomy): the smoke-dist window where the assistant renamed plate.png without running `pnpm test:dist`, then misdiagnosed the resulting blocked merge twice and silently swallowed a non-fast-forward push. Self-inflicted, self-corrected, and the clearest example of waste caused by skipped verification rather than by a block."
+    ]
+  }
+}

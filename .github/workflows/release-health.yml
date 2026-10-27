@@ -1,0 +1,333 @@
+name: release-health
+
+# Two INDEPENDENT guards on the release pipeline. Either one alone is blind; the pair is not.
+#
+# 1. npm DRIFT — main's package.json version advances on every Version-Packages merge and SHOULD
+#    be published by the release workflow. But `changesets/action` only runs `changeset publish`
+#    on a push to main that has ZERO changeset files — so a rapid run of changeset-carrying PRs
+#    can keep the workflow in "update the release PR" mode and never publish (exactly how 0.48.0 /
+#    0.49.1 were version-bumped on main but never reached npm). Compares the npm `latest` tag to
+#    main's version. Fix is always: merge the open Version Packages PR into a clean main.
+#
+# 2. release WORKFLOW REDNESS — the drift check compares VERSIONS, so it is structurally blind to
+#    a release workflow that is failing while npm and main happen to agree. That blind spot has
+#    now bitten three times, most starkly 2026-07-20..24: npm 12 changed `npm info --json` to
+#    return an array, which broke changesets' published-version detection, so every push to main
+#    tried to re-publish an already-published version, got E403, and crashed. Four days of red
+#    release runs, ZERO drift, no alarm — found only because a human noticed the dashboard. This
+#    check looks at the release workflow's own most recent decisive run on main.
+#
+# Each guard reds the run and files its own deduped tracking issue, auto-closed once it recovers.
+# A third issue covers the checker itself failing or hanging, when neither guard got to judge.
+on:
+  schedule:
+    - cron: "30 14 * * *" # 14:30 UTC daily — clear of the 06:00/08:00/09:23 nightly churn
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: read # read the release workflow's own run history (guard 2)
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # A hung `npm view` / DNS lookup would otherwise sit at GitHub's 6-hour default, and with
+    # concurrency.cancel-in-progress=false it would pin the group and queue every later daily run.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Compare npm latest vs main version
+        id: drift
+        run: |
+          name=$(node -p "require('./package.json').name")
+          pkg=$(node -p "require('./package.json').version")
+          npmv=$(npm view "$name" version 2>/dev/null || echo "")
+          echo "main=$pkg npm=${npmv:-<unpublished>}"
+          # behind = npm's published version is strictly lower than main's (major.minor.patch,
+          # prerelease tags stripped). An unpublished package ("") compares as 0.0.0 → behind.
+          behind=$(node -e '
+            const t = (v) => (v || "0.0.0").split("-")[0].split(".").map(Number);
+            const [a, b] = [t(process.argv[1]), t(process.argv[2])];
+            let r = "no";
+            for (let i = 0; i < 3; i++) { const x = a[i] || 0, y = b[i] || 0; if (x !== y) { r = x < y ? "yes" : "no"; break; } }
+            process.stdout.write(r);
+          ' "$npmv" "$pkg")
+          {
+            echo "pkg=$pkg"
+            echo "npmv=${npmv:-<unpublished>}"
+            echo "behind=$behind"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$behind" = "yes" ]; then
+            echo "::error::npm is behind main — published ${npmv:-<unpublished>} but main is at $pkg. A release didn't publish; merge the Version Packages PR into a clean main."
+          fi
+          # POSITIVE evidence for the close step, written only for what this run
+          # actually observed: a real published version read back from npm that
+          # matches main. The close step refuses without it, so a step that dies
+          # before here — leaving `behind` unset, which `behind != 'yes'` reads
+          # as "all clear" — can no longer arm a "npm caught up" close.
+          drift_out="${RUNNER_TEMP:-/tmp}/drift.out"
+          : > "$drift_out"
+          if [ "$behind" = "no" ]; then
+            echo "NPM_DRIFT behind=no npm=$npmv main=$pkg" >> "$drift_out"
+          fi
+
+      # Guard 2 — is the release workflow ITSELF healthy on main? Independent of drift: a release
+      # run can fail on every push while npm and main agree on the version (npm 12 / changesets,
+      # 2026-07-20..24), and guard 1 sees nothing wrong.
+      - name: Check the release workflow's own state on main
+        id: relstate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Newest DECISIVE run only. `startup_failure` is decisive and red: it is
+          # what GitHub reports when it cannot start the workflow at all (an invalid
+          # file, a blocked action), and such a run published nothing (#1614).
+          # `cancelled` / `skipped` / `action_required` are skipped past rather than
+          # treated as red: release.yml serialises on a concurrency group, so one
+          # queued-then-cancelled run says nothing about pipeline health. A WINDOW of
+          # completed runs with not one verdict in it does: the API answered, and no
+          # release has finished in that many pushes. If the newest decisive run is
+          # green, an older failure has already been superseded and we are clear.
+          # On an HTTP error `gh api` skips --jq and prints the error JSON to STDOUT
+          # (exit 1), so the exit status, not the output, says whether we got runs.
+          if ! latest=$(gh api \
+            "/repos/${{ github.repository }}/actions/workflows/release.yml/runs?branch=main&per_page=30" \
+            --jq '[.workflow_runs[] | select(.status == "completed")] as $done
+                  | ($done | map(select(.conclusion == "success" or .conclusion == "failure"
+                                        or .conclusion == "timed_out" or .conclusion == "startup_failure"))
+                           | .[0]) as $d
+                  | if $d then "\($d.conclusion)\t\($d.html_url)\t\($d.head_sha)"
+                    elif ($done | length) > 0
+                    then "no_verdict_in_\($done | length)\t\($done[0].html_url)\t\($done[0].head_sha)"
+                    else empty end'); then
+            latest=""
+            echo "::warning::could not read the release workflow's runs; guard 2 was not judged this run"
+          fi
+          concl=$(printf '%s' "$latest" | cut -f1)
+          url=$(printf '%s' "$latest" | cut -f2)
+          sha=$(printf '%s' "$latest" | cut -f3)
+          # No completed run at all (fresh repo) or the API call failed → nothing to
+          # judge. Stay green rather than alarm; a broken query must not masquerade
+          # as a broken pipeline. The failed call leaves the warning above.
+          if [ -z "$concl" ]; then
+            echo "no decisive release run on main — skipping guard 2"
+            red=no
+          elif [ "$concl" = "success" ]; then
+            red=no
+          else
+            red=yes
+          fi
+          echo "release workflow latest decisive run on main: ${concl:-<none>} (${sha:-n/a})"
+          {
+            echo "red=$red"
+            echo "concl=${concl:-none}"
+            echo "url=${url:-n/a}"
+            echo "sha=${sha:-n/a}"
+          } >> "$GITHUB_OUTPUT"
+          case "$concl" in
+            no_verdict_in_*)
+              echo "::error::none of the ${concl#no_verdict_in_} completed release runs on main reached a verdict (all cancelled, skipped or awaiting approval); the newest is $url. No release has finished in that window." ;;
+            *)
+              if [ "$red" = "yes" ]; then
+                echo "::error::The release workflow's latest run on main is '$concl' ($url). Releases are blocked even though npm and main agree on the version."
+              fi ;;
+          esac
+          # POSITIVE evidence for the close step. `red=no` above is set on TWO
+          # completely different findings — "the newest decisive run was green"
+          # and "there was no decisive run to judge" — and the filing side is
+          # right to treat them alike (a broken query must not masquerade as a
+          # broken pipeline). The close side is not: only the first of the two
+          # is grounds for closing an alarm that may still be true. This line is
+          # written for the first and never the second.
+          rel_out="${RUNNER_TEMP:-/tmp}/relstate.out"
+          : > "$rel_out"
+          if [ "$concl" = "success" ]; then
+            echo "RELEASE_STATE healthy=yes sha=${sha:-n/a}" >> "$rel_out"
+          fi
+
+      # File/reopen a single deduped tracking issue (by exact title — only needs issues:write).
+      # continue-on-error so the alert machinery can never flip the run's own status.
+      - name: Open/update the npm-drift tracking issue
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.drift.outputs.behind == 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="npm registry is behind main"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The npm `latest` tag is **behind** main: published `%s`, main `package.json` is `%s`.\n\nA version bump merged but the release workflow never ran `changeset publish` — usually because back-to-back changeset PRs kept the changesets action in "update the release PR" mode. **Fix:** merge the open **Version Packages** PR into a clean main (no other pending changesets) so the publish step fires.\n\nRun: %s\n\n_Auto-filed; auto-closes once npm catches up._' "${{ steps.drift.outputs.npmv }}" "${{ steps.drift.outputs.pkg }}" "$run_url")
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the drift issue once npm catches up
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.drift.outputs.behind != 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/drift.out"
+          # Belt and braces: close ONLY on positive evidence — the machine line
+          # the drift check writes when it has actually read a version back from
+          # npm. Step outcome alone is not proof: `behind != 'yes'` is equally
+          # true when the check step never produced an output at all.
+          if ! grep -q "NPM_DRIFT behind=no " "$out" 2>/dev/null; then
+            echo "no verified npm/main comparison in this run — not closing anything"
+            exit 0
+          fi
+          title="npm registry is behind main"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "npm caught up — \`latest\` now matches main. Closing." && echo "closed #$n"
+          done
+
+      - name: Open/update the release-failing tracking issue
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        if: steps.relstate.outputs.red == 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Release workflow is failing on main"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          concl="${{ steps.relstate.outputs.concl }}"
+          case "$concl" in
+            no_verdict_in_*)
+              finding="none of the last ${concl#no_verdict_in_} completed runs reached a verdict (all cancelled, skipped or awaiting approval)"
+              advice='Open the newest run below and find why runs are not finishing: a stuck concurrency group, a required approval, or a job-level condition that skips.' ;;
+            startup_failure)
+              finding='**startup_failure**: GitHub could not start the workflow'
+              advice='The run has no steps to read. Open it for the startup error: usually an invalid `release.yml` or an action the org settings block.' ;;
+            *)
+              finding="**$concl**"
+              advice='Open the failing run and read the `Create release PR or publish` step; that is where changesets reports both version and publish errors.' ;;
+          esac
+          body=$(printf 'The `release` workflow'"'"'s latest decisive run on `main`: %s.\n\nRun: %s\nCommit: `%s`\n\nnpm and main agree on the version, so the drift guard is silent — but **nothing can publish until this is green**. %s\n\nRun: %s\n\n_Auto-filed; auto-closes once the release workflow goes green on main._' \
+            "$finding" "${{ steps.relstate.outputs.url }}" "${{ steps.relstate.outputs.sha }}" "$advice" "$run_url")
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the release-failing issue once it goes green
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: steps.relstate.outputs.red != 'yes' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/relstate.out"
+          # Belt and braces: close ONLY on positive evidence of a decisive
+          # release run on main that was GREEN — the marker line, which the
+          # empty-query path deliberately never writes. Step outcome alone is
+          # not proof: `red=no` is also what guard 2 sets when the API returned
+          # nothing at all, and an unset output reads the same way. Either would
+          # otherwise convert into a false "green on main again" close on an
+          # alarm that may still be true.
+          if ! grep -q "RELEASE_STATE healthy=yes " "$out" 2>/dev/null; then
+            echo "no verified green release run on main — not closing anything"
+            exit 0
+          fi
+          title="Release workflow is failing on main"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "The release workflow is green on main again. Closing." && echo "closed #$n"
+          done
+
+      # The CHECKER itself going red. Both issues above key on a finding, and a cancelled or
+      # crashed run is not one, so a hung `npm view` that hit the 5-minute job timeout used to
+      # file nothing at all (P1-15). This pair covers that, and nothing else: it sits AHEAD of
+      # "Fail when unhealthy", so `failure()` here means checkout, setup-node or one of the two
+      # check steps broke, never that a guard found something. A guard's finding reds the run
+      # below and files only its own issue. A guard-2 API error is not a failure here either:
+      # the step catches it, leaves a warning and stays green.
+      - name: Open/update the release-health-run-failing tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily release-health check failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The daily **release-health** check did not run to completion: a setup step or one of its two guards (npm drift, release-workflow redness) failed or hung. A guard that did not finish was not judged this run; one that finished before the break may have filed its own issue alongside this one. This issue is about the checker, not a finding about releases: open the run and read the step that broke.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next run whose checks complete._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the release-health-run-failing issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        # Ahead of "Fail when unhealthy", so success() is "both checks ran to the end" — a
+        # run that completes and finds drift has still proved the checker works.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily release-health check failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the release-health checks ran to completion again." && echo "closed #$n"
+          done
+
+      # Red the run on either signal (after both issues are filed) so it surfaces beyond the issues.
+      - name: Fail when unhealthy
+        if: steps.drift.outputs.behind == 'yes' || steps.relstate.outputs.red == 'yes'
+        run: exit 1

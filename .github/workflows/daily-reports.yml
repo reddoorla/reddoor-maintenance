@@ -1,0 +1,467 @@
+name: daily-reports
+run-name: ${{ inputs.preview_site && format('daily-reports preview {0}', inputs.preview_site) || format('daily-reports {0}', inputs.mode || 'send') }}
+
+# M3 daily approval-only loop, split in two since P1-38 (Operator decisions 98):
+# fleet-nightly dispatches `mode=draft` after the evidence sweeps (DRAFT due
+# reports, idempotent, then the operator DIGEST), and the nightly-send-clock
+# Netlify function dispatches `mode=send` at 16:07Z (SEND approved-but-unsent,
+# existing gate), so client email goes out at a fixed hour. This repo is the central scheduler; it's
+# active, so GitHub's 60-day cron auto-disable never fires — but the keepalive
+# step below is a belt-and-suspenders against a quiet stretch. Cron minute is
+# :23 (non-:00) to dodge the documented top-of-hour scheduler load spike.
+on:
+  schedule:
+    - cron: "23 13 * * *" # send-only fallback; GitHub starts it 5–9 h late, after the 16:07Z send clock
+  workflow_dispatch:
+    # Manual run from the Actions tab. Left blank, this is the normal daily loop.
+    #
+    # `preview_site` turns the run into a read-only credential proof instead:
+    # `report <slug> --preview --enrich` renders one site's report through the
+    # very same draft path AND runs the real GA / Search Console fetches, but
+    # takes previewOnly, so it never queues a draft, never writes a Reports row,
+    # and never consumes the (site, period) idempotency guard. The
+    # send and digest steps are skipped, so no email leaves the runner either.
+    # `--enrich` is load-bearing: a plain `--preview` does no IO whatsoever, so
+    # the verify step below could never pass however good the secrets were.
+    #
+    # This exists because the GA/Search Console credentials are only wired into
+    # THIS workflow's draft step. A local run proves the code path but not the
+    # repository secrets, and the secrets were exactly what was missing when
+    # every CI-drafted report shipped with a blank ANALYTICS section (#469).
+    # Waiting for the next naturally-due report to find out is a multi-week
+    # feedback loop on a credential that either works or silently does not.
+    inputs:
+      preview_site:
+        description: "Site NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
+        required: false
+        type: string
+        default: ""
+      mode:
+        description: "draft = drafts + digest (fleet-nightly), send = approved reports only (nightly-send-clock), all = both"
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - draft
+          - send
+
+# Single-flight: a once-daily job can't realistically overlap, but this closes
+# the search-then-create drafting race and stops a manual run colliding with
+# the scheduled one.
+concurrency:
+  group: m3-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read # checkout only — nothing in this workflow pushes
+  actions: write # inline keepalive re-enables this workflow via the REST API
+  issues: write # open/close the daily-reports-failing tracking issue
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # generateHeaderImage screenshots each site's homepage at draft time, so
+      # this job needs a browser. Without it chromium.launch() throws and the
+      # refresh — which is best-effort and swallows its errors — would fail
+      # silently every night while the run stayed green.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # The header's domain line is drawn by sharp through librsvg + fontconfig,
+      # so compose.ts's font stack resolves against INSTALLED system fonts. A
+      # stock ubuntu runner has no Helvetica Neue / Helvetica / Arial and falls
+      # through to DejaVu Sans, which is wider — a CI-generated header would not
+      # match the hand-made reference or a locally-generated one. fonts-urw-base35
+      # provides Nimbus Sans, metrically equivalent to Helvetica and already third
+      # in that stack. Runs after `playwright install --with-deps`, which has
+      # already done the apt-get update.
+      - run: sudo apt-get install -y --no-install-recommends fonts-urw-base35
+
+      # 1. DRAFT — scan all Websites, draft anything overdue. Idempotent: the
+      # slice-1 Period guard skips a (site, reportType) already drafted this
+      # cycle, so a cron re-fire is a no-op. continue-on-error: a draft failure
+      # must not block sending reports already approved — but the outcome-gate
+      # step at the bottom re-fails the run afterwards so the spec's "any step
+      # failing opens the tracking issue" still holds (no silent draft breakage).
+      # GA + Search Console enrichment runs at DRAFT time (fetchGaVisits / fetchSearch),
+      # so the credentials have to be on THIS step — the send step re-reads the numbers
+      # off the Reports row and needs nothing. Without them readGaConfig() returns null
+      # and both fetches take their not-configured early return, which is how every
+      # CI-drafted report shipped with no ANALYTICS section and no "Google Indexed"
+      # evidence. GA_SA_KEY_JSON is the service-account key file's CONTENTS; it is
+      # written to a runner-local path here because the code takes a path, not a blob.
+      # `printf` (not `echo`) and no `set -x`: the key must never reach the log.
+      - name: Draft due reports
+        id: draft
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
+          GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
+          GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
+          PREVIEW_SITE: ${{ inputs.preview_site }}
+          MODE: ${{ inputs.mode || 'send' }}
+          # `report --due` writes each next-due date into site_schedule
+          # (writeNextDueDates). As a Phase 3 dual-write it was best-effort, so
+          # without these it returned null and silently never ran — no warning,
+          # no nonzero exit, just an absent `mirrored=` suffix. That is what
+          # shipped, and an hourly re-import of site_schedule
+          # is what hid it. Pinned by tests/build/daily-reports-workflow.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ "$MODE" = "send" ] && [ -z "$PREVIEW_SITE" ]; then
+            echo "mode=send: no drafting in this run"
+            exit 0
+          fi
+          if [ -n "$GA_SA_KEY_JSON" ]; then
+            printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
+            chmod 600 "$GA_SA_KEY_PATH"
+          fi
+          if [ -n "$PREVIEW_SITE" ]; then
+            # Read-only credential proof — renders one site, writes nothing.
+            # `report <slug>` matches on siteSlug(name), NOT the display name, so
+            # the input is slugified here rather than handed over raw. Otherwise
+            # the obvious input ("Sonder", the name the operator actually sees in
+            # the console) dies with `No Websites row matched slug "Sonder"`.
+            slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
+            echo "resolving '$PREVIEW_SITE' -> slug '$slug'"
+            # --enrich is what makes this a credential proof rather than a render:
+            # without it the preview path does no IO at all, so the ANALYTICS
+            # section can never appear and the verify step below fails 100% of
+            # the time regardless of whether the secrets are good.
+            node dist/cli/bin.js report "$slug" --preview --enrich
+          else
+            set -o pipefail
+            out="${RUNNER_TEMP:-/tmp}"
+            node dist/cli/bin.js report --due | tee "$out/draft.out"
+
+            # #1613. NEXT_DUE_WRITE is the only trace of the site_schedule writes
+            # the console's "next maintenance" dates come from, and nothing read
+            # it: every write could throw (mirror_failed=N), the draft exited 0,
+            # and next_maintenance stayed null. Red on any write that did not
+            # land. A missing counter is an empty string here, so a reworded
+            # marker fails rather than passes.
+            line=$(grep -a '^NEXT_DUE_WRITE ' "$out/draft.out" | tail -1 || true)
+            if [ -z "$line" ]; then
+              echo "::error::draft: no NEXT_DUE_WRITE line — the next-due dates were never written."
+              exit 1
+            fi
+            if printf '%s\n' "$line" | grep -q ' mirror=absent'; then
+              echo "::error::draft: $line — no Turso credentials reached the site_schedule writes."
+              exit 1
+            fi
+            failed=$(printf '%s\n' "$line" | sed -nE 's/.* failed=([0-9]+).*/\1/p')
+            mirror_failed=$(printf '%s\n' "$line" | sed -nE 's/.* mirror_failed=([0-9]+).*/\1/p')
+            mirror_missed=$(printf '%s\n' "$line" | sed -nE 's/.* mirror_missed=([0-9]+).*/\1/p')
+            if [ "$failed" != "0" ] || [ "$mirror_failed" != "0" ] || [ "$mirror_missed" != "0" ]; then
+              echo "::error::draft: $line — a site's next-due date did not land in site_schedule, so the console shows a stale or empty next date for it. See the ⚠ lines above."
+              exit 1
+            fi
+            echo "PASS: $line"
+          fi
+
+      # Verdict for a preview run. The ANALYTICS block is rendered only when
+      # hasAnalyticsData() is true — renderAnalyticsSection returns "" outright
+      # when GA produced nothing — so the literal `>ANALYTICS<` in the emitted
+      # HTML is a truthful, non-circular proof that the credentials resolved and
+      # real numbers came back. Its absence is exactly the #469 failure, which
+      # was invisible precisely because the run stayed green without it. Fails
+      # the step so the answer cannot be mistaken for a pass.
+      - name: Verify the preview carried ANALYTICS
+        if: ${{ inputs.preview_site }}
+        env:
+          PREVIEW_SITE: ${{ inputs.preview_site }}
+        run: |
+          slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
+          html="reports/${slug}/draft.html"
+          if [ ! -f "$html" ]; then
+            echo "::error::no preview rendered at $html — the draft step did not produce a report."
+            exit 1
+          fi
+          if grep -q '>ANALYTICS<' "$html"; then
+            echo "PASS: $html contains the ANALYTICS section — GA credentials resolved and returned data."
+          else
+            echo "::error::FAIL: $html rendered with NO ANALYTICS section. GA/Search Console credentials did not resolve, or GA returned nothing for this property (the #469 failure mode)."
+            exit 1
+          fi
+
+      - name: Upload the rendered preview
+        if: ${{ inputs.preview_site && always() }}
+        # Seconds for one draft.html; the job itself has no timeout-minutes.
+        timeout-minutes: 5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: report-preview
+          path: reports/**/draft.html
+          if-no-files-found: warn
+          retention-days: 7
+
+      # 2. SEND — existing gate (Draft ready ∧ Approved to send ∧ Sent at BLANK).
+      # At-least-once: a failed send leaves Sent at null → retried tomorrow; the
+      # Resend idempotency key (report:<id>) + the durable Sent at prevent dupes.
+      - name: Send approved reports
+        id: send
+        # A preview run is a credential proof, not the daily loop — it must not
+        # email anyone.
+        if: ${{ !inputs.preview_site }}
+        timeout-minutes: 15
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MODE: ${{ inputs.mode || 'send' }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$MODE" = "draft" ]; then
+            echo "mode=draft: client sends wait for the 16:07Z send clock"
+            exit 0
+          fi
+          if [ "$EVENT" = "schedule" ]; then
+            hhmm=$(date -u +%H%M)
+            if [ "$hhmm" -lt 0400 ]; then
+              day=$(date -u -d yesterday +%F)
+            elif [ "$hhmm" -lt 1637 ]; then
+              echo "fallback before 16:37Z: the 16:07Z send clock sends today, so this run sends nothing"
+              echo "sent=no-op" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              day=$(date -u +%F)
+            fi
+            read -r fired ok < <(gh api "repos/$REPO/actions/workflows/daily-reports.yml/runs?event=workflow_dispatch&branch=main&created=>=${day}T00:00:00Z&per_page=100" \
+              --jq '[.workflow_runs[] | select(.display_title == "daily-reports send" or .display_title == "daily-reports all")] | "\(length) \(map(select(.conclusion == "success")) | length)"') || {
+              echo "::error::could not read the send runs since ${day}, so the fallback sends nothing"
+              exit 1
+            }
+            if [ "${ok:-0}" -gt 0 ]; then
+              echo "a send run succeeded since ${day} ($ok), so the fallback sends nothing"
+              echo "sent=no-op" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "${fired:-0}" -gt 0 ]; then
+              echo "::error::send-run-failed: the send clock fired ($fired run(s) since ${day}) but none succeeded, so this fallback retries the send"
+            else
+              echo "::error::send-clock-missed: no send run since ${day}, so this fallback sends late"
+            fi
+            node dist/cli/bin.js report --send-ready
+            exit 1
+          fi
+          node dist/cli/bin.js report --send-ready
+
+      # 3. DIGEST — one "your fleet today" email to the operator (report
+      # --digest, shipped in #163; skips itself when there's nothing to say).
+      - name: Email the operator digest
+        if: ${{ !inputs.preview_site }}
+        timeout-minutes: 10
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Turso creds: REQUIRED since #609. The digest reads notify-bounce
+          # counts + submissions telemetry from libSQL (both degrade gracefully),
+          # but it also now reads its own PRIOR-RUN SNAPSHOT there, and that read
+          # is deliberately not defensive — without it every item would badge NEW,
+          # which reads as "the whole fleet degraded overnight" in the operator's
+          # inbox. Missing creds fail this step instead. Pinned by
+          # tests/build/daily-reports-workflow.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # The digest's Renovate/CI signals now come from the nightly-persisted
+          # fields (collectRenovateAlerts/collectCiAlerts), so no live GitHub sweep
+          # runs here — no GitHub token is needed for this step.
+          # Both optional — the CLI falls back to the operator inbox
+          # (src/util/operator.ts) and https://reddoor-maintenance.netlify.app
+          # when unset/empty. Set the repo Actions *variables* (not secrets) to
+          # override. Keep OPERATOR_EMAIL mirrored into a local
+          # ~/.config/reddoor-maint/credentials.env too: this variable covers CI
+          # only, and `report --digest` also gets run by hand from a laptop.
+          OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
+          DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
+          MODE: ${{ inputs.mode || 'send' }}
+        run: |
+          if [ "${MODE:-}" = "send" ]; then
+            echo "mode=send: the digest went out with this morning's drafts"
+            exit 0
+          fi
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}"
+          node dist/cli/bin.js report --digest | tee "$out/digest.out"
+
+          # MED-13(a). `DIGEST_STATE_WRITE` exists because of #585 — "a dual-write
+          # that silently stopped running looked identical to a healthy one for
+          # weeks" — and until now NOTHING read it. Rotate the token for this step
+          # and the email still sends, the run stays green, and the cockpit renders
+          # last month's rollup with a stale date nobody reads as an error. Every
+          # other machine marker in this repo is gated in its workflow; this is that
+          # gate, in the same shape as fleet-db-backup's DUMP_VERIFY/FLEET_DB_USAGE.
+          line=$(grep -a '^DIGEST_STATE_WRITE ' "$out/digest.out" | tail -1 || true)
+          if [ -z "$line" ]; then
+            # ONE legitimate absence: a same-UTC-day re-run whose content changed
+            # hits Resend's idempotency conflict and returns BEFORE persisting,
+            # deliberately — the first send already wrote the snapshot, and writing
+            # this run's would diff against the wrong baseline. Narrow, and it fails
+            # CLOSED: if that message is ever reworded, the marker is demanded again.
+            if grep -qa 'Digest already sent today' "$out/digest.out"; then
+              echo "notice: same-day duplicate digest — it deliberately wrote no snapshot. Nothing to gate."
+              exit 0
+            fi
+            echo "::error::digest: no DIGEST_STATE_WRITE line. The snapshot dual-write did not run — tomorrow's digest badges every item NEW and the cockpit rollup goes stale, both silently. This is the #585 shape."
+            exit 1
+          fi
+
+          # TURSO IS THE ONE THIS GATE DEMANDS. It is the READ side: the digest
+          # reads its own prior-run snapshot from it, and that read is deliberately
+          # not defensive. A failed write here costs correct NEW badges tomorrow,
+          # and nothing else in the system will say so. A missing counter is an
+          # empty string here, so a reworded marker fails rather than passes.
+          turso=$(printf '%s\n' "$line" | sed -nE 's/.* turso=([0-9]+).*/\1/p')
+          if [ "$turso" != "1" ]; then
+            echo "::error::digest: turso=${turso:-<absent>} in: $line — the read-side snapshot write FAILED. Tomorrow's digest will badge every item NEW."
+            exit 1
+          fi
+
+          # ROLLUP: `0` means the write was attempted and THREW — red. `absent` is a
+          # third state the code names as legitimate ("No Turso configured is a
+          # THIRD state, not a failure ... reporting it as rollup=0 would train the
+          # eye to ignore the number"), so it warns rather than reds.
+          rollup=$(printf '%s\n' "$line" | sed -nE 's/.* rollup=([A-Za-z0-9]+).*/\1/p')
+          if [ "$rollup" = "0" ]; then
+            echo "::error::digest: rollup=0 in: $line — the cockpit roll-up write threw. The homepage's spam and bounce strips go stale."
+            exit 1
+          fi
+          if [ "$rollup" != "1" ]; then
+            echo "::warning::digest: rollup=${rollup:-<absent>} — the cockpit roll-up was not written this run."
+          fi
+          echo "PASS: $line"
+
+          # P1-20. The digest sends only when its item set changed (or weekly), and
+          # the record of what it last sent is this write. If it stops landing, every
+          # run reads "never sent" and the daily nag comes back without an error.
+          sendlog=$(grep -a '^DIGEST_SEND_LOG ' "$out/digest.out" | tail -1 || true)
+          if [ "$(printf '%s\n' "$sendlog" | sed -nE 's/.* write=([0-9]+).*/\1/p')" != "1" ]; then
+            echo "::error::digest: send-log write missing or failed (${sendlog:-no DIGEST_SEND_LOG line}) — tomorrow's digest cannot tell what it already sent."
+            exit 1
+          fi
+
+          # #1613. The READ side of the same record. A send-log row that would not
+          # decode (corrupt), or a read that threw (failed), makes this run believe
+          # it never sent, so it re-sends as `first`: the nag P1-20 removed, with
+          # no error. `absent` is the first run ever, and fine. A missing field
+          # fails here, so an older or reworded marker cannot pass.
+          sendlog_read=$(printf '%s\n' "$sendlog" | sed -nE 's/.* read=([a-z]+).*/\1/p')
+          if [ "$sendlog_read" != "ok" ] && [ "$sendlog_read" != "absent" ]; then
+            echo "::error::digest: send-log read=${sendlog_read:-<absent>} in: $sendlog — this run could not read what the digest last sent, so it treated today as a first send. Today's row is rewritten; check the email for a repeat."
+            exit 1
+          fi
+          echo "PASS: $sendlog"
+
+          # #1613. A corrupt snapshot reads as {} by design (src/db/digest-state.ts:
+          # one run of wrong NEW badges, never a lost send). Not red, but said, so
+          # an inbox where "everything is NEW" has its reason next to it.
+          if grep -qa '^DIGEST_STATE_READ snapshot=corrupt' "$out/digest.out"; then
+            echo "::warning::digest: the prior-run snapshot would not decode, so today's digest badged every item NEW. Today's snapshot replaces it."
+          fi
+
+      # Keepalive (inline, dependency-free): re-enabling an already-enabled
+      # workflow is a no-op that still resets GitHub's 60-day auto-disable
+      # timer for scheduled workflows on quiet repos. continue-on-error so
+      # this hygiene step can never redden the run.
+      - name: Keep the scheduled workflow alive
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily-reports.yml/enable"
+
+      # Outcome gate: the draft step's continue-on-error lets send/digest
+      # proceed past a drafting failure, but it also keeps the job green —
+      # which would stop the failure() tracking issue below from ever firing.
+      # Re-fail the run here (after send/digest/keepalive have had their turn)
+      # so a draft failure is still durably visible.
+      - name: Fail the run if drafting failed
+        if: steps.draft.outcome == 'failure'
+        run: |
+          echo "::error::the draft step failed earlier in this run (send/digest were allowed to proceed)"
+          exit 1
+
+      # M5 alerting (#152 pattern): a red daily run is otherwise only GitHub's
+      # best-effort email to the last pusher. File/reopen one deduped tracking
+      # issue so a failure is durably visible; auto-close on recovery.
+      # continue-on-error so the alert machinery can NEVER turn a run red.
+      #
+      # Both halves are scoped to non-preview runs. A manual preview is a
+      # credential probe, not the daily loop: letting it file "Daily reports run
+      # failing" would raise an alarm about a job that never ran, and — far
+      # worse — letting a passing probe hit the close half would auto-close a
+      # genuinely open daily-failure issue. That is a false all-clear on the one
+      # surface that exists to make failures durably visible.
+      - name: Open/update the daily-reports-failing tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: ${{ (failure() || cancelled()) && !inputs.preview_site && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode || 'send' }}
+        run: |
+          title="Daily reports run failing (${MODE})"
+          prefix="Daily reports run failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried. A `✗ … approved but not in the send queue` line names an approved report the send queue cannot see: unapproving it in the report history on its site page clears the red, and re-drafting it is what sends it; `NEXT_DUE_WRITE` and `DIGEST_SEND_LOG … read=` errors name a write or read that did not land.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$prefix\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the daily-reports-failing issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: ${{ success() && steps.send.outputs.sent != 'no-op' && !inputs.preview_site && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_MODE: ${{ inputs.mode || 'send' }}
+        run: |
+          case "$RUN_MODE" in
+            all) covers="all draft send" ;;
+            *) covers="$RUN_MODE" ;;
+          esac
+          for MODE in $covers; do
+            title="Daily reports run failing (${MODE})"
+            for n in $(gh issue list --state open --limit 200 \
+              --search "in:title \"Daily reports run failing\"" --json number,title \
+              --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+              gh issue close "$n" --comment "Recovered — a green ${RUN_MODE} run covers ${MODE}." && echo "closed #$n"
+            done
+          done

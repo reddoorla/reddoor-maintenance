@@ -1,0 +1,306 @@
+name: fleet-form-e2e
+
+# Nightly fleet-wide contact-form end-to-end probe → the Report Health Gate's
+# `Form E2E OK` signal. Checkout-free (like fleet-lighthouse): Playwright drives
+# each site's DEPLOYED prod URL, fills the /contact form, submits it with the
+# `testMode` marker, and writes Form E2E OK + Form E2E checked at back to the
+# site's row. Central ingest's testMode short-circuit routes the submission
+# away from every real sink (no inbox/DB/webhook, Turnstile bypassed).
+#
+# REDDOOR_FORM_E2E_LIVE=1 arms the live runner — this workflow is the intended
+# armer. Per-site safety is the /health `forms.testMode` declaration preflight:
+# a site that doesn't declare forwarding is skipped without launching a browser
+# (verdict preserved, never a fake lead), so this run is safe against a fleet
+# where the forwarding rollout is still in progress. Sites enroll by shipping
+# the starter's contact `buildPayload` forwarding + the /health declaration in
+# one deploy.
+on:
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Never overlap a manual run with the scheduled one.
+concurrency:
+  group: fleet-form-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-form-e2e-failure tracking issue
+
+jobs:
+  form-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # The audit lazy-imports @playwright/test from THIS repo's node_modules —
+      # pre-provision the chromium binary + OS libraries or the launch fails on
+      # a bare ubuntu runner.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Positive control — the probe passes a known-good local form
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          if ! pnpm exec vitest run tests/audits/form-e2e-live-runner.test.ts --reporter=default --reporter=json --outputFile.json=form-e2e-control.json; then
+            echo "::error::form-e2e positive control failed — the sweep did not run and no site was probed tonight."
+            exit 1
+          fi
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("form-e2e-control.json", "utf-8"));
+            if ([!r.success, r.numPassedTests < 1, r.numPendingTests > 0, r.numTodoTests > 0].some(Boolean)) {
+              console.log(`::error::form-e2e positive control measured nothing: ${r.numPassedTests} passed, ${r.numPendingTests} skipped, ${r.numTodoTests} todo — the sweep did not run.`);
+              process.exit(1);
+            }
+            console.log(`FORM_E2E_CONTROL passed=${r.numPassedTests}`);
+          '
+
+      - name: Fleet form-e2e + write-back
+        # Checkout-free and preflight-gated: undeclared sites cost one /health
+        # fetch each, declared sites one browser session — far lighter than
+        # fleet-smoke. 30 min is generous headroom.
+        timeout-minutes: 30
+        env:
+          REDDOOR_FORM_E2E_LIVE: "1"
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}/form-e2e.out"
+          # A failing submission makes the CLI exit non-zero BY DESIGN; tolerate it
+          # and key the gate on the machine-readable FLEET_WRITE_SUMMARY line,
+          # exactly like fleet-smoke/fleet-lighthouse. A site that hasn't rolled
+          # out testMode forwarding self-skips via the /health declaration
+          # preflight (counts as written, not failed), so the gate stays green
+          # during rollout. That accommodation is deliberate and stays — but it
+          # is also why this sweep cannot be read as a coverage statement: a
+          # self-skip writes back like any other result, so "13 probed and green"
+          # and "13 refused to probe" produce a byte-identical write summary. The
+          # skipped=N counter below exists to separate them.
+          # --workdir is only the clone fallback for a row missing deployedUrl
+          # (form-e2e is checkout-free when the URL is present, and such a site
+          # self-skips anyway) — mirrors fleet-lighthouse.
+          node dist/cli/bin.js audit \
+            --fleet turso \
+            --only form-e2e \
+            --write-back \
+            --concurrency 1 \
+            --workdir /tmp/fleet-form-e2e | tee "$out" || true
+
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a command
+          # substitution would abort the step before the diagnostic below runs.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet form-e2e printed no write summary — the run crashed before write-back (check the Turso creds / API)."
+            exit 1
+          fi
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet form-e2e write-back: wrote=$wrote failed=$failed total=$total"
+
+          # COVERAGE, not correctness. A site whose /health does not declare
+          # forms.testMode self-skips (see the note above) and is written back
+          # like any other row, so an unfinished rollout and a fleet-wide
+          # regression are indistinguishable in the write summary. Count the
+          # self-skips and say so.
+          #
+          # Emitted on EVERY run, zero included — the same contract as
+          # FLEET_SMOKE_UNMEASURED, for the same reason: a marker that only
+          # prints when non-zero cannot tell "nobody self-skipped" from "the
+          # counter stopped matching the audit's wording".
+          #
+          # A WARNING, deliberately never a threshold. Five of thirteen
+          # maintained sites are uncovered today, so a threshold would red this
+          # nightly tonight and every night until five client deploys land — and
+          # a red everyone learns to ignore is worse than the false green it
+          # replaced. The threshold belongs after the rollout, not before it.
+          # `|| true`: grep -c exits 1 on zero matches, which `set -e` would
+          # treat as a step failure.
+          #
+          # A /health that could not be read (timeout, non-2xx, not JSON) also
+          # refuses the probe, but it is not an undeclared site: on 2026-10-22
+          # vineyard-custom-homes, which declares testMode, timed out once and was
+          # listed as undeclared (P1-68). It is counted and named apart, with its
+          # reason, and still listed on the UNCOVERED line, because it is. Unlike an
+          # undeclared site it writes nothing back: the writer names it as having
+          # kept its verdicts (#1698); a night that wrote nothing reds, its reason
+          # naming the kept sites and why.
+          # Anchored on the summary line formatTable indents under each site: the
+          # writer's "kept their verdicts" line repeats an unreadable site's reason
+          # (#1698), and an unanchored count read one site as two.
+          selfskipped=$(grep -cE "^  site /health does not declare forms.testMode" "$out" || true)
+          unreadable=$(grep -cE "^  site /health could not be read" "$out" || true)
+          echo "FLEET_FORM_E2E skipped=$selfskipped unreadable=$unreadable total=$total"
+          undeclared=$(grep -B1 "does not declare forms.testMode" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          # "site (reason), …" from each summary and the result line above it.
+          unread=$(awk '/site \/health could not be read \(/ && prev ~ /^form-e2e +skip / {
+              split(prev, f, " "); r = $0
+              sub(/.*could not be read \(/, "", r); sub(/\) — probe refused.*/, "", r)
+              out = out (out == "" ? "" : ", ") f[3] " (" r ")"
+            } { prev = $0 } END { print out }' "$out")
+          uncovered=$(grep -B1 -E "does not declare forms.testMode|site /health could not be read" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          echo "FLEET_FORM_E2E_UNCOVERED sites=${uncovered:-none}"
+          if [ "$selfskipped" -gt 0 ]; then
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight: ${undeclared:-unnamed}."
+          fi
+          if [ "$unreadable" -gt 0 ]; then
+            echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: ${unread:-unnamed}."
+          fi
+
+          # Surface every partial miss as a visible warning.
+          if [ "$failed" != "0" ]; then
+            notwritten=$(grep -oE "✗ [^:]+: .*" "$out" | tail -n5 || true)
+            echo "::warning::fleet form-e2e: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't be prepared (bad URL/repo) is dropped from the run
+          # rather than crashing it; raise it so the misconfigured site row is fixed.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet form-e2e: $skipped"
+          fi
+
+          # Budget headroom: the probe SUCCEEDED but already eats the site-side
+          # abort budget, so real submissions — which pay the sink work testMode
+          # short-circuits past — risk being reported to the visitor as failures
+          # while central still captures the lead (1836dig, 2026-08-03). The
+          # verdict stays "pass" (the form works), so without this the signal
+          # exists only in the run log. -B1 picks up the site name, which
+          # formatTable prints on the line above the summary. Leading indicator:
+          # warn, never fail the run.
+          thin=$(grep -B1 "BUDGET_THIN" "$out" | grep -v '^--$' | paste -sd' ' - | tr -s ' ' || true)
+          if [ -n "$thin" ]; then
+            echo "::warning::fleet form-e2e ingest budget thin — $thin"
+          fi
+
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "$out" | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet form-e2e printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet form-e2e: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " "$out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet form-e2e: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
+          # Total write-back failure: nothing landed at all (creds/API/inventory).
+          # Byte-for-byte the check fleet-lighthouse.yml:109 has carried for
+          # months, and this was the only fleet nightly without it.
+          #
+          # The mass-flake gate below is NOT a substitute, and the gap is narrow
+          # enough to have hidden here: `total` was `wrote + failed` (since #1605
+          # it also counts na= and missing= sites, and the write gate above reds
+          # an empty sweep first), so wrote=0
+          # forces failed=total and `failed * 4 > total` fires — EXCEPT when
+          # total is 0 too. A sweep that attempted nothing (empty inventory, a
+          # fleet source that returned no rows, a filter that matched none) reads
+          # as `0 > 0`, false, and the nightly reports success having probed no
+          # site at all. That is exactly the failure FLEET_SMOKE_UNMEASURED was
+          # invented to kill, reintroduced in the one sweep with no gate test.
+          #
+          # It runs BEFORE the mass-flake gate deliberately: on wrote=0 both
+          # would fire, and "0 of 13 written" sends the reader to the creds and
+          # the API, where the cause is, rather than hunting a per-site flake.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet form-e2e wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet form-e2e: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+          # Last, after every write diagnostic: the one threshold the rollout allows
+          # (#1610), a sweep that probed NO site. Partial self-skips stay the warning
+          # above, but when every site refused
+          # (a starter regression dropping forms.testMode from /health, the 10-site
+          # input that read green) nothing was tested end to end. `probed` counts the
+          # sites the probe drove: a pass, or a warn. A warn is a submission that failed,
+          # one the probe could not complete (a click that timed out, a marker the page
+          # dropped), or a pass whose timing budget ran thin. formatTable pads the
+          # audit name to 12 and the status to 5.
+          probed=$(grep -cE "^form-e2e +(pass|warn) +" "$out" || true)
+          echo "FLEET_FORM_E2E probed=$probed"
+          if [ "$probed" -eq 0 ]; then
+            echo "::error::fleet form-e2e probed no site end to end: $selfskipped of $total self-skipped and $unreadable unreadable (${uncovered:-none}), and the probe drove no other site."
+            exit 1
+          fi
+
+      # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
+      # File/reopen a single deduped tracking issue so a failure is durably visible,
+      # and auto-close it once the run goes green again. continue-on-error so the alert
+      # machinery can NEVER turn a run's status red.
+      - name: Open/update the nightly-form-e2e-failure tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet form-e2e failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-form-e2e** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-form-e2e-failure issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet form-e2e failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-form-e2e run is green again." && echo "closed #$n"
+          done

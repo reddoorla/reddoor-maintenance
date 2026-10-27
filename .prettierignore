@@ -1,0 +1,34 @@
+dist/
+pnpm-lock.yaml
+tests/fixtures/
+docs/morning-reports/
+tests/blux/fixtures/*.html
+
+# Previously SHIPPED renders of the match-harness recipe. These are frozen
+# artifacts, not source: MATCH_HARNESS_PREVIOUS compares an installed site's
+# file against them byte-for-byte (normalize() forgives only CRLF and trailing
+# whitespace), so reformatting one would stop matching every site that installed
+# that version — the file would be flagged as hand-edited and left broken,
+# which is exactly the failure #751's migration exists to repair.
+scripts/match-harness-previous/
+
+# Generated analysis data for the meta-week package (machine-written, not source)
+docs/meta-week/_data/
+
+# Webflow reference captures (scripts/webflow-capture): the fetched bytes and
+# their manifest, kept exactly as the reference served them. Reformatting one
+# would change its sha256 and fail check.mjs. CAPTURE.md stays formatted.
+captures/*/pages/
+captures/*/files/
+captures/*/manifest.json
+
+# The seeded-review bake-off's cases: old commits' files and diffs, rebuilt byte
+# for byte by build.mjs. Line numbers in key.json point into them, so a
+# reformat would move every seeded defect off its range.
+scripts/model-bakeoff/tasks/seeded-review/cases/
+
+# The SvelteKit cockpit's generated and build output (#582).
+cockpit/.svelte-kit/
+cockpit/build/
+cockpit/.netlify/
+.netlify/

@@ -1,0 +1,56 @@
+name: fleet-daily
+
+# P1-78a: one `fleet_daily` row per night, the history the cockpit's trends and the
+# dependency age read (workspace plans/2026-10-26-cockpit-for-the-team/plan.md, PR 1).
+# It runs after every fleet-nightly conductor run and reads that run's own record, the
+# conductor job's `NIGHTLY` lines and its `NIGHTLY_CONDUCTOR_SUMMARY`, because the
+# conductor's `skipped` step output is not visible to a workflow_run consumer and a
+# failed dispatch creates no run to count. scripts/fleet-daily.mts decides:
+#   - nothing dispatched, nothing failed (the night's 12-second guard run): writes nothing;
+#   - every nightly planned: writes the night's row (a re-run overwrites it);
+#   - an `--only` run: merges its steps into the newest night started in the last 24 h.
+# Here, not in fleet-nightly, because the conductor holds no Turso secrets.
+on:
+  workflow_run:
+    workflows: [fleet-nightly]
+    types: [completed]
+
+concurrency:
+  group: fleet-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read # first-parent merges on main
+  actions: read # the conductor's jobs, its log, and earlier runs' conclusions
+
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Write the night's fleet_daily row
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: pnpm tsx scripts/fleet-daily.mts

@@ -1,0 +1,615 @@
+name: fleet-security
+
+# Nightly fleet-wide security audit against each active site, writing the vuln counts + a freshness
+# timestamp back to its row so the "Security Updates" checklist box can auto-tick.
+# Repo-backed sites use GitHub Dependabot alerts (prod+dev); sites with no repo / no token fall back
+# to `pnpm/npm audit`. UNLIKE fleet-lighthouse this stays checkout-FUL — the `pnpm audit` fallback
+# reads each repo's committed lockfile, so every site is cloned. Kept a SEPARATE job from
+# fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
+#
+# Also runs the `deps` audit here (it likewise needs each repo's checkout + lockfile): declared-range
+# drift vs the fleet baseline plus the real `pnpm outdated` counts (incl. majors-behind-registry),
+# written to the Deps* columns. deps is the only fleet audit with no cron of its own, so it rides
+# this checkout-ful job — at the cost of a per-repo `pnpm install --frozen-lockfile` (deps-outdated
+# needs node_modules present). A site whose frozen install fails writes a null outdated count, never
+# a wrong one.
+on:
+  workflow_dispatch: {} # manual run from the Actions tab
+
+concurrency:
+  group: fleet-security
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-failure tracking issue (parity with fleet-lighthouse)
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Mint short-lived reddoor-renovate App installation tokens for every
+      # fleet-wide GitHub call in this job — replaces the retired org RENOVATE
+      # PAT (2026-08 rotation) with the same App identity Renovate runs as.
+      # `owner:` widens the token from this repo to the whole installation
+      # (all reddoorla repos), which the fleet sweeps need. Minted TWICE
+      # (here + after the 45-minute audit) because installation tokens expire
+      # after 60 minutes — a single early mint could hand the late steps a
+      # dead token and silently mute them.
+      # Digest-pinned: this mints a fleet-write token, so a mutable tag ref is
+      # a supply-chain hole (same rule as renovate.yml); Renovate bumps these.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
+      - name: Fleet security + deps audit + write-back
+        id: sweep
+        # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
+        # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
+        # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
+        # why every fleet repo is still cloned (unauthenticated https — the fleet is public; a
+        # private repo would fail its clone and be skipped+warned by prepareFleetSites, never fatal,
+        # box stays manual). A failed/skipped audit writes NO counts + NO timestamp, so it can never
+        # tick the box.
+        #
+        # Widened from 30→45m: deps adds a sequential `pnpm install --frozen-lockfile` per repo
+        # (~12 sites, warm pnpm store via setup-node cache), on top of the existing security sweep.
+        timeout-minutes: 45
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # Reads Dependabot alerts. The minted reddoor-renovate App token is reused as
+          # GITHUB_TOKEN; the App's "Dependabot alerts: read" permission covers the fleet repos.
+          # WITHOUT that permission the alerts endpoint 403s and each repo-backed site GRACEFULLY
+          # falls back to `pnpm audit` (prior behavior) — a missing permission degrades, never breaks.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -o pipefail
+          # A site reporting vulns (security) or major drift (deps) exits non-zero by design; key the
+          # gate on the machine-readable FLEET_WRITE_SUMMARY line, not the exit code (same pattern as
+          # fleet-lighthouse).
+          node dist/cli/bin.js audit \
+            --fleet turso \
+            --only security,deps \
+            --write-back \
+            --concurrency 1 \
+            --workdir /tmp/fleet-security | tee /tmp/audit.out || true
+
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a command
+          # substitution would abort the step before the explicit diagnostic below runs.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet security printed no write summary — the run crashed before write-back (check the Turso creds / clone)."
+            exit 1
+          fi
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Surface every partial miss as a visible annotation, even one within
+          # tolerance — a tolerated single-site flake is then never invisible.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/audit.out | tail -n1 || true)
+            echo "::warning::fleet security: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
+          # private repo whose clone fails) is dropped rather than crashing the run
+          # (resilient fleet prep). Raise it so the misconfigured site row gets fixed.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet security: $skipped"
+          fi
+
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet security printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet security: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
+          # Total write-back failure: nothing landed at all (creds/API/inventory). This
+          # is the silent-green hazard — every site's "Security Updates" box would stay
+          # unticked while the job reported success.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write. A single
+          # known-flaky site stays green-with-warning; a real outage reds.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet security: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      # Best-effort follow-up: kick Renovate for each active, repo-backed site just
+      # flagged with critical/high vulns. Renovate's OSV vulnerability alerts bypass
+      # the schedule, so the remediation PR opens now; GitHub platform auto-merge is
+      # disabled fleet-wide, so Renovate merges it from inside its own run per the
+      # shared preset. Runs whenever the sweep above ran, a red sweep included
+      # (#1605), so counts for any site the sweep failed/skipped to write are
+      # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
+      # no-op, and a repo with an already-open Renovate PR is skipped. It goes red
+      # (#1612) when it printed no summary (a crash, or the CLI's no-token skip:
+      # either way nothing was dispatched) and when any repo failed to dispatch
+      # (no renovate.yml, or the token lacks actions:write). Before #1612 both were
+      # a log line or a warning, so a flagged site's Renovate run could silently
+      # never happen. The red job opens the nightly-failure issue below; the steps
+      # after this one still run, as they key on the sweep, not on this step.
+      # Re-mint for the late steps: the audit above can run up to 45 minutes
+      # and installation tokens die at 60 — see the first mint's comment.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token-late
+        # A write-gate red in the audit step (#1605) must not stop Renovate dispatch
+        # or freeze the protection-gap issue, so these run when the sweep RAN,
+        # green or red. Not after a failed checkout, install or build: the sweep
+        # was skipped then, `dist/` may not exist, and an audit that dies on a
+        # missing module would file a false coverage gap.
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
+        timeout-minutes: 5
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
+      - name: Trigger Renovate for sites with actionable vulnerabilities
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
+        timeout-minutes: 10
+        env:
+          # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
+          # and post-flip the factory throws without Turso creds. This step's
+          # `|| true` masks the exit code, so a creds gap reads as a crash: the
+          # missing summary line below is what turns it red (#1612).
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
+        run: |
+          # The CLI exits 0 on a partial failure by design; the summary line is the
+          # contract, and an absent one is red.
+          out="${RUNNER_TEMP:-/tmp}/dispatch.out"
+          node dist/cli/bin.js renovate-dispatch --fleet | tee "$out" || true
+          summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ skipped=[0-9]+ failed=[0-9]+" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::renovate-dispatch printed no summary — it crashed or skipped, so no site flagged with critical/high vulns got a Renovate run tonight (see output above)."
+            exit 1
+          fi
+          echo "renovate-dispatch: $summary"
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::renovate-dispatch: $failed repo(s) failed to dispatch (check the reddoor-renovate App's Actions:write permission / renovate.yml present)."
+            exit 1
+          fi
+
+      # Org-wide protection coverage: every PUBLIC repo must carry a sound branch
+      # ruleset (active, EMPTY bypass list, PR-required — the layer that binds
+      # admins, which classic protection's enforce_admins:false never did). The
+      # self-updating recipe heals fleet sites, but it is cron-less and
+      # fleet-scoped — exactly how six repos (one with NO protection at all)
+      # sat unprotected until the 2026-08-01 hand audit. This nightly sweep
+      # enumerates the org from the API and alarms on any gap.
+      #
+      # continue-on-error + a DEDICATED tracking issue, deliberately NOT a red
+      # job: a red here would fire the generic "Nightly fleet security audit
+      # failing" issue below and misdirect triage at the vuln sweep. The
+      # dedicated title is the signal; it auto-closes on the next clean pass.
+      # The one exception is a sweep that verified no repo (UNMEASURED, #1612):
+      # that is not a posture gap, so the step after the open step reds the run.
+      - name: Protection coverage audit (org-wide)
+        id: protection
+        if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
+        timeout-minutes: 15
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token-late.outputs.token }}
+        run: |
+          # pipefail is NOT in Actions' default `bash -e {0}` shell — without it,
+          # `| tee` would swallow the audit's exit 1 and this step could never
+          # report failure (the review caught this alarm shipping DEAD).
+          set -o pipefail
+          # An empty minted token (failed mint step) must be a FAILURE here, not
+          # the CLI's local-dev clean-skip: a skip verifies zero repos, and
+          # treating it as success would auto-close real gap issues below.
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::protection-audit: minted App token is empty — cannot verify coverage."
+            exit 1
+          fi
+          node dist/cli/bin.js protection-audit --org reddoorla | tee "${RUNNER_TEMP:-/tmp}/protection.out"
+
+      - name: Open/update the protection-gap tracking issue
+        # main only: a branch run's finding is not main's to file (and a green PR-branch
+        # dispatch of time-travel once closed #895 while main was still red).
+        # `!cancelled()`: without a status function Actions prefixes `success() &&`,
+        # so a write-gate red in the audit step (#1605) would skip this and the
+        # close step below and freeze the issue on exactly the nights it is red.
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A token that never minted stops the audit before its `tee` creates
+          # protection.out. That is not a coverage gap, and before `!cancelled()`
+          # it skipped this step entirely; the run-failure issue speaks for it. A
+          # CLI that crashed still leaves the file, and still files.
+          if [ ! -e "${RUNNER_TEMP:-/tmp}/protection.out" ]; then
+            echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
+            exit 0
+          fi
+          # A sweep that verified no repo (#1612) is not a gap either: an issue
+          # filed on it would carry no GAP line, and the close step below could
+          # never close it. The step after this one turns the run red instead.
+          if grep -qE "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out"; then
+            echo "::warning::protection-audit verified no repo; not filing a coverage gap."
+            exit 0
+          fi
+          title="Fleet protection coverage gap"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          detail=$(grep -E "^GAP" "${RUNNER_TEMP:-/tmp}/protection.out" || echo "see run output")
+          # Every heal line below names a command that actually performs the
+          # heal for THAT surface. The single `self-updating` line this replaced
+          # was false for three of the four: that recipe contains no
+          # secret-scanning step (`grep -rain secret.scanning src/recipes/` →
+          # zero hits), so anyone who ran it on the 2026-09-10 issue watched it
+          # succeed and change nothing. An alarm prescribing a remedy that does
+          # not exist is its own unproven instrument.
+          body=$(printf 'The nightly protection-coverage sweep found public repo(s) below the fleet posture floor — a sound branch ruleset, secret scanning + push protection enabled, no UNREAD secret-scanning alerts, a renovate workflow that actually runs, a pnpm `packageManager` pin matching the fleet, and a required status check on every non-default branch Renovate merges into (or the sweep could not verify one of those):\n\n```\n%s\n```\n\nHeal by surface — the gap line says which one, and no single command covers them all:\n\n- **Ruleset gaps:** `reddoor-maint self-updating <site>` for fleet sites, or fix by hand for non-site repos (spec: docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md). That recipe heals RULESETS only; it has no secret-scanning step and cannot clear either line below.\n- **Secret scanning / push protection off:** `gh api -X PATCH repos/<repo> --input - <<< '\''{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'\''`, then read it back with `gh api repos/<repo> --jq .security_and_analysis`. Public repos only on the Free plan.\n- **Open secret-scanning alerts:** rotate or restrict the leaked credential, then close the alert with a resolution at `https://github.com/<repo>/security/secret-scanning` (`used_in_tests`, `revoked`, …). Redacting the value at HEAD does NOT close the alert: on a public repo the history is still readable, which is why one alert survived redaction by 37 days.\n- **Renovate gaps:** a DISABLED workflow rejects dispatches — `gh workflow enable renovate.yml -R <repo>` first, then `gh workflow run`. A never-succeeded/stale one: dispatch once; if the gap returns in 3 days the schedule never registered — push a commit touching the workflow file.\n- **pnpm `packageManager` gaps:** the pin lives in `package.json` and is the single source of truth. A repo with NO field takes whatever pnpm the runner defaults to; a repo whose field disagrees with the fleet resolves its lockfile with a different pnpm than everything else. If the gap ALSO names a workflow pinning a pnpm `version:` input, fix both in the same change — `pnpm/action-setup` hard-errors on a field/input mismatch rather than preferring either, so adding the field on its own reds that repo CI.\n- **Renovate base-branch gaps** (the line names `repo:branch`): Renovate merges into that branch through `baseBranchPatterns`, and nothing requires CI there. Add a ruleset on that branch with a `required_status_checks` rule for a check already observed running on it (a required check that never fires blocks every merge, admins included), or drop the branch from the Renovate base branches. A line that says `unverified` means the sweep could not read the config or the branch; it is not a claim that the branch is open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next clean sweep._' "$detail" "$run_url")
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            # Never onto a body with no GAP line: the close step below gates each
+            # issue on its own body's GAP lines and refuses one that has none, so a
+            # run whose audit broke before printing any ("see run output") keeps the
+            # last GAP-bearing body and only comments.
+            if printf '%s\n' "$detail" | grep -q '^GAP'; then
+              gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+                || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no GAP line; keeping the body of #$existing so a clean sweep can still close it"
+            fi
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      # A protection sweep that verified no repo (#1612: an org listing of
+      # `200 []` read `gaps=0 total=0`, green) is unmeasured, not clean. It is
+      # not a posture gap, so it reds the run instead, and the nightly-failure
+      # issue below speaks for it and closes on the next green run.
+      - name: Fail the run when the protection sweep verified no repo
+        if: ${{ !cancelled() && steps.protection.outcome == 'failure' }}
+        timeout-minutes: 2
+        run: |
+          if grep -E "^PROTECTION_AUDIT_UNMEASURED " "${RUNNER_TEMP:-/tmp}/protection.out" 2>/dev/null; then
+            echo "::error::protection-audit verified no repo: the org listing gave none, so tonight's posture is unmeasured, not clean."
+            exit 1
+          fi
+
+      - name: Close the protection-gap issue on a clean sweep
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: ${{ !cancelled() && steps.protection.outcome == 'success' && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          # Belt and braces: close ONLY on positive evidence of a verified clean
+          # sweep — the gaps=0 machine line, which a skip/crash run never prints.
+          # Step outcome alone is not proof (any path that exits 0 without
+          # auditing would otherwise convert into a false "Recovered" close).
+          if ! grep -q "PROTECTION_AUDIT gaps=0 " "$out" 2>/dev/null; then
+            echo "no verified clean sweep in the output — not closing anything"
+            exit 0
+          fi
+          title="Fleet protection coverage gap"
+          # Every repo this run actually looked at and found sound. SKIPPED is
+          # deliberately not in here: a repo that went private or archived is one
+          # this sweep did not verify, and "I could not check X" must never read
+          # the same as "X is fine".
+          covered=$(sed -n 's/^COVERED[[:space:]]\{1,\}\([^ ]*\).*/\1/p' "$out")
+          # The query below is bounded now, so this loop finally sees EVERY open
+          # issue carrying this title — including orphans from earlier generations
+          # of the alarm, which is the whole point of bounding it. That makes the
+          # title alone too weak to close on. #652 and #754 both read "Fleet
+          # protection coverage gap" and named COMPLETELY DIFFERENT repos
+          # (starter-blux vs vida-legacy-foundation + 29-navy), because the
+          # open/update half comments a moving gap set onto whatever issue it
+          # finds while the body it was filed with goes stale immediately. A
+          # widened loop with a title-only test would have swept the orphan up
+          # with an automated "Recovered" on evidence about other repos entirely
+          # — trading a truncation bug for a false green, which is the worse of
+          # the two. So gate each issue on ITS OWN body: close it only when every
+          # repo that issue listed as a GAP shows up as COVERED in this run.
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gapped=$(gh issue view "$n" --json body --jq '.body' \
+              | sed -n 's/^GAP[[:space:]]\{1,\}\([^ ]*\).*/\1/p' | sort -u)
+            # A body this step cannot read is not a body it verified. Without
+            # this, an issue borrowing the title by hand — or any future change
+            # to the body shape — would close on a vacuous "all zero of the
+            # repos it named are covered".
+            if [ -z "$gapped" ]; then
+              echo "not closing #$n — its body carries no GAP line this sweep can match"
+              continue
+            fi
+            unverified=""
+            for repo in $gapped; do
+              echo "$covered" | grep -qxF "$repo" || unverified="$unverified $repo"
+            done
+            if [ -n "$unverified" ]; then
+              echo "not closing #$n — this sweep did not verify:$unverified"
+              continue
+            fi
+            named=$(echo "$gapped" | tr '\n' ' ')
+            gh issue close "$n" --comment "Recovered — this sweep verified every public repo clean, including the one(s) this issue named: $named" && echo "closed #$n"
+          done
+
+      # The Renovate OUTCOME (#1606): when a feature update last LANDED on each
+      # repo. The audit prints it on its own RENOVATE_OUTCOME line so a drought
+      # never opens or holds the posture issue above, and until #1606 nothing
+      # read that line: the 09-14 freeze shape (security and lockfile PRs
+      # merging, no feature merge for 34 days) printed WARN lines into a green
+      # log. It gets its own issue instead. Only a drought opens and holds it
+      # (the operator, 2026-10-21, decision renovate-drought-unmeasured): the
+      # fleet's own known-good snapshot (2026-08-10) has six UNMEASURED repos,
+      # so an issue they could open would never close on a healthy fleet.
+      # UNMEASURED repos are listed in the body, and a repo the issue names
+      # must still print DELIVER before it closes.
+      - name: Read the Renovate outcome
+        id: renovate-outcome
+        # `!cancelled()` (#1605): a write-gate red in the audit step must not freeze
+        # the drought issue; the protection audit it reads runs on a red run too.
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          # No file at all means the audit never ran (install, build or the token
+          # mint failed first, #1652): naming the audit's output would send triage
+          # to the wrong step.
+          if [ ! -e "$out" ]; then
+            echo "::warning::renovate outcome: the protection audit did not run — the drought issue is left as it is."
+            echo "drought=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          summary=$(grep -E "^RENOVATE_OUTCOME drought=[0-9]+ delivering=[0-9]+ unmeasured=[0-9]+ " "$out" 2>/dev/null | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            # No line, no measurement: open nothing and close nothing. The
+            # posture steps above already speak for an audit that broke.
+            echo "::warning::renovate outcome: the protection audit printed no RENOVATE_OUTCOME line — the drought issue is left as it is."
+            echo "drought=unknown" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$summary"
+          drought=$(echo "$summary" | grep -oE "drought=[0-9]+" | cut -d= -f2)
+          unmeasured=$(echo "$summary" | grep -oE "unmeasured=[0-9]+" | cut -d= -f2)
+          if [ "$unmeasured" -gt 0 ]; then
+            echo "::warning::renovate outcome: $unmeasured repo(s) unmeasured (listed, never alarmed on alone)."
+          fi
+          if [ "$drought" -gt 0 ]; then
+            echo "::warning::renovate outcome: $drought repo(s) past the drought threshold."
+            echo "drought=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "drought=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open/update the Renovate drought tracking issue
+        # main only, like every tracking issue here.
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'yes' && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Renovate drought"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          detail=$(grep -E "^WARN +[^ ]+ — no feature update has LANDED" "$out" || true)
+          unmeasured=$(grep -E "^WARN +[^ ]+ — renovate outcome UNMEASURED" "$out" || true)
+          summary=$(grep -E "^RENOVATE_OUTCOME " "$out" | tail -n1 || true)
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\" or (.title | startswith(\"$title: \")))) | .[0].number // empty" || true)
+          # A repo the existing issue named as dry that neither delivered nor
+          # is dry again tonight (its probe threw, say) stays named: rewriting
+          # the body to tonight's dry list alone would drop it, and the issue
+          # could then close on a later night without it ever delivering.
+          # A body this step could not read is not rewritten at all: rewriting
+          # it blind would drop exactly those repos.
+          held=""
+          unread=""
+          nl=$'\n'
+          if [ -n "$existing" ] && [ -n "$detail" ]; then
+            if ! old_body=$(gh issue view "$existing" --json body --jq '.body'); then
+              unread=1
+              old_body=""
+            fi
+            delivering=$(awk '/^DELIVER / { print $2 }' "$out")
+            dry=$(printf '%s\n' "$detail" | awk 'NF >= 2 { print $2 }')
+            for repo in $(printf '%s\n' "$old_body" \
+              | grep -E "^WARN +[^ ]+ — no feature update has LANDED" | awk '{ print $2 }' | sort -u || true); do
+              printf '%s\n' "$delivering" "$dry" | grep -qxF "$repo" && continue
+              held="${held:+$held$nl}WARN    $repo — no feature update has LANDED since an earlier night named it, and tonight it was not measured, so it still holds this issue"
+            done
+          fi
+          all_dry=$(printf '%s\n%s\n' "$detail" "$held" | sed '/^$/d')
+          # The title names tonight's dry repos, cut to stay well inside GitHub's
+          # 256-character limit, with a count of the rest.
+          full_title=$(printf '%s\n' "$all_dry" | awk -v t="$title" '
+            NF >= 2 { n++; name = $2; sub(/^[^\/]*\//, "", name)
+                      if (n == shown + 1 && length(s) + length(name) + 2 <= 170) { s = s (shown ? ", " : "") name; shown++ } }
+            END { if (shown == 0) { print t; exit } r = t ": " s; if (n > shown) r = r " (+" (n - shown) " more)"; print r }')
+          body=$(printf 'The nightly protection-coverage sweep measures when a feature-update Renovate PR last MERGED into the default branch on each public repo. These repos are past the drought threshold:\n\n```\n%s\n```\n\n`%s`\n\nNot measured tonight (listed for context; these neither open nor hold this issue):\n\n```\n%s\n```\n\nSecurity and lock-file Renovate PRs are excluded on purpose: they bypass the schedule and kept merging through the 2026-09-14 freeze, which is why a sweep counting them read green for a month. This is feature-version drift, not a security signal, and it never opens or holds the "Fleet protection coverage gap" issue.\n\n- **A drought line:** open the repo'\''s Dependency Dashboard issue. Look for a grouped PR that is open and waiting on CI or review, a branch a human edit has blocked, or a schedule window that never fired.\n- **An UNMEASURED line:** "window is FULL" means the last 100 closed PRs hold no feature merge, so the answer is older than the sweep reads (#898). "never merged" means there is no baseline yet. "went to a branch other than the default" means its feature-update Renovate merges landed on another branch (the staging flow), where they reach production only through the promotion PR, which the sweep does not measure (#1686). None of these is a known drought.\n\nRun: %s\n\n_Auto-filed; auto-closes once every repo in the drought list delivers again._' "${all_dry:-see run output}" "${summary:-no RENOVATE_OUTCOME line}" "${unmeasured:-none}" "$run_url")
+          if [ -n "$existing" ]; then
+            # Retitle and rewrite to tonight's repos, and comment for the
+            # history. Never onto a body with no repo line: the close step
+            # gates on the repos the body names and refuses a body with none.
+            if [ -n "$unread" ]; then
+              echo "::warning::could not read the body of #$existing; keeping it so no repo it named as dry is dropped"
+            elif [ -n "$detail" ]; then
+              gh issue edit "$existing" --title "$full_title" --body "$body" && echo "rewrote #$existing" \
+                || echo "::warning::could not rewrite #$existing; commenting anyway"
+            else
+              echo "::warning::this run printed no drought line; keeping the body of #$existing so a delivering sweep can still close it"
+            fi
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$full_title" --body "$body"
+          fi
+
+      - name: Close the Renovate drought issue once every repo delivers
+        if: ${{ !cancelled() && steps.renovate-outcome.outputs.drought == 'no' && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          # Positive evidence only: the fleet-wide line says nothing is dry, and
+          # each repo the issue named as dry printed a DELIVER line. A named
+          # repo that is UNMEASURED tonight prints none, so it still holds.
+          if ! grep -qE "^RENOVATE_OUTCOME drought=0 delivering=[0-9]+ unmeasured=[0-9]+ " "$out" 2>/dev/null; then
+            echo "no delivering sweep in the output — not closing anything"
+            exit 0
+          fi
+          title="Renovate drought"
+          delivering=$(awk '/^DELIVER / { print $2 }' "$out")
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\" or (.title | startswith(\"$title: \")))) | .[].number" || true); do
+            named=$(gh issue view "$n" --json body --jq '.body' \
+              | grep -E "^WARN +[^ ]+ — no feature update has LANDED" \
+              | awk '{ print $2 }' | sort -u || true)
+            if [ -z "$named" ]; then
+              echo "not closing #$n — its body names no drought repo this sweep can match"
+              continue
+            fi
+            unseen=""
+            for repo in $named; do
+              echo "$delivering" | grep -qxF "$repo" || unseen="$unseen $repo"
+            done
+            if [ -n "$unseen" ]; then
+              echo "not closing #$n — this sweep did not see deliver:$unseen"
+              # Say so on the issue (#1632), once per set of repos: the marker
+              # carries the set, and a night whose set matches ANY earlier marker
+              # posts nothing, so a set that flaps between two values posts twice,
+              # not nightly. A repo that went private or was archived drops out
+              # of the sweep and would otherwise hold the issue in silence. Only
+              # owner/repo tokens go into the marker, so a hand-edited body cannot
+              # close the HTML comment early.
+              marked=""
+              for repo in $unseen; do
+                [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] && marked="$marked $repo"
+              done
+              marker="<!-- renovate-drought-unseen:$marked -->"
+              if ! comments=$(gh issue view "$n" --json comments --jq '.comments[]?.body'); then
+                echo "::warning::could not read the comments on #$n; not commenting, so a failed read never repeats the note"
+                continue
+              fi
+              if grep -qxF "$marker" <<<"$comments"; then
+                echo "#$n already names these repos"
+                continue
+              fi
+              why=""
+              nl=$'\n'
+              for repo in $unseen; do
+                line=$(awk -v r="$repo" '$1 == "WARN" && $2 == r && /renovate outcome UNMEASURED/' "$out" | head -n1)
+                [ -n "$line" ] || line="$repo — not in tonight's sweep at all (private, archived, renamed or gone)"
+                why="${why:+$why$nl}$line"
+              done
+              note=$(printf 'Not closing: tonight'\''s sweep found no drought anywhere, but these repos this issue names printed no DELIVER line, so they still hold it:\n\n```\n%s\n```\n\nA repo that went private, was archived or left the org drops out of the sweep and can never deliver here. If that was on purpose, close this issue by hand. This note is posted once for each set of repos.\n\n%s' "$why" "$marker")
+              gh issue comment "$n" --body "$note" && echo "commented on #$n"
+              continue
+            fi
+            gh issue close "$n" --comment "Recovered — every repo this issue named delivered a feature update again: $(echo $named)" && echo "closed #$n"
+          done
+
+      # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
+      # File/reopen a single deduped tracking issue so a failure is durably visible, and
+      # auto-close it once the run goes green again. continue-on-error so the alert
+      # machinery can NEVER turn a run's status red. A DISTINCT title from
+      # fleet-lighthouse's ("Nightly fleet audit failing") so the two workflows never
+      # comment on or close each other's issue.
+      - name: Open/update the nightly-failure tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet security audit failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-security** run failed. Read which step went red: the audit and write-back (the vuln sweep), Renovate dispatch (no summary, or a repo failed to dispatch), or a protection sweep that verified no repo.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet security audit failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-security run is green again." && echo "closed #$n"
+          done

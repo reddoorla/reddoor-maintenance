@@ -1,0 +1,34 @@
+# Do NOT set NODE_ENV=production as a build environment variable: the dashboard
+# functions bundle several packages that are devDependencies of
+# @reddoorla/maintenance (@libsql/client, resend, @google-analytics/data,
+# svix) — moved there so fleet sites don't inherit them. Netlify's default install
+# includes devDependencies (which is why this deploys today); NODE_ENV=production
+# would prune them and every function would fail to bundle with an unresolved module.
+# The cockpit's own build (svelte, vite, the SvelteKit adapter) is devDependencies
+# too, for the same reason.
+#
+# The build is the SvelteKit cockpit (#582): the pages (`/`, `/fleet`,
+# `/s/:slug`, `/submissions`, `/audits`), the dashboard's own `/api/*`
+# endpoints and sign-in (`/auth/*`). Its adapter writes them as one function,
+# `sveltekit-render` on `/*`, to `.netlify/v1/functions` (Netlify's Frameworks
+# API; the build runs `vite.cockpit.config.ts` at the repo root, which is why
+# the config lives there) and the browser assets to `publish`, which the
+# adapter takes as its own `publish` option and must name the same directory. What stays a function in `functions` has a
+# caller outside the dashboard (the fleet's contact forms, Resend, the prospect
+# report and its JSON) or runs on a timer (the two clocks). maintenance#1642.
+[build]
+  command = "pnpm cockpit:build"
+  publish = "cockpit/build"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Every function endpoint declares its own `config.path` rather than a
+# [[redirects]] rule here. A [[redirects]] rewrite with status=200 passes the
+# ORIGINAL request URL to the function rather than the rewritten one, so
+# ctx.params would be empty. With `config.path`, ctx.params is populated:
+#   /api/forms/:slug                    → form-ingest.mts
+#   /api/audit-report/:token            → audit-report-json.mts
+#   /api/audit-report/:token/overrides  → audit-report-overrides.mts
+#   /r/:token                           → prospect-report.mts

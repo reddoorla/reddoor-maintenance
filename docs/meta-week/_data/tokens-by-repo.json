@@ -1,0 +1,181 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748905,
+  "by": [
+    "repo"
+  ],
+  "total": {
+    "requests": 76249,
+    "in": 1596589,
+    "out": 66868851,
+    "cacheCreate": 315490929,
+    "cacheRead": 13917233020
+  },
+  "groups": [
+    {
+      "key": "-Users-tuckerlemos",
+      "requests": 13,
+      "in": 37,
+      "out": 11401,
+      "cacheCreate": 40417,
+      "cacheRead": 753137
+    },
+    {
+      "key": "29-navy",
+      "requests": 5608,
+      "in": 19133,
+      "out": 3337397,
+      "cacheCreate": 17556513,
+      "cacheRead": 999627866
+    },
+    {
+      "key": "Broken",
+      "requests": 17343,
+      "in": 349185,
+      "out": 18019849,
+      "cacheCreate": 66578237,
+      "cacheRead": 3313866029
+    },
+    {
+      "key": "a-budget",
+      "requests": 53,
+      "in": 4073,
+      "out": 65544,
+      "cacheCreate": 206916,
+      "cacheRead": 3822293
+    },
+    {
+      "key": "beachfront-dentistry",
+      "requests": 1254,
+      "in": 49563,
+      "out": 1215761,
+      "cacheCreate": 4193608,
+      "cacheRead": 271824426
+    },
+    {
+      "key": "caldea",
+      "requests": 916,
+      "in": 182821,
+      "out": 888992,
+      "cacheCreate": 4050285,
+      "cacheRead": 66111208
+    },
+    {
+      "key": "data-dynamiq",
+      "requests": 29,
+      "in": 57,
+      "out": 23887,
+      "cacheCreate": 46508,
+      "cacheRead": 3718242
+    },
+    {
+      "key": "dont-lose-your-head",
+      "requests": 2206,
+      "in": 146550,
+      "out": 3335412,
+      "cacheCreate": 10384950,
+      "cacheRead": 389483968
+    },
+    {
+      "key": "gallerysonder",
+      "requests": 1021,
+      "in": 17849,
+      "out": 744363,
+      "cacheCreate": 3141551,
+      "cacheRead": 194338589
+    },
+    {
+      "key": "invitations",
+      "requests": 569,
+      "in": 1213,
+      "out": 224615,
+      "cacheCreate": 2049793,
+      "cacheRead": 72184430
+    },
+    {
+      "key": "octagonal-led-turn-counter",
+      "requests": 1386,
+      "in": 19019,
+      "out": 1798255,
+      "cacheCreate": 8746382,
+      "cacheRead": 181138431
+    },
+    {
+      "key": "reddoor-maintenance",
+      "requests": 9617,
+      "in": 122615,
+      "out": 8734928,
+      "cacheCreate": 39839055,
+      "cacheRead": 2077963292
+    },
+    {
+      "key": "reddoor-starter",
+      "requests": 2750,
+      "in": 34066,
+      "out": 1561402,
+      "cacheCreate": 16083400,
+      "cacheRead": 481435477
+    },
+    {
+      "key": "reddoor-website",
+      "requests": 13867,
+      "in": 358222,
+      "out": 12711323,
+      "cacheCreate": 63780435,
+      "cacheRead": 2937297774
+    },
+    {
+      "key": "revogen",
+      "requests": 660,
+      "in": 16199,
+      "out": 486863,
+      "cacheCreate": 1249900,
+      "cacheRead": 160987615
+    },
+    {
+      "key": "scriptorium-setup",
+      "requests": 983,
+      "in": 56323,
+      "out": 1053706,
+      "cacheCreate": 3873116,
+      "cacheRead": 111804485
+    },
+    {
+      "key": "songbook",
+      "requests": 5976,
+      "in": 27722,
+      "out": 6346376,
+      "cacheCreate": 21805653,
+      "cacheRead": 928562404
+    },
+    {
+      "key": "the-bench",
+      "requests": 93,
+      "in": 39572,
+      "out": 50397,
+      "cacheCreate": 304856,
+      "cacheRead": 4824334
+    },
+    {
+      "key": "vida-legacy-foundation",
+      "requests": 10929,
+      "in": 105126,
+      "out": 5046807,
+      "cacheCreate": 44111320,
+      "cacheRead": 1558171223
+    },
+    {
+      "key": "welcome-to-the-flower-court",
+      "requests": 976,
+      "in": 47244,
+      "out": 1211573,
+      "cacheCreate": 7448034,
+      "cacheRead": 159317797
+    }
+  ]
+}

@@ -1,0 +1,309 @@
+name: fleet-lighthouse
+
+# Nightly fleet-wide Lighthouse against each active site's DEPLOYED URL (no
+# checkout), writing the real-site scores back to its row. This repo is
+# the central scheduler (it's active, so GitHub's 60-day cron-disable never
+# triggers — unlike a per-site cron). Sequential (--concurrency 1): ~10 sites ×
+# Lighthouse on a 2-core runner saturates if run in parallel.
+on:
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Never overlap a manual run with the scheduled one.
+concurrency:
+  group: fleet-lighthouse
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-failure tracking issue (M5 alerting)
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    # Backstop for the steps that carry no budget of their own (setup, install,
+    # build). Every budgeted step fits inside it: ~3 min setup + 75 audit +
+    # 5 mint + 10 signal sweep + 10 url probe + 10 Search Console re-check is
+    # ~113 of the 120. Without it a wedge in any unbudgeted step sits to
+    # GitHub's 6-hour limit — the limit 36451921171's unbudgeted sweep hit.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # The browser audit drives Playwright across chromium/firefox/webkit + mobile emulation
+      # against the deployed URL. Install those browser binaries (chromium is also used by a11y).
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Fleet Lighthouse + domain + browser audit + write-back
+        # Backstop a wedged run (e.g. a hung Lighthouse/Chrome) so it can't pin
+        # the runner and — via concurrency.cancel-in-progress=false — block the
+        # next night too. The browser audit (cross-engine + mobile + links over the
+        # sampled routes, ~10 sequential sites) is the heaviest leg, hence the wider budget.
+        timeout-minutes: 75
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # netlify-deploy probes each site's latest production deploy via the Netlify
+          # API by site id. Without this the audit skips ("no NETLIFY_PAT") without
+          # touching any site's row, and since #1605 the write gate reds the run:
+          # netlify-deploy measured nothing on every site it applied to.
+          NETLIFY_PAT: ${{ secrets.NETLIFY_PAT }}
+        run: |
+          set -o pipefail
+          # Every deployed site reports `fail` (real-site scores trip the
+          # assertion gates), so the CLI exits non-zero BY DESIGN — that is not a
+          # job failure. We tolerate the exit code and instead key the gate on the
+          # machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line
+          # (see formatFleetWriteSummary). This replaces the old "wrote ≥ 1"
+          # heuristic, which went green even when 9 of 10 sites flaked.
+          # lighthouse + domain + browser + netlify-deploy + function-health are all checkout-free
+          # (deployed-URL / API only), so this one nightly pass also probes DNS/TLS, drives
+          # cross-engine/mobile/link checks, records each site's latest production Netlify deploy
+          # state, and checks the deployed `/health` function + CMS reachability — no extra clone.
+          node dist/cli/bin.js audit \
+            --fleet turso \
+            --only lighthouse,domain,browser,netlify-deploy,function-health \
+            --write-back \
+            --concurrency 1 \
+            --workdir /tmp/fleet-audit | tee /tmp/audit.out || true
+
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a
+          # command substitution would abort the step before the explicit
+          # diagnostic below ever runs. Guard it so we control the failure.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet Lighthouse printed no write summary — the run crashed before write-back (check the Turso creds / API)."
+            exit 1
+          fi
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Surface every partial miss as a visible annotation, even one within
+          # tolerance — a tolerated flake (e.g. erp) is then never invisible.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/audit.out | tail -n1 || true)
+            echo "::warning::fleet Lighthouse: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)
+          # is dropped from the run rather than crashing it (resilient fleet prep).
+          # Raise it as a warning so the misconfigured site row gets fixed —
+          # it never reaches the write-back `failed` count above.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet Lighthouse: $skipped"
+          fi
+
+          # The write gate's own verdict (#1605), computed by fleetWriteGate in
+          # write-audits.ts so five workflows cannot drift apart. It reds on what the
+          # counts above cannot see: a site that measured nothing (deps would not
+          # install, no lockfile), a site the run resolved that never reached
+          # write-back, a failure that recurs every night (no row to write to), and
+          # one audit that measured nothing across more than a quarter of the fleet.
+          # It runs before the bare counts below: a fleet whose deps would not install
+          # also reads `wrote=0`, and "check the Turso creds" would send triage the
+          # wrong way.
+          # The CLI's exit status cannot carry this (a failing audit exits 1 by
+          # design, so the step tolerates it), so the verdict line is the contract,
+          # and an absent line is red.
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$gate" ]; then
+            echo "::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
+            exit 1
+          fi
+          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true
+          if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
+            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet Lighthouse: /' || true
+            exit 1
+          fi
+
+          # The two bare counts below are a floor behind the gate above, which reds on
+          # every input they do. They fire only if the gate's line and the summary
+          # ever disagree.
+          # Total write-back failure: nothing landed at all (creds/API/inventory).
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet Lighthouse wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write. A single
+          # known-flaky site stays green-with-warning; a real outage reds.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet Lighthouse: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      # M4 slice 2a: sweep three GitHub-sourced signals (Renovate-failing-CI count,
+      # default-branch CI state, last-commit date) per repo-backed site into Turso
+      # so the cockpit reads them with zero request-path GitHub calls. `if: !cancelled()`
+      # so a Lighthouse flake never skips the GitHub sweep.
+      # Mint the reddoor-renovate App token HERE, not at job start: the audit
+      # above can run ~48 minutes and installation tokens expire at 60 — a
+      # job-start mint would hand the sweep a nearly-dead token. Replaces the
+      # retired org RENOVATE PAT (2026-08 rotation). Same `if:` as the sweep
+      # step — a Lighthouse flake must not skip the mint and silently de-token
+      # the sweep. `owner:` widens the token to the whole installation (all
+      # reddoorla repos). Digest-pinned per renovate.yml.
+      #
+      # `!cancelled()`, not `always()`, on both: a failed audit still runs the
+      # sweep, but a CANCELLED run does not. `always()` keeps a step running
+      # into the 5-minute grace window GitHub gives a cancelled job, and in
+      # 36451921171 the hung sweep held that whole window (22:33:44 job limit
+      # to 22:38:48) ahead of the tracking-issue step, which would have been
+      # force-killed before it ran even had it been cancellation-aware.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        if: ${{ !cancelled() }}
+        # ~1 s on a green night (36323063369, 35615432191).
+        timeout-minutes: 5
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
+      - name: Sweep GitHub signals to Turso
+        if: ${{ !cancelled() }}
+        # 40-42 s on a green night (36323063369, 35615432191). With no budget it
+        # hung from 17:51 to 22:38 in 36451921171 — past the 6-hour job limit,
+        # which cancelled the run and so filed no tracking issue. At 10 minutes a
+        # hang is a step failure that continue-on-error absorbs, so the job keeps
+        # the verdict the AUDIT gave it: after a failed audit the run is red and
+        # the tracking issue gets its turn, but a sweep-only hang ends GREEN and
+        # files nothing. The signals then go stale, and after 3 days the digest's
+        # CI/Renovate collectors silently skip the site (GITHUB_SIGNALS_STALE_DAYS
+        # in src/alerts/digest-collectors.ts). The step's timed-out annotation on
+        # an otherwise green run is the only trace of it.
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # An empty token would make github-signals clean-skip (its local-dev
+          # behavior) and the cockpit's GitHub columns would go silently stale —
+          # the exact failure mode the PAT migration guards against. Fail loudly
+          # instead (continue-on-error keeps the job's verdict unchanged, but
+          # the error annotation is visible on the run).
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::github-signals: minted App token is empty — the mint step failed."
+            exit 1
+          fi
+          node dist/cli/bin.js github-signals --fleet --write-back
+
+      - name: Probe roster urls to Turso
+        if: ${{ !cancelled() }}
+        # #912: does every non-archived roster url resolve? One GET per row plus
+        # two controls, 15 s each, six at a time; a row that got no HTTP answer
+        # is read once more after a 25 s pause (#1103). The worst case, every
+        # row stalling while both controls answer, is 30 s + 90 s + 25 s + 90 s
+        # at 34 rows, about 4 minutes. It outgrows this budget at about 108 rows
+        # (2 x ceil(n/6) x 15 s + 55 s, before startup and Turso time);
+        # raise the timeout before the roster gets there, since a step killed
+        # by it writes nothing and shows only as url-probe-stale three days
+        # later. continue-on-error for the same reason
+        # as the signals sweep: the job keeps the verdict the AUDIT gave it. A
+        # row that does not resolve is a finding stored in site_health and a
+        # ::warning:: here, never a red step; a control that misreads writes
+        # nothing and fails the step.
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node dist/cli/bin.js roster-urls --fleet --write-back
+
+      - name: Re-check Search Console no-property sites to Turso
+        if: ${{ !cancelled() }}
+        # P1-48: only a report draft wrote the #943 lookup, so a no-property
+        # outcome stood until the site's next draft, months for a quarterly
+        # site, after its property was fixed (LAHI's cockpit watch from
+        # 2026-10-05). This re-runs the draft's lookup for each maintained
+        # no-property site, a handful of sites at a few seconds each. It runs
+        # here so the digest usually reads tonight's answer: the nightly
+        # conductor waits up to 50 min for this workflow before moving on toward
+        # daily-reports, and the audit step alone may take 75, so a slow night
+        # can leave the digest one night stale. A no-property control goes
+        # first; if it misreads, nothing is written and the step fails.
+        # continue-on-error for the same reason as the sweeps above: the job
+        # keeps the AUDIT's verdict.
+        # The key is written the way daily-reports writes it: printf, no set -x.
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
+          GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
+          GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
+        run: |
+          if [ -n "$GA_SA_KEY_JSON" ]; then
+            printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
+            chmod 600 "$GA_SA_KEY_PATH"
+          fi
+          node dist/cli/bin.js search-console-recheck --fleet --write-back
+
+      # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
+      # email to the last pusher. File/reopen a single deduped tracking issue so a
+      # failure is durably visible, and auto-close it once the run goes green again.
+      # continue-on-error so the alert machinery can NEVER turn a run's status red.
+      - name: Open/update the nightly-failure tracking issue
+        # failure() is false on a CANCELLED run — a hang to a timeout filed nothing
+        # for fleet-lighthouse 36451921171. main only: a branch run never speaks
+        # for main (a PR-branch dispatch of time-travel closed #895 while main was red).
+        if: (failure() || cancelled()) && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Identify the tracking issue by exact TITLE (not a label) so the only
+          # permission needed is `issues: write` — no `gh label create`, which can
+          # require broader scope. Filter the listing locally for an exact match.
+          title="Nightly fleet audit failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-lighthouse** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          # A cancelled run is a hang (a step past its timeout-minutes, the job past its
+          # limit) or a hand cancel, not the failure the text above describes. Say so.
+          if [ "${JOB_STATUS:-}" = "cancelled" ]; then
+            body=$(printf '**This run was CANCELLED, not failed**: a step hung past its timeout, the job hit its time limit, or someone cancelled it. The text below was written for a failure; read the step that was running when the run stopped before trusting it.\n\n%s' "$body")
+          fi
+          existing=$(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            # Rewrite the body too, so the issue head names THIS run rather than the
+            # first failure's (P1-11: #895 closed naming a run 8 days stale), and keep
+            # the comment as the history. Neither stops the other: under `bash -e` a
+            # failed command left of `&&` does not end the script.
+            gh issue edit "$existing" --body "$body" && echo "rewrote the body of #$existing" \
+              || echo "::warning::could not rewrite the body of #$existing; commenting anyway"
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
+        if: success() && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet audit failing"
+          for n in $(gh issue list --state open --limit 200 \
+            --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-lighthouse run is green again." && echo "closed #$n"
+          done

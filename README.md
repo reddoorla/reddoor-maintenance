@@ -1,0 +1,590 @@
+# `@reddoorla/maintenance`
+
+Canonical maintenance configs, audits, and recipes for the reddoor SvelteKit + Prismic fleet.
+
+A single CLI (`reddoor-maint`) covering the full operator workflow:
+
+- **Audits** inspect a site (lighthouse, a11y, security, lint, deps).
+- **Recipes** mutate one (branch-isolated, idempotent, never on a dirty tree) — start with [`init`](#init) for fresh sites.
+- **Reports** ([per-site monthly/quarterly emails](#reports-per-site-maintenancetesting-emails)) draft + send client-facing maintenance + testing summaries, backed by Turso as the source of truth and Resend for delivery.
+- **Canonical configs** (eslint, prettier, lighthouserc, playwright-a11y, svelte) ship as importable presets every reddoor site shares.
+
+Designed to run against either a single local site or a fleet declared in an inventory file.
+
+```bash
+pnpm add -D @reddoorla/maintenance
+pnpm reddoor-maint --help
+```
+
+> **Standing the whole system up** (the Turso database, the Netlify dashboard, the cron secrets, the daily approve loop, launching) — see the end-to-end **[setup walkthrough](docs/SETUP.md)**. This README is the per-command reference.
+
+---
+
+## The onboarding flow
+
+A reddoor site goes through this sequence the first time you adopt the package. Each recipe is idempotent — running it again on an already-onboarded site is a `noop`.
+
+```bash
+pnpm reddoor-maint init
+```
+
+`init` runs the whole chain in order against the current directory (or `init [site]` for an explicit path). It's a thin orchestrator — every underlying recipe still creates its own branch and stops on a dirty tree, so the operator ends up with a stack of `maint/<recipe>-<ts>` branches to PR.
+
+```text
+convert-to-pnpm  →  onboard  →  sync-configs  →  svelte-codemods  →  a11y-fixtures-page  →  audit
+```
+
+| Step | Recipe               | What it does                                                                                                                                                                                                                  |
+| ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `convert-to-pnpm`    | Removes `package-lock.json` / `yarn.lock`, pins `packageManager: pnpm@…`, rewrites `npm` references in scripts, runs `pnpm install` to materialise `pnpm-lock.yaml`.                                                          |
+| 2    | `onboard`            | Installs `@reddoorla/maintenance` + the audit deps (`@lhci/cli`, `@playwright/test`, `@axe-core/playwright`) on the site. Pins the maintenance dep to a caret range against this package's own version at runtime.            |
+| 3    | `sync-configs`       | Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges canonical entries into `.gitignore`.                                                        |
+| 4    | `svelte-codemods`    | Optional cleanup pass applying the Svelte 5 gotcha codemods (`export let` → `$props()`, `on:event` → `onevent`, `$:` → `$derived`/`$effect`, etc.) for sites that surface new strictness warnings after the original upgrade. |
+| 5    | `a11y-fixtures-page` | Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route doesn't already exist. The hardcoded URL in `lighthouse` and `playwright-a11y` configs targets this route. Operator edits are never clobbered.      |
+| 6    | `audit`              | Runs `deps`, `lighthouse`, `a11y`, `security`, `lint` — see [Audits](#audits).                                                                                                                                                |
+
+Each recipe refuses to run on a dirty working tree, creates a fresh `maint/<recipe>-<UTC-ms-timestamp>` branch, and emits one or more atomic commits. Running individual steps standalone (e.g. `reddoor-maint sync-configs`) still works — `init` is for when you want the whole chain in one command.
+
+---
+
+## CLI
+
+```text
+reddoor-maint list-audits       # audit descriptions
+reddoor-maint list-recipes      # recipe descriptions
+
+reddoor-maint init [site]       # full onboarding chain (preferred entrypoint)
+reddoor-maint audit [site]      # run audits
+reddoor-maint report [site]     # draft / send per-site maintenance + testing emails (see Reports)
+reddoor-maint sync-configs [site]
+reddoor-maint bump-deps [site]
+reddoor-maint convert-to-pnpm [site]
+reddoor-maint onboard [site]
+reddoor-maint svelte-codemods [site]
+reddoor-maint upgrade svelte-4-to-5 [site]
+
+reddoor-maint video <input>     # background-video master -> web renditions (+ optional Prismic upload)
+```
+
+`[site]` defaults to `process.cwd()`. Add `--fleet path/to/inventory.json` (or `.mjs` / `.js`) to run across every site in an inventory instead. `--cwd <path>` overrides the working directory for any command.
+
+Standalone, outside the `[site]` loop above (it audits an external URL, not a fleet site):
+
+- `prospect-audit <url>` — AEO/SEO audit an external prospect's site and publish
+  a shareable report. Flags: `--business <name>`, `--competitors <list>`,
+  `--no-probes`, `--out <file>`, `--json`. Needs `ANTHROPIC_API_KEY` (or the
+  standard Anthropic auth chain) and, for tier 3, `PERPLEXITY_API_KEY`;
+  persistence and the shareable link need the Turso vars.
+
+### Common flags
+
+- `--only <names>` — comma-separated subset. Validates against the known set; typos exit with code 2.
+  - `audit`: `deps`, `lighthouse`, `a11y`, `security`, `lint`
+  - `sync-configs`: `eslint`, `prettier`, `lighthouse`, `playwright-a11y`, `svelte`, `gitignore`
+- `--dry` (sync-configs) — print the planned diff without writing.
+- `--group patch | minor | major` (bump-deps) — semver bucket. Default `minor`.
+- `--audits lighthouse,a11y` (onboard) — which audit deps to ensure.
+- `--verbose` — print full stack on errors instead of just the message.
+
+### Exit codes
+
+- `0` — success (including `noop`)
+- `1` — at least one audit failed, or a recipe returned `failed`
+- `2` — invalid argument (e.g. unknown `--only` name, unknown `--group`), or a
+  missing tool or credential the command cannot run without (`video` without
+  ffmpeg on PATH, or `--upload` with no token)
+
+### Video renditions
+
+`reddoor-maint video <input>` turns one background-video master into the
+renditions the fleet's hero loops play, and can push them straight into a
+site's Prismic media library. Background loops are muted, so every rendition
+drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
+(`brew install ffmpeg` / `apt install ffmpeg`); without them it exits `2`.
+
+For a master of height `H` and `T = min(--max-height, H)`:
+
+| Output                 | When                      | Encode                                                                                         |
+| ---------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `<name>-<T>.mp4`       | always                    | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, `+faststart`, yuv420p             |
+| `<name>-<T>.webm`      | always                    | VP9, `-crf 34 -b:v 3500k -row-mt 1 -deadline good -cpu-used 2`                                 |
+| `<name>-phone-720.mp4` | `H >= 720` and `T >= 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 1200k -bufsize 2400k`, `+faststart`         |
+| `<name>-poster.jpg`    | always                    | frame 0 of `<name>-<T>.mp4` (`-frames:v 1 -update 1 -q:v 3`), so the poster matches what plays |
+
+`H` is the height as played: a phone-shot master whose stream carries a
+±90° rotation is planned from its swapped dimensions, as ffmpeg autorotates
+before scaling. Outputs in `--out` are overwritten (`-y`). The "encoding"
+label for each rendition goes to stderr before its ffmpeg call, so a long
+encode shows which file the `-stats` line belongs to.
+
+Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
+input's basename, slugified), `--max-height <n>` (default `1080`). After
+encoding it probes each output and prints a table of file, WxH, size in MB
+and kbps.
+
+`--upload <prismic-repo>` then POSTs each output to that repository's Asset
+API. The token is read from `PRISMIC_TOKEN_<REPO>` only (never the generic
+`PRISMIC_WRITE_TOKEN`), and the command exits `2` naming that variable when
+it is unset. Uploads are deduped by filename against the existing library:
+each file prints `UPLOADED <file> <id> <url>`, `EXISTS <file> <id> <url>` when
+the library already holds a file of that name and size, or `STALE <file> <id>
+<url> (library N bytes, local M bytes)` when the names match but the bytes do
+not. The verdicts are decided before any POST: one `STALE` file means nothing
+is uploaded and the command exits `1`, so a new cut never lands half beside
+an old one; re-run with a new `--name` or delete the old assets in Prismic.
+A library item that reports no size prints `EXISTS … (size unverified)`. A
+failed list or POST prints `FAILED <what>: <reason>` and exits `1` keeping
+every line earned before it, so the ids of files that did land are not lost.
+Each multipart part carries its MIME type from the extension. A missing
+input exits `2`. The upload path is tested against a fake fetch only and has
+not run live (Williamson's files went through that site's
+`prismic-media-upload` workflow; see the 2026-10-01 journal entry), so the
+first live run is to be read, not assumed.
+
+---
+
+## Recipes
+
+Each recipe is `(site, opts?) => Promise<RecipeResult>` and is also exported from the package entry as a library function (see [Library usage](#library-usage) for the dependency caveat on the bare entry):
+
+```ts
+import {
+  init,
+  syncConfigs,
+  bumpDeps,
+  onboard,
+  convertToPnpm,
+  svelteCodemods,
+  a11yFixturesPage,
+  upgradeSvelte4to5,
+} from "@reddoorla/maintenance";
+```
+
+Shared contract — every recipe:
+
+- **Refuses to run on a dirty working tree.** Either throws (most recipes) or returns `{ status: "failed", notes: "…" }` (e.g. `onboard` when `pnpm-lock.yaml` is missing, `bump-deps` when a competing lockfile is present).
+- **Creates a fresh branch** `maint/<recipe>-<UTC-millisecond-timestamp>` before mutating anything.
+- **Emits atomic commits** — each logical change gets its own commit.
+- **Is idempotent** — re-running on the already-applied state returns `{ status: "noop", commits: [] }` without creating a branch.
+- **Returns a `RecipeResult`** — `{ recipe, site, status: "applied" | "noop" | "failed", commits: string[], notes?: string }`.
+
+### `init`
+
+One-shot guided onboarding — the recommended entrypoint for a fresh site. Runs `convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit` in sequence. Each underlying recipe still creates its own branch — `init` is a thin orchestrator, not a branch-collapser. Stops the chain on the first `failed` recipe or uncaught error; `noop` results continue the chain. Exit code is 1 if any step failed _or_ the final audit pass reports a `fail`.
+
+The remaining sections describe each step `init` invokes (in chain order), plus the standalone recipes that aren't part of onboarding.
+
+### `convert-to-pnpm`
+
+Removes the npm or yarn lockfile, pins `packageManager: pnpm@X.Y.Z` in `package.json`, rewrites `npm`/`npx`/`yarn` references in scripts to their pnpm equivalents, removes any leftover flat `node_modules` (to avoid phantom-dep contamination), then `pnpm install` to materialise `pnpm-lock.yaml`. Three to four commits depending on what's present. `noop` if `pnpm-lock.yaml` already exists.
+
+### `onboard`
+
+Adds `@reddoorla/maintenance` + the audit deps (`@lhci/cli`, `@playwright/test`, `@axe-core/playwright`) to the site's `devDependencies` if they're missing. Audit dep versions come from `src/configs/baseline-versions.ts` so they can't drift from the rest of the package. The maintenance dep is pinned to a caret range against this package's own version at runtime — no manual syncing required at each minor bump. Refuses with `{ status: "failed", notes: "run convert-to-pnpm first" }` if the site has no `pnpm-lock.yaml`.
+
+### `sync-configs`
+
+Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges the canonical entries into `.gitignore`. Each config is its own commit. `--dry` reports the planned diff (including gitignore drift) without writing. `--only <name>[,<name>]` restricts to a subset.
+
+### `svelte-codemods`
+
+Standalone codemod pass for sites already on Svelte 5. Applies the same gotcha codemods the full `svelte-4-to-5` recipe runs (`export let` → `$props()`, `on:event` → `onevent`, `$:` → `$derived`/`$effect`, `$$props.class` rewrite, `$$restProps` → destructured `...rest`, `$state` + `$effect` → `$derived`). Useful when post-upgrade Svelte 5 surfaces new strictness warnings and the fleet needs a clean re-application.
+
+### `a11y-fixtures-page`
+
+Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route doesn't already exist. The `lighthouse` and `playwright-a11y` configs both target this URL — newly-onboarded sites need the route to exist for either audit to pass. The template is intentionally generic (semantic landmarks + headings + a relative link); operator edits to an existing page are never clobbered.
+
+### `bump-deps` _(standalone — not part of `init`)_
+
+Pre-flights that the site is on pnpm (refuses with a clear remediation if `package-lock.json` or `yarn.lock` is present without `pnpm-lock.yaml`), runs `pnpm install` to ensure the lockfile is current, then `pnpm outdated --json` to decide whether anything needs upgrading. If yes: creates a branch and runs `pnpm up` scoped to the requested `--group` (patch / minor / major), then commits the result. `noop` if nothing's out of date.
+
+### `upgrade svelte-4-to-5` _(standalone — not part of `init`)_
+
+The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svelte.config.js`, run the official `svelte-migrate` codemod, run `@tailwindcss/upgrade`, apply gotcha codemods over `src/**/*.svelte`, verify with `pnpm install` + `pnpm run check`, and write a `MIGRATION_SVELTE_5.md` summary. Each step is its own commit; the file leaves a record of what ran and what may need manual review.
+
+### `match-harness` _(standalone — not part of `init`)_
+
+Installs the matching harness used to rebuild a site against a live reference (a Webflow or Blux original), in one commit on its own branch.
+
+```bash
+reddoor-maint match-harness --ref https://client.webflow.io
+reddoor-maint match-harness acme --ref https://acme.webflow.io --cand http://localhost:4173
+reddoor-maint match-harness --fleet turso --ref https://client.webflow.io --matrix 1440,834,390
+```
+
+`--ref` is **required**. The harness gates against a live reference; with no reference it can only ever report an absence of errors, so the recipe refuses instead of installing something that goes green on nothing. `--cand` defaults to `http://localhost:5173` and `--matrix` to `1440,834,390`.
+
+What lands, and who owns it:
+
+| Installed                                                                                                           | Owner                                             |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `matching/harness.json`                                                                                             | **site** — the page table, hosts, matrix, marks   |
+| `matching/harness.mjs`                                                                                              | recipe — the only reader of `harness.json`        |
+| `matching/gate.sh`, `census.sh`                                                                                     | recipe — the geometry and style gates             |
+| `matching/next.mjs`, `strikes.mjs`, `build-spec.mjs`, `census-count.mjs`                                            | recipe — round protocol                           |
+| `matching/floors.mjs`, `census-deviations.mjs`, `LEDGER.md`, `spec-sections/_header.md`, `spec-sections/_chrome.md` | **site** — the records                            |
+| `src/routes/dev/match/[uid]/+page.server.ts`, `+page.svelte`                                                        | recipe — the dev-guarded candidate twin           |
+| `src/lib/site-pages.js` / `site-pages.test.ts`                                                                      | **site** scaffold / recipe test                   |
+| `.gitignore`, `.prettierignore`, `CLAUDE.md`                                                                        | marked blocks appended, once, on their own marker |
+
+**Edit `matching/harness.json`, never `matching/harness.mjs`.** `harness.json` is the data — the page table, the reference and candidate origins, the breakpoint matrix, the threshold, and the `refMark` / `candMark` / `selfHosts` the reference preflight uses. `harness.mjs` is the read layer every gate goes through, and the recipe owns its bytes: it is byte-compared on the next run, safe-replaced when it still matches a shipped version, and FLAGGED and left alone when it does not. A hand edit there is never silently reverted — and never silently kept as though it were ours either.
+
+Site-owned files are install-if-absent and are never rewritten. Re-running is a `noop`: the three appended blocks are idempotent on their markers, and every installed file that still matches its template is skipped.
+
+Two things a fresh install deliberately will **not** do until the operator acts. `harness.json` ships `refMark: ""`, so `gate.sh` refuses before spending a run — a 200 is not evidence that a host is the reference, and a production host repointed at our own build answers 200 too. And no page has a `matching/SPEC.md` section yet, so the Phase 1 preflight refuses geometry rounds. Both are fail-closed on purpose.
+
+---
+
+## Audits
+
+Each audit is `(ctx) => Promise<AuditResult>` and is exported from the package entry. All audits return a closed-union status: `"pass" | "warn" | "fail" | "skip"`.
+
+| Name         | What it checks                                                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deps`       | Diffs site's `package.json` against `src/configs/baseline-versions.ts`. Surfaces deps that drift from the canonical version map.                                                                                  |
+| `lighthouse` | Runs `@lhci/cli autorun` using the canonical `lighthouserc.json`. Hits `/dev/a11y-fixtures` by default; sites without that route can set `package.json#reddoor.lighthouseUrl` to override.                        |
+| `a11y`       | Spawns Playwright + `@axe-core/playwright` against the two canonical fixture routes. A site can add its own real routes with `package.json#reddoor.a11yRoutes` (see below) — opt-in, because this audit gates CI. |
+| `security`   | `pnpm audit --json --prod` with automatic fall-through to `npm audit` when pnpm can't run (missing lockfile, error envelope, etc.). Normalises advisory shapes from both tools into a single `AdvisoryEntry[]`.   |
+| `lint`       | ESLint + Prettier using the canonical configs (re-exported via `@reddoorla/maintenance/configs/eslint` and `@reddoorla/maintenance/configs/prettier`).                                                            |
+
+```bash
+reddoor-maint audit                                # all five against cwd
+reddoor-maint audit --only security,a11y           # a subset
+reddoor-maint audit --json                         # machine-readable output
+reddoor-maint audit --fleet inventory.json         # batch across an inventory
+```
+
+#### Scanning real routes for accessibility
+
+By default the `a11y` audit scans only `/dev/a11y-fixtures` and `/dev/animate-in`
+— synthetic pages that exercise design-system components in isolation. That means
+no real page is ever checked, which is how a critical `image-alt` violation reached
+five production pages on one site with CI green throughout.
+
+A site opts in to having its own routes scanned as well:
+
+```jsonc
+// package.json
+{
+  "reddoor": {
+    "a11yRoutes": ["/", "/about", "/exhibitions/awakening", "/rsvp/euphorbia"],
+  },
+}
+```
+
+These are scanned **in addition to** the fixtures, and each violation is reported
+against the route path so it is attributable. Junk entries are dropped; an absent
+or unusable key leaves the audit behaving exactly as before.
+
+It is opt-in rather than automatic on purpose. The shared CI workflow runs this
+audit with `--fail-on-violations`, and most of the fleet carries pre-existing
+accessibility debt — switching every site over centrally would red every repo at
+once. Adopt it per site once that site's routes are clean, and it stays clean.
+
+#### Running the browser gates against a production build
+
+By default both browser gates — the `a11y` audit and the site's own smoke suite
+— start `vite dev`. The production bundle is built in CI and then never opened
+by a browser, and dev does not merely fail to reproduce some defects, it hides
+them: module graph, code splitting, minification and asset hashing are most of
+what "hydration works" means, and a stylesheet can be fetched under a different
+CSP directive in each.
+
+A site opts in:
+
+```jsonc
+// package.json
+{
+  "reddoor": {
+    "gateServer": "preview", // "dev" (default) | "preview"
+  },
+}
+```
+
+It requires a `preview` script (the starter has one), and it is deliberately not
+a fleet-wide flip: a preview costs a `pnpm build` per run.
+
+Under `preview` the a11y audit **splits** its run rather than moving it. The axe
+scan keeps the dev server, because `/dev/a11y-fixtures` and `/dev/animate-in`
+are dev fixture routes with no guarantee of surviving a production build — a
+straight swap would have the route-status guard correctly report every fixture
+as a missing route, turning a working gate into a red one that measures nothing.
+The hydration smoke, which is the part dev actually hides, gets a built preview
+on its own port. The pass summary names which server ran.
+
+`REDDOOR_GATE_SERVER=preview` overrides the key for a one-off run. An
+unrecognized value reads as `dev` rather than reaching a shell.
+
+---
+
+## Fleet mode
+
+Pass `--fleet <path>` to run a command against multiple sites declared in an inventory file. Inventory files can be:
+
+- **`.json`** — an array of site objects (most common).
+- **`.mjs`** / **`.js`** — an ES module whose default export is `() => Promise<Site[]>` (useful when site list comes from an API).
+
+### Inventory file format (`.json`)
+
+```json
+[
+  {
+    "path": "/Users/me/Documents/GitHub/caltex-landing",
+    "name": "caltex-landing",
+    "repoUrl": "https://github.com/redacted/caltex-landing.git"
+  },
+  {
+    "path": "/Users/me/Documents/GitHub/espada",
+    "name": "espada"
+  }
+]
+```
+
+| Field     | Required | Notes                                                                                                                                                                                                                                                                                                                                     |
+| --------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`    | yes      | Must be **absolute**. Relative paths are rejected so the invocation's cwd can't accidentally change which site is targeted.                                                                                                                                                                                                               |
+| `name`    | no       | Friendly label for log output. Falls back to `path` when omitted.                                                                                                                                                                                                                                                                         |
+| `repoUrl` | no       | When set, recipes that run with `--fleet --workdir <dir>` will `git clone` the site into `<workdir>/<name>` if it isn't already there. URL scheme is validated against an allowlist (`https://`, `http://`, `ssh://`, `git://`, `file://`, scp-style `user@host:path`) and `git clone` is invoked with `--` to neutralise argv-injection. |
+| `meta`    | no       | Free-form object preserved on the `Site` for downstream consumers.                                                                                                                                                                                                                                                                        |
+
+`--workdir <path>` selects the clone target (default `~/.reddoor-maint/sites`). Without `--workdir`, fleet sites are expected to already exist at their declared `path`.
+
+---
+
+## Library usage
+
+The package's main entry exports every recipe, audit, and report function so you can wire them into custom tooling (CI jobs, scheduled scripts, alternative CLIs):
+
+> **These bare-entry (`@reddoorla/maintenance`) library exports require the package's full dependency set.** The report/audit/dashboard stack — `mjml`, `resend`, the Google Analytics + libSQL/Kysely libraries, `sharp`, `svix`, `@lhci/cli` — ships as **devDependencies**, so a plain `pnpm add @reddoorla/maintenance` does **not** install them. Import these functions only from an environment that installs this package's dev dependencies (this repo's own CLI/Netlify functions, or your own tooling that installs them). **Fleet sites never use this entry** — they run the `reddoor-maint` CLI and import the dependency-light `@reddoorla/maintenance/forms` + `@reddoorla/maintenance/configs/*` subpaths, which by design pull none of that chain.
+
+```ts
+import {
+  // recipes
+  init,
+  convertToPnpm,
+  onboard,
+  syncConfigs,
+  svelteCodemods,
+  a11yFixturesPage,
+  bumpDeps,
+  upgradeSvelte4to5,
+
+  // audits
+  runAudits,
+  ALL_AUDIT_NAMES,
+
+  // reports (per-site maintenance / testing emails)
+  draftReportForSite,
+  sendApprovedReports,
+  renderReportHtml,
+  findDueReports,
+
+  // recipe registry
+  ALL_RECIPE_NAMES,
+  isRecipeName,
+} from "@reddoorla/maintenance";
+
+const result = await syncConfigs({ path: "/abs/path/to/site" });
+if (result.status === "applied") {
+  console.log(`applied ${result.commits.length} commits on branch ${result.notes}`);
+}
+```
+
+The canonical configs are also importable as their own subpath exports — sites use these in their own root configs:
+
+```js
+// eslint.config.js
+import { createEslintConfig } from "@reddoorla/maintenance/configs/eslint";
+import svelteConfig from "./svelte.config.js";
+export default createEslintConfig({ svelteConfig });
+```
+
+```js
+// svelte.config.js
+import { createSvelteConfig } from "@reddoorla/maintenance/configs/svelte";
+export default createSvelteConfig();
+```
+
+```js
+// playwright.config.ts
+export { default } from "@reddoorla/maintenance/configs/playwright-a11y";
+```
+
+---
+
+## Troubleshooting
+
+**`--only <name>` and nothing happened?**
+Make sure you spelled the name correctly. The CLI validates against the known set and exits with code 2 on a typo — but if you're invoking the recipe programmatically and passed an invalid name, you'll just see a `noop`. `reddoor-maint list-audits` and `reddoor-maint list-recipes` print the canonical names.
+
+**Recipe refused to run with `"working tree is not clean"`?**
+Recipes refuse to mutate on top of uncommitted work. Either commit/stash your changes, or run on a clean checkout.
+
+**`bump-deps` returned `failed: site has package-lock.json but no pnpm-lock.yaml`?**
+Run `reddoor-maint convert-to-pnpm` first. `bump-deps` is pnpm-only.
+
+**`onboard` returned `failed: no pnpm-lock.yaml`?**
+Same — run `reddoor-maint convert-to-pnpm` first. Onboarding is intentionally split from package-manager conversion so the two transitions are reviewable separately.
+
+**`security` audit returned `skip`?**
+Neither `pnpm audit` nor `npm audit` produced a parseable result. Check that at least one of pnpm or npm is on `PATH` and that the site has a corresponding lockfile.
+
+**Where do the canonical baseline versions come from?**
+[`src/configs/baseline-versions.ts`](src/configs/baseline-versions.ts). The `deps` audit compares against this map, and `onboard`'s audit deps source their pins from here too — so any version bump in baseline-versions automatically flows through to fresh onboards.
+
+---
+
+## Reports (per-site maintenance/testing emails)
+
+Generates the monthly/quarterly/yearly client-facing email reports — Lighthouse scores + GA users + the standard checklist + per-client header image — from Turso as the source of truth, delivered via [Resend](https://resend.com/).
+
+### Required env
+
+```bash
+TURSO_DATABASE_URL=libsql://<db>-<org>.turso.io
+TURSO_AUTH_TOKEN=XXXX
+RESEND_API_KEY=re_XXXX
+RESEND_WEBHOOK_SECRET=whsec_XXXX  # only for the deployed webhook
+```
+
+> The above is the **report CLI** env. See [Site deployment](#site-deployment-netlify--resend) for the full env table of the deployed Netlify functions.
+
+### Operator flow
+
+Before any send day, run the **read-only preflight** — it surfaces everything that
+would make a send fail or reach the wrong inbox (missing/malformed recipients,
+operator-address leftovers in client To fields, To-override shadowing the point of
+contact, missing header image or Lighthouse scores, queued unsent drafts that would
+race the new report, unrecognized/stale schedule values, and a load-bearing field —
+point of contact, maintenance cadence, header plate — that is empty on every selected
+site, which is how a broken field mapping shows up):
+
+```bash
+reddoor-maint preflight --all            # announcement targets (maintenance sites) + fleet checks
+reddoor-maint preflight <slug>           # one site
+reddoor-maint preflight --all --type maintenance   # everything `report --due` schedules
+```
+
+Exit 0 = safe to send (warnings printed for review); 1 = at least one hard failure.
+Nothing is written and nothing is sent.
+
+0. **Prereq: fresh Lighthouse scores on each site.** The `fleet-lighthouse` nightly writes them for every `maintained` site. To refresh one site by hand, from its checkout:
+
+   ```bash
+   reddoor-maint audit --only lighthouse --write-back
+   ```
+
+   This runs Lighthouse and writes the 4 scores to the site's `site_health` row in Turso (slug auto-derived from `package.json#name`; pass `--write-back=<slug>` to override), along with a `lighthouse_at` timestamp. The report orchestrator copies these into the new report row — drafting a report for a site missing scores fails with a clear error.
+
+1. **Draft overdue reports**
+
+   ```bash
+   reddoor-maint report --due
+   ```
+
+   Scans every `maintained` / `hosted-only` site whose maintenance or testing cadence is not `None`, finds (site, type) pairs whose next-due date has passed ([Frequency math](#frequency-math)), and creates a report row in Turso for each, with snapshotted scores and the rendered HTML, queued for approval (`draft_ready`).
+
+2. **Preview a single site without writing anything**
+
+   ```bash
+   reddoor-maint report <slug> --preview
+   ```
+
+   Writes `reports/<slug>/draft.html` locally — open in a browser to verify before any side effects. It reads the site from Turso and writes nothing back. A plain `--preview` also skips the GA / Search Console fetches; add `--enrich` to run them for real (still writes nothing). (The header image renders broken in the browser because the CID can only resolve inside an email client; that's expected for a preview.)
+
+3. **Review and approve in the console.** On the cockpit (`/`), each site with a draft is in the "Needs you" feed under **Waiting on your yes**; **Open ▸** goes to the site's page (`/s/<slug>`). Its **Pending your yes** section shows, per draft:
+   - **draft preview ▸** — the rendered HTML, served from Turso (`GET /api/reports/:id/preview`). It is the draft-time render; the send re-renders with the current commentary.
+   - A **Commentary** box on Maintenance and Testing reports (`POST /api/reports/:id/commentary`, refused once the report is sent), and **refresh preview**, which re-renders the stored body in Actions (`report-rerender.yml`) so the preview shows the edit.
+   - A preflight chip and the resolved recipients (To + CC).
+   - **Approve** — `POST /api/reports/:id/approve` sets `approved_to_send` and stamps who and when. It does not send. It refuses, with the reasons, a report whose send would fail (no resolvable recipient, no header plate, no scores) or whose health gate is not clear; a health-red report offers **Send anyway…** instead, which requires a written reason and is logged as an override.
+
+   GA users and search figures are fetched at draft time, not typed in.
+
+4. **Send approved reports**
+
+   ```bash
+   reddoor-maint report --send-ready
+   ```
+
+   Renders + sends every report with `draft_ready` and `approved_to_send` set and no `sent_at`. Stamps `sent_at` (and the Resend message id) on each; its delivery status reads `pending` until the webhook reports.
+
+5. **Delivery status updates automatically** via the Resend webhook (Netlify Function at `netlify/functions/resend-webhook.mts`) — the report's `delivery_status` flips to `delivered` / `bounced` / `complained` as events arrive. Deploy procedure: see [Site deployment](#site-deployment-netlify--resend) below.
+
+### Site deployment (Netlify + Resend)
+
+This repo's Netlify site hosts the whole dashboard + forms surface: the Resend delivery webhook (`netlify/functions/resend-webhook.mts`), the cockpit/per-site dashboard, the `/submissions` page, and the form-ingest + submission-status endpoints. Deploying is a one-time operation per environment: connect the repo to a Netlify site, set its env vars, register the deployed URL with Resend.
+
+**1. Create the Netlify site:**
+
+- New site → Import from Git → pick `reddoorla/reddoor-maintenance`.
+- Branch to deploy: `main`. Build settings are read from [`netlify.toml`](netlify.toml) (no build command needed — functions-only).
+- Site name: pick something stable (e.g. `reddoor-webhooks`) since it ends up in the public webhook URL.
+
+**2. Set env vars** in Site settings → Environment variables:
+
+| Variable                                           | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEND_WEBHOOK_SECRET`                            | Generated by Resend in step 4 — paste back here after creating the endpoint                                                                                                                                                                                                                                                                                                                                                                          |
+| `TURSO_DATABASE_URL`                               | `libsql://<db>-<org>.turso.io` — the fleet database: sites, reports, submissions and spam counters all live here; the dashboard + forms functions 500 without it                                                                                                                                                                                                                                                                                     |
+| `TURSO_AUTH_TOKEN`                                 | Auth token for that Turso url (required for a remote `libsql://` url)                                                                                                                                                                                                                                                                                                                                                                                |
+| `FORMS_INGEST_TOKEN`                               | Shared secret gating `POST /api/forms/:slug` — the SAME value is set on each fleet site                                                                                                                                                                                                                                                                                                                                                              |
+| `TURNSTILE_SECRET_KEY`                             | Cloudflare Turnstile secret for central spam verification. **Optional** — absent → Turnstile is disabled and fails open (the heuristic classifier is then the only defense). The per-site `PUBLIC_TURNSTILE_SITE_KEY` lives on each fleet site, not here                                                                                                                                                                                             |
+| `TURNSTILE_SECRET_KEY_2`, `TURNSTILE_SECRET_KEY_3` | One secret per Turnstile **widget** — a widget caps at 10 hostnames, so the fleet spans several and `form-ingest.mts` tries each secret in turn. Adding a widget at Cloudflare means adding its secret here **and** a line in that array, in the same change; miss the code half and that widget's tokens go `"unverifiable"` (fail-open) and its gate is silently off. See [docs/runbooks/turnstile-widgets.md](docs/runbooks/turnstile-widgets.md) |
+| `PROSPECT_EDIT_TOKEN`                              | Shared secret gating `POST /api/audit-report/:token/overrides`, where an operator's edits to a prospect report are saved — the SAME value is set on the marketing site, which proxies the save. Generate with `openssl rand -base64 32`. **Fails closed**: absent → every save 503s, which looks like a broken editor. Leading/trailing whitespace from a paste is tolerated, and warned about in the function logs                                  |
+| `DASHBOARD_PASSWORD`                               | Basic-auth password gating the cockpit, per-site dashboards, and every action endpoint — the dashboard is unauthable without it                                                                                                                                                                                                                                                                                                                      |
+| `DASHBOARD_BASE_URL`                               | Public base URL of this deploy (e.g. `https://<your-site>.netlify.app`) — used to build absolute links such as report approve URLs                                                                                                                                                                                                                                                                                                                   |
+| `GH_TOKEN`                                         | GitHub token for the dashboard's request-path REST calls, with `actions:write` — the "Trigger Renovate" button, the fleet-refresh and prospect-audit dispatches (each answers 503 `not-configured` without it), plus GitHub-sourced signals. The only name these functions read: `RENOVATE_TOKEN` was retired with the operator PAT                                                                                                                  |
+
+> The first five vars cover the webhook + forms ingest (`TURNSTILE_SECRET_KEY` optional); `PROSPECT_EDIT_TOKEN` is needed only to SAVE edits to a prospect report (serving one needs no secret beyond its URL token); `DASHBOARD_PASSWORD` / `DASHBOARD_BASE_URL` / `GH_TOKEN` are additionally required by the operator **dashboard** this same deploy serves (cockpit at `/`, per-site at `/s/:slug`).
+
+**3. Trigger a deploy** (Deploys → Trigger deploy → Deploy site). When it goes green, curl the health endpoint:
+
+```bash
+curl https://<your-site>.netlify.app/.netlify/functions/resend-webhook
+```
+
+Expected:
+
+```json
+{
+  "status": "ok",
+  "service": "reddoor-resend-webhook",
+  "env": {
+    "RESEND_WEBHOOK_SECRET": true,
+    "TURSO_DATABASE_URL": true
+  }
+}
+```
+
+Any `false` means the env var didn't land — re-check step 2 and re-deploy. (`TURSO_DATABASE_URL` is surfaced here because its absence 500s the dashboard + forms surface and breaks this webhook's own report lookup — the most common fresh-deploy failure; `TURSO_AUTH_TOKEN`, `DASHBOARD_PASSWORD` and the other dashboard vars aren't in this presence list, so verify those by loading the cockpit. `PROSPECT_EDIT_TOKEN` isn't in it either, and it fails closed: verify it by saving an edit to a prospect report and confirming you don't get a 503 — a 404 there means the value doesn't match the marketing site's, not that it's missing, since a wrong secret and an unknown report deliberately answer alike.) The health endpoint reports presence-only and never returns secret values, so the output is safe to share in a support ticket.
+
+**4. Register the webhook in Resend:** [resend.com/webhooks](https://resend.com/webhooks) → Add Endpoint → paste the function URL from step 3 → select events `email.delivered`, `email.bounced`, `email.complained` → save. Copy the generated **Signing Secret** (`whsec_…`) into Netlify's `RESEND_WEBHOOK_SECRET` env var (step 2) and trigger another deploy so the secret takes effect.
+
+**5. End-to-end smoke test (using ERP Industrials):**
+
+```bash
+# from your CLI:
+reddoor-maint report erp-industrials   # drafts a Maintenance report into Turso, queued for approval
+# approve it on the dashboard at /s/erp-industrials, then:
+reddoor-maint report --send-ready
+```
+
+Within a few minutes the report's `delivery_status` flips from `pending` → `delivered` as Resend pings the webhook. Function logs in Netlify show each event with its messageId + new status (a bounce or complaint also surfaces as a cockpit and digest attention item). If the webhook returns 5xx, svix retries; check the Netlify function log for the error envelope.
+
+### Frequency math
+
+Per (site, type): `dueDate = (the last sent_at for this type, else the site's maintenance/testing day anchor) + frequency months` (`nextDueDate`, `src/reports/due.ts`). A site with no sent report of that type AND no anchor day is due immediately. Only `maintained` and `hosted-only` sites (and rows with no Status) are scheduled, and a `None` cadence means no schedule. `report --due` writes each site's next-due dates to `site_schedule`.
+
+### Header images
+
+Each site's header plate lives in Turso (`sites.header_image`). The send reads it, stamps the report type's headline on, and embeds it inline via CID (Content-ID) — no CDN, no link rot, ~100 KB per send. `reddoor-maint header-image <slug> --write-back` regenerates a plate, and every real draft refreshes it from the live homepage.
+
+---
+
+## Versioning
+
+Patch / minor / major bumps follow [Changesets](https://github.com/changesets/changesets). The release workflow opens a version-bump PR on every merge to `main` with pending changesets; merging that PR triggers the publish step. Releases are signed via npm OIDC trusted publishing — no long-lived `NPM_TOKEN` lives in CI.
+
+## License
+
+MIT © Tucker Lemos

@@ -1,0 +1,4156 @@
+{
+ "window": {
+  "since": "2026-07-30",
+  "generated": "2026-09-12"
+ },
+ "coverage": {
+  "transcriptFirstDay": "2026-08-10",
+  "transcriptLastDay": "2026-09-12",
+  "commitFirstDay": "2026-07-30",
+  "commitLastDay": "2026-09-12",
+  "sessions": 3469,
+  "prompts": 5692,
+  "commits": 2622,
+  "prs": 857,
+  "runs": 3437
+ },
+ "byDay": {
+  "2026-07-30": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 15,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-07-31": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 84,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-01": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 3,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-02": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 36,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-03": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 173,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-04": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 26,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-05": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 46,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-06": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 14,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-07": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 15,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-08": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 4,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": []
+  },
+  "2026-08-10": {
+   "sessions": 26,
+   "prompts": 204,
+   "toolCalls": 4772,
+   "commits": 61,
+   "interruptions": 3,
+   "durMin": 2012,
+   "repos": [
+    "beachfront-dentistry"
+   ]
+  },
+  "2026-08-11": {
+   "sessions": 22,
+   "prompts": 110,
+   "toolCalls": 5328,
+   "commits": 33,
+   "interruptions": 9,
+   "durMin": 1910,
+   "repos": [
+    "beachfront-dentistry",
+    "reddoor-website"
+   ]
+  },
+  "2026-08-12": {
+   "sessions": 93,
+   "prompts": 198,
+   "toolCalls": 4495,
+   "commits": 81,
+   "interruptions": 2,
+   "durMin": 2442,
+   "repos": [
+    "beachfront-dentistry",
+    "reddoor-maintenance",
+    "reddoor-website",
+    "specs"
+   ]
+  },
+  "2026-08-13": {
+   "sessions": 149,
+   "prompts": 146,
+   "toolCalls": 4841,
+   "commits": 12,
+   "interruptions": 0,
+   "durMin": 1732,
+   "repos": [
+    "reddoor-maintenance",
+    "reddoor-website",
+    "scratchpad"
+   ]
+  },
+  "2026-08-14": {
+   "sessions": 58,
+   "prompts": 28,
+   "toolCalls": 2806,
+   "commits": 11,
+   "interruptions": 3,
+   "durMin": 1987,
+   "repos": [
+    "a-budget",
+    "reddoor-maintenance"
+   ]
+  },
+  "2026-08-15": {
+   "sessions": 5,
+   "prompts": 35,
+   "toolCalls": 673,
+   "commits": 14,
+   "interruptions": 0,
+   "durMin": 1440,
+   "repos": [
+    "octagonal-led-turn-counter"
+   ]
+  },
+  "2026-08-16": {
+   "sessions": 145,
+   "prompts": 151,
+   "toolCalls": 2362,
+   "commits": 87,
+   "interruptions": 4,
+   "durMin": 1378,
+   "repos": [
+    "Broken",
+    "octagonal-led-turn-counter",
+    "reddoor-website",
+    "scriptorium-setup"
+   ]
+  },
+  "2026-08-17": {
+   "sessions": 96,
+   "prompts": 77,
+   "toolCalls": 2102,
+   "commits": 21,
+   "interruptions": 4,
+   "durMin": 3146,
+   "repos": [
+    "beachfront-dentistry",
+    "caldea",
+    "reddoor-maintenance",
+    "reddoor-website"
+   ]
+  },
+  "2026-08-18": {
+   "sessions": 58,
+   "prompts": 494,
+   "toolCalls": 16240,
+   "commits": 84,
+   "interruptions": 36,
+   "durMin": 4898,
+   "repos": [
+    "Broken",
+    "caldea",
+    "reddoor-website",
+    "scriptorium-setup"
+   ]
+  },
+  "2026-08-19": {
+   "sessions": 96,
+   "prompts": 322,
+   "toolCalls": 2579,
+   "commits": 95,
+   "interruptions": 0,
+   "durMin": 732,
+   "repos": [
+    "Broken",
+    "reddoor-website",
+    "scriptorium-setup"
+   ]
+  },
+  "2026-08-20": {
+   "sessions": 187,
+   "prompts": 132,
+   "toolCalls": 4943,
+   "commits": 49,
+   "interruptions": 0,
+   "durMin": 1200,
+   "repos": [
+    "Broken",
+    "reddoor-maintenance",
+    "scratchpad",
+    "scriptorium-setup"
+   ]
+  },
+  "2026-08-21": {
+   "sessions": 28,
+   "prompts": 58,
+   "toolCalls": 2812,
+   "commits": 54,
+   "interruptions": 4,
+   "durMin": 1466,
+   "repos": [
+    "Broken",
+    "dont-lose-your-head",
+    "reddoor-website"
+   ]
+  },
+  "2026-08-22": {
+   "sessions": 74,
+   "prompts": 254,
+   "toolCalls": 1128,
+   "commits": 123,
+   "interruptions": 0,
+   "durMin": 328,
+   "repos": [
+    "dont-lose-your-head"
+   ]
+  },
+  "2026-08-23": {
+   "sessions": 28,
+   "prompts": 81,
+   "toolCalls": 14583,
+   "commits": 28,
+   "interruptions": 24,
+   "durMin": 3206,
+   "repos": [
+    "Broken",
+    "caldea",
+    "dont-lose-your-head",
+    "reddoor-maintenance"
+   ]
+  },
+  "2026-08-24": {
+   "sessions": 213,
+   "prompts": 557,
+   "toolCalls": 18977,
+   "commits": 179,
+   "interruptions": 21,
+   "durMin": 4509,
+   "repos": [
+    "Broken",
+    "beachfront-dentistry",
+    "caldea",
+    "reddoor-maintenance",
+    "reddoor-website",
+    "songbook"
+   ]
+  },
+  "2026-08-25": {
+   "sessions": 331,
+   "prompts": 630,
+   "toolCalls": 10043,
+   "commits": 185,
+   "interruptions": 0,
+   "durMin": 3057,
+   "repos": [
+    "reddoor-maintenance",
+    "reddoor-website",
+    "songbook",
+    "tmp"
+   ]
+  },
+  "2026-08-26": {
+   "sessions": 45,
+   "prompts": 283,
+   "toolCalls": 666,
+   "commits": 109,
+   "interruptions": 0,
+   "durMin": 1537,
+   "repos": [
+    "caldea",
+    "reddoor-maintenance",
+    "reddoor-website",
+    "songbook"
+   ]
+  },
+  "2026-08-27": {
+   "sessions": 8,
+   "prompts": 67,
+   "toolCalls": 220,
+   "commits": 15,
+   "interruptions": 0,
+   "durMin": 61,
+   "repos": [
+    "reddoor-website"
+   ]
+  },
+  "2026-08-28": {
+   "sessions": 5,
+   "prompts": 3,
+   "toolCalls": 7,
+   "commits": 1,
+   "interruptions": 0,
+   "durMin": 3,
+   "repos": [
+    "Broken",
+    "caldea"
+   ]
+  },
+  "2026-08-29": {
+   "sessions": 4,
+   "prompts": 1,
+   "toolCalls": 0,
+   "commits": 3,
+   "interruptions": 0,
+   "durMin": 0,
+   "repos": [
+    "caldea"
+   ]
+  },
+  "2026-08-30": {
+   "sessions": 1,
+   "prompts": 1,
+   "toolCalls": 26,
+   "commits": 1,
+   "interruptions": 0,
+   "durMin": 84,
+   "repos": [
+    "scriptorium-setup"
+   ]
+  },
+  "2026-08-31": {
+   "sessions": 143,
+   "prompts": 98,
+   "toolCalls": 4859,
+   "commits": 79,
+   "interruptions": 5,
+   "durMin": 4271,
+   "repos": [
+    "Broken",
+    "caldea",
+    "gallerysonder",
+    "reddoor-maintenance",
+    "reddoor-website",
+    "songbook"
+   ]
+  },
+  "2026-09-01": {
+   "sessions": 186,
+   "prompts": 252,
+   "toolCalls": 5773,
+   "commits": 106,
+   "interruptions": 2,
+   "durMin": 5162,
+   "repos": [
+    "Broken",
+    "batch-0901",
+    "beachfront-dentistry",
+    "caldea",
+    "gallerysonder",
+    "reddoor-maintenance",
+    "reddoor-starter",
+    "reddoor-website",
+    "revogen",
+    "vida-legacy-foundation",
+    "vlf"
+   ]
+  },
+  "2026-09-02": {
+   "sessions": 210,
+   "prompts": 250,
+   "toolCalls": 11146,
+   "commits": 114,
+   "interruptions": 12,
+   "durMin": 4751,
+   "repos": [
+    "Broken",
+    "beachfront-dentistry",
+    "caldea",
+    "gallerysonder",
+    "reddoor-website",
+    "revogen",
+    "vida-legacy-foundation"
+   ]
+  },
+  "2026-09-03": {
+   "sessions": 239,
+   "prompts": 223,
+   "toolCalls": 7442,
+   "commits": 85,
+   "interruptions": 7,
+   "durMin": 4296,
+   "repos": [
+    "Broken",
+    "a-budget",
+    "caldea",
+    "gallerysonder",
+    "reddoor-website",
+    "scratchpad",
+    "vida-legacy-foundation"
+   ]
+  },
+  "2026-09-04": {
+   "sessions": 169,
+   "prompts": 142,
+   "toolCalls": 3325,
+   "commits": 55,
+   "interruptions": 0,
+   "durMin": 1917,
+   "repos": [
+    "Broken",
+    "octagonal-led-turn-counter",
+    "reddoor-website",
+    "vida-legacy-foundation"
+   ]
+  },
+  "2026-09-05": {
+   "sessions": 357,
+   "prompts": 156,
+   "toolCalls": 6734,
+   "commits": 177,
+   "interruptions": 51,
+   "durMin": 2478,
+   "repos": [
+    "caldea",
+    "invitations",
+    "reddoor-website",
+    "the-bench",
+    "vida-legacy-foundation",
+    "welcome-to-the-flower-court"
+   ]
+  },
+  "2026-09-06": {
+   "sessions": 196,
+   "prompts": 49,
+   "toolCalls": 2964,
+   "commits": 38,
+   "interruptions": 16,
+   "durMin": 2290,
+   "repos": [
+    "reddoor-website",
+    "scriptorium-setup",
+    "welcome-to-the-flower-court"
+   ]
+  },
+  "2026-09-07": {
+   "sessions": 25,
+   "prompts": 33,
+   "toolCalls": 41,
+   "commits": 39,
+   "interruptions": 0,
+   "durMin": 233,
+   "repos": [
+    "welcome-to-the-flower-court"
+   ]
+  },
+  "2026-09-08": {
+   "sessions": 75,
+   "prompts": 99,
+   "toolCalls": 5598,
+   "commits": 82,
+   "interruptions": 5,
+   "durMin": 5071,
+   "repos": [
+    "Broken",
+    "caldea",
+    "reddoor-maintenance",
+    "reddoor-starter",
+    "reddoor-website",
+    "vida-legacy-foundation"
+   ]
+  },
+  "2026-09-09": {
+   "sessions": 81,
+   "prompts": 260,
+   "toolCalls": 6930,
+   "commits": 66,
+   "interruptions": 1,
+   "durMin": 2553,
+   "repos": [
+    "29-navy",
+    "caldea",
+    "reddoor-maintenance",
+    "reddoor-website"
+   ]
+  },
+  "2026-09-10": {
+   "sessions": 75,
+   "prompts": 235,
+   "toolCalls": 4123,
+   "commits": 70,
+   "interruptions": 2,
+   "durMin": 5503,
+   "repos": [
+    "29-navy",
+    "caldea",
+    "gallerysonder",
+    "reddoor-maintenance",
+    "reddoor-website",
+    "songbook",
+    "vida-legacy-foundation"
+   ]
+  },
+  "2026-09-11": {
+   "sessions": 13,
+   "prompts": 44,
+   "toolCalls": 353,
+   "commits": 38,
+   "interruptions": 1,
+   "durMin": 230,
+   "repos": [
+    "29-navy",
+    "reddoor-maintenance"
+   ]
+  },
+  "2026-09-12": {
+   "sessions": 28,
+   "prompts": 19,
+   "toolCalls": 372,
+   "commits": 11,
+   "interruptions": 0,
+   "durMin": 1679,
+   "repos": [
+    "29-navy",
+    "caldea",
+    "reddoor-maintenance",
+    "vida-legacy-foundation"
+   ]
+  }
+ },
+ "byRepo": {
+  "reddoor-website": {
+   "sessions": 701,
+   "prompts": 1395,
+   "toolCalls": 36914,
+   "commits": 254,
+   "interruptions": 55,
+   "durMin": 14343,
+   "activeDays": 22,
+   "firstDay": "2026-08-11",
+   "lastDay": "2026-09-10",
+   "topTools": [
+    [
+     "Bash",
+     24471
+    ],
+    [
+     "Edit",
+     3394
+    ],
+    [
+     "Read",
+     3185
+    ],
+    [
+     "Write",
+     1488
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     956
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     546
+    ],
+    [
+     "Agent",
+     362
+    ],
+    [
+     "ToolSearch",
+     350
+    ]
+   ],
+   "skills": [
+    [
+     "figma:figma-design-to-code",
+     23
+    ],
+    [
+     "artifact-design",
+     14
+    ],
+    [
+     "superpowers-chrome:browsing",
+     11
+    ],
+    [
+     "superpowers:brainstorming",
+     10
+    ],
+    [
+     "superpowers:writing-plans",
+     10
+    ],
+    [
+     "claude-api",
+     10
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     7
+    ],
+    [
+     "evening-review",
+     6
+    ],
+    [
+     "figma-slices",
+     5
+    ],
+    [
+     "superpowers:using-git-worktrees",
+     2
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     225
+    ],
+    [
+     "superpowers:code-reviewer",
+     125
+    ],
+    [
+     "Explore",
+     7
+    ],
+    [
+     "episodic-memory:search-conversations",
+     4
+    ],
+    [
+     "claude-code-guide",
+     1
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-fable-5-1",
+     171
+    ],
+    [
+     "<synthetic>",
+     156
+    ],
+    [
+     "claude-opus-5",
+     130
+    ],
+    [
+     "claude-fable-5",
+     127
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     59
+    ]
+   ],
+   "prs": 65,
+   "botPrs": 11
+  },
+  "Broken": {
+   "sessions": 642,
+   "prompts": 1610,
+   "toolCalls": 43102,
+   "commits": 359,
+   "interruptions": 63,
+   "durMin": 9144,
+   "activeDays": 14,
+   "firstDay": "2026-08-16",
+   "lastDay": "2026-09-08",
+   "topTools": [
+    [
+     "Bash",
+     32586
+    ],
+    [
+     "Read",
+     4181
+    ],
+    [
+     "Edit",
+     2765
+    ],
+    [
+     "Write",
+     551
+    ],
+    [
+     "StructuredOutput",
+     398
+    ],
+    [
+     "SendUserFile",
+     396
+    ],
+    [
+     "Agent",
+     324
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     299
+    ]
+   ],
+   "skills": [
+    [
+     "artifact-design",
+     20
+    ],
+    [
+     "superpowers:brainstorming",
+     12
+    ],
+    [
+     "evening-review",
+     11
+    ],
+    [
+     "superpowers:writing-plans",
+     9
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     9
+    ],
+    [
+     "superpowers:test-driven-development",
+     8
+    ],
+    [
+     "run",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     264
+    ],
+    [
+     "superpowers:code-reviewer",
+     45
+    ],
+    [
+     "Explore",
+     12
+    ],
+    [
+     "Apply anatomy audit fixes",
+     1
+    ],
+    [
+     "Apply cellRunModel audit fixes",
+     1
+    ],
+    [
+     "Apply remaining doc audit fixes",
+     1
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     285
+    ],
+    [
+     "claude-fable-5",
+     116
+    ],
+    [
+     "claude-fable-5-1",
+     100
+    ],
+    [
+     "<synthetic>",
+     73
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     35
+    ]
+   ],
+   "prs": 2,
+   "botPrs": 0
+  },
+  "vida-legacy-foundation": {
+   "sessions": 452,
+   "prompts": 250,
+   "toolCalls": 17246,
+   "commits": 100,
+   "interruptions": 56,
+   "durMin": 7534,
+   "activeDays": 8,
+   "firstDay": "2026-09-01",
+   "lastDay": "2026-09-12",
+   "topTools": [
+    [
+     "Bash",
+     14102
+    ],
+    [
+     "Read",
+     958
+    ],
+    [
+     "StructuredOutput",
+     355
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     307
+    ],
+    [
+     "Edit",
+     162
+    ],
+    [
+     "ToolSearch",
+     160
+    ],
+    [
+     "WebSearch",
+     114
+    ],
+    [
+     "Write",
+     94
+    ]
+   ],
+   "skills": [
+    [
+     "figma-slices",
+     7
+    ],
+    [
+     "figma:figma-design-to-code",
+     7
+    ],
+    [
+     "superpowers:test-driven-development",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "Explore",
+     7
+    ],
+    [
+     "episodic-memory:search-conversations",
+     6
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     382
+    ],
+    [
+     "<synthetic>",
+     26
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     24
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     22
+    ],
+    [
+     "claude-fable-5-1",
+     4
+    ]
+   ],
+   "prs": 64,
+   "botPrs": 3
+  },
+  "songbook": {
+   "sessions": 342,
+   "prompts": 219,
+   "toolCalls": 8962,
+   "commits": 117,
+   "interruptions": 1,
+   "durMin": 5363,
+   "activeDays": 5,
+   "firstDay": "2026-08-24",
+   "lastDay": "2026-09-10",
+   "topTools": [
+    [
+     "Bash",
+     5325
+    ],
+    [
+     "Read",
+     1013
+    ],
+    [
+     "Edit",
+     947
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     675
+    ],
+    [
+     "Write",
+     371
+    ],
+    [
+     "StructuredOutput",
+     311
+    ],
+    [
+     "AskUserQuestion",
+     74
+    ],
+    [
+     "Agent",
+     72
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:brainstorming",
+     5
+    ],
+    [
+     "superpowers:writing-plans",
+     4
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     4
+    ],
+    [
+     "superpowers:test-driven-development",
+     3
+    ],
+    [
+     "superpowers:systematic-debugging",
+     2
+    ],
+    [
+     "artifact-design",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     68
+    ],
+    [
+     "superpowers:code-reviewer",
+     4
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     253
+    ],
+    [
+     "claude-fable-5",
+     55
+    ],
+    [
+     "claude-sonnet-5",
+     18
+    ],
+    [
+     "<synthetic>",
+     10
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     8
+    ]
+   ],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "reddoor-maintenance": {
+   "sessions": 334,
+   "prompts": 497,
+   "toolCalls": 18846,
+   "commits": 413,
+   "interruptions": 6,
+   "durMin": 14407,
+   "activeDays": 16,
+   "firstDay": "2026-08-12",
+   "lastDay": "2026-09-12",
+   "topTools": [
+    [
+     "Bash",
+     13479
+    ],
+    [
+     "Edit",
+     1815
+    ],
+    [
+     "Read",
+     1362
+    ],
+    [
+     "Write",
+     666
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     548
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+     212
+    ],
+    [
+     "Agent",
+     146
+    ],
+    [
+     "ToolSearch",
+     128
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:test-driven-development",
+     7
+    ],
+    [
+     "superpowers:brainstorming",
+     4
+    ],
+    [
+     "superpowers:writing-plans",
+     4
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     4
+    ],
+    [
+     "superpowers:systematic-debugging",
+     2
+    ],
+    [
+     "evening-review",
+     2
+    ],
+    [
+     "code-review",
+     1
+    ],
+    [
+     "figma:figma-design-to-code",
+     1
+    ],
+    [
+     "figma:figma-use",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     112
+    ],
+    [
+     "superpowers:code-reviewer",
+     26
+    ],
+    [
+     "Explore",
+     7
+    ],
+    [
+     "episodic-memory:search-conversations",
+     1
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     212
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     49
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     45
+    ],
+    [
+     "claude-fable-5",
+     19
+    ],
+    [
+     "<synthetic>",
+     10
+    ]
+   ],
+   "prs": 219,
+   "botPrs": 37
+  },
+  "caldea": {
+   "sessions": 222,
+   "prompts": 117,
+   "toolCalls": 913,
+   "commits": 56,
+   "interruptions": 0,
+   "durMin": 3275,
+   "activeDays": 16,
+   "firstDay": "2026-08-17",
+   "lastDay": "2026-09-12",
+   "topTools": [
+    [
+     "Bash",
+     685
+    ],
+    [
+     "Edit",
+     89
+    ],
+    [
+     "Read",
+     60
+    ],
+    [
+     "Glob",
+     40
+    ],
+    [
+     "StructuredOutput",
+     16
+    ],
+    [
+     "Write",
+     10
+    ],
+    [
+     "AskUserQuestion",
+     5
+    ],
+    [
+     "Workflow",
+     2
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:systematic-debugging",
+     1
+    ],
+    [
+     "superpowers:test-driven-development",
+     1
+    ]
+   ],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     91
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     82
+    ],
+    [
+     "claude-fable-5",
+     18
+    ],
+    [
+     "claude-opus-5",
+     9
+    ],
+    [
+     "claude-sonnet-5",
+     3
+    ]
+   ],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "octagonal-led-turn-counter": {
+   "sessions": 104,
+   "prompts": 84,
+   "toolCalls": 1949,
+   "commits": 0,
+   "interruptions": 2,
+   "durMin": 3051,
+   "activeDays": 3,
+   "firstDay": "2026-08-15",
+   "lastDay": "2026-09-04",
+   "topTools": [
+    [
+     "Bash",
+     1043
+    ],
+    [
+     "Edit",
+     371
+    ],
+    [
+     "Read",
+     315
+    ],
+    [
+     "StructuredOutput",
+     81
+    ],
+    [
+     "Write",
+     51
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     27
+    ],
+    [
+     "Skill",
+     15
+    ],
+    [
+     "AskUserQuestion",
+     12
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:brainstorming",
+     7
+    ],
+    [
+     "superpowers:writing-plans",
+     5
+    ],
+    [
+     "superpowers:executing-plans",
+     2
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     10
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-fable-5",
+     74
+    ],
+    [
+     "claude-opus-5",
+     23
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     4
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     4
+    ],
+    [
+     "<synthetic>",
+     1
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "beachfront-dentistry": {
+   "sessions": 95,
+   "prompts": 506,
+   "toolCalls": 7980,
+   "commits": 249,
+   "interruptions": 5,
+   "durMin": 4195,
+   "activeDays": 7,
+   "firstDay": "2026-08-10",
+   "lastDay": "2026-09-02",
+   "topTools": [
+    [
+     "Bash",
+     4245
+    ],
+    [
+     "Edit",
+     1139
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     677
+    ],
+    [
+     "Read",
+     641
+    ],
+    [
+     "Write",
+     337
+    ],
+    [
+     "TodoWrite",
+     231
+    ],
+    [
+     "Agent",
+     150
+    ],
+    [
+     "SendMessage",
+     96
+    ]
+   ],
+   "skills": [
+    [
+     "markup-review",
+     6
+    ],
+    [
+     "superpowers:brainstorming",
+     6
+    ],
+    [
+     "new-site",
+     5
+    ],
+    [
+     "superpowers:writing-plans",
+     5
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     5
+    ],
+    [
+     "superpowers:finishing-a-development-branch",
+     4
+    ],
+    [
+     "superpowers:systematic-debugging",
+     2
+    ],
+    [
+     "figma:figma-use",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     133
+    ],
+    [
+     "superpowers:code-reviewer",
+     9
+    ],
+    [
+     "episodic-memory:search-conversations",
+     8
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-fable-5",
+     34
+    ],
+    [
+     "claude-opus-5",
+     21
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     20
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     15
+    ],
+    [
+     "<synthetic>",
+     5
+    ]
+   ],
+   "prs": 45,
+   "botPrs": 11
+  },
+  "dont-lose-your-head": {
+   "sessions": 94,
+   "prompts": 324,
+   "toolCalls": 4082,
+   "commits": 178,
+   "interruptions": 5,
+   "durMin": 1902,
+   "activeDays": 3,
+   "firstDay": "2026-08-21",
+   "lastDay": "2026-08-23",
+   "topTools": [
+    [
+     "Bash",
+     3269
+    ],
+    [
+     "Read",
+     371
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     85
+    ],
+    [
+     "StructuredOutput",
+     74
+    ],
+    [
+     "WebFetch",
+     67
+    ],
+    [
+     "ToolSearch",
+     42
+    ],
+    [
+     "AskUserQuestion",
+     38
+    ],
+    [
+     "Workflow",
+     33
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:brainstorming",
+     5
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     15
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-fable-5",
+     57
+    ],
+    [
+     "claude-opus-5",
+     26
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     6
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     6
+    ],
+    [
+     "<synthetic>",
+     1
+    ]
+   ],
+   "prs": 64,
+   "botPrs": 0
+  },
+  "reddoor-starter": {
+   "sessions": 90,
+   "prompts": 86,
+   "toolCalls": 3968,
+   "commits": 44,
+   "interruptions": 3,
+   "durMin": 2803,
+   "activeDays": 2,
+   "firstDay": "2026-09-01",
+   "lastDay": "2026-09-08",
+   "topTools": [
+    [
+     "Bash",
+     2871
+    ],
+    [
+     "Edit",
+     313
+    ],
+    [
+     "Read",
+     278
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     117
+    ],
+    [
+     "Agent",
+     69
+    ],
+    [
+     "TaskOutput",
+     63
+    ],
+    [
+     "Write",
+     56
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+     56
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:writing-plans",
+     4
+    ],
+    [
+     "superpowers:brainstorming",
+     3
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     3
+    ],
+    [
+     "new-site",
+     3
+    ],
+    [
+     "superpowers:test-driven-development",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     53
+    ],
+    [
+     "superpowers:code-reviewer",
+     14
+    ],
+    [
+     "Explore",
+     2
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     29
+    ],
+    [
+     "claude-fable-5-1",
+     28
+    ],
+    [
+     "claude-sonnet-5",
+     21
+    ],
+    [
+     "<synthetic>",
+     11
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     7
+    ]
+   ],
+   "prs": 29,
+   "botPrs": 10
+  },
+  "29-navy": {
+   "sessions": 85,
+   "prompts": 287,
+   "toolCalls": 8730,
+   "commits": 66,
+   "interruptions": 1,
+   "durMin": 3153,
+   "activeDays": 4,
+   "firstDay": "2026-09-09",
+   "lastDay": "2026-09-12",
+   "topTools": [
+    [
+     "Bash",
+     7991
+    ],
+    [
+     "Agent",
+     154
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     126
+    ],
+    [
+     "SendMessage",
+     75
+    ],
+    [
+     "Edit",
+     67
+    ],
+    [
+     "ToolSearch",
+     49
+    ],
+    [
+     "StructuredOutput",
+     48
+    ],
+    [
+     "mcp__claude_ai_Prisimic__search_documents",
+     41
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:subagent-driven-development",
+     5
+    ],
+    [
+     "code-review",
+     5
+    ],
+    [
+     "superpowers:verification-before-completion",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     134
+    ],
+    [
+     "superpowers:code-reviewer",
+     20
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     85
+    ]
+   ],
+   "prs": 23,
+   "botPrs": 2
+  },
+  "scriptorium-setup": {
+   "sessions": 75,
+   "prompts": 69,
+   "toolCalls": 1033,
+   "commits": 89,
+   "interruptions": 2,
+   "durMin": 2345,
+   "activeDays": 6,
+   "firstDay": "2026-08-16",
+   "lastDay": "2026-09-06",
+   "topTools": [
+    [
+     "Bash",
+     723
+    ],
+    [
+     "Read",
+     124
+    ],
+    [
+     "Edit",
+     119
+    ],
+    [
+     "Agent",
+     14
+    ],
+    [
+     "Write",
+     9
+    ],
+    [
+     "ToolSearch",
+     9
+    ],
+    [
+     "SendMessage",
+     9
+    ],
+    [
+     "Glob",
+     7
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:systematic-debugging",
+     2
+    ],
+    [
+     "superpowers:brainstorming",
+     1
+    ],
+    [
+     "superpowers:writing-plans",
+     1
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     13
+    ],
+    [
+     "superpowers:code-reviewer",
+     1
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     26
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     26
+    ],
+    [
+     "claude-sonnet-5",
+     12
+    ],
+    [
+     "claude-opus-5",
+     6
+    ],
+    [
+     "claude-fable-5",
+     5
+    ]
+   ],
+   "prs": 2,
+   "botPrs": 0
+  },
+  "welcome-to-the-flower-court": {
+   "sessions": 62,
+   "prompts": 83,
+   "toolCalls": 1118,
+   "commits": 75,
+   "interruptions": 1,
+   "durMin": 1552,
+   "activeDays": 3,
+   "firstDay": "2026-09-05",
+   "lastDay": "2026-09-07",
+   "topTools": [
+    [
+     "Bash",
+     768
+    ],
+    [
+     "Read",
+     127
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     55
+    ],
+    [
+     "Edit",
+     47
+    ],
+    [
+     "Write",
+     22
+    ],
+    [
+     "Agent",
+     18
+    ],
+    [
+     "ToolSearch",
+     14
+    ],
+    [
+     "AskUserQuestion",
+     13
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:brainstorming",
+     3
+    ],
+    [
+     "superpowers:writing-plans",
+     2
+    ],
+    [
+     "superpowers:subagent-driven-development",
+     1
+    ],
+    [
+     "design",
+     1
+    ],
+    [
+     "artifact-capabilities",
+     1
+    ],
+    [
+     "superpowers:executing-plans",
+     1
+    ],
+    [
+     "superpowers:finishing-a-development-branch",
+     1
+    ],
+    [
+     "artifact-design",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "general-purpose",
+     13
+    ],
+    [
+     "superpowers:code-reviewer",
+     5
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     18
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     18
+    ],
+    [
+     "claude-opus-5",
+     15
+    ],
+    [
+     "claude-fable-5-1",
+     5
+    ],
+    [
+     "<synthetic>",
+     3
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "the-bench": {
+   "sessions": 49,
+   "prompts": 16,
+   "toolCalls": 71,
+   "commits": 55,
+   "interruptions": 0,
+   "durMin": 103,
+   "activeDays": 1,
+   "firstDay": "2026-09-05",
+   "lastDay": "2026-09-05",
+   "topTools": [
+    [
+     "Bash",
+     59
+    ],
+    [
+     "Glob",
+     7
+    ],
+    [
+     "Edit",
+     3
+    ],
+    [
+     "AskUserQuestion",
+     1
+    ],
+    [
+     "Write",
+     1
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     24
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     22
+    ],
+    [
+     "claude-opus-5",
+     1
+    ]
+   ],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "gallerysonder": {
+   "sessions": 27,
+   "prompts": 104,
+   "toolCalls": 1021,
+   "commits": 53,
+   "interruptions": 3,
+   "durMin": 2767,
+   "activeDays": 5,
+   "firstDay": "2026-08-31",
+   "lastDay": "2026-09-10",
+   "topTools": [
+    [
+     "Bash",
+     665
+    ],
+    [
+     "Read",
+     116
+    ],
+    [
+     "Edit",
+     51
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     33
+    ],
+    [
+     "Write",
+     32
+    ],
+    [
+     "ToolSearch",
+     23
+    ],
+    [
+     "mcp__claude_ai_Gmail__search_threads",
+     20
+    ],
+    [
+     "mcp__claude_ai_Gmail__get_thread",
+     11
+    ]
+   ],
+   "skills": [
+    [
+     "workflow-authoring",
+     1
+    ],
+    [
+     "superpowers:brainstorming",
+     1
+    ],
+    [
+     "superpowers:using-git-worktrees",
+     1
+    ],
+    [
+     "superpowers:writing-plans",
+     1
+    ]
+   ],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     8
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     8
+    ],
+    [
+     "claude-fable-5",
+     6
+    ],
+    [
+     "claude-opus-5",
+     4
+    ],
+    [
+     "claude-sonnet-5",
+     1
+    ]
+   ],
+   "prs": 40,
+   "botPrs": 13
+  },
+  "invitations": {
+   "sessions": 26,
+   "prompts": 8,
+   "toolCalls": 797,
+   "commits": 0,
+   "interruptions": 8,
+   "durMin": 315,
+   "activeDays": 1,
+   "firstDay": "2026-09-05",
+   "lastDay": "2026-09-05",
+   "topTools": [
+    [
+     "Bash",
+     564
+    ],
+    [
+     "WebSearch",
+     76
+    ],
+    [
+     "WebFetch",
+     42
+    ],
+    [
+     "Read",
+     24
+    ],
+    [
+     "Edit",
+     22
+    ],
+    [
+     "Write",
+     15
+    ],
+    [
+     "StructuredOutput",
+     13
+    ],
+    [
+     "mcp__plugin_episodic-memory_episodic-memory__search",
+     9
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:brainstorming",
+     1
+    ],
+    [
+     "artifact-design",
+     1
+    ]
+   ],
+   "subagents": [
+    [
+     "episodic-memory:search-conversations",
+     1
+    ]
+   ],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     19
+    ],
+    [
+     "claude-haiku-4-5-20251001",
+     3
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     1
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "scratchpad": {
+   "sessions": 22,
+   "prompts": 0,
+   "toolCalls": 771,
+   "commits": 0,
+   "interruptions": 0,
+   "durMin": 216,
+   "activeDays": 3,
+   "firstDay": "2026-08-13",
+   "lastDay": "2026-09-03",
+   "topTools": [
+    [
+     "Bash",
+     628
+    ],
+    [
+     "Read",
+     87
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     31
+    ],
+    [
+     "StructuredOutput",
+     15
+    ],
+    [
+     "Write",
+     7
+    ],
+    [
+     "ToolSearch",
+     2
+    ],
+    [
+     "WebFetch",
+     1
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     22
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "batch-0901": {
+   "sessions": 18,
+   "prompts": 0,
+   "toolCalls": 392,
+   "commits": 0,
+   "interruptions": 0,
+   "durMin": 71,
+   "activeDays": 1,
+   "firstDay": "2026-09-01",
+   "lastDay": "2026-09-01",
+   "topTools": [
+    [
+     "Bash",
+     296
+    ],
+    [
+     "Read",
+     62
+    ],
+    [
+     "StructuredOutput",
+     18
+    ],
+    [
+     "Write",
+     11
+    ],
+    [
+     "Edit",
+     5
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-fable-5",
+     18
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "revogen": {
+   "sessions": 14,
+   "prompts": 31,
+   "toolCalls": 682,
+   "commits": 34,
+   "interruptions": 0,
+   "durMin": 866,
+   "activeDays": 2,
+   "firstDay": "2026-09-01",
+   "lastDay": "2026-09-02",
+   "topTools": [
+    [
+     "Bash",
+     585
+    ],
+    [
+     "Edit",
+     26
+    ],
+    [
+     "mcp__plugin_context-mode_context-mode__ctx_execute",
+     22
+    ],
+    [
+     "Write",
+     14
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     12
+    ],
+    [
+     "Read",
+     6
+    ],
+    [
+     "ToolSearch",
+     5
+    ],
+    [
+     "Monitor",
+     5
+    ]
+   ],
+   "skills": [
+    [
+     "superpowers:systematic-debugging",
+     2
+    ]
+   ],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     5
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     4
+    ],
+    [
+     "claude-opus-5",
+     1
+    ],
+    [
+     "claude-fable-5-1",
+     1
+    ]
+   ],
+   "prs": 28,
+   "botPrs": 13
+  },
+  "a-budget": {
+   "sessions": 7,
+   "prompts": 6,
+   "toolCalls": 97,
+   "commits": 3,
+   "interruptions": 1,
+   "durMin": 47,
+   "activeDays": 2,
+   "firstDay": "2026-08-14",
+   "lastDay": "2026-09-03",
+   "topTools": [
+    [
+     "Bash",
+     61
+    ],
+    [
+     "Read",
+     19
+    ],
+    [
+     "Glob",
+     7
+    ],
+    [
+     "Write",
+     4
+    ],
+    [
+     "Grep",
+     2
+    ],
+    [
+     "Edit",
+     2
+    ],
+    [
+     "AskUserQuestion",
+     1
+    ],
+    [
+     "Task",
+     1
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-haiku-4-5-20251001",
+     3
+    ],
+    [
+     "claude-opus-4-5-20251101",
+     2
+    ],
+    [
+     "claude-opus-5",
+     2
+    ]
+   ],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "specs": {
+   "sessions": 6,
+   "prompts": 0,
+   "toolCalls": 416,
+   "commits": 0,
+   "interruptions": 0,
+   "durMin": 85,
+   "activeDays": 1,
+   "firstDay": "2026-08-12",
+   "lastDay": "2026-08-12",
+   "topTools": [
+    [
+     "Bash",
+     246
+    ],
+    [
+     "Read",
+     94
+    ],
+    [
+     "Write",
+     31
+    ],
+    [
+     "Edit",
+     26
+    ],
+    [
+     "mcp__plugin_superpowers-chrome_chrome__use_browser",
+     10
+    ],
+    [
+     "StructuredOutput",
+     6
+    ],
+    [
+     "ToolSearch",
+     2
+    ],
+    [
+     "mcp__figma__download_assets",
+     1
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-opus-5",
+     6
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "vlf": {
+   "sessions": 1,
+   "prompts": 0,
+   "toolCalls": 18,
+   "commits": 0,
+   "interruptions": 0,
+   "durMin": 4,
+   "activeDays": 1,
+   "firstDay": "2026-09-01",
+   "lastDay": "2026-09-01",
+   "topTools": [
+    [
+     "Bash",
+     13
+    ],
+    [
+     "Write",
+     3
+    ],
+    [
+     "ToolSearch",
+     1
+    ],
+    [
+     "Read",
+     1
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-sonnet-5",
+     1
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "tmp": {
+   "sessions": 1,
+   "prompts": 0,
+   "toolCalls": 155,
+   "commits": 0,
+   "interruptions": 0,
+   "durMin": 21,
+   "activeDays": 1,
+   "firstDay": "2026-08-25",
+   "lastDay": "2026-08-25",
+   "topTools": [
+    [
+     "Bash",
+     72
+    ],
+    [
+     "Read",
+     42
+    ],
+    [
+     "Edit",
+     38
+    ],
+    [
+     "Write",
+     3
+    ]
+   ],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [
+    [
+     "claude-sonnet-5",
+     1
+    ]
+   ],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "1836dig": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 24,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 16,
+   "botPrs": 8
+  },
+  "alamo-anatomy": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 23,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 21,
+   "botPrs": 13
+  },
+  "caltex-landing": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 21,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 22,
+   "botPrs": 10
+  },
+  "canvas-starter": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 19,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 18,
+   "botPrs": 12
+  },
+  "claude-skills": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 52,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 2,
+   "botPrs": 0
+  },
+  "data-dynamiq": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 18,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 14,
+   "botPrs": 8
+  },
+  "erp-industrial": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 21,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 19,
+   "botPrs": 10
+  },
+  "espada": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 28,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "hedloc": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 25,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "la-homelessness-initiative": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 16,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 14,
+   "botPrs": 8
+  },
+  "la-homelessness-youth": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 14,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 13,
+   "botPrs": 7
+  },
+  "medical-solutions-of-texas": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 21,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 19,
+   "botPrs": 11
+  },
+  "reddoor-mailer": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 2,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "reddoor-md-pdf": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 12,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 5,
+   "botPrs": 2
+  },
+  "reddoor-rfp-analyses": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 3,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "reddoor-starter-blux": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 25,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 9,
+   "botPrs": 3
+  },
+  "reddoorla-dot-github": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 26,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 22,
+   "botPrs": 4
+  },
+  "rfp-analyze": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 4,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 0,
+   "botPrs": 0
+  },
+  "songbook-content": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 27,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "the-pointe-burbank": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 40,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 28,
+   "botPrs": 11
+  },
+  "the-pointe": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 6,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 3,
+   "botPrs": 0
+  },
+  "the-tower-burbank": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 19,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 19,
+   "botPrs": 13
+  },
+  "to-go": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 4,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "ulti-grid": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 6,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 1,
+   "botPrs": 0
+  },
+  "vineyard-custom-homes": {
+   "sessions": 0,
+   "prompts": 0,
+   "toolCalls": 0,
+   "commits": 21,
+   "interruptions": 0,
+   "durMin": 0,
+   "activeDays": 0,
+   "firstDay": null,
+   "lastDay": null,
+   "topTools": [],
+   "skills": [],
+   "subagents": [],
+   "slash": [],
+   "models": [],
+   "prs": 24,
+   "botPrs": 12
+  }
+ },
+ "totals": {
+  "tools": [
+   [
+    "Bash",
+    114747
+   ],
+   [
+    "Read",
+    13101
+   ],
+   [
+    "Edit",
+    11401
+   ],
+   [
+    "Write",
+    3822
+   ],
+   [
+    "mcp__plugin_context-mode_context-mode__ctx_execute",
+    3119
+   ],
+   [
+    "StructuredOutput",
+    1854
+   ],
+   [
+    "mcp__plugin_superpowers-chrome_chrome__use_browser",
+    1774
+   ],
+   [
+    "Agent",
+    1348
+   ],
+   [
+    "ToolSearch",
+    1084
+   ],
+   [
+    "WebSearch",
+    727
+   ],
+   [
+    "AskUserQuestion",
+    653
+   ],
+   [
+    "WebFetch",
+    547
+   ],
+   [
+    "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+    541
+   ],
+   [
+    "SendUserFile",
+    525
+   ],
+   [
+    "TodoWrite",
+    352
+   ],
+   [
+    "SendMessage",
+    349
+   ],
+   [
+    "Skill",
+    336
+   ],
+   [
+    "Artifact",
+    268
+   ],
+   [
+    "Workflow",
+    260
+   ],
+   [
+    "mcp__figma__get_screenshot",
+    196
+   ],
+   [
+    "Glob",
+    160
+   ],
+   [
+    "TaskOutput",
+    156
+   ],
+   [
+    "mcp__plugin_context-mode_context-mode__ctx_search",
+    133
+   ],
+   [
+    "mcp__figma__get_metadata",
+    133
+   ],
+   [
+    "mcp__claude_ai_Prisimic__get_document",
+    131
+   ],
+   [
+    "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+    119
+   ],
+   [
+    "mcp__plugin_episodic-memory_episodic-memory__search",
+    112
+   ],
+   [
+    "Monitor",
+    102
+   ],
+   [
+    "TaskStop",
+    97
+   ],
+   [
+    "mcp__figma__get_design_context",
+    95
+   ],
+   [
+    "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+    94
+   ],
+   [
+    "mcp__claude_ai_Prisimic__search_documents",
+    88
+   ],
+   [
+    "mcp__claude_ai_Prisimic__update_document",
+    85
+   ],
+   [
+    "mcp__claude_ai_Prisimic__upload_asset",
+    79
+   ],
+   [
+    "mcp__claude_ai_Gmail__search_threads",
+    77
+   ],
+   [
+    "mcp__claude_ai_Prisimic__list_releases",
+    41
+   ],
+   [
+    "mcp__claude_ai_Prisimic__create_document",
+    40
+   ],
+   [
+    "mcp__claude_ai_Prisimic__create_release",
+    39
+   ],
+   [
+    "mcp__claude_ai_Gmail__get_thread",
+    36
+   ],
+   [
+    "mcp__figma__download_assets",
+    32
+   ],
+   [
+    "PushNotification",
+    31
+   ],
+   [
+    "mcp__claude_ai_Gmail__get_message",
+    28
+   ],
+   [
+    "mcp__figma__get_variable_defs",
+    28
+   ],
+   [
+    "mcp__plugin_episodic-memory_episodic-memory__read",
+    27
+   ],
+   [
+    "mcp__claude_ai_Google_Drive__search_files",
+    26
+   ],
+   [
+    "ListAgents",
+    25
+   ],
+   [
+    "mcp__claude_ai_Google_Drive__read_file_content",
+    23
+   ],
+   [
+    "mcp__claude_ai_Prisimic__search_assets",
+    21
+   ],
+   [
+    "mcp__claude_ai_Prisimic__get_field_shapes",
+    16
+   ],
+   [
+    "mcp__claude_ai_Prisimic__list_repositories",
+    14
+   ],
+   [
+    "mcp__claude_ai_Prisimic__list_custom_types",
+    14
+   ],
+   [
+    "mcp__claude_ai_Prisimic__get_custom_type",
+    14
+   ],
+   [
+    "mcp__airtable__list_records",
+    13
+   ],
+   [
+    "mcp__claude_ai_Prisimic__get_shared_slice",
+    12
+   ],
+   [
+    "mcp__claude_ai_Prisimic__list_shared_slices",
+    10
+   ],
+   [
+    "mcp__figma__use_figma",
+    9
+   ],
+   [
+    "Grep",
+    8
+   ],
+   [
+    "mcp__airtable__describe_table",
+    8
+   ],
+   [
+    "ExitWorktree",
+    8
+   ],
+   [
+    "Task",
+    7
+   ]
+  ],
+  "skills": [
+   [
+    "superpowers:brainstorming",
+    58
+   ],
+   [
+    "superpowers:writing-plans",
+    45
+   ],
+   [
+    "superpowers:subagent-driven-development",
+    40
+   ],
+   [
+    "artifact-design",
+    37
+   ],
+   [
+    "figma:figma-design-to-code",
+    31
+   ],
+   [
+    "superpowers:test-driven-development",
+    22
+   ],
+   [
+    "evening-review",
+    19
+   ],
+   [
+    "superpowers:systematic-debugging",
+    12
+   ],
+   [
+    "figma-slices",
+    12
+   ],
+   [
+    "superpowers-chrome:browsing",
+    11
+   ],
+   [
+    "claude-api",
+    10
+   ],
+   [
+    "new-site",
+    8
+   ],
+   [
+    "code-review",
+    6
+   ],
+   [
+    "markup-review",
+    6
+   ],
+   [
+    "superpowers:finishing-a-development-branch",
+    5
+   ],
+   [
+    "superpowers:executing-plans",
+    4
+   ],
+   [
+    "superpowers:using-git-worktrees",
+    3
+   ],
+   [
+    "figma:figma-use",
+    2
+   ],
+   [
+    "superpowers:verification-before-completion",
+    1
+   ],
+   [
+    "run",
+    1
+   ],
+   [
+    "workflow-authoring",
+    1
+   ],
+   [
+    "design",
+    1
+   ],
+   [
+    "artifact-capabilities",
+    1
+   ]
+  ],
+  "subagents": [
+   [
+    "general-purpose",
+    1040
+   ],
+   [
+    "superpowers:code-reviewer",
+    249
+   ],
+   [
+    "Explore",
+    35
+   ],
+   [
+    "episodic-memory:search-conversations",
+    20
+   ],
+   [
+    "Apply anatomy audit fixes",
+    1
+   ],
+   [
+    "Apply cellRunModel audit fixes",
+    1
+   ],
+   [
+    "Apply remaining doc audit fixes",
+    1
+   ],
+   [
+    "claude-code-guide",
+    1
+   ]
+  ],
+  "slash": [],
+  "models": [
+   [
+    "claude-opus-5",
+    1531
+   ],
+   [
+    "claude-fable-5",
+    530
+   ],
+   [
+    "claude-haiku-4-5-20251001",
+    389
+   ],
+   [
+    "claude-opus-4-5-20251101",
+    351
+   ],
+   [
+    "claude-fable-5-1",
+    313
+   ],
+   [
+    "<synthetic>",
+    297
+   ],
+   [
+    "claude-sonnet-5",
+    136
+   ],
+   [
+    "claude-opus-4-8",
+    10
+   ]
+  ],
+  "sessionDurMedian": 3,
+  "sessionDurMean": 22.4,
+  "sessionDurTotalHours": 1292.7
+ },
+ "prs": {
+  "total": 857,
+  "merged": 763,
+  "open": 32,
+  "byRepo": [
+   [
+    "reddoor-maintenance",
+    219
+   ],
+   [
+    "reddoor-website",
+    65
+   ],
+   [
+    "dont-lose-your-head",
+    64
+   ],
+   [
+    "vida-legacy-foundation",
+    64
+   ],
+   [
+    "beachfront-dentistry",
+    45
+   ],
+   [
+    "gallerysonder",
+    40
+   ],
+   [
+    "reddoor-starter",
+    29
+   ],
+   [
+    "revogen",
+    28
+   ],
+   [
+    "the-pointe-burbank",
+    28
+   ],
+   [
+    "vineyard-custom-homes",
+    24
+   ],
+   [
+    "29-navy",
+    23
+   ],
+   [
+    "caltex-landing",
+    22
+   ],
+   [
+    "reddoorla-dot-github",
+    22
+   ],
+   [
+    "alamo-anatomy",
+    21
+   ],
+   [
+    "erp-industrial",
+    19
+   ],
+   [
+    "medical-solutions-of-texas",
+    19
+   ],
+   [
+    "the-tower-burbank",
+    19
+   ],
+   [
+    "canvas-starter",
+    18
+   ],
+   [
+    "1836dig",
+    16
+   ],
+   [
+    "data-dynamiq",
+    14
+   ],
+   [
+    "la-homelessness-initiative",
+    14
+   ],
+   [
+    "la-homelessness-youth",
+    13
+   ],
+   [
+    "reddoor-starter-blux",
+    9
+   ],
+   [
+    "reddoor-md-pdf",
+    5
+   ],
+   [
+    "the-pointe",
+    3
+   ],
+   [
+    "Broken",
+    2
+   ],
+   [
+    "claude-skills",
+    2
+   ],
+   [
+    "scriptorium-setup",
+    2
+   ],
+   [
+    "a-budget",
+    1
+   ],
+   [
+    "caldea",
+    1
+   ],
+   [
+    "reddoor-rfp-analyses",
+    1
+   ],
+   [
+    "songbook-content",
+    1
+   ],
+   [
+    "songbook",
+    1
+   ],
+   [
+    "the-bench",
+    1
+   ],
+   [
+    "to-go",
+    1
+   ],
+   [
+    "ulti-grid",
+    1
+   ]
+  ],
+  "botByRepo": [
+   [
+    "reddoor-maintenance",
+    37
+   ],
+   [
+    "alamo-anatomy",
+    13
+   ],
+   [
+    "gallerysonder",
+    13
+   ],
+   [
+    "revogen",
+    13
+   ],
+   [
+    "the-tower-burbank",
+    13
+   ],
+   [
+    "canvas-starter",
+    12
+   ],
+   [
+    "vineyard-custom-homes",
+    12
+   ],
+   [
+    "beachfront-dentistry",
+    11
+   ],
+   [
+    "medical-solutions-of-texas",
+    11
+   ],
+   [
+    "reddoor-website",
+    11
+   ],
+   [
+    "the-pointe-burbank",
+    11
+   ],
+   [
+    "caltex-landing",
+    10
+   ],
+   [
+    "erp-industrial",
+    10
+   ],
+   [
+    "reddoor-starter",
+    10
+   ],
+   [
+    "1836dig",
+    8
+   ],
+   [
+    "data-dynamiq",
+    8
+   ],
+   [
+    "la-homelessness-initiative",
+    8
+   ],
+   [
+    "la-homelessness-youth",
+    7
+   ],
+   [
+    "reddoorla-dot-github",
+    4
+   ],
+   [
+    "reddoor-starter-blux",
+    3
+   ],
+   [
+    "vida-legacy-foundation",
+    3
+   ],
+   [
+    "29-navy",
+    2
+   ],
+   [
+    "reddoor-md-pdf",
+    2
+   ]
+  ],
+  "cycleHoursMedian": 0.34,
+  "cycleHoursMean": 8.33
+ },
+ "ci": {
+  "conclusions": [
+   [
+    "success",
+    3283
+   ],
+   [
+    "failure",
+    137
+   ],
+   [
+    "cancelled",
+    16
+   ],
+   [
+    "queued",
+    1
+   ]
+  ],
+  "byWorkflow": {
+   "renovate": [
+    [
+     "success",
+     1626
+    ],
+    [
+     "failure",
+     3
+    ]
+   ],
+   "ci": [
+    [
+     "success",
+     1389
+    ],
+    [
+     "failure",
+     132
+    ],
+    [
+     "queued",
+     1
+    ]
+   ],
+   "lighthouse": [
+    [
+     "success",
+     86
+    ],
+    [
+     "cancelled",
+     16
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "validate": [
+    [
+     "success",
+     46
+    ]
+   ],
+   "release": [
+    [
+     "success",
+     40
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "rooms": [
+    [
+     "success",
+     12
+    ]
+   ],
+   "release-health": [
+    [
+     "success",
+     10
+    ]
+   ],
+   "fleet-lighthouse": [
+    [
+     "success",
+     10
+    ]
+   ],
+   "fleet-security": [
+    [
+     "success",
+     10
+    ]
+   ],
+   "fleet-form-e2e": [
+    [
+     "success",
+     9
+    ]
+   ],
+   "fleet-smoke": [
+    [
+     "success",
+     9
+    ]
+   ],
+   "daily-reports": [
+    [
+     "success",
+     9
+    ]
+   ],
+   "fleet-prismic-drift": [
+    [
+     "success",
+     9
+    ]
+   ],
+   "fleet-db-backup": [
+    [
+     "success",
+     9
+    ]
+   ],
+   "prismic-models": [
+    [
+     "success",
+     8
+    ]
+   ],
+   "time-travel": [
+    [
+     "success",
+     1
+    ]
+   ]
+  },
+  "byDay": {
+   "2026-07-30": [
+    [
+     "success",
+     2
+    ]
+   ],
+   "2026-07-31": [
+    [
+     "success",
+     17
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "2026-08-01": [
+    [
+     "success",
+     53
+    ],
+    [
+     "failure",
+     3
+    ]
+   ],
+   "2026-08-02": [
+    [
+     "success",
+     52
+    ],
+    [
+     "failure",
+     3
+    ]
+   ],
+   "2026-08-03": [
+    [
+     "success",
+     234
+    ],
+    [
+     "failure",
+     23
+    ]
+   ],
+   "2026-08-04": [
+    [
+     "success",
+     59
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "2026-08-05": [
+    [
+     "success",
+     32
+    ],
+    [
+     "failure",
+     16
+    ]
+   ],
+   "2026-08-06": [
+    [
+     "failure",
+     37
+    ],
+    [
+     "success",
+     33
+    ],
+    [
+     "queued",
+     1
+    ]
+   ],
+   "2026-08-07": [
+    [
+     "success",
+     34
+    ]
+   ],
+   "2026-08-08": [
+    [
+     "success",
+     39
+    ]
+   ],
+   "2026-08-09": [
+    [
+     "success",
+     33
+    ]
+   ],
+   "2026-08-10": [
+    [
+     "success",
+     111
+    ],
+    [
+     "failure",
+     4
+    ]
+   ],
+   "2026-08-11": [
+    [
+     "success",
+     128
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "2026-08-12": [
+    [
+     "success",
+     155
+    ],
+    [
+     "failure",
+     5
+    ]
+   ],
+   "2026-08-13": [
+    [
+     "success",
+     53
+    ]
+   ],
+   "2026-08-14": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-15": [
+    [
+     "success",
+     34
+    ]
+   ],
+   "2026-08-16": [
+    [
+     "success",
+     77
+    ],
+    [
+     "failure",
+     2
+    ]
+   ],
+   "2026-08-17": [
+    [
+     "success",
+     34
+    ]
+   ],
+   "2026-08-18": [
+    [
+     "success",
+     34
+    ]
+   ],
+   "2026-08-19": [
+    [
+     "success",
+     35
+    ]
+   ],
+   "2026-08-20": [
+    [
+     "success",
+     68
+    ]
+   ],
+   "2026-08-21": [
+    [
+     "success",
+     34
+    ]
+   ],
+   "2026-08-22": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-23": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-24": [
+    [
+     "success",
+     50
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "2026-08-25": [
+    [
+     "success",
+     38
+    ]
+   ],
+   "2026-08-26": [
+    [
+     "success",
+     56
+    ],
+    [
+     "failure",
+     1
+    ]
+   ],
+   "2026-08-27": [
+    [
+     "success",
+     49
+    ],
+    [
+     "failure",
+     9
+    ],
+    [
+     "cancelled",
+     3
+    ]
+   ],
+   "2026-08-28": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-29": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-30": [
+    [
+     "success",
+     36
+    ]
+   ],
+   "2026-08-31": [
+    [
+     "success",
+     71
+    ]
+   ],
+   "2026-09-01": [
+    [
+     "success",
+     127
+    ],
+    [
+     "failure",
+     8
+    ]
+   ],
+   "2026-09-02": [
+    [
+     "success",
+     164
+    ],
+    [
+     "failure",
+     1
+    ],
+    [
+     "cancelled",
+     1
+    ]
+   ],
+   "2026-09-03": [
+    [
+     "success",
+     124
+    ],
+    [
+     "cancelled",
+     7
+    ],
+    [
+     "failure",
+     5
+    ]
+   ],
+   "2026-09-04": [
+    [
+     "success",
+     104
+    ]
+   ],
+   "2026-09-05": [
+    [
+     "success",
+     160
+    ],
+    [
+     "failure",
+     5
+    ]
+   ],
+   "2026-09-06": [
+    [
+     "success",
+     52
+    ]
+   ],
+   "2026-09-07": [
+    [
+     "success",
+     53
+    ]
+   ],
+   "2026-09-08": [
+    [
+     "success",
+     116
+    ],
+    [
+     "failure",
+     4
+    ],
+    [
+     "cancelled",
+     3
+    ]
+   ],
+   "2026-09-09": [
+    [
+     "success",
+     174
+    ],
+    [
+     "failure",
+     3
+    ]
+   ],
+   "2026-09-10": [
+    [
+     "success",
+     192
+    ],
+    [
+     "failure",
+     4
+    ],
+    [
+     "cancelled",
+     1
+    ]
+   ],
+   "2026-09-11": [
+    [
+     "success",
+     122
+    ],
+    [
+     "cancelled",
+     1
+    ]
+   ],
+   "2026-09-12": [
+    [
+     "success",
+     64
+    ]
+   ]
+  }
+ }
+}

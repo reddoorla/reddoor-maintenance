@@ -1,0 +1,277 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3295,
+  "lines": 748833,
+  "by": [
+    "day"
+  ],
+  "total": {
+    "requests": 76238,
+    "in": 1596507,
+    "out": 66858458,
+    "cacheCreate": 315466035,
+    "cacheRead": 13915134517
+  },
+  "groups": [
+    {
+      "key": "2026-08-14",
+      "requests": 220,
+      "in": 416,
+      "out": 217033,
+      "cacheCreate": 884055,
+      "cacheRead": 34443228
+    },
+    {
+      "key": "2026-08-15",
+      "requests": 91,
+      "in": 181,
+      "out": 124556,
+      "cacheCreate": 1171830,
+      "cacheRead": 24583181
+    },
+    {
+      "key": "2026-08-16",
+      "requests": 2692,
+      "in": 92565,
+      "out": 3437562,
+      "cacheCreate": 11585726,
+      "cacheRead": 493775156
+    },
+    {
+      "key": "2026-08-17",
+      "requests": 1265,
+      "in": 29675,
+      "out": 1666105,
+      "cacheCreate": 5268204,
+      "cacheRead": 208566401
+    },
+    {
+      "key": "2026-08-18",
+      "requests": 2663,
+      "in": 40714,
+      "out": 3817627,
+      "cacheCreate": 9950327,
+      "cacheRead": 544996930
+    },
+    {
+      "key": "2026-08-19",
+      "requests": 6280,
+      "in": 40300,
+      "out": 6196071,
+      "cacheCreate": 19218027,
+      "cacheRead": 833699261
+    },
+    {
+      "key": "2026-08-20",
+      "requests": 1255,
+      "in": 10393,
+      "out": 1105453,
+      "cacheCreate": 3397268,
+      "cacheRead": 322232853
+    },
+    {
+      "key": "2026-08-21",
+      "requests": 925,
+      "in": 90571,
+      "out": 1593989,
+      "cacheCreate": 4552174,
+      "cacheRead": 132355208
+    },
+    {
+      "key": "2026-08-22",
+      "requests": 1288,
+      "in": 59948,
+      "out": 1743000,
+      "cacheCreate": 5836555,
+      "cacheRead": 257212663
+    },
+    {
+      "key": "2026-08-23",
+      "requests": 1426,
+      "in": 10730,
+      "out": 1700864,
+      "cacheCreate": 6943193,
+      "cacheRead": 229764542
+    },
+    {
+      "key": "2026-08-24",
+      "requests": 7885,
+      "in": 92221,
+      "out": 8448201,
+      "cacheCreate": 32907085,
+      "cacheRead": 1127626413
+    },
+    {
+      "key": "2026-08-25",
+      "requests": 6336,
+      "in": 32492,
+      "out": 5711709,
+      "cacheCreate": 17970103,
+      "cacheRead": 1872713690
+    },
+    {
+      "key": "2026-08-26",
+      "requests": 3384,
+      "in": 38019,
+      "out": 2820826,
+      "cacheCreate": 11073387,
+      "cacheRead": 1110822012
+    },
+    {
+      "key": "2026-08-27",
+      "requests": 42,
+      "in": 84,
+      "out": 37957,
+      "cacheCreate": 961364,
+      "cacheRead": 4638006
+    },
+    {
+      "key": "2026-08-28",
+      "requests": 8,
+      "in": 16,
+      "out": 2653,
+      "cacheCreate": 32726,
+      "cacheRead": 451639
+    },
+    {
+      "key": "2026-08-29",
+      "requests": 3,
+      "in": 3910,
+      "out": 194,
+      "cacheCreate": 27101,
+      "cacheRead": 0
+    },
+    {
+      "key": "2026-08-30",
+      "requests": 23,
+      "in": 46,
+      "out": 17083,
+      "cacheCreate": 81775,
+      "cacheRead": 2202563
+    },
+    {
+      "key": "2026-08-31",
+      "requests": 3904,
+      "in": 307426,
+      "out": 2722500,
+      "cacheCreate": 23682196,
+      "cacheRead": 518079536
+    },
+    {
+      "key": "2026-09-01",
+      "requests": 2901,
+      "in": 17792,
+      "out": 1963281,
+      "cacheCreate": 7978917,
+      "cacheRead": 703460110
+    },
+    {
+      "key": "2026-09-02",
+      "requests": 3221,
+      "in": 334097,
+      "out": 4093228,
+      "cacheCreate": 19132017,
+      "cacheRead": 579926457
+    },
+    {
+      "key": "2026-09-03",
+      "requests": 5664,
+      "in": 23160,
+      "out": 2565077,
+      "cacheCreate": 17942862,
+      "cacheRead": 854429096
+    },
+    {
+      "key": "2026-09-04",
+      "requests": 4770,
+      "in": 33419,
+      "out": 2012159,
+      "cacheCreate": 21014899,
+      "cacheRead": 674651573
+    },
+    {
+      "key": "2026-09-05",
+      "requests": 5236,
+      "in": 113420,
+      "out": 2973813,
+      "cacheCreate": 27697162,
+      "cacheRead": 690586431
+    },
+    {
+      "key": "2026-09-06",
+      "requests": 950,
+      "in": 34688,
+      "out": 1041122,
+      "cacheCreate": 7596697,
+      "cacheRead": 141046314
+    },
+    {
+      "key": "2026-09-07",
+      "requests": 43,
+      "in": 20466,
+      "out": 31273,
+      "cacheCreate": 216387,
+      "cacheRead": 2101126
+    },
+    {
+      "key": "2026-09-08",
+      "requests": 2893,
+      "in": 47708,
+      "out": 2367050,
+      "cacheCreate": 18494962,
+      "cacheRead": 544644499
+    },
+    {
+      "key": "2026-09-09",
+      "requests": 4186,
+      "in": 35777,
+      "out": 2256031,
+      "cacheCreate": 12542535,
+      "cacheRead": 683146402
+    },
+    {
+      "key": "2026-09-10",
+      "requests": 3032,
+      "in": 17890,
+      "out": 2040507,
+      "cacheCreate": 9774850,
+      "cacheRead": 683568481
+    },
+    {
+      "key": "2026-09-11",
+      "requests": 1004,
+      "in": 2008,
+      "out": 860561,
+      "cacheCreate": 4536087,
+      "cacheRead": 250591792
+    },
+    {
+      "key": "2026-09-12",
+      "requests": 2278,
+      "in": 28189,
+      "out": 2854608,
+      "cacheCreate": 11414357,
+      "cacheRead": 349459059
+    },
+    {
+      "key": "2026-09-13",
+      "requests": 48,
+      "in": 31670,
+      "out": 17231,
+      "cacheCreate": 186869,
+      "cacheRead": 1069843
+    },
+    {
+      "key": "2026-09-14",
+      "requests": 322,
+      "in": 6516,
+      "out": 419134,
+      "cacheCreate": 1394338,
+      "cacheRead": 38290052
+    }
+  ]
+}

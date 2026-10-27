@@ -1,0 +1,673 @@
+import { describe, it, expect } from "vitest";
+import {
+  selectRenovateTargets,
+  dispatchRenovateAcross,
+  formatRenovateDispatchSummary,
+  hasHealthyRenovatePr,
+  RENOVATE_WORKFLOW_FILE,
+  RENOVATE_DISPATCH_RETRY_DELAY_MS,
+  computeAutoFixAttemptUpdates,
+  applyAutoFixAttemptUpdates,
+  formatAutoFixAttemptsSummary,
+} from "../../src/github/renovate-dispatch.js";
+import type { PullRequestSummary } from "../../src/github/gh.js";
+import type { RenovateDispatchResult } from "../../src/github/renovate-dispatch.js";
+import type { SecurityAdvisory } from "../../src/fleet/site-row.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+/** Minimal persisted advisory; override severity/relationship per case. */
+function adv(over: Partial<SecurityAdvisory> = {}): SecurityAdvisory {
+  return {
+    module: "brace-expansion",
+    severity: "high",
+    title: "ReDoS",
+    cves: [],
+    url: null,
+    ...over,
+  };
+}
+
+function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
+  return {
+    number: 1,
+    title: "chore(deps): bump x",
+    url: "https://github.com/o/r/pull/1",
+    headRef: "renovate/x",
+    ciState: "passing",
+    mergeable: "MERGEABLE",
+    ...over,
+  };
+}
+
+describe("hasHealthyRenovatePr", () => {
+  it("is true when a non-conflicting Renovate PR is open (remediation in flight → skip dispatch)", () => {
+    expect(hasHealthyRenovatePr([pr({ mergeable: "MERGEABLE" })])).toBe(true);
+    // UNKNOWN (GitHub still computing) counts as healthy — don't churn on uncertainty
+    expect(hasHealthyRenovatePr([pr({ mergeable: "UNKNOWN" })])).toBe(true);
+  });
+
+  it("is false when the only open Renovate PR is CONFLICTING/stuck (→ re-dispatch to rebase)", () => {
+    expect(hasHealthyRenovatePr([pr({ mergeable: "CONFLICTING" })])).toBe(false);
+  });
+
+  it("ignores non-Renovate PRs", () => {
+    expect(hasHealthyRenovatePr([pr({ headRef: "feature/login", mergeable: "MERGEABLE" })])).toBe(
+      false,
+    );
+    // a healthy Renovate PR alongside a non-Renovate one still counts
+    expect(
+      hasHealthyRenovatePr([
+        pr({ headRef: "feature/x", mergeable: "MERGEABLE" }),
+        pr({ headRef: "renovate/y", mergeable: "MERGEABLE" }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false for no open PRs at all", () => {
+    expect(hasHealthyRenovatePr([])).toBe(false);
+  });
+});
+
+describe("selectRenovateTargets", () => {
+  it("picks active, repo-backed sites with critical OR high vulns", () => {
+    const sites = [
+      makeWebsiteRow({
+        name: "A",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 3,
+      }),
+      makeWebsiteRow({
+        name: "B",
+        status: "maintained",
+        gitRepo: "reddoorla/b",
+        securityVulnsCritical: 1,
+        securityVulnsHigh: 0,
+      }),
+      makeWebsiteRow({
+        name: "C",
+        status: "launching",
+        gitRepo: "reddoorla/c",
+        securityVulnsHigh: 2,
+      }),
+    ];
+    const targets = selectRenovateTargets(sites);
+    expect(targets.map((t) => t.repo)).toEqual(["reddoorla/a", "reddoorla/b", "reddoorla/c"]);
+    expect(targets[0]).toMatchObject({ repo: "reddoorla/a", siteName: "A", high: 3, critical: 0 });
+  });
+
+  it("excludes inactive sites, repo-less sites, and moderate/low-only or zero-vuln sites", () => {
+    const sites = [
+      // inactive (null status) — excluded even with vulns
+      makeWebsiteRow({
+        name: "inactive",
+        status: null,
+        gitRepo: "reddoorla/x",
+        securityVulnsHigh: 9,
+      }),
+      // no repo — can't dispatch
+      makeWebsiteRow({
+        name: "norepo",
+        status: "maintained",
+        gitRepo: null,
+        securityVulnsHigh: 5,
+      }),
+      // blank repo string — also can't dispatch
+      makeWebsiteRow({
+        name: "blankrepo",
+        status: "maintained",
+        gitRepo: "  ",
+        securityVulnsHigh: 5,
+      }),
+      // only moderate/low — not actionable enough to dispatch off-schedule
+      makeWebsiteRow({
+        name: "modlow",
+        status: "maintained",
+        gitRepo: "reddoorla/m",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityVulnsModerate: 7,
+        securityVulnsLow: 4,
+      }),
+      // clean — nothing to do
+      makeWebsiteRow({ name: "clean", status: "maintained", gitRepo: "reddoorla/clean" }),
+    ];
+    expect(selectRenovateTargets(sites)).toEqual([]);
+  });
+
+  it("treats null vuln counts as zero (no false dispatch)", () => {
+    const site = makeWebsiteRow({
+      name: "nulls",
+      status: "maintained",
+      gitRepo: "reddoorla/n",
+      securityVulnsCritical: null,
+      securityVulnsHigh: null,
+    });
+    expect(selectRenovateTargets([site])).toEqual([]);
+  });
+
+  it("trims the repo so a padded value still dispatches cleanly", () => {
+    const site = makeWebsiteRow({
+      name: "pad",
+      status: "maintained",
+      gitRepo: " reddoorla/p ",
+      securityVulnsHigh: 1,
+    });
+    expect(selectRenovateTargets([site])[0]?.repo).toBe("reddoorla/p");
+  });
+});
+
+describe("dispatchRenovateAcross", () => {
+  const targets = [
+    { repo: "reddoorla/a", siteName: "A", critical: 0, high: 1 },
+    { repo: "reddoorla/b", siteName: "B", critical: 1, high: 0 },
+  ];
+
+  it("dispatches renovate.yml on each target's default branch", async () => {
+    const calls: Array<{ repo: string; workflow: string; ref: string }> = [];
+    const result = await dispatchRenovateAcross(targets, {
+      hasHealthyOpenRenovatePr: async () => false,
+      defaultBranch: async (repo) => (repo === "reddoorla/b" ? "master" : "main"),
+      dispatch: async (repo, workflow, ref) => {
+        calls.push({ repo, workflow, ref });
+      },
+    });
+    expect(result.dispatched).toEqual(["reddoorla/a", "reddoorla/b"]);
+    expect(result.skipped).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(calls).toEqual([
+      { repo: "reddoorla/a", workflow: RENOVATE_WORKFLOW_FILE, ref: "main" },
+      { repo: "reddoorla/b", workflow: RENOVATE_WORKFLOW_FILE, ref: "master" },
+    ]);
+  });
+
+  it("skips a repo with a healthy open Renovate PR (remediation in flight)", async () => {
+    const calls: string[] = [];
+    const result = await dispatchRenovateAcross(targets, {
+      hasHealthyOpenRenovatePr: async (repo) => repo === "reddoorla/a",
+      defaultBranch: async () => "main",
+      dispatch: async (repo) => {
+        calls.push(repo);
+      },
+    });
+    expect(result.skipped).toEqual(["reddoorla/a"]);
+    expect(result.dispatched).toEqual(["reddoorla/b"]);
+    expect(result.failed).toEqual([]);
+    expect(calls).toEqual(["reddoorla/b"]); // the skipped repo is never dispatched
+  });
+
+  it("records a failed dispatch without aborting the rest", async () => {
+    const result = await dispatchRenovateAcross(targets, {
+      hasHealthyOpenRenovatePr: async () => false,
+      defaultBranch: async () => "main",
+      dispatch: async (repo) => {
+        if (repo === "reddoorla/a") throw new Error("404: no renovate.yml");
+      },
+      sleep: async () => {},
+    });
+    expect(result.dispatched).toEqual(["reddoorla/b"]);
+    expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "404: no renovate.yml" }]);
+  });
+
+  it("records a failed default-branch lookup as a failure (never throws)", async () => {
+    const result = await dispatchRenovateAcross([targets[0]!], {
+      hasHealthyOpenRenovatePr: async () => false,
+      defaultBranch: async () => {
+        throw new Error("403: token lacks actions:write");
+      },
+      dispatch: async () => {},
+      sleep: async () => {},
+    });
+    expect(result.dispatched).toEqual([]);
+    expect(result.failed).toEqual([
+      { repo: "reddoorla/a", error: "403: token lacks actions:write" },
+    ]);
+  });
+
+  it("records a failed open-PR probe as a failure (never dispatches on a bad probe)", async () => {
+    const result = await dispatchRenovateAcross([targets[0]!], {
+      hasHealthyOpenRenovatePr: async () => {
+        throw new Error("502: PR query failed");
+      },
+      defaultBranch: async () => "main",
+      dispatch: async () => {
+        throw new Error("should not dispatch when the PR probe failed");
+      },
+      sleep: async () => {},
+    });
+    expect(result.dispatched).toEqual([]);
+    expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: PR query failed" }]);
+  });
+
+  // #1660: since #1612 the nightly reds on failed>0, so one transient 5xx must
+  // not count. Each target gets one retry.
+  describe("retries each target once before counting it failed (#1660)", () => {
+    /** A dep that throws `failures` times, then answers. */
+    function flaky<T>(failures: number, value: T, message = "502: Bad Gateway") {
+      let calls = 0;
+      const fn = async () => {
+        calls++;
+        if (calls <= failures) throw new Error(message);
+        return value;
+      };
+      return { fn, calls: () => calls };
+    }
+
+    it("one transient dispatch failure, then success → dispatched, failed=0", async () => {
+      const dispatch = flaky(1, undefined);
+      const sleeps: number[] = [];
+      const result = await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: dispatch.fn,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      expect(result.dispatched).toEqual(["reddoorla/a"]);
+      expect(result.failed).toEqual([]);
+      expect(formatRenovateDispatchSummary(result)).toBe(
+        "RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=0 failed=0",
+      );
+      expect(dispatch.calls()).toBe(2);
+      // It waits before the retry, so a 5xx blip has time to pass.
+      expect(sleeps).toEqual([RENOVATE_DISPATCH_RETRY_DELAY_MS]);
+    });
+
+    it("one transient open-PR probe failure, then success → the retry still skips a healthy PR", async () => {
+      const probe = flaky(1, true);
+      const result = await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: probe.fn,
+        defaultBranch: async () => "main",
+        dispatch: async () => {
+          throw new Error("should not dispatch while a healthy Renovate PR is open");
+        },
+        sleep: async () => {},
+      });
+      expect(result.skipped).toEqual(["reddoorla/a"]);
+      expect(result.failed).toEqual([]);
+    });
+
+    it("two failures → failed=1 with the second error, and the rest still run", async () => {
+      let attempt = 0;
+      const result = await dispatchRenovateAcross(targets, {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: async (repo) => {
+          if (repo === "reddoorla/a") throw new Error(`502: attempt ${++attempt}`);
+        },
+        sleep: async () => {},
+      });
+      expect(result.dispatched).toEqual(["reddoorla/b"]);
+      expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: attempt 2" }]);
+      expect(attempt).toBe(2);
+      expect(formatRenovateDispatchSummary(result)).toBe(
+        "RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=0 failed=1",
+      );
+    });
+
+    it("never retries a target that succeeded first time", async () => {
+      const dispatch = flaky(0, undefined);
+      const sleeps: number[] = [];
+      await dispatchRenovateAcross([targets[0]!], {
+        hasHealthyOpenRenovatePr: async () => false,
+        defaultBranch: async () => "main",
+        dispatch: dispatch.fn,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      expect(dispatch.calls()).toBe(1);
+      expect(sleeps).toEqual([]);
+    });
+  });
+});
+
+describe("computeAutoFixAttemptUpdates", () => {
+  const result = (over: Partial<RenovateDispatchResult> = {}): RenovateDispatchResult => ({
+    dispatched: [],
+    skipped: [],
+    failed: [],
+    ...over,
+  });
+
+  it("increments a dispatched vuln site (null counter reads as 0 → 1)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("increments from the existing counter value", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 1,
+        securityAutoFixAttempts: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 3 },
+    ]);
+  });
+
+  it("resets to 0 when a previously-attempted site now has zero vulns", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 4,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rA", attempts: 0 }]);
+  });
+
+  it("leaves a skipped vuln site (healthy PR in flight) unchanged — no update emitted", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ skipped: ["reddoorla/a"] }))).toEqual([]);
+  });
+
+  it("leaves a failed-dispatch vuln site unchanged", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
+    ];
+    expect(
+      computeAutoFixAttemptUpdates(
+        sites,
+        result({ failed: [{ repo: "reddoorla/a", error: "x" }] }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("emits no update when a clean site already sits at 0 (write-minimal)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 0,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("resets a stale counter on a fully-clean fleet (empty dispatch result)", () => {
+    // The Alamo case: episode long closed (vulns 0 everywhere), counter still at 7.
+    const sites = [
+      makeWebsiteRow({
+        id: "rAlamo",
+        status: "maintained",
+        gitRepo: "reddoorla/alamo",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 7,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rAlamo", attempts: 0 }]);
+  });
+
+  it("resets a stale counter even for a non-visible (legacy) or repo-less site", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rLeg",
+        status: "archived",
+        gitRepo: "reddoorla/leg",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+      }),
+      makeWebsiteRow({
+        id: "rNoRepo",
+        status: "maintained",
+        gitRepo: null,
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([
+      { id: "rLeg", attempts: 0 },
+      { id: "rNoRepo", attempts: 0 },
+    ]);
+  });
+
+  it("does NOT reset while critical/high advisories remain (nothing dispatched)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 2,
+        securityAutoFixAttempts: 4,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("emits no write for a clean site already at 0 / null on an empty result", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rZero",
+        status: "maintained",
+        gitRepo: "reddoorla/z",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 0,
+      }),
+      makeWebsiteRow({
+        id: "rNull",
+        status: "maintained",
+        gitRepo: "reddoorla/n",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: null,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("does NOT increment when every critical/high advisory is transitive (no fix vehicle — the dispatch is a known no-op, not a failed attempt)", () => {
+    // The Sonder mode (2026-08-10): brace-expansion + nanoid, both HIGH and both
+    // transitive — nightly dispatches ran green but nothing could open a fix PR
+    // until the weekly lockfile window, yet the counter ratcheted to 5.
+    const sites = [
+      makeWebsiteRow({
+        id: "rSonder",
+        status: "maintained",
+        gitRepo: "reddoorla/gallerysonder",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 2,
+        securityAdvisories: [
+          adv({ module: "brace-expansion", relationship: "transitive" }),
+          adv({ module: "nanoid", relationship: "transitive" }),
+        ],
+      }),
+    ];
+    expect(
+      computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/gallerysonder"] })),
+    ).toEqual([]);
+  });
+
+  it("still increments when any critical/high advisory is DIRECT (a real fix vehicle existed)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+        securityAdvisories: [
+          adv({ module: "axios", relationship: "direct" }),
+          adv({ module: "nanoid", relationship: "transitive" }),
+        ],
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 2 },
+    ]);
+  });
+
+  it("still increments when the advisory carries no relationship (pnpm-audit fallback / pre-existing JSON) — unknown must not mute the alarm", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: [adv({ module: "axios" })], // no relationship key
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("still increments when there is no persisted advisory detail at all (null)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: null,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("still increments when counts say critical/high but the advisory list holds none (stale mismatch — don't mute on inconsistency)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: [adv({ severity: "moderate", relationship: "transitive" })],
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("transitive-only gating never blocks the reset-on-clean path", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintained",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+        securityAdvisories: [adv({ relationship: "transitive" })], // stale detail, counts now clean
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rA", attempts: 0 }]);
+  });
+
+  it("excludes inactive and repo-less sites from INCREMENTS (never counts their attempts)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rIn",
+        status: null,
+        gitRepo: "reddoorla/x",
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
+      makeWebsiteRow({
+        id: "rNo",
+        status: "maintained",
+        gitRepo: null,
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual(
+      [],
+    );
+  });
+});
+
+describe("applyAutoFixAttemptUpdates", () => {
+  it("writes each update and counts successes; never throws on a writer error", async () => {
+    const written: Array<{ id: string; attempts: number }> = [];
+    const r = await applyAutoFixAttemptUpdates(
+      [
+        { id: "rA", attempts: 1 },
+        { id: "rB", attempts: 0 },
+        { id: "rC", attempts: 3 },
+      ],
+      async (id, attempts) => {
+        if (id === "rB") throw new Error("field not found"); // e.g. column not yet created
+        written.push({ id, attempts });
+      },
+    );
+    expect(r).toEqual({ written: 2, failed: 1 });
+    expect(written).toEqual([
+      { id: "rA", attempts: 1 },
+      { id: "rC", attempts: 3 },
+    ]);
+  });
+
+  it("is a no-op for an empty update list", async () => {
+    let calls = 0;
+    const r = await applyAutoFixAttemptUpdates([], async () => {
+      calls++;
+    });
+    expect(r).toEqual({ written: 0, failed: 0 });
+    expect(calls).toBe(0);
+  });
+});
+
+describe("formatAutoFixAttemptsSummary", () => {
+  it("emits a machine-readable counts line", () => {
+    expect(formatAutoFixAttemptsSummary({ written: 2, failed: 1 })).toBe(
+      "AUTO_FIX_ATTEMPTS_SUMMARY written=2 failed=1",
+    );
+  });
+});
+
+describe("formatRenovateDispatchSummary", () => {
+  it("emits a machine-readable counts line for the workflow to gate on", () => {
+    expect(
+      formatRenovateDispatchSummary({
+        dispatched: ["reddoorla/a", "reddoorla/b"],
+        skipped: [],
+        failed: [],
+      }),
+    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=2 skipped=0 failed=0");
+    expect(
+      formatRenovateDispatchSummary({
+        dispatched: ["reddoorla/a"],
+        skipped: ["reddoorla/c"],
+        failed: [{ repo: "reddoorla/b", error: "boom" }],
+      }),
+    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=1 failed=1");
+  });
+});

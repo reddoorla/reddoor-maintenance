@@ -1,0 +1,184 @@
+import type { Context } from "@netlify/functions";
+import {
+  approveReport,
+  requireOperator,
+  denialResponse,
+} from "../../../../../src/dashboard/index.js";
+
+import { approveBlockers, formatBlockers } from "../../../../../src/reports/preflight.js";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { mirrorWrite } from "../../../../../src/db/mirror-write.js";
+import {
+  patchReportIfOpen,
+  getReportById,
+  getSiteById,
+} from "../../../../../src/db/fleet-state.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+
+// The handler behind POST /api/reports/:id/approve (cockpit/src/routes/api/…/+server.ts).
+// The record id arrives in ctx.params.id.
+
+function plainText(
+  body: string,
+  status: number,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8", ...extraHeaders },
+  });
+}
+
+// CSRF helpers (isCsrfAllowed / requestHost / originHost) now live in
+// src/dashboard/csrf.ts so the decision logic is unit-tested without booting
+// this handler. The handler stays thin glue over them.
+
+export default async (req: Request, ctx: Context): Promise<Response> => {
+  // GET health check — presence-only, mirrors resend-webhook.mts and
+  // the other endpoints so an operator can curl after wiring env vars.
+  // Never reports env values.
+  if (req.method === "GET") {
+    return Response.json(
+      {
+        status: "ok",
+        service: "reddoor-approve-report",
+        env: {
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
+          DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
+        },
+      },
+      { status: 200 },
+    );
+  }
+
+  if (req.method !== "POST") return plainText("Method not allowed", 405);
+
+  // CSRF defense: this is a state-changing endpoint reachable with the ambient
+  // Basic-auth creds the browser replays cross-site. Sec-Fetch-Site is the
+  // primary signal (the legit inline fetch from /s/:slug and address-bar loads
+  // send "same-origin"/"none"); when it's absent we fall back to checking the
+  // Origin/Referer host against our own. Only a request with NO cross-site
+  // signal at all (no Sec-Fetch, no Origin, no Referer — legacy/non-browser)
+  // is allowed through to Basic auth. Placed before auth so a forged cross-site
+  // POST is cut early.
+  if (!isCsrfAllowed(req)) {
+    return plainText("Cross-site request rejected", 403);
+  }
+
+  // Auth BEFORE any store read, same realm as the pages so the
+  // browser reuses creds when the inline fetch fires from /s/:slug.
+  // Fired by fetch() from the dashboard page, so JSON — a 302 to Google inside
+  // fetch() gives the script Google's HTML instead of something it can act on.
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
+
+  // The one env gate is Turso's: this endpoint authorizes a send, and without
+  // the authoritative store it cannot read the state the blockers are evaluated
+  // against, let alone record the decision.
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[approve-report] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
+  }
+
+  const id = ctx.params?.id;
+  if (!id) return plainText("Missing report id", 400);
+
+  // A logged send-anyway override is opt-in via `?override=1` (query flag, since
+  // this route is invoked with a fixed method+path from the dashboard's inline
+  // fetch) plus a JSON body carrying the required reason. Absent/invalid JSON
+  // reads as an empty reason, which approveReport refuses outright (no bypass).
+  const url = new URL(req.url);
+  let override: { reason: string } | undefined;
+  if (url.searchParams.get("override") === "1") {
+    const body = (await req.json().catch(() => ({}))) as { reason?: unknown };
+    override = { reason: typeof body.reason === "string" ? body.reason : "" };
+  }
+
+  try {
+    // Phase 2 (#539): the report + site READS come from Turso (hard dependency
+    // — the gate must see current state), and the approve / override WRITES
+    // land there strictly.
+    const db2 = await openDb(readDbConfig());
+    // The authoritative write. Everything — opening the db included — is inside
+    // mirrorWrite, which rethrows a failure so this request 502s: nothing
+    // converges a lost write. The row
+    // count is handed through (#647): an approve for a row Turso never held is
+    // `missed`, not a green no-op.
+    // P1-28: conditioned on the row still being unsent and unwithdrawn, so a
+    // withdraw that lands after the read is not overwritten. A miss resolves
+    // false and approveReport names it from a re-read; a store failure throws.
+    const mirror = async (
+      rid: string,
+      patch: Parameters<typeof patchReportIfOpen>[2],
+    ): Promise<boolean> => {
+      let landed = false;
+      await mirrorWrite(`approve-report ${rid}`, async () => {
+        const db = await openDb(readDbConfig());
+        landed = await patchReportIfOpen(db, rid, patch, "approvable");
+      });
+      return landed;
+    };
+    const deps = {
+      // Phase 2 (#539): reads from Turso (the authoritative write keeps it
+      // current within this very request).
+      getReportById: (rid: string) => getReportById(db2, rid),
+      approveReportRow: async (rid: string, at: Date, by: string) =>
+        mirror(rid, {
+          approved_to_send: 1,
+          approved_at: at.toISOString(),
+          approved_by: by,
+        }),
+      // The override takes the SAME ordering and the same failure semantics as
+      // the plain approve, deliberately: both are one stamp on one Reports row,
+      // both are idempotent, both have already passed every gate above by the
+      // time they run, and both are read back out of Turso by the same send
+      // batch. Splitting them would give one button two failure stories.
+      // An override ALSO flips Approved to send with the same stamp.
+      overrideReport: async (rid: string, at: Date, by: string, reason: string) =>
+        mirror(rid, {
+          send_override: 1,
+          override_reason: reason,
+          override_by: by,
+          override_at: at.toISOString(),
+          approved_to_send: 1,
+          approved_at: at.toISOString(),
+          approved_by: by,
+        }),
+      now: () => new Date(),
+      sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
+        // One indexed Turso lookup per approve click. A missing Site row is
+        // itself a send blocker — sendApprovedReports fails exactly that way.
+        const site = await getSiteById(db2, report.siteId);
+        if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
+        return formatBlockers(approveBlockers(site, report));
+      },
+    };
+    // The approver is the session's signed-in email, never anything the request
+    // body says (#672 step 4); null under the shared-password fallback.
+    const result = await approveReport(deps, id, override, auth.email);
+
+    if (result.status === "not-found") {
+      return Response.json(result, { status: 404 });
+    }
+    // A blocked approve must NOT be a 2xx: the dashboard's inline script keys
+    // success purely off res.ok, so a 200 here would flip the button to
+    // "Approved" for a report that was refused. 409 = the row's current state
+    // conflicts with approval; body carries the reason/blockers.
+    if (result.status === "blocked") {
+      return Response.json(result, { status: 409 });
+    }
+    // P1-28: a withdrawn draft is not approved, so a 2xx would flip the button
+    // to "Approved" for a report that will never send.
+    if (result.status === "noop" && result.reason === "withdrawn") {
+      return Response.json(result, { status: 409 });
+    }
+    return Response.json(result, { status: 200 });
+  } catch (err) {
+    // A store failure mid-approve must not surface as an unhandled 500 with
+    // an indeterminate body — return a clean retry-able error. approveReport
+    // itself is idempotent (a second approve of an already-approved row is a
+    // no-op), so a retry after a transient failure is safe.
+    return handlerError("approve-report", err);
+  }
+};

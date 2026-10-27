@@ -1,0 +1,234 @@
+import type { ReportData, ReportFrequency } from "../types.js";
+import type { WebsiteRow } from "../../fleet/site-row.js";
+import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
+import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
+import {
+  checklistRowsSection,
+  lighthouseScoresSection,
+  analyticsSection,
+  hasAnalyticsData,
+} from "../email-sections.js";
+
+/** Frequency → client-facing phrase. "None" is never rendered (the line is omitted). */
+const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
+  Monthly: "every month",
+  Quarterly: "every quarter",
+  Yearly: "every year",
+};
+
+const RED = "#C00";
+const GREY = "#757575";
+
+// Equal top/bottom padding for every alternating-background band, applied at the mj-section
+// level so each colored band has symmetric breathing room. (Starting baseline — easy to tune.)
+const SECTION_PAD = "40px";
+
+/** A red all-caps section label. Top spacing comes from the section padding, so this is flush. */
+function sectionLabel(text: string): string {
+  return `<mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="0px">${escapeXml(text)}</mj-text>`;
+}
+
+/** A grey 16px body paragraph whose caller passes already-escaped HTML, so partial inline markup
+ *  (e.g. the cadence line's italic <em>…</em> tail) survives. */
+function bodyLineHtml(html: string, paddingTop = "8px"): string {
+  return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="${paddingTop}">${html}</mj-text>`;
+}
+
+/** A grey 16px body paragraph, matching the report's section intros. Escapes `text`. */
+function bodyLine(text: string, paddingTop = "8px"): string {
+  return bodyLineHtml(escapeXml(text), paddingTop);
+}
+
+/** The go-forward cadence sentence as HTML: the lead-in followed by its reassurance tail in
+ *  italics ("…short report like this — <em>there's nothing you need to do.</em>"). Both escaped. */
+function cadenceHtml(copy: ResolvedCopy): string {
+  return `${escapeXml(copy.announceCadence)} <em>${escapeXml(copy.announceCadenceNote)}</em>`;
+}
+
+/**
+ * The announcement-only ReportData extras derived from the Websites row: the go-forward
+ * cadence and the default-on improvement callouts. Used by BOTH the draft (announce recipe)
+ * and the send-time re-render (orchestrate) so the sent email matches the reviewed preview —
+ * `renderReportHtml` in the send path otherwise omits these, dropping the cadence + improvements.
+ */
+export function announcementSiteExtras(
+  site: WebsiteRow,
+): Pick<ReportData, "cadence" | "improvements"> {
+  return {
+    cadence: { maintenance: site.maintenanceFreq, testing: site.testingFreq },
+    improvements: { resendForms: true, svelte5: true },
+  };
+}
+
+/**
+ * One-time onboarding announcement, built from the SAME components as the monthly report so it
+ * reads as a testing report with extra explanation: header · intro ("your ongoing care") ·
+ * MAINTENANCE CHECKS · TESTING (each: intro with the cadence baked into the copy + the report's
+ * checklist rows) · LIGHTHOUSE SCORES · ANALYTICS (engaged visits + trend + the Google-position line) ·
+ * RECENT IMPROVEMENTS (conditional; closes with the open-door invitation). Reuses the M6a copy
+ * layer (contact/footer honor per-site overrides). No pricing. A pace set to None omits its
+ * checklist section. Every band carries equal top/bottom padding (SECTION_PAD).
+ */
+export function buildAnnouncementMjml(data: ReportData): string {
+  const copy = data.copy ?? DEFAULT_COPY;
+  // Site-interpolated, matching the launch ("<site> is live") and maintenance
+  // ("Checked up on <site>") templates. The old text read "Your monthly report
+  // from Reddoor", which was wrong twice over: this is the announcement, not a
+  // report, and it hard-coded a monthly cadence the body contradicts for every
+  // client on a quarterly/yearly pace.
+  const previewText = `Your ongoing site care for ${data.siteName}`;
+  const cad = data.cadence;
+
+  const hasMaint = Boolean(cad && cad.maintenance !== "None");
+  const hasTesting = Boolean(cad && cad.testing !== "None");
+  const improvementItems: string[] = [];
+  if (data.improvements?.resendForms) improvementItems.push(copy.announceImprovementResend);
+  if (data.improvements?.svelte5) improvementItems.push(copy.announceImprovementSvelte5);
+  const hasImpr = improvementItems.length > 0;
+
+  // ANALYTICS renders only with real data — a GA user count or a page-1 search callout (the latter
+  // keeps the block alive for a GA-less site that still ranks). Computed up here so the band
+  // counter below can SKIP its background slot when analytics is hidden; otherwise a consumed-but-
+  // invisible slot would push the next band to the wrong color and two same-color bands would abut.
+  const analyticsBodyLines =
+    data.searchPosition !== undefined
+      ? [`Page 1 Google result (#${data.searchPosition}) for your brand search`]
+      : [];
+  const hasAnalytics = hasAnalyticsData({
+    current: data.gaUsersCurrent,
+    previous: data.gaUsersPrevious,
+    bodyLines: analyticsBodyLines,
+  });
+
+  // Alternating band backgrounds assigned in render order, so the white/#F4F4F4 pattern holds
+  // no matter which optional sections (maintenance / testing / improvements) actually render —
+  // a counter that only advances for bands that appear avoids two same-colored bands abutting.
+  const BANDS = ["white", "#F4F4F4"] as const;
+  let bandN = 0;
+  const nextBg = (): string => BANDS[bandN++ % 2]!;
+  const introBg = nextBg();
+  const maintBg = hasMaint ? nextBg() : "";
+  const testBg = hasTesting ? nextBg() : "";
+  const lighthouseBg = nextBg();
+  const analyticsBg = hasAnalytics ? nextBg() : "";
+  const improvementsBg = hasImpr ? nextBg() : "";
+  const contactBg = nextBg();
+
+  // MAINTENANCE CHECKS (first) — intro with the maintenance cadence baked into the copy, then the
+  // report's checklist rows. The report-frequency reassurance (announceCadence) trails the LAST
+  // check block, so it sits here only when there's no testing block after it. Omitted when None.
+  const maintenanceSection =
+    cad && cad.maintenance !== "None"
+      ? `
+    <mj-section background-color="${maintBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
+      <mj-column>
+        ${sectionLabel("MAINTENANCE CHECKS")}
+        ${bodyLineHtml(`${escapeXml(`${copy.maintenanceIntro} We do this ${FREQ_PHRASE[cad.maintenance]}.`)}${cad.testing === "None" ? ` ${cadenceHtml(copy)}` : ""}`)}
+      </mj-column>
+    </mj-section>${checklistRowsSection(copy.maintenanceChecks, {
+      background: maintBg,
+      lastPaddingBottom: SECTION_PAD,
+    })}`
+      : "";
+
+  // TESTING (second) — intro with the testing cadence + the report-frequency note baked in, then
+  // the report's checklist rows. Omitted when None.
+  const testingSection =
+    cad && cad.testing !== "None"
+      ? `
+    <mj-section background-color="${testBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
+      <mj-column>
+        ${sectionLabel("TESTING")}
+        ${bodyLineHtml(`${escapeXml(`${copy.testingIntro} We run a full test ${FREQ_PHRASE[cad.testing]}.`)} ${cadenceHtml(copy)}`)}
+      </mj-column>
+    </mj-section>${checklistRowsSection(copy.testingChecklist, {
+      background: testBg,
+      lastPaddingBottom: SECTION_PAD,
+    })}`
+      : "";
+
+  // ANALYTICS — the report's big user count + trend, plus the Google search-position line. Hidden
+  // entirely when there's no traffic or search data (hasAnalytics false), so it never shows empty.
+  const analytics = hasAnalytics
+    ? analyticsSection({
+        current: data.gaUsersCurrent,
+        previous: data.gaUsersPrevious,
+        periodDays: data.gaPeriodDays,
+        background: analyticsBg,
+        pad: SECTION_PAD,
+        bodyLines: analyticsBodyLines,
+      })
+    : "";
+
+  // RECENT IMPROVEMENTS — the toggled callouts, closed by the open-door invitation. Omitted
+  // entirely when there are no improvements (the open-door rides along with this block).
+  const improvementsSection = hasImpr
+    ? `
+    <mj-section background-color="${improvementsBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+      <mj-column>
+        ${sectionLabel("RECENT IMPROVEMENTS")}
+        ${improvementItems.map((item) => bodyLine(item)).join("\n        ")}
+        ${bodyLine(copy.announceOpenDoor, "16px")}
+      </mj-column>
+    </mj-section>`
+    : "";
+
+  // First contact line ("Just hit reply.") renders as a red bold heading, matching the
+  // "Questions, concerns or requests?" title above it; any following lines (e.g. "We're
+  // here to help in any way we can.") render in muted grey.
+  const contactRows = copy.contact
+    .map((line, i) =>
+      i === 0
+        ? `
+      <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">${escapeXml(line)}</mj-text>`
+        : `
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
+    )
+    .join("");
+  const footerAddressRows = copy.footerAddress
+    .map(
+      (line) => `
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(line)}</mj-text>`,
+    )
+    .join("");
+
+  return `<mjml>
+  <mj-head>
+    <mj-attributes>
+      <mj-text font-family="helvetica, sans-serif" padding-left="5px" padding-right="5px" />
+      <mj-section padding-left="11%" padding-right="11%"/>
+      <mj-image padding="0px" />
+    </mj-attributes>
+    <mj-preview>${escapeXml(previewText)}</mj-preview>
+    ${headerStyleBlock(data)}
+  </mj-head>
+  <mj-body background-color="white">
+    <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
+      <mj-column>${headerImageTag(data)}</mj-column>
+    </mj-section>
+    <mj-section background-color="${introBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+      <mj-column>
+        ${sectionLabel(copy.announceHeading)}
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">Prepared for ${escapeXml(data.siteName)}</mj-text>
+        ${bodyLine(copy.announceBody)}
+      </mj-column>
+    </mj-section>
+    ${maintenanceSection}
+    ${testingSection}
+    ${lighthouseScoresSection(data.lighthouse, { background: lighthouseBg, pad: SECTION_PAD })}
+    ${analytics}
+    ${improvementsSection}
+    <mj-section background-color="${contactBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+      <mj-column>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="36px">Questions, concerns or requests?</mj-text>
+        ${contactRows}
+        <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(copy.footerOrg)}</mj-text>
+        ${footerAddressRows}
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>`;
+}

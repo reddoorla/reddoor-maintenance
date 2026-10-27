@@ -1,0 +1,183 @@
+# SOURCE OF TRUTH for reddoorla/.github/.github/workflows/prismic-models.yml.
+#
+# Authored here so it is tested and reviewed in the same PR as the CLI it calls —
+# tests/build/reusable-prismic-workflow.test.ts executes this file's own comment
+# step and measures the bytes it produces. A later task copies it into
+# reddoorla/.github and tags a release; edit it HERE and re-publish, never there.
+#
+# TWO JOBS, AND THE SPLIT IS THE SAFETY PROPERTY:
+#
+#   pull_request  -> `--dry`, and the model delta is posted as a PR comment. It
+#                    CANNOT write to Prismic: the command's dry path never calls
+#                    sendModel, and this job does not contain the flag that would.
+#   push to main  -> `--apply`. The PR was the review gate (AUTONOMY.md 🟢).
+#
+# Two jobs rather than two steps because job permissions cannot be conditional. As
+# separate jobs the PR path holds `pull-requests: write` and no `--apply`, and the
+# apply path holds neither the permission to comment nor anything to comment on —
+# each path is INCAPABLE of the other's action rather than merely told not to.
+#
+# Deletion is impossible on both paths: the models module exports no delete, and
+# models present only in Prismic are reported (`--pull` adopts them as a reviewed
+# PR, or a human deletes them in the dashboard).
+name: prismic-models
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "24"
+    secrets:
+      # Named for the environment variable the CLI actually reads, and for the
+      # secret already sitting on each site repo. A workflow-local alias
+      # (`prismic-write-token`) would buy a rename and cost `secrets: inherit` at
+      # every call site — plus one more name that can be spelled almost right.
+      PRISMIC_WRITE_TOKEN:
+        required: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # PULL REQUEST — show the delta, write nothing.
+  # ---------------------------------------------------------------------------
+  dry:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write # the PR comment; nothing here pushes code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Sites already depend on @reddoorla/maintenance, so this is the installed
+      # bin — no extra install, and the version is whatever the site's lockfile
+      # pins (Renovate moves it like any other dependency).
+      #
+      # Dry is the DEFAULT and the only default: nothing goes on the wire unless
+      # `--apply` is passed, and it is not passed in this job.
+      - name: Show the model delta
+        env:
+          PRISMIC_WRITE_TOKEN: ${{ secrets.PRISMIC_WRITE_TOKEN }}
+        run: pnpm exec reddoor-maint prismic-models --comment-file prismic-models.txt
+
+      # `if: always()`, and this is not a nicety.
+      #
+      # The comment IS the review artifact. A dry run exits non-zero on a dead
+      # token, an unreadable Prismic repository, or a report whose own inputs
+      # disagree — which are exactly the pull requests where "no comment appeared"
+      # is worst, because the reviewer sees a red check with the reason only in a
+      # log. The CLI writes its comment file on those paths deliberately so that
+      # this step has something to post. Without `always()` the one PR that most
+      # needs an explanation is the one that never gets one.
+      #
+      # NO ATTEMPT IS MADE TO SUPPRESS THIS ON A NON-PRISMIC REPO. Skipping would
+      # need a second answer to "is this a Prismic site" living in YAML, and a
+      # second answer can disagree with `readPrismicConfig` (which also treats the
+      # starter sentinel as no-Prismic, and reads two candidate filenames). The day
+      # they disagree, a real site's model PR silently loses its review comment —
+      # the gate removed to save a line of noise. A repo with no Prismic in it gets
+      # a short comment saying so, which is a useful signal that it should not be
+      # calling this workflow.
+      - name: Post the model delta as a PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # THE WRAPPER IS PART OF GITHUB'S 65,536-CHARACTER BUDGET. `forComment`
+          # truncates the report to 63,488 — the cap minus 2,048 of headroom — so
+          # everything added here is spent out of that headroom. It measures 40
+          # characters, and the test executes this very block against a
+          # maximally-long report and counts the result, so the two halves of one
+          # budget cannot drift apart. Overflowing it is not a shortened comment:
+          # GitHub answers 422 and posts NOTHING, which removes the review gate
+          # entirely while this step could still be made to look green.
+          if [ ! -f prismic-models.txt ]; then
+            # The CLI died before writing its report. A stale file from a re-used
+            # workspace would read as a fresh, passing one — and no file at all
+            # must not become an empty comment that reads like a clean run.
+            {
+              echo '### Prismic model delta'
+              echo
+              echo '⛔ NO REPORT — `reddoor-maint prismic-models` produced no output file, so'
+              echo 'NOTHING is known about this PR'"'"'s effect on the Prismic models. Do not read'
+              echo 'this as "no changes". Check the step above.'
+            } > comment.md
+            gh pr comment "$PR_NUMBER" --body-file comment.md || true
+            exit 1
+          fi
+
+          # A four-backtick fence: model ids, field labels and placeholder text
+          # come from a client's own config and can contain a ``` fence, which
+          # would close a three-backtick block and spill the rest of the report —
+          # including any DESTRUCTIVE lines — out as prose.
+          # The bare `echo` after `cat` guarantees the closing fence starts on its
+          # own line even when the report has no trailing newline.
+          {
+            echo '### Prismic model delta'
+            echo
+            echo '````text'
+            cat prismic-models.txt
+            echo
+            echo '````'
+          } > comment.md
+
+          # Appended, not edited in place: each comment is one run's report and
+          # carries that run's stamp, so the record of what a reviewer actually
+          # approved is not overwritten by a later push.
+          gh pr comment "$PR_NUMBER" --body-file comment.md
+
+  # ---------------------------------------------------------------------------
+  # PUSH TO MAIN — the only path in this project that writes to a live client's
+  # Prismic repository.
+  # ---------------------------------------------------------------------------
+  #
+  # THE `github.ref` HALF OF THIS CONDITION IS LOAD-BEARING. `github.event_name ==
+  # 'push'` alone — which an earlier draft had — applies on a push to ANY branch,
+  # and on a tag push. A caller whose `on: push:` carries no branch filter would
+  # then push a feature branch's models to production with no pull request, and so
+  # with no review gate anywhere in the sequence. The caller's trigger should filter
+  # branches too; this is the half that lives in a reviewed repository.
+  apply:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Two merges landing together would run two pushes at one Prismic repository.
+    # NOT cancelled: a cancelled apply is a merge whose models never reached
+    # Prismic, wearing a green check that says they did.
+    concurrency:
+      group: prismic-models-apply-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # A per-model push failure makes this exit non-zero and reds the merge
+      # commit's check, which is the only signal there is here — there is no pull
+      # request left to comment on. The report is in the step log, and the nightly
+      # fleet sweep is what notices if a failed push left the repo and Prismic
+      # diverged.
+      - name: Push the models to Prismic
+        env:
+          PRISMIC_WRITE_TOKEN: ${{ secrets.PRISMIC_WRITE_TOKEN }}
+        run: pnpm exec reddoor-maint prismic-models --apply

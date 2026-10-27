@@ -1,0 +1,726 @@
+import { describe, it, expect } from "vitest";
+import {
+  classifySpam,
+  SPAM_THRESHOLD,
+  BLOCKED_EMAIL_DOMAINS,
+  DISPOSABLE_EMAIL_DOMAINS,
+} from "../../src/forms/spam-classifier.js";
+import {
+  VENDORED_DISPOSABLE_DOMAINS,
+  VENDORED_DISPOSABLE_SOURCE,
+} from "../../src/forms/disposable-domains.snapshot.js";
+import type { FormType } from "../../src/forms/types.js";
+import type { TurnstileOutcome } from "../../src/forms/turnstile.js";
+
+/** Neutral baseline: no signal fires. Override one field per test. */
+function clean(over: Partial<Parameters<typeof classifySpam>[0]> = {}) {
+  return classifySpam({
+    name: "Jane Doe",
+    email: "jane@example.com",
+    message: "Hello, I would like some more information please.",
+    formType: "contact" as FormType,
+    extraFields: {},
+    turnstile: "unverifiable" as TurnstileOutcome,
+    ...over,
+  });
+}
+
+const SHARED_MAILBOX_PROVIDERS: readonly string[] = [
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "gmx.com",
+  "mail.com",
+  "zoho.com",
+  "yandex.com",
+  "comcast.net",
+  "verizon.net",
+  "att.net",
+  "sbcglobal.net",
+  "cox.net",
+];
+
+describe("classifySpam", () => {
+  it("exports SPAM_THRESHOLD = 60", () => {
+    expect(SPAM_THRESHOLD).toBe(60);
+  });
+
+  it("scores a clean submission 0 with no reasons", () => {
+    expect(clean()).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("turnstile 'fail' adds 50 (turnstile-fail); pass/unverifiable/absent add 0", () => {
+    expect(clean({ turnstile: "fail" as TurnstileOutcome })).toEqual({
+      score: 50,
+      reasons: ["turnstile-fail"],
+    });
+    expect(clean({ turnstile: "pass" as TurnstileOutcome })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ turnstile: "unverifiable" as TurnstileOutcome })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+  });
+
+  it("counts each URL in the message at 25, reason links:N", () => {
+    expect(clean({ message: "see http://a.com please" })).toEqual({
+      score: 25,
+      reasons: ["links:1"],
+    });
+  });
+
+  it("caps link points at 50 (two-plus bare links) but reports the real count", () => {
+    expect(clean({ message: "http://a.com http://b.com http://c.com" })).toEqual({
+      score: 50,
+      reasons: ["links:3"],
+    });
+    // more than two URLs still caps points at 50; reason shows the actual count
+    const five = clean({ message: "www.a.com www.b.com www.c.com www.d.com www.e.com" });
+    expect(five.score).toBe(50);
+    expect(five.reasons).toEqual(["links:5"]);
+  });
+
+  it("counts a scheme+www URL once, not twice (no double-count)", () => {
+    expect(clean({ message: "check https://www.example.com" })).toEqual({
+      score: 25,
+      reasons: ["links:1"],
+    });
+    // two scheme+www links must score as 2 links, not 4 (capped at 50)
+    expect(clean({ message: "see https://www.a.com and https://www.b.com for details" })).toEqual({
+      score: 50,
+      reasons: ["links:2"],
+    });
+  });
+
+  it("counts comma/semicolon-glued URLs individually (bots pack links with no separators)", () => {
+    expect(clean({ message: "deals at http://a.com,http://b.com today" })).toEqual({
+      score: 50,
+      reasons: ["links:2"],
+    });
+    const glued = clean({ message: "grab www.a.com,www.b.com;www.c.com now" });
+    expect(glued.score).toBe(50); // 3 links, capped at 50
+    expect(glued.reasons).toEqual(["links:3"]);
+  });
+
+  it("flags html/bbcode link markup at 40 (link-markup) without a bare-URL match", () => {
+    // relative href: markup present, but no http(s)/www so links does NOT fire
+    expect(clean({ message: 'click <a href="/contact">here</a>' })).toEqual({
+      score: 40,
+      reasons: ["link-markup"],
+    });
+    expect(clean({ message: "[url=/x]link[/url]" })).toEqual({
+      score: 40,
+      reasons: ["link-markup"],
+    });
+  });
+
+  it("counts each seller keyword at 30 capped at 90, reason keywords:N", () => {
+    expect(clean({ message: "buy viagra today" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+    const many = clean({ message: "viagra online casino porn buy crypto" });
+    expect(many.score).toBe(90); // 4 hits -> capped at 3
+    expect(many.reasons).toEqual(["keywords:4"]);
+  });
+
+  it("TWO seller phrases bucket outright (operator 2026-07-15: solicitation language pairs never occur in genuine leads)", () => {
+    const v = clean({ message: "buy viagra at our online casino" });
+    expect(v.score).toBe(60);
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("does not false-positive on legitimate finance/SEO client inquiries", () => {
+    // bare "crypto"/"bitcoin"/"forex" and a plain "SEO services" request are
+    // plausible real inquiries — only the narrowed, clearly-promotional
+    // phrasing should fire.
+    expect(clean({ message: "We run a crypto exchange and need a new site." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "I'm a bitcoin trader looking for a landing page." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "We're a forex brokerage, can you redesign our site?" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "Do you offer SEO services for small businesses?" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+  });
+
+  it("still flags clearly-promotional spam phrasing for the narrowed keywords", () => {
+    expect(clean({ message: "buy crypto now, guaranteed returns" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "protect your crypto wallet today" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "huge bitcoin investment opportunity" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "get rich with our forex signals" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "cheap seo, rank #1 guaranteed" })).toEqual({
+      score: 30,
+      reasons: ["keywords:1"],
+    });
+  });
+
+  it("does not false-positive on legitimate casino/wellness/escort/lending/SEO-audit verticals", () => {
+    // bare vertical vocabulary from a plausible real business enquiry — only
+    // the narrowed, clearly-promotional phrasing should fire.
+    expect(
+      clean({ message: "Our resort features a casino and spa; can you redesign our site?" }),
+    ).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "I run a weight loss studio and need a booking page." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(
+      clean({ message: "We provide secure transport and escort services for private events." }),
+    ).toEqual({ score: 0, reasons: [] });
+    expect(
+      clean({ message: "We're a payday loan storefront and need a compliance page." }),
+    ).toEqual({ score: 0, reasons: [] });
+    // POLICY CHANGE (operator 2026-07-15): "backlinks" is now a seller keyword —
+    // SEO-topic asks through the public form are deliberately filtered (clients ask
+    // the agency directly; the fleet's sites rank top for their own specific names).
+    // One phrase alone still scores 30 < 60, so a lone audit ask is DELIVERED —
+    // it only buckets alongside a second solicitation signal.
+    const backlinkAsk = clean({ message: "Can you audit the backlinks pointing to our domain?" });
+    expect(backlinkAsk).toEqual({ score: 30, reasons: ["keywords:1"] });
+    expect(backlinkAsk.score >= SPAM_THRESHOLD).toBe(false);
+  });
+
+  it("legit vertical mention + two links stays under threshold (links 50 only, no keyword hit)", () => {
+    const wellness = clean({
+      message: "I run a weight loss studio, here are our sites: http://a.com http://b.com",
+    });
+    expect(wellness).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(wellness.score >= SPAM_THRESHOLD).toBe(false);
+
+    const resort = clean({
+      message: "Our resort has a casino, portfolio at http://a.com and http://b.com",
+    });
+    expect(resort).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(resort.score >= SPAM_THRESHOLD).toBe(false);
+  });
+
+  it("still flags promotional phrasing for the narrowed vertical keywords at 30 each", () => {
+    for (const message of [
+      "play at our online casino tonight",
+      "claim your casino bonus now",
+      "weight loss pills that melt fat fast",
+      "buy backlinks cheap, DA 90+",
+      "payday loans online, instant approval",
+      "hot escort girls in your city",
+    ]) {
+      // label the message so a single-phrase regression is identifiable
+      expect(clean({ message }), message).toEqual({ score: 30, reasons: ["keywords:1"] });
+    }
+  });
+
+  it("flags >30% non-latin script in the message body at 25 (non-latin); the name never scores", () => {
+    expect(clean({ message: "Привет это спам сообщение" })).toEqual({
+      score: 25,
+      reasons: ["non-latin"],
+    });
+    // a native-script name is not a spam signal
+    expect(clean({ name: "王小明" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ name: "Владимир" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("non-latin still needs corroboration: native-script name + two links = 50 -> under; non-latin body + two links = 75 -> over (threshold 60)", () => {
+    const nameCase = clean({ name: "王小明", message: "see http://a.com and http://b.com" });
+    expect(nameCase).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(nameCase.score >= SPAM_THRESHOLD).toBe(false);
+
+    // A non-latin body PLUS two links now crosses the lowered 60 threshold (25 + 50).
+    // For an LA-fleet creative site a native-script message with multiple pasted links
+    // is far more likely a bot than a lead — and spam_auto is recoverable.
+    const bodyCase = clean({
+      message: "Портфолио: http://a.com http://b.com — жду вашего ответа, спасибо",
+    });
+    expect(bodyCase).toEqual({ score: 75, reasons: ["links:2", "non-latin"] });
+    expect(bodyCase.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("flags a disposable-email domain at 45 (disposable-email)", () => {
+    expect(clean({ email: "bot@mailinator.com" })).toEqual({
+      score: 45,
+      reasons: ["disposable-email"],
+    });
+  });
+
+  it("a BLOCKED sender domain buckets on its own, with no other signal present", () => {
+    // The distinguishing property vs disposable-email (+45, needs corroboration):
+    // this list is only ever added to from observed live traffic where every
+    // submission was spam, so it is allowed to bucket alone.
+    const v = clean({ email: "raymond.abbott@jmailservice.com" });
+    expect(v).toEqual({ score: SPAM_THRESHOLD, reasons: ["blocked-domain"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+
+    // Positive control: the SAME otherwise-clean submission from an unlisted
+    // domain still scores 0. Without this the assertion above would pass just as
+    // happily if `clean()` had started scoring everything.
+    expect(clean({ email: "raymond.abbott@example.com" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("blocked domains match subdomains, and never a suffix look-alike", () => {
+    expect(clean({ email: "x@mail.jmailservice.com" }).reasons).toEqual(["blocked-domain"]);
+    expect(clean({ email: "x@JMailService.COM" }).reasons).toEqual(["blocked-domain"]);
+    // must END at the blocked domain — `notjmailservice.com` and a domain merely
+    // CONTAINING it as a prefix are unrelated registrations.
+    expect(clean({ email: "x@notjmailservice.com" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ email: "x@jmailservice.com.evil.net" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("vasdirect.com buckets alone, on the bare domain and any subdomain (2026-10-08)", () => {
+    const message =
+      "Hi, want the power of AI without having to learn it? Your first 30 days are free. Reply YES for details.";
+    expect(clean({ email: "veronica@vasdirect.com", message })).toEqual({
+      score: SPAM_THRESHOLD,
+      reasons: ["blocked-domain"],
+    });
+    expect(clean({ email: "kelsie@mail.vasdirect.com", message }).reasons).toEqual([
+      "blocked-domain",
+    ]);
+    expect(clean({ email: "veronica@example.com", message })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("each domain the 2026-10-08 spam pass listed buckets alone", () => {
+    for (const domain of [
+      "vasdirect.com",
+      "virtualeaseservice.com",
+      "parallelaid.com",
+      "erpfunds.com",
+    ]) {
+      expect(clean({ email: `someone@${domain}` }), domain).toEqual({
+        score: SPAM_THRESHOLD,
+        reasons: ["blocked-domain"],
+      });
+    }
+  });
+
+  it("a vendored disposable domain scores 45 and never buckets on its own", () => {
+    expect(DISPOSABLE_EMAIL_DOMAINS).not.toContain("0-mail.com");
+    expect(VENDORED_DISPOSABLE_DOMAINS.has("0-mail.com")).toBe(true);
+    const v = clean({ email: "bot@0-mail.com" });
+    expect(v).toEqual({ score: 45, reasons: ["disposable-email"] });
+    expect(v.score).toBeLessThan(SPAM_THRESHOLD);
+    expect(clean({ email: "bot@0-mail.com", message: "see http://a.com" })).toEqual({
+      score: 70,
+      reasons: ["links:1", "disposable-email"],
+    });
+  });
+
+  it("a domain on both the curated and the vendored disposable list scores 45 once", () => {
+    expect(VENDORED_DISPOSABLE_DOMAINS.has("mailinator.com")).toBe(true);
+    expect(clean({ email: "bot@mailinator.com" })).toEqual({
+      score: 45,
+      reasons: ["disposable-email"],
+    });
+  });
+
+  it("the vendored snapshot is the pinned CC0 list, not an empty or truncated load", () => {
+    expect(VENDORED_DISPOSABLE_DOMAINS.size).toBeGreaterThan(5000);
+    expect(VENDORED_DISPOSABLE_SOURCE.repo).toBe(
+      "disposable-email-domains/disposable-email-domains",
+    );
+    expect(VENDORED_DISPOSABLE_SOURCE.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(VENDORED_DISPOSABLE_SOURCE.licence).toBe("CC0-1.0");
+    expect(VENDORED_DISPOSABLE_SOURCE.count).toBe(VENDORED_DISPOSABLE_DOMAINS.size);
+    for (const d of VENDORED_DISPOSABLE_DOMAINS) {
+      expect(d, d).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/);
+    }
+  });
+
+  it("the vendored list holds no blocked domain and no shared mailbox provider", () => {
+    expect(BLOCKED_EMAIL_DOMAINS.filter((d) => VENDORED_DISPOSABLE_DOMAINS.has(d))).toEqual([]);
+    expect(SHARED_MAILBOX_PROVIDERS.filter((d) => VENDORED_DISPOSABLE_DOMAINS.has(d))).toEqual([]);
+  });
+
+  it("the blocked and disposable lists are disjoint, so no domain can double-score", () => {
+    const overlap = BLOCKED_EMAIL_DOMAINS.filter((d) => DISPOSABLE_EMAIL_DOMAINS.includes(d));
+    expect(overlap).toEqual([]);
+  });
+
+  it("no shared mailbox provider is ever on the blocked list", () => {
+    // The one failure mode with no recovery path: blocking a provider real leads
+    // use would silently bucket every one of them, and the tier scores high enough
+    // that no other signal is needed. 34 of gmail.com's 156 live submissions are
+    // spam — a ratio that tempts exactly this mistake.
+    for (const provider of SHARED_MAILBOX_PROVIDERS) {
+      expect(clean({ email: `someone@${provider}` }), provider).toEqual({ score: 0, reasons: [] });
+    }
+  });
+
+  it("every blocked entry is a bare registrable domain (no scheme, @, or leading dot)", () => {
+    for (const d of BLOCKED_EMAIL_DOMAINS) {
+      expect(d, d).toBe(d.toLowerCase().trim());
+      expect(d, d).toMatch(/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/);
+    }
+  });
+
+  it("flags a URL in the name field at 45 (url-in-name)", () => {
+    expect(clean({ name: "http://spam.example" })).toEqual({
+      score: 45,
+      reasons: ["url-in-name"],
+    });
+  });
+
+  it("flags degenerate content at 40 (message == name, or body is only a URL)", () => {
+    expect(clean({ name: "Hello", message: "Hello" })).toEqual({
+      score: 40,
+      reasons: ["degenerate"],
+    });
+    // body is only a URL: links (25) + degenerate (40) = 65
+    expect(clean({ name: "Jane", message: "http://spam.example" })).toEqual({
+      score: 65,
+      reasons: ["links:1", "degenerate"],
+    });
+    // Guardrail: URL_RE stops at `,`/`;` (2 links) but ONLY_URL_RE deliberately
+    // keeps `\S+`, so a comma-glued URL body is still one token => degenerate.
+    // links (2 -> capped 50) + degenerate (40) = 90.
+    expect(clean({ name: "Jane", message: "http://a.com,http://b.com" })).toEqual({
+      score: 90,
+      reasons: ["links:2", "degenerate"],
+    });
+  });
+
+  it("flags an all-caps shout (len>20 & >70% uppercase) at 15 (all-caps)", () => {
+    expect(clean({ message: "THIS IS A HUGE SHOUTING MESSAGE" })).toEqual({
+      score: 15,
+      reasons: ["all-caps"],
+    });
+    // <=20 chars never fires
+    expect(clean({ message: "SHORT SHOUT" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("scores spam signals found in extraFields free text, not just message", () => {
+    const spamText = "buy viagra now http://a.com http://b.com";
+    const viaMessage = clean({ message: spamText });
+    const viaExtra = clean({ message: "", extraFields: { comments: spamText } });
+    expect(viaExtra).toEqual(viaMessage);
+    expect(viaExtra.score).toBeGreaterThan(0);
+  });
+
+  it("ignores non-string extraFields values when building the scanned body", () => {
+    expect(
+      clean({
+        message: "",
+        extraFields: { count: 5, agreed: true, meta: { nested: "viagra" }, empty: null },
+      }),
+    ).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("threshold boundaries (60): forged-token 'fail' + one link = 75 -> spam; two links alone = 50 -> under", () => {
+    // Post-#400 a "fail" is a FORGED token (invalid-input-response) — near-certainly a
+    // bot — so fail (50) + one pasted link (25) crossing 60 is correct. A real human's
+    // expired/duplicate token is "unverifiable", never "fail".
+    const failPlusLink = clean({
+      turnstile: "fail" as TurnstileOutcome,
+      message: "visit http://a.com",
+    });
+    expect(failPlusLink).toEqual({ score: 75, reasons: ["turnstile-fail", "links:1"] });
+    expect(failPlusLink.score >= SPAM_THRESHOLD).toBe(true);
+
+    // The URL cap protects a genuine lead pasting their site + portfolio: two links
+    // alone score 50, under the 60 threshold — never auto-bucketed on links alone.
+    const twoLinks = clean({ message: "http://a.com http://b.com" });
+    expect(twoLinks).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(twoLinks.score >= SPAM_THRESHOLD).toBe(false);
+
+    // three+ links still cap at 50, still under
+    const threeLinks = clean({ message: "http://a.com http://b.com http://c.com" });
+    expect(threeLinks.score).toBe(50);
+    expect(threeLinks.score >= SPAM_THRESHOLD).toBe(false);
+  });
+});
+
+describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-07-15)", () => {
+  it("scores each SELLER-VOICE cold-outreach / SEO phrase as a keyword (30)", () => {
+    for (const message of [
+      "I'd love to write a guest post for your blog",
+      "our link building service gets results",
+      "we get you on the first page of google",
+      "we can position your brand for more reach",
+      "we could increase your traffic significantly",
+      "no obligation, would love to chat",
+      // SEO-topic phrases moved (back) to seller per the 2026-07-15 operator policy:
+      // SEO asks through the public form are solicitation on this fleet.
+      "we noticed an seo problem on your site",
+      "we provide a trained virtual assistant",
+      "your backlinks are weak",
+      "we can get you to the top of search results",
+    ]) {
+      const v = clean({ message });
+      expect(v.reasons, message).toContain("keywords:1");
+      expect(v.score, message).toBe(30);
+    }
+  });
+
+  it("folds hyphens before matching — 'link-building' / 'custom-built AI' were live keyword dodges", () => {
+    expect(clean({ message: "I run a link-building package that fixes this" }).reasons).toContain(
+      "keywords:1",
+    );
+    const mavis = clean({
+      message: "our custom-built AI tool MAVIS handles your advertising",
+    });
+    // "custom built ai" + "mavis" = 2 seller hits = 60: bucketed.
+    expect(mavis.reasons).toContain("keywords:2");
+    expect(mavis.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+
+  it("scores BUYER-COMPATIBLE phrases at a weak 10 (capped 20) without seller corroboration", () => {
+    // Each of these is natural in a genuine prospect's own words — alone they must
+    // never carry a message toward the threshold.
+    for (const message of [
+      "results within 24 hours guaranteed",
+      "could we book a free consultation next week?",
+    ]) {
+      const v = clean({ message });
+      expect(v.reasons, message).toContain("keywords-buyer:1");
+      expect(v.score, message).toBe(10);
+    }
+    const both = clean({
+      message: "We'd like a free consultation and we need the quote within 24 hours please.",
+    });
+    expect(both.reasons).toContain("keywords-buyer:2");
+    expect(both.score).toBe(20);
+  });
+
+  it("a seller-voice phrase PROMOTES buyer phrases to full weight (pitch corroborates itself)", () => {
+    // "virtual assistant" + "would you be interested" (seller) + free consultation +
+    // within 24 hours (buyer) -> 4 hits, capped at 3 -> 90: the classic VA pitch.
+    const pitch = clean({
+      message:
+        "I'm a virtual assistant. Would you be interested in a free consultation? I can start within 24 hours.",
+    });
+    expect(pitch.reasons).toContain("keywords:4");
+    expect(pitch.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+
+  it("buckets each observed live-flood family (2026-07-15 miss corpus)", () => {
+    // Every message here is a (lightly trimmed) real submission the previous
+    // classifier delivered; each family must now reach >= 60.
+    const families: Record<string, string> = {
+      mavis:
+        "I'm Amanda with Trusted Virtual Team. We offer MAVIS (My Advanced Virtual Intelligent System), that easily replaces a 20-man team.",
+      "search-results":
+        "We specialize in putting businesses like yours right at the top of search results. Setup is fast and effortless.",
+      "seo-questionnaire":
+        "Most websites don't have an SEO problem — they have a visibility problem. Getting the right traffic that turns into leads and sales is hard.",
+      backlinks:
+        "I looked up your site. You're not on page one. I run a link-building package — 46 types of premium backlinks.",
+      wikipedia:
+        "The Wiki links show up on the 1st page of Google 97% of the time. Thinking of getting a Wikipedia Page created?",
+      "searching-for-what-you-sell":
+        "We place your business directly in front of people already searching for what you sell - live within 24 hours. Would you be interested?",
+      "product-blast":
+        "Get yours today with 50% OFF: https://caredogbest.com FREE Shipping on all orders.",
+    };
+    for (const [family, message] of Object.entries(families)) {
+      expect(clean({ message }).score, family).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+  });
+
+  it("buckets the 'trained VA who runs our custom AI system' template on content alone (2026-10-08)", () => {
+    const leaked = [
+      "Good Day, You get a trained VA who runs our custom AI system for your business. Just tell them what you need, like admin, CRM updates, follow-ups or a new automation, and they build it and run it.",
+      "Hi, want the power of AI without having to learn it? I'm Veronica with VAS Direct. We give you a trained VA who operates our custom AI system for you.",
+    ];
+    for (const message of leaked) {
+      expect(clean({ message }).score, message).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+    expect(
+      clean({ message: "Could you build us a custom AI system for scheduling crews?" }).score,
+    ).toBeLessThan(SPAM_THRESHOLD);
+    expect(
+      clean({
+        message:
+          "Hi, we'd love a custom AI system for patient intake on our site. Do you offer a free consultation?",
+      }).score,
+    ).toBeLessThan(SPAM_THRESHOLD);
+    for (const message of [
+      "Hi, we have a trained VA who handles our scheduling, and we'd like the booking form to email her directly. Do you offer a free consultation?",
+      "My trained VA who manages listings needs access to the site. Can you get back to me within 24 hours?",
+      "We'd like our custom AI system for quoting to feed leads into the new site. Do you offer a free consultation?",
+      "Can you integrate our custom AI system? See https://homes.com for the current site.",
+    ]) {
+      expect(clean({ message }).score, message).toBeLessThan(SPAM_THRESHOLD);
+    }
+    expect(
+      clean({ message: "You get a trained VA who runs our custom AI system for your business." }),
+    ).toEqual({ score: SPAM_THRESHOLD, reasons: ["va-template"] });
+  });
+
+  it("flags lorem-ipsum filler at 60 (buckets alone — machine content, zero genuine use)", () => {
+    // Live bot bodies: truncated Latin filler, too short for velocity, invisible to
+    // gibberish (real words).
+    for (const message of ["Velit ullam reprehen", "Dolore harum volupta"]) {
+      const v = clean({ message });
+      expect(v.reasons, message).toContain("lorem-ipsum");
+      expect(v.score, message).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+    // A single romance-language cognate never fires — two DISTINCT stems required.
+    expect(
+      clean({ message: "The voluptuous figures in this painting are striking." }).reasons,
+    ).not.toContain("lorem-ipsum");
+  });
+
+  it("does NOT bucket a single ambiguous outreach phrase on its own (needs corroboration)", () => {
+    // A genuine lead can plausibly ask for a "free consultation" — weak +10, < 60.
+    const v = clean({ message: "Could I get a free consultation about a new website?" });
+    expect(v.reasons).toContain("keywords-buyer:1");
+    expect(v.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("flags a random keyboard-mash body at 35 (gibberish-body)", () => {
+    const v = clean({ message: "zddDVjhArCJbvfgXJmqQ" });
+    expect(v.reasons).toContain("gibberish-body");
+    expect(v.score).toBe(35);
+  });
+
+  it("flags case-flip mash whose consonant runs stay short (the second live-mash shape)", () => {
+    // Live samples 'IjIiJuhkojCYrNDFTXe' / 'XiwkUDgrboTgMSVX' max out at a 6-run with
+    // y-as-vowel — the >=3 interior lower→upper flips discriminator catches them.
+    for (const message of ["IjIiJuhkojCYrNDFTXe", "XiwkUDgrboTgMSVX"]) {
+      expect(clean({ message }).reasons, message).toContain("gibberish-body");
+    }
+    // Real CamelCase brands have at most 1-2 humps — never flagged.
+    for (const message of [
+      "we build on JavaScript and TypeScript",
+      "our shop runs on SquareSpace with MailChimp",
+    ]) {
+      expect(clean({ message }).reasons, message).not.toContain("gibberish-body");
+    }
+  });
+
+  it("gibberish-name needs a single long low-vowel token; a bot with a mashed name+body is caught, a real consonant-heavy surname never trips at all", () => {
+    // bot: single mashed name token (35) + mashed body (35) = 70, bucketed
+    const bot = clean({ name: "OsDMQohNGefhfCqqQCwr", message: "zddDVjhArCJbvfgXJmqQ" });
+    expect(bot.reasons).toEqual(expect.arrayContaining(["gibberish-body", "gibberish-name"]));
+    expect(bot.score).toBe(70);
+    expect(bot.score >= SPAM_THRESHOLD).toBe(true);
+
+    // A real consonant-heavy surname no longer trips gibberish-name AT ALL under the
+    // 7-run/y-as-vowel rule (Krzysztofowicz's longest run is 3) — so surname + a pasted
+    // site link can never stack toward the threshold.
+    const surname = clean({
+      name: "Krzysztofowicz",
+      message: "Hi, could you help redesign our homepage?",
+    });
+    expect(surname.reasons).not.toContain("gibberish-name");
+    expect(surname.score).toBe(0);
+
+    // A native-script (non-latin) name never trips gibberish — latin a-z only.
+    expect(clean({ name: "王小明" }).reasons).not.toContain("gibberish-name");
+  });
+
+  it("gibberish never fires on ordinary long English words (7-run, y-as-vowel) — the psych* regression", () => {
+    // The original >=5-consonant-run rule (y as consonant) fired on 3,138 dictionary
+    // words: every psych* word >= 10 letters (p-s-y-c-h is itself a 5-run),
+    // "worthwhile" (rthwh), "downstream" (wnstr), "nightclubs" (ghtcl), "catchphrase"
+    // (tchphr, a 6-run), "arrhythmia" (rrhythm) — so gibberish(35) + one pasted
+    // link(25) silently bucketed whole genuine-lead verticals. Pin each named word.
+    for (const word of [
+      "psychology",
+      "psychiatrist",
+      "psychotherapy",
+      "worthwhile",
+      "downstream",
+      "nightclubs",
+      "catchphrase",
+      "postscript",
+      "arrhythmia",
+      "strengthens",
+    ]) {
+      expect(clean({ message: `regarding ${word} services` }).reasons, word).not.toContain(
+        "gibberish-body",
+      );
+    }
+
+    // THE archetypal genuine lead that the review proved was silently bucketed at 60:
+    const therapist = clean({
+      message: "We run a psychology practice and want a modern site. Current one: https://x.com",
+    });
+    expect(therapist.reasons).toEqual(["links:1"]);
+    expect(therapist.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("SEO-topic asks: a single phrase is DELIVERED, stacked SEO phrasing is filtered (operator policy 2026-07-15)", () => {
+    // POLICY: the fleet's sites are niche and rank top for their own names; clients
+    // wanting SEO/marketing help ask the agency directly. Multi-phrase SEO content
+    // through the public form is deliberately filtered — overblock accepted,
+    // spam_auto is recoverable. (This inverts the earlier buyer-protection for the
+    // SEO-topic phrases specifically.)
+    const stacked = clean({
+      message:
+        "Our google ranking tanked after the redesign. We want to rank higher and drive traffic to the booking page. Do you offer a free consultation? Site: https://sunsetyoga.com",
+    });
+    expect(stacked.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+
+    const bareDomain = clean({
+      message: "sunsetbakery.com has an seo problem and we'd like to rank higher locally",
+    });
+    expect(bareDomain.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+
+    // A lead who grazes ONE SEO phrase while asking for real work is still delivered.
+    const single = clean({
+      message: "We want to rank higher on Google — could you redesign our site with that in mind?",
+    });
+    expect(single.reasons).toEqual(["keywords:1"]);
+    expect(single.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("flags a bare pasted domain (no scheme/www) at 20, only when no real URL is present, and not an email domain", () => {
+    const bare = clean({ message: "reach us at medicalsolutionsoftx.com for details" });
+    expect(bare.reasons).toContain("bare-domain");
+    expect(bare.score).toBe(20);
+
+    // a real http URL is counted as a link, NOT double-counted as bare-domain
+    const real = clean({ message: "visit http://medicalsolutionsoftx.com" });
+    expect(real.reasons).toContain("links:1");
+    expect(real.reasons).not.toContain("bare-domain");
+
+    // an email address's domain in the body is excluded (not a pasted marketing domain)
+    expect(clean({ message: "email me at jane@foo.com anytime" }).reasons).not.toContain(
+      "bare-domain",
+    );
+  });
+
+  it("URL cap protects a genuine two-link lead: site + portfolio = 50 < 60", () => {
+    expect(clean({ message: "our site http://a.com and portfolio http://b.com" })).toEqual({
+      score: 50,
+      reasons: ["links:2"],
+    });
+  });
+
+  it("buckets a representative multi-phrase SEO outreach pitch (>= 60)", () => {
+    // "position your brand" + "above competitors" (seller) + "within 24 hours"
+    // (buyer, promoted) = 3 hits -> 90
+    const v = clean({
+      message: "We can position your brand above competitors within 24 hours.",
+    });
+    expect(v.reasons).toContain("keywords:3");
+    expect(v.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+});

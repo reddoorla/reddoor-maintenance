@@ -1,0 +1,115 @@
+{
+  "id": "carousel",
+  "type": "SharedSlice",
+  "name": "Carousel",
+  "description": "Source slider band — media frames from the presentation manifest, captions editable per slide",
+  "variations": [
+    {
+      "id": "default",
+      "name": "Default",
+      "docURL": "...",
+      "version": "initial",
+      "description": "APG slider over the band's manifest slides",
+      "imageUrl": "",
+      "primary": {
+        "band": {
+          "type": "Number",
+          "config": { "label": "band (index from the Blux export)" }
+        },
+        "label": {
+          "type": "Text",
+          "config": { "label": "Accessible name for the slider region" }
+        }
+      },
+      "items": {
+        "caption": {
+          "type": "Text",
+          "config": {
+            "label": "Slide caption (order matches the manifest slides)"
+          }
+        },
+        "subcaption": {
+          "type": "Text",
+          "config": {
+            "label": "Slide subcaption / second line (e.g. a hero slide's location)"
+          }
+        }
+      }
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "docURL": "...",
+      "version": "initial",
+      "description": "Quote carousel with reviewer attribution",
+      "imageUrl": "",
+      "primary": {
+        "heading": {
+          "type": "StructuredText",
+          "config": { "label": "heading", "single": "heading2" }
+        },
+        "layout": {
+          "type": "Select",
+          "config": {
+            "label": "layout (\"home\" = .home-ssb-section wrapper + Read Reviews expander)",
+            "options": ["home"]
+          }
+        }
+      },
+      "items": {
+        "quote": { "type": "Text", "config": { "label": "quote" } },
+        "reviewer_name": {
+          "type": "Text",
+          "config": { "label": "reviewer name" }
+        },
+        "reviewer_place": {
+          "type": "Text",
+          "config": { "label": "reviewer place" }
+        },
+        "reviewer_photo": {
+          "type": "Image",
+          "config": {
+            "label": "reviewer photo",
+            "constraint": {},
+            "thumbnails": []
+          }
+        },
+        "review_url": {
+          "type": "Link",
+          "config": { "label": "review url", "allowTargetBlank": true }
+        }
+      }
+    },
+    {
+      "id": "photos",
+      "name": "Photos",
+      "docURL": "...",
+      "version": "initial",
+      "description": "Photo slider with own images",
+      "imageUrl": "",
+      "primary": {
+        "heading": {
+          "type": "StructuredText",
+          "config": { "label": "heading", "single": "heading2" }
+        },
+        "label": {
+          "type": "Text",
+          "config": { "label": "accessible label" }
+        },
+        "layout": {
+          "type": "Text",
+          "config": {
+            "label": "layout (empty = capped strip; \"fullbleed\" = 100vw single-image slider)"
+          }
+        }
+      },
+      "items": {
+        "image": {
+          "type": "Image",
+          "config": { "label": "image", "constraint": {}, "thumbnails": [] }
+        },
+        "caption": { "type": "Text", "config": { "label": "caption" } }
+      }
+    }
+  ]
+}

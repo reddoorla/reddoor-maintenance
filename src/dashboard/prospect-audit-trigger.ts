@@ -1,0 +1,398 @@
+import { OPERATOR_GOALS } from "../prospect/goals.js";
+import { makeGitHubRest } from "../github/gh-rest.js";
+import { isHttpUrl, isPrivateOrLoopbackHost, hostnameOf } from "../util/url.js";
+import { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../prospect/daily-cap.js";
+import {
+  hasNoReport,
+  type ProspectAuditListItem,
+  type ProspectAuditReservation,
+  type ProspectAuditReservationRequest,
+} from "../db/prospect-audits.js";
+
+/**
+ * Trigger logic for `POST /api/prospect-audit/run` (cockpit/src/lib/server/endpoints/prospect-audit-run.ts).
+ * Kept here, deps-injected and framework-free, so it's unit-testable without
+ * booting the endpoint handler — same split as trigger-renovate.ts.
+ *
+ * The audit itself runs as a `workflow_dispatch` in a PRIVATE repo (never this
+ * one — this repo's Actions logs are world-readable, and a prospect URL there
+ * would publish the sales pipeline), so every dispatch target is read from env
+ * at the call site and threaded through as `{ repo, workflowFile }` — nothing
+ * here hardcodes a repo.
+ */
+
+/** A repeat submission of the SAME url within this window is refused rather
+ *  than spending a second audit — the double-press guard. A workflow retry
+ *  (or an impatient second click before the first request's 202 lands) must
+ *  not double-run and double-email. 10 minutes comfortably exceeds any
+ *  plausible client retry/backoff window while staying far shorter than the
+ *  audit's own several-minute runtime, so a genuine re-audit of the same
+ *  prospect a bit later is never blocked. */
+export const PROSPECT_AUDIT_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+
+/** How many of the most-recent audits (across every url) `triggerProspectAudit`
+ *  pulls to look for a same-url duplicate inside the window. Usage is
+ *  low-volume and human-triggered (one operator, one button), so this comfortably
+ *  covers the window without scanning the whole table; well under
+ *  MAX_RECENT_PROSPECT_AUDITS (src/db/prospect-audits.ts). */
+export const DUPLICATE_CHECK_LOOKBACK = 25;
+
+/** The daily cap's numbers live in `src/prospect/daily-cap.ts` — MED-15: this
+ *  module enforced them and the CLI, which every batch actually ran through,
+ *  did not — and since #907 the count is taken inside the reservation's own
+ *  INSERT (`reserveProspectAudit`). Re-exported so this stays the import site
+ *  it has always been for the dashboard path. */
+export { PROSPECT_AUDIT_DAILY_CAP, dailyCapMessage } from "../prospect/daily-cap.js";
+
+/** The workflow file dispatched when `PROSPECT_AUDIT_WORKFLOW_FILE` is unset. */
+export const DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE = "prospect-audit.yml";
+
+/** Shown in the success message when `PROSPECT_AUDIT_RECIPIENTS` is not mirrored
+ *  into this cockpit's env. The authoritative list lives in the PRIVATE dispatch
+ *  repo's workflow secrets, which this endpoint cannot read — so name no names.
+ *  A message that confidently lists the wrong people is worse than a vague one,
+ *  and it would drift silently the day someone is added. */
+export const DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL = "the configured recipients";
+
+/** Workflow inputs sent with the dispatch. All-string, matching GitHub Actions'
+ *  `workflow_dispatch` input typing. */
+export type ProspectAuditDispatchInputs = {
+  url: string;
+  business: string;
+  requested_by: string;
+  /** One of OPERATOR_GOALS. Required: see triggerProspectAudit. */
+  goal: string;
+  /** #676. Newline-separated, and PRESENT ONLY WHEN NON-EMPTY.
+   *
+   *  The audit runs by `workflow_dispatch` against a private repo whose
+   *  workflow file is not in this repository. GitHub refuses a dispatch that
+   *  carries an input the workflow does not declare, so sending these keys
+   *  unconditionally would break every run — including the ones that choose
+   *  nothing. Omitted when blank, the payload stays byte-for-byte what it is
+   *  today and only a run that actually uses the feature depends on the
+   *  workflow having been taught about it. */
+  terms?: string;
+  questions?: string;
+};
+
+/** Everything a dispatcher needs to fire one run — deliberately narrow (no
+ *  GitHub-specific types leak past this boundary) so a future executor (a
+ *  different CI, a queue) can implement this same shape without touching the
+ *  endpoint or `triggerProspectAudit`. */
+export type ProspectAuditDispatchTarget = {
+  repo: string; // "owner/repo"
+  workflowFile: string;
+  inputs: ProspectAuditDispatchInputs;
+};
+
+export type ProspectAuditDispatchResult = { ok: true } | { ok: false; error: string };
+
+/** The injectable seam: real dispatch is GitHub Actions today
+ *  ({@link makeWorkflowDispatchDispatcher}); tests inject a fake. Never throws —
+ *  a failure is reported as `{ ok: false, error }` so callers don't need a
+ *  try/catch around every dispatch. */
+export type ProspectAuditDispatcher = (
+  target: ProspectAuditDispatchTarget,
+) => Promise<ProspectAuditDispatchResult>;
+
+/**
+ * The actual dispatch call: a GitHub Actions `workflow_dispatch` against
+ * `target.repo`'s default branch, carrying `target.inputs`, through
+ * `makeGitHubRest`'s `defaultBranch` and `dispatchWorkflow`. Those throw on any
+ * failure; this wrapper turns the throw into `{ ok: false, error }` with the
+ * thrown message as the error, which is what the operator reads after "Could
+ * not start the audit:".
+ *
+ * This is the one piece of the module that is "GitHub Actions" — everything
+ * else depends only on the narrow {@link ProspectAuditDispatcher} shape, so
+ * swapping the executor later means writing a new function of that type, not
+ * touching the trigger logic or the endpoint.
+ */
+export function makeWorkflowDispatchDispatcher(deps: {
+  token: string;
+  fetch?: typeof fetch;
+}): ProspectAuditDispatcher {
+  const gh = makeGitHubRest(deps);
+  return async ({ repo, workflowFile, inputs }) => {
+    try {
+      const ref = await gh.defaultBranch(repo);
+      await gh.dispatchWorkflow(repo, workflowFile, ref, inputs);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+}
+
+/** Everything `triggerProspectAudit` needs from the outside world, injected so
+ *  it never touches Turso or the network directly. */
+export type ProspectAuditTriggerDeps = {
+  /** Newest-first recent audits, e.g. `(limit) => listRecentProspectAudits(db, limit)`.
+   *  Read for the duplicate check only; the cap is `reserve`. */
+  listRecent: (limit: number) => Promise<ProspectAuditListItem[]>;
+  /** The runaway brake: take a slot under the daily cap by writing a `running`
+   *  row, atomically, or be refused (#907) — `reserveProspectAudit`. Required,
+   *  not optional: a brake a caller can leave out is one that eventually is. */
+  reserve: (req: ProspectAuditReservationRequest, now: Date) => Promise<ProspectAuditReservation>;
+  /** Give a slot back when the dispatch that would have used it failed —
+   *  `releaseProspectAuditReservation(…, { onlyIfUnclaimed: true })`, so a
+   *  dispatch reported as failed that GitHub in fact accepted cannot free the
+   *  slot of a run already spending on it. */
+  release: (id: string) => Promise<void>;
+  dispatch: ProspectAuditDispatcher;
+  /** Injectable clock for the duplicate-window check; defaults to `Date.now`. */
+  now?: () => Date;
+};
+
+export type ProspectAuditTriggerInput = {
+  url: string;
+  business: string | null;
+  requestedBy: string;
+  /** What the site should get a visitor to do. Empty is refused. */
+  goal: string;
+  /** #676. Hand-chosen searches and buyer questions. Blank means generate. */
+  terms?: string[];
+  questions?: string[];
+};
+
+export type ProspectAuditTriggerResult =
+  | { status: "invalid-url" }
+  | { status: "private-host" }
+  /** Gate B: a client-facing audit grades the site against a goal a person
+   *  chose. Inference is for internal runs; the cockpit is the client path. */
+  | { status: "missing-goal" }
+  | { status: "duplicate"; existing: ProspectAuditListItem }
+  /** The 24h runaway brake tripped (#612 review). Carries both numbers so the
+   *  operator sees a real limit rather than a bare refusal. */
+  | { status: "daily-cap"; count: number; cap: number }
+  | { status: "dispatch-failed"; error: string }
+  | { status: "dispatched" };
+
+/**
+ * Validate, de-duplicate, reserve, then dispatch. Order matches the design's
+ * threat model: cheap shape checks first (no DB read, no dispatch) — malformed
+ * and private-host input never reach the database or the dispatcher — THEN the
+ * duplicate check (one DB read, still no dispatch on a hit) — THEN the 24h
+ * runaway brake, which since #907 is a reservation: a `running` row written
+ * atomically under the cap BEFORE the dispatch, so the next click counts this
+ * one even though its job has not started — THEN, only for a genuinely new,
+ * safe, public URL that got a slot, the actual dispatch that spends an audit.
+ *
+ * The dispatched job's CLI claims this row by url rather than reserving its
+ * own, so one audit is one row and one slot.
+ */
+export async function triggerProspectAudit(
+  deps: ProspectAuditTriggerDeps,
+  target: { repo: string; workflowFile: string },
+  input: ProspectAuditTriggerInput,
+): Promise<ProspectAuditTriggerResult> {
+  const url = input.url.trim();
+  if (!isHttpUrl(url)) return { status: "invalid-url" };
+
+  // isHttpUrl already proved this parses; re-parsing here is cheap and keeps
+  // the hostname extraction local to this one call site.
+  const hostname = new URL(url).hostname;
+  if (isPrivateOrLoopbackHost(hostname)) return { status: "private-host" };
+
+  const goal = input.goal.trim();
+  if (!(OPERATOR_GOALS as readonly string[]).includes(goal)) return { status: "missing-goal" };
+
+  const now = (deps.now ?? (() => new Date()))();
+  const cutoff = now.getTime() - PROSPECT_AUDIT_DUPLICATE_WINDOW_MS;
+  const recent = await deps.listRecent(DUPLICATE_CHECK_LOOKBACK);
+  const existing = recent.find((r) => r.url === url && Date.parse(r.created_at) >= cutoff);
+  if (existing) return { status: "duplicate", existing };
+
+  const business = input.business?.trim() || null;
+  // #676. Blank entries dropped, and the key omitted entirely when nothing is
+  // left — see ProspectAuditDispatchInputs for why an undeclared input would
+  // otherwise fail the whole dispatch.
+  const cleaned = (xs: string[] | undefined): string[] =>
+    (xs ?? []).map((x) => x.trim()).filter((x) => x !== "");
+  const lines = (xs: string[] | undefined): string | null => {
+    const kept = cleaned(xs);
+    return kept.length === 0 ? null : kept.join("\n");
+  };
+  const terms = lines(input.terms);
+  const questions = lines(input.questions);
+
+  // Runaway brake. Reserved AFTER the duplicate check on purpose: a repeated
+  // click on one url should read as "duplicate", which is the truthful and more
+  // useful answer, and should not consume the day's budget.
+  //
+  // The count and the write are one statement (`reserveProspectAudit`), shared
+  // with the CLI — a second implementation is how the two paths drift.
+  const slot = await deps.reserve(
+    {
+      url,
+      business,
+      chosenTerms: cleaned(input.terms).length > 0 ? cleaned(input.terms) : null,
+      chosenQuestions: cleaned(input.questions).length > 0 ? cleaned(input.questions) : null,
+      claimed: false,
+    },
+    now,
+  );
+  if (slot.kind === "capped") {
+    return { status: "daily-cap", count: slot.count, cap: PROSPECT_AUDIT_DAILY_CAP };
+  }
+
+  const result = await deps.dispatch({
+    repo: target.repo,
+    workflowFile: target.workflowFile,
+    inputs: {
+      url,
+      business: business ?? "",
+      requested_by: input.requestedBy,
+      goal,
+      ...(terms === null ? {} : { terms }),
+      ...(questions === null ? {} : { questions }),
+    },
+  });
+  if (!result.ok) {
+    // Nothing will run to finish this reservation, so give its slot back now
+    // rather than holding it for the stale window. Best effort: if the release
+    // itself fails, the stale window frees the slot anyway, and the operator
+    // still needs to hear that the dispatch failed — not a 500 about cleanup.
+    try {
+      await deps.release(slot.id);
+    } catch (err) {
+      console.error("[prospect-audit-trigger] could not release reservation", slot.id, err);
+    }
+    return { status: "dispatch-failed", error: result.error };
+  }
+  return { status: "dispatched" };
+}
+
+/**
+ * The `requested_by` workflow input: the operator's Google-verified address, or
+ * `"cockpit"` when there is no identity to report.
+ *
+ * This takes `requireOperator`'s verified email rather than reading a name off
+ * the request. The predecessor pulled the username out of the `Authorization`
+ * header — which `verifyBasicAuth` documents itself as deliberately ignoring,
+ * so any operator could type any name and the audit log recorded it verbatim.
+ * That made `requested_by` unverified free text, which is precisely the problem
+ * Google sign-in was introduced to fix.
+ *
+ * `null` (the shared-password fallback, used on deploy previews) still yields
+ * `"cockpit"`: an anonymous shared credential genuinely has no person behind
+ * it, and inventing one would put the old lie back.
+ */
+export function resolveRequestedBy(operatorEmail: string | null | undefined): string {
+  return operatorEmail?.trim() || "cockpit";
+}
+
+/** Human label for who gets the audit email, from the optional
+ *  `PROSPECT_AUDIT_RECIPIENTS` value (comma-separated names/emails) mirrored
+ *  into this cockpit's env, falling back to the design doc's stated audience.
+ *  The actual send + its recipient list live in the private dispatch repo's
+ *  workflow — this is a best-effort label for the success message only. */
+export function prospectAuditRecipientsLabel(raw: string | undefined): string {
+  const trimmed = raw?.trim();
+  if (!trimmed) return DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL;
+  const parts = trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL;
+}
+
+/** JSON status + body for one `ProspectAuditTriggerResult`. Kept pure and
+ *  separate from the endpoint handler so each message is unit-testable directly. */
+export function respondToProspectAuditTrigger(
+  result: ProspectAuditTriggerResult,
+  opts: { recipientsLabel: string },
+): { status: number; body: Record<string, unknown> } {
+  switch (result.status) {
+    case "invalid-url":
+      return {
+        status: 400,
+        body: { ok: false, error: "invalid-url", message: "Enter a valid http(s) URL to audit." },
+      };
+    case "missing-goal":
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "missing-goal",
+          message:
+            "Choose what the site should get a visitor to do. Every client-facing audit grades the site against a goal a person chose.",
+        },
+      };
+    case "private-host":
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "private-host",
+          message: "That host looks internal or private — audits only run against public sites.",
+        },
+      };
+    case "duplicate":
+      // #907. The existing row may be a run that has not finished — a
+      // reservation with no report behind it, whose `/r/` link would 404.
+      // P1-16. A run that failed after it paid has no report either; its
+      // slot is held under the daily cap, and a retry is refused like any
+      // other duplicate inside the window.
+      if (result.existing.status === "failed") {
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: "duplicate",
+            message: `${hostnameOf(result.existing.url)} failed in the last 10 minutes, so there is no report — try again after that, and check the run's log for the error.`,
+          },
+        };
+      }
+      if (hasNoReport(result.existing.status)) {
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: "duplicate",
+            message: `${hostnameOf(result.existing.url)} is still running from a few minutes ago — its report will arrive by email.`,
+          },
+        };
+      }
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          error: "duplicate",
+          message: `${hostnameOf(result.existing.url)} was already audited in the last 10 minutes — see the existing report instead of running another.`,
+          reportUrl: `/r/${result.existing.token}`,
+        },
+      };
+    case "daily-cap":
+      return {
+        // 429, not 400: the request is well-formed and the caller is
+        // authorised — it is the rate that is refused, and it will succeed
+        // again later without any change on their part.
+        status: 429,
+        body: {
+          ok: false,
+          error: "daily-cap",
+          // Worded once, in daily-cap.ts, so this 429 and the CLI's refusal
+          // tell the operator the same thing.
+          message: dailyCapMessage(result.count, result.cap),
+        },
+      };
+    case "dispatch-failed":
+      return {
+        status: 502,
+        body: {
+          ok: false,
+          error: "dispatch-failed",
+          message: `Could not start the audit: ${result.error}`,
+        },
+      };
+    case "dispatched":
+      return {
+        status: 202,
+        body: {
+          ok: true,
+          message: `Audit started. ${opts.recipientsLabel} will get an email with the report in a few minutes.`,
+        },
+      };
+  }
+}

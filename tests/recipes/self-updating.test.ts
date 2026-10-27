@@ -1,0 +1,1022 @@
+import { describe, it, expect, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { selfUpdating } from "../../src/recipes/self-updating/index.js";
+import { makeGitHub, type GitHub } from "../../src/github/gh.js";
+import type { SpawnFn, SpawnResult } from "../../src/audits/util/spawn.js";
+import { templatesByName } from "../../src/recipes/sync-configs/templates.js";
+import { FLEET_RULESET_NAME, desiredRuleset } from "../../src/github/rulesets.js";
+
+function currentBranchOf(dir: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: dir,
+    encoding: "utf-8",
+  }).trim();
+}
+
+function gitInit(dir: string) {
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "test@reddoor.local"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "reddoor-test"], { cwd: dir });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/o/r.git"], { cwd: dir });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "r", scripts: {} }));
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  execFileSync("git", ["commit", "-qm", "init"], { cwd: dir });
+}
+
+type GitHubOverrides = Partial<GitHub>;
+
+function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] } {
+  const calls: string[] = [];
+  const gh: GitHub = {
+    // Reads the pnpm-pin sweep needs. Unused by self-updating, but REQUIRED on
+    // the type: an optional dep is a check that silently measures nothing.
+    repoTextFile: async () => null,
+    listWorkflowPaths: async () => [],
+    // The Renovate base-branch read (#892) — likewise unused here.
+    branchRequiredChecks: async () => null,
+    openPullRequest: async (repo) => {
+      calls.push(`pr:${repo}`);
+      return { url: "https://github.com/o/r/pull/1" };
+    },
+    enableRepoAutoMerge: async (repo) => {
+      calls.push(`automerge-on:${repo}`);
+    },
+    disableRepoAutoMerge: async (repo) => {
+      calls.push(`automerge-off:${repo}`);
+    },
+    protectBranch: async (repo, b, checks) => {
+      calls.push(`protect:${repo}:${b}:${checks.join(",")}`);
+    },
+    setRepoSecret: async (repo, name) => {
+      calls.push(`secret:${repo}:${name}`);
+    },
+    repoExists: async () => true,
+    defaultBranch: async () => "main",
+    filesOnBranch: async () => [],
+    // Default: every config file absent (null) → drift → bootstrap, matching a fresh repo.
+    fileContentsOnBranch: async () => null,
+    branchProtectionContexts: async () => [],
+    secretExists: async () => false,
+    // Default: platform auto-merge is ON — the state the fleet actually drifted
+    // into on 2026-07-26 — so the recipe's job is to turn it OFF. A repo already
+    // at the desired state overrides this to `false` and expects NO call.
+    autoMergeEnabled: async () => true,
+    findOpenSelfUpdatingPR: async () => null,
+    openPullRequests: async () => [],
+    openPullRequestRefs: async () => [],
+    defaultBranchStatus: async () => ({ ciState: "none", lastCommitAt: null }),
+    mergedRenovatePullRequests: async () => [],
+    dispatchWorkflow: async (repo, workflow, ref) => {
+      calls.push(`dispatch:${repo}:${workflow}:${ref}`);
+    },
+    // Ruleset defaults: a PUBLIC repo whose `ci / ci` has been observed but which
+    // has NO ruleset yet — the exact state of a fresh site after its first CI run —
+    // so the default expectation is one createRuleset call (stage 2).
+    repoVisibility: async () => "public",
+    checkContextObserved: async () => true,
+    listRepoRulesets: async () => [],
+    getRuleset: async () => {
+      throw new Error("getRuleset called with no ruleset listed");
+    },
+    createRuleset: async (repo, payload) => {
+      calls.push(`ruleset-create:${repo}:${payload.rules.map((r) => r.type).join(",")}`);
+    },
+    updateRuleset: async (repo, id, payload) => {
+      calls.push(`ruleset-update:${repo}:${id}:${payload.rules.map((r) => r.type).join(",")}`);
+    },
+    listOrgRepos: async () => [],
+    workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: null }),
+    dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
+    branchTip: async () => null,
+    openSecretAlerts: async () => 0,
+    renovateMergeWindow: async () => ({ merges: [], truncated: false }),
+    ...over,
+  };
+  return { gh, calls };
+}
+
+// A repo whose fleet ruleset already satisfies the floor at stage 2 — spread into
+// tests that assert exact call lists / noop, so the ruleset ensure contributes no
+// call. Built from desiredRuleset so it stays canonical by construction.
+const WIRED_RULESET: GitHubOverrides = {
+  listRepoRulesets: async () => [{ id: 7, name: FLEET_RULESET_NAME }],
+  getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 7 }),
+};
+
+// The canonical contents the recipe compares against — same source the recipe uses,
+// so `upToDate` is correct by construction regardless of the exact paths.
+const SELF_UPDATING_TEMPLATES = templatesByName(["renovate-action", "renovate-config"]);
+const CONTENT_BY_PATH = new Map(SELF_UPDATING_TEMPLATES.map((t) => [t.path, t.contents]));
+/** Fake fileContentsOnBranch where every config file is already at canonical content (no drift). */
+const upToDate = async (_repo: string, _branch: string, path: string): Promise<string | null> =>
+  CONTENT_BY_PATH.get(path) ?? null;
+
+describe("selfUpdating recipe", () => {
+  it("fresh repo: bootstraps files via PR and wires all three settings", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const startBranch = currentBranchOf(dir);
+    const { gh, calls } = fakeGitHub();
+    // The push captures the maint branch's committed files BEFORE the recipe
+    // restores the local checkout to the operator's branch (post-push). We assert
+    // the bootstrap happened on the pushed branch, not the post-restore worktree.
+    // ci.yml must NOT be among them: it is per-site parameterized (netlify-site
+    // et al) and healing it against a static template was the armed clobber
+    // the 2026-08-02 review found — its shape belongs to the starter clone.
+    let renovateOnPushedBranch = false;
+    let ciOnPushedBranch = true;
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      const tree = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+      renovateOnPushedBranch = tree.includes(".github/workflows/renovate.yml");
+      ciOnPushedBranch = tree.includes(".github/workflows/ci.yml");
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(renovateOnPushedBranch).toBe(true);
+    expect(ciOnPushedBranch).toBe(false);
+    // Local checkout restored to where the operator started (#2).
+    expect(currentBranchOf(dir)).toBe(startBranch);
+    expect(push).toHaveBeenCalledOnce();
+    expect(calls).toContain("pr:o/r");
+    expect(calls).toContain("automerge-off:o/r");
+    expect(calls).not.toContain("automerge-on:o/r");
+    expect(calls).toContain("protect:o/r:main:ci / ci");
+    // Default fake: public repo, "ci / ci" observed, no ruleset → stage-2 create.
+    expect(calls).toContain(
+      "ruleset-create:o/r:deletion,non_fast_forward,pull_request,required_status_checks",
+    );
+    expect(r.notes).toContain("https://github.com/o/r/pull/1");
+    expect(r.commits).toHaveLength(1);
+  });
+
+  it("restores the operator's original branch after bootstrapping + pushing the maint branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    // Operator starts on a feature branch, not the default branch.
+    execFileSync("git", ["checkout", "-q", "-b", "work"], { cwd: dir });
+    expect(currentBranchOf(dir)).toBe("work");
+
+    const { gh } = fakeGitHub();
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(push).toHaveBeenCalledOnce();
+    // The maint branch was created + pushed, but the local checkout is back on `work`.
+    expect(currentBranchOf(dir)).toBe("work");
+  });
+
+  it("restores the operator's branch even when the PUSH FAILS (no stranded checkout)", async () => {
+    // Regression for round-3 #4: the restore used to live only on the success
+    // path, so a push failure after createBranch left the checkout parked on the
+    // maint branch with an unpushed commit — and the retry then failed at
+    // createBranch ("branch already exists"). The restore now runs in a `finally`.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    execFileSync("git", ["checkout", "-q", "-b", "work"], { cwd: dir });
+    expect(currentBranchOf(dir)).toBe("work");
+
+    const { gh } = fakeGitHub();
+    const push = vi.fn(async () => {
+      throw new Error("push rejected: remote unreachable");
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(push).toHaveBeenCalledOnce();
+    // Critical: despite the failure, the checkout is back on `work`, not stranded
+    // on the maint branch — so a retry can re-create the branch cleanly.
+    expect(currentBranchOf(dir)).toBe("work");
+  });
+
+  it("fully wired: no mutating calls, noop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("noop");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+    expect(r.commits).toHaveLength(0);
+  });
+
+  it("opens a PR when a config file is PRESENT but its content is STALE (drift)", async () => {
+    // The MEDIUM-C fix: existence-only would have reported "already self-updating" here.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const stalePath = SELF_UPDATING_TEMPLATES[0]!.path;
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === stalePath
+          ? "# stale: old pinned reusable-workflow SHA\n"
+          : (CONTENT_BY_PATH.get(path) ?? null),
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(push).toHaveBeenCalledOnce();
+    expect(calls).toContain("pr:o/r");
+  });
+
+  it("#651: a renovate.yml that differs from the template ONLY by a newer digest pin + quoting is a noop", async () => {
+    // The false-drift bug: Renovate bumps its own digest pin on the site (a
+    // supply-chain update we must never revert), and the site's prettier quotes
+    // the cron + the two RENOVATE_* scalar values (both quoted and unquoted forms
+    // are prettier-clean, so prettier never converges them). Neither is real
+    // drift — renovate.yml is compliance-checked, not byte-matched.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const renovateActionPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-action",
+    )!.path;
+    const starterShape = CONTENT_BY_PATH.get(renovateActionPath)!
+      .replace(
+        "renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21",
+        "renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2",
+      )
+      .replace("- cron: 0 */12 * * *", "- cron: '0 */12 * * *'")
+      .replace(
+        "RENOVATE_USERNAME: reddoor-renovate[bot]",
+        "RENOVATE_USERNAME: 'reddoor-renovate[bot]'",
+      );
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === renovateActionPath ? starterShape : (CONTENT_BY_PATH.get(path) ?? null),
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("noop");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it("treats a trailing-whitespace-only difference as NOT drift (no needless nightly PR)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      // Same canonical content but with extra trailing newlines — must normalize to "no drift".
+      fileContentsOnBranch: async (_repo, _branch, path) => {
+        const c = CONTENT_BY_PATH.get(path);
+        return c === undefined ? null : `${c}\n\n`;
+      },
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("noop");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it("bootstraps when only some of the CI files are present on the branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      // only 1 of 3 present (others null → missing → drift → bootstrap)
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === SELF_UPDATING_TEMPLATES[0]!.path ? CONTENT_BY_PATH.get(path)! : null,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(push).toHaveBeenCalledOnce();
+    expect(calls).toContain("pr:o/r");
+  });
+
+  it("writes only the drifted path — a compliant renovate.yml is not rewritten just because renovate.json drifted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    const renovateActionPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-action",
+    )!.path;
+    const renovateConfigPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-config",
+    )!.path;
+    const { gh } = fakeGitHub({
+      // renovate.yml already at canonical content (compliant, no drift);
+      // renovate.json missing (drift). Only renovate.json should be written.
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === renovateActionPath ? CONTENT_BY_PATH.get(path)! : null,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    let changedPaths: string[] = [];
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      const diff = execFileSync("git", ["diff", "--name-only", baseSha, branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+      changedPaths = diff.trim().split("\n").filter(Boolean);
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    // The drifted file was written...
+    expect(changedPaths).toContain(renovateConfigPath);
+    // ...but the already-compliant renovate.yml was left alone — writing it
+    // (even with byte-identical canonical content) would show up here as a
+    // newly-created file, since this fresh checkout never had it before.
+    expect(changedPaths).not.toContain(renovateActionPath);
+  });
+
+  it("fails (without mutating GitHub) when the bootstrap tree is dirty", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    writeFileSync(join(dir, "stray.txt"), "uncommitted"); // dirty the tree
+    const { gh, calls } = fakeGitHub({ filesOnBranch: async () => [] });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("working tree not clean");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it("reports failed with completed actions when a settings call throws", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate, // no bootstrap (all configs at canonical content)
+      autoMergeEnabled: async () => true, // → disableRepoAutoMerge succeeds (1 action)
+      branchProtectionContexts: async () => [], // → protectBranch runs, and throws
+      protectBranch: async () => {
+        throw new Error("boom");
+      },
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("boom");
+    expect(r.notes).toContain("completed: disabled auto-merge");
+    expect(calls).toContain("automerge-off:o/r");
+  });
+
+  it("DRIFT ALARM: a repo with platform auto-merge re-enabled gets it turned back off", async () => {
+    // Platform auto-merge is a per-PR flag anyone with write access can arm, and it
+    // merges unattended outside Renovate's packageRules — on 2026-07-26 a bulk
+    // `gh pr merge --auto` sweep armed it across 8 fleet repos and two
+    // actions/checkout MAJORS then merged with zero reviews (reddoor-starter#77,
+    // reddoor-website#111). This repo is otherwise fully wired, so the ONLY action
+    // is the drift correction — which is exactly what makes it an alarm.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => true,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["automerge-off:o/r"]);
+    expect(r.notes).toContain(
+      "disabled auto-merge (platform auto-merge is not permitted fleet-wide)",
+    );
+  });
+
+  it("self-heals a half-configured repo: only the missing classic protection is set", async () => {
+    // (Formerly this scenario planted the per-repo RENOVATE_TOKEN secret; the App
+    // migration removed that step — org-level App creds cover every repo — so the
+    // representative 'one missing setting' is now classic branch protection.)
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => [],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["protect:o/r:main:ci / ci"]);
+  });
+
+  it("adds the ci check, MERGING it with the branch's existing required contexts", async () => {
+    // The branch already requires `other-check` and `foo`; enabling self-updating must
+    // ADD `ci / ci` to that set, never REPLACE it (the PUT would otherwise silently drop
+    // the repo's pre-existing required checks). Union, in existing-then-desired order.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["other-check", "foo"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["protect:o/r:main:other-check,foo,ci / ci"]);
+  });
+
+  it("does not duplicate ci / ci when it is already among the existing contexts but others are missing", async () => {
+    // Defensive: if branchProtectionContexts somehow returns a set that lacks REQUIRED_CHECK
+    // in the .includes check but the union would re-add it, dedupe keeps a single entry. Here
+    // REQUIRED_CHECK is absent so protect runs; the union must not double `foo`.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["foo", "foo"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["protect:o/r:main:foo,ci / ci"]);
+  });
+
+  it("does not open a second PR when a self-updating PR is already open", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      filesOnBranch: async () => [],
+      findOpenSelfUpdatingPR: async () => "https://github.com/o/r/pull/9",
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).not.toContain("pr:o/r");
+    expect(r.notes).toContain("pull/9");
+    expect(r.status).toBe("applied");
+  });
+
+  it("EVIDENCE GATE: creates the ruleset WITHOUT status checks when ci / ci has never been observed", async () => {
+    // A required context that never fires + an empty bypass list = a repo
+    // permanently unmergeable by everyone (the .github repo's ci.yml is
+    // workflow_call-only and emits no check runs — applying the full shape
+    // there would have bricked it). Unobserved ⇒ refs rules only.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      checkContextObserved: async () => false,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["ruleset-create:o/r:deletion,non_fast_forward,pull_request"]);
+    expect(r.notes).toContain("not yet observed");
+  });
+
+  it("skips the ruleset ensure entirely on a PRIVATE repo (plan-blocked) — stays noop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      repoVisibility: async () => "private",
+      // If the recipe consults rulesets despite the gate, these blow up loudly.
+      listRepoRulesets: async () => {
+        throw new Error("listRepoRulesets must not be called on a private repo");
+      },
+      checkContextObserved: async () => {
+        throw new Error("checkContextObserved must not be called on a private repo");
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("noop");
+    expect(calls).toEqual([]);
+  });
+
+  it("RULESET DRIFT ALARM: a bypass actor gets healed away via PUT, with the gap named in the action", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    let putPayload: Parameters<GitHub["updateRuleset"]>[2] | null = null;
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      listRepoRulesets: async () => [{ id: 9, name: FLEET_RULESET_NAME }],
+      getRuleset: async () => ({
+        ...desiredRuleset("ci / ci"),
+        id: 9,
+        bypass_actors: [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }],
+      }),
+      updateRuleset: async (repo, id, payload) => {
+        calls.push(`ruleset-update:${repo}:${id}`);
+        putPayload = payload;
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["ruleset-update:o/r:9"]);
+    expect(r.notes).toContain("healed ruleset drift");
+    expect(r.notes).toContain("bypass actor");
+    expect(putPayload!.bypass_actors).toEqual([]);
+  });
+
+  it("a ruleset API failure surfaces as failed WITH the completed actions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => true, // completes first
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      createRuleset: async () => {
+        throw new Error("rate limited");
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("rate limited");
+    expect(r.notes).toContain("completed: disabled auto-merge");
+    expect(calls).toContain("automerge-off:o/r");
+  });
+
+  it("fails when there is no git repo", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    // no git init, no gitRepo → resolveOwnerRepo returns null
+    const { gh } = fakeGitHub();
+    const r = await selfUpdating({ path: dir, name: "r" }, { github: gh });
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not determine/i);
+  });
+
+  it("refuses a malformed gitRepo without making any gh call (token-to-attacker-repo guard)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub();
+    for (const gitRepo of ["../evil", "o", "o/r/x", "o /r", "https://github.com/o/r"]) {
+      const r = await selfUpdating(
+        { path: dir, name: "r", gitRepo },
+        { github: gh, pushBranch: vi.fn(async () => {}) },
+      );
+      expect(r.status).toBe("failed");
+      expect(r.notes).toMatch(/malformed repo identity/);
+    }
+    // No mutating gh call should have run for any malformed value.
+    expect(calls).toEqual([]);
+  });
+});
+
+// --- git must actually TAKE the configs (#741). The partial drop is the one
+//     that bites: one template lands, so `commit()` returns a SHA, the branch
+//     is pushed and a PR opens — and the repo never becomes self-updating,
+//     while every later run reports "self-updating PR already open".
+describe("selfUpdating: the commit must carry the configs", () => {
+  const RENOVATE_ACTION_PATH = SELF_UPDATING_TEMPLATES.find(
+    (t) => t.config === "renovate-action",
+  )!.path;
+  const RENOVATE_CONFIG_PATH = SELF_UPDATING_TEMPLATES.find(
+    (t) => t.config === "renovate-config",
+  )!.path;
+
+  function seedGitignore(dir: string, body: string): void {
+    writeFileSync(join(dir, ".gitignore"), body);
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-qm", "seed .gitignore"], { cwd: dir });
+  }
+
+  it("GRANTS a normal bootstrap — both configs are in the pushed branch's tree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh } = fakeGitHub();
+    let tree = "";
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      tree = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    expect(tree).toContain(RENOVATE_ACTION_PATH);
+    expect(tree).toContain(RENOVATE_CONFIG_PATH);
+  });
+
+  it("REFUSES a PARTIAL bootstrap: renovate.json ignored, nothing pushed, no PR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    seedGitignore(dir, `node_modules\n${RENOVATE_CONFIG_PATH}\n`);
+    const startBranch = currentBranchOf(dir);
+    const { gh, calls } = fakeGitHub();
+    const push = vi.fn(async () => {});
+
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain(RENOVATE_CONFIG_PATH);
+    expect(r.notes).toContain(`.gitignore:2:${RENOVATE_CONFIG_PATH}`);
+    // The renovate.yml half committed, which is exactly why the old code
+    // pushed and opened a PR for a repo that would never self-update.
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).not.toContain("pr:o/r");
+    // The operator is back where they started, and the refused file is gone.
+    expect(currentBranchOf(dir)).toBe(startBranch);
+    expect(existsSync(join(dir, RENOVATE_CONFIG_PATH))).toBe(false);
+  });
+});
+
+describe("selfUpdating: a protection read that failed never becomes a protection write", () => {
+  function ghAnswering(answer: Partial<SpawnResult>): GitHub {
+    const spawn: SpawnFn = async () => ({ code: 0, stdout: "", stderr: "", ...answer });
+    return makeGitHub({ token: "T", spawn });
+  }
+
+  function wiredExceptProtection(protectionRead: Partial<SpawnResult>) {
+    const repoVisibility = vi.fn(async () => "public");
+    return {
+      ...fakeGitHub({
+        fileContentsOnBranch: upToDate,
+        autoMergeEnabled: async () => false,
+        branchProtectionContexts: ghAnswering(protectionRead).branchProtectionContexts,
+        repoVisibility,
+        ...WIRED_RULESET,
+      }),
+      repoVisibility,
+    };
+  }
+
+  it("404 Branch not protected: protection is applied", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = wiredExceptProtection({
+      code: 1,
+      stderr: "gh: Branch not protected (HTTP 404)",
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["protect:o/r:main:ci / ci"]);
+  });
+
+  it.each([
+    ["403", "gh: Resource not accessible by integration (HTTP 403)"],
+    ["500", "gh: Server Error (HTTP 500)"],
+    ["404 Not Found", "gh: Not Found (HTTP 404)"],
+  ])("%s: failed, and protectBranch is never called", async (_, stderr) => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls, repoVisibility } = wiredExceptProtection({ code: 1, stderr });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain(stderr);
+    expect(r.notes).toMatch(/could not read branch protection on main/);
+    expect(calls.filter((c) => c.startsWith("protect:"))).toEqual([]);
+    expect(repoVisibility).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable default branch fails instead of protecting a guessed 'main'", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      defaultBranch: async () => {
+        throw new Error("gh api failed (code 1): gh: Server Error (HTTP 502)");
+      },
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/could not read the default branch of o\/r/);
+    expect(r.notes).toContain("HTTP 502");
+    expect(calls).toEqual([]);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a refused config read fails instead of opening a PR that overwrites the config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: ghAnswering({
+        code: 1,
+        stderr: "gh: Resource not accessible by integration (HTTP 403)",
+      }).fileContentsOnBranch,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("HTTP 403");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});
+
+// --- #998: after a SUCCESSFUL read, the protection write keeps what the branch
+//     already has. The real makeGitHub reader and writer over one fake spawn
+//     that plays GitHub's REST protection endpoint (GET, then PUT).
+describe("selfUpdating: the protection write keeps what the branch already has (#998)", () => {
+  function restProtection(
+    get: Partial<SpawnResult>,
+    over: GitHubOverrides = {},
+  ): { github: GitHub; puts: unknown[]; calls: string[] } {
+    const puts: unknown[] = [];
+    const spawn: SpawnFn = async (_cmd, args) => {
+      if (args.includes("PUT")) {
+        const i = args.indexOf("--input");
+        puts.push(JSON.parse(readFileSync(args[i + 1]!, "utf-8")));
+        return { code: 0, stdout: "{}", stderr: "" };
+      }
+      if (args.includes("--jq")) {
+        // branchProtectionContexts: gh applies the jq filter itself, so the
+        // fake answers what `.required_status_checks.contexts[]?` prints.
+        if (get.code) return { code: get.code, stdout: "", stderr: get.stderr ?? "" };
+        const body = JSON.parse(get.stdout ?? "null") as {
+          required_status_checks?: { contexts?: string[] } | null;
+        };
+        const out = body.required_status_checks?.contexts ?? [];
+        return { code: 0, stdout: out.map((c) => `${c}\n`).join(""), stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "", ...get };
+    };
+    const real = makeGitHub({ token: "T", spawn });
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: real.branchProtectionContexts,
+      protectBranch: real.protectBranch,
+      ...WIRED_RULESET,
+      ...over,
+    });
+    return { github: gh, puts, calls };
+  }
+
+  const API = "https://api.github.com/repos/o/r/branches/main/protection";
+  const reviews = {
+    url: `${API}/required_pull_request_reviews`,
+    dismissal_restrictions: {
+      url: `${API}/dismissal_restrictions`,
+      users: [{ login: "tucksravin", id: 1 }],
+      teams: [{ slug: "core", id: 3 }],
+      apps: [],
+    },
+    dismiss_stale_reviews: true,
+    require_code_owner_reviews: false,
+    required_approving_review_count: 1,
+    require_last_push_approval: false,
+  };
+  const restrictions = {
+    url: `${API}/restrictions`,
+    users: [{ login: "tucksravin", id: 1 }],
+    teams: [],
+    apps: [{ slug: "renovate", id: 2740 }],
+  };
+  const putReviews = {
+    dismissal_restrictions: { users: ["tucksravin"], teams: ["core"], apps: [] },
+    dismiss_stale_reviews: true,
+    require_code_owner_reviews: false,
+    required_approving_review_count: 1,
+    require_last_push_approval: false,
+  };
+  const putRestrictions = { users: ["tucksravin"], teams: [], apps: ["renovate"] };
+
+  async function run(github: GitHub) {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    return selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github, pushBranch: vi.fn(async () => {}) },
+    );
+  }
+
+  it("reviews and restrictions, but no ci / ci: both survive, the check is added", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: {
+          strict: true,
+          contexts: ["build"],
+          checks: [{ context: "build", app_id: 15368 }],
+        },
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+        required_pull_request_reviews: reviews,
+        restrictions,
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: {
+          strict: true,
+          checks: [{ context: "build", app_id: 15368 }, { context: "ci / ci" }],
+        },
+        enforce_admins: false,
+        required_pull_request_reviews: putReviews,
+        restrictions: putRestrictions,
+      },
+    ]);
+  });
+
+  it("protection with required_status_checks: null: the rest survives, the check is added", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: null,
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: true },
+        required_pull_request_reviews: reviews,
+        restrictions,
+        required_linear_history: { enabled: true },
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: true,
+        required_pull_request_reviews: putReviews,
+        restrictions: putRestrictions,
+        required_linear_history: true,
+      },
+    ]);
+  });
+
+  it("404 Branch not protected: protection is still applied, fresh", async () => {
+    const { github, puts } = restProtection({
+      code: 1,
+      stderr: "gh: Branch not protected (HTTP 404)",
+    });
+    const r = await run(github);
+    expect(r.status).toBe("applied");
+    expect(puts).toEqual([
+      {
+        required_status_checks: { strict: true, checks: [{ context: "ci / ci" }] },
+        enforce_admins: true,
+        required_pull_request_reviews: null,
+        restrictions: null,
+      },
+    ]);
+  });
+
+  // "Restrict who can dismiss reviews" on, with nobody listed (#1447).
+  const dismissalNobodyListed = {
+    stdout: JSON.stringify({
+      url: API,
+      required_status_checks: { strict: true, contexts: ["build"], checks: [] },
+      enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+      required_pull_request_reviews: {
+        ...reviews,
+        dismissal_restrictions: {
+          url: `${API}/dismissal_restrictions`,
+          users: [],
+          teams: [],
+          apps: [],
+        },
+      },
+      restrictions,
+    }),
+  };
+
+  it("dismissal restriction on with nobody listed: no protection write, the ruleset still runs, the repo fails with the reason (#1447)", async () => {
+    const { github, puts, calls } = restProtection(
+      dismissalNobodyListed,
+      // No fleet ruleset yet, so the admin-binding layer has work to do.
+      { listRepoRulesets: async () => [] },
+    );
+    const r = await run(github);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*no user, team or app.*by hand/s);
+    expect(r.notes).toContain(`completed: created ruleset "${FLEET_RULESET_NAME}"`);
+    // The refusal is the error that ended the run, so it is reported once.
+    expect((r.notes ?? "").split("protectBranch(").length - 1).toBe(1);
+    expect(puts).toEqual([]);
+    expect(calls.filter((c) => c.startsWith("ruleset-create:o/r:"))).toHaveLength(1);
+  });
+
+  it("a refused protection write stays in the notes when the ruleset step then fails (#1447)", async () => {
+    const { github, puts } = restProtection(dismissalNobodyListed, {
+      listRepoRulesets: async () => [],
+      createRuleset: async () => {
+        throw new Error("ruleset 422 boom");
+      },
+    });
+    const r = await run(github);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/protectBranch\(o\/r:main\).*by hand.*; then ruleset 422 boom/s);
+    expect(puts).toEqual([]);
+  });
+
+  it("ci / ci already required: no write at all", async () => {
+    const { github, puts } = restProtection({
+      stdout: JSON.stringify({
+        url: API,
+        required_status_checks: { strict: true, contexts: ["ci / ci"], checks: [] },
+        enforce_admins: { url: `${API}/enforce_admins`, enabled: false },
+        required_pull_request_reviews: reviews,
+        restrictions,
+      }),
+    });
+    const r = await run(github);
+    expect(r.status).toBe("noop");
+    expect(puts).toEqual([]);
+  });
+});

@@ -1,0 +1,122 @@
+{
+  "root": "/Users/tuckerlemos/.claude/projects",
+  "tz": "America/Los_Angeles",
+  "lane": "all",
+  "from": null,
+  "to": null,
+  "files": 3296,
+  "lines": 749279,
+  "by": [
+    "model"
+  ],
+  "total": {
+    "requests": 76304,
+    "in": 1596731,
+    "out": 66932530,
+    "cacheCreate": 315682034,
+    "cacheRead": 13925221434
+  },
+  "groups": [
+    {
+      "key": "claude-fable-5",
+      "requests": 8485,
+      "in": 387529,
+      "out": 10800055,
+      "cacheCreate": 50354159,
+      "cacheRead": 1338013035
+    },
+    {
+      "key": "claude-fable-5-1",
+      "requests": 4509,
+      "in": 345718,
+      "out": 6240039,
+      "cacheCreate": 42469002,
+      "cacheRead": 703980039
+    },
+    {
+      "key": "claude-haiku-4-5-20251001",
+      "requests": 670,
+      "in": 4678,
+      "out": 149503,
+      "cacheCreate": 4023638,
+      "cacheRead": 11159222
+    },
+    {
+      "key": "claude-opus-4-5-20251101",
+      "requests": 388,
+      "in": 697152,
+      "out": 31018,
+      "cacheCreate": 836477,
+      "cacheRead": 1475199
+    },
+    {
+      "key": "claude-opus-4-8",
+      "requests": 336,
+      "in": 6009,
+      "out": 569106,
+      "cacheCreate": 1333577,
+      "cacheRead": 83078001
+    },
+    {
+      "key": "claude-opus-5",
+      "requests": 57095,
+      "in": 146003,
+      "out": 44519446,
+      "cacheCreate": 198906409,
+      "cacheRead": 11147683009
+    },
+    {
+      "key": "claude-sonnet-5",
+      "requests": 4821,
+      "in": 9642,
+      "out": 4623363,
+      "cacheCreate": 17758772,
+      "cacheRead": 639832929
+    }
+  ],
+  "window": {
+    "start": "2026-09-02T16:00:00Z",
+    "end": "2026-09-02T18:27:42.673Z",
+    "total": {
+      "requests": 1426,
+      "in": 171000,
+      "out": 1227495,
+      "cacheCreate": 6948962,
+      "cacheRead": 192831839
+    },
+    "byModel": [
+      {
+        "key": "claude-fable-5-1",
+        "requests": 739,
+        "in": 118055,
+        "out": 722164,
+        "cacheCreate": 5136313,
+        "cacheRead": 69266906
+      },
+      {
+        "key": "claude-haiku-4-5-20251001",
+        "requests": 70,
+        "in": 408,
+        "out": 12224,
+        "cacheCreate": 244678,
+        "cacheRead": 1713783
+      },
+      {
+        "key": "claude-opus-4-5-20251101",
+        "requests": 29,
+        "in": 51361,
+        "out": 2763,
+        "cacheCreate": 48852,
+        "cacheRead": 128710
+      },
+      {
+        "key": "claude-opus-5",
+        "requests": 588,
+        "in": 1176,
+        "out": 490344,
+        "cacheCreate": 1519119,
+        "cacheRead": 121722440
+      }
+    ]
+  }
+}

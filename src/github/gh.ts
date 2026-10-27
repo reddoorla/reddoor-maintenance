@@ -1,0 +1,1215 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
+import type { ExistingRuleset, RulesetPayload, RulesetRule } from "./rulesets.js";
+
+/** Aggregate CI state of a PR's head commit, normalized from GitHub's rollup. */
+export type CiState = "passing" | "failing" | "pending" | "none";
+
+/** GitHub's computed mergeability of a PR. `UNKNOWN` is transient — GitHub is
+ *  still computing it (e.g. right after a push) — so it should be read as "not
+ *  known to conflict", never as conflicting. */
+export type PrMergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+
+/** A minimal open-PR summary with its head-commit CI rollup state + mergeability. */
+export type PullRequestSummary = {
+  number: number;
+  title: string;
+  url: string;
+  headRef: string;
+  ciState: CiState;
+  mergeable: PrMergeable;
+};
+
+/**
+ * Reject a value before it's interpolated into a `gh api` URL path. The
+ * `owner/repo` split methods already validate shape; this is the defense-in-depth
+ * guard for the `branch` and file-`path` segments. An unexpected value (`..`, a
+ * leading `/`, whitespace, or a URL-structural char like `?#%` or a backslash)
+ * could otherwise retarget the endpoint (escape the intended path, smuggle a
+ * query string, or traverse). Conservative by design — legit branch names like
+ * `maint/self-updating-x` and paths like `.github/workflows/ci.yml` pass.
+ *
+ * Both branch refs (`maint/self-updating-x`) and file paths
+ * (`.github/workflows/ci.yml`) legitimately contain `/`, so a single slash is
+ * allowed; what's rejected is `..`, a leading `/`, whitespace, or a
+ * URL-structural char (`?`, `#`, `%`, backslash) that could escape or retarget
+ * the endpoint.
+ */
+export function assertUrlSegment(kind: "branch" | "path", value: string): void {
+  const structural = /[\s?#%\\]|\.\./;
+  if (value.length === 0 || value.startsWith("/") || structural.test(value)) {
+    throw new Error(
+      `unsafe ${kind} for gh api path (illegal characters or traversal): ${JSON.stringify(value)}`,
+    );
+  }
+}
+
+/** Map GitHub's `statusCheckRollup.state` enum to our normalized CiState. */
+function mapRollupState(state: string | null | undefined): CiState {
+  switch (state) {
+    case "SUCCESS":
+      return "passing";
+    case "FAILURE":
+    case "ERROR":
+      return "failing";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return "none"; // null/undefined = no checks reported
+  }
+}
+
+/** Coerce GitHub's `mergeable` enum to our PrMergeable. Anything unexpected
+ *  (including the literal `UNKNOWN` GitHub returns while still computing) maps to
+ *  `UNKNOWN` — i.e. "not known to conflict". Only an explicit `CONFLICTING` is. */
+/** The same "owner/repo" shape check the GraphQL methods make inline, for the
+ *  REST methods that interpolate `repo` into a path. */
+function assertOwnerRepo(repo: string, method: string): void {
+  const [owner, name, ...rest] = repo.split("/");
+  if (!owner || !name || rest.length > 0) {
+    throw new Error(`${method}: expected "owner/repo", got "${repo}"`);
+  }
+}
+
+function mapMergeable(state: string | null | undefined): PrMergeable {
+  return state === "MERGEABLE" || state === "CONFLICTING" ? state : "UNKNOWN";
+}
+
+export type GitHub = {
+  openPullRequest: (
+    repo: string,
+    pr: { head: string; base: string; title: string; body: string },
+  ) => Promise<{ url: string }>;
+  /** Turn GitHub's platform auto-merge ON for a repo. Retained as the documented
+   *  ROLLBACK path — the fleet drives repos to auto-merge OFF (see
+   *  {@link disableRepoAutoMerge} and `recipes/self-updating`). */
+  enableRepoAutoMerge: (repo: string) => Promise<void>;
+  /** Turn GitHub's platform auto-merge OFF for a repo. This is the fleet default:
+   *  platform auto-merge is a per-PR flag anyone with write access can arm, and it
+   *  merges unattended outside Renovate's `packageRules`. Renovate merges from
+   *  inside its own run instead. */
+  disableRepoAutoMerge: (repo: string) => Promise<void>;
+  /** Require `requiredChecks` on `branch`'s classic protection. Reads the
+   *  existing protection first and carries every field forward, since the PUT
+   *  replaces the whole object (#998); throws without writing when that read
+   *  fails for any reason but "Branch not protected". */
+  protectBranch: (repo: string, branch: string, requiredChecks: string[]) => Promise<void>;
+  setRepoSecret: (repo: string, name: string, value: string) => Promise<void>;
+  repoExists: (repo: string) => Promise<boolean>;
+  defaultBranch: (repo: string) => Promise<string>;
+  filesOnBranch: (repo: string, branch: string, paths: string[]) => Promise<string[]>;
+  /** The raw contents of `path` on `branch`, or null when the file is absent (404).
+   *  Lets a caller detect a present-but-STALE file (content drift), where
+   *  `filesOnBranch` only sees existence. */
+  fileContentsOnBranch: (repo: string, branch: string, path: string) => Promise<string | null>;
+  branchProtectionContexts: (repo: string, branch: string) => Promise<string[]>;
+  secretExists: (repo: string, name: string) => Promise<boolean>;
+  autoMergeEnabled: (repo: string) => Promise<boolean>;
+  findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
+  /** All open PRs on a repo with each head commit's normalized CI rollup state. */
+  openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
+  /** Open PRs' head refs and URLs, over REST only, so it works through the cloud
+   *  session's proxy, which refuses GraphQL. */
+  openPullRequestRefs: (repo: string) => Promise<Array<{ headRef: string; url: string }>>;
+  /** The default branch's latest-commit date + normalized CI rollup, one query. */
+  defaultBranchStatus: (repo: string) => Promise<{ ciState: CiState; lastCommitAt: string | null }>;
+  /** Renovate PRs (head `renovate/*`) merged at/after `sinceIso`. Used to record
+   *  `pr_automerged` fleet events. gh-shell (Actions only). */
+  mergedRenovatePullRequests: (
+    repo: string,
+    sinceIso: string,
+  ) => Promise<Array<{ number: number; title: string; url: string; mergedAt: string }>>;
+  /** Fire a `workflow_dispatch` for `<workflow>` (a filename like `renovate.yml`)
+   *  on `ref`. Requires the token's `actions:write` scope; a 404 (no such
+   *  workflow) or 403 (missing scope) surfaces as a thrown error. */
+  dispatchWorkflow: (repo: string, workflow: string, ref: string) => Promise<void>;
+  /** REPO-sourced rulesets only (`includes_parents=false`): org-level rulesets
+   *  aren't ours to manage (and don't exist on the Free plan). */
+  listRepoRulesets: (repo: string) => Promise<Array<{ id: number; name: string }>>;
+  getRuleset: (repo: string, id: number) => Promise<ExistingRuleset>;
+  createRuleset: (repo: string, payload: RulesetPayload) => Promise<void>;
+  /** The update verb is PUT — `PATCH repos/{repo}/rulesets/{id}` returns 404
+   *  (verified live 2026-08-01), so a PATCH-based update would silently no-op
+   *  on every drifted repo while the recipe reported success. */
+  updateRuleset: (repo: string, id: number, payload: RulesetPayload) => Promise<void>;
+  /** True iff a check-run named `context` exists on `ref`'s HEAD commit. The
+   *  evidence gate for requiring a status check: with an empty bypass list, a
+   *  required context that never fires makes the repo permanently unmergeable
+   *  by everyone — so a context must be OBSERVED before it is required.
+   *  False-negatives (fresh repo, API hiccup) safely degrade to "don't require
+   *  yet"; false-positives are impossible (we name-match real runs). */
+  checkContextObserved: (repo: string, ref: string, context: string) => Promise<boolean>;
+  /** "public" | "private" (| "internal" on GHEC). Rulesets on private repos
+   *  need a paid plan, so callers gate on this rather than attempting. */
+  repoVisibility: (repo: string) => Promise<string>;
+  /** Every repo in the org (paginated) — the anti-hand-typed-list enumerator.
+   *  Sweeps driven by a hand-maintained list have already produced two false
+   *  "all clear"s; enumerate from the API instead.
+   *  secretScanning/pushProtection come from the same listing (no extra call);
+   *  "unavailable" means the token couldn't read security_and_analysis (needs
+   *  admin/security read) — callers must treat that as unverified, not fine. */
+  listOrgRepos: (org: string) => Promise<
+    Array<{
+      name: string;
+      visibility: string;
+      archived: boolean;
+      secretScanning: string;
+      pushProtection: string;
+    }>
+  >;
+  /** Liveness of one workflow file: registered? state? when did it last
+   *  SUCCEED? Success, not mere existence of a run: a dead credential or
+   *  broken config still CREATES a run on every cron tick that fails in
+   *  seconds, keeping created_at perpetually fresh — counting those as alive
+   *  is exactly the silent-stop blindness this probe exists to catch.
+   *  A clean 404 is the answer `{present: false}` — any OTHER failure throws,
+   *  because "couldn't check" must never read as "healthy" downstream. */
+  workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
+  /** Renovate's own Dependency Dashboard issue, which is the only place it
+   *  reports branches it has DECIDED TO STOP MANAGING. workflowHealth answers
+   *  "did Renovate run?"; this answers "was it allowed to do anything?" — a
+   *  distinction that cost the fleet 9 repos of frozen updates (see
+   *  renovateBlockedGaps). Absent dashboard is the answer `{present:false}`,
+   *  not an error: `dependencyDashboard` is a config a repo may disable. */
+  dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
+  /** Tip commit of one branch, or `null` if the branch is gone — which is the
+   *  answer, not an error: a dashboard naming a deleted branch is simply one
+   *  Renovate has not rewritten yet. */
+  branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
+  /** Every `renovate/*` head MERGED into the default branch inside one page
+   *  of the repo's closed PRs, how many merged elsewhere, and whether that
+   *  page filled up. The classification (security vs
+   *  feature) is deliberately left to the caller so the verdict stays a pure,
+   *  fixture-testable function — see renovateOutcome. */
+  renovateMergeWindow: (repo: string) => Promise<RenovateMergeWindow>;
+  /** How many secret-scanning alerts are OPEN on a repo — i.e. leaked
+   *  credentials nobody has triaged. Settings say a detector runs; only this
+   *  says whether anyone read it (see secretScanningGaps). `"unavailable"` is
+   *  the token that may not read alerts (403/404 — needs `security_events`),
+   *  and callers must treat it as unverified, never as zero. */
+  openSecretAlerts: (repo: string) => Promise<number | "unavailable">;
+  /** One text file at the repo's DEFAULT branch, or `null` when it does not
+   *  exist. `null` is an ANSWER — a repo with no `package.json` is not a node
+   *  repo, which the pnpm-pin sweep must read as out of scope rather than as a
+   *  gap. Every other failure THROWS: "I could not read it" arriving
+   *  downstream as "there is no pin" is the silent-green collapse these
+   *  sweeps exist to kill. */
+  repoTextFile: (repo: string, path: string) => Promise<string | null>;
+  /** Paths of every file in `.github/workflows`, or `[]` when the directory is
+   *  absent (a repo may legitimately have no workflows). Used to find the
+   *  `pnpm/action-setup` steps that pin a pnpm `version:` input — see
+   *  parsePnpmActionSetupPins for why the file must be PARSED, not grepped. */
+  listWorkflowPaths: (repo: string) => Promise<string[]>;
+  /** What requires CI on ONE branch — the Renovate base-branch check (#892).
+   *  `null` when the branch does not exist, which is an ANSWER: Renovate cannot
+   *  merge into a branch that is not there. `rules` is GitHub's own evaluation
+   *  of every ACTIVE ruleset that applies to the branch (`rules/branches/…`),
+   *  so ref include/exclude patterns, `~ALL` and org rulesets are resolved by
+   *  GitHub rather than re-implemented here. `classicContexts` is classic
+   *  branch protection's required checks, read from `branches/…`, which needs
+   *  only read access (`…/protection` needs Administration). Every other
+   *  failure THROWS, so a refusal can never arrive as "no required check". */
+  branchRequiredChecks: (repo: string, branch: string) => Promise<BranchRequiredChecks | null>;
+};
+
+/** One rule as `rules/branches/{b}` reports it: the rule plus the id of the
+ *  ruleset that contributes it (#981), which is how its `bypass_actors` are
+ *  found. The id is absent only when GitHub sent none; it is never invented. */
+export type BranchRule = RulesetRule & { ruleset_id?: number };
+
+export type BranchRequiredChecks = { rules: BranchRule[]; classicContexts: string[] };
+
+export type WorkflowHealth =
+  { present: false } | { present: true; state: string; lastSuccessAt: string | null };
+
+export type DependencyDashboard =
+  { present: false } | { present: true; blockedBranches: string[]; unknownSections: string[] };
+
+/** Tip commit of a branch. `authorIsMachine` answers "does any human own this
+ *  branch?" — see renovateBlockedGaps for why that decides whether a blocked
+ *  branch is an orphan or a human's in-flight work. */
+export type BranchTip = { authorIsMachine: boolean; committedAt: string };
+
+/** One page of closed PRs is all this costs, so the window has an EDGE, and
+ *  the edge is load-bearing: `reddoor-maintenance` ships enough PRs that 100
+ *  closed ones reach back only ~12 days, while a quiet site repo's 100 reach
+ *  back ~90. `truncated` is what keeps "nothing in the window" from being read
+ *  as "never merged one" on the busy repos — the difference between a measured
+ *  drought and an unmeasured one. */
+export const RENOVATE_MERGE_WINDOW_PAGE = 100;
+
+export type RenovateMergeWindow = {
+  /** Merged `renovate/*` PRs into the repo's default branch seen in the
+   *  window, newest merge first. */
+  merges: Array<{ headRef: string; mergedAt: string }>;
+  /** Merged `renovate/*` PRs in the window whose base was NOT the default
+   *  branch (or could not be read): `staging` on the staging flow. Never
+   *  measured as delivery, but kept (and classified by the caller, like
+   *  `merges`) so "nothing landed" is never reported as "never merged one".
+   *  Absent means none. */
+  offDefault?: Array<{ headRef: string; mergedAt: string }>;
+  /** The page came back FULL, so older history exists that was not read. */
+  truncated: boolean;
+};
+
+/** The section headings Renovate is known to emit, normalised to lowercase.
+ *  Sourced from lib/workers/repository/dependency-dashboard.ts at both live
+ *  majors — the wording moved once already (see BLOCKED_SECTION_RE), so the
+ *  legacy spellings stay in the set. Anything OUTSIDE this set means our
+ *  vocabulary has drifted from Renovate's and the blocked check can no longer
+ *  be trusted; parseUnknownSections reports it rather than reading silence as
+ *  health. */
+const KNOWN_DASHBOARD_SECTIONS = new Set([
+  // 43+
+  "pending approval",
+  "group size not met",
+  "awaiting schedule",
+  "rate-limited",
+  "errored",
+  "pr creation approval required",
+  "pr edited (blocked)",
+  "pending status checks",
+  "pending branch automerge",
+  "other branches",
+  "open",
+  "pr closed (blocked)",
+  "repository problems",
+  "config migration needed",
+  "config migration needed (blocked)",
+  "deprecations / replacements",
+  "abandoned dependencies",
+  "vulnerabilities",
+  "detected dependencies",
+  // <=42, kept so an older self-hosted Renovate does not read as drift
+  "edited/blocked",
+  "ignored or blocked",
+]);
+
+/** Both spellings of the "I have stopped managing these branches" heading.
+ *  Renovate renamed it `Edited/Blocked` -> `PR Edited (Blocked)` in 43.0.0,
+ *  and the fleet takes its Renovate major from whatever renovatebot/github-action
+ *  bakes in — so an ordinary action bump moves it. Matching only the current
+ *  wording would make this surface silently blind on the next rename. */
+const BLOCKED_SECTION_RE = /^#{1,2}\s+(?:PR Edited \(Blocked\)|Edited\/Blocked)\s*$/i;
+
+/** `##` (or the `# ---` join separator) opens a new section; `###` does NOT.
+ *  Renovate emits `### <category>` subheadings INSIDE a section when
+ *  dependencyDashboardCategory is set, and treating those as boundaries would
+ *  truncate the blocked list to nothing. */
+const SECTION_HEADING_RE = /^#{1,2}\s+(.*?)\s*$/;
+
+/**
+ * Pull the branches Renovate has given up on out of a Dependency Dashboard
+ * body. They live under the blocked heading — "The following updates have been
+ * manually edited so Renovate will no longer make changes." — each as a
+ * `<!-- rebase-branch=NAME -->` marker.
+ *
+ * Section-scoped on purpose: `rebase-branch=` markers also appear under "Open"
+ * (where they mean "tick to rebase", i.e. perfectly healthy — 11 fleet repos
+ * carry them today), so a whole-body grep would report those repos as blocked.
+ * `PR Closed (Blocked)` is deliberately NOT read: it is Renovate's ledger of
+ * operator instructions it has honoured (closing a Renovate PR is the
+ * documented ignore idiom) and it uses `recreate-branch=`, not `rebase-branch=`.
+ */
+export function parseBlockedBranches(body: string): string[] {
+  const found: string[] = [];
+  let inBlocked = false;
+  for (const line of body.split("\n")) {
+    if (SECTION_HEADING_RE.test(line)) {
+      inBlocked = BLOCKED_SECTION_RE.test(line);
+      continue;
+    }
+    if (!inBlocked) continue;
+    const marker = line.match(/rebase-branch=([^\s>]+)/);
+    if (marker?.[1]) found.push(marker[1]);
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * Section headings in a dashboard body that Renovate is not known to emit.
+ * `parseBlockedBranches` returning `[]` is ambiguous — it means both "nothing
+ * is blocked" and "I did not understand this dashboard" — and this is what
+ * separates them, so a heading rename cannot turn the whole fleet green in
+ * silence. Same doctrine as workflowHealth: "couldn't check" must never read
+ * as "healthy" downstream.
+ */
+export function parseUnknownSections(body: string): string[] {
+  const unknown: string[] = [];
+  for (const line of body.split("\n")) {
+    const heading = line.match(/^##\s+(.*?)\s*$/);
+    const title = heading?.[1];
+    if (!title) continue;
+    if (!KNOWN_DASHBOARD_SECTIONS.has(title.toLowerCase())) unknown.push(title);
+  }
+  return [...new Set(unknown)];
+}
+
+// --- Classic branch protection: GET shape -> PUT shape (#998) ---------------
+// GitHub REST "Get branch protection" and "Update branch protection"
+// (GET/PUT /repos/{owner}/{repo}/branches/{branch}/protection,
+// https://docs.github.com/en/rest/branches/branch-protection). The PUT
+// replaces the whole object, and its shape differs from the GET's:
+//   - GET wraps booleans as `{ enabled }` (enforce_admins, allow_force_pushes,
+//     ...); PUT takes the bare boolean.
+//   - GET lists restrictions, dismissal_restrictions and
+//     bypass_pull_request_allowances as user/team/app OBJECTS; PUT takes
+//     logins and slugs.
+//   - GET's `checks[].app_id: null` means "any app"; PUT spells that -1
+//     ("Pass -1 to explicitly allow any app to set the status"), so an
+//     existing check with app_id null stays "any app". A check appended here,
+//     or carried from a `contexts`-only GET, is sent with NO app_id, on
+//     purpose: GitHub then pins it to the app that most recently reported it
+//     ("Omit this field to automatically select the GitHub App that has
+//     recently provided this check"). That is stricter than "any app", and
+//     it is kept (#1448).
+//   - "Pass an empty dismissal_restrictions object to disable." A GET whose
+//     dismissal restriction is on with nobody listed (users, teams and apps
+//     all empty) would go back as all-empty lists, which GitHub may read as
+//     that empty object and turn the restriction off. Unverified, so
+//     protectionPutBody refuses to write it (#1447).
+//   - GET's `url`/`*_url` fields have no PUT counterpart and are dropped.
+// `required_signatures` is not part of the PUT body (it has its own endpoint),
+// so it is not sent.
+
+type Named = { login?: unknown; slug?: unknown };
+
+function namesOf(list: unknown, key: "login" | "slug"): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((x: Named) => (typeof x?.[key] === "string" ? [x[key] as string] : []));
+}
+
+function actorsOf(v: unknown): { users: string[]; teams: string[]; apps: string[] } {
+  const o = (v ?? {}) as { users?: unknown; teams?: unknown; apps?: unknown };
+  return {
+    users: namesOf(o.users, "login"),
+    teams: namesOf(o.teams, "slug"),
+    apps: namesOf(o.apps, "slug"),
+  };
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+const PROTECTION_FLAGS = [
+  "required_linear_history",
+  "allow_force_pushes",
+  "allow_deletions",
+  "block_creations",
+  "required_conversation_resolution",
+  "lock_branch",
+  "allow_fork_syncing",
+] as const;
+
+const REVIEW_SCALARS = [
+  "dismiss_stale_reviews",
+  "require_code_owner_reviews",
+  "required_approving_review_count",
+  "require_last_push_approval",
+] as const;
+
+/** protectionPutBody declined to write, because the write could weaken the
+ *  branch's protection (#1447). A caller can record it and go on. */
+export class ProtectionRefusedError extends Error {
+  override name = "ProtectionRefusedError";
+}
+
+/**
+ * The PUT body for classic branch protection that requires `requiredChecks`
+ * while keeping everything `existing` (a GET response, or null when the branch
+ * is not protected) already has. Existing checks keep their order and app
+ * binding; a named check not yet required is appended. Nothing is removed.
+ *
+ * Throws, rather than risk weakening the protection, when the branch restricts
+ * who may dismiss reviews but lists nobody (#1447): set that one by hand.
+ */
+export function protectionPutBody(
+  existing: Record<string, unknown> | null,
+  requiredChecks: string[],
+): Record<string, unknown> {
+  if (existing === null) {
+    return {
+      required_status_checks: {
+        strict: true,
+        checks: [...new Set(requiredChecks)].map((context) => ({ context })),
+      },
+      enforce_admins: true,
+      required_pull_request_reviews: null,
+      restrictions: null,
+    };
+  }
+
+  const rsc = isObject(existing.required_status_checks) ? existing.required_status_checks : null;
+  const checks: Array<{ context: string; app_id?: number }> = [];
+  if (rsc && Array.isArray(rsc.checks)) {
+    for (const c of rsc.checks as Array<{ context?: unknown; app_id?: unknown }>) {
+      if (typeof c?.context !== "string") continue;
+      checks.push({ context: c.context, app_id: typeof c.app_id === "number" ? c.app_id : -1 });
+    }
+  }
+  // An older response, or one whose `checks` is missing, still lists `contexts`.
+  if (rsc && Array.isArray(rsc.contexts)) {
+    for (const c of rsc.contexts) {
+      if (typeof c === "string" && !checks.some((k) => k.context === c))
+        checks.push({ context: c });
+    }
+  }
+  for (const c of requiredChecks) {
+    if (!checks.some((k) => k.context === c)) checks.push({ context: c });
+  }
+
+  const body: Record<string, unknown> = {
+    required_status_checks: {
+      strict: typeof rsc?.strict === "boolean" ? rsc.strict : true,
+      checks,
+    },
+    enforce_admins: isObject(existing.enforce_admins) && existing.enforce_admins.enabled === true,
+    required_pull_request_reviews: null,
+    restrictions: isObject(existing.restrictions) ? actorsOf(existing.restrictions) : null,
+  };
+
+  const reviews = existing.required_pull_request_reviews;
+  if (isObject(reviews)) {
+    const out: Record<string, unknown> = {};
+    if (isObject(reviews.dismissal_restrictions)) {
+      const d = actorsOf(reviews.dismissal_restrictions);
+      if (d.users.length + d.teams.length + d.apps.length === 0) {
+        throw new ProtectionRefusedError(
+          "the branch restricts who can dismiss pull request reviews but lists no user, team or app to send back; " +
+            "sending that back may turn the restriction off (GitHub disables it on an empty " +
+            "dismissal_restrictions object), so the protection was not written. Set it by hand (#1447)",
+        );
+      }
+      out.dismissal_restrictions = d;
+    }
+    for (const k of REVIEW_SCALARS) if (k in reviews) out[k] = reviews[k];
+    if (isObject(reviews.bypass_pull_request_allowances)) {
+      out.bypass_pull_request_allowances = actorsOf(reviews.bypass_pull_request_allowances);
+    }
+    body.required_pull_request_reviews = out;
+  }
+
+  for (const k of PROTECTION_FLAGS) {
+    const f = existing[k];
+    if (isObject(f) && typeof f.enabled === "boolean") body[k] = f.enabled;
+  }
+  return body;
+}
+
+export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
+  const spawn = deps.spawn ?? defaultSpawn;
+  const env = { ...process.env, GH_TOKEN: deps.token };
+
+  async function gh(args: string[]): Promise<string> {
+    const r = await spawn("gh", args, { env, timeoutMs: 60_000 });
+    if (r.code !== 0) throw new Error(`gh ${args[0]} failed (code ${r.code}): ${r.stderr.trim()}`);
+    return r.stdout;
+  }
+
+  /** `gh api` with a JSON request body. Ruleset payloads have nested arrays/
+   *  objects that `-f`/`-F` field flags cannot express, and the spawn wrapper
+   *  has no stdin — so the body rides a private temp file via `--input`. */
+  async function ghJson(method: "POST" | "PUT", path: string, body: unknown): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "gh-json-"));
+    const file = join(dir, "body.json");
+    try {
+      await writeFile(file, JSON.stringify(body), "utf-8");
+      return await gh(["api", "-X", method, path, "--input", file]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  return {
+    async openPullRequest(repo, pr) {
+      // REST, not `gh pr create`: that command goes through GraphQL, which the
+      // cloud session's proxy refuses outright (CLAUDE.md, cloud sessions).
+      assertOwnerRepo(repo, "openPullRequest");
+      const out = await ghJson("POST", `repos/${repo}/pulls`, {
+        head: pr.head,
+        base: pr.base,
+        title: pr.title,
+        body: pr.body,
+      });
+      const url = (JSON.parse(out) as { html_url?: unknown }).html_url;
+      if (typeof url !== "string" || url.length === 0) {
+        throw new Error(`openPullRequest(${repo}): the response carried no html_url`);
+      }
+      return { url };
+    },
+    async openPullRequestRefs(repo) {
+      // REST on purpose, for the same reason as openPullRequest. Head refs and
+      // URLs only: the GraphQL `openPullRequests` also carries mergeability and
+      // the CI rollup, which REST cannot give in one call.
+      assertOwnerRepo(repo, "openPullRequestRefs");
+      const out = await gh([
+        "api",
+        `repos/${repo}/pulls?state=open&per_page=100`,
+        "--jq",
+        "[.[] | {headRef: .head.ref, url: .html_url}]",
+      ]);
+      const parsed = JSON.parse(out) as Array<{ headRef?: unknown; url?: unknown }>;
+      return parsed.flatMap((p) =>
+        typeof p.headRef === "string" && typeof p.url === "string"
+          ? [{ headRef: p.headRef, url: p.url }]
+          : [],
+      );
+    },
+    async enableRepoAutoMerge(repo) {
+      await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true"]);
+    },
+    async disableRepoAutoMerge(repo) {
+      await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=false"]);
+    },
+    async protectBranch(repo, branch, requiredChecks) {
+      assertUrlSegment("branch", branch);
+      const path = `repos/${repo}/branches/${branch}/protection`;
+      // The PUT REPLACES the whole protection object, so read it first and
+      // carry every field forward (#998). Only "Branch not protected" means
+      // there is nothing to keep; any other failure stops before the write.
+      const r = await spawn("gh", ["api", path], { env, timeoutMs: 60_000 });
+      let existing: Record<string, unknown> | null = null;
+      if (r.code !== 0) {
+        if (!/Branch not protected \(HTTP 404\)/.test(r.stderr)) {
+          throw new Error(
+            `protectBranch(${repo}:${branch}): could not read the existing protection, so it was not written: ${r.stderr.trim()}`,
+          );
+        }
+      } else {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(r.stdout);
+        } catch {
+          parsed = undefined;
+        }
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error(
+            `protectBranch(${repo}:${branch}): the protection read returned no JSON object, so it was not written`,
+          );
+        }
+        existing = parsed as Record<string, unknown>;
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = protectionPutBody(existing, requiredChecks);
+      } catch (err) {
+        if (!(err instanceof ProtectionRefusedError)) throw err;
+        throw new ProtectionRefusedError(`protectBranch(${repo}:${branch}): ${err.message}`, {
+          cause: err,
+        });
+      }
+      await ghJson("PUT", path, body);
+    },
+    async setRepoSecret(repo, name, value) {
+      await gh(["secret", "set", name, "--repo", repo, "--body", value]);
+    },
+    async repoExists(repo) {
+      const r = await spawn("gh", ["api", `repos/${repo}`], { env, timeoutMs: 60_000 });
+      return r.code === 0;
+    },
+    async defaultBranch(repo) {
+      const out = await gh(["api", `repos/${repo}`, "--jq", ".default_branch"]);
+      return out.trim();
+    },
+    // filesOnBranch and branchProtectionContexts call `spawn` directly (not the
+    // throwing `gh()` helper) because a 404 is an expected, meaningful answer —
+    // "file/protection absent" — not an error. The remaining readers use `gh()`
+    // since a non-200 there is a genuine failure (e.g. missing token scope).
+    async filesOnBranch(repo, branch, paths) {
+      assertUrlSegment("branch", branch);
+      const present: string[] = [];
+      for (const p of paths) {
+        assertUrlSegment("path", p);
+        const r = await spawn("gh", [`api`, `repos/${repo}/contents/${p}?ref=${branch}`], {
+          env,
+          timeoutMs: 60_000,
+        });
+        if (r.code === 0) present.push(p);
+      }
+      return present;
+    },
+    async fileContentsOnBranch(repo, branch, path) {
+      // Same spawn-directly rationale as filesOnBranch: a 404 (file absent) is an
+      // expected answer (null), not an error. The `raw` media type returns the file
+      // bytes verbatim (no base64 envelope) so the result compares directly against a
+      // canonical template.
+      assertUrlSegment("branch", branch);
+      assertUrlSegment("path", path);
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/contents/${path}?ref=${branch}`,
+          "-H",
+          "Accept: application/vnd.github.raw",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return null;
+        throw new Error(`fileContentsOnBranch(${repo}/${path}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout;
+    },
+    async branchProtectionContexts(repo, branch) {
+      assertUrlSegment("branch", branch);
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/branches/${branch}/protection`,
+          "--jq",
+          ".required_status_checks.contexts[]?",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/Branch not protected \(HTTP 404\)/.test(r.stderr)) return [];
+        throw new Error(`branchProtectionContexts(${repo}:${branch}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+    },
+    async secretExists(repo, name) {
+      // per_page=100: the REST default of 30 would false-negative on a repo with >30 secrets,
+      // wrongly reporting an existing secret absent (→ a needless overwrite).
+      const out = await gh([
+        "api",
+        `repos/${repo}/actions/secrets?per_page=100`,
+        "--jq",
+        ".secrets[].name",
+      ]);
+      return out
+        .split("\n")
+        .map((l) => l.trim())
+        .includes(name);
+    },
+    async autoMergeEnabled(repo) {
+      const out = await gh(["api", `repos/${repo}`, "--jq", ".allow_auto_merge"]);
+      return out.trim() === "true";
+    },
+    async findOpenSelfUpdatingPR(repo) {
+      // per_page=100: with the REST default of 30, a repo with >30 open PRs (plausible under
+      // Renovate) could page past the existing self-updating PR and open a duplicate.
+      const out = await gh([
+        "api",
+        `repos/${repo}/pulls?state=open&per_page=100`,
+        "--jq",
+        '.[] | select(.head.ref | startswith("maint/self-updating-")) | .html_url',
+      ]);
+      const first = out
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l.length > 0);
+      return first ?? null;
+    },
+    async openPullRequests(repo) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`openPullRequests: expected "owner/repo", got "${repo}"`);
+      }
+      const query =
+        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
+        "pullRequests(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title url headRefName mergeable " +
+        "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}";
+      const out = await gh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${query}`,
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `name=${name}`,
+      ]);
+      const parsed = JSON.parse(out) as {
+        data?: {
+          repository?: {
+            pullRequests?: {
+              nodes?: Array<{
+                number: number;
+                title: string;
+                url: string;
+                headRefName: string;
+                mergeable?: string;
+                commits?: {
+                  nodes?: Array<{ commit?: { statusCheckRollup?: { state?: string } } }>;
+                };
+              }>;
+            };
+          };
+        };
+      };
+      const nodes = parsed.data?.repository?.pullRequests?.nodes ?? [];
+      return nodes.map((n) => ({
+        number: n.number,
+        title: n.title,
+        url: n.url,
+        headRef: n.headRefName,
+        ciState: mapRollupState(n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state),
+        mergeable: mapMergeable(n.mergeable),
+      }));
+    },
+    async defaultBranchStatus(repo) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`defaultBranchStatus: expected "owner/repo", got "${repo}"`);
+      }
+      const query =
+        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
+        "defaultBranchRef{target{... on Commit{committedDate statusCheckRollup{state}}}}}}";
+      const out = await gh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${query}`,
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `name=${name}`,
+      ]);
+      const parsed = JSON.parse(out) as {
+        data?: {
+          repository?: {
+            defaultBranchRef?: {
+              target?: { committedDate?: string; statusCheckRollup?: { state?: string } | null };
+            } | null;
+          };
+        };
+      };
+      const target = parsed.data?.repository?.defaultBranchRef?.target;
+      return {
+        ciState: mapRollupState(target?.statusCheckRollup?.state),
+        lastCommitAt: target?.committedDate ?? null,
+      };
+    },
+    async mergedRenovatePullRequests(repo, sinceIso) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`mergedRenovatePullRequests: expected "owner/repo", got "${repo}"`);
+      }
+      // per_page=50: comfortably covers a week of Renovate merges on one repo. The
+      // list endpoint returns merged_at + head.ref, so the filter is local.
+      const out = await gh([
+        "api",
+        `repos/${owner}/${name}/pulls?state=closed&sort=updated&direction=desc&per_page=50`,
+      ]);
+      const arr = JSON.parse(out) as Array<{
+        number: number;
+        title: string;
+        html_url: string;
+        merged_at: string | null;
+        head?: { ref?: string };
+      }>;
+      return arr
+        .filter(
+          (p) =>
+            p.merged_at !== null &&
+            p.merged_at >= sinceIso && // ISO8601 UTC strings sort lexicographically
+            (p.head?.ref ?? "").startsWith("renovate/"),
+        )
+        .map((p) => ({
+          number: p.number,
+          title: p.title,
+          url: p.html_url,
+          mergedAt: p.merged_at as string,
+        }));
+    },
+    async dispatchWorkflow(repo, workflow, ref) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`dispatchWorkflow: expected "owner/repo", got "${repo}"`);
+      }
+      // Every segment interpolates into the API path, so guard them all like the
+      // other write methods do (defense in depth). `owner`/`name` are the most
+      // operator-controlled (typed into the site's "Git repo"); `workflow` is a
+      // constant today; `ref` is repo-sourced. A junk value like `repo?x=1` would
+      // otherwise smuggle a query string past the bare two-part shape check.
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
+      assertUrlSegment("path", workflow);
+      assertUrlSegment("branch", ref);
+      await gh([
+        "api",
+        "-X",
+        "POST",
+        `repos/${owner}/${name}/actions/workflows/${workflow}/dispatches`,
+        "-f",
+        `ref=${ref}`,
+      ]);
+    },
+    async listRepoRulesets(repo) {
+      // includes_parents=false: only rulesets SOURCED on this repo are ours to
+      // heal; an org-level ruleset (paid plans) must never be PUT from here.
+      const out = await gh([
+        "api",
+        `repos/${repo}/rulesets?per_page=100&includes_parents=false`,
+        "--jq",
+        '.[] | "\\(.id)\\t\\(.name)"',
+      ]);
+      return out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.includes("\t")) // a tab-less line has no id/name split — never fabricate a NaN row from it
+        .map((l) => {
+          const tab = l.indexOf("\t");
+          return { id: Number(l.slice(0, tab)), name: l.slice(tab + 1) };
+        })
+        .filter((r) => Number.isSafeInteger(r.id));
+    },
+    async getRuleset(repo, id) {
+      const out = await gh(["api", `repos/${repo}/rulesets/${Math.trunc(id)}`]);
+      return JSON.parse(out) as ExistingRuleset;
+    },
+    async createRuleset(repo, payload) {
+      await ghJson("POST", `repos/${repo}/rulesets`, payload);
+    },
+    async updateRuleset(repo, id, payload) {
+      // PUT, not PATCH: PATCH on this endpoint 404s (verified live 2026-08-01),
+      // which a naive implementation would surface as "update failed" at best —
+      // or, with a lenient error path, as a silent no-op reported as healed.
+      await ghJson("PUT", `repos/${repo}/rulesets/${Math.trunc(id)}`, payload);
+    },
+    async checkContextObserved(repo, ref, context) {
+      assertUrlSegment("branch", ref);
+      // spawn-direct (not the throwing gh()): a 404/409 — empty repo, no commits
+      // on the ref yet — is an expected answer meaning "no evidence", not an
+      // error. Any failure degrades to false, i.e. "don't require the check
+      // yet", which is the safe direction (see checkContextObserved's contract).
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/commits/${ref}/check-runs?per_page=100`,
+          "--jq",
+          ".check_runs[].name",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) return false;
+      return r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .includes(context);
+    },
+    async repoVisibility(repo) {
+      const out = await gh(["api", `repos/${repo}`, "--jq", ".visibility"]);
+      return out.trim();
+    },
+    async listOrgRepos(org) {
+      assertUrlSegment("path", org);
+      // --paginate: the org is >27 repos and the default page of 30 is exactly
+      // the trap that produced the 2026-07-31 false "queue is empty".
+      const out = await gh([
+        "api",
+        "--paginate",
+        `orgs/${org}/repos?per_page=100`,
+        "--jq",
+        '.[] | "\\(.name)\\t\\(.visibility)\\t\\(.archived)\\t\\(.security_and_analysis.secret_scanning.status // "unavailable")\\t\\(.security_and_analysis.secret_scanning_push_protection.status // "unavailable")"',
+      ]);
+      return out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((l) => {
+          const [name = "", visibility = "", archived = "", ss = "", pp = ""] = l.split("\t");
+          return {
+            name,
+            visibility,
+            archived: archived === "true",
+            secretScanning: ss || "unavailable",
+            pushProtection: pp || "unavailable",
+          };
+        });
+    },
+    async openSecretAlerts(repo) {
+      // spawn-direct: 403 (token without security_events) and 404 (scanning
+      // off, or no visibility) are ANSWERS — "I could not look" — which the
+      // caller turns into a gap. Anything else throws, so a transport failure
+      // can never arrive downstream as a zero.
+      //
+      // --paginate + counting ids rather than `--jq length`: length prints once
+      // PER PAGE, so a repo with 101 open alerts would print "100\n1" and read
+      // as 100 or NaN depending on who parsed it. Counting ids is page-shape
+      // independent.
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          "--paginate",
+          `repos/${repo}/secret-scanning/alerts?state=open&per_page=100`,
+          "--jq",
+          ".[].number",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 40[34]/.test(r.stderr)) return "unavailable";
+        throw new Error(`openSecretAlerts(${repo}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
+    },
+    async repoTextFile(repo, path) {
+      assertUrlSegment("path", repo);
+      assertUrlSegment("path", path);
+      // spawn-direct: a 404 is the expected ANSWER "this file is not there",
+      // and only that. Anything else throws (see the type's contract).
+      const r = await spawn(
+        "gh",
+        ["api", `repos/${repo}/contents/${path}`, "--jq", '.content // ""'],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return null;
+        throw new Error(`repoTextFile(${repo}/${path}) failed: ${r.stderr.trim()}`);
+      }
+      // The contents API returns base64 WRAPPED at 60 columns, so the newlines
+      // have to come out before decoding or the tail of every file is lost.
+      const encoded = r.stdout.replace(/\s+/g, "");
+      if (encoded.length === 0) return "";
+      return Buffer.from(encoded, "base64").toString("utf-8");
+    },
+    async listWorkflowPaths(repo) {
+      assertUrlSegment("path", repo);
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/contents/.github/workflows`,
+          "--jq",
+          '.[] | select(.type=="file") | .path',
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        if (/HTTP 404/.test(r.stderr)) return [];
+        throw new Error(`listWorkflowPaths(${repo}) failed: ${r.stderr.trim()}`);
+      }
+      return r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.endsWith(".yml") || l.endsWith(".yaml"));
+    },
+    async branchRequiredChecks(repo, branch) {
+      assertUrlSegment("path", repo);
+      assertUrlSegment("branch", branch);
+      // spawn-direct: a 404 is the answer "no such branch"; anything else throws.
+      const b = await spawn(
+        "gh",
+        ["api", `repos/${repo}/branches/${branch}`, "--jq", ".protection"],
+        {
+          env,
+          timeoutMs: 60_000,
+        },
+      );
+      if (b.code !== 0) {
+        if (/HTTP 404/.test(b.stderr)) return null;
+        throw new Error(`branchRequiredChecks(${repo}:${branch}) failed: ${b.stderr.trim()}`);
+      }
+      const protection = JSON.parse(b.stdout.trim() || "null") as {
+        required_status_checks?: {
+          enforcement_level?: string;
+          contexts?: string[];
+          checks?: Array<{ context?: string }>;
+        };
+      } | null;
+      // Absent is not "unprotected" — it is a response this reader does not
+      // understand, and it must not arrive downstream as zero required checks.
+      if (protection === null || typeof protection !== "object") {
+        throw new Error(
+          `branchRequiredChecks(${repo}:${branch}): no protection object in the response`,
+        );
+      }
+      const rsc = protection.required_status_checks;
+      const classicContexts =
+        rsc && rsc.enforcement_level !== "off"
+          ? [
+              ...new Set([
+                ...(rsc.contexts ?? []),
+                ...(rsc.checks ?? []).map((c) => c.context ?? "").filter((c) => c.length > 0),
+              ]),
+            ]
+          : [];
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          "--paginate",
+          `repos/${repo}/rules/branches/${branch}?per_page=100`,
+          "--jq",
+          '.[] | "\\(.type)\\t\\(.ruleset_id // "")"',
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) {
+        throw new Error(`branchRequiredChecks(${repo}:${branch}) rules failed: ${r.stderr.trim()}`);
+      }
+      const rules = r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((l): BranchRule => {
+          const tab = l.indexOf("\t");
+          const type = tab === -1 ? l : l.slice(0, tab);
+          const id = tab === -1 ? NaN : Number(l.slice(tab + 1).trim() || NaN);
+          return Number.isSafeInteger(id) && id > 0 ? { type, ruleset_id: id } : { type };
+        });
+      return { rules, classicContexts };
+    },
+    async workflowHealth(repo, filename) {
+      // spawn-direct for the workflow GET: 404 (file not registered as a
+      // workflow) is an expected ANSWER, not an error. Everything else throws —
+      // per the contract, an unreadable workflow must surface as unverified.
+      const wf = await spawn(
+        "gh",
+        ["api", `repos/${repo}/actions/workflows/${filename}`, "--jq", ".state"],
+        { env, timeoutMs: 60_000 },
+      );
+      if (wf.code !== 0) {
+        if (/HTTP 404/.test(wf.stderr)) return { present: false };
+        throw new Error(`workflowHealth(${repo}/${filename}) failed: ${wf.stderr.trim()}`);
+      }
+      // status=success: filter to runs that actually CONCLUDED success. Without
+      // it, a schedule whose every run fails (revoked App key, broken config)
+      // reads as hours-fresh forever while zero updates flow.
+      const runs = await gh([
+        "api",
+        `repos/${repo}/actions/workflows/${filename}/runs?status=success&per_page=1`,
+        "--jq",
+        '.workflow_runs[0].created_at // ""',
+      ]);
+      return { present: true, state: wf.stdout.trim(), lastSuccessAt: runs.trim() || null };
+    },
+    async dependencyDashboard(repo) {
+      // Every open Dependency Dashboard, not just the first: the App-identity
+      // migration left several repos holding TWO (alamo-anatomy had #3 and
+      // #39), and the stale one is not always the one carrying the blocked
+      // section. `select(.pull_request | not)` because /issues returns PRs too.
+      //
+      // --paginate is load-bearing, not defensive: /issues returns issues AND
+      // PRs newest-first, the dashboard is created at onboarding and so is
+      // typically the OLDEST open issue in the repo, and the title filter runs
+      // client-side in jq AFTER the page cut. Without it, a repo with 100 open
+      // items newer than its dashboard reads as {present:false} — which this
+      // surface deliberately treats as not-a-gap, i.e. a blocked repo would
+      // report clean. (Verified against renovatebot/renovate itself, whose
+      // dashboard is issue #2958 from 2018 and carries a live blocked section.)
+      const out = await gh([
+        "api",
+        "--paginate",
+        `repos/${repo}/issues?state=open&per_page=100`,
+        "--jq",
+        '[.[] | select(.pull_request | not) | select(.title == "Dependency Dashboard") | (.body // "")] | join("\\n# ---\\n")',
+      ]);
+      const body = out.trim();
+      if (body.length === 0) return { present: false };
+      return {
+        present: true,
+        blockedBranches: parseBlockedBranches(body),
+        unknownSections: parseUnknownSections(body),
+      };
+    },
+    async branchTip(repo, branch) {
+      // Raw, not percent-encoded: the ref segment legitimately contains `/`
+      // (`renovate/all-minor-patch`) and GitHub resolves it as a ref only when
+      // the slash is literal. assertUrlSegment is what keeps that safe.
+      assertUrlSegment("branch", branch);
+      let out: string;
+      try {
+        out = await gh([
+          "api",
+          `repos/${repo}/commits/${branch}`,
+          "--jq",
+          // .author is the GitHub ACCOUNT (null when the commit email matches
+          // none), .commit.author is the raw git identity, which always exists.
+          '{type: (.author.type // ""), login: (.author.login // ""), email: .commit.author.email, name: .commit.author.name, date: .commit.committer.date}',
+        ]);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/HTTP 404/.test(msg)) return null;
+        if (/HTTP 422/.test(msg) && /No commit found for SHA/.test(msg)) return null;
+        throw e;
+      }
+      const raw = JSON.parse(out) as {
+        type: string;
+        login: string;
+        email: string;
+        name: string;
+        date: string;
+      };
+      return { authorIsMachine: isMachineAuthor(raw), committedAt: raw.date };
+    },
+    async renovateMergeWindow(repo) {
+      // `sort=updated&direction=desc` is the only ordering this endpoint offers
+      // that tracks recency; merged_at, head.ref and base (with the repo's
+      // default branch) come back on the list item, so no per-PR call is
+      // needed. ONE request per repo is the whole cost.
+      const out = await gh([
+        "api",
+        `repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${RENOVATE_MERGE_WINDOW_PAGE}`,
+      ]);
+      const arr = JSON.parse(out) as Array<{
+        merged_at: string | null;
+        head?: { ref?: string };
+        base?: { ref?: string; repo?: { default_branch?: string } };
+      }>;
+      const renovate = arr.filter(
+        (p) => p.merged_at !== null && (p.head?.ref ?? "").startsWith("renovate/"),
+      );
+      // Only a merge into the production branch (the repo's default) has
+      // reached a visitor. On the staging flow a major merged into `staging`
+      // waits for the human promotion, which is not a Renovate PR, so counting
+      // it read a repo as delivering on nothing (#1686). A base we cannot read
+      // is not production either, and is counted, not thrown: this is a
+      // measurement, and a throw here would turn the whole row into a gap.
+      const intoDefault = renovate.filter(
+        (p) => !!p.base?.ref && p.base.ref === p.base.repo?.default_branch,
+      );
+      const toMerge = (p: (typeof arr)[number]) => ({
+        headRef: p.head!.ref!,
+        mergedAt: p.merged_at as string,
+      });
+      // ISO8601 UTC strings sort lexicographically; `updated` order is not
+      // merge order, so sort explicitly rather than trusting the page.
+      const newestFirst = (a: { mergedAt: string }, b: { mergedAt: string }) =>
+        b.mergedAt.localeCompare(a.mergedAt);
+      return {
+        merges: intoDefault.map(toMerge).sort(newestFirst),
+        offDefault: renovate
+          .filter((p) => !intoDefault.includes(p))
+          .map(toMerge)
+          .sort(newestFirst),
+        truncated: arr.length >= RENOVATE_MERGE_WINDOW_PAGE,
+      };
+    },
+  };
+}
+
+/**
+ * Does this commit have a human behind it? Deliberately NOT just
+ * `.author.type === "Bot"`: the identity whose orphaned branches froze nine
+ * repos in August 2026 was `renovate-bot`, a PAT-driven machine account that
+ * GitHub reports as type `User`. A rule keyed on the Bot type would have
+ * missed the exact incident this audit exists to catch, so the known machine
+ * logins are matched by name too.
+ *
+ * A miss here costs latency, never blindness — renovateBlockedGaps still
+ * reports any blocked branch once it goes stale, whoever authored it.
+ */
+export function isMachineAuthor(commit: {
+  type: string;
+  login: string;
+  email: string;
+  name: string;
+}): boolean {
+  if (commit.type === "Bot") return true;
+  return [commit.login, commit.email, commit.name].some((f) =>
+    /(\[bot\]|^renovate-bot$|^renovate-bot@)/i.test(f ?? ""),
+  );
+}

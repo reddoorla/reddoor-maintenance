@@ -1,0 +1,365 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { RecipeResult, Site } from "../../types.js";
+import { refusedByGit, undoRefusedWrites, RESTORED_NOTE } from "../_head-guard.js";
+import { templatesByName } from "../sync-configs/templates.js";
+import {
+  renovateActionGaps,
+  withRenovatePinsFrom,
+  RENOVATE_ACTION_CONFIG,
+} from "../sync-configs/renovate-action.js";
+import {
+  resolveOwnerRepo,
+  push as gitPush,
+  branchName,
+  checkoutBranch,
+  createBranch,
+  currentBranch,
+  commit as gitCommit,
+  isWorkingTreeClean,
+} from "../../util/git.js";
+import { siteLabel } from "../../util/site.js";
+import { readGitHubConfig } from "../../github/config.js";
+import { makeGitHub, ProtectionRefusedError, type GitHub } from "../../github/gh.js";
+import {
+  FLEET_RULESET_NAME,
+  desiredRuleset,
+  healRuleset,
+  rulesetGaps,
+} from "../../github/rulesets.js";
+
+// Deliberately NOT ci.yml: that file is per-site parameterized (netlify-site,
+// node-version, permissions), so an exact-match heal against a static template
+// would strip those values in a green auto-mergeable PR — the armed clobber
+// the 2026-08-02 architecture review found. The starter clone owns ci.yml's
+// shape. Its pinned reusable-workflow ref is sometimes bumped by Renovate
+// (v1.2.0 -> v1.3.0 across 17 repos, Jul-Aug 2026) but was not for v1.4.0 or
+// v1.4.1 — the latter was swept by hand on 2026-09-01 — so propagation is a
+// manual step to verify, never a guarantee.
+const SELF_UPDATING_CONFIGS = ["renovate-action", "renovate-config"] as const;
+
+// Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
+// The thin `ci` caller (job `ci`) calls reddoorla/.github's reusable workflow (job `ci`),
+// so the required context is "ci / ci", NOT "ci". (Provisional — verified empirically on the
+// starter during M7.1 rollout; correct here if the live checks API reports a different string.)
+const REQUIRED_CHECK = "ci / ci";
+
+export type SelfUpdatingDeps = {
+  github?: GitHub;
+  pushBranch?: (cwd: string, branch: string) => Promise<void>;
+};
+
+function resultOf(
+  site: Site,
+  status: RecipeResult["status"],
+  notes: string,
+  commits: string[] = [],
+): RecipeResult {
+  return { recipe: "self-updating", site: siteLabel(site), status, commits, notes };
+}
+
+/** True when a file's current content matches the canonical template for drift
+ *  purposes. Normalizes line endings + trailing whitespace so a stray trailing
+ *  newline (or CRLF) can't read as drift and open a needless PR every nightly run;
+ *  any real content change still differs. */
+function sameConfigContents(current: string, canonical: string): boolean {
+  const norm = (s: string) => s.replace(/\r\n/g, "\n").replace(/\s+$/, "");
+  return norm(current) === norm(canonical);
+}
+
+export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Promise<RecipeResult> {
+  const templates = templatesByName([...SELF_UPDATING_CONFIGS]);
+
+  let repo: string | null;
+  try {
+    repo = await resolveOwnerRepo(site);
+  } catch (err) {
+    // A malformed repo identity must abort before any `gh` write — surface it
+    // as a recipe failure rather than letting the token reach an unintended repo.
+    return resultOf(site, "failed", err instanceof Error ? err.message : String(err));
+  }
+  if (!repo) {
+    return resultOf(
+      site,
+      "failed",
+      "could not determine a GitHub repo for this site — set the site's 'Git repo' in its details, or give " +
+        "the checkout an origin remote whose URL is a GitHub owner/repo",
+    );
+  }
+
+  const cfg = readGitHubConfig();
+  if (!deps.github && !cfg) return resultOf(site, "failed", "GITHUB_TOKEN not set");
+  const github = deps.github ?? makeGitHub({ token: cfg!.token });
+
+  let base: string;
+  try {
+    base = await github.defaultBranch(repo);
+  } catch (err) {
+    return resultOf(
+      site,
+      "failed",
+      `could not read the default branch of ${repo}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const actions: string[] = [];
+  const commits: string[] = [];
+  // Hoisted so the `finally` can restore the operator's branch even when a
+  // failure (push/PR error) aborts AFTER we created + checked out the maint
+  // branch. `maintBranch` stays null until createBranch succeeds, so the
+  // restore is a no-op on every path that never left the operator's branch.
+  let original: string | null = null;
+  let maintBranch: string | null = null;
+  let refused: ProtectionRefusedError | null = null;
+
+  try {
+    // A. Renovate config on the default branch — compare CONTENT, not just
+    // existence, so a present-but-STALE config (a pre-App workflow, a drifted
+    // Renovate schedule window) is corrected rather than left silently
+    // forever. The prior existence-only gate reported "already self-updating" for any
+    // repo that merely HAD the files, however out of date — the very drift this
+    // recipe exists to repair (e.g. the Renovate schedule-window regression).
+    //
+    // renovate.yml specifically is compliance-checked rather than byte-matched
+    // (see renovateActionGaps / withRenovatePinsFrom in
+    // ../sync-configs/renovate-action.js): Renovate legitimately bumps its own
+    // digest pins forward, and a site's prettier may legitimately quote the
+    // cron / RENOVATE_* scalars differently — neither is real drift (issue
+    // #651; a byte-match recipe opened reddoor-starter-blux#1, a PR that
+    // DOWNGRADED Renovate's own pin).
+    const drifted: string[] = [];
+    // Captured so the write loop below can carry a drifted renovate.yml's own
+    // pins forward instead of re-fetching (and so a compliant-but-non-byte-
+    // identical file's contents are available for that carry-forward too,
+    // though it won't need healing).
+    const currentContents = new Map<string, string | null>();
+    for (const t of templates) {
+      const current = await github.fileContentsOnBranch(repo, base, t.path);
+      currentContents.set(t.path, current);
+      if (current === null) {
+        drifted.push(t.path);
+        continue;
+      }
+      if (sameConfigContents(current, t.contents)) continue;
+      if (t.config === RENOVATE_ACTION_CONFIG && renovateActionGaps(current).length === 0) {
+        continue;
+      }
+      drifted.push(t.path);
+    }
+    if (drifted.length > 0) {
+      const existingPR = await github.findOpenSelfUpdatingPR(repo);
+      if (existingPR) {
+        actions.push(`self-updating PR already open: ${existingPR}`);
+      } else {
+        if (!(await isWorkingTreeClean(site.path))) {
+          return resultOf(site, "failed", "working tree not clean — commit or stash first");
+        }
+        // Capture the operator's branch BEFORE creating the maint branch so the
+        // `finally` can return them to it (#2). Best-effort capture: if it fails
+        // we just skip the restore rather than guess.
+        try {
+          original = await currentBranch(site.path);
+        } catch {
+          original = null;
+        }
+        maintBranch = branchName("self-updating");
+        await createBranch(site.path, maintBranch);
+        // Write only the paths that actually drifted — a repo whose
+        // renovate.json is stale but whose renovate.yml already passes
+        // `renovateActionGaps` must not have that compliant renovate.yml
+        // silently rewritten (e.g. un-quoting its scalars) in the same PR.
+        // On a fresh repo every template path is missing, so `drifted`
+        // already contains all of them and bootstrap is unaffected.
+        // What each written path held BEFORE this run, so one git then refuses
+        // can be put back exactly as it was (null = the file did not exist).
+        const before = new Map<string, string | null>();
+        for (const t of templates) {
+          if (!drifted.includes(t.path)) continue;
+          const dest = join(site.path, t.path);
+          before.set(t.path, await readFile(dest, "utf-8").catch(() => null));
+          await mkdir(dirname(dest), { recursive: true });
+          // For a genuinely non-compliant renovate.yml, carry the site's own
+          // (still-digest-pinned) action refs forward onto the template before
+          // writing it — writing the template verbatim would put its OLDER
+          // pins over the site's newer ones, re-introducing the downgrade
+          // this compliance check exists to prevent (issue #651).
+          const contents =
+            t.config === RENOVATE_ACTION_CONFIG
+              ? withRenovatePinsFrom(t.contents, currentContents.get(t.path) ?? null)
+              : t.contents;
+          await writeFile(dest, contents, "utf-8");
+        }
+        const sha = await gitCommit(site.path, "ci: enable self-updating (Renovate auto-merge)");
+        if (sha) commits.push(sha);
+
+        // Did git TAKE the configs? The PARTIAL drop is the one that bites: with
+        // one of the two paths ignored the other still commits, so `commit()`
+        // returns a SHA and — before this check — the branch was pushed and a PR
+        // opened for a repo that would never become self-updating, after which
+        // every later run reported "self-updating PR already open" forever.
+        // Checked BEFORE the push, so nothing reaches GitHub on a refusal (#741).
+        const refusal = await refusedByGit(site.path, drifted, "the Renovate configuration");
+        if (refusal) {
+          await undoRefusedWrites(site.path, before, refusal.missing);
+          return resultOf(site, "failed", refusal.notes + RESTORED_NOTE, commits);
+        }
+
+        await (deps.pushBranch ?? gitPush)(site.path, maintBranch);
+        const pr = await github.openPullRequest(repo, {
+          head: maintBranch,
+          base,
+          title: "Enable self-updating (Renovate)",
+          body: "Adds scheduled Renovate and Renovate-owned merges for patch/minor updates. (ci.yml is deliberately not managed here — its shape comes from the starter and its reusable-workflow pin from Renovate.)",
+        });
+        actions.push(`opened PR ${pr.url}`);
+        // (Branch restore happens in the `finally` below — on success AND on a
+        // failure that aborts after createBranch.)
+      }
+    }
+
+    // B. Repo settings — check-then-ensure, each independent (self-healing).
+    //
+    // Platform auto-merge is DISABLED fleet-wide, and this block self-heals toward
+    // OFF (it used to drive repos ON — do not "fix" it back).
+    //
+    // Why: GitHub's platform auto-merge is a per-PR flag that anyone with write
+    // access can arm; the PR then merges itself later, unattended, once checks go
+    // green. The org Renovate preset forbids auto-merging majors and was working
+    // correctly — Renovate never armed them — but the preset has no authority over
+    // a flag someone else set. On 2026-07-26 a bulk `gh pr merge --auto` sweep
+    // armed it across 8 fleet repos, and the next morning two `actions/checkout`
+    // MAJOR bumps merged with zero reviews (reddoor-starter#77,
+    // reddoor-website#111) as soon as Renovate's own rebase cleared their
+    // conflicts. Realized damage, not a hypothetical.
+    //
+    // The fix is to keep merges INSIDE Renovate's own run, where its `packageRules`
+    // actually govern the decision. Renovate can only merge while it is running, so
+    // the workflow cron (see sync-configs templates) is the merge cadence.
+    //
+    // Leaving the self-heal pointed at OFF makes this a drift ALARM: if someone
+    // re-enables platform auto-merge, the next `self-updating` / `launch` run turns
+    // it back off and records the action. `enableRepoAutoMerge` is retained in
+    // `src/github/gh.ts` as the documented rollback path.
+    if (await github.autoMergeEnabled(repo)) {
+      await github.disableRepoAutoMerge(repo);
+      actions.push("disabled auto-merge (platform auto-merge is not permitted fleet-wide)");
+    }
+    const existingContexts = await github
+      .branchProtectionContexts(repo, base)
+      .catch((err: unknown) => {
+        throw new Error(
+          `could not read branch protection on ${base}, so it was not written: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+    if (!existingContexts.includes(REQUIRED_CHECK)) {
+      // protectBranch issues a full PUT that REPLACES the whole protection object,
+      // so it reads the existing object itself and carries every field forward
+      // (reviews, restrictions, enforce_admins, the flags, existing checks with
+      // their app bindings), adding only the checks named here (#998). Its own
+      // read fails closed like the one above. The union below is belt and braces:
+      // protectBranch would keep the existing contexts anyway. (When the branch
+      // has no protection yet, this is just [REQUIRED_CHECK] on a fresh object.)
+      const contexts = [...new Set([...existingContexts, REQUIRED_CHECK])];
+      try {
+        await github.protectBranch(repo, base, contexts);
+        actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
+      } catch (err) {
+        // A refusal leaves the classic protection as it was, so the ruleset
+        // below, which binds admins, still runs; the repo then fails with the
+        // refusal once that is done (#1447).
+        if (!(err instanceof ProtectionRefusedError)) throw err;
+        refused = err;
+      }
+    }
+    // Ruleset ensure — the layer that binds ADMINS. Classic protection above
+    // carries forward whatever `enforce_admins` the branch already has (only a
+    // branch with no protection at all gets `true`), and the fleet's hand-set
+    // classic protection had `enforce_admins: false`: exactly the hole the 2026-07-26
+    // bulk `gh pr merge --auto` sweep walked through (two unreviewed MAJORS
+    // merged). The 2026-08-01 audit then found the six NEWEST repos with no
+    // ruleset at all — every hand-applied sweep regrows its gap at the next
+    // onboard, so the recipe owns the invariant now. Spec + invariants:
+    // docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md.
+    //
+    // Private repos are skipped BEFORE any attempt: rulesets there need a paid
+    // plan, so trying would either fail every run or spam a phantom action
+    // that flips this recipe to "applied" forever. Classic protection remains
+    // their floor.
+    if ((await github.repoVisibility(repo)) === "public") {
+      // Evidence gate: only require "ci / ci" once that check-run has actually
+      // been OBSERVED on the default branch. With an empty bypass list, a
+      // required context that never fires would make the repo permanently
+      // unmergeable by EVERYONE — e.g. a workflow_call-only ci.yml emits no
+      // check runs. Unobserved ⇒ refs rules only; the check upgrades on a
+      // later pass once real evidence exists.
+      //
+      // Residual risk, accepted: this proves the check fires on default-branch
+      // PUSHES, not on pull_request events — a hand-edited push-only ci.yml
+      // would pass the gate and then block every PR. ci.yml is deliberately
+      // NOT healed by block A (per-site parameterized; see
+      // SELF_UPDATING_CONFIGS), so this recipe cannot correct that drift —
+      // the exposure is one bricked-PR repo, immediately visible on its next
+      // PR. Un-brick path: edit the ruleset via API (ruleset ADMIN is not
+      // ref-gated), then fix the ci.yml triggers by push.
+      const check = (await github.checkContextObserved(repo, base, REQUIRED_CHECK))
+        ? REQUIRED_CHECK
+        : null;
+      const existingRuleset = (await github.listRepoRulesets(repo)).find(
+        (r) => r.name === FLEET_RULESET_NAME,
+      );
+      if (!existingRuleset) {
+        await github.createRuleset(repo, desiredRuleset(check));
+        actions.push(
+          check === null
+            ? `created ruleset "${FLEET_RULESET_NAME}" (refs rules only — "${REQUIRED_CHECK}" not yet observed on ${base})`
+            : `created ruleset "${FLEET_RULESET_NAME}"`,
+        );
+      } else {
+        const full = await github.getRuleset(repo, existingRuleset.id);
+        const gaps = rulesetGaps(full, check);
+        if (gaps.length > 0) {
+          // PUT the healed payload (merge TOWARD the floor, never away — see
+          // healRuleset). Recording the specific gaps makes this the drift
+          // ALARM, same as the auto-merge-off action above.
+          await github.updateRuleset(repo, existingRuleset.id, healRuleset(full, check));
+          actions.push(`healed ruleset drift: ${gaps.join("; ")}`);
+        }
+      }
+    }
+    if (refused) throw refused;
+    // (No per-repo Renovate PAT secret planting anymore: Renovate authenticates as
+    // the reddoor-renovate GitHub App, whose RENOVATE_APP_ID / _PRIVATE_KEY are
+    // org-level with all-repos visibility — a new repo needs NOTHING set. The
+    // old step was already redundant for new sites (the PAT was an org secret
+    // too); existing per-repo copies are inert and left to rot harmlessly.
+    // docs/runbooks/renovate-app-identity.md covers the migration + rollback.)
+  } catch (err) {
+    const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
+    let message = err instanceof Error ? err.message : String(err);
+    // A later step's failure must not hide a refused protection write (#1447).
+    if (refused && err !== refused) message = `${refused.message}; then ${message}`;
+    return resultOf(site, "failed", `${message}${done}`, commits);
+  } finally {
+    // Restore the operator's branch whenever we created + checked out a maint
+    // branch — on SUCCESS and, critically, on FAILURE. Without this, a push/PR
+    // error after createBranch strands the checkout on the maint branch with an
+    // unpushed commit, and the retry then fails at createBranch ("branch already
+    // exists"). Best-effort: a restore failure must not mask the real outcome.
+    if (maintBranch !== null && original !== null && original !== maintBranch) {
+      try {
+        await checkoutBranch(site.path, original);
+      } catch (err) {
+        console.warn(
+          `warning: could not restore branch ${original} after self-updating: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+  }
+
+  return actions.length
+    ? resultOf(site, "applied", actions.join("; "), commits)
+    : resultOf(site, "noop", "already self-updating", commits);
+}

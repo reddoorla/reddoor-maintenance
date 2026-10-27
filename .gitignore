@@ -1,0 +1,65 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+.vitest-cache/
+.tsbuildinfo
+tests/fixtures/**/test-results/
+tests/fixtures/**/.lighthouseci/
+# lhci also drops a .lighthouseci/ at the repo root during the test suite;
+# untracked, it breaks `prettier --check .`.
+/.lighthouseci/
+tests/fixtures/**/playwright-report/
+# Decision A9 (2026-09-14): .claude/ is tracked — settings, saved workflows,
+# rules, hooks and agents ship as reviewed files. Worktrees, local settings and the
+# harness's write log stay out. The first line re-includes the directory the
+# machine-wide ~/.config/git/ignore (`**/.claude/`) excludes; the repo file wins.
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/workflows/
+!.claude/rules/
+!.claude/hooks/
+!.claude/agents/
+.env
+# Local --preview output (top-level only — must NOT match src/reports/).
+/reports/
+# Service account JSONs, OAuth tokens, anything credential-bearing. Never commit.
+secrets/
+# a11y audit's transient spec dir; cleaned on catchable exits, gitignored as the
+# backstop for a timeout-SIGKILL that orphans it mid-run.
+.reddoor-a11y-spec-*/
+
+# superpowers visual brainstorm companion (local mockups)
+.superpowers/
+
+# The refuter round's evidence corpus: 40 pages of third-party documentation
+# (https://code.claude.com/docs/), fetched on demand by
+# scripts/meta-week/fetch-corpus.mjs and verified against the sha256s in
+# docs/meta-week/_data/refute-claims-corpus.manifest.json. Fetched, never
+# committed — it is someone else's docs, it is ~3.7MB, and it changes daily, so
+# a committed copy would be a stale fork of a live document. The manifest is the
+# part that is source.
+docs/meta-week/_corpus/
+
+# Agent/session git worktrees. The concurrent-session rule in CLAUDE.md makes a
+# worktree per branch the norm here, so this directory is permanent furniture —
+# and while untracked it was the ONLY entry in `git status`, which trains the eye
+# to ignore a dirty tree.
+.worktrees/
+
+# Sessions' running journal notes (CLAUDE.md "The work journal"); the scratchpad dies with the session.
+.session-logs/
+
+# A failed seeded-review build leaves its half-built cases here.
+scripts/model-bakeoff/tasks/seeded-review/cases.next/
+# The SvelteKit cockpit's generated and build output (#582).
+/cockpit/.svelte-kit/
+/cockpit/build/
+/cockpit/.netlify/
+# Netlify's build output at the repo root: the cockpit adapter's functions.
+/.netlify/
+# continuity.md section 6 decrypts the Turso backup here: restore/dump.sql is the whole fleet
+# database in plaintext, and this repo is public (#1558). tests/docs/restore-ignored.test.ts.
+/restore/

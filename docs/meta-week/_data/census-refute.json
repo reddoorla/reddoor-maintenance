@@ -1,0 +1,643 @@
+{
+  "run": "wf_5995dc02-1a5",
+  "date": "2026-09-14",
+  "method": "one Opus skeptic per candidate, default refuted; 4 concurrent; then one completeness critic",
+  "usage": {
+    "agents": 32,
+    "subagentTokens": 1981897,
+    "toolCalls": 79,
+    "durationMs": 474285
+  },
+  "counts": {
+    "candidates": 31,
+    "confirmed": 4,
+    "refuted": 27,
+    "unclear": 0
+  },
+  "verdicts": [
+    {
+      "i": 0,
+      "verdict": "refuted",
+      "reason": "No compaction-driven re-derivation appears anywhere in the window. The three \"re-read\" files are not source files whose content was lost — they are PNG screenshots the session itself regenerates by re-running Godot visual studies (eyeStates.png, eyeInSitu.png, settled.png live in the session scratchpad). Each read follows a render: Godot runs at 22:35:31, the two eye images are read, eye.gd is then edited at 22:36:06, and eyeStates.png is read again at 22:36:12 — i.e. the \"re-read\" is looking at a changed picture after changing the code that draws it, which is the entire point of the loop. That is the textbook refutation case: a re-read of a file that legitimately changed. The window itself is dense productive work with no re-orientation behavior: a git branch split, the Eye.completion→Eye.charge redesign, a geometry search harness, spec/journal/doc writes, a ten-task plan, and two subagent task dispatches — and it opens on a fresh operator instruction (\"I want to abandon it as a success indicator\"), not on recovering context. The only genuine redo in the hour is a small corrected-turn: the assistant asserted \"Two rows is exactly enough; a third buys nothing\" at 22:38:37, encoded it into powerCellRun.md, twoSockets.md, prototypeDoc, visionDoc and the journal, and the operator overturned it at 22:45:17 (\"the head is shorter so it can swing through\"), forcing a ~4-minute spec rewrite. That is a few percent of a 60-minute window of heredoc doc edits, it reused the search harness rather than rebuilding it, and it turned on domain knowledge the code did not contain — not enough to re-label the episode, and nothing at all to do with compaction.",
+      "wasteShare": 0,
+      "quote": "22:36:06 [Bash] cd /Users/tuckerlemos/Documents/GitHub/Broken/broken python3 - <<'PY' p = 'scripts/eye.gd' s = open(p).read() old = '@ex",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-18T22:27:13.451Z",
+      "cost": {
+        "requests": 94,
+        "in": 188,
+        "out": 188976,
+        "cacheCreate": 303661,
+        "cacheRead": 17695716
+      }
+    },
+    {
+      "i": 1,
+      "verdict": "refuted",
+      "reason": "No compaction appears anywhere in the window, and nothing in the transcript shows context being re-derived. The window opens on an IDE-opened-file notice plus a one-line routine continuation (\"keep on with the queued work\"), and from there runs one continuous, productive stretch: merge main into controlsRethink (journal conflict resolved), TDD RED checks, a four-button controls rework across wrenchInput/wrench/tape/touchPad/cellRunPanel, suite-wide sentinel sweep, 19 suites / 735 checks green, docs rewritten, two commits landed, plus 45 doc-audit findings applied via three agents. The heuristic's own evidence field says trigger \"manual\" — it is a large-context window, not a post-compaction one. Every file on the re-read list is explained by the work itself: wrench.gd (~1600+ lines) and cellRunPanel.gd (~1900 lines) are read region-by-region, interleaved with Edits to those same files, so each read follows a write the assistant just made or targets a different section it names explicitly; roomSmoke.gd is read five times alternating with five Edits to distinct blocks; TODOs.md is read once because the operator opened it and pointed at the queue. Re-reading a file you have just edited, or a second region of a 2000-line file, is normal editing, not lost context. The only arguable slack is two polling waits on subagents (a 45s sleep and a ~5min until-loop), which is coordination, not redo.",
+      "wasteShare": 0,
+      "quote": "Two panel regions left to read — the ribbon at ~1374 and the cluster diagram at ~1879:",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-31T22:40:32.953Z",
+      "cost": {
+        "requests": 151,
+        "in": 302,
+        "out": 158906,
+        "cacheCreate": 340568,
+        "cacheRead": 35205151
+      }
+    },
+    {
+      "i": 2,
+      "verdict": "refuted",
+      "reason": "The window contains no compaction boundary and no re-orientation behaviour. It opens on a fresh operator feature request (\"can we add a number of columns selector?\") and runs three complete request→build→test→browser-verify→commit cycles (columns picker + settings store; corpus bulk-expand with a parser fix the safety guard surfaced; song-list filters + lyric auto-fill), each ending in a commit and an operator-facing summary. Every one of the six \"re-read\" files is a file the session itself had just written to, and each re-read sits directly between its own Edits: parse.ts is read at 19:20:25/19:22:02/19:22:54 with Edits at 19:22:09 and 19:22:58 in between; helpers.ts is read at 19:25:43 and 19:26:01 around Edits at 19:25:51/19:25:56; the edit-route page is re-read at 19:03:34 immediately after `git rm src/lib/components/BarsPerLinePicker.svelte` changed what that file must reference. That is the excluded case — re-reading files that legitimately changed — not re-deriving lost context. The large cacheRead (46.3M over 234 requests, ~198k/request) is the ordinary cost of a long-lived big-context session, not a post-compaction re-read; nothing in the window is redone work. There is no better kind either: no stop, no block/continue, no duplicate agent prompt, and no operator correction — the operator's follow-ups (\"great, yeah this is editor only\", \"can I add filters for songs now?\") accept the prior turn and extend it.",
+      "wasteShare": 0,
+      "quote": "19:01:54 USER next to bars/line can we add a number of columns selector?",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "songbook",
+      "ts": "2026-08-25T19:00:10.470Z",
+      "cost": {
+        "requests": 234,
+        "in": 468,
+        "out": 156072,
+        "cacheCreate": 297319,
+        "cacheRead": 46341933
+      }
+    },
+    {
+      "i": 3,
+      "verdict": "refuted",
+      "reason": "The window contains no compaction at all — no summary/resume boundary, no \"continue\", nothing in 186 lines of script marking a context reset (the heuristic's own evidence says trigger \"manual\"). It is one continuous, productive run: shape work on the stud notch, a study sheet, journal entries, commits and a push at 19:17, then a new operator instruction at 19:32 (\"the band in ink ... and then task 3\") starting Task 3 (girder), with RED-first tests, a green board at 436, and a merge/moment fix — all inside the hour. Every one of the 8 \"re-read\" files is explained by ordinary work, not lost context: roomSmoke.gd (read 19:01, edited 19:01/19:03/19:33/19:48) and worldStud.gd (read 18:58, edited 19:03, re-read 19:34) were re-read after the session's own edits and after a new operator turn changed the requirement; wrench.gd is read at 19:37 during Task 3 exploration and again at 19:54 after four RED tests, immediately before editing it; part.gd, tuning.gd, cellRunRoom.gd are each read once right before being edited; out/vocabNotch.png is a freshly regenerated render being viewed; vocabTemplate.html is read to copy the embed format for a new sheet. Re-reading a file you just edited, or before editing it, is normal Read-before-Edit discipline, not re-derived context. The large cache-read figure is the cost of a long, dense session (155 requests) that shipped tests, commits and a pushed change — not waste.",
+      "wasteShare": 0,
+      "quote": "19:32:10 USER the band in ink is good for now, do that version and then task 3",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-25T18:56:52.458Z",
+      "cost": {
+        "requests": 155,
+        "in": 310,
+        "out": 153332,
+        "cacheCreate": 301970,
+        "cacheRead": 33796072
+      }
+    },
+    {
+      "i": 4,
+      "verdict": "refuted",
+      "reason": "The window is an hour of dense, productive delivery, not re-derivation of lost context. It opens on \"continue on\", orients for ~5 minutes, then runs TDD on two slices of #539 Phase 5: RED-first tests, implementation, mutation proofs that each guard actually bites, `pnpm test` (5202 passing), lint/tsc, a changeset, PR #606 opened AND merged as `784d2a8`, memory + issue #539 updated, then a second worktree and PR #607 opened with six more wiring tests each mutation-proven. The four \"re-read\" files are not lost context being rebuilt: `airtable-to-turso-phase-status.md` is the tracker the repo's own memory index orders you to read before touching this migration; `report.ts`, `import-airtable.ts` and `parity.ts` were read as a deliberate write-surface survey whose result contradicted the tracker (\"~13 gaps\" vs the tracker's seven writers) — i.e. the reads produced new knowledge that changed the plan. Two of the repeats are also a different working copy (`.worktrees/phase5-report-insert/src/cli/commands/report.ts`), the file actually being edited, not the main checkout copy. The heuristic's own evidence field says trigger \"manual\" with filesReReadCount 4 — four reads against 264 requests is noise, and the large cache-read figure is the normal cost of a long single-context session, not waste. The only genuinely discarded work in the window is small and self-caught: a briefly created `feat/phase5-report-body-mirror` branch deleted after deciding to fold the seam into the same PR, one bad failure-injection in a test, one ambiguous python anchor redone, and a denied force-push restacked as a second commit — all normal iteration, far under a meaningful share.",
+      "wasteShare": 0,
+      "quote": "Phase 4 is closed, so I'm opening Phase 5. First I measured the actual write surface rather than trusting the tracker's \"seven writers\" note — it's wider than that.",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "reddoor-maintenance",
+      "ts": "2026-08-25T22:33:02.733Z",
+      "cost": {
+        "requests": 264,
+        "in": 528,
+        "out": 152019,
+        "cacheCreate": 335972,
+        "cacheRead": 60112773
+      }
+    },
+    {
+      "i": 5,
+      "verdict": "refuted",
+      "reason": "The window contains no post-compaction re-orientation at all. It opens with a fresh operator task (\"go ahead and make the gear ratio\") and runs an unbroken, productive TDD loop for 40 minutes: read the drivetrain files, write a RED check in bodySmoke, make it GREEN, write a parameter sweep study (gearSweep.gd) to pick 3.5:1 empirically, correct two claims the sweep refuted, run the full board green (656 → 673 checks, 18 suites), journal, commit, then work Tucker's four follow-up items (lock keys, stud-grid phase, magnet field radii, girder weight) each with its own RED/GREEN cycle, take verification screenshots, and deploy. The heuristic's own evidence field says trigger \"manual\" — no automatic context loss — and every one of the 13 \"re-read\" files is a file this session is itself editing in the same window: bodySmoke.gd is read at 00:05, 00:07, 00:31, 00:35 with its own Edits at 00:08, 00:09, 00:10, 00:29, 00:36, 00:38 in between; wrench.gd likewise read at 00:32/00:35 and edited at 00:36–00:39; treads.gd, tuning.gd, stud.gd, part.gd, wrenchInput.gd and roomSmoke.gd follow the same read-edit-reread pattern. Several clustered reads of the same path seconds apart (00:05:11/15/18 on bodySmoke, 00:35:13/17 on wrench) are paged offsets into large files, not re-derivation. The huge cache-read figure (36M over 146 requests on a ~532k context) is the expected cost of a long single-task session with caching working, not re-spend on lost context. This is a re-read of legitimately-changed files, which the task instructions name explicitly as grounds for refuting.",
+      "wasteShare": 0,
+      "quote": "00:02:20 USER go ahead and make the gear ratio",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-26T23:57:30.103Z",
+      "cost": {
+        "requests": 146,
+        "in": 292,
+        "out": 147332,
+        "cacheCreate": 318707,
+        "cacheRead": 36109777
+      }
+    },
+    {
+      "i": 6,
+      "verdict": "refuted",
+      "reason": "The heuristic counted 10 \"re-read\" files, but the transcript shows no context re-derivation. The window opens with a brand-new operator task (\"copyright year is wayyy too much weight, do we have anything else in basics...\") and every file counted as a re-read is opened as read-before-edit for that task and then immediately modified: types.ts read 00:22:45 → edited 00:26:45; consistency.ts read 00:22:51 → edited 00:26:11–00:26:35; crawl.ts read 00:23:42 → edited 00:27:18; model.ts read 00:24:22 → edited 00:29:45; +page.svelte read 00:22:50 → edited 00:31:51; SiteHealth.svelte re-read 00:34:45 only to get exact text for the 00:34:56 edit after a live-site defect was found; MEMORY.md read 00:44:01 → edited 00:44:07 to link a new memory file. That is the mandatory read-before-Edit contract, not lost context being rebuilt. The hour's output is all delivered work: a new basics probe stage plus tests (432 green), llms.txt removed from scoring/analyze/render and its tests re-pinned, a real soft-404 defect confirmed on ludlowkingsley.com, two commits pushed on each side, an evidence doc, and four adversarial agents. The one correction-shaped moment (operator at 00:42:41 on the 13-site corpus) caused only marginal copy rework and the substantive work from that turn was kept; the adversarial rewrite at 01:07:44 was the explicitly requested process working, not waste. The large cache-read figure is the cost of a long live session, not of re-deriving anything.",
+      "wasteShare": 0,
+      "quote": "copywright year is wayyy too much weight, do we ahve anything else in basics that you can easily check from the outside?",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "reddoor-website",
+      "ts": "2026-08-27T00:14:28.686Z",
+      "cost": {
+        "requests": 125,
+        "in": 250,
+        "out": 141770,
+        "cacheCreate": 378111,
+        "cacheRead": 30617643
+      }
+    },
+    {
+      "i": 7,
+      "verdict": "refuted",
+      "reason": "The window contains no visible compaction and no re-derivation of lost context — it opens on a brand-new operator feature request (\"bogie please, lock should only apply to tools with non direction functions...\"), and the six \"re-read\" files are exactly the files that request touches. wrench.gd/part.gd/anatomy.gd/socket.gd are read once each in the first five minutes as orientation for a new task in a codebase (Broken, a Godot project) the session had not been working in during this window; bodySmoke.gd is read at 22:34:59 and thereafter *edited* ~15 times, so any later look at it is at a file the session itself changed; out/treadShape.png is \"re-read\" at 22:56:04 and 22:57:25 only because studies/treadShape.gd was edited and re-run in between, regenerating the image — a legitimately changed file, and the second read is what yields the measured result (\"213 px in 2.0 s — 160 px/s over the ground, 159 at the rim, 0% slip\"). The heuristic's own evidence says trigger:\"manual\", i.e. a deliberate boundary rather than an involuntary loss. Meanwhile the window's spend is plainly productive work, not redo: RED-first test, implementation across five scripts, two mutation-test rounds (one mutant survived and drove a genuinely better check — \"The mutation survived — my checks don't actually pin the mount link\"), full suite green at 493 checks, a study sheet, a journal entry, a commit and push (e23d4f7), then a second feature round on the operator's follow-up. A dozen file reads at the head of an hour of Godot test runs cannot account for the 25M cache-read; that is the repeated 300–600s headless test cycles.",
+      "wasteShare": 0,
+      "quote": "22:26:14 USER bogie please, lock should only apply to tools with non direction functions",
+      "betterKind": "",
+      "kind": "reread-after-compaction",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-25T22:25:43.586Z",
+      "cost": {
+        "requests": 109,
+        "in": 218,
+        "out": 141141,
+        "cacheCreate": 273151,
+        "cacheRead": 25210324
+      }
+    },
+    {
+      "i": 8,
+      "verdict": "refuted",
+      "reason": "The two dispatches share a prompt template, not a task. The first (01:05:28) fixes \"one Critical and two Minor findings in `broken/scripts/ratchet.gd`\"; the last (01:26:37) fixes \"one Critical and four Important findings in `broken/scripts/wrench.gd`\" — different file, different finding counts, different severities. Between them the window shows a strictly sequential pipeline with no repetition: ratchet fixes land, the plan doc is patched so Task 5 parents `Ratchet` correctly, Task 5 (Wrench body + collider) is implemented by a second general-purpose agent, the plan's stale expected test counts are corrected (36/36), a `superpowers:code-reviewer` agent reviews the new `Wrench`, and that review produces a genuinely novel finding (Godot derives inertia from each shape's transform origin, not its centroid) — which is exactly what the final dispatch is dispatched to fix. Each agent consumed the previous one's output; nothing was re-derived or re-run. The 0.79 similarity is the boilerplate of a house prompt format (\"You are fixing one Critical and N ... findings in `broken/scripts/X.gd`. Repo: ...\"), which is a sign of a disciplined repeatable workflow, not a duplicated dispatch. Note too that the final dispatch sits on the closing timestamp of the window, so its spend is largely outside it anyway.",
+      "wasteShare": 0,
+      "quote": "You are fixing one Critical and four Important findings in `broken/scripts/wren…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T01:26:37.654Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 209223
+      }
+    },
+    {
+      "i": 9,
+      "verdict": "refuted",
+      "reason": "The two \"near-identical\" dispatches are Task 3 and Task 6 of the same 10-task plan, fired ~2h10m apart at the window's two ends. Their 0.7 similarity is entirely shared scaffolding from a per-task brief template (\"You are implementing **Task N: …**, of a 10-task plan. Tasks … are done\"); the distinguishing fields differ correctly — subject (Socket vs. spin motor/ratchet), task number, and the completed-prefix (\"Tasks 1 and 2 are done\" vs. \"Tasks 1–5 are done\"). Nothing was redone. The transcript between them is strictly forward progress with no repeat of any task: Task 3 implemented (13/13), spec-reviewed, quality-reviewed (four defects proven by fault injection), hardened to 30 checks; Task 4 built, its own render gate REJECTED it at 1x, a legibility study ran, it was rebuilt and then fixed for a real mismatched-boss counter-example found in the committed scene; Task 5 implemented (36/36) and reviewed, surfacing the Godot inertia-from-shape-origin defect; then an unplanned but genuine live bug (\"`const TUNING` gets constant-folded at compile time\", ten files affected, driveSmoke byte-identical after the fix) was isolated with four narrowing probes and fixed. The one arguable re-do inside the window — Ratchet built, rejected, rebuilt — was driven by a measured gate failure, not by a duplicate prompt, and the heuristic did not flag it. The agent spend here bought reviewed, test-backed increments plus two defects that inspection would not have found.",
+      "wasteShare": 0,
+      "quote": "\"second\":\"You are implementing **Task 6: The spin motor and the ratchet, wired to input**, of a 10-task plan. Tasks 1–5 are done, \"",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T01:58:42.487Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 199570
+      }
+    },
+    {
+      "i": 10,
+      "verdict": "refuted",
+      "reason": "The two dispatches the heuristic paired are Task 4 and Task 6 of a declared 10-task plan — different tasks, different files, different deliverables. Their 0.76 similarity comes entirely from the shared prompt scaffold (\"You are implementing **Task N: …**, of a 10-task plan. Tasks 1–N−1 are done\"), which is exactly what a sequential plan-execution harness is supposed to look like; near-identical framing here is a template, not a repeat of work. The window in between is a clean, monotonically advancing chain with no re-dispatch of the same job: Task 4 built → a 1x legibility render gate answered \"no\" with a measured reason (2.2 px arc in a 6.7 px annulus) → a visual study → option D chosen → rework → code review found a real counter-example in playground.tscn → targeted fix → Task 5 → review found the Godot inertia/origin defect → fix → an unplanned but genuinely valuable probe that isolated a live `const TUNING` constant-folding bug across ten files (verified byte-identical driveSmoke afterward) → Task 6 dispatched. Every agent call has a distinct brief and each one produced a finding or a fix that the next depended on. The only re-do in the window is the Ratchet rebuild, and that was ordered by a gate that caught a real defect before it shipped — the intended cost of the instrument working, not waste.",
+      "wasteShare": 0,
+      "quote": "01:58:42 [Agent] general-purpose You are implementing **Task 6: The spin motor and the ratchet, wired to input**…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T01:58:42.487Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 199570
+      }
+    },
+    {
+      "i": 11,
+      "verdict": "refuted",
+      "reason": "The two \"near-identical\" dispatches are Task 5 and Task 6 of a declared 10-task plan — sequential steps in the same plan, not a redo. The 0.72 similarity is entirely the shared prompt boilerplate (\"You are implementing **Task N: ...**, of a 10-task plan. Tasks 1–N-1 are done\"); the payloads differ completely (Wrench body + collider vs. spin motor + ratchet wired to input). Everything between them is productive and non-repeated: a code review that found a real Godot inertia-from-shape-origin defect, a fix agent that landed it and pushed back twice on the operator's own wrong numbers (0.533px, not \"half a pixel\"), a hand-written probe sequence that isolated a genuine live bug (`const TUNING` constant-folds at parse, so the tuning panel silently did nothing), and a fix propagated across ten files with `driveSmoke` byte-identical as the control. Task 6 is dispatched only after that fix is propagated into the not-yet-built tasks — it is the next step, and it depends on work done in this window. No duplicated spend anywhere in the 199570 agent tokens.",
+      "wasteShare": 0,
+      "quote": "01:58:42 [Agent] general-purpose You are implementing **Task 6: The spin motor and the ratchet, wired to input**…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T01:58:42.487Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 199570
+      }
+    },
+    {
+      "i": 12,
+      "verdict": "refuted",
+      "reason": "The heuristic's two \"near-identical\" prompts (0.72 similarity) are Task 3 and Task 9 of the same 10-task plan — they share only the dispatch template (\"You are implementing **Task N: ...**, of a 10-task plan. Tasks 1..N-1 are done...\"), while the payloads are different features (the Socket joint class vs. the room/win/clearance scene). The window is a clean sequential build: Task 3 → spec review → code review → hardening fix → Task 4 → legibility study → rework → review → fix → Task 5 → review → fix → Task 6 → Task 7 → Task 8 → fix → Task 9, each dispatch consuming the previous one's result. Nothing is re-dispatched: no task is implemented twice, each review targets a different class, and the two re-dispatches that do repeat a subject (Ratchet after the legibility study, Wrench after the inertia finding) were caused by real findings the earlier agent produced, which is the plan working, not redo. The agent spend also bought concrete results the transcript records (30/30 → 62/62 checks, a live `const TUNING` constant-folding bug fixed across ten files, a measured 0.003 px seating residual). Template boilerplate tripped a text-similarity threshold; there is no duplicate work here.",
+      "wasteShare": 0,
+      "quote": "03:31:07 [Agent] general-purpose You are implementing **Task 9: The room, the win, and the clearance question**,…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T03:31:07.374Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 197046
+      }
+    },
+    {
+      "i": 13,
+      "verdict": "refuted",
+      "reason": "The two \"near-identical\" dispatches are Task 4 and Task 9 of a declared 10-task plan — different subjects (the Ratchet direction selector vs. the room/win/clearance question), separated by three hours and by Tasks 5, 6, 7 and 8 plus two code reviews, three fix dispatches, and a real bug hunt in between. The 0.74 similarity comes entirely from the shared dispatch boilerplate (\"You are implementing **Task N: …**, of a 10-task plan. Tasks 1–N are done…\"), which is the session's standard harness for sequential plan execution, not a repeated prompt. The window shows no redo at all: every dispatch produced new, accepted work, and the only rework present (Ratchet built → rejected by a legibility study → rebuilt) was driven by a deliberate gate that found a genuine defect — the arc being indistinguishable at 1x — and the operator explicitly chose option D before the rebuild. Subagents also pushed back and corrected the lead twice, and a live `const TUNING` constant-folding bug was found and fixed across ten files. That is productive spend, not waste.",
+      "wasteShare": 0,
+      "quote": "03:31:07 [Agent] general-purpose You are implementing **Task 9: The room, the win, and the clearance question**,…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T03:31:07.374Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 197046
+      }
+    },
+    {
+      "i": 14,
+      "verdict": "refuted",
+      "reason": "The 0.74 similarity is template boilerplate, not duplication. The two compared dispatches are Task 5 and Task 9 of the same sequential 10-task plan (\"Tasks 1-4 are done\" vs \"Tasks 1-8 are done, c…\") — different work, same harness wrapper. The window is a clean forward-moving implementation chain: Task 5 -> code review -> fix of the review's Critical+Important findings -> Task 6 -> a measurement-only agent settling the 60 Hz question -> Task 7 -> Task 8 -> a design-defect fix -> Task 9. No two dispatches redo the same work; each is dispatched after the prior one's result changed the plan (the plan file is edited by python3 between dispatches). The window is also unusually high-yield: the reviewer found that Godot derives inertia from shape transform origin rather than centroid, and a probe chain found that `const TUNING` is constant-folded at parse so the tuning panel silently did nothing — fixed across ten files with driveSmoke byte-for-byte identical. Implementers pushed back and were right twice. Nothing here is a redo.",
+      "wasteShare": 0,
+      "quote": "\"second\":\"You are implementing **Task 9: The room, the win, and the clearance question**, of a 10-task plan. Tasks 1–8 are done, c\"",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T03:31:07.374Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 197046
+      }
+    },
+    {
+      "i": 15,
+      "verdict": "refuted",
+      "reason": "The two dispatches the heuristic paired are not duplicates — they are consecutive steps of the same 10-task plan being executed subagent-driven. The \"first\" prompt is Task 6 (\"Tasks 1–5 are done\"), the \"second\" is Task 9 (\"Tasks 1–8 are done\"); the 0.78 similarity comes entirely from the shared dispatch boilerplate (\"You are implementing **Task N: ...**, of a 10-task plan. Tasks 1–N-1 are done, ...\"), not from repeated work. The window shows an orderly, non-redundant progression: Task 6 → a measurement question settled (60 Hz timestep drift, 4.23 px, gain/softness/solver ruled out) → a plan-doc edit → Task 7 (56/56, assist closed to 0.003 px) → another plan-doc edit → Task 8 (62/62, wrench.gd unchanged) → a design-defect fix that produced a correction to the orchestrator's own diagnosis → Task 9. Every dispatch returns a distinct, used result, and two of them changed the plan document or the design. Nothing here is re-done; the spend is the work itself.",
+      "wasteShare": 0,
+      "quote": "03:31:07 [Agent] general-purpose You are implementing **Task 9: The room, the win, and the clearance question**,…",
+      "betterKind": "",
+      "kind": "duplicate-agent-prompt",
+      "class": "redo",
+      "repo": "Broken",
+      "ts": "2026-08-19T03:31:07.374Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0,
+        "agentTotal": 197046
+      }
+    },
+    {
+      "i": 16,
+      "verdict": "refuted",
+      "reason": "The window is a clean, fully productive execution of a 12-task repo migration (octagonal-led-turn-counter → the-bench): every subagent task is dispatched, independently re-verified by the main session with concrete gates (tree-hash identity, 73-vs-2 commit count proving no --squash, secrets.h ignored, 53 tests, 8 sketches compiling, history/blame preserved, pre-publication credential sweep across all refs), and accepted. Tasks 1–10 land, the public repo goes live, and the session correctly hands Task 11 (physical board flash) to the operator because it cannot plug in hardware. Nothing in the window is redone, reverted, or contradicted. The heuristic's \"correction\" is the trailing user turn 1h40m later, which is not a correction of a claim the assistant just made: \"do the three things you owe me\" is a nudge about outstanding to-dos, and \"will this prove anything if I already set up OTA?\" is a forward-looking question about whether the *not-yet-performed* manual board gate is informative given OTA. Even if the answer were \"no\", the work that would be obviated lies outside the window (it was never spent), and it would at most retire one manual step, not invalidate any of the ten verified tasks. There is also no wrong claim on the record for it to correct — the assistant's last substantive assertions (repo live, 77 commits, tests green, security warning a false positive) were each backed by a command it ran. This is a normal question at a handoff boundary, not a corrected turn.",
+      "wasteShare": 0,
+      "quote": "do the three things you owe me, will this prove anything if I already set up OTA?",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "octagonal-led-turn-counter",
+      "ts": "2026-09-05T00:58:46.766Z",
+      "cost": {
+        "requests": 194,
+        "in": 388,
+        "out": 109174,
+        "cacheCreate": 542207,
+        "cacheRead": 17526558
+      }
+    },
+    {
+      "i": 17,
+      "verdict": "confirmed",
+      "reason": "The heuristic anchored on the wrong prompt: the trailing \"show me A B and C please\" (19:41:19) is a routine follow-up asking to see options the assistant had just offered at 19:35, not a correction of a claim. But a genuine corrected-turn does sit inside the window, just unrendered as a USER line: at 19:26:53 the assistant answers a challenge (\"Fair challenge — let me check rather than assert\"), at 19:27:03 concedes \"The user is right, and I was wrong: dadb073 ... Airtable is a legacy mirror\", and at 19:32:17 states outright that it cost wasted work. The wasted spend is the 19:05:00–19:06:45 Airtable-write branch (finding the `url` field, reading VLF's row, attempting the write, which the auto-mode classifier blocked) plus the 19:26:53–19:28:21 re-derivation of the Turso flip and the write-up of the correction. So the kind is right even though the cited evidence is not — no betterKind needed. The share is small: the detour's core finding (the recorded URL 404s, VLF is invisible to the nightly pipeline) survived intact — only the write target was wrong — the classifier stopped the bad write before it landed, and the bulk of the window's spend went to eight design-workflow subagents and to PR #694, which was authored, pushed, monitored and merged successfully in the same window.",
+      "wasteShare": 0.1,
+      "quote": "You were right, and it cost me some wasted work — here's the correction plus where fix #2 actually landed.",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "vida-legacy-foundation",
+      "ts": "2026-09-04T19:41:19.055Z",
+      "cost": {
+        "requests": 329,
+        "in": 658,
+        "out": 104497,
+        "cacheCreate": 1112144,
+        "cacheRead": 43848854
+      }
+    },
+    {
+      "i": 18,
+      "verdict": "refuted",
+      "reason": "The window is a 16-hour live validation of the prospect check battery against reddoorla.com, and it did exactly what it was asked to do: it found a real instrument bug (the analytics check reported \"no analytics\" on a site with GA4, because app.html defers gtag.js until first interaction so no external script src exists at crawl time), fixed the extractor and the check, tested its own ReDoS hypothesis before \"fixing\" a regex that turned out to be fine, re-ran the full battery to confirm the false positive was gone (\"analytics now reads 'www.googletagmanager.com, loaded on first interaction'\"), triaged the remaining 14 findings as real (single-h1, insecure-links, sitemap-coverage all confirmed against live evidence), tidied evidence wording, ran eslint and pushed to feat/audit-check-battery. The operator's next prompt — \"76 checks 53/67 passing doesn't scan, what's going on there\" — is a question about an internal arithmetic inconsistency in the final summary's headline counts, not a correction that invalidates the turn's substance. Nothing in the transcript shows the work being redone, retracted, or the diagnosis being overturned; the answer to that question is a sentence, not a re-run. Charging 33k output / 13.8M cache-read of genuinely productive, evidence-backed work to a mismatched-number question is the heuristic firing on the shape of the prompt (\"doesn't scan\") rather than on any waste. The only arguably wasted spend is the ~15-minute detour at 17:52 chasing a hang that turned out to be self-inflicted machine contention (a concurrent build and eslint), and even that ended in a correct, cheap conclusion; the window also contains a 13-hour idle gap (04:16 → 17:14) that inflates the \"minutes\" evidence field without any spend behind it.",
+      "wasteShare": 0,
+      "quote": "76 checks 53/67 passing doesn't scan, what's going on there",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "reddoor-website",
+      "ts": "2026-09-04T18:27:59.816Z",
+      "cost": {
+        "requests": 49,
+        "in": 98,
+        "out": 33143,
+        "cacheCreate": 550726,
+        "cacheRead": 13756325
+      }
+    },
+    {
+      "i": 19,
+      "verdict": "refuted",
+      "reason": "This is accept-and-refine design iteration, not a corrected turn. The operator's opening prompt was a critique of the *previous* shape; the assistant ran a silhouette study, chose the arrow, pinned the width rule as an actual test (`tests/bodySmoke.gd`), ran `./tests/run.sh`, wrote the work-journal entry, committed, pushed, deployed and verified the deployed `index.pck` hash, then sent the render to the operator. The operator's next prompt opens by *endorsing* that result — \"the arrow is better\" — and then asks for a further stylistic move (half the arrow, on the inner rim, reading as painted on the donut). Nothing the assistant claimed was retracted: its closing claim (that `Stud` declares only `outline_width` 1.0 and `spoke_width` 1.5, so the mark must be drawn at the rig's own pen) went unchallenged and is in fact the premise the operator builds on. The heuristic also over-counts the window: of the 111 minutes, the assistant worked ~11 (18:36–18:47) and the remaining 100 are the operator away from the keyboard before replying. The arrow's geometry gets reworked in the next turn, but the shape decision, the width-constraint test, the deploy path and the journal entry all survive — the cost of one round of visual iteration on a design the operator can only judge by looking at it, which is the work, not waste.",
+      "wasteShare": 0,
+      "quote": "the arrow is better but let's stylize/diegetize it.",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "Broken",
+      "ts": "2026-08-20T20:27:30.238Z",
+      "cost": {
+        "requests": 26,
+        "in": 52,
+        "out": 31418,
+        "cacheCreate": 42558,
+        "cacheRead": 5383359
+      }
+    },
+    {
+      "i": 20,
+      "verdict": "refuted",
+      "reason": "The \"correction\" the heuristic latched onto is not a correction at all. After the assistant finished retracing the glyph from the operator's new reference image, ran the test suite green, and delivered the render via SendUserFile, the operator's next message — \"show me? on desktop not the phone right now\" — asks for the same artifact on a different device. It disputes no claim, retracts no instruction, and asserts nothing was wrong: it is a delivery-channel preference, arriving 23 minutes after the assistant's last output (an idle gap, not a rebuttal). The window's actual work was explicitly requested by the operator in the window's own opening turn (\"is it too late to give you a different image to trace from?\"), and the assistant answered it directly (\"Not at all — nothing's committed\"), switched sources, measured the new trace, found and fixed a real defect on its own (two shoulder labels on a blank hump with no band divider), and ended with \"Board green, uncommitted.\" The discarded earlier trace was thrown away by the operator's own choice before this window opened, and the assistant correctly noted nothing was committed so nothing was lost. Every token in the window bought work the operator asked for and kept. The 6.9M cache-read over 18 requests is ordinary context carry, not re-derivation — there is no compaction, no block, no stop, and no duplicate dispatch here either, so no other kind fits.",
+      "wasteShare": 0,
+      "quote": "show me? on desktop not the phone right now",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "Broken",
+      "ts": "2026-08-25T04:09:55.001Z",
+      "cost": {
+        "requests": 18,
+        "in": 36,
+        "out": 26607,
+        "cacheCreate": 35177,
+        "cacheRead": 6965720
+      }
+    },
+    {
+      "i": 21,
+      "verdict": "confirmed",
+      "betterKind": "continue-after-block",
+      "reason": "The \"corrected-turn\" label is wrong: the closing user turn (\"did we lose work from the verify agents that would be worth rerunning?\") is an open question that AGREES with what the assistant had already said at 21:17:32 — that the session limit killed most of the verify lanes and those findings were never checked. It corrects no claim; it asks whether to rerun what the assistant itself reported as lost, and it arrives after a completed, committed deliverable (commit 909b231, the morning report, roadmap, journal). Nothing in the window shows the assistant asserting something the operator then had to fix. However, the episode is real under a different kind: the window opens on a genuine account-limit block (\"hit a session limit, continue on\") and the first ~2 minutes (five python/Bash passes over the session JSONL at 21:17:37–21:19:02) are pure re-derivation — digging raw subagent findings back out of the transcript because the verify lanes were killed mid-flight. That archaeology only exists because of the block. The rest of the window (reading girder.gd/layers.gd, the eight report edits, the journal/roadmap edits and the commit) is substantive deliverable work that would have happened regardless, so only a minority of the spend is genuinely wasted.",
+      "wasteShare": 0.2,
+      "quote": "The workflow finished but the session limit killed most of the verify lanes, so the physics and harness findings were raised and never checked.",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "Broken",
+      "ts": "2026-09-02T21:24:59.837Z",
+      "cost": {
+        "requests": 8,
+        "in": 6443,
+        "out": 25457,
+        "cacheCreate": 310052,
+        "cacheRead": 2126236
+      }
+    },
+    {
+      "i": 22,
+      "verdict": "refuted",
+      "reason": "The heuristic treated the window's closing prompt as a correction of the assistant's claim, but it is an acceptance of it. The assistant's turn ends by resolving the confusion (\"Mystery solved — we were talking about two different editors\") and offering options; the operator replies \"3 would be great, make sure it hasn't been filed already. draft it and show me where to go\" — picking option 3 and adding a stopgap preference (\"for now default to the regular editor with syntax highlighting\"). That is a normal next instruction, not a retraction of a wrong claim. The actual correction is the prompt that OPENS the window (\"look on my desktop, i think we're talking about different [editors]\"), so the window contains the repair work, not the turn that produced the bad claim — and that repair work was productive: the greps and Reads through VS Code's markdown-language-features bundle identified the rich Markdown editor (`vscode.markdown.editor`), established that it does not honor `scrollBeyondLastLine` and has no style hook, and produced a settings.json edit plus a concrete next action the operator adopted. No dead end, no re-derivation, no discarded output. The 1.2M cache-read is context carried into 15 requests, not waste.",
+      "wasteShare": 0,
+      "quote": "3 would be great, make sure it hasn't been filed already. draft it and show me where to go.",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "caldea",
+      "ts": "2026-08-24T19:49:52.688Z",
+      "cost": {
+        "requests": 15,
+        "in": 30,
+        "out": 12500,
+        "cacheCreate": 26849,
+        "cacheRead": 1216565
+      }
+    },
+    {
+      "i": 23,
+      "verdict": "refuted",
+      "reason": "The heuristic anchored on the wrong user turn. The trailing prompt it cites as the \"correction\" — \"i paid for airtable so you can keep pinging the api as we transfer over, check that it works\" — corrects nothing: it announces that the operator raised the Airtable quota and issues a new instruction. It is a forward-looking go-ahead, not a rebuttal of a claim.\n\nThe actual challenge is the prompt that OPENS the window (\"wait, lead loss? are emails not getting to clients?\"), which pushes back on a claim made in an earlier turn, outside this window. Everything inside the window is the verification that answered it, and it did its job: the assistant refused to re-assert (\"Hold on — let me verify that rather than leave you with an inference\"), pulled live Turso data, found 278 submissions with a healthy daily curve through 08-16 and 96 notification emails in 30 days, and retracted its own claim explicitly — \"I overstated it earlier — I verified the code path and then described current damage without checking whether it was actually occurring. It wasn't.\" It also produced a durable, correct finding along the way (live HTTP 429 PUBLIC_API_BILLING_LIMIT_EXCEEDED; every Airtable-dependent workflow green on 08-16, red on 08-17), which is precisely what prompted the operator to buy quota.\n\nSo the window is the remediation, not the defect. If any turn here was wasted it is the earlier one that stated damage without checking — and that spend is not in this window. The only slack inside the window is a couple of cheap dead ends (node_modules absent, one ToolSearch) before switching to the HTTP API, worth a rounding error against a 1.23M cache-read window whose output is an evidence-backed retraction the repo's own \"prove the instrument\" rule demands.",
+      "wasteShare": 0,
+      "quote": "i paid for airtable so you can keep pinging the api as we transfer over, check that it works",
+      "betterKind": "",
+      "kind": "corrected-turn",
+      "class": "unread",
+      "repo": "reddoor-maintenance",
+      "ts": "2026-08-17T16:06:22.936Z",
+      "cost": {
+        "requests": 9,
+        "in": 18,
+        "out": 11265,
+        "cacheCreate": 16205,
+        "cacheRead": 1228896
+      }
+    },
+    {
+      "i": 24,
+      "verdict": "refuted",
+      "reason": "The window contains no stop-then-spend sequence. The operator's \"Claiude, NO MORE SCREENSHOTS\" is a scope correction about one tool behavior, not a request for agents to stop; the assistant acknowledged it in one short line (\"Got it. No more screenshots.\"). The only actual stop in the window — \"now end\" at 23:50:44 — arrives AFTER every token charged here, so nothing was spent after it. The single subagent request the heuristic counts (out=1191, one request, at 23:50:40, four seconds after the operator typed) is an already-in-flight agent turn landing, not a dispatch made in defiance of a stop: the session could not have spawned, run and returned a general-purpose agent inside four seconds. The cache-read of 230667 is that one in-flight request's context, unavoidable latency tail rather than waste. The heuristic's own evidence field (\"subagentRequestsAfter\":1) is satisfied by any concurrent agent finishing, which is exactly what happened. Nor is this a corrected-turn in disguise: the turn that produced the unwanted screenshots lies outside this 8-second window, and a preference instruction is not a correction of a false claim.",
+      "wasteShare": 0,
+      "quote": "23:50:44 USER now end",
+      "betterKind": "",
+      "kind": "spend-after-stop",
+      "class": "fanout",
+      "repo": "Broken",
+      "ts": "2026-08-24T23:50:36.701Z",
+      "cost": {
+        "requests": 1,
+        "in": 2,
+        "out": 1191,
+        "cacheCreate": 2033,
+        "cacheRead": 230667
+      }
+    },
+    {
+      "i": 25,
+      "verdict": "confirmed",
+      "reason": "The trigger is an unambiguous stop (\"kill them\"), not a stop about something else, and three subagent requests do land after it (23:52:03, :06, :07), burning essentially the whole window's ~759k cache-read for output that was discarded (two of the three returned out=2). The operator's own next turn independently confirms the harm rather than merely asking a question: the machine was overloaded and agents kept running past the ask. So the episode is real and the kind (spend-after-stop, fanout class) is the right label. The skeptical discount: the window contains the *compliant* part of the story — the session issued six TaskStop calls within 14 seconds of the prompt (4 of them spent on a ToolSearch to load the TaskStop schema), so the post-stop spend here is mostly in-flight requests that could not be recalled, and the assistant's \"All six killed\" claim was accurate. The genuinely avoidable decision — dispatching six parallel agents, and whatever earlier stop the operator is referring to with \"when i asked you to stop\" — sits outside this window. Hence real, but the window captures the tail of the waste, not its cause.",
+      "wasteShare": 0.6,
+      "quote": "phew ok, what just happened? my system got overloaded and you didn't stop your agents when i asked you to stop",
+      "betterKind": "",
+      "kind": "spend-after-stop",
+      "class": "fanout",
+      "repo": "Broken",
+      "ts": "2026-08-24T23:51:55.603Z",
+      "cost": {
+        "requests": 3,
+        "in": 6,
+        "out": 523,
+        "cacheCreate": 7051,
+        "cacheRead": 759123
+      }
+    },
+    {
+      "i": 26,
+      "verdict": "refuted",
+      "reason": "The stop was honored essentially instantly, not ignored. The operator's message lands at 17:49:31; the assistant's very next act is \"Stopping the workflow now before it collides with your agent.\" and a TaskStop at 17:49:48 — 17 seconds later. The single \"subagentRequestsAfter\" the heuristic counted is the agent line at 17:49:36, five seconds after the prompt and twelve seconds BEFORE the TaskStop: a request already in flight when the stop was typed, which cannot be recalled. Its cost is out=10 tokens (the cache-read of 184k is one request's context replay, not new work). Everything after the TaskStop is not subagent fanout at all — it is the main session doing two legitimate things: (a) reverting the killed workflow's writes in the Broken tree (`git checkout -- docs/README.md docs/visionDoc.md`), which is cleanup the stop itself required, and (b) doing what the operator redirected it to in the same sentence — \"i meant that last gallery sonder session, which was the one where i asked for the maint report to be sent to my inbox\" — which it completes and reports (\"Sent — check your inbox\"), and which the operator does not push back on; the next turn moves on to unrelated work (\"seo cleanup can merge on green\"). The prompt is a redirect plus a collision-avoidance stop, not a stop that was overrun. No spend after the stop was wasted beyond one unstoppable in-flight request.",
+      "wasteShare": 0,
+      "quote": "17:49:46 ASSISTANT Stopping the workflow now before it collides with your agent.",
+      "betterKind": "",
+      "kind": "spend-after-stop",
+      "class": "fanout",
+      "repo": "gallerysonder",
+      "ts": "2026-08-31T17:49:31.614Z",
+      "cost": {
+        "requests": 1,
+        "in": 2,
+        "out": 10,
+        "cacheCreate": 1597,
+        "cacheRead": 184423
+      }
+    },
+    {
+      "i": 27,
+      "verdict": "refuted",
+      "reason": "The heuristic fires on one turn typed into 4 sessions inside two minutes, but the turn is \"computer crashed because I also opened steam, resume\" — a machine-level crash killed every running session, and each session must be resumed individually because there is no single message that restarts four separate Claude processes. That is unavoidable recovery, not duplicated operator attention spent on redundant work. The window itself shows the resumed session doing exactly the right thing: three read-only integrity checks (git status/log, git fsck, existence probe, then a filtered non-dangling fsck) to establish what survived before doing anything destructive — the \"re-verify after any pause\" discipline, not re-derivation of lost work. The measured cost is 0 requests / 0 in / 0 out / 0 cache, so there is no token spend to have wasted, and the heuristic's own evidence is noisy (one of the four \"repos\" is literally named \"Broken\"). No stop, no block, no correction, no duplicate dispatch.",
+      "wasteShare": 0,
+      "quote": "computer crashed because I also opened steam, resume",
+      "betterKind": "",
+      "kind": "same-turn-many-sessions",
+      "class": "fanout",
+      "repo": "octagonal-led-turn-counter",
+      "ts": "2026-09-04T21:49:59.119Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0
+      }
+    },
+    {
+      "i": 28,
+      "verdict": "refuted",
+      "reason": "The \"same turn typed into 4 sessions\" is the slash command `/model claude-fable-5-1[1m]` — a per-session configuration switch, not duplicated work. Model selection is session-scoped, so the operator had no way to apply it to his four live sessions except by typing it into each one; the very next message explains the deliberate reason (\"switched you onto fable... we just got a reset\"), i.e. a credits reset made the switch worthwhile everywhere. The window's measured cost is exactly zero (requests 0, in 0, out 0, cache 0), and the only assistant work in it is unrelated and on-charter: a ledger check on the corpus-refresh batch (4 of 29, none failed) plus the plan that chains off it. Nothing was re-derived, abandoned, or redone. The heuristic is pattern-matching a routine fan-out of a config command onto its \"operator attention cost\" template; the transcript shows intent and necessity, not waste.",
+      "wasteShare": 0,
+      "quote": "&lt;command-name&gt;/model&lt;/command-name&gt; &lt;command-message&gt;model&lt;/command-message&gt; &lt;command-args&gt;claude-fable-5-1[1m]&lt;/command-args&gt;",
+      "betterKind": "",
+      "kind": "same-turn-many-sessions",
+      "class": "fanout",
+      "repo": "reddoor-website",
+      "ts": "2026-09-05T21:37:44.352Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0
+      }
+    },
+    {
+      "i": 29,
+      "verdict": "confirmed",
+      "betterKind": "continue-after-block",
+      "reason": "The nominated kind does not hold: the \"same operator turn\" repeated across 3 sessions is the slash command `/model` with args `opus[1m]` — a mechanical model switch typed into three unrelated repos (Broken, beachfront-dentistry, reddoor-maintenance), not one substantive question asked three times. Retyping a config command costs essentially no operator attention and produced 0 tokens, so as fanout it is refuted. But the same window does contain a real episode of a different kind: the very next line is the operator typing \"hit a session limit continue\", after which the assistant has to re-orient from scratch — \"Picking up the ratchet/pupil pass. Let me look at the current portrait code\" — and re-reads five Godot scripts (bodyGlyph.gd, ratchet.gd, stud.gd, eye.gd, anatomy.gd) plus an ls/wc probe purely to rebuild context the account-limit block destroyed. That is textbook continue-after-block: the reads are not new investigation, they reconstruct state the session already had before the block. Waste is partial, since a resumed session would have to touch some of those files anyway to do the ratchet/pupil work, and the window's own recorded spend is 0 tokens.",
+      "wasteShare": 0.35,
+      "quote": "hit a session limit continue",
+      "kind": "same-turn-many-sessions",
+      "class": "fanout",
+      "repo": "Broken",
+      "ts": "2026-08-24T21:33:18.441Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0
+      }
+    },
+    {
+      "i": 30,
+      "verdict": "refuted",
+      "reason": "The \"same operator turn typed into 3+ sessions\" is `/compact` — a built-in housekeeping slash command, not a substantive instruction. Running /compact in several sessions in the same minute is routine context maintenance (and in this session it is plausibly auto-invoked, not typed), so it carries no duplicated operator thinking or re-explanation cost, which is the whole premise of the same-turn-many-sessions class. The heuristic matched on prompt-text identity without checking that the text was a command rather than an operator turn; the \"repos\" evidence field reinforces the parse is shaky (\"Broken\" is not a repo). The window itself contains exactly one line and zero spend — 0 requests, 0 in/out, 0 cache — so there is literally nothing in it that could have been wasted.",
+      "wasteShare": 0,
+      "quote": "15:48:04 USER <command-name>/compact</command-name> <command-message>compact</command-message> <command-args></command-args>",
+      "betterKind": "",
+      "kind": "same-turn-many-sessions",
+      "class": "fanout",
+      "repo": "songbook",
+      "ts": "2026-08-25T15:48:04.807Z",
+      "cost": {
+        "requests": 0,
+        "in": 0,
+        "out": 0,
+        "cacheCreate": 0,
+        "cacheRead": 0
+      }
+    }
+  ],
+  "critique": {
+    "blindSpots": [
+      "Subagent-internal waste. `scripts/meta-week/lib/census.mjs` filters every detector to `lane === \"main\"`; a subagent's own re-reads, dead ends and loops are invisible, and only its `totalTokens` is charged. Measure: run the same three detectors over subagent lanes, and compute each agent's totalTokens against how much of its result the parent ever quotes or acts on.",
+      "Waste with no operator prompt and no system event to anchor on. Every detector hangs off a prompt, a block, or a compaction, so autonomous stretches, /loop runs, cron routines and background tasks are structurally unreachable. Measure: anchor on artifacts instead of prompts — spend between two commits, tokens per surviving diff line; flag any span with high spend and zero durable output (no commit, no PR, no file that survives).",
+      "Output that was produced and then never used. No detector asks whether anything was kept: the deleted `feat/phase5-report-body-mirror` branch, discarded agent results, rewritten specs all score zero. Measure: diff-survival — for each file written in a window, does its content still exist at HEAD 7 days later; for each branch, was it merged; for each Agent result, is it ever quoted or acted on afterward.",
+      "The waste usually sits outside the fixed window. Windows are forward-looking (30 min after a continue, 60 after a compaction) or prev-prompt-to-correction, and skeptics refuted 27 episodes largely because the window caught the remediation, not the defect (the wrong claim, the six-way dispatch, the earlier ignored stop all precede it). Measure: anchor backwards — from a retraction, string/semantic-match its subject to the earliest turn that asserted it and charge that span; from a TaskStop, walk back to the Agent calls it killed and charge the dispatch.",
+      "Corrections that never appear as an operator prompt. `unreadCandidates` only regex-matches USER text, so the vida episode's real correction — the assistant's own \"The user is right, and I was wrong: dadb073\" — was missed while a routine follow-up was flagged instead. Measure: detect corrections in ASSISTANT text (\"I was wrong\", \"I overstated\", \"let me verify rather than assert\") and charge the span back to the claim being retracted.",
+      "Slash commands and tool-generated lines counted as operator turns. `same-turn-many-sessions` normalizes text and needs only 3 sessions in 2 minutes, so `/model`, `/compact` and IDE open-file notices dominate; all three same-turn nominations were config commands. Measure: exclude slash-command, hook and IDE-generated prompts before grouping, and require the turn to carry a substantive instruction.",
+      "Real cross-session duplication. Matching by exact normalized prompt text in a 2-minute window cannot see two sessions doing the same job worded differently hours apart — exactly the six duplicate-fix PRs of 2026-07-09. Measure: overlap of touched file paths, branch prefixes and PR titles across concurrent sessions in the same repo within a day, not prompt text.",
+      "Instrument-blind waste — work that is finished, green and useless (a gate that can never pass, a VERDICT grepping the wrong command). It emits no stop, no compaction and no correction, and it is this repo's signature failure mode. Measure: per-check pass/fail history — any gate that has only ever passed, or only ever failed, since introduction is unproven; pair with whether any mutation ever made it bite.",
+      "Time and cache cost, as distinct from token cost. `minutes` includes idle (one refuted window had a 13-hour gap), polling sleeps and until-loops cost wall-clock with no tokens, and `cacheRead` is charged to whatever window it lands in. Measure: split sessions into active spans (gap > 10 min = idle) before any rate, report blocked-on-polling wall-clock separately, and use cache-read per unit of new output rather than raw cache-read.",
+      "Redundant re-verification. Re-running a full suite or re-screenshotting with nothing changed in between is never flagged, because the files were not re-read and no prompt marks it. Measure: identical Bash command with identical result and no Edit to the files under test between the two runs."
+    ],
+    "misclassified": [
+      "corrected-turn @ Broken 2026-09-02T21:24:59 — the skeptic states the label is wrong outright: the closing prompt agrees with what the assistant had already said and corrects no claim. The real episode is a session-limit block followed by five JSONL archaeology passes (21:17:37–21:19:02). Should be class redo / kind continue-after-block, and the window should start at the block, not at the trailing question.",
+      "same-turn-many-sessions @ Broken 2026-08-24T21:33:18 — nominated kind refuted by its own confirm: the repeated turn is `/model opus[1m]`, a config switch costing no operator thought and 0 tokens. It was confirmed on a different episode entirely (\"hit a session limit continue\" plus five Godot script re-reads). Should be continue-after-block, and it is the one confirm whose measured cost is zero.",
+      "corrected-turn @ vida-legacy-foundation 2026-09-04T19:41:19 — kind survives but the anchor and the class do not. The cited prompt is a routine follow-up; the actual wasted spend is the 19:05:00–19:06:45 attempt to write the URL into Airtable, i.e. acting on a mechanism the #539 Turso flip had already superseded. That is unread-mechanism (stale mechanism), not an operator correction, and the write was stopped by the permission classifier before it landed.",
+      "spend-after-stop @ Broken 2026-08-24T23:51:55 — kind is right, scope is wrong. The window contains the compliant tail: six TaskStop calls within 14 seconds, and three in-flight requests that could not be recalled. The avoidable decision — dispatching six parallel agents onto a shared machine, and the earlier stop the operator refers to — sits outside the window, so the episode should be scoped to the dispatch, not the stop."
+    ],
+    "strongestConfirmed": [
+      "Only four episodes survived, so this is all of them, ranked by evidence quality.",
+      "1. spend-after-stop @ Broken 2026-08-24T23:51:55 — the strongest. Unambiguous stop (\"kill them\"), three subagent requests timestamped after it (23:52:03/:06/:07), two of the three returning out=2 (output discarded), ~759k cache-read, and the operator independently confirms the harm in his next turn (\"my system got overloaded\"). Show it scoped to the six-way dispatch, and show the compliant TaskStops alongside it — the honest version is more persuasive than the headline.",
+      "2. corrected-turn @ vida-legacy-foundation 2026-09-04T19:41:19 — the only episode where the assistant convicts itself on the record: \"The user is right, and I was wrong: dadb073 ... Airtable is a legacy mirror\", followed by an explicit statement that it cost wasted work. Bounded and cheap (the 19:05:00–19:06:45 Airtable branch plus a re-derivation), and the detour's real finding survived. Worth showing as the true shape of this class: a stale mechanism, caught by the permission gate before the bad write landed.",
+      "3. corrected-turn @ Broken 2026-09-02T21:24:59 — clean, timestamped re-derivation: a real account-limit block, then five python/Bash passes over the session JSONL (21:17:37–21:19:02) digging killed verify-lane findings back out of the transcript. Good evidence for the block class even though the label on it is wrong; the rest of the window is delivered work, so present it as a minority-of-spend episode.",
+      "4. same-turn-many-sessions @ Broken 2026-08-24T21:33:18 — weakest of the four and worth showing mainly as a caution. The nominated signal (`/model`) is noise, the real content is five Godot scripts re-read after \"hit a session limit continue\", the waste is partial (that work would touch some of those files anyway), and the window's recorded cost is 0 tokens. If the brief needs three examples, drop this one."
+    ]
+  }
+}

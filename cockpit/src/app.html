@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    %sveltekit.head%
+  </head>
+  <!-- Links navigate in the browser: every page derives from the snapshot the
+       root layout loads once. Each page's stylesheets leave with it
+       (lib/PageStyles.svelte), since the pages share class names. -->
+  <body>
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

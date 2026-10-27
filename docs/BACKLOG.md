@@ -1,0 +1,6040 @@
+# Backlog — what to work on next, in order
+
+> **Moved on 2026-10-20 to `reddoorla/reddoor-workspace`** `BACKLOG.md` (P0, P1, Active projects, Fleet snapshot) and `decisions/` (one file per ask), the home base.
+> This file is frozen as it stood at the cutover (`tests/docs/moved-files.test.ts`). Its item numbers stay valid for the runbooks, code and tests that cite them; never write here.
+
+**Last full re-rank: 2026-10-19 ~12:05Z** (the Monday PM pass, `claude/practical-franklin-67oatk`: P1 re-ranked from scratch as P1-52 (now fleet-wide), P1-53 and P1-54 (both new), P1-33 (dated 10-23), P1-51 (the operator's half), P1-46 (with Erik); Fleet snapshot rewritten from live Turso). Before that: 2026-10-12 ~12:00Z (the Monday PM pass, `claude/fervent-feynman-1u6stc`: P1 re-ranked from scratch as P1-45, P1-33, P1-31, then P1-43 (held on its worker's ask, #1294); the table kept its row order so the two open worker PRs that edit P1-43's row still merge; Fleet snapshot rewritten from live Turso), and before that: 2026-10-05 ~12:00Z (the Monday PM pass, `claude/youthful-turing-ad6g2n`) and 2026-09-29 ~06:00Z; state updated 2026-10-04 ~17:40Z 2026-10-06 ~12:00Z (the Tuesday PM pass, `claude/happy-clarke-1cjx2r`: no re-rank, P0-4 and items 80, 81, 84, 85 re-read) and 2026-10-07 ~12:00Z (the Wednesday PM pass, `claude/happy-clarke-hv3s5p`: no re-rank, P0-4 re-read, item 91 added) and 2026-10-08 ~12:00Z (the Thursday PM pass, `claude/fervent-feynman-kquysg`: no re-rank, P0-4 re-read, P1-36 added) and 2026-10-11 ~14:00Z (a Sunday PM pass, `claude/fervent-feynman-7ey14s`: no re-rank, P0-4 and P0-5 re-read, P1-38 done, P1-39 to P1-42 added, items 90 and 91 closed) and 2026-10-13 ~12:00Z (the Tuesday PM pass, `claude/amazing-bardeen-447t0s`: no re-rank, P0-5 re-read, item 81 closed, item 110(b) re-measured) and 2026-10-14 ~12:00Z (the Wednesday PM pass, `claude/practical-franklin-ejwyf8`: no re-rank, P0-5 and P1-47 re-read, item 113 closed, P1-50 added) and 2026-10-15 ~12:00Z (the Thursday PM pass, `claude/practical-franklin-btdl10`: no re-rank, P0-5 and P1-51 re-read, P1-50's proof recorded, P1-52 added) and 2026-10-20 ~12:10Z (the Tuesday PM pass, `claude/practical-franklin-9o2svs`: no re-rank, P1-52 and P1-53 moved to Done, P1-64 added first, item 136 closed by reading).
+Built from five read-only surveys of that morning: the nightlies' job logs, every
+open PR, every open issue, the live Turso fleet state (SELECT-only), and a
+reconciliation of `docs/meta-week/06–14` against `git log` since 2026-09-12.
+Tags: **[M]** measured that morning (query, probe, log line or file:line),
+**[I]** inferred.
+
+## How to use this file (agents: read this section first)
+
+1. **This file is a derived view, not the state** (#711). GitHub issues, PR
+   state, Actions runs and Turso are the state. Before you start an item,
+   re-run its _Verify_ line. If the world has moved, trust the world and fix
+   this file in the same PR.
+2. **Claim before you start.** Comment on the item's issue ("Claimed by
+   session `<branch>`") and check for fresh `claude/*` / `fix/*` branches and
+   open PRs touching the same files (`CLAUDE.md` → "Concurrent sessions"). If an
+   item has no issue, open one and put its number here.
+3. **Keep the tiers.** Every item is tagged 🟢 GREEN (agent may do and merge),
+   🟡 YELLOW (agent may do; feat → 3-lens review before merge), or 🔴 RED
+   (human only). The tiers are `AUTONOMY.md`'s; this file never widens them.
+4. **When you finish an item**, move it to _Done_ at the bottom with its PR
+   number, in the PR that finishes it. Do not delete items; the history of what
+   was ranked where is the point.
+5. **Re-rank** when a hard date passes, a P0 lands, or the operator answers an
+   _Operator decisions_ item. Say so in the header line above.
+6. **[H] means the operator builds it by hand.** The operator tags an item
+   **[H]** (after its ID) when they want to write that code themselves. It is
+   ranked like any other item, but the PM pass lists it separately, never
+   recommends a worker for it and never writes a brief for it, and no agent
+   starts it. Only the operator adds or removes the tag.
+7. **Workers ask a blocking question once.** A worker that reaches a stop
+   condition writes one line under _Operator decisions_ (the exact ask, its
+   own pick, the branch or PR) and asks, in the order given by `CLAUDE.md`
+   → "Worker sessions ask a blocking question once, with all its context" (the operator, 2026-10-05, #1188). Briefs for starting a worker are in `docs/worker-brief.md`.
+
+Ranking is (client impact × confidence) ÷ effort, with two overrides: an
+**external date** the fleet does not control, and **alarm integrity** (an alarm
+that cannot fire makes every other item invisible when it breaks).
+
+---
+
+## P0 — today and this week (dated, or the alarm itself)
+
+### P0-1 · Confirm the first post-Airtable nightlies go green 🟢
+
+- **Why.** Every fleet nightly on 09-27/28 hung in the Airtable write-back
+  (Free-plan quota, SDK retrying 429 forever) and was killed by its step timeout
+  [M, job logs of runs 36461516713, 36463310191, 36421699863, 36415353162,
+  36451921171, 36460182073]. #933 and #937 removed Airtable entirely. No
+  scheduled run has exercised `audit --write-back`, `github-signals` or the
+  digest on post-deletion `main` yet, so "fixed" is [I] until they pass.
+- **Dated.** Every maintained site's function-health stamp is from 2026-09-27
+  13:39–13:58Z [M]. The pre-send gate treats evidence older than 3 days as
+  unknown (`src/reports/auto-tick.ts:13-18`), so if `fleet-lighthouse` is not
+  green by **2026-09-30 ~13:40Z**, Sonder's Testing (09-30) and Maintenance
+  (10-01) reports and the five 10-05 reports draft blocked.
+- **Verify.** Actions → scheduled runs dated today; each prints
+  `FLEET_WRITE_SUMMARY wrote=N failed=0`. Tracking issues #924 (smoke), #927
+  (security), #931 (daily-reports) auto-close on green. Schedules fire 3–8 h
+  after their cron minute [M], so expect results 10:00–18:00Z.
+- **Done when** smoke, form-e2e, security, lighthouse, prismic-drift and
+  daily-reports are all green on today's `main`, and the three issues are closed.
+- **Do not** dispatch `daily-reports` by hand: `--send-ready` emails clients for
+  any approved, unsent report. Dispatching `fleet-security` fires
+  `renovate-dispatch` in client repos. `fleet-smoke` is safe to dispatch
+  (localhost only, Turso writes).
+
+- **Status (06:45Z).** fleet-smoke, dispatched on post-deletion `main`, went
+  green in 17 min with `FLEET_WRITE_SUMMARY wrote=14 failed=0 total=14
+mirrored=14 mirror_failed=0` and closed #924 [M, run 36527553082]. The
+  write-back path is proven; the other nightlies still have to run on their
+  own schedules.
+- **Done (2026-09-29).** All seven scheduled nightlies went green on their own
+  schedules: db-backup, prismic-drift, security (closed #927), lighthouse
+  (`wrote=14`, evidence renewed about 15:00Z), daily-reports (closed #931),
+  smoke and form-e2e (each `wrote=14 failed=0`) [M, run logs].
+
+### P0-2 · Alarms fire on a cancelled or hung run, and only for `main` 🟢
+
+- **Why.** `fleet-lighthouse` on 09-28 hung through its 75-min step timeout and
+  then through `Sweep GitHub signals to Turso` (`if: always()`, no timeout) until
+  GitHub's 6-hour job limit. It ended **cancelled**, and every tracking-issue
+  step in the repo is `if: failure()`, which is false on cancel, so **no issue
+  was filed** [M]. Separately, a `workflow_dispatch` from a PR branch closed
+  #895 while `main` was still broken: the close steps have no ref guard [M].
+- **Done when** every open step also fires on cancellation, open and close
+  steps act only for runs of the default branch, every `if: always()` network
+  step in a scheduled workflow has a `timeout-minutes`, and a test derived from
+  `.github/workflows/*.yml` asserts all three.
+- **Status.** Done in #956 (`37afc4b`). What is still open: a `cancelled()` open step has not yet been seen firing after a real job timeout (the runner source and run 32233689560 say it will), and P1-14/P1-15 below.
+
+### P0-3 · #911 — a site with no CMS reports CMS Checked as `n/a`, so LAHI's 10-05 report can send 🟡
+
+- **Why.** LAHI's `cms_reachable` is NULL [M] and its Maintenance report is due
+  **2026-10-05** [M]. `functionHealthResultFromAudit` flattens
+  `prismic:"skipped"` to null (`src/audits/function-health-fields.ts:31-32`), so
+  `cmsEvidence` says `unknown`, and the gate blocks.
+- **Corrections to the issue body [M].** Returning `null`, as proposed, would
+  still block: the gate passes only `pass`/`n/a`
+  (`src/reports/checklist.ts:88-106`, `src/reports/preflight.ts:401-420`). The
+  fix must yield `n/a`, as `formsEvidence` (`auto-tick.ts:~345`) and
+  `updatesEvidence` (`:~372`) already do. "Tick the box by hand" does not work
+  either, because the gate reads evidence, never ticks. The manual escape is the
+  logged send-anyway override.
+- **Deadline.** It must be on `main` before the **10-04** fleet-lighthouse run
+  re-stamps LAHI. 1836dig (due 10-31) is likely the same case [I].
+- **Status.** Done in #957 (`e563f6e`), before the 10-04 deadline. Still the operator's: if a LAHI draft for this cycle already exists, press "refresh preview" before approving (its stored evidence predates the fix), and see the ✓-copy item under Operator decisions.
+
+### P0-4 · Reports due in the next 14 days — operator actions 🔴
+
+These come from `nextDueDate` and `approveBlockers` run on live rows [M]:
+
+| Due   | Site                                          | Report                                         | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 09-30 | Sonder                                        | Testing (the fleet's **first** Testing report) | **Sent 2026-10-01 16:34:12Z, delivered** [M, daily-reports run 36892838203 `✓ sent`, live row]. Approved by the operator 09-30 21:18:16Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| hold  | 29 Navy                                       | Maintenance 2026-09                            | **Sent 2026-10-01 16:34:13Z, delivered** [M, same run, live row]. Approved 09-30 21:20:01Z.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 12-30 | Vida Legacy Foundation                        | Maintenance (first)                            | 2026-09 draft withdrawn 2026-10-01 01:03:47Z (item 41). Quarterly, so the first Maintenance report is due 12-30 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 11-01 | Sonder                                        | Maintenance                                    | **Pushed to 2026-11-01** by the operator's rule (10-01, #1099): a Testing report within a month of a Maintenance due date pushes Maintenance back one cycle. Today's run drafted no Maintenance row [M, run log: only `skipped (already drafted 2026-09): Sonder Testing`]; `nextDueDate` reads 2026-11-01 [M]. Out of this window.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 10-05 | Data Dynamiq, Espada, Revogen, Vineyard, LAHI | Maintenance                                    | No rows yet; they draft in the 10-05 `daily-reports` run (~15:00Z) and each needs the operator's approve. **10-04 16:03Z [M]:** `nextDueDate` = 2026-10-05 for all five, `preflightSite` returns no finding for any of them (its negative control, Espada with recipients and contact blanked, returns `recipients-missing`), and fleet-lighthouse re-stamped evidence 10-04 13:48Z (`wrote=21 failed=0`). **Corrected:** Data Dynamiq now has `ga4_property_id` 556916505, so it is no longer the one without GA4; all five are enrolled. **10-05 11:55Z [M]:** unchanged — `nextDueDate` 2026-10-05 for all five, no preflight fail or warn (control: Espada with recipients and contact blanked → `no recipients`), and all five carry a `ga4_property_id` (Data Dynamiq's tag is not installed yet, item 49, so its analytics section is likely empty [I]). Still no rows; they draft in today's run. **HELD by the operator 2026-10-06 ~00:20Z: do not approve or send until the Best Practices 78 is cleared.** Four drafts store `lighthouse_best_practices` 78 (Data Dynamiq, Espada, Revogen, Vineyard; LAHI 100) [M, report rows]. A direct Lighthouse run on datadynamiq.com scores 100, so the 78 may be the nightly's instrument [I]; a worker session is on it. Not overdue while held. **2026-10-06 ~02:00Z [M]: the 78 is real, not the instrument** — two third-party cookies, item 88. Data Dynamiq's live score is 100 since data-dynamiq#59, but its draft stores 78 and "refresh preview" does not re-read Lighthouse; Espada, Revogen and Vineyard stay at 78 until item 88's PRs deploy. **10-06 11:55Z [M, SELECT-only client that refused an `UPDATE` first]:** all five still pending approval; the stored `bestPractices` reads 78 for four and 100 for LAHI. Live `site_health.bp_score` (stamped 10-06 00:41Z by the bp-78 branch's dispatch, not a scheduled run) reads 100 for Data Dynamiq and LAHI and 78 for Espada, Revogen, Vineyard, ERP and MSOT, each with `lighthouse_failing_audits` naming `third-party-cookies` and `inspector-issues`. `preflightSite` finds nothing for any of the five (control: Espada with recipients and contact blanked → `recipients-missing`). Nothing else is due before 10-20. **10-07 11:52Z [M, SELECT-only client, `UPDATE` refused first]:** all five still pending approval and unsent; stored `bestPractices` 78 for four, 100 for LAHI. Live `site_health.bp_score` reads 100 for all seven sites in item 88 (fleet-lighthouse, 10-06 16:19Z). No path on `main` re-reads an unsent row's scores: item 91. `preflightSite` finds nothing (same control). Next due after these: ERP Maintenance 10-25. **10-08 11:53Z [M, SELECT-only client, `UPDATE` refused first]:** Vineyard sent 10-07 16:42Z at 78 (delivered). Data Dynamiq, Espada and Revogen still store `bestPractices` 78 and LAHI 100, all four pending approval with no `approveBlockers` finding (control: Espada with recipients and contact blanked → `recipients-missing`). No `report-rerender` run since P1-34 landed (16:24Z), so nothing has been refreshed. Next due: ERP Maintenance 10-25, 1836dig 10-31, Sonder 11-01. **10-11 13:55Z [M, SELECT-only client, `UPDATE` refused first]:** all four have sent: Espada, LAHI and Revogen at 10-08 16:40Z, Data Dynamiq at 10-09 16:08Z (the first 16:07Z clock send, run 37956759187). Nothing is pending approval (control: Espada with recipients and contact blanked → `recipients-missing`). Next due: ERP Maintenance 10-25, 1836dig 10-31, Sonder 11-01. |
+
+**Settled — do not flag again (operator, 2026-09-29, after being asked
+several times):** the report recipients are correct as they are. MSOT and
+Revogen both resolving to `accounting@revogenbiologics.com` is intended, and
+29 Navy's send going to MatthewB@worthe.com is intended.
+
+### P0-5 · Show Williamson Construction to Tim (2026-10-05) 🔴
+
+- **10-05 11:58Z [M]: the HD restore is published.** `list_releases` on
+  `williamson-construction` returns no release, and the live Content API's
+  `home` (published 10-04 16:50Z), `about-us` and `services` (19:22Z) carry
+  the `-1080`, `-720` and phone renditions. What is left is showing Tim and
+  the three launch facts below.
+- ~~**First, publish the HD video restore.**~~ Prismic release
+  `asKDcBIAAMSpTvwK` ("Restore HD background videos") puts the 1080p
+  videos, phone renditions and posters back on home, about-us and services:
+  21 deltas, the same fields decision 63's release set. The SEO release
+  (`ar6tURIAANxvSIoF`, published 10-04 15:46Z) was branched from 10-01
+  versions and reverted them; the descriptions and share images stay.
+  <https://williamson-construction.prismic.io/builder/upcoming/asKDcBIAAMSpTvwK>
+- **Then show Tim** <https://williamson-construction-co.netlify.app>: all 14
+  pages, fidelity gate passing or ledgered (`matching/LEDGER.md`), favicon,
+  descriptions and share cards live. Webflow still serves `www` until 10-19.
+- **10-05 [M]: hero poster and fade-in landed (williamson-construction-co#21, `b23efd1`).**
+  The phone LCP element is now the poster `IMG`; Lighthouse mobile LCP
+  median went 3025 → 2888 ms. The video fades in over 700 ms on `playing`.
+  Phone bytes with the hero playing are 1.89 MB in 8 s. The sharper poster
+  waits on Operator decisions 74: three frames to upload, one release.
+- **Ask him for the launch facts** still open in the plan: D6 (who receives
+  `/join-the-team`), D7 (who holds GoDaddy for the domain), D0 (Webflow
+  billing). Cutover is planned for Wed 10-14.
+- **10-11 [M, Discord #williamson, 10-05]: D7 is settled.** Tim holds the
+  GoDaddy login and sent the operator an invite; the operator wrote "I got
+  the dns delegation" at 10-05 23:06Z. Tim also wrote "both are good to move
+  over" (16:50Z) and that he would put small tweaks into MarkUp "later this
+  week"; nothing about them has reached Discord since. Still open before
+  10-14: D0 and D6; item 74's poster frames (no williamson-construction
+  document has been published since 10-05 [M, `list_document_publications`]);
+  and the plan's Tue 10-13 step, the Netlify custom domains and the `www`
+  TTLs (🔴, yours). The cutover checklist and verifier are P1-42.
+- **10-11 [M]: P1-42 is done.** The checklist is
+  `docs/runbooks/williamson-cutover-2026-10-14.md`, and
+  `node scripts/williamson-cutover-verify.mjs` turns GREEN once the cutover
+  has worked.
+- **10-12 ~15:10Z (the operator, cockpit session):**
+  - **D6 is answered.** Construction's `/join-the-team` goes to the same
+    recipient as its contact form. The runbook's gate still holds: a test
+    submission on the preview must arrive before Construction's DNS moves
+    (`docs/runbooks/williamson-cutover-2026-10-14.md`, "Gates the verifier
+    cannot check").
+  - **The rest waits on Tim**, and stays on this list: D0, Tim's MarkUp
+    tweaks, and with them the go for the Tue 10-13 domain and TTL step and
+    the Wed 10-14 cutover, which may slip. Each PM pass reads #williamson in
+    Discord (GET only) and says the day this is unblocked.
+  - **Item 74's poster frames** are acknowledged. Still unpublished at
+    15:05Z: williamson-construction has no release and nothing published
+    today [M, Prismic].
+  - **10-12 16:06Z [M]: item 74 is done.** The three hero posters are live
+    on the Netlify site; release
+    <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>
+    is published. Nothing about the cutover changed.
+- **10-13 ~11:58Z (the Tuesday PM pass) [M]:** still waiting on Tim.
+  `#williamson` has had no message since the operator's 10-11 14:18Z post
+  [Discord, GET]. DNS is unchanged: `williamson-construction.com` and
+  `williamson-homes.com` resolve to `198.202.211.1`, and each `www` is a
+  CNAME to `cdn.webflow.com.` with TTL 3600, so the TTL step has not run
+  [dns.google]. `www.williamson-construction.com` still carries
+  `data-wf-site`, and the Netlify site's canonical is still its
+  `netlify.app` URL. A Wed 10-14 cutover needs the TTL lowered today or it
+  starts against a one-hour TTL [I].
+- **10-13 ~22:14Z: both sites are cut over, a day early, on Tim's verbal go
+  to the operator.** The cockpit session set `www` as the primary custom
+  domain on both Netlify sites (20:08Z, external DNS, no Netlify DNS zone
+  created) and triggered production builds, after which both canonicals and
+  `og:url` read `https://www.<domain>/` [M]. The operator edited the two
+  GoDaddy rows per domain, Homes first. The Tuesday TTL step was skipped, so
+  Netlify answered "bad dns for custom domain" until its resolver let go of
+  the old answer; certificates issued at 21:43:51Z (Homes) and 22:14:00Z
+  (Construction). The `/join-the-team` gate held first: the operator's test
+  from the preview was stored at 21:37:49Z with `notifyStatus: sent` [M,
+  SELECT]. `node scripts/williamson-cutover-verify.mjs`: **GREEN, all 64
+  checks passed** at 22:14Z [M]. Still the operator's: a live test from
+  `https://www.williamson-construction.com/join-the-team`, the by-eye check
+  on phone and desktop, the Fri 10-16 and Mon 10-19 verifier runs, D0, and
+  `reddoor-maint launch` for each site. Leave the domains in Webflow until
+  10-19 (rollback).
+- **10-14 ~11:55Z (the Wednesday PM pass) [M]:** `www` on both domains is a
+  CNAME to its Netlify site (dns.google), each home page answers 200 with a
+  `https://www.<domain>/` canonical and no `data-wf-site`. Both Turso rows
+  are still `building`, and the newest Williamson submission is still the
+  operator's 21:37:49Z preview test, so the live `/join-the-team` test and
+  `reddoor-maint launch` have not happened yet [M, SELECT]. Dated next: the
+  Fri 10-16 verifier run, then Mon 10-19 (verifier, D0, Webflow domains).
+- **10-15 ~11:58Z (the Thursday PM pass) [M]:** `www` on both domains is
+  still a CNAME to its Netlify site (dns.google), with no `data-wf-site` on
+  either home page. `reddoor-maint launch-check` reads **READY, 8/8 `ok`** on
+  both sites (`LAUNCH_CHECK_SUMMARY … ready=true ok=8`), so #29 and #39 are
+  merged and live (`/privacy` answers 200 on both `www` hosts, and a made-up
+  path answers 404). Both rows are still `building`: `reddoor-maint launch`
+  has not run. Construction has a second stored submission, 10-14
+  14:12:11Z, `inquiry`, `notify_status` `sent`; whether it was the live
+  `/join-the-team` test is not recorded [I]. Dated next: Fri 10-16
+  verifier, Mon 10-19 (verifier, D0, Webflow domains).
+- **10-19 ~13:15Z (cloud close-out session) [M]: the Mon 10-19 verifier run
+  is GREEN, all 64 checks**, and `launch-check` reads READY 8/8 on both.
+  So the verifier gate on D0 is cleared: the operator can cancel Webflow
+  billing, then remove the domains from Webflow (🔴, the operator's).
+  `launch` could not run from the cloud (item 123); both rows are still
+  `building`.
+- **10-19 ~14:10Z [M]: both rows are `maintained`** (item 123: the operator
+  launched from the laptop and chose no Launch email, so the drafts are
+  withdrawn). Left on P0-5: D0, Webflow billing and then the domains, the
+  operator's. Record it when reported.
+- **10-19 ~22:40Z (the operator, cockpit session): D0 is done.** They
+  cancelled Webflow billing. Whether the two domains are also removed from
+  Webflow was not said; that is the one step left on P0-5.
+
+---
+
+## P1 — next, agent-ready, no operator decision needed
+
+| #     | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Tier | Effort     | Start here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Done when                                                                                                                                   |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-64 | **A fresh lockfile drops `@types/node`, so the lock-file PRs that P1-52 unblocked fail `svelte-check` in eight repos (new 2026-10-20, the Tuesday PM pass)**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 🟡   | S per repo | [M] The cockpit lists 11 sites "Renovate PRs failing CI" (10 NEW). Eight of them carry a red lock-file PR opened 2026-10-19 14:15–14:16Z, after `reddoorla/.github#38`: 29-navy#88, beachfront-dentistry#91, medical-solutions-of-texas#86, revogen#100, vida-legacy-foundation#114 (`staging`), vineyard-custom-homes#91, williamson-construction-co#31, williamson-homes#42. Each `ci / ci` log reads `Cannot find name 'node:fs'. Do you need to install type definitions for node?` from `svelte-check`. None of the eight lists `@types/node` in `package.json`; caltex-landing (`^25.9.1`), erp-industrial (`^24.0.0`) and gallerysonder (`^25.9.3`) do, and have no such failure. reddoor-starter lacks it too. P1-58's bake-off saw the same 48 errors on the starter. Start after the P1-33 window closes. Brief: `docs/morning-reports/MORNING_REPORT_2026-10-20.md`. Also red, not this item: `@prismicio/svelte` 3 (vida#113, gallerysonder#130, williamson-construction-co#33), kit 3 / adapter 7 on erp-industrial#73/#74, vineyard-custom-homes#92/#93 and both Williamsons, and `main-gate` on caltex-landing#86/#66 and beachfront-dentistry#66 (their `staging` was deleted, P1-53). | Each repo's `package.json` and `.nvmrc`; `docs/runbooks/staging-flow.md` for repos whose `main` runs `main-gate` (29-navy#88 fails it too). | One PR per repo adds only `@types/node`, `ci` green; each repo's lock-file PR then goes green on its rebased head; the same PR on reddoor-starter. |
+| P1-55 | **Model routing: a bake-off harness and transcript ledger, so each recurring step runs on the cheapest model and effort measured to match gold (reddoorla/reddoor-workspace#1; ledger reddoorla/reddoor-workspace#2)** 🟡 (new scripts, no production effect) [M] effort M. On 2026-10-09 a 53-file kit extraction scored 274/274 on Haiku 5.5, Sonnet 5.5 and Opus 5.5 alike, Haiku at about 1/9 of Opus at `xhigh`, yet about 80% of requests still run on Opus and nothing in config chooses a model. First slice (`claude/dazzling-galileo-tq6bcd`): `scripts/model-bakeoff/` holds the harness (the task, its schema, its field kinds for the shared scorer, and the arms are parameters; an arm without an explicit `effort` is refused; each agent gets its own scratch directory), the workflow `.claude/workflows/model-bakeoff.workflow.js`, and the ledger (one count per `message.id` within and across files, LF-only splitting, Haiku's long-prompt card above 100K, 1-hour cache writes at 2x), plus one measurement: row 4 of workspace#1's table (T5 census sweeps). Not in this slice: routing changes (`model:`/`effort:` frontmatter, `refute-claims` `DEFAULT_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, the `xhigh` pins), the `claude-skills` skill, rows 1-3 and 5-6, and the 30-day ledger re-run, which needs the laptop's transcripts. _Verify:_ `pnpm vitest run tests/model-bakeoff`. Done when workspace#1's acceptance list is complete; this slice ticks its first two boxes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| P1-63 | **model-bakeoff tripwire: the remaining minor git and shell forms (#1419)** 🟢 (new 2026-10-19). [M] Read-only git forms still flagged (`git tag --merged`, `git config -f`, `git clean -n`), local git writes not flagged (`git remote add`, `git config --unset`), and `find -exec`, `wget --post-data`, stdin-fed shells. Done when each form in #1419 has a test and the README's unseen list matches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| P1-33 | **Act on the 2026-10-06 operating review.** The operator took every default (journal: `docs/journal/`, the first file). The full recommendations, each with its evidence and a measure, are in the private `reddoorla/reddoor-workspace` at `reviews/2026-10-06-two-touch-review/recommendations.md` (attach it with `add_repo` to read). Queued, one worker each, in this order: (a) the rest of the corrections: `tests/docs/directive-refs.test.ts` (fails on a citation of a heading that does not exist), and the order in CLAUDE.md's asking rule (the line on its own `claude/*` branch and docs-only PR, push the work branch, ask, then land the line's PR), (a) done in #1232; (b) the Monday pass gets a do, date or drop list of old operator-only asks, the orphaned 10-14 check moves into the 10-12 Monday pass, the daily report keeps one 'N open asks; oldest X h' line, and the Monday refute also fact-checks the week's new `CLAUDE.md` lines by hand, (b) done in #1249; (c) a committed `report --test-send` plus a Turso log and the clean-send streak computed in code; (d) a missed-pass alarm in GitHub Actions, and a digest subject that names the ask (done in #1235, #1238); (e) _Due: 2026-10-12_ (after the 10-11 usage reset): the three session-shape probes and the home-base deny list (plan amendment 1), (e) done in #1318 with reddoor-workspace `c8fa41d` (the deny list) and `25499f6` (`probe.md`, the amended model); Decision 1 is Operator decisions 115; then, in order: round 3 run by the worker with a calibrated prompt; the stale-rules SessionStart check working in cloud sessions; `scripts/pm-facts.mjs` for the pass's fact sections (it overlaps P1-35's `scripts/pm-cockpit.mts`, see Done: absorb that script rather than duplicate it); one anti-test-tampering sentence plus a changed-assertion list in `land-prs`; a one-time negative-control sweep of the nightly gates built before 09-29; `scripts/mutate.mjs`; `check-brief`; a two-run outcome ledger. Cutover prep (decision files, the staged backlog trim and loop files, the home base's 200-line CLAUDE.md, the user-level deny-list probe) queued 2026-10-13 as four workers for the Fri 10-23 window (Operator decisions 121). W2, the decision-file format and `scripts/decisions.mjs` (`check`, `list`, `new`, and `convert`, the migration dry run): done in #1345 with reddoor-workspace `0b075ca` (`decisions/_template.md`); the migration itself stays in the cutover window. Done when each queued item has landed or been dropped by the operator. **Parked by the operator on 2026-10-07, to save usage for other asks this week:** once (b) lands, queue nothing more from P1-33 before the Mon 10-12 pass, which runs (b)'s new steps; (e) is due that day.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| P1-51 | **One launch process: `docs/runbooks/site-launch.md` and the `launch-check` gate (#1372)** 🟡. Asked by the operator 2026-10-14, after both Williamson sites went live on 10-13 with no Analytics, no Search Console, no contact and no schedule. `reddoor-maint launch-check <site>` prints one line per step (url, contact, schedule, header-image, ga-property, ga-tag, privacy, search-console) as `ok`, `missing` or `unverified`. `launch` runs it before any GitHub write and stops unless every step is `ok` or named in `--allow-missing`. Proven live 2026-10-14: Data Dynamiq reads 8/8 ok; both Williamsons read NOT READY; MSOT reads `privacy missing` (its `/privacy` 404s, a real gap). **Williamson, worker side:** row `url` set to `https://www.williamson-construction.com/` and `https://www.williamson-homes.com/` (10-14, site mirror); `/privacy` page and footer link PRs in each repo; neither Webflow site carried any analytics (conversion plan §2), so there is no old GA property to reuse, and no Williamson property is visible to the GA subject. **Williamson, operator side:** the one ask is Operator decisions 123: GA4 properties and streams with `reports@` Viewer; Search Console properties, the verification token, Verify and `reports@`; the contact and recipients; the schedule; the merges; `launch`; the go-live approval. After the answer a worker installs the tag (`analytics-tag`) and the verification meta, fills the privacy contact, writes `ga4_property_id`, `search_console_property`, contact and schedule through the site mirror, runs `header-image --write-back`, and re-runs `launch-check` until READY. Done when both read READY and the operator has launched and approved them. **10-15 ~11:57Z [M]: both read READY, 8/8 `ok`** (`ga-tag` loads `G-70PDG1RJBG` and `G-21KD0G311C`; `privacy` 200 with a home-page link). Both rows are still `building`; what is left is item 123(f), the operator's `launch` and the two go-live approvals. **10-19 ~13:15Z [M]:** verifier GREEN 64/64 and both READY 8/8 again; `launch` cannot run from a cloud session (the GitHub App gets 403 on branch protection, item 123), so (f) is the operator's from the laptop. Launch test emails for both went to the operator at 13:27Z. **14:10Z: done.** The operator launched both from the laptop, the Launch drafts were withdrawn by choice (no go-live email), and both rows are `maintained`; first Maintenance report due 2027-01-14.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| P1-46 | **Roalson: roll the 10-12 package standards out to all 23 listing packages, with Matt Howard's per-package comments** 🟡 (rebuilding is green; replacing the live `package_pdf` on Prismic and Dropbox delivery need the operator's go, as on 10-08). The generator is on roalson-interests `main` via #293: `tools/listing-packages/`, README "Package standards". Hwy 46 is already rebuilt to the standards and was shown to the operator; it is not published. Inputs: (1) the Land ID links in `build/heroes.json`, fetched for every listing whose plan has no photo cover (the operator, Operator decisions 118: all 23 together; 25331 IH-10 West, 101 W Commerce, 13810 Lookout and Urban Loop keep their photography); (2) Matt Howard's "Roalson Package Comments" (Gmail, Erik's forward 2026-10-12 22:12Z, thread `1a1322ce1413bdfe`): Land ID boundaries for Cascade Caverns, IH-10 & Hwy 87, Menger Springs Tract 1, Scenic Loop, IH-10 East & 1604, 1604 & 181 and the Hwy 46 aerial; copy edits for 116 OSA ("as well as multifamily."), Dove Canyon (easements), 1604 & 181 (3.0 +/- acres on the cover, no Frontage, Easements "Contact Broker"), Menger Springs Road (Location, "Church" in Potential Uses) and IH-10 & FM 725 (Eldon Roalson out, Bart in); exhibits: Perrin Beitel's floor plan, Scenic Loop's and 1604 & 181's site plans and 1604 East's cross-access aerial stay, IH-10 & 87's Lots aerial and Menger Springs' old aerial go, Menger Springs Road's Exhibit A is replaced by its Land ID aerial, "HEB owned" goes on IH-10 & 87's remaining aerial; IH-35's traffic map zooms out; (3) per-listing `intersection` and `businesses` in `geo/sites.json` (`lib/intersection.py` proposes; check each on the map). Two asks need the operator first: IH-10 East & 1604's "Can we show [HEB's] logo on that site?" (the area maps stay names and pins, Operator decisions 119), and any boundary change that moves a flood share (the 10-08 rule: a flood finding goes in front of the broker). Start here: the email, then `tools/listing-packages/README.md`; `build/all.sh` rebuilds everything (NAIP tiles are slow: allow for 502/504 runs). Minors in roalson-interests#292. Done when all 23 PDFs are rebuilt, each of Matt's comments is applied or answered, every flood-share change has been put to the operator, and the operator has the set to review. **Status 2026-10-13:** all 23 rebuilt, generator merged in roalson-interests#297 (`eedf175`), and every comment applied or answered. The set is with the operator. Held for two things: his review, then Erik for Matt; and the broker on Menger Springs Road's flood sentence (Operator decisions 120). **Status 2026-10-13 20:00Z:** fact-check fixes and the assumed calls for Matt's open items are on roalson-interests `main` (#301, `f39853b`). All 23 PDFs and Erik's two-page sign-off note are in Dropbox at `/Clients/Roalson Interests/Listing PDFs/2026-10 Listing Package Sign-off` (team-only folder link: https://www.dropbox.com/scl/fo/jhnfox5lh1tr4ggly7hfm/AOFAUgdiSEa9sQ3pFokfHiM?rlkey=a8e7dvo59m4wtg9hgi12mudej&dl=0); the note's source is reddoor-workspace `client/roalson/2026-10-13-package-sign-off/`. Erik has them (Discord #roalson-interests, 18:00Z). Erik re-saved four (Hwy 46, FM 725, Menger Springs Road, St. Mary's) with the cover's Ri watermark in light cream instead of red; nothing else changed. Waiting on Erik's review and Matt's sign-off. Next: ask whether the cream watermark is the new standard (one generator change, rebuild all 23), apply Matt's answers to the five calls, rebuild, then stage all 23 `package_pdf` replacements in one Prismic release for the operator to publish. The Dropbox file request `0nohnhi2368naltaor5k` that delivered them is still open; close it in the Dropbox web UI. |
+
+### Blocked behind another PR (do not start early)
+
+- **P1-30 · Mantis Landscaping: Blux → native Reddoor stack (#1107) 🟡/🔴.
+  Blocked on Operator decisions 59–62.** The plan is
+  `docs/mantis-landscaping-plan-2026-10.md`. The phases are P0 (Blux
+  export, repo from the starter, capture into `matching/spec/`), P1
+  (Prismic repository and write token 🔴), P1b (`ensure-site`, status
+  `building`), P2 (model, slices, routes, seed from `blux convert`), P3
+  (Netlify), P4 (form intake on `/api/forms/mantis-landscaping` with
+  Turnstile), P5 (fidelity and §4 improvements), P6 (cutover of `A` and
+  `www` only, then `launch`) and P7 (cancel Blux 🔴). Each phase's "done
+  when" is in the plan's §6. _Verify:_ `curl -sI https://mantislandscaping.com/`
+  still shows Blux, and `captures/mantis-landscaping/manifest.json` exists.
+  **10-01 ~18:40Z: 59–62 answered; P0, P1 and P1b under way.**
+  - **P1b done:** the Turso row `site_01M3WA8PZXD4Q8N7P234MNYJNB`,
+    `building`, with `git_repo` `reddoorla/mantis-landscaping` (verified
+    by `SELECT`).
+  - **P1:** the Prismic repository `mantis-landscaping` exists; its
+    `/api/v2` answers 200, while a made-up name answers 404. The operator
+    reports the token and secrets set; they are not visible from this
+    container.
+  - **P0:** reddoorla/mantis-landscaping#1.
+  - **Next:** P2.
+  - **Still open:** the Netlify site's name (CI assumes
+    `mantis-landscaping`), and Nicole's answers (61: 1, 2 and 7, plus the
+    drafts).
+    **10-01 ~18:45Z: the operator answered the rest.**
+  - **61.1, the form recipient:** the client's address. It is on the row
+    as `point_of_contact` (verified by `SELECT`) and is not written here,
+    because this repo is public. Pre-launch rows still notify only the
+    operator (`src/forms/notify.ts`).
+  - **61.2, DNS:** asked for after the client reviews the build.
+  - **61.7, icons:** use Lucide, not the Noun Project PNGs.
+  - **The three draft projects:** ignored.
+  - **P3, Netlify:** created on the operator's authority as
+    `mantis-landscaping` (`f0ce133b`), on `main`, `pnpm run build` →
+    `build/`.
+    - `FORMS_INGEST_URL` and `FORMS_INGEST_TOKEN` are set; the token
+      matches Williamson's by sha256 prefix.
+    - A "Prismic publish" build hook is on `main`. Its Prismic webhook is
+      the operator's to add.
+    - `netlify_id` is on the row (verified by `SELECT`).
+  - **The first production build failed on Netlify's secret scan:** Blux's
+    `__analytics.js`, vendored in P0's `matching/spec/`, carries Blux's
+    browser API key. It was removed in mantis-landscaping#2.
+    **10-04: P2a stopped at Operator decisions 64.** mantis-landscaping#3
+    (model, slices, routes, 301s) had two dirty review rounds. The seed
+    content is drafted on `claude/p2b-seed-draft`. Nothing has been pushed
+    to Prismic.
+    **10-04: 64 answered (a); P2a landed** as mantis-landscaping#3
+    (`e9d5f95`) after a third round. **Next:** P2b (rebase the seed draft,
+    the seed script, the placeholder swap, the model push).
+    **10-04 ~18:30Z: P2b seeded, stopped at Operator decisions 66
+    (publish).**
+    - mantis-landscaping#7 (`2470e01`) holds the seed content, a
+      `page_title` slice and the seed script; #8 (`95ddb1a`) holds the
+      metadata strip and the release repair.
+    - Models were pushed from a scratch checkout with the site's own token.
+    - The seed ran, and its release was read back and repaired.
+    - Out-of-scope follow-up: mantis-landscaping#6 (a `sizes` attribute).
+    - **10-04 ~20:25Z: 66 answered; the content is published and the site
+      builds from it** (#10, `8a005df`). The `prismic-ci` install (#13) waits
+      on the site secret, Operator decisions 69. **Next:** P4, the form on
+      `/contact-us`. It also retires the starter's `/contact` (issue #11).
+    - **10-04 ~23:45Z: P4a landed** as mantis-landscaping#15 (`ab2fd86`),
+      after two review rounds; the second was clean. The form lives on
+      `/contact-us`, and `/contact` 301s there. Round 1 caught a 500 during a
+      Prismic outage, which also turned a received POST into an error page.
+      Live form-e2e passes against production. Its `re-filled once` note
+      turned out to be the probe's own pre-hydration injection, not a site
+      defect (#17 closed with the measurement; reddoor-maintenance#1148).
+      Also filed: #16 (the preview route shows no form). **Next:** P4b (newsletter) waits on
+      Operator decisions 71. The real-submission trace into Turso needs a
+      human-minted Turnstile token, because a `testMode` probe persists
+      nothing. Then P5.
+    - **10-05 ~02:43Z: P4b landed** as mantis-landscaping#18 (`9ea17a1`).
+      The newsletter signup on `/contact-us` posts `formType: "newsletter"`
+      to central ingest: the row is stored, notified through Resend, and
+      counted in the digest. No Mailchimp (OD 71, answered). Round 1 caught
+      lost UTMs, a lost first confirmation, and pre-deploy tabs answered
+      with 404. Round 2 caught a lowercase `%2f` action key. The operator
+      chose to fix that and land on green CI rather than run a third round.
+      Live: both forms render with the visitor's query in their actions,
+      and form-e2e passes. **Next:** P5. The real-submission trace still
+      waits on 71's human submit.
+    - **10-05 ~16:30Z: P5 four of five done** (mantis-landscaping#19, #20,
+      #24, #25; journal #26). Lighthouse on production `f636d3d`, mobile,
+      3-run medians, against Blux measured the same day: perf 98/98/100
+      vs 97/74/92 on `/`, a project page and `/contact-us`; a11y 100 vs
+      76–79. A non-mirror build scores SEO and best practices 100; the
+      mirror's 69 is its own `noindex`. A full axe run (all rules, 5 pages
+      at 1440 and 390) found 0 violations, with a positive control. The
+      matching gate is the fifth, and needs the laptop: Operator
+      decisions 78. **Next:** P6 (DNS, OD 61) and 78.
+
+- **#921 persistence**: do it the #910 way once #918 merges. **#918 merged 2026-09-29 21:35Z (`18054c6f`), so this is no longer blocked;** not yet ranked, because #921's four-site table is stale (Revogen's property is on the row now) and needs a re-measure first.
+
+### Watching (owned elsewhere, or parked)
+
+- **Data Dynamiq Search Console (operator, 2026-10-07; worker card queued from the PM cockpit).** The operator created the property and gave an HTML-tag verification. The worker adds the tag to data-dynamiq's `src/app.html`, then asks him to press Verify, add `reports@reddoorla.com`, and name the property, and records `search_console_property` on the row. Before: `search_console_property` NULL, `search_console_outcome` `no-property`, and no tag on `https://www.datadynamiq.com/` [M, 10-07 ~12:30Z].
+
+- **#948's residual race and the fleet half of #947: what P1-24 left open (2026-10-05).**
+  P1-24 landed the starter's marker (reddoor-starter#184) and the recipe's
+  scaffold (see Done). Still open, none of it ranked yet: (1) the a11y audit's
+  spec (`src/audits/a11y.ts`) does not wait for `html[data-hydrated]` before
+  its scan, so its 191-vs-208 race stays on sites that write the marker;
+  (2) existing sites get the marker only as per-repo PRs (🔴 as a mass push),
+  and their `tests/smoke/routes.ts` keeps `footer` until then; (3)
+  `reddoor-starter-blux` takes reddoor-starter#184 by cherry-pick; (4) #1148,
+  form-e2e can wait on the marker before it injects. **(4) done 2026-10-12**
+  (#1148, #1316): form-e2e calls `waitForHydration`
+  (`src/audits/util/hydration-wait.ts`) before its first fill: `load`, then
+  `html[data-hydrated]`, capped at 5 s, which on a site without the marker is
+  the settle. (1) is the natural follow-on, still unranked, and should share that helper: the a11y spec is
+  generated text, so it emits `HYDRATED_EXPR` into a
+  `page.waitForFunction(…, null, { timeout: HYDRATION_TIMEOUT_MS }).catch(() => {})`
+  after each `page.goto(path)` in `src/audits/a11y.ts`, before `runAxe`. Its
+  proof is #948's: a fixture route whose contrast count differs before and
+  after hydration, scanned cold several times, must give the hydrated count
+  every time.
+- **Sites in build, answered by the operator 2026-10-04 ~16:50Z.**
+  - **Alamo Anatomy and Hedloc (`launching`):** waiting on their clients.
+    Nothing for an agent until the client answers.
+  - **The Tower Burbank and The Pointe Burbank (`building`):** proofs of
+    concept for the Blux conversion, not client work. Do not rank them as
+    builds or chase their stale branches.
+  - **Domaru:** set to `archived` (it lapses with Webflow on 10-19, with no
+    bridge).
+  - **Row fixes [M, written through `setSiteDetail`, read back]:** `git_repo`
+    on both Williamson rows, and `netlify_id` on Williamson Homes (`9072ea82…`),
+    Williamson Construction (`7e2831e2…`) and Roalson (`316ff26b…`). The ids
+    came from Netlify's API by site name, and each one's `repo_url` matches its
+    repo.
+
+- **GOLA (operator's desktop session `session_01Sjj8cMbeBoVNQ5bsErLsK9`,
+  started 2026-09-30 20:25Z)**: rates research from GOLA's Discord history and
+  a PDF sweep; at 21:17Z "sweep 50% done; PDFs ~23:00–23:15 UTC". No branch
+  pushed yet, and no issue. The PM pass reports its state (`get_session`) and
+  does not act on it.
+  **10-01 03:40Z [M]:** branch `claude/practical-ride-kbipzv`, 13 commits to
+  02:25:59Z, no PR. It touches `docs/workJournal.md` (+66) and `CLAUDE.md` (+13,
+  "research agents run on Sonnet"). `list_sessions` is not available to the PM
+  Routine, so its session state was not read.
+  **10-01 12:00Z [M]:** unchanged — same head, last commit 02:25:59Z, still
+  no PR.
+  **10-04 16:00Z [M]:** still unchanged — same head, last commit
+  2026-10-01 02:25:59Z, no PR. Three and a half days idle.
+
+- **Live worker sessions, 10-04 ~16:00Z [M, branches and PRs; `get_session`
+  is not available to the PM Routine].** All three pushed within ten minutes of
+  the pass starting: rank, do not take.
+  - Mantis P2a: landed its stop as Operator decision **64** in #1118
+    (`9664ef0a`, 16:17Z) while this pass ran. The next new item here is **65**.
+  - #1117, `prismic-ci` from a cloud session (#1113): landed as `2c5d9f1c`
+    at 16:04Z, also during this pass.
+  - PR #1116, `claude/video-encode-command` (`5715a32c`, 15:59Z): the `video`
+    encode command (item 63), review round 1 folded in. Still open.
+- **Worker branches, 10-05 ~11:50Z [M, `git for-each-ref` on fresh
+  `claude/*` and `fix/*`; `list_sessions` is still not available to the PM
+  Routine].** Rank, do not take.
+  - `claude/wizardly-brown-2ylvcv` = #1143, draft, held: item 72.
+  - `claude/jolly-keller-9h8tzh` (last commit 10-05 01:32:35Z): five
+    commits not on `main`, docs only (`docs/prismic-migration-plan-2026-10.md`,
+    `docs/workJournal.md`, +83/−32 against `main`), and no PR. Its subjects
+    are the phase-4 simulator-bundle follow-up and "williamson-construction-co
+    carries the simulator follow-up". #1149 landed from the same session at
+    01:30Z, two minutes before this branch's last commit, so this is likely
+    an unlanded tail [I]. Its owner lands it or drops it.
+  - GOLA, `claude/practical-ride-kbipzv`: unchanged, 13 commits, last
+    2026-10-01 02:25:59Z, no PR. Four and a half days idle.
+- **#754, new repos below the posture floor (10-04 nightly [M]).**
+  `mantis-landscaping`, `williamson-homes` and `williamson-construction-co`
+  have no repo ruleset, and secret scanning and push protection are off. For
+  the Williamsons this is item 33 (d), still open; Mantis is new, and its first
+  Netlify build already failed on a vendored Blux key (mantis-landscaping#2),
+  which push protection would have stopped at the push. 🔴, the operator's.
+  The renovate-staleness gaps on data-dynamiq, MSOT and vineyard cleared
+  between 10-01 and 10-04.
+
+- **#960, the part #972 did not take**: counting a zombie as dead via `ps` in
+  the `spawn.test` reap test. Parked, not owned: needed only if a reaper ever
+  holds zombies past ~4 s (the test then fails its assertion cleanly). The flake
+  itself is fixed; see _Done_.
+
+---
+
+## Operator decisions (🔴 or product calls — agents prepare, never do)
+
+> **Moved on 2026-10-20 to `reddoorla/reddoor-workspace`** `BACKLOG.md` (P0, P1, Active projects, Fleet snapshot) and `decisions/` (one file per ask), the home base.
+> This file is frozen as it stood at the cutover (`tests/docs/moved-files.test.ts`). Its item numbers stay valid for the runbooks, code and tests that cite them; never write here.
+
+Ordered by what unblocks the most. Each line is the exact ask.
+
+1. **LAHI 10-05** — #957 is merged (a no-CMS site reads CMS Checked as `n/a`).
+   Before approving, press "refresh preview" if a draft for this cycle already
+   exists, since its stored evidence predates the fix. If you disagree with the
+   semantics (e.g. a maintained site on the placeholder Prismic sentinel), say so
+   and it gets revisited; the logged send-anyway override still works either way.
+2. **29 Navy** — press "refresh preview" on `/s/29-navy`, then approve. Its
+   recipients are correct (settled 2026-09-29).
+3. **MSOT / Revogen recipients** — settled 2026-09-29: the shared
+   `accounting@revogenbiologics.com` is correct. Not an ask; never re-raise it.
+4. **Revogen GA4** — look up the numeric property ID in GA and set
+   `ga4_property_id` (site editor), so its 10-05 report carries analytics (#921).
+   **Done [M, 2026-09-30 ~19:00Z]:** the row has `ga4_property_id = 545817747`
+   and `search_console_property = https://revogen.com/`. Not an ask any more.
+5. **Release PR #952** — merged by the operator 2026-09-29 16:45Z; 0.101.0 on npm 17:01Z.
+6. **Operating-model review — answered 2026-09-29** (`docs/operating-model-review-2026-09-29.md` §7):
+   (a) zero-blocker Maintenance reports **keep the click**; revisit only after
+   several consecutive [TEST] sends with nothing wrong (every test send so far
+   has found something; the table that counted them was cut on 2026-10-12,
+   item 107(e)); (b) PM-pass model: recommendation is Opus, waiting on
+   the operator's go-ahead to pin it; (c) evening-review is retired (the PM pass
+   replaces it); `new-site` and `markup-review` go to cloud sessions as account
+   skills; (d) the three cloud secrets: walkthrough given, the operator adds
+   them; (e) **any reaction from the operator on a Discord message closes it**.
+7. **Webflow, hard date 2026-10-19** [M, Discord #website-maintenance 09-17]:
+   two sites still to convert before the license renews; Domaru must stay up
+   to 11-01 on Tim's word while Reddoor's Webflow cancels 10-19.
+   **Answered 2026-09-30:** the conversions are Williamson Homes and
+   Williamson Construction, on native Prismic; Domaru lapses on 10-19 (the
+   client no longer wants it; no bridge); D5 yes. Phase 0 is running. Still
+   the operator's by 10-05, via Tim: D0 Webflow billing, D6 the Construction
+   form recipient, D7 the GoDaddy holder, D8 the Adobe Fonts kit owner. **Scoped
+   2026-09-29: see the plan, [`docs/webflow-conversions-2026-10.md`](webflow-conversions-2026-10.md).**
+   Three live sites still serve from Webflow [M]: Williamson Homes (10 pages),
+   Williamson Construction (14) and Domaru (7). The plan's pick is that the
+   Williamsons are the two conversions (native, Prismic) and Domaru gets a static
+   bridge on Netlify to 11-01. Cutover: Williamsons Wed 10-14, Domaru Thu 10-15,
+   with Webflow still serving to 10-19 as the rollback. **First ask (D1):**
+   confirm the two are the Williamsons, and say what Domaru needs: (a) a bridge,
+   then down on 11-01; (b) a transfer to the client's own Webflow workspace (your
+   login); or (c) a full conversion. **D0:** check Webflow billing for what
+   actually stops on 10-19; the roster's `"account owner"` dates (`dec 8`,
+   `jan 11`) may be site-plan renewals. D2–D8 (content, track, redirects,
+   fidelity, form recipients, DNS holders, Adobe Fonts) are due 10-05. Phase 0
+   (repos plus full capture of all three references) needs no decision and should
+   start 09-30; its brief is in the plan, §7.
+   **OD7-P0 (#1029), half done:** all three references are captured whole (10 /
+   14 / 7 pages, 0 failed downloads), but neither Williamson repo exists,
+   because the org refused this session's create (403). What is needed to
+   finish is in items 33 and 34.
+   **10-11 [M, Discord #williamson]:** D7 is answered there. Tim holds
+   GoDaddy and delegated it, and the operator wrote "I got the dns
+   delegation" at 10-05 23:06Z. D0 and D6 are still open (P0-5).
+   Closed 2026-10-12: carried by P0-5 (dated): D0 and D6, before the Wed 10-14 cutover.
+
+8. **Airtable residue** — PR #954 (another session, at your request, opened
+   2026-09-29 05:52Z) removes the `settings.json` pre-approval and network allow
+   and AUTONOMY.md's Airtable tiers, and keeps `AIRTABLE_PAT` by your choice.
+   Not in #954: AUTONOMY.md still calls `settings.json` "local, gitignored"
+   (false since #788), and its working loop names `docs/autonomy-journal.md`,
+   which has had no row since 2026-09-09.
+9. **Changesets v3** — done: #901 (merged by the operator 17:07Z) carries
+   both halves, and its first release run was a clean no-op. The version-only
+   path is proven by the first changeset that lands after it. #897 closes itself
+   on Renovate's next run.
+10. **#918 / #920** — in a fix round after a four-lens independent review
+    (2026-09-29): nine majors, the sixth round with majors. They ship in 0.102.0
+    if that round is clean. If it is not, they come back here as a design
+    decision rather than a seventh round.
+11. **#916** — decided 2026-09-29: #950 shipped in 0.101.0, and #916 is merged
+    over it for 0.102.0, with the `reddoor-starter` palette fix staged beside
+    it. The same fix for `reddoor-starter-blux`, whose Hero also goes red, is
+    to follow. Moved to _Done_.
+12. **Cloud environment** — add `GA_SUBJECT`, `GA_SA_KEY_B64` and
+    `PERPLEXITY_API_KEY`. Without them, cloud-drafted reports silently lack
+    analytics [M].
+13. **Google Maps keys (#754)** — add referrer and API restrictions to the three
+    keys in GCP, then close the four alerts.
+14. **Promotion authority (#623 → #545)** — pick identity A/B/C, apply the
+    prepared staging ruleset, and promote reddoor-website `staging` → `main`.
+15. **Renovate delivery (#898)** — decided 2026-09-29: `prCreation:
+"immediate"` on the grouped rule. The measurement agrees with #898: here,
+    `renovate/all-minor-patch` was pushed at 02:07Z on 09-28 and the next run
+    started at 18:48Z, after the window, so no PR opened that week. The preset
+    change is written, validated and stored as
+    `docs/patches/2026-09-29-github-renovate-grouped-pr-immediate.patch`, but
+    **no `.github` PR exists**: a cloud session cannot attach `reddoorla/.github`
+    (its name starts with a dot), so the push was refused. **Ask:** open it from
+    the laptop (`git am` the patch in a `.github` checkout, then open the PR for
+    your review). It does nothing for `renovate/pnpm-12.x`, a major held by
+    Renovate's own PR/branch limits; a `prPriority` or a higher `prHourlyLimit`
+    is still the lever for that.
+16. **#779** — go-ahead for the form-e2e central widening. Seven maintained
+    sites have no form end-to-end check [M].
+    **Answered 2026-09-29 ("go"); built in PR #1017, which landed
+    2026-09-30 03:32:33Z as `d1e42c4a` after a third review round (item 32).**
+    The probe now fills required fields outside its standard four: the first
+    real option of a select, and synthetic values for text, checkbox and radio.
+    The nightly names its uncovered sites, and a localhost positive control runs
+    before the sweep. The widening covers no new site by itself, because every
+    site it helps still needs a client deploy to declare `forms.testMode`. See
+    item 31.
+17. **Client email copy (#957 follow-up).** The Maintenance email draws a green
+    ✓ beside every checklist row whatever the evidence says
+    (`maintenance-email/template.ts` → `email-sections.ts`). With #957, LAHI's
+    email will say "CMS Checked ✓" for a site with no CMS, as Form Functionality
+    already does for sites without a form. Decide whether `n/a` rows render
+    differently or drop out. **Answered 2026-09-29: they drop out**, neither ✓
+    nor "N/A". Done in #1015, on every render path (send, refresh preview,
+    stored draft body, `report --preview`, `selftest email`). A draft stored
+    before that release keeps its old body until "refresh preview". The next
+    [TEST] send is the change's first real check. The Announcement email's
+    checklist is unchanged, since it is not evidence and not named here.
+18. **Standing product calls** — answered 2026-09-29, except #773:
+    - #943 (what "Search Console set up" means): evidence-based. Done in
+      #1016, with the freshness window answered in item 28.
+    - #948 (hydration signal): audit the built preview (`vite preview`), not
+      the dev server; queued until the a11y PRs in flight land.
+    - #728 (beachfront `matching/`): delete; done in beachfront#69 (`e3547dfe`),
+      101 self- or dead-host comparers removed, #728 closed.
+    - #776: closed as done.
+    - #711: closed into `CLAUDE.md` ("Prove the instrument", the paragraph on
+      a derived view read as the state).
+    - #690 (pnpm pin questions): Renovate owns the pin. Verified 2026-09-29
+      across all 27 public, non-archived `reddoorla` repos: 21 are on
+      `pnpm@12.5.1` via merged Renovate PRs (reddoor-starter#157 and 20
+      more, 2026-09-22), and the 5 still on `pnpm@11.11.0` (29-navy,
+      erp-industrial, reddoor-maintenance, reddoor-md-pdf, roalson-interests)
+      each list "update pnpm to v12" under Awaiting Schedule on their
+      Dependency Dashboard; `.github` has no `package.json`. Closed with the
+      table.
+    - #672 (cockpit design): design brief first. Brief written, awaiting the
+      operator's markup:
+      [`docs/cockpit-design-brief-2026-09.md`](cockpit-design-brief-2026-09.md).
+    - #674 (design-review tool): mine the rules only. Rules mined in
+      `docs/design-review-rules-2026-09.md` (#1012). Answered 2026-09-29:
+      rule 23 became a flag, six single-site rules and five seen-once rules
+      kept, and the full-bleed opt-in is `data-bleed`. Second pass done
+      2026-09-30 (Discord, Figma, MarkUp; corpus private in claude-skills):
+      awaiting the operator's accept/cut of 34 new candidates, the order to
+      encode reviewer-enforced vs never-reviewed rules, and whether N4 ("CTAs
+      above the fold") stays cut. The file's last section lists the asks.
+    - Still open, on the laptop: #773 (local-only git objects).
+19. **P1-20, the digest (#975)** — answered 2026-09-29: "go" on the round-2
+    rule, then, after two sessions built it in parallel (`f6d5ee8c` on #975,
+    `7925133d` on `claude/digest-send-exact-rule`), "do yours": #975 lands
+    `784c2bda`. It forgets a warning after two absent runs and a critical item
+    at once, raises a baseline only on a send, needs a Lighthouse score to be
+    more than 5 points worse than what was last mailed, and compares health
+    asks by field.
+20. **P1-3 post-merge production run (#986, `e86abd72`)**: this cloud
+    session's permission classifier refused the one sanctioned production run
+    of `roster-urls --fleet --write-back` from `origin/main` ("Production
+    Deploy"). The ask: either let tonight's `fleet-lighthouse` nightly do the
+    write (its new "Probe roster urls to Turso" step is the same command), or
+    run `node dist/cli/bin.js roster-urls --fleet --write-back` once yourself
+    from a build of `main`. Then check with a SELECT: `the-pointe-burbank` should be
+    `fail` / `404 netlify-site-not-found`, the tower and vida `-rd` rows `pass`,
+    `summittrek` and `young-life-connect-compliance-site` NULL / `no url`, and
+    `url_checked_at` set on the 34 non-archived rows and on no archived row. My
+    pick is the nightly, since it is the same code with no new permission.
+    **Answered 2026-09-29 ~20:50Z: tonight's nightly.**
+21. **the-pointe-burbank url**: set its url to
+    `https://the-pointe-burbank-rd.netlify.app` on `/s/the-pointe-burbank`.
+    The probe named it on 2026-09-29 (`404 netlify-site-not-found`, and the
+    `-rd` host 200) in #986's pre-merge run. Wait until item 20's run has
+    stored the `fail`, since that row is the live positive case.
+    **Ready 2026-09-30 [M]:** fleet-lighthouse run 36731239566 stored it:
+    `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2`, and the one fail is
+    `the-pointe-burbank https://the-pointe-burbank.netlify.app 404
+netlify-site-not-found`. The ask stands: set the url now.
+    **Answered and done 2026-09-30 19:33:07Z [M].** The gate held first:
+    fleet-lighthouse run 36731239566 (schedule, success) logged one warning,
+    `the-pointe-burbank https://the-pointe-burbank.netlify.app 404`
+    `netlify-site-not-found`, and the summary
+    `ROSTER_URL_SUMMARY checked=34 pass=31 fail=1 no_url=2 mirrored=34`.
+    A SELECT read `url_resolves = fail`, `url_status = 404 netlify-site-not-found`
+    and `url_checked_at = 2026-09-30T15:06:30.087Z`. The url was then written
+    through `setSiteDetail` (bound as `netlify/functions/site-details.mts` binds
+    it), with result `updated`. Before: `https://the-pointe-burbank.netlify.app`.
+    After: `https://the-pointe-burbank-rd.netlify.app`, read back from Turso. The
+    new host answers 200, and the old one still answers 404. The health columns
+    keep today's `fail` until the next nightly re-probes the row.
+22. **P1-17, bypass actors on a Renovate base branch (#981, PR #985)** — two
+    review rounds each found a real defect, so #985 is held for your call, not a
+    third round. Both defects were missing TESTS, and both are now fixed on the
+    branch; no verdict bug was found. Round 1 (on `1c5810eb`): nothing pinned
+    that a failed ruleset read is left out of `RULESET_BYPASS`, or that acked
+    rows carry their count. Fixed in `e20b7041`, which also makes a probe-failed
+    row wait for its sibling reads. Round 2 (on `e20b7041`): nothing pinned that
+    a bypass-free ruleset wins over an unknown one. Fixed in `280ef2e2`. Every mutation that changes behaviour, from the brief and both rounds, now turns a test red; the two that survive (`isSafeInteger` → `!isNaN`, a Set of ids → an array) are equivalent on real GitHub data. The full suite, lint, typecheck and build pass at `e20b7041`. The only merge
+    conflict with `main` is `docs/BACKLOG.md`. The ask: land #985 as it is
+    (my pick, because the code has not changed since round 1 except the
+    allSettled count fix, which round 2 cleared), or run a third review round
+    first. Landing it is `git merge origin/main` (keep both sides of BACKLOG),
+    CI green, then `node scripts/land-prs.mjs 985`.
+    **Answered 2026-09-29 ~20:50Z: land as is.** Landed by the PM session.
+23. **0.102.0 release gate: these palette PRs to merge first** — measured
+    2026-09-29 with #916's build on all 15 maintained sites plus
+    `reddoor-starter-blux` (table: `docs/palette-rollout-2026-09-29.md`).
+    The palette PRs are done: [29-navy#58](https://github.com/reddoorla/29-navy/pull/58)
+    and [reddoor-starter-blux#36](https://github.com/reddoorla/reddoor-starter-blux/pull/36)
+    (13 lines in `@theme`, render byte-identical, gate green on #916), merged
+    by the PM session at ~20:50Z on the operator's go, after green CI. The
+    `reddoor-starter` fix merged as reddoor-starter#162. 13 sites already pass on #916. **Vida
+    stays red after the palette** and needs your call. axe throws on
+    `mix-blend-plus-lighter` on `/` and `/es`: do we exempt it in the gate, or
+    change the design? Measured, its fixtures' `text-red-600` form errors fail
+    contrast. No vida PR is open. My pick: ship 0.102.0 and let vida's Renovate
+    PR sit red until that is decided, since nothing reaches vida's `main`
+    unreviewed.
+    **Answered 2026-09-29 ~20:50Z: ship 0.102.0; vida's call (exempt the
+    blend-mode crash, or change the design) stays open.**
+    **Answered later on 2026-09-29: do both.** The design fix is open for
+    review as [vida-legacy-foundation#86](https://github.com/reddoorla/vida-legacy-foundation/pull/86)
+    (`text-red-700`, 5.93:1 on beige, CI green; not to be merged by an agent).
+    The gate exemption is [#1014](https://github.com/reddoorla/reddoor-maintenance/pull/1014),
+    held after two review rounds: see item 29. Vida's gate is green only
+    with #1014, #86 **and** the 13 palette lines, which no PR carries yet.
+
+24. **P1-12, weekly config-drift report (#983, PR #995)**: two review rounds
+    each found real defects, so #995 is held for your call instead of going to a
+    third round. The one code defect was that `--only` without gitignore
+    skipped the fleet-mode git guard, fixed in `a304bc72`. Everything else was
+    a missing test: round 1 six (exact-title and exact-repo matching, control
+    guards, one record per line), round 2 five (drift paths checked only
+    against the dry plan itself, the open step's `drifted == 'yes'` gate,
+    three control checks, the tracked leg, the skip warning), plus the
+    runbook rows. All are fixed on the branch at `4b195009`. 37 mutation runs (the
+    brief's 8 as 11 runs, plus 26 from me and both rounds) all turn a test red. Round 2's
+    correctness lens found nothing. One design point is kept as the brief set
+    it: the finding issue closes only when every repo named in its body comes
+    back CLEAN, so a repo that leaves the roster keeps it open until closed by
+    hand, and the close step says so in a `::warning::`. The ask: land #995 as
+    it is (my pick, since the round-2 changes are tests, docs and one stricter
+    control check), or run a third round first. Landing it is
+    `git merge origin/main` (keep both sides of BACKLOG), CI green,
+    `node scripts/land-prs.mjs 995`, then dispatch `fleet-config-drift.yml` once
+    on `main` (the brief's live proof: control passes, summary total = roster
+    size, issue filed to match).
+    **Resolved 2026-09-29 ~21:45Z (PM brief: rerun round 2, land if clean):
+    the rerun found no blocker or major; its four minor test gaps are pinned
+    in #995, which lands.**
+25. **#969, a timed-out spawn orphans Playwright's webServer (PR #989)** —
+    answered 2026-09-29: land as it is, no third round; #989 lands with this line. Two
+    review rounds each found a real defect, so #989 is held for your call, not a
+    third round. Round 1 (on `ce4cb9db`) found a behaviour defect: the walk
+    trusted `child.pid` after an early-exiting wrapper could have been reaped,
+    so a reused pid could be walked. It also found the per-group SIGKILL
+    re-check tested with one group only. Both are fixed in `81aa0afc`. Round 2
+    (on `3434e9cb`) found no behaviour defect, and the full suite passed (7648
+    tests). Its one confirmed gap was a missing TEST: nothing pinned
+    `killOther`'s ESRCH guard, or the `signalCode` half of the exited-wrapper
+    guard. Both are pinned in `6fce94e2`, and each goes red on its mutation.
+    All 18 mutations from the brief and both rounds turn a test red; the
+    visited-set one does so by hanging the run. The Verify probe went from
+    `Sl; accepting=true` to `gone; accepting=false`. Head `8b2ab564` is
+    merged with `main` as of 20:40Z. The ask: land #989 as it is (my pick:
+    `spawn.ts` has not changed since round 2 cleared the round-1 fixes; only
+    tests were added), or run a third review round first. Landing it is
+    `git merge origin/main` (keep both sides of BACKLOG and the journal), CI
+    green, then `node scripts/land-prs.mjs 989`.
+26. **P1-3 PR 2, the roster-url surface (#912, PR #1004)**: two review rounds
+    each found a real defect, so #1004 is held for your call, not a third
+    round. It adds a digest item `url-unresolved:<siteId>` for a fresh `fail` on
+    any non-archived row (it names the url and status), one fleet item
+    `url-probe-stale` (metric = count) for stale stamps, and `url not deployed`
+    in Accepted Watch Conditions, which mutes only `fail`. Maintained rows also
+    watch on the cockpit, with a filter chip. Round 1 (on `5471c319`) found that
+    a never-stamped row read "not checked in 3 days", plus four missing tests
+    (a null verdict on the cockpit, a future stamp, the alias, `now` wiring).
+    All were fixed in `6400ea42`. Round 2 (on `6400ea42`) found one behaviour
+    defect: a site added between the day's probe and the 09:23 digest (runs
+    start late, so the probe can land after lunch PT) mailed "the probe is
+    behind, check the step" about a step that is working. It also found four
+    test gaps. Fixed in `490e6be2`. **The product fork, and my pick:** a
+    never-stamped row now counts only while no row in the fleet is fresh. A
+    probe that never ran or has stopped leaves no fresh row, so it is still
+    caught. The cost is that one row the probe keeps failing to stamp while it
+    stamps the rest is not caught. Round 2's correctness lens found no path that
+    creates such a row (every insert creates its `site_health` row). The other
+    choice is to alarm on it anyway and accept one false mail per new site.
+    All 32 mutations (the brief's 12 plus both rounds' survivors) turn a test
+    red. The full suite passes (8061), and lint and typecheck are clean. The
+    ask: land #1004 as it is (my pick), or pick the other never-stamped rule,
+    or run a third round first. Landing it is `git merge origin/main` (keep
+    both sides of BACKLOG), CI green, `node scripts/land-prs.mjs 1004`. The
+    first stamp comes from tonight's nightly (item 20). Item 21's url fix
+    clears the-pointe-burbank's item.
+    **Answered 2026-09-30: land as it is.** #1004 lands with this line.
+27. **#905 + #949, the a11y spec under a strict CSP and without a browser (PR
+    #1003)** — **Answered 2026-09-30: third round.** Round 3 found a
+    behaviour defect, fixed in `7fa108a2`; **operator: land or not.** No
+    fourth round. **Answered 2026-09-30 ~03:25Z: land at this head.** Landed
+    by `land-prs.mjs` as `b8e18d04` (head `2660bec5`).
+    - Round 3 (on `35866ca1`, 4 lenses, 3 skeptics each, 3/3 unrefuted):
+      stderr kept its first 200 characters, but a web server prints its cause
+      last. A preview build (`npm run build && npm run preview`) with two
+      vite-plugin-svelte warnings on stderr lost the Rollup error that stopped
+      it, and the summary named only the warnings. This is not a regression:
+      `origin/main` cut stderr the same way. The status was always `fail`.
+      stderr now keeps its last 200 characters, behind an ellipsis. Two test
+      gaps were also fixed: nothing held the ANSI strip on stdout's error
+      line, and only `TypeError` held the typed-error alternative. A fourth
+      claim (a hard-coded exit code survives) was refuted 3/3 as identical on
+      `main`. Mutations M18–M22 each turn a test red.
+    - My pick is to land. The fix changes which end of stderr's detail is
+      kept, and `freezeMotion` has had no finding in three rounds. #1018 is
+      closed by `8fec6927`, which round 3 reviewed.
+    - Two review rounds each found a real defect, so #1003 was held for your
+      call, not a third round.
+    - Round 1 (`a9565ac3`) found a major: stdout's generic "Process from
+      config.webServer was not able to start" line displaced the web server's
+      own cause on stderr ("Port 5173 is already in use"). It also found four
+      test gaps. All are fixed in `8dc2405e`.
+    - Round 2 found no defect in the #949 fix or the missing-browser line, and
+      the full suite passed (7769 tests). Its one confirmed defect is minor: a
+      stdout failure that does not start with `Error:` (a `TypeError`, a test
+      timeout) gets no detail once stderr is only npm warnings. The rest were
+      test gaps. All are filed as #1018; every such case still fails.
+    - All 17 mutations turn a test red. Head `d9dc1ede` is merged with `main`,
+      with CI green.
+    - The ask: land #1003 as it is, with #1018 as the follow-up, or run a
+      third round first. My pick is to land: the round-2 finding narrows a
+      summary's detail, and `freezeMotion` has not changed since round 1.
+    - Landing: `git merge origin/main` (keep both sides of BACKLOG and the
+      journal), CI green, then `node scripts/land-prs.mjs 1003`. #905 and #949
+      are already under Done in this PR.
+28. **#943, the Search Console freshness window (PR #1016)**: how long does a
+    resolved Search Console lookup count as evidence for the launch check?
+    #943 says "N days" and leaves N open. My pick: the site's shorter report
+    cadence plus 14 days, which is 45 days for monthly, 106 for quarterly and
+    380 for yearly (and 45 when both cadences are None). The reason is that
+    evidence only arrives when a report drafts, so any fixed N shorter than a
+    site's cadence fails that site by construction. The monthly value matches
+    `ANALYTICS_SOFT_FAIL_STALE_DAYS`. The alternative is one fixed N for every
+    site. #1016 is green, merged with `main`, and one review round found no
+    source defect; the three test gaps it found are fixed. A different answer
+    changes one constant in `src/fleet/search-console-evidence.ts`. Landing
+    it is `git merge origin/main` (#1005 also adds migrations, 0033/0034, so
+    keep both sides of the migration id lists), CI green, then
+    `node scripts/land-prs.mjs 1016`, then close #943.
+    **Answered 2026-09-30: the cadence + 14 days (as picked).** #1016 lands with
+    this line; #943 closes with it.
+29. **#1014's round-3 fix, PR #1035 (vida, item 23): land or not.**
+    **Answered 2026-09-30: land #1035.** Landed 02:10:48Z as `b4aa1948`,
+    pinned to head `3969249e` by `land-prs`. Nothing left open here.
+    #1014 itself landed at 01:05:07Z as `a00d50d4` (head `861fcff8`, merged
+    by `tucksravin`, ten seconds into the round-3 session and before round 3
+    ran). Round 3 then found a behaviour defect in what landed, which is now
+    on `main` and rides release PR #988 until the fix lands.
+    - **The design.** When axe files `blendFunctions[blendMode] is not a
+function` on a top-level element, the spec re-runs that rule with the
+      element excluded and its children included again, until the crash
+      stops (25 runs at most). It counts each excluded element as not
+      measured and warns. Every other crash, and every crash inside a frame,
+      still fails.
+    - **Round 1.** Major: axe's exclude dropped the crashed node's whole
+      subtree, so a faint paragraph inside a crashed wrapper, 200px from the
+      grain, went unmeasured and the page warned instead of failing. Minor:
+      a third party's grain frame moved the site to warn. Also test gaps. All
+      fixed in `1d2eefae`, with 10 mutations that each turn a test red.
+    - **Round 2.** Major, reproduced live: a crash filed on a **shadow host**
+      (slotted light text over the grain) excludes the whole shadow tree.
+      Children are re-included from the light DOM only, so a 2.32:1 paragraph
+      in the shadow root was dropped and the page warned. Minor test gaps:
+      the wrapper fixture has one child, so `:nth-of-type` or "first child
+      only" would pass, and the blend-mode name is only ever plus-lighter.
+      Integration was clean: 7991 tests passed, no `__name` in `dist`.
+    - **The ask:** authorise one narrow fix and land. The fix: a crash whose
+      element has a `shadowRoot` is not excludable, so it fails as
+      `rule-errored` as today. Add a live shadow-host fixture and a
+      two-child wrapper. That fix only narrows the exemption, and vida has no
+      shadow DOM (measured on the packed build: exit 0, `/` and `/es` 24
+      contrast nodes each). The alternative is a third full review round.
+    - **Landing it:** make the fix on `claude/a11y-blend-mode-unmeasured`,
+      `git merge origin/main` (keep both sides of BACKLOG and the journal),
+      CI green, then `node scripts/land-prs.mjs 1014`.
+    - **Vida separately:** vida's gate also needs its 13 palette lines
+      (`--color-neutral-*: oklch(… 0 0)` in `@theme`, as in 29-navy#58).
+      With #1014 packed, #86 and those lines applied locally, its gate exits 0. Without the palette lines it fails `rule-errored on a11y fixtures`.
+    - **Answered 2026-09-30: narrow fix + third round.** (Relayed ~01:05Z
+      by the PM session. An earlier line here said "authorise the fix and
+      land" and "#1014 landed", written at 00:47Z while #1014 was still
+      open.) The narrow fix is `cf338c68`, and it landed in `a00d50d4`.
+    - **Round 3 found a behaviour defect, fixed in #1035 (`3876642a`);
+      operator: land #1035 or not.** A crash's selector is axe's shortest
+      selector unique _at that moment_ (`h2`), and it was reused in every
+      re-run. If the page changed between runs (hydration, a carousel),
+      `exclude("h2")` dropped a second, faint heading too, and the page
+      warned where the pre-#1014 gate failed `rule-errored`. Reproduced live
+      (`/grain-late`: 0 violations). The fix (`sameBlendTargets`) keeps a
+      handle to each crashed element. After every re-run it requires each
+      selector to match exactly that one element; otherwise the rule is not
+      re-run around, and its crash fails. Pinned by `/grain-late` (appended
+      heading) and `/grain-swap` (replaced heading, which only a check after
+      the re-run catches). Round 3 also confirmed a test gap: no fixture's
+      _first_ crash was on a shadow host, so the outer loop's host check was
+      unbound (`/grain-host-first` added). A wording nit on the `html` guard
+      was fixed too, and the narrow fix's missing tests were added (a crash
+      named `plus-darker`; a wrapper whose first child is excluded, so
+      `:nth-of-type` goes red). Per your answer there is no fourth round.
+      #1035's body has the findings, votes and mutations. #1035 only
+      narrows the exemption. The alternative is to revert `a00d50d4`.
+    - **Vida:** #86 (design) merged 00:29Z and #87 (palette lines) merged
+      01:06Z, both by `tucksravin`, not by the round-3 session. vida `main`
+      `e434964e` carries the 13 lines, and its CI is green.
+
+30. **Sonder's Testing report, due 2026-09-30 (P0-4)** — measured 2026-09-29
+    ~23:55Z. Two blockers, and only the first can be fixed by 09-30.
+    - **Titles & Meta [M].** fleet-lighthouse run 36584559490 names one
+      problem on 15 routes: `https://gallerysonder.com/artists: title 90 chars
+(max 70)`. The title is Prismic `page` document `artists`
+      (`ZjwQtxIAANaT82IQ`), field `meta_title` =
+      `Artists - Ruben Benjamin - Borja Colom - Theo Hirschfield - Anthony James`
+      (73 chars), and the site's `brandedTitle` adds ` | Gallery Sonder` (17).
+      The audit is right, so nothing is changed in code. **Ask:** in Prismic, set
+      that `meta_title` to 53 characters or fewer, e.g.
+      `Artists: Benjamin, Colom, Hirschfield, James` (44, so 61 on the page),
+      and publish. The site is prerendered, so check that
+      `curl -s https://gallerysonder.com/artists | grep -o '<title>[^<]*'`
+      shows the new title. A deploy on 09-25 with no commit since 09-22
+      suggests a publish rebuilds the site [I]. The next fleet-lighthouse run
+      (Sonder about 15:00Z on 09-30, if it fires like 09-29) re-stamps
+      `titles_meta_ok`, and then **refresh preview** on the draft.
+    - **Form Functionality [M].** `form_e2e_checked_at` is NULL. Last night's
+      form-e2e run 36598340500 skipped Sonder: "site /health does not declare
+      forms.testMode — probe refused". `/health` has no `testMode`, and the
+      four `<form>`s on `/contact` are hidden Netlify stubs. A marked probe
+      needs a Sonder PR and a deploy (testMode forwarding, a `/health`
+      declaration, and the forms restructure in item 26), so no safe
+      measurement is possible by 09-30. Independent evidence from production:
+      Sonder received 10 real submissions from 09-22 to 09-29 (inquiry 3,
+      newsletter 6, rsvp 1; the latest on 09-28), all with notifications sent
+      and Mailchimp fanout ok. The `contact` form's latest is 09-02.
+    - **The product call.** Can the first Testing report ship with Form
+      Functionality unmeasured? Under a send-anyway override, the email still
+      draws "Form Functionality ✓" (`shownChecklistLabels` drops only `n/a`
+      rows), and the override also lifts every other health blocker. **My
+      pick:** fix the title first. When refresh preview shows Form
+      Functionality as the only blocker, send on 09-30 with the logged
+      override, reason "form-e2e cannot probe Sonder until its forms forward
+      testMode (#779); 10 real submissions in 7 days delivered". Then book the
+      Sonder forms PR (item 26) so the next Testing report is measured. The
+      alternative is to hold the report until that PR deploys.
+    - Also seen: the gate's note for a Titles fail says "Missing/duplicate
+      title or missing meta description" (`src/reports/auto-tick.ts:356-360`)
+      even when the fault is length. It pointed the wrong way here, and a
+      small copy fix would correct it.
+    - **Answered 2026-09-30: loosen the rule.** Title length no longer fails
+      Titles & Meta. It is measured without the brand suffix the sampled pages
+      share, and a title still over 70 is a warning in the browser audit note
+      (`titleLengthWarnings`), not a fail. Empty titles, missing descriptions
+      and duplicates still fail. The Prismic title is left as it is; `/artists`
+      is 73 without " | Gallery Sonder", so it warns. Once this lands (the nightly
+      builds from main, so no release is needed) and the
+      next fleet-lighthouse run re-stamps `titles_meta_ok`, refresh preview.
+    - **Update 2026-09-30 ~15:45Z: Form Functionality is measured, and one
+      different blocker remains.** gallerysonder#105 (`0eb2bee`) made the four
+      forms real and forwards `testMode`, and production `/health` declares it
+      from 15:36Z. A dispatched `fleet-form-e2e` (run 36738059445) wrote
+      `form_e2e_ok = pass`, `form_e2e_checked_at = 2026-09-30T15:42:24.675Z`
+      and `turnstile_widget = pass` [M, live Turso]. `titles_meta_ok` is also
+      `pass`. On `autoTickChecklist` + `approveBlockers` against the live row
+      (the draft's own code, run read-only), 12 of 13 gating items pass. The one
+      blocker left is **Maint: Google Indexed: unknown, "Not yet measured"**,
+      because Sonder is not search-enrolled: `ga4_property_id`,
+      `search_query` and `search_console_property` are all NULL
+      (`searchEnrolled` false). That is true in every environment, so it is not
+      a credentials gap. No Testing draft row exists yet: at 15:45Z today's
+      `daily-reports` schedule had not fired (it ran at 16:00Z on 09-29), so the
+      draft it creates will carry this evidence without a refresh.
+      **Ask:** record Sonder's Search Console property (or GA4 property id) on
+      the row so Google Indexed measures, or send with a logged override naming
+      only that item. My pick: record the property if the service account has
+      access to it (then the next draft is clean), and otherwise override,
+      reason "Sonder is not enrolled in Search Console yet (#939); every other
+      gate measured green on 09-30". The send is yours either way.
+    - **Update 2026-09-30 ~19:00Z (PM pass) [M]:** the draft exists
+      (`report_01M3SGQRB1P4AX68Z20PME512P`, 16:00:37Z) and was re-rendered at
+      18:40Z (run 36760315621, `evidence=reticked`). The row now carries
+      `search_console_property = https://gallerysonder.com/`, but the blocker
+      is unchanged: `site_health.search_console_outcome` is NULL, and a
+      re-render cannot fill it, because `src/reports/retick.ts:5` keeps
+      `Maint: Google Indexed` draft-time-only. It clears only by a re-draft
+      that runs the lookup, or by the logged override. A live worker owns the
+      Google Indexed work today; this line reports it and does not re-plan it.
+      **Later, 19:18Z:** that worker's #1060 (`8ae1bf8c`) landed. Refresh
+      preview now runs the Search Console lookup for an unsent, unapproved
+      draft of a search-enrolled site, so the ask is: press refresh preview,
+      then approve if Google Indexed measures.
+    - **Update 2026-09-30 ~19:20Z: 13/13 measured, no blockers. Ready for
+      your approve and send.** The diagnosis above was wrong about the cause.
+      Sonder was not "not enrolled"; it was **opted out**:
+      `accepted_watch_conditions` held `no search console`, and
+      `searchEnrolled` returns false for an opt-out even with a property
+      recorded (journal 2026-09-29, the Search Console entry, had said so).
+      With the opt-out removed and `search_console_property` set through
+      `setSiteDetail`, the draft still could not pick it up, because refresh
+      preview kept Google Indexed as drafted (#929). #1060 (`8ae1bf8c`) makes
+      refresh re-measure it for an unsent, unapproved report on an enrolled
+      site. Dispatched `report-rerender` run 36764821092 on `8ae1bf8c`:
+      `status=rendered bytes=86345 header=turso evidence=reticked
+search=measured`. Read back (SELECT only) at 19:20Z:
+      - all 13 evidence rows `pass`, with Google Indexed "Page 1 on Google (#2)";
+      - all 13 boxes ticked;
+      - `search_found_page1 = 1`, `search_position = 2`;
+      - the body reads "Page 1 Google Result (#2)";
+      - `approveBlockers` on the live row is `[]`.
+
+      No override is needed. Nothing was sent.
+
+    - **Update 2026-09-30 ~21:03Z: the header no longer shows the cookie
+      banner.** #654 was closed by #814, but the draft's header still showed
+      Sonder's consent panel and its blur scrim over the hero. Sonder's banner
+      mounts after hydration, 3–5s after `load`, which is after #814's one
+      click. Its classes are utility-only, so the CSS fallback never matched.
+      #1070 (`d269b9cf`) now clicks only buttons inside a consent overlay,
+      looks again after the settle, and refuses to store a shot whose banner
+      will not leave. The plate was regenerated with `header-image sonder
+--write-back` and inspected: 21:02:23Z, 888,694 bytes, the "Theo
+      Hirschfield / Euphorbia" hero with no banner. The preview was refreshed
+      (run 36776796655), and `approveBlockers` is still `[]`. Test emails to
+      the operator inbox only: `01a0f3e7…` (old header),
+      `01a0f41d…` (**broken, disregard**: an unstyled capture, see below) and
+      `01a0f421…` (correct). Still ready for your approve and send.
+    - **Follow-up (not built): an unstyled capture passes every check.** One of
+      four cloud captures at 20:58Z rendered Sonder without its stylesheet:
+      plain-text banner copy and two giant SONDER logos. `assertNotBlank` passed
+      it, and so did the consent backstop, because an unstyled banner is not
+      `position: fixed`. It was stored, and it went out in a test email before I
+      looked at it. Three later captures were fine. The likely cause is this
+      container's egress proxy [I], but nothing would stop the same shot in
+      Actions. **Ask:** should the capture refuse a page whose stylesheets did
+      not all load (`document.styleSheets` vs `<link rel=stylesheet>`)? My pick:
+      yes, the same refusal shape as the consent backstop, as its own PR.
+    - **Answered 2026-09-30 (yes) and built on `claude/header-unstyled-refusal`.**
+      The DOM check the ask proposed would never fire: Chromium gives a `<link>`
+      a non-null `sheet` even when its request 404s, returns HTML or is reset
+      (measured). The capture now watches the network instead. It refuses a shot
+      when a stylesheet from the page's own host, one that styles the screen,
+      failed or answered 400 or above, and it re-shoots once first. Blocking
+      Sonder's own CSS reproduces the broken shot exactly. A sweep of all 19 live
+      fleet homepages found no false positive.
+31. **#779, the client half of form-e2e coverage** — the central widening
+    (item 16) covers no new site on its own. Measured 2026-09-29 from the live
+    roster (SELECT-only) and each site's deployed `/health`: 15 maintained, 6
+    covered, and Vida is covered from tonight (it declares `testMode:true` and
+    went maintained after last night's run started). Two sites have no form:
+    29 Navy (its `/health` says `testMode:false` on purpose) and CalTex, so
+    `skipped` cannot go below 2. The other six have forms, and none of them
+    declares `forms.testMode`. Probing an undeclared site would post a real lead
+    to the client, so each one needs a PR in its own repo: forward `testMode`
+    in `buildPayload`, declare it in `/health`, and add the site-specific piece:
+    - ERP Industrials: add a `role="status"` success element. Its required
+      `interest` select is covered by the widening now.
+    - Revogen: add a `/contact` entry to `/distribution-opportunities`.
+    - Data Dynamiq, LA Homelessness Initiative and LA Homelessness Youth: the
+      form sits in a closed modal. Use Beachfront's `/contact` → `#hash`
+      redirect, and add `role="status"` on the two LA sites.
+    - Sonder: **covered since 2026-09-30.** gallerysonder#105 (`0eb2bee`)
+      restructured the forms and declares `testMode`; the dispatched run
+      36738059445 passed it, and `skipped` fell from 8 to 7 of 15. Still
+      uncovered: 29-navy and caltex (no form, the floor of 2), and
+      data-dynamiq, erp-industrials, la-homelessness-initiative,
+      la-homelessness-youth and revogen.
+
+    The ask: book these as client PRs, one per site in its release window. My
+    pick is ERP first, since it is two small changes now. #779's second idea, a
+    per-site contact-path override in the roster, was not built. It was meant to
+    reach Revogen "without touching the site", but Revogen has to deploy anyway
+    to declare `testMode`, so that same deploy can add a `/contact` redirect.
+    Say if you want the column anyway.
+
+32. **#779's central widening, PR #1017. Answered 2026-09-30: third round,
+    then land.** The operator merged it 03:32:33Z as `d1e42c4a` (head
+    `a8359581`). The first nightly after merge is its first live run.
+    Round 3 found behaviour defects, fixed in `48326568`; the text below is
+    what the operator decided on.
+    Rounds 1 and 2 are in the PR body. Round 3 (on `84f69a1a`, after merging
+    main) used 4 lenses and 3 refuting skeptics per finding; 13 of 14 findings
+    were confirmed. Behaviour defects, all fixed with a red test first:
+    (1) **live-lead leak**: a page that re-renders its form on a change event
+    dropped the probe's hidden `testMode` input after the re-synthesis pass,
+    and the click went out unmarked, so it would have been stored, counted and
+    emailed as a real lead. The first fix, re-injecting after re-synthesis,
+    was not enough: the click itself blurs the last filled field, whose change
+    event drops the marker again. The probe now re-adds the marker in a
+    capturing `submit` listener that runs before the site's handler, and it
+    refuses to click (no POST) when the marker is missing just before submit.
+    (2) A required select counted as filled when its selected placeholder
+    was `<option disabled selected>` with no value attribute, so the POST
+    omitted it. (3) A synthetic value the field rejects (`pattern`, `max`) was still
+    claimed as synthesized. (4) Three synthesizer tests used `setContent`,
+    which hangs under the weekly time-travel clock, so Monday's run on main
+    would have gone red. Also fixed: the control step passed when every
+    fixture test was skipped (it now reads vitest's JSON report and requires
+    passed ≥ 1, skipped = 0, todo = 0); the control and the sweep must share a
+    job (`84f69a1a`); the throw path dropped `resynthesized`; wording for a
+    field that became required after the first fill; and four test gaps
+    (date `min`, `maxlength`, no `resynthesized` on a quiet page, no-banner
+    path). One finding was refuted (2 of 3). 15 round-3 mutations each turn a
+    test red; a real all-skipped fixture makes the real control step exit 1. The
+    changed fixture passed 10 of 10 runs pinned to one busy core (104–106 s
+    each, 22/22 tests), and CI is green on `6bb9bee7`. My pick: land. The defects
+    were real, but each now has a test that fails without its fix, and the
+    marker now has two independent guards. Landing it is CI green on the head,
+    then `node scripts/land-prs.mjs 1017`.
+
+33. **OD7-P0, the Williamson repos (#1029)** — the cloud session was refused
+    creating org repos (`POST /orgs/reddoorla/repos` → 403 "Resource not
+    accessible by integration"), and a public repo is blocked outright as a
+    public surface. The captures are done, and Phase 1 waits on these four
+    answers:
+    - **(a) Create the two repos.** On
+      `https://github.com/reddoorla/reddoor-starter`, click **Use this template →
+      Create a new repository**. Set the owner to `reddoorla`, the name to
+      `williamson-homes`, and visibility **Public** (the new-site skill's
+      convention; 29 Navy is public) or Private. Then do the same for the second
+      repo. Or run `gh repo create reddoorla/williamson-homes --public --template
+reddoorla/reddoor-starter` on the laptop. _Pick:_ public, as the fleet does.
+    - **(b) The second repo's name.** The brief says `williamson-construction`,
+      but the roster row is slug `williamson-construction-co`, name "Williamson
+      Construction Co" [M, a SELECT on 2026-09-30]. new-site step 0 makes the
+      slug, the repo, the Netlify name and `package.json#name` one decision,
+      and `ensure-site` throws when the name does not slugify back to the slug.
+      _Pick:_ `williamson-construction-co`, so the repo and the row agree.
+    - **(c) Where the Williamson capture bytes live.** They are 310 MB (Homes
+      167, Construction 143), mostly full-resolution photography, so they are
+      on branch `capture/od7-williamson-2026-09-30` at `a89da157`, not on
+      `main`. A fresh clone of that branch passes the check. Merging them would
+      put 310 MB in this repo's history permanently. _Pick:_ keep the branch;
+      the Phase 1 worker copies each capture into its repo's `matching/spec/`,
+      after which you delete the branch (the proxy refuses a branch delete from
+      the cloud). Every Netlify build of a site repo clones that repo, so say
+      if you would rather keep only the originals there and not every
+      responsive variant.
+    - **(d) The RED steps from new-site, after (a).** Each site needs: branch
+      protection via `self-updating` and secret scanning (a worker tries these
+      first and writes down what the proxy refuses); a Prismic repository
+      (suggested names `williamson-homes` and the answer to (b)); its
+      `PRISMIC_WRITE_TOKEN` repo secret, the central
+      `PRISMIC_TOKEN_<NAME>` secret and the `fleet-prismic-drift.yml` env line;
+      and a Netlify site with `FORMS_INGEST_URL`, `FORMS_INGEST_TOKEN`, a build
+      hook and the Prismic publish/unpublish webhook. No roster write is needed:
+      both rows exist as `building`, and `git_repo` is filled at launch.
+    - **Answered 2026-09-30:** (a) the operator creates `reddoorla/williamson-homes`
+      and `reddoorla/williamson-construction-co` by hand, both **public**, from the
+      reddoor-starter template; the cloud cannot. (b) The name is
+      `williamson-construction-co`, matching the roster slug. (c) The capture bytes
+      stay on the branch: Phase 1 copies each capture into its site repo's
+      `matching/spec/`, and then the operator deletes the branch. (d) The RED steps
+      (branch protection, secret scanning, Prismic repositories and tokens, Netlify
+      sites, env vars, hooks) stay the operator's, after (a).
+    - **Progress 2026-09-30 ~05:45Z.** The operator created both GitHub repos
+      and both Prismic repositories, and added their tokens to the cloud
+      environment. The Prismic repositories are `williamson-homes` and
+      `williamson-construction`, **without** `-co`; the token secret name
+      follows the Prismic repositoryName, not the slug. On the operator's
+      authority, the PM session created both Netlify sites with `NETLIFY_PAT`,
+      mirroring 29 Navy: `williamson-homes` (`9072ea82`) and
+      `williamson-construction-co` (`7e2831e2`). Both are linked to their repo
+      `main` through the Netlify GitHub App, build with `pnpm run build` to
+      `build/`, have `FORMS_INGEST_URL` (`/api/forms/<slug>`) and
+      `FORMS_INGEST_TOKEN`, and have a "Prismic publish" build hook on
+      `main`. Still open: the Prismic publish and unpublish webhooks to those
+      hooks (the Prismic dashboard; the hook URL is under Netlify, Site
+      configuration, Build hooks); the per-repo `PRISMIC_WRITE_TOKEN` GitHub
+      secret and the central `PRISMIC_TOKEN_<REPOSITORYNAME>` secrets; and
+      branch protection and secret scanning.
+    - **Secrets, 2026-09-30 ~05:40Z.** Both environment tokens were checked
+      against Prismic's custom-types API: `WILLIAMSON_HOMES_PRISMIC` answers 200
+      for `williamson-homes` and 403 for `williamson-construction`, and
+      `WILLIAMSON_CONSTRUCTION_PRISMIC` the reverse, so each is its own
+      repository's write token. **No GitHub secret is set yet**: the cloud proxy
+      refuses `GET repos/…/actions/secrets` with 403 "Access to this GitHub
+      Actions path is not permitted through this proxy", so the operator sets them
+      in the UI: `PRISMIC_WRITE_TOKEN` in `williamson-homes` and in
+      `williamson-construction-co`, and `PRISMIC_TOKEN_WILLIAMSON_HOMES` and
+      `PRISMIC_TOKEN_WILLIAMSON_CONSTRUCTION` (no `CO`) here. The two
+      `fleet-prismic-drift.yml` env lines landed ahead of the secrets; a
+      pre-launch site is not swept, so they are inert until go-live.
+    - **Secrets set, 2026-09-30 ~06:20Z (operator, by hand).** The operator
+      reports all four set in the GitHub UI. Not verified from the cloud (the
+      proxy refuses the secrets API); first real proof is a Williamson workflow
+      that reads `PRISMIC_WRITE_TOKEN`, and the central pair at go-live.
+34. **OD7-P0, the capture tools, PR #1032: round 3 found behaviour defects, all
+    fixed in `db83c30f`; land or not.** **Answered 2026-09-30 ~03:25Z: land
+    at this head.** Landed by `land-prs.mjs` as `96e10a2a` (head `5e06f8c6`,
+    main merged in; only the journal conflicted). The operator answered this item on
+    2026-09-30 with "run a third review round". Round 3 confirmed 24 findings (4
+    lenses, 3 refuting skeptics each, confirmed when 2 of 3 could not refute
+    it): 11 behaviour defects, 12 test gaps, 1 wording. The most serious
+    behaviour defect: a percent-encoded `../` in a reference could make
+    `capture.mjs` write a file outside `--out`, and the check then read it back
+    from there and passed. Also found: a `<!--` in script code and ` src=`
+    inside another attribute's value hid real tags; `image-set()`, `URL()` and
+    protocol-relative runtime loads were missed; file-under-file, case-only
+    and page-on-page path clashes overwrote a file or crashed a run with no
+    manifest; an http/https pair to one file was a false collision; an empty
+    page list passed; and a typekit kit whose id starts with `af` was excluded.
+    Each has a test that was red before the fix (`4753cf72`). None of it
+    touches the real captures: on all 31 pages and every captured file, the
+    extracted references, page links and path mappings are byte-identical
+    before and after, and all three captures pass. Note for 33(c): while
+    `capture/od7-williamson-2026-09-30` exists, every default clone, cloud
+    setup and `fetch-depth: 0` CI checkout downloads its ~290 MiB. _Ask:_
+    land #1032 at its current head, or not? There is no fourth round. _Pick:_
+    land. Every round-3 defect is fixed and bound by a test, and none changed a
+    real capture. Landing: CI green, then `node scripts/land-prs.mjs 1032`.
+
+35. **#948: the preview alone does not end the hydration race. Pick the
+    signal (drafts #1039 and reddoor-starter#163, 2026-09-30).** Item 18
+    **Answered 2026-09-30: the pick, (b) now and (a) after.** #1039 and
+    reddoor-starter#163 land as they are. (a), #947's hydration marker, is
+    now agent-ready (see "Blocked behind another PR", unblocked).
+    answered #948 with "audit the built preview, not the dev server". Built and
+    measured, the preview narrows the race but does not remove it. #948's bar
+    was "identical on every cold run and equal to the hydrated count". Numbers
+    are roalson `/dev/a11y-fixtures` color-contrast nodes, each run cold:
+    old dev gate 191, 201, 191, 208, 191 (191 is the never-hydrated page, which
+    blocking the entry chunks reproduces exactly; hydrated is 208). #1039's
+    preview: 12 runs at 208 and 2 at 217, plus one 300 s spec timeout; 217 − 208
+    = 9, the featured cards that the hydrated reveal hides. Preview plus a wait
+    for `html[data-hydrated]` (roalson #57 sets it in the root layout's
+    onMount): 208 in 10 of 10 runs at no added time. That variant is scratch
+    only, not in #1039. The fixture half is done and proven: the guard passes
+    only a build made with `VITE_REDDOOR_GATE_FIXTURES=1`, the flag is baked in
+    at build time, and Netlify refuses it; mutations 1–5 all turn tests red.
+    Cost: a second build per run, +11 s median on roalson. _Ask:_ which
+    hydration signal does the gate wait for? (a) #947's marker: the starter's
+    root layout sets `data-hydrated`, the spec waits for it on sites that
+    declare it, and #947's recipe half is fixed in the same change. (b) Land
+    #1039 and #163 as they are and accept about 1 run in 7 reading
+    mid-hydration, until (a). (c) Wait on `networkidle` plus 3 s: 208 in 3 of 3
+    runs, but +25 s per run, and it can hang on sites that poll. _Pick:_ (b)
+    now, then (a). The preview is needed either way, and the marker is the only
+    signal that measured clean. Ordering: until a site's `/dev` guard passes the
+    flag, #1039 fails that site's gate with a line naming the guard. So the
+    starter PR, then one PR per site with fixtures, must land before any
+    `@reddoorla/maintenance` bump that carries #1039.
+
+36. **OD7-P1, williamson-homes#5 (content model, project routes, slices,
+    seed): round 2 found a real defect; land after three small fixes, or run
+    a third round?** #5's head `9bfc481` is CI green and mergeable, with `main`
+    (#4) merged in. The models and published content already in Prismic
+    `williamson-homes` came from this branch (#1048). **Round 1** had three
+    separate lenses and no blocker. It found two majors: featured project
+    titles at 3.21:1 (the reference's `opacity-75`), and both Webflow guards
+    skipping extensionless files, so a `_redirects` Webflow proxy passed the
+    build check. Both, and every minor but three explained on the PR, were
+    fixed in `65dd1ec`, with a fixture test for the `_redirects` case. **Round
+    2** (one reviewer, the fix commit only) found: (major) the secondary
+    button's hover tint `bg-secondary/10` still fails on the `bg-light` ground,
+    4.23:1 inside every ImageCards slice and on a light Statement; (minor) the
+    sticky header can show over the absolute header at the top of the page,
+    because `focusWithin` keeps it open at y ≤ 120; (minor) the round-1 fixes
+    to contrast, the header and the seed guard have no test that fails when
+    they are reverted (six mutations survived). _Ask:_ (a) apply the three
+    fixes below and land #5 on CI green, with no third review round; or (b) a
+    third round. _Pick:_ (a). Each fix is local and bound by a test:
+    `WhButton`'s hover tint `/5`, about 4.5:1 on both grounds, with a test that
+    computes the blended contrast on `white` and `light`; `sidekick =
+(scrolledUp || focusWithin) && y > 120`, with a component test; and a unit
+    test per round-1 fix (`opacity-75` absent, `aria-controls` absent while
+    closed, the seed throwing on an unseeded link). After #5, one prepared PR
+    (branch `claude/wire-prismic`, pushed, no PR; it sits on #5 at `6a52e5b` and needs #5 merged into it) replaces the sentinel with
+    `williamson-homes` and sets `a11yRoutes`. Its build prerenders all 10
+    reference paths from the live repository. Still the operator's (#3):
+    Prismic publish/unpublish webhooks, branch protection, secret scanning.
+    **Answered 2026-09-30 ~14:40Z: land it.** williamson-homes#5 merged as 6ae87bda.
+
+37. **OD7-P1, williamson-homes#7 (wire the live Prismic repository): round 2
+    found one minor defect; land after two small CSP edits, or a third
+    round?** **Answered 2026-09-30 ~18:48Z ("continue"): pick (a).**
+    Applied in `d9cccee` (html2canvas's one file, `prismic.io/prismic-toolbar/`,
+    this repository's host in frame-src; each bound by a test that goes red on
+    revert) and merged on green as `ca6027f`. Production
+    `williamson-homes.netlify.app` served #7's build by 18:57:59Z: all 10
+    reference paths answer 200, `/nope` 404, no `website-files.com`. #7 replaces the `your-prismic-repo-name` sentinel with
+    `williamson-homes` and sets `a11yRoutes`. Its head `6b7ddff` is CI green.
+    CI's first run on real pages: the a11y gate reported "0 violations across 7
+    routes (2 fixtures + 5 from package.json)" and smoke passed 21 of 21, both
+    read from the job log. **Round 1** found no blocker. It found two majors
+    this wiring makes live, both fixed in `6b7ddff` with a test each that goes
+    red on revert. First, `/api/preview` sent every Prismic preview to `/`,
+    because the routes-free client returns `url: null` and
+    `redirectToPreviewURL` takes no `linkResolver`. Second, the CSP blocked
+    the Prismic toolbar (`toolbar.js` from `prismic.io`, an iframe from
+    `<repo>.prismic.io`). **Round 2** confirmed the preview fix against the
+    real `asLink` and found one minor: the toolbar's Share button loads
+    `https://html2canvas.hertzen.com/dist/html2canvas.min.js`, which
+    `script-src` blocks, and its loader has no error path, so Share hangs for
+    editors (visitors never load the toolbar). Nit: `https://prismic.io` and
+    `https://*.prismic.io` could be narrowed to `https://prismic.io/prismic-toolbar/`
+    and `https://williamson-homes.prismic.io`. _Ask:_ (a) add the html2canvas
+    host and narrow both entries, each bound by a test, then land on green; (b)
+    land as it is and accept that Share hangs until a follow-up; or (c) a third
+    round. _Pick:_ (a). The edits are three CSP entries in one file, and the
+    shared baseline in `@reddoorla/maintenance` has the same toolbar gap, which
+    is worth its own item. williamson-homes#6 (#5's round-2 fixes, plus a
+    focus handoff that its own review found) passed its second round and
+    merged as `923007e`.
+
+38. **OD7-P2, williamson-construction-co#3: a second worker took the PR over
+    mid-flight; which session owns OD7-P2 now?** Worker
+    session_01NUe11AdYHSuYtPRAypZziJ (prompted as "the only session on this
+    repo") opened #3 at `dd47476`. After its container restarted, worker
+    session_0198wGXMnzyFNhDgpVmmXt5c ("continue PR #3", created 16:29Z by
+    session_01RoR4tzDuS92b4M2Mn3MP7d) pushed `99637f5` to `claude/site-build`
+    at 16:51:03Z and rewrote the PR body. The first worker stopped on #3, as
+    its brief says, and unsubscribed. **Still owed on #3, preserved on branch
+    `claude/od7-p2-round1-unmerged` (`50799ca`, no PR)**: five round-1 fixes
+    absent from `99637f5`. They are: `scroll-padding-top` for the fixed
+    header (a11y lens, WCAG 2.4.11 major); `media-src` allowing
+    `prismic-io.s3.amazonaws.com`, the host every staged video and the PDF are
+    stored on, which `*.prismic.io` does not match (ops lens major: the videos
+    would be blocked in production); the Webflow jQuery CDN in the build guard;
+    About's CTA "Hire Us" with a buttons-vs-capture test; and a seed re-run
+    guard. The staged release still says "Contact" on About's CTA. **The form
+    is done, on branch `claude/intake-form` (`30b2085`, stacked on
+    `dd47476`, no PR):** a 9-field intake to central as an `inquiry`,
+    Turnstile-token refusal, and 7 mutations each red, one of them in central.
+    **Prismic:** 32 models are in `williamson-construction` ("32 match"), and 6
+    pages, 8 projects and 90 files are in migration release
+    `ar0oXBIAAC0ARR2n`. Publishing that release is the operator's; the MCP
+    refuses both an unasked publish and migration releases. _Ask:_ (a) the
+    `0198…` session keeps OD7-P2 and cherry-picks `50799ca`, then rebases
+    `claude/intake-form` after #3 lands; or (b) end it and re-dispatch this
+    worker. _Pick:_ (a). It holds the PR and a round-2 review in flight, and
+    the two branches are small and independent. Still open for launch, from
+    decision 7: D6 (the form stays held on the operator; the row is
+    `building`) and D8 (Lato, marked `TODO(D8)`). Turnstile needs no new
+    widget: "Site Forms 2" (`0x4AAAAAAD_aiDmsrlRAHq-V`, verified centrally
+    by `TURNSTILE_SECRET_KEY_2`) already lists `williamson-construction.com`.
+    Set it as `PUBLIC_TURNSTILE_SITE_KEY` at launch. The netlify.app preview
+    host would take that widget's last slot.
+    **Update 2026-09-30 ~17:25Z (session `0198…`):** it acted on pick (a)
+    before the answer, because its own brief said "continue PR #3". It
+    cherry-picked `50799ca` onto #3 (`783423e`, fold-in `b57e99b`) and merged
+    #3's head into `claude/intake-form`, now draft PR #5 (base
+    `claude/site-build`). If the answer is (b), revert `783423e`/`b57e99b`;
+    nothing else depends on them.
+    **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
+
+39. **OD7-P2, williamson-construction-co#3: round 2 found real minors; land
+    at `b57e99b` on green, or run a third round?** #3's head `b57e99b` passes
+    locally (lint, check, build, 77 files / 659 tests); CI ran green on
+    `2e1ff42`. **Round 1** (three lenses, on `dd47476`) found no blocker and
+    four majors: a navy focus ring invisible on the navy bands; three looping
+    background videos with no pause (WCAG 2.2.2); editor-picked button styles
+    that could render white on white; and PR claim 3 ("Homes'
+    `hover:bg-secondary/10` goes red") being false for this palette. All four
+    were fixed in `99637f5`, and each fix has a test that goes red on revert
+    (21 mutations in the PR body). **Round 2** (one reviewer, the fix commit)
+    found three minors in the new video control (it guessed its state, showed
+    on a band with no video, and did nothing before hydration) and a nit (a
+    weak focus cue on white-bodied buttons over navy). All four were fixed in
+    `2e1ff42`; five of six mutations go red, and the pre-hydration gate cannot
+    be tested under jsdom. The first worker's five round-1 fixes are on top
+    (see 38). _Ask:_ (a) land #3 at `b57e99b` on CI green, with no third
+    round; or (b) a third round. _Pick:_ (a). Round 2 found nothing above
+    minor, and every fix is bound by a test. Separately, the operator still
+    owns: publishing migration release `ar0oXBIAAC0ARR2n`, after About's CTA
+    in `ar0odRIAAC0ARR3x` is changed from "Contact" to "Hire Us". The wiring
+    PR follows the publish and carries Homes' preview fix (williamson-homes#7).
+    #5, the intake form, needs its own review after #3 lands.
+    **Answered 2026-09-30: re-dispatch; #3 landed at b57e99b as eec070be.**
+
+40. **OD7-P2, Williamson Construction is wired and serving; three calls
+    before launch.** Landed 2026-09-30 by session
+    `session_01TRyUVAryzCaxqiViHbw6XJ`:
+    - williamson-construction-co#5, the `/join-the-team` intake, as
+      `06ce6e0`.
+    - williamson-construction-co#6, the wiring, as `e9ce75a`. It sets the
+      `williamson-construction` repository, six `a11yRoutes`, Homes' preview
+      `linkResolver` fix and #7's narrowed toolbar CSP.
+
+    `main` CI is green. #6's a11y gate reported "0 violations across 8
+    routes", and smoke passed 25. `https://williamson-construction-co.netlify.app`
+    serves all 14 paths with a 200 (19:18Z); an unknown project slug answers
+    404, and `/health` reads `"prismic":"ok"`.
+
+    The operator published release `ar0oXBIAAC0ARR2n` at 18:50Z, confirmed
+    from the connector and from the Content API master ref.
+
+    #5's review: round 1 (three lenses) found two majors; round 2 (the fix
+    commits) found nits only.
+    - The a11y major, focus lost on a disabled submit, is fixed. Eight
+      mutations each went red.
+    - The lead-safety major is **not** fixed; it is (b) below.
+
+    The three calls:
+    - **(a) About's CTA.** The release went out before the label edit, so
+      `ar0odRIAAC0ARR3x` (About Us), `cta_block`, first button, is live as
+      "Contact". The capture says "Hire Us". A Migration API script, dry-run
+      and correct, was refused by this session's permission classifier as a
+      shared-resource write. _Ask:_ change that one label in the Prismic
+      dashboard and publish, or allow a worker to stage it through the
+      Migration API for you to publish. _Pick:_ the dashboard; it is one
+      field.
+    - **(b) The site-side Turnstile refusal in `/join-the-team`.** With
+      `PUBLIC_TURNSTILE_SITE_KEY` set, a POST without a token gets a 400
+      before it reaches central, so central never sees that lead. That
+      covers JS off, `challenges.cloudflare.com` blocked, a host not on the
+      widget, and a Cloudflare outage.
+      - Central already keeps a tokenless submission: `spam_auto` on a
+        `requireTurnstile` site (`src/forms/ingest.ts`), and a plain `new`
+        row while the site is `building`.
+      - `TurnstileWidget.svelte` documents the fleet as fail-open.
+      - It is dormant today, because no sitekey is set.
+      - Removing it was refused by the classifier as a security-test
+        removal, so it was not changed.
+
+      _Ask:_ (1) remove the refusal and let central classify; (2) keep it;
+      or (3) keep it and send a screen-out beacon so refusals show in the
+      cockpit. _Pick:_ (1), before the sitekey is set at launch.
+
+    - **(c) Turnstile on the preview host.** "Site Forms 2"
+      (`0x4AAAAAAD_aiDmsrlRAHq-V`) lists `williamson-construction.com`, and
+      adding `williamson-construction-co.netlify.app` would take its last
+      slot. _Ask:_ add the preview host, or not. _Pick:_ do not add it. Set
+      the sitekey in Netlify's production context only, at cutover, so the
+      preview never renders a widget that cannot mint a token for it; under
+      (b)(2) that host would refuse every submission.
+
+    Still open from item 7: D6 (the form stays held on the operator, and the
+    row stays `building`) and D8 (Lato, `TODO(D8)`; **answered 2026-09-30 ~20:05Z: Reddoor's kit `noj4tji`, with `freight-sans-pro` and `freight-sans-pro-lights` added; see the plan's D8 line**, see the plan's D8 line). No live form was
+    submitted.
+
+    **Answered 2026-09-30 (operator):**
+    - (a) "Use the Prismic MCP." Release `ar1q1BIAAG9QRYia` held the one
+      label change, and the diff showed exactly one delta. It was published
+      through the MCP, the Content API master ref returned "Hire Us", and a
+      Netlify rebuild of `main` (ready 20:08Z) serves it on `/about-us`.
+      There is still no Prismic → Netlify publish webhook, so a publish
+      needs a manual rebuild until one is set.
+      **Corrected 2026-10-01 18:58Z:** a Netlify build hook "Prismic publish"
+      has existed since 2026-09-30 05:32Z and Prismic's webhook fires it; the
+      operator triggered it and three deploys followed. Publishes rebuild.
+    - (b) "Remove it and let central decide." Landed as
+      williamson-construction-co#7 (`e15517e`). Putting the refusal back
+      turns the new route test red.
+    - (c) Turnstile runs on live sites only. The sitekey goes in Netlify's
+      production context at cutover, and the preview host stays off the
+      widget. Read through `CLOUDFLARE_PAT`: "Site Forms 2" lists
+      `williamson-construction.com` (9 of 10 domains), and "Site Forms 3" has 3.
+
+41. **Vida Legacy Foundation's first Maintenance report (new 2026-09-30).**
+    Today's daily-reports run drafted VLF Maintenance 2026-09
+    (`report_01M3SGR33D4JA5YHKKT3756XY2`, 16:00:48Z, 0 blockers [M]) and, two
+    seconds later, sent VLF's Launch email and flipped the site to maintained
+    [M, run 36740864230]. _Ask:_ (a) approve it as it is, a day after the
+    launch email; or (b) leave it unsent and let October's report be the first.
+    _Pick:_ (b) [I], since the launch email already carries the same evidence.
+    Either way it is yours; no agent approves or sends.
+    **Answered 2026-09-30 ~19:50Z: skip it. October is VLF's first
+    Maintenance report.** The 2026-09 draft stays unsent; no agent sends it.
+    **Revised 2026-10-01 ~00:20Z, after #1078:** VLF's row is
+    `maintenance_freq = Quarterly` with no `maintenance_day` [M, live Turso], so
+    withdrawing the 2026-09 draft (`completed_on` 2026-09-30) makes its next
+    Maintenance report due **2026-12-30**, not in October. The operator chose
+    to keep Quarterly and accept 12-30 as the first. **Yours:** press "Don't
+    send" on that draft at `/s/vida-legacy-foundation` once #1078 is deployed.
+    **Done 2026-10-01 01:03:47Z** on the operator's word ("don't send"), through
+    the endpoint's own `withdrawReport` + `patchReportIfOpen` path:
+    `withdrawn_at` stamped, `withdrawn_by = dashboard`; VLF's stored
+    `next_maintenance_at` refreshed 2026-09-30 → 2026-12-30 [M].
+42. **`PRISMIC_TOKEN_VIDA_LEGACY` is not set (🔴 secret).** fleet-prismic-drift
+    (run 36704968338, `wrote=15 failed=0`) warns `[vida-legacy-foundation] no
+write token for Prismic repository "vida-legacy"`. VLF went maintained
+    today, so its drift is now read without a token. _Ask:_ mint the token and
+    set the secret, per `prismic-models --fleet turso --tokens` (read-only
+    checklist). No agent mints it.
+    **Done 2026-09-30 ~21:28Z (#1076).** The operator supplied the token and
+    approved setting this one secret. Before it was set, the same token
+    answered 200 for `vida-legacy` and 403 for `revogen` on the custom-types
+    API [M]; `gh secret list` then showed
+    `PRISMIC_TOKEN_VIDA_LEGACY 2026-09-30T21:27:56Z`. #1076 adds the
+    workflow's env line and the test. Proven on the PR branch (run
+    36780192887): no token warning, VLF read as `vida-legacy` with 18 models
+    matching, and `11 checked, 0 failed` against the morning's
+    `10 checked, 1 failed` [M]. Tomorrow's 05:00 UTC run on `main` is the
+    durable confirmation.
+    **Confirmed on `main` 2026-10-01 [M, scheduled run 36854540795, 11:18Z]:**
+    no token warning, `[vida-legacy-foundation] … repository: vida-legacy`,
+    18 models match, `11 checked, 0 failed`, `FLEET_WRITE_SUMMARY wrote=15
+failed=0 total=15`.
+43. **#1055, no site in the fleet has a privacy policy** (filed 2026-09-30).
+    GA4's terms require one, and design D4 of the fleet-analytics spec makes
+    Reddoor the owner. It is a product and copy call (who writes the policy,
+    one fleet template or per client), so it is not agent-ready. _Ask:_ say
+    whether a starter-level privacy page, with a per-site data notice on each
+    form, is the direction; then it becomes a P1 item.
+    **Answered 2026-09-30 ~21:20Z: option A** (one starter `/privacy`
+    template, per-site values, a footer link and a notice under each form).
+    Built as P1-26. The wording is reviewed once by a lawyer before it reaches
+    a client's live site (item 45). The consent question it leaves open is
+    item 46.
+
+44. **OD7-P1b / P2b, the Williamsons' fidelity pass (asked by the operator
+    2026-09-30 ~20:15Z): not a decision, queued work.** The operator asked for
+    a favicon on both sites and a much tighter match to the references,
+    including hover states and scroll animations (the sticky numbering on
+    Homes). Measured [M]: both sites ship the starter's favicon (md5
+    `3a387408…`), and the reference icons are in each capture. Homes' reference
+    has 12 sticky rules, driven by `countersAnim.js` (captured, 219 lines,
+    jQuery), and 10 IX2 scroll-into-view events; the rebuild has neither.
+    Construction's reference has 18 hover rules and click-only IX2. The briefs are
+    in the plan (§7, "Phase 1b / 2b"). Start each one only when that repo's
+    current worker has ended: at 20:17Z both were `WORKING`
+    (`session_01UHJ28GGynFCzakmooVUj76` on Homes, at 707k of 1M context;
+    `session_01TRyUVAryzCaxqiViHbw6XJ` on Construction).
+    **Homes' worker ends with the PR that adds this line** (2026-09-30), with williamson-homes#9
+    held for item 47. #9 builds a first scroll reveal for the steps; the
+    reference's sticky numbering (`countersAnim.js`) replaces or extends it.
+    Start Homes' P1b from whichever #9 head the operator merges.
+    **Construction's P2b landed 2026-09-30** as williamson-construction-co#8
+    (`205608d`), after item 52 was answered; see Done. Homes' P1b is what
+    remains of this item.
+    **Homes' P1b is williamson-homes#10 (2026-10-01), held after two review
+    rounds; see item 53.
+45. **Privacy policy wording (P1-26): one legal review of the template.**
+    The template's text speaks for each client's business, and it discloses
+    what the fleet actually does with visitor data. _Ask:_ send the draft in
+    `reddoor-starter` (once P1-26 lands) to a lawyer once. Until then it stays
+    marked DRAFT and goes to no client's live site. Also yours: whether clients
+    hear about the page before it goes live (_pick:_ a line in their next
+    Maintenance email, with the link).
+    **2026-10-04, three questions for that review** (raised by P1-26's
+    accuracy review of the draft, reddoor-starter#165):
+    (1) "We do not sell your personal information" sits beside GA4, whose
+    cookies may count as a "sale" or "share" under the CCPA, depending on
+    each property's Google signals and data-sharing settings (not set in code;
+    `initAnalytics` sends a bare `config`). (2) The page invites visitors to
+    ask for correction or deletion, but nothing deletes a submission in Turso
+    today, and Resend, Google and the newsletter provider keep their own copies.
+    The process behind that sentence is the lawyer's and the operator's to define.
+    (3) The newsletter line cannot name the provider: Mailchimp or a webhook is
+    chosen on the site's central row, which the site's code cannot see.
+46. **Analytics consent in California (revisits analytics design D3).** A
+    privacy page cures CalOPPA and the GA terms, but not the CIPA exposure:
+    the California wiretap and "trap and trace" demand letters aimed at
+    analytics on ordinary business sites, at $5,000 per violation in
+    statutory damages. That claim turns on consent, not disclosure. D3 chose no banner
+    (`docs/superpowers/specs/2026-09-22-fleet-analytics-design.md:111`), and
+    `initAnalytics` already takes an optional gate predicate, so the
+    mechanism is cheap either way. _Ask:_ (a) keep D3 and accept the
+    residual risk; (b) a light consent gate (GA4 loads only after an
+    accept) on California clients' sites; (c) replace GA4 with a cookieless,
+    first-party analytics that needs no consent. _Pick:_ put (b) or (c) to
+    counsel alongside item 45, since the same review answers both. Not legal
+    advice; the law here was moving through 2025–26.
+    **Answered 2026-10-05 ~14:05Z: (a), keep D3.** No consent gate; GA4 loads
+    as designed, and the residual CIPA risk is accepted. Nothing that waited on
+    this item waits any more: the GA4 installs (items 49, roalson's launch)
+    still wait on the `/privacy` page only, which the `analytics-tag` recipe
+    now enforces.
+    **Since this item was written [read 2026-10-05, law-firm alerts, not legal
+    advice]:** SB 690, signed 2026-09-30, ends private suits under Penal Code
+    § 638.51 (pen register / trap and trace) for websites and apps. Only the
+    Attorney General can bring those now, and it applies to pending claims
+    filed within two years. That is the theory the GA4 demand letters used.
+    §§ 631/632 (wiretapping) are untouched, and plaintiffs say they will
+    recast claims there. Those claims lean on session replay, chat and ad
+    pixels more than on a plain GA4 pageview.
+47. **williamson-homes#9 (Homes visual polish): which head to merge.** Two
+    adversarial rounds, and round 2 still found a real defect, so it stopped
+    under "two dirty rounds". Round 1 (major: steps flickered at hydration;
+    minors: an untested guard, hero height tied to slow zoom, footer insets)
+    was fixed in `07cc956`. Round 2 on `07cc956` found no blocker or major.
+    It did find that arriving by client navigation from a scrolled page lit
+    every step, so the reveal never played (it errs toward showing content),
+    plus three test gaps. `50d6154` fixes all of round 2, is unreviewed, and
+    turns 9/9 mutations red. **Ask:** merge `50d6154`, merge `07cc956`, or send
+    it back for a third review. **Pick: `50d6154`**; it is small, and every line
+    is under a mutation that goes red. The PR comment has the detail.
+    **Answered 2026-09-30 ~21:35Z: merge `50d6154`, no third round.** Merged
+    22:27Z as `b9cc06c`, pinned to `50d6154` with CI green. Item 44's Homes P1b
+    can start from it.
+48. **Cockpit warnings, 2026-09-30: Beachfront Dentistry's Netlify ID.** The
+    cockpit's watch "Netlify ID not recorded" [M, 21:30Z]. The Netlify API
+    lists site `b36d3ca8-bdc1-4675-b002-5a6469cf5b9b` (`beachfront-dentistry-rd`,
+    custom domain `beachfrontdentistry.com`, repo `reddoorla/beachfront-dentistry`)
+    [M]. _Ask:_ approve writing that value to the row's `netlify_id`. _Pick:_
+    yes; the 09-29 journal already showed the site is on Netlify and that
+    accepting the condition would be the wrong fix. PR: `claude/cockpit-warnings-2026-09-30`.
+    **Answered 2026-09-30 ~21:38Z: write it.** Written 21:40:52Z through
+    `setSiteDetail`, NULL → that ID, read back [M].
+49. **Cockpit warnings, 2026-09-30: four maintained sites without GA4.** 1836dig,
+    29 Navy, Data Dynamiq and LA Homelessness Youth are on watch for "GA4
+    property not recorded" [M]. None has a property that the reports account can
+    see (13 properties listed; 500039567 "LA Youth Homelessness" is LAHI's, and
+    its stream is on LAHI's domain; see the 09-29 journal). _Ask:_ for each site,
+    (a) keep it on watch until it gets a property and a tag, which waits on
+    P1-26 and items 45/46; or (b) accept `no analytics`. _Pick:_ (a) for all
+    four. `no analytics` means the client runs its own analytics (design D8),
+    and the analytics audit skips an opted-out site (`src/audits/analytics.ts:1395`).
+    So a mute added now would stay behind unseen after a property lands.
+    **Answered 2026-09-30 ~21:38Z:** Youth does not need GA, so `no analytics`
+    was written 21:40:52Z (`["no custom domain"]` → `["no custom domain","no
+analytics"]`). The operator creates properties for the other three. When the
+    numeric property IDs arrive (not the `G-` measurement IDs), a session records
+    each in `ga4_property_id` after confirming the reports account lists it. The
+    tag install is separate and waits on P1-26.
+    **Done 2026-10-01 01:03:49Z:** the operator gave 556936272 (1836dig),
+    556907604 (29 Navy) and 556916505 (Data Dynamiq). Each is listed by the
+    reports account ("1836 Dig", "29 Navy", "Data Dynamiq"), and each was written
+    NULL → that ID through `setSiteDetail`, read back [M]. Only 1836dig's
+    property has a web stream (`G-1ZYB95TKC1`, `https://1836dig.com/`); 29 Navy's
+    and Data Dynamiq's have none yet, so they collect nothing until a stream and
+    a tag exist (P1-26).
+    **Streams created by the operator 2026-10-01 [M, Admin API ~01:20Z]:**
+    1836dig `G-1ZYB95TKC1` (`https://1836dig.com/`), 29 Navy `G-MSYB9MQGRV`
+    (`https://29navy.com/`), Data Dynamiq `G-V11LZYNMY2`
+    (`https://www.datadynamiq.com/`). These are the measurement IDs that go in
+    each repo's `src/lib/site-config.json` (design D5) when the tags are
+    installed. That install is still P1-26's (privacy page first).
+    **Data Dynamiq, 2026-10-05: built, green, held for item 45.**
+    reddoorla/data-dynamiq#59 carries the DRAFT `/privacy` page, the footer link,
+    the contact-dialog notice, `@reddoorla/maintenance` ^0.104.0 and the
+    `analytics-tag` hook for `G-V11LZYNMY2` on `www.datadynamiq.com`. CI is
+    green, and on the deploy preview the page renders and the tag is inert
+    (no gtag request, no `dataLayer`; the control request was caught) [M].
+    It is not merged, because the site is live and item 45 is open; the ask
+    is item 73. The site collects nothing until it merges, and GA does not
+    backfill, so the 10-05 report's analytics section stays empty either way.
+    1836dig and 29 Navy are not started.
+    **Live 2026-10-05 [M]:** the operator merged data-dynamiq#59 at ~21:02Z,
+    and `/privacy` answered 200 on `www.datadynamiq.com` at 21:03Z. One real
+    browser visit loaded `gtag/js?id=G-V11LZYNMY2` and sent `g/collect`.
+    GA4 Realtime on property 556916505 read 0 rows before that visit and
+    `minutesAgo 00: 1 user, 3 events` at 21:04:37Z. That user is the
+    verification visit from a cloud IP, not organic traffic. Data Dynamiq is
+    done; 1836dig and 29 Navy still wait, on the same question.
+    **1836dig and 29 Navy, 2026-10-05: built, green, cleared to merge.** The
+    operator extended 73's "yes, before item 45" to both. reddoorla/1836dig#24
+    (`G-1ZYB95TKC1` on `1836dig.com`) and reddoorla/29-navy#73 (`G-MSYB9MQGRV`
+    on `29navy.com`) carry the page, the tag and, unlike Data Dynamiq, GA's
+    hosts added by hand to SvelteKit's own `kit.csp`, which the recipe does
+    not edit. 29 Navy has neither a footer nor a form, so its link is a row in
+    the contact block (cost measured in that repo's `matching/LEDGER.md`).
+    29 Navy's install first hit a recipe bug, fixed in #1178: the `src/` scan
+    read the starter's `services.test.ts` as an existing tag. Both merges are
+    the operator's click, like Data Dynamiq's; a live hit is read after each.
+    Review found one gap for item 45, in the template rather than either port:
+    the policy names no image CDN, yet a Prismic site's pages load
+    `images.prismic.io` (about 99 URLs on 29 Navy's home), so Prismic/imgix
+    receives every visitor's IP. The same holds on every Prismic site in the
+    fleet.
+    **Live 2026-10-06 [M]:** the operator merged 1836dig#24 and 29-navy#73.
+    GA4 Realtime read 0 rows on each property before one verification visit,
+    then `1 user, 3 events` at ~14:13Z on both 556936272 (1836dig) and
+    556907604 (29 Navy). All three sites now collect.
+    **Privacy values filled 2026-10-06:** data-dynamiq#60, 1836dig#25 and
+    29-navy#74 replace the `[client legal name]` and effective-date
+    placeholders (effective October 6, 2026). Names: "Data Dynamiq" and
+    "1836 Digital Investment Group" from each site's own copyright line;
+    "Worthe Real Estate Group" for 29 Navy from Worthe staff signatures and
+    Harvest ("Client: Worthe Real Estate"), with `29navy@worthe.com`, the
+    address the site already publishes, as its contact. No registry was
+    read: CA bizfile's WAF refuses automated requests and OpenCorporates
+    needs a token, so none of the three is confirmed as a registered entity
+    name. **Contacts, ruled 2026-10-06:** the operator set the contact to whoever
+    receives the report (`report_recipients_to`, falling back to
+    `point_of_contact`): `robbie.greenquist@gmail.com` (data-dynamiq#61),
+    `benhalbach@gmail.com` (1836dig#26) and `MatthewB@worthe.com`, which
+    replaces `29navy@worthe.com` (29-navy#75). The text is still DRAFT under item 45.
+50. **Cockpit warnings, 2026-09-30: Reddoor's Prismic drift, one label.** The
+    cockpit's only live-site attention item that has no ask yet [M]. The drift is
+    `industry` → `Inquiry.inquiry_survey_id`, label and placeholder only
+    (reddoor-website `f3dbd4a`, 09-17). Its commit says the Prismic side waits
+    on an interactive Slice Machine push. The ack expired 08-30. _Ask:_ push
+    `industry` from reddoor-website with Slice Machine (repo → Prismic). _Pick:_
+    push; it is not destructive, and re-acking would hide a label that tells the
+    client editor the field must not be blank.
+    **Answered 2026-09-30 ~21:38Z: pushed by the operator.** Prismic's
+    `inquiry_survey_id` now carries the repo's label [M, Prismic MCP]. The
+    stored verdict read `fail` at 21:34:12Z, before the push, from dispatch 36780192887. The next prismic-drift run re-reads it.
+    **Confirmed 2026-10-01 [M, scheduled run 36854540795, 11:18Z]:**
+    `[reddoor] … repository: reddoor-la`, 25 models match Prismic, nothing
+    to push.
+51. **#1078 (P1-28, withdraw a report draft): land after two review rounds.**
+    Round 1 (on `826dc0e9`) found a blocker (a withdrawn draft froze the
+    schedule, since `nextDueDate` is based on the last send), a major
+    (`launch`/`announce` reused a withdrawn row), a race and UI minors. All
+    were fixed in `d4605b7b` (8411 tests; every named mutation red). Round 2
+    on `d4605b7b` found no blocker or major. It found real minors: withdrawing
+    an overdue draft advances only one cycle (about six clicks to catch up), a
+    no-anchor site's shown next date can be a month off, and UI refusal labels.
+    **Ask:** (a) one more commit that treats a withdrawal like a send for
+    scheduling, plus the UI fixes, then land; (b) land `d4605b7b` as it is and
+    file the minors; or (c) a third round after (a). **Pick: (a)**; VLF is due
+    2026-10-30 under either rule. Detail: the #1078 comment.
+    **Answered 2026-09-30 ~23:35Z: (a).** Folded in as `8affbff8`: the base
+    is the later of the last send and the latest withdrawn draft's
+    `completed_on` (the draft day, not the click), so an overdue site catches up
+    in one step. No third round. 8426 tests; every named mutation red. Landed
+    2026-10-01 00:19Z as `57f5049d` (#1078, head `cb68a2d9`). The "VLF 10-30"
+    line above was wrong: VLF is Quarterly, so it is 12-30 (see item 41).
+
+52. **williamson-construction-co#8 (Construction fidelity, OD7-P2b): round 2
+    found minors, so the merge is yours.** The PR ships:
+    - the reference's favicon and apple-touch-icon;
+    - `freight-sans-pro` / `-lights` from kit `noj4tji`, loaded in CI and on
+      the deploy preview [M];
+    - every reference hover, measured in Chromium on the capture;
+    - the IX2 mobile menu, a white panel sliding from -15rem, replacing the
+      blue dialog.
+
+    `src/hover-rules.test.ts` pins all 18 `:hover` rules and the IX2 click
+    targets. 11 mutations each turned a test red. The head is `a7acae5`: CI
+    green, 743 unit tests, 55 Playwright tests, axe 0 violations across 8
+    routes.
+
+    Round 1 (three lenses) found three majors, all fixed in `44c96d1` and
+    `a7acae5`:
+    - the panel never slid (the `translate` vs `transform` property);
+    - Tab could land in the closing panel, or on a control under the open one;
+    - the menu icon returned 700ms early.
+
+    Round 2 found no major, but it did find two minors and two nits:
+    - (i) Any click or tap on the page closes the open menu, because `<main
+tabindex="-1">` takes focus. The code and its test meant to keep it
+      open, and the LEDGER does not record it.
+    - (ii) The "not under the panel" half of the Tab test can never fail,
+      because `elementFromPoint` skips `inert`.
+    - (iii) A phase with no anchor still fades on hover.
+    - (iv) The plan shapes use Tailwind's default easing where the reference
+      uses `ease`.
+
+    Each is a line or two. _Ask:_ (a) fix all four at the current head and
+    land without a third review; (b) land `a7acae5` as it is and file the
+    four; or (c) a third round. _Pick:_ (a). For (i), my pick is to keep
+    "a page click closes the menu", which is better on a phone, and ledger it
+    as a deviation rather than suppress it.
+
+    **Also yours, from the same brief.** "The matching gate passes" cannot be
+    shown from a cloud session. `gate.sh` needs the laptop-only
+    `matching-a-page` skill (`page-diff.mjs`). Construction also has no
+    `matching/SPEC.md`: Phase 1 was never done, so the gate refuses the page.
+    There is no mask, floor or declared deviation, so nothing is unledgered.
+    _Ask:_ run Phase 1 and the gate from the laptop, or drop that done-when
+    for P2b. _Pick:_ drop it for P2b, and make Phase 1 its own item if you
+    want the pixel gate on this site.
+
+    **Answered 2026-09-30 ~23:45Z (operator): (a) fix all four and land.**
+    Fixed in `903fe79`: (i) kept and pinned by a test and a LEDGER line;
+    (ii) replaced by a rect-overlap check, shown to fail on a panel left
+    painted; (iii) and (iv) each tested and mutated. Landed with `land-prs`
+    pinned to `903fe79`, CI green, as `205608d`. The proxy refused the branch
+    delete, so `claude/od7-p2b-fidelity` is still on GitHub. **The gate
+    question above is still open.**
+
+    **Gate question answered 2026-10-01 (worker, cloud): it runs, and it is
+    proven.** Both blockers were setup. The skill is a `claude-skills`
+    clone with `MATCHING_SKILL_DIR` set, and Phase 1 is now done for all 14
+    pages (williamson-construction-co#9). On the reference itself (the apex
+    host) the gate printed 14/14 pages, 165 regions, 0 FAIL. The negative
+    control failed at 52–74%. The merge of #9 is decision 58 (landed as
+    "55"; renumbered by the 10-01 12:00Z PM pass, see the note above 57).
+
+53. **roalson-interests#242 (MarkUp: "Improved Projects" tab matches Land):
+    held after two dirty review rounds.** Under its own tab Improved now has
+    Land's off-white ground, 40px strip, unpinned divider and sand cards, with
+    and without script. Round 1 found two majors: the cards were cream on a
+    cream ground, and the no-JS map offset was 145.4 instead of 100. Round 2
+    found a stale unit-test string and the carousel's photo-less box left
+    sand. All of it is fixed at `48e1c11`, and CI is green.
+    deploy-preview-242 on real listings reads identically to Land: card
+    234/231/228, photo box 243/241/239, heading 51px under the tabs.
+    _Ask:_ (a) land without a third round; (b) a third round. _Pick:_ (a).
+    Then resolve pin `2b18dce4` with "fixed in <sha>".
+    **Answered 2026-10-01 ~04:10Z (operator, "land what you can"):** landed
+    `5e47eeb`; on the live site Improved reads identically to Land; pin
+    resolved.
+54. **roalson-interests#243 (MarkUp: "the map bounces when I click a point")
+    reopens roalson-interests#136.** #136 was closed 09-28 with "keep the
+    three flights … reopen only if someone reports the press as janky", and
+    Nicole's pin is that report. The fix:
+    - The camera flies straight to the pressed listing: IH-35 was
+      `[potranco-road, ih-35]` and is now `[ih-35]`.
+    - `active` still comes only from the viewport centre.
+    - Reproduced red on origin/main, 8 mutations red, and one review round
+      clean apart from a reduced-motion guard (folded in, `ce12414`).
+
+    _Ask:_ land it, or keep the three flights. _Pick:_ land. Then resolve
+    pin `f4be21e8`.
+    **Answered 2026-10-01 (operator, "land what you can"):** landed `195a798`
+    (live build 04:58:32Z); pin resolved; noted on #136.
+
+55. **Roalson MarkUp pins left open (questions, not fixes).**
+    - (i) **Homepage #4**, Nicole to Erik: keep the featured band's
+      PROPERTIES button? _Pick:_ keep it. It is the band's only route to the
+      full list.
+    - (ii) **Homepage #3**, "Drop down back color to 20% opacity": no
+      dropdown exists. In Nicole's screenshots the homepage map never drew
+      tiles, so she saw a solid maroon box. _Pick:_ ask Nicole which element
+      she means, and check whether the map tiles load on her browser, which
+      could be blocked by an extension or a network.
+    - (iii) **Properties #3**: is the property package an arrow or a
+      download? _Pick:_ a download glyph with the `download` attribute, since
+      it is a PDF. Whether it opens in a viewer stays the browser's choice.
+    - **Answered (operator, 2026-10-01):** (iii) download. It landed as
+      roalson-interests#245 (`72fa1c0`). A bare `download` attribute is
+      ignored on the cross-origin CDN link, so a press now fetches and saves
+      the PDF. Verified on the live site, and the pin is resolved.
+    - (ii) **Still open.** The operator reads it as "bring the colour back",
+      not a dropdown. Which colour, and over what (the map tint, the
+      featured card ground, or the dark strip under the bar), is the
+      operator's to name; then it is a one-line change at 20%.
+    - (i) **Answered (operator, 2026-10-01):** remove it; an ALL circle sits
+      beside the controls instead (roalson-interests#248).
+    - (ii) **Answered (operator):** the progress bar's unfilled track at 20%
+      (roalson-interests#246). All 12 pins are resolved.
+
+---
+
+> Two items carry the number 53 (PM pass 2026-10-01): this one is Homes
+> (#1087, #1089, #1091); the one above is Roalson (#1092). Numbers are left as
+> landed because PR titles cite them; new items continue from 57.
+
+53. **williamson-homes#10 (Homes fidelity, OD7-P1b): answered 2026-10-01 and
+    landed as `5ec2ddd` (head `bde334a`).** The operator chose a third review.
+    It was dirty: the fixed header box covered the sticky bar, so it could not
+    be clicked, plus two minors. All three were fixed with tests shown red
+    first, and the operator then approved the merge.
+
+    The calls the PR raised:
+    - (i) Accessibility wins on hover.
+    - (ii) The 17 census rows are accepted and declared as exact rows.
+      `census.sh home` exits 0.
+
+    **Still yours, from (iii):** push the ProcessSteps and PageHero slice
+    models from Slice Machine. Prismic has neither `step_height` (this PR)
+    nor PageHero's `height` (#9). The prismic-ci rollout cannot run from a
+    cloud session: the proxy hides the Actions secrets API, and the recipe
+    refuses when it cannot confirm `PRISMIC_WRITE_TOKEN`. Once the models
+    are pushed, an agent sets `step_height: tall` on about-us's
+    "Collaborative approach" ProcessSteps slice through the Prismic
+    connector. The operator has asked for that edit.
+    **Done 2026-10-01 [M]:**
+    - The operator pushed both models from Slice Machine.
+    - The edit went through the Prismic release "About Us: tall
+      collaborative-approach steps", and the operator published it.
+    - The publish webhook rebuilt the site. At 02:28:21Z,
+      `curl …/about-us | grep -c 'md:min-h-\[40rem\]'` returned 1.
+    - Nothing in (iii) is open. The question of how models should reach
+      Prismic in the first place is #1090.
+
+> Relabelled by the 10-01 12:00Z PM pass. #1090's item below had landed as
+> "54", although P1-29 and the 03:36Z report already cite it as **57**.
+> Construction's #9 had landed as a second "55" (#1095, and that session's
+> journal entry); it is **58** now. Prettier numbers an ordered list from its
+> first item, so this note breaks the list to keep both labels. Next new item: 63
+> (59–62 added 2026-10-01 for Mantis Landscaping, #1107).
+
+57. **#1090, how models reach Prismic (new 2026-10-01).** After P1-29's
+    write-up: pick the route that replaces or supplements Slice Machine in the
+    starters and in `prismic-models`/`prismic-ci`, including type generation
+    (`prismicio-types.d.ts`) and the generated slice index. Not an ask until
+    P1-29 lands; listed so the PM pass carries it.
+    **First fact, 10-01 11:53Z [M, `npm view slice-machine-ui deprecated`]:**
+    npm marks `slice-machine-ui` (2.21.6, modified 2026-09-18) deprecated:
+    "Slice Machine is replaced by the Prismic CLI and the Type Builder.
+    Existing projects are still supported." The same check on
+    `@prismicio/client` (7.22.1) prints no deprecation, so the check can say
+    no. This is one source; P1-29 still owes the second and the options.
+    **P1-29 landed 2026-10-01** (`docs/prismic-model-management-2026-10.md`):
+    deprecated since 2026-09-18 by npm, Prismic's docs, the slice-machine
+    README and the new CLI's own migration code; Prismic's route is the Type
+    Builder plus the `prismic` CLI, whose `push` and `pull` both delete to
+    match. _Pick:_ A now, B next: roll `prismic-ci` to williamson-homes (and
+    every Prismic site without it), then swap `slice-machine-ui` for
+    `prismic gen` in the starters behind our own gate, never `prismic init`
+    or `prismic push`.
+    **Superseded by the operator's ask (10-01 17:00Z): migrate the whole
+    fleet.** Plan and estimate: `docs/prismic-migration-plan-2026-10.md`
+    (21 repos, 18 Prismic repositories, about 3½ h of operator time over
+    two weeks). _Ask:_ D1–D3 there (Type Builder source of truth, delivery
+    tool, generated-file layout); recommended (a), keep `prismic-models`,
+    Prismic's layout.
+    **Answered 2026-10-01 ~17:25Z: "taking all your recommendations go for
+    it"** — D1 (a) Type Builder on with a nightly pull-sync PR, D2 keep
+    `prismic-models` + `prismic-ci`, D3 Prismic's file layout. Pilot is
+    reddoor-website#235. Phase 1 needs, from the laptop, for each of
+    alamo-anatomy, hedloc, reddoor-website, the-pointe-burbank,
+    the-tower-burbank, vida-legacy-foundation, williamson-homes: mint a
+    Custom Types write token (🔴), `gh secret set PRISMIC_WRITE_TOKEN --repo
+reddoorla/<repo>`, then `reddoor-maint prismic-ci <repo>`. The recipe
+    refuses from a cloud session by design (secrets API).
+    **10-04: #1113 lifts that.** `prismic-ci` now runs from a cloud session.
+    The install PR's own dry job proves the token reads the models, and PR
+    listing and creation are REST-only. Phase 1's seven runs can come from
+    the cloud. The operator still mints and sets each token.
+    **10-04 17:19Z: pilot closed, both directions proven** (reddoor-website
+    #238 Prismic→repo; #240 workflow, #241 dry run, #242 apply →
+    "1/1 model(s) pushed. 24 already matched", read back through the
+    connector). Next: phase 3 per the plan's §7. Two follow-ups found:
+    `land-prs` cannot land on a merge-commit-only `main` (reddoor-website's
+    ruleset), and the cloud session's phase 1 brief wrongly waited for a dry run that a
+    workflow-only PR never gets.
+    **10-04 20:42Z: phase 3's starters and baseline landed.**
+    reddoor-starter#166 (`631f9a5`) and its cherry-pick
+    reddoor-starter-blux#38 (`9ef1d35`) are off Slice Machine, with the
+    `/slice-simulator` framing exception (`src/lib/security/cms-framing.ts`)
+    and the `prismic-codegen` gate; #1134 swaps `baseline-versions` to the
+    `prismic` CLI and rewrites the runbook's §11 (changeset; the next release
+    PR is the operator's). Phase 1 now stands at 5 of 7: reddoor-website's
+    workflow landed as reddoor-website#240 on 10-04, so only Ask (a) below
+    remains. Still to build in phase 3: the D1 nightly pull-sync PR.
+    **Phase 1, 2026-10-01 18:50Z (laptop worker): 4 of 7 done.**
+    `prismic-models.yml` is on `main` in alamo-anatomy (#62), hedloc (#52),
+    the-pointe-burbank (#41) and williamson-homes (#14). Five of the seven
+    repos already held `PRISMIC_WRITE_TOKEN` (four since 2026-08-14,
+    williamson-homes since 09-30), so two tokens are owed, not seven.
+    - _Ask (a), 🔴:_ mint a Custom Types write token and set
+      `PRISMIC_WRITE_TOKEN` for **the-tower-burbank** (Prismic repository
+      `the-tower-burbank`) and **vida-legacy-foundation** (`vida-legacy`).
+      Then `reddoor-maint prismic-ci <a fresh clone>` for each. The central
+      `PRISMIC_TOKEN_THE_TOWER_BURBANK` is absent as well; its `env:` line
+      already exists.
+    - _Ask (b):_ reddoor-website was skipped, because reddoor-website#237
+      (staging → main, opened 18:19Z) touches `.github/workflows`. Its secret
+      has existed since 08-14. The recipe can only open its PR against `main`,
+      since the apply job guards `refs/heads/main`, so `--base staging` does
+      not apply. _Pick:_ run it against `main` once #237 has merged.
+    - _Ask (c):_ a PR that adds only the workflow never runs the `dry` job
+      (the path filter), so none of the four got a model-delta comment and
+      nothing has yet exercised a site's own secret. A local read with the
+      central tokens found alamo-anatomy (6), hedloc (8) and
+      the-pointe-burbank (35) in sync. williamson-homes has no token on the
+      laptop: the review read its ids through the Prismic connector and they
+      match (3 types, 20 slices), but its fields are unmeasured.
+      _Pick:_ one throwaway PR per site that reformats a model file and is
+      closed unmerged, as caltex-landing was proven on 08-16.
+    - Not an ask: the nightly sweeps only `reddoor` and
+      `vida-legacy-foundation` of the seven, and both read "match" on 10-01.
+      The other five are `launching` (alamo-anatomy, hedloc) or `building`
+      (the two Burbank sites, williamson-homes), which the sweep excludes by
+      design. The Williamson Homes row also has a null `git_repo`.
+    - **10-04 23:10Z: phase 4, 13 site repos landed** (cloud worker
+      session, plan §9; one reviewed PR each, merged on green per the
+      operator's "merge on green" at ~21:50Z). Each still needs phase 5's
+      dashboard step. _Ask:_ per row, "Switch to type builder" in that
+      Prismic repository and set its simulator URL (a `curl -sSI` of the URL
+      should show no `x-frame-options`; every PR's deploy preview did):
+      - espada#79 (`69eebc1`): `espada`, `https://espadarealestate.com/slice-simulator`
+      - caltex-landing#69 (`83b2076`): `caltex-landing`, `https://www.caltexmedical.com/slice-simulator`
+      - 29-navy#60 (`6f0a505`): `29-navy`, `https://29navy.com/slice-simulator`
+      - revogen#90 (`34f1da0`): `revogen`, `https://revogen.com/slice-simulator`
+      - medical-solutions-of-texas#71 (`70e905a`): `msot`, `https://medicalsolutionsoftx.com/slice-simulator`
+      - gallerysonder#107 (`6508598`): `gallerysonder`, `https://gallerysonder.com/slice-simulator`
+      - vineyard-custom-homes#71 (`c038d41`): `vineyard-custom-homes`, `https://www.vineyardconstruction.com/slice-simulator`
+      - vida-legacy-foundation#89 (`244e97d`): `vida-legacy`, `https://vidalegacy.org/slice-simulator`
+      - beachfront-dentistry#71 (`459c64c`): `48bb12d1`, `https://beachfrontdentistry.com/slice-simulator`
+      - alamo-anatomy#63 (`9260a09`): `alamo-anatomy`, `https://alamo-anatomy.netlify.app/slice-simulator` (change at launch)
+      - erp-industrial#66 (`41cf5ad`, `@prismicio/svelte` 2.2) and #67 (`930fab5`): `erp-industrial`, `https://www.erpfunds.com/slice-simulator`
+      - data-dynamiq#57 (`76cfcae`): code only, no switch; `reddoor-wireframer` is shared.
+      - williamson-homes#20 (`ab39401`): `williamson-homes`, `https://williamson-homes.netlify.app/slice-simulator` (move to `www.williamson-homes.com` at cutover)
+      - williamson-construction-co#19 (`f1c3a6c`): `williamson-construction`, `https://williamson-construction-co.netlify.app/slice-simulator` (the www domain is still the old Webflow site)
+    - _Ask (d), phase 4:_ activate Prismic MCP for `hedloc`,
+      `the-tower-burbank` and `the-pointe-burbank`
+      (`https://<repo>.prismic.io/builder/settings/mcp/`). None is in the
+      nightly drift sweep and the connector refuses all three ("Prismic MCP
+      is not activated for repository …"), so the brief's stop condition,
+      models proven in sync before the change, cannot be met. hedloc#53 is
+      open and held; both Burbank migrations are pushed as
+      `claude/prismic-cli` (the-tower-burbank `a3f9aeb`, the-pointe-burbank
+      `dcc9701`) with no PR. _Pick:_ activate; a later session runs the
+      connector comparison, opens their PRs and lands all three.
+      **Answered 10-05 ~01:05Z: "dont worry about non maintenance sites".**
+      hedloc and both Burbank sites are left as they are (hedloc#53 open,
+      the Burbank branches unmerged), not pursued.
+    - _Ask (e), phase 4:_ the refused push of williamson-construction-co's
+      migration. **Answered 10-05 ~01:05Z: "push approved"**; it landed as
+      williamson-construction-co#19 (`f1c3a6c`, pinned `6d86b0c`), row above.
+58. **williamson-construction-co#9 (Construction matching gate, Phase 1 for
+    14 pages): held after two dirty review rounds.**
+    - Round 1 found four majors, fixed in `7db29f3`:
+      - slides clipped content (and a focusable See More) at 390;
+      - the testimonials clipped;
+      - the dots were 2.62:1;
+      - the census declarations never read the candidate.
+    - Round 2 found one verified major: the slider controls row sat over the
+      tallest phase slide's See More at 390 and took its clicks. It also
+      found that the `max-[991px]` variants missed Webflow's inclusive 991,
+      767 and 479.
+    - Both are fixed in `106d06e`, and nobody has reviewed that head.
+    - Gate r7 (`7db29f3`, cold server): 8 of 14 pages PASS. Every failing
+      region is a LEDGER line: the font kit's wrap, the accessible form's
+      extra height, slides that grow rather than clip, the photo pipeline,
+      and an empty reference paragraph.
+
+    The head is `f25cfb9` (`106d06e` plus LEDGER and journal lines), and CI is green on `106d06e`.
+    _Ask:_ (a) land it as it is; or (b) a third review round first.
+    _Pick:_ (a). The round-2 fix is pinned by `slider-content.spec.ts`'s
+    "no slide link under a control" check at three widths, and M18 and M19
+    each turn it red.
+
+    Optional calls, not blocking:
+    - (c) Prismic slice variations instead of the structural `:has(+ …)`
+      picks. They are content edits in four documents.
+    - (d) Typographic quotes in the testimonial content.
+    - (e) The reference's empty 45px paragraph on Providence Hospital. Pick
+      for both: leave them.
+
+    **Answered 2026-10-01 (operator, "land it"):** landed as `2ee22e8`
+    (head `f25cfb9`, CI green, `land-prs`). Branch
+    `claude/matching-gate-phase1` is still on GitHub; the proxy refuses the
+    delete.
+
+    **Answered 2026-10-01 15:27Z (operator): (a).** The operator merged #9 at
+    `f25cfb9` as `2ee22e8`, with no third review round. (c)–(e) were not
+    taken up, so they stay as they are.
+
+59. **Mantis Landscaping: which starter (#1107, plan
+    `docs/mantis-landscaping-plan-2026-10.md`).** The operator asked for
+    the "reddoor stack" and for improvements. The repo's `blux` pipeline
+    renders only on `reddoor-starter-blux`: its `emit` and `catalog` write
+    `blux_*` slice ids [M]. The pipeline has been dormant since July, and
+    its last consumer, the-pointe, is archived.
+    _Ask:_ pick one.
+    - (a) **Native `reddoor-starter`**, using `blux convert` only to
+      extract content, assets and theme tokens, and seeding about seven
+      native slices from that.
+    - (b) **The Blux track:** `blux convert/emit/migrate` onto
+      `reddoor-starter-blux`. This is the fastest faithful copy, and the
+      hardest to improve afterwards.
+    - (c) Native, hand-seeded without the pipeline.
+
+    _Pick:_ (a). There are 6 pages, about 30 text blocks and 89 images, so
+    a native build is bounded. The improvements in plan §4 are
+    native-starter work either way, and the site does not inherit a render
+    layer that no CI exercises.
+
+    **Answered 2026-10-01 ~18:00Z (operator, "I'll take your picks"): (a),
+    native.** The operator generated the repo from `reddoor-starter`, first
+    as `tucksravin/mantis-landscaping` and then transferred to the org; it
+    is now `reddoorla/mantis-landscaping`. P0 is
+    reddoorla/mantis-landscaping#1.
+
+60. **Mantis Landscaping: the Blux export, and when Blux may be cancelled
+    (#1107).** `blux catalog/convert` need the dashboard export
+    (`site.json` plus each page's `index.html`). The live site does not
+    serve `site.json` (404 at three paths [M]). The export also holds the
+    projects feed's unpublished items 2–4 and Blux's form settings, which
+    is where the contact form delivers today (plan R2, R4).
+    _Ask:_ (i) download the Mantis export from the Blux dashboard (or ask
+    whoever holds the Blux login) and attach it to #1107 or drop it in the
+    session; (ii) keep the Blux site paid until 14 days after the DNS
+    cutover.
+    _Pick:_ (i) yes, now; (ii) yes. Blux serving is the rollback until then.
+
+    **Answered 2026-10-01 (operator): (i) and (ii) yes.** The export
+    arrived at ~18:13Z, and the operator still holds the Blux account. On
+    the export [M]:
+    - `blux convert` reports all 3 pages "FAITHFUL": 17 bands, 5
+      low-confidence blocks.
+    - It does not read the `projects` collection.
+    - It resolves only 2 of the 89 images the live pages use, with or
+      without `--probe`. So the seed uploads from the planning capture,
+      checked against `captures/mantis-landscaping/manifest.json`.
+    - The collection has 6 items. Three are disabled drafts (Urban
+      Farming, Vertical Gardens, Wood Work), at 8–11.5K characters each.
+    - The export names no form recipient. Its account email is an
+      `@mantislandscaping.com` address [I: probably where Blux delivers].
+
+61. **Mantis Landscaping: client facts, as one message for Nicole (#1107).**
+    No agent contacts the client. The answers unblock P1-30's P4 and P6.
+    1. The contact-form recipient. Today's is unknown, and leads may
+       already be going to an unread inbox.
+    2. Who holds the Squarespace Domains account. RDAP shows only the
+       registrar, Squarespace Domains II LLC; the domain expires 2027-05-09
+       [M]. Who will change the apex `A` and the `www` `CNAME` at cutover?
+       Google Workspace mail (MX, SPF) stays untouched.
+    3. Apex or `www` as the one host. _Pick:_ the apex, which is what
+       people type.
+    4. `/ediblegardens` and `/projects/ediblegardens` are near-duplicates
+       (43 shared images; the first has 8 more). Which URL stays? _Pick:_
+       `/projects/edible-gardens`, as the fuller page, with 301s from both
+       old paths.
+    5. The "Pest control / IPM" and "Consulting" cards link to 404s. Supply
+       pages for them, or drop the cards? _Pick:_ drop them until there is
+       content.
+    6. Keep the Mailchimp newsletter? _Pick:_ yes.
+    7. Are the Noun Project icons licensed (plan R5)?
+    8. The report cadence once maintained. _Pick:_ Maintenance Quarterly,
+       Testing Yearly [I: what a six-page brochure site needs].
+    9. Who signs off the alt text and meta descriptions we draft? _Pick:_
+       Nicole.
+
+    **Answered 2026-10-01 (operator): the picks stand for 3–6, 8 and 9.**
+    The operator sent the message to Nicole, and 1, 2 and 7 are waiting on
+    her answers. Whether to publish the three draft projects (see 60) is
+    added to her questions. Until she answers, they stay out, which
+    matches pick 5.
+    Closed 2026-10-12 for 61.1 and 61.7: answered in P1-30 (10-01 ~18:45Z). 61.2 (who holds the Squarespace domain and changes DNS) stays open, asked after the client reviews the build.
+
+62. **Mantis Landscaping: improvements that change how the site looks or
+    reads (#1107, plan §4).** The safe defaults need no sign-off: one host
+    with 301s, `robots.txt`, labels and heading order, `alt` text, the
+    fleet form route with Turnstile, and redirects for the dead links.
+    _Ask:_ approve each of the following, or strike it.
+    - (a) Darken the gold to pass contrast. It measures 1.76:1 on the
+      contact form's Submit and 1.91:1 under white headings [M].
+    - (b) Fold the duplicate edible-gardens page (OD 61.4).
+    - (c) Meta descriptions on every page; none exist today.
+    - (d) A native newsletter signup in place of Mailchimp's embed.
+    - (e) GA4 via `analytics-tag`. This makes the parked `/privacy` page
+      (P1-26) a launch dependency.
+
+    _Pick:_ (a)–(d) yes. (e) only once P1-26 is un-parked; until then the
+    site launches without GA4, as it runs today.
+
+    **Answered 2026-10-01 (operator): (a)–(d) yes, (e) held.**
+
+63. **Background video: self-host from Prismic, Vimeo stays for content
+    videos (answered 2026-10-01; rollout is the open half).** The operator
+    asked "can we do better on video quality" on Williamson Construction and
+    then "Vimeo or roll our own?" The research is the 2026-10-01 journal
+    entry "Vimeo or our own player"; the short form:
+    - Measured: a Vimeo background embed is 20 requests, ~440 KB of player
+      and three Cloudflare cookies before a frame; a `<video>` is one request
+      and none. Vimeo's docs list `__cf_bm`, `_cfuvid` and `cf_clearance` as
+      essential on every plan, so the 06-29 belief that a higher tier removes
+      the Best Practices deduction was wrong. Our Vimeo path is 930 lines of
+      workaround (interaction gating, iOS heartbeat, bot-detection carve-out)
+      against 188 for `BgVideo`, and has no pause control.
+    - Traffic (GA, 90 days to 09-30): the busiest video site's home page has
+      ~630 views a month (Revogen), so Prismic Starter's 100 GB/month is an
+      order of magnitude away even unoptimised. Prismic's file CDN supports
+      byte ranges, so playback starts before the file finishes.
+    - **Operator's answers:** most sites are on Prismic Starter; traffic is
+      small; the Vimeo subscription stays for other uses; the operator owns
+      the videos but clients may swap one in Prismic; a dumb file CDN is
+      acceptable if ever needed; Williamson Construction first, then the
+      eight Vimeo sites if it goes well.
+    - **Landed:** williamson-construction-co#13 (`BgVideo` plays only near
+      the viewport, pauses off screen, phone rendition via
+      `<source media>`; `video_mp4_mobile` field pushed to Prismic). HD
+      encodes from the Dropbox masters are staged on a Netlify draft deploy;
+      three posters are in Prismic. #12 (an Actions job that uploads to the
+      Asset API, because the connector refuses video) went through two dirty
+      review rounds; the operator chose a third.
+    - **Hand-off:** the content half and the fleet follow-ups moved to their
+      own session on 2026-10-01 with `docs/briefs/2026-10-01-williamson-video-hd.md`.
+      The encode recipe `reddoor-maint video` sits unreviewed on
+      `claude/video-encode-command`.
+
+    - **Content landed (2026-10-01, content session):** 18 HD files in the
+      library via `prismic-media-upload.yml` (run 36909548005, 17 uploads;
+      the scan webm was already there, md5-matched), release
+      `ar6sFBIAABZvSIhQ` with 21 deltas published at 19:05Z, the build hook
+      rebuilt production by 19:06Z. The recipe is #1116; the site's record
+      is williamson-construction-co#16.
+
+    _Goes well when_, read on production 2026-10-01/04 [M]: Best Practices
+    100 on the dev fixtures route (lhci, desktop preset) and 100 on
+    production home; the hero playing with no interaction in every run
+    (phone mp4 at 390px, 1080 webm at 1440px, 5.6–6.8 s in at the 8 s
+    mark); home at 390px 1.30 / 1.52 / 1.49 MB of video in 8 s unscrolled,
+    counted on the wire from CDP, against the 3 MB line; zero console
+    errors and no Vimeo frame on four loads. Two readings outside the line
+    that the home figure hides: about-us at 390px downloads 5.9 MB (the
+    20 s first-day phone mp4 is 6.0 MB and Chromium takes it whole) and
+    services 6.4 MB of its 10.8 MB phone file. That is the recipe's phone
+    cap (`-maxrate 2200k`), not the player, and it is the number to set
+    before the eight Vimeo sites get long clips. _Ask:_ roll `BgVideo` to
+    the eight Vimeo sites as each is touched, or leave them; and whether
+    the phone cap should come down (1200k would put a 20 s clip near 3 MB)
+    before the first rollout. _Pick:_ roll, site by site, never as a sweep;
+    lower the cap in the recipe first and re-encode Williamson's two long
+    clips with it, one `reddoor-maint video` run each and a six-field
+    rewire.
+    **Rollout started 2026-10-04:** a worker session runs
+    `docs/briefs/2026-10-04-fleet-video-rollout.md` (step 0 lowers the phone
+    cap and re-measures Williamson; then one site at a time). Its table lands
+    here, one row per site.
+
+    **Step 0 done 2026-10-04 (#1128 recipe; williamson-construction-co#18
+    journal) [M].** The phone cap is `-maxrate 1200k -bufsize 2400k`. The
+    two long clips were re-encoded from their Dropbox masters (named in
+    the site journal), uploaded as `-phone-720-v2` through
+    `prismic-media-upload.yml` run 37222251406, and rewired in release
+    `asKS8RIAAAqrTzbS` (two deltas), published. First-day phone:
+    5,987,262 → 3,272,310 bytes (2279 → 1246 kbps); services phone:
+    10,841,182 → 6,591,803 bytes (2013 → 1224 kbps). Picture at 390×844:
+    not tellable apart from 2200k at 3, 9 and 15 s; SSIM vs the master
+    0.9636 → 0.9390. Before the publish the netlify host read about-us
+    4.00 MB and services 6.48 MB at 390px in 8 s, hero playing. **The
+    after readings were not taken:** once the release had been published,
+    the cloud session's permission classifier refused the read-only CDP
+    measurement of the netlify host and a Netlify deploy read as a
+    "production deploy" (see Operator decisions 67). The bound without
+    them: about-us ≤ 3.27 MB, services ≤ 6.59 MB, because a playing hero
+    is fetched whole; the services clip is 43 s, so no per-second cap
+    puts it under 3 MB.
+
+    **After-publish readings, 2026-10-04 20:06Z [M]** (netlify host, 390×844
+    `isMobile`, CDP sum, 8 s, two runs each, at the operator's request):
+    about-us 1.62 and 2.89 MB with `-phone-720-v2` playing (1.95 s and
+    6.28 s in), down from 4.00; services 4.30 and 3.78 MB, playing (6.35 s,
+    6.52 s), down from 6.48. Zero console errors, zero `hydration_mismatch`,
+    no Vimeo frame on all four. About-us is under the 3 MB line; services
+    is not, and stays so by the operator's answer to 67(c).
+
+    **The Vimeo sites, enumerated 2026-10-04 [M]** (Turso roster → 23
+    pushable repos cloned and grepped; every production sitemap page
+    curled for `player.vimeo.com`; Prismic read for ids held in fields;
+    the SSR probe misses iframes inserted on idle, which is why Revogen,
+    Sonder, VLF and Roalson show no SSR hits). Background embeds only;
+    content players (ERP's "Who We Are" overlay 939250244, reddoorla.com's
+    portfolio players, `loopvideo=false` on reddoor-la) stay on Vimeo.
+
+    | site                         | clips (background)                                                                                                                                                                  | masters (Dropbox)                                                                                                                                               | token                                  | MCP     | PR              | published          | 390px MB                                                                          | hero | console | BP  | note                                                                                        |
+    | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------- | --------------- | ------------------ | --------------------------------------------------------------------------------- | ---- | ------- | --- | ------------------------------------------------------------------------------------------- |
+    | williamson-construction-co   | 6 (done 10-01/10-04)                                                                                                                                                                | `WC_website 2020/08_Art/`                                                                                                                                       | yes                                    | yes     | #13 #12 #16 #18 | yes                | home 1.30–1.52; about-us 1.62 / 2.89; services 4.30 / 3.78 (after step 0, 20:06Z) | yes  | 0       | 100 | step 0 done; services over the line by clip length, kept by 67(c)                           |
+    | erp-industrial               | 1: Hero 939245404 (42 s) on home + investors                                                                                                                                        | `Energy Related Properties/Website/02_Images/0_Final Website Images/Homepage/Intro-compressed.mp4` (2560×1440, matched by duration + frame)                     | yes (proven by upload run 37238403106) | yes     | #65 #68         | yes, 10-04 ~23:03Z | home 2.72 / 4.33; investors 3.60 / 3.57 (1440: 8.27–8.75, 5.05–5.87)              | yes  | 0       | 74  | BP 74 is Typekit CORS + Prismic toolbar cookies, not video; 939250244 (content) stays Vimeo |
+    | espada                       | 1: hardcoded `vimeoId="1031277602"` (30 s) in `routes/[[preview]]/+page.svelte` via `ScreenWidthImage`                                                                              | `Espada/Website/02_images/Masthead Video/Final Masthead Video/Espada Mastehead.mp4` (39 MB)                                                                     | unknown                                | unknown | —               | —                  | —                                                                                 | —    | —       | —   | needs a home-type field, nothing in Prismic today                                           |
+    | vineyard-custom-homes        | 4 hardcoded (home 1092191048 + 1092190178, about 1082670713, contact 1082715167) + 4 in `project` slices (1091059805, 1091893644, 1091063240, 1091063267; two are portrait 240×426) | `Vineyard Custom Homes/02_VCH_images/VCH_video/` (VCH_Homepage_LOOP_060925.mp4 210 MB, reel, Houser Shop, Pacific Ridge, Bosie river) + stock; unmatched per id | unknown                                | **no**  | —               | —                  | —                                                                                 | —    | —       | —   | heaviest; MCP off                                                                           |
+    | medical-solutions-of-texas   | 4 hardcoded: home 1019997263 + 1019997302, process 1025187591, about 1022236757 (10–14 s each)                                                                                      | none found under `ZZ_Archived Clients/MSOT`                                                                                                                     | unknown                                | unknown | —               | —                  | —                                                                                 | —    | —       | —   |                                                                                             |
+    | alamo-anatomy (launching)    | 3: `s2_vimeo_id` on home 1176738170, about 1191294127, facility 1191301158                                                                                                          | `Alamo Anatomy Training Institute/Video/` (4 .mov, 230–364 MB), unmatched                                                                                       | yes (08-14)                            | **no**  | —               | —                  | —                                                                                 | —    | —       | —   | MCP off                                                                                     |
+    | revogen                      | 13 distinct across 10 pages: HomeHero 1111691463; ScreenWidthMedia ×12; TwoCol (ocular) 1112062744                                                                                  | `RevoGen/02_Images/…` (Rev_web_ocular-01_DrChandler.mp4, Blue Gradient.mp4, stock); unmatched per id                                                            | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | busiest video site; idle-loaded iframes                                                     |
+    | vida-legacy-foundation       | 1: HeartHero `vimeo_id` 1226003530 (en + es)                                                                                                                                        | none found under `Vida Legacy Foundation/`                                                                                                                      | **none** (2026-10-01 entry)            | yes     | —               | —                  | —                                                                                 | —    | —       | —   | no `prismic-models.yml`; RED stop                                                           |
+    | roalson-interests (building) | 1: HomeHero `vimeo_id` 1229048743                                                                                                                                                   | none found                                                                                                                                                      | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | site in build                                                                               |
+    | gallerysonder                | 12 distinct in `video_block` cards across 18 docs                                                                                                                                   | not searched                                                                                                                                                    | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | card previews, click-to-open                                                                |
+    | reddoor-website              | 26 `loopvideo=true` fills across 13 docs + 3 hardcoded (home 1082293395, portfolio 1205996665, twenty-for-twenty 1125997849)                                                        | Marketing/, not searched                                                                                                                                        | unknown                                | yes     | —               | —                  | —                                                                                 | —    | —       | —   | Reddoor's own site                                                                          |
+
+    Not Vimeo sites: caltex-landing and hedloc (model fields, no reader),
+    data-dynamiq (prop, no caller), 29-navy, mantis-landscaping,
+    williamson-homes, beachfront-dentistry, the-tower-burbank and
+    the-pointe-burbank (starter leftovers in `dev/a11y-fixtures` only),
+    1836dig and both la-homelessness sites (none). Three repos are not
+    MCP-activated for Prismic (`erp-industrial`, `alamo-anatomy`,
+    `vineyard-custom-homes`); the connector says so on the first read, and
+    the public Content API answered the enumeration instead. The
+    per-repo `PRISMIC_WRITE_TOKEN` cannot be listed from a cloud session
+    (`actions/secrets` is refused by the proxy); the 2026-10-01 entry is
+    the source for the two named here.
+
+64. **Mantis P2a (reddoorla/mantis-landscaping#3): two dirty review rounds
+    (new 2026-10-04).** #3 is the content model, seven new slices,
+    `/projects/[uid]` and the edible-gardens 301s. CI is green on its first
+    head, `00339cd`, and the second head, `6d2bb66`, carries round 1's
+    fixes. Under CLAUDE.md's two-round rule it stops here, and so does
+    everything after it in P1-30, because P2b, P4 and P5 build on this
+    model.
+    - **Answered 2026-10-04 ~16:06Z: (a). Landed:** #3 merged as
+      `e9d5f95` (head `c1a5248`, CI green) through `land-prs.mjs`. Round 3
+      fixed the round-2 list in `427ee49`, with 20 named mutations, all red.
+      One review of the fixes found a major inside the scope: forced colors
+      drop `box-shadow`, so `outline: none` left a focused photo strip with
+      no ring. It was fixed in `378e90a`, with the two in-scope nits, and
+      the last two round-2 nits went into `c1a5248`. 25 mutations, all red.
+      There was no blocker. The one out-of-scope finding (the single
+      photo's `sizes`) is mantis-landscaping#6. `TextBlock` no longer offers
+      h1, so the seed draft's `projects` and `contact-us` title bands move
+      in P2b.
+    - **Round 1** (3 lenses, on `00339cd`) found one blocker and six
+      majors. All are fixed in `6d2bb66`:
+      - photos with a blank alt rendered no `alt` attribute;
+      - the redirect hook read `url.search` while prerendering, and there
+        was no `netlify.toml` 301;
+      - Document links rendered `href=""`, because the client is
+        routes-free;
+      - four slices used the legacy `items` zone;
+      - focus outlines were invisible on the dark bands;
+      - the scrims over photos were too light;
+      - the project "How it Works" band was recoloured when it did not
+        need to be;
+      - heading levels were left to the editor;
+      - two mutations survived (a dropped `context`, and a wrong project
+        `linkResolver`). Both are red now.
+    - **Round 2** (on `6d2bb66`). Correctness found no blocker. It found:
+      - `href=""` still renders in the starter's Hero, CtaBanner and
+        SectionGrid;
+      - ServiceCards, FeatureTrio and Steps render empty bands when their
+        group is empty;
+      - the orderings are untested.
+
+      Accessibility found:
+      - **a single-photo case-study strip still overflows sideways from
+        768 to about 1022px with no tab stop**, so axe reports
+        `scrollable-region-focusable` (serious) at tablet widths. This is
+        the real defect that triggers the rule;
+      - the ProjectList kicker (13px) sits at about 3.2–3.4:1 on the
+        gradient over a white photo;
+      - the white inset focus ring on the photo strip can vanish on a
+        bright photo;
+      - TextBlock headings still allow h1.
+
+      Tests and models found no blocker, and the models are safe to push.
+      Five behaviours have no test that goes red:
+      - the orderings;
+      - the project meta fallbacks;
+      - `SiteLink`'s `target`/`rel`;
+      - the `building` guard;
+      - `site-pages.test.ts`, which cannot see fields inside primary
+        groups.
+
+      The full round-2 list is in a comment on #3.
+
+    - **Ask:** (a) let a worker take a third round on #3, limited to the
+      round-2 list above, then land it; (b) take the PR over by hand; or
+      (c) re-scope (for example, drop the scrolling photo strip for a
+      static grid). _Pick:_ (a). Every round-2 finding is local to one
+      file, none questions the model or the design, and the model is still
+      unpushed, so nothing in Prismic depends on it yet.
+    - **Waiting behind it** (all on branches, no PRs):
+      - the P2b seed content for all five documents, with alt text on all
+        74 photos, on `claude/p2b-seed-draft` (`050eb7f`), stacked on #3;
+      - the seed script, the model push, the placeholder swap, P4 and P5.
+    - **No laptop step any more:** #1117 (`2c5d9f1`) runs `prismic-ci`
+      from a cloud session. Once #3 lands and the placeholder is replaced,
+      the next worker runs it. If the install PR's `prismic-models` check
+      goes red on a missing `PRISMIC_WRITE_TOKEN`, setting that secret on
+      the site repo is the operator's.
+    - **Name mismatch:** the session's Prismic write token is in the
+      environment as `MANTIS_LANDSCAPING_PRISMIC`, not the brief's
+      `MANTIS_PRISMIC`. It answers 200 on the Custom Types API (`[]`, no
+      types yet), and a bogus token gets 403.
+    - **Hazard:** the environment also holds a generic
+      `PRISMIC_WRITE_TOKEN` for `the-pointe-burbank`. A
+      `prismic-models --apply` run without
+      `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set falls back to it.
+65. **`reddoor-maint video` (#1116): two review rounds, and round 2 found a
+    real defect. Land as is, or a third round?** The HD encode recipe for
+    background video (decision 63). Round 1 (two lenses): no blockers, three
+    ops majors on the `--upload` path and seven minors, all fixed, ten named
+    mutations red. Round 2 (three lenses on the fixed head): no blockers; the
+    tests lens rated one finding major, a STALE verdict taken mid-loop so a
+    new cut's phone file and poster could land beside the old main mp4.
+    Fixed as a pre-pass that uploads nothing when any file is stale, with
+    six more minors; seven named mutations red, 33/33, lint and typecheck
+    clean, CI green on the head. Under `CLAUDE.md`'s two-dirty-rounds rule
+    the PR stops here. _Ask:_ land #1116 at its current head, or send it to
+    a third round. _Pick:_ land it: every finding of both rounds is fixed
+    and tested, the `--upload` path the findings concern has never run live
+    and the README says so, and that first live run is the next instrument.
+    **Answered 2026-10-04 (operator: "land #1116 as is"):** landed by
+    `land-prs` at `e78c4af4` after four merge-of-main cycles against the
+    day's journal traffic. The changeset rides the next release PR. Not an
+    ask any more.
+
+66. **Mantis P2b: publish the seeded content? (#1107, new 2026-10-04).**
+    Everything up to the publish is done.
+    - The 20 models are in Prismic (a re-read says "20 model(s) match").
+    - The five documents (`home`, `projects`, `contact-us`,
+      `water-wise-gardens`, `edible-gardens`) are in the migration release
+      `asKQBhIAAC0ATypp`.
+    - The media library holds 74 photos, every one sized, and each original
+      matched the capture manifest's sha256.
+    - Read back through the Prismic connector after a repair: no document
+      references a removed asset (positive controls found the new copies),
+      and the home pillars carry no icons.
+
+    The repair (mantis-landscaping#8) fixed two defects the first read
+    found: 18 photos Prismic could not size (over 64 KB of Pixel
+    depth-map XMP before the image data), and a Select default that turned
+    null icons into "design".
+
+    Nothing is published. The Prismic connector reserves `publish_release`
+    for an explicit human ask, and `seed.mjs --publish` would be the same
+    act by another route, so the session stopped here. Everything after
+    waits on it:
+    - the placeholder swap: one line in `slicemachine.config.json`, plus the
+      kept paths in `reddoor.a11yRoutes`. Its build is red until `home` is
+      published, by the starter's design;
+    - the `prismic-ci` install PR;
+    - P4 and P5.
+
+    _Ask:_ (a) say "publish the Mantis release", and the next worker runs
+    `node scripts/seed/seed.mjs --publish` from the mantis-landscaping
+    checkout (with `PRISMIC_TOKEN_MANTIS_LANDSCAPING` set) and continues
+    with the swap; or (b) publish `asKQBhIAAC0ATypp` from the Prismic
+    dashboard after looking at it, then say so.
+    _Pick:_ (b) if you want to see the pages first, otherwise (a).
+    - The site is not live; Blux still serves mantislandscaping.com.
+    - Publishing changes nothing a visitor sees.
+    - The copy is Blux's, verbatim. The alt text and meta descriptions are
+      new and still await the client's sign-off through Nicole (OD 61/62),
+      and they can be edited after publishing.
+      **Answered 2026-10-04 ~20:05Z: "publish the Mantis release."**
+    - `seed.mjs --publish` answered `{"totalItems":5}` at 20:07Z. The
+      Content API's master ref moved to `asKx_xIAACkAT7mT` with all five
+      documents. Not an ask any more.
+    - The placeholder swap landed as mantis-landscaping#10 (`8a005df`):
+      `pnpm verify` green, axe 0 violations on the five kept paths.
+    - The next ask is item 69.
+
+67. **Fleet video rollout: three asks before site 1 (new 2026-10-04,
+    worker session for decision 63).**
+    - **Answered 2026-10-04 ~20:05Z:** (a) take the reading in the cloud
+      session (done, in 63); (b) the operator is activating MCP on the
+      three repos; (c) order confirmed: ERP, Espada, Alamo, MSOT, Revogen,
+      Vineyard, with VLF, Roalson, Sonder and reddoorla.com parked; long
+      loops are kept whole, not cut.
+    - **(a) The after-publish readings.** The session's permission
+      classifier refused the read-only CDP measurement of
+      `williamson-construction-co.netlify.app/about-us` and `/services`
+      (and a Netlify deploy read) as a "production deploy" once release
+      `asKS8RIAAAqrTzbS` had been published, so step 0's "under 3 MB with
+      the hero playing" is a bound, not a reading. _Ask:_ either run the
+      instrument from the laptop (the script is the 10-04 journal's
+      `measure.mjs` recipe: Playwright 390×844 `isMobile`, CDP
+      `Network.dataReceived` sum for `.mp4`/`.webm`, `video.currentSrc`
+      after 8 s), or allow that read in the cloud session's permissions.
+      _Pick:_ the laptop read; it is two commands.
+    - **(b) Prismic MCP for three repos.** `erp-industrial`,
+      `alamo-anatomy` and `vineyard-custom-homes` are not MCP-activated,
+      so a cloud session can read them through the public API but cannot
+      stage a release there. Activating is an admin click at
+      `https://<repo>.prismic.io/builder/settings/mcp/`. _Ask:_ activate
+      the three, or say the content rewire on those sites is the
+      operator's. _Pick:_ activate; ERP is the natural first site (one
+      42 s clip, a Prismic-driven slice, `prismic-models.yml` in place).
+    - **(c) Site order and the long clips.** _Ask:_ confirm ERP → Espada
+      → Alamo → MSOT → Revogen → Vineyard, with VLF (no token, no model
+      workflow), Roalson (in build), Sonder and reddoorla.com (card
+      previews and portfolio bands, 12 and 26 clips) parked; and whether
+      a 42–57 s background loop (ERP, Vineyard home, Services here) is
+      to be cut to ~20 s before encoding, since no per-second cap gets a
+      43 s clip under the 3 MB line. _Pick:_ that order; encode the long
+      clips whole and record the number, the cut is the operator's call.
+      Closed 2026-10-12: (b) done: the Prismic connector's `list_releases` answers on erp-industrial, alamo-anatomy and vineyard-custom-homes (which holds release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU)), while the-tower-burbank and the-pointe-burbank still answer "Prismic MCP is not activated" [M]; (a) was done in 63, and (c) was answered 2026-10-04.
+
+68. **P1-26, the starter's `/privacy` page (reddoor-starter#165): two dirty
+    review rounds, held (new 2026-10-04).** Round 1 on `7374553` was dirty in all
+    three lenses. Its fixes are in `f05a94c`.
+    - The switches read `svelte.config.js` as text, not as the CSP it resolves to.
+    - The policy said "only to reply" and claimed IP rate limiting that does not
+      exist.
+    - Server-side Mailchimp and endpoint forms were missed.
+
+    Round 2 on `f05a94c` was dirty too. The fixes are in `5c87109`, which is
+    **unreviewed**.
+    - Blocker: a forms-only site said "no other party" tracks visitors across
+      sites. Central ingest compares a sender's email and message with every
+      fleet site's submissions for 30 days.
+    - Major: the newsletter webhook recipient was undisclosed.
+    - Major: newsletters posted through multi-type endpoints were missed.
+    - Several minors, all fixed.
+
+    Every review mutation now turns a test red: 69 files, 557 tests. CI was
+    green on `f05a94c`. The full record is on the PR. _Ask:_ merge `5c87109`, or
+    send it back for a third review. _Pick:_ merge `5c87109`. Round 2's blocker and
+    majors are text and detection fixes, each pinned by a mutation that goes red.
+    The page stays DRAFT, `noindex` and out of the sitemap until item 45, so a
+    residual wording miss reaches no live site.
+    - **Waiting on this:** the central preflight, #1129 (two review rounds, the
+      second clean, CI green). It lands after the starter, per the operator's
+      order, and carries this line.
+    - **Also waiting:** roalson-interests, which must carry the page before its
+      launch adds GA4. Nothing is built there yet. Its legal name, privacy
+      contact email and effective date are not in its repo, so those render as
+      placeholders until someone supplies them.
+      **Answered 2026-10-04 ~20:00Z: "merge on green CI."** reddoor-starter#165
+      merged as `f538398`, pinned to `5c87109` with its checks passing. This item
+      was written as 67 on its branch; #1131 landed a different 67 first, so it
+      is 68 here. The PR comments on reddoor-starter#165 and #1055 still say 67.
+
+69. **Mantis: set `PRISMIC_WRITE_TOKEN` on reddoorla/mantis-landscaping
+    (🔴 secret, new 2026-10-04).** The `prismic-ci` install PR,
+    mantis-landscaping#13, is red on its own `prismic-models / dry` check
+    with "no write token for Prismic repository `mantis-landscaping`".
+    From a cloud session that check is the intended gate (runbook §5).
+    - The token is the repository's Write API token, the one this
+      environment holds as `MANTIS_LANDSCAPING_PRISMIC`. It pushed the
+      models and published the content on 10-04.
+    - Nothing waits on it today: Prismic's models match `main`. It matters
+      at the next model change.
+
+    _Ask:_ set the secret, then re-run #13's check; any worker lands it
+    with `land-prs`. _Pick:_ the same token as `MANTIS_LANDSCAPING_PRISMIC`.
+    BACKLOG 33's central `PRISMIC_TOKEN_MANTIS_LANDSCAPING` (P1) is a
+    separate secret and still unverified from the cloud. (#13's comment
+    calls this item 67; 67 and 68 had already landed, so it is 69.)
+    **Answered 2026-10-04 ~21:30Z: the operator set the secret.** #13's
+    re-run `prismic-models / dry` went green, which proves the secret reads
+    the models. `land-prs` merged it as `be8addf`. The workflow's `push`
+    trigger is path-filtered to models, so the merge ran no apply job; the
+    first apply comes with the next model change. Not an ask any more.
+
+70. **Site checkouts in a cloud session cannot run the axe audit (#1132,
+    new 2026-10-04).** Cause, measured: mantis-landscaping (native starter)
+    resolves `@playwright/test` 1.63.0, which launches
+    `chromium_headless_shell-1243`; the cloud image's `/opt/pw-browsers` has
+    only 1194 and 1234, and no site repo has a cloud setup hook to install
+    the right one (this repo's `.claude/hooks/cloud-session-setup.sh` does it
+    for its lockfile's 1.62.1, revision 1234). Pointing
+    `PLAYWRIGHT_BROWSERS_PATH` at a scratch
+    dir that aliases 1243 to 1234 passed with 0 violations across 2 routes and
+    the hydration smoke, so nothing else is wrong; `main`'s audit already
+    names the missing executable (0.97.0, the site's pin, buried it behind
+    an npm warning; Renovate brings the fix). _Ask:_ may
+    `reddoorla/reddoor-starter` gain a `CLAUDE_CODE_REMOTE`-gated
+    SessionStart hook that runs `pnpm install` and
+    `playwright install chromium chromium-headless-shell` when the pinned
+    revision is missing (no effect on CI, new sites only; existing sites
+    would need a per-repo PR each)? _Pick:_ yes, as a starter PR modelled
+    on this repo's hook; the fleet backfill is a separate decision.
+    - **10-04 ~21:58Z: answered yes; landed** as reddoor-starter#167
+      (`9fb434b`). In a container on that branch, the hook installed
+      revision 1243 in 33 s, and then `pnpm verify` passed in full: axe
+      found 0 violations across 2 routes, and 562 unit and 13 smoke tests
+      passed. The starter's `.gitignore` now tracks `.claude/settings.json`
+      and `.claude/hooks/` only (narrowing #32), so a laptop checkout with
+      #32's untracked `settings.json` must move it to `settings.local.json`
+      before pulling. Still open: backfilling existing sites (one PR each).
+    - **10-05 ~14:27Z: the Blux track has it too**, cherry-picked as
+      reddoor-starter-blux#40 (`0d7290c`). There, `pnpm lint`, `check`
+      and `test` passed in a container using only the hook's env: 694
+      unit tests (3 skipped) and 20 smoke tests.
+
+71. **Mantis P4b: the client's Mailchimp API key (#1107, new 2026-10-04).**
+    The newsletter signup (62(d)) posts `formType: "newsletter"` to central
+    ingest, and `form-ingest.mts` forwards it to Mailchimp using the site
+    row's `mailchimp_api_key` and `mailchimp_audience_id`. A read-only
+    SELECT on `site_01M3WA8PZXD4Q8N7P234MNYJNB` found both NULL. The same
+    predicate finds a key on 1 of 47 sites, so the query can return
+    positive. The key is the client's credential. _Ask:_ supply the key,
+    or have it set on the row. _Pick:_ set the key together with audience
+    `1c9fde2079`, taken from the Blux embed (`u=5db33f711cc60af4607539cf5`).
+    Then one test signup with an address of ours, unsubscribed afterwards.
+    A worker can build the form before the key arrives, but cannot prove it
+    end to end. Also, form-e2e fills the first `[name="email"]` on the page
+    and marks the first `<form>`, so the signup must not sit above the
+    contact form on `/contact-us`.
+    The same session left the real-submission trace for P4a. A real POST
+    needs a Turnstile token that automation cannot mint (600010).
+    _Ask:_ submit the live `/contact-us` once from an ordinary browser, as
+    the operator. The worker then traces the row in Turso and the
+    notification.
+    - **10-05: Mailchimp half answered.** The client does not use
+      Mailchimp, and signups go through our Resend notify and the digest.
+      Central ingest already did that for any `newsletter` row, so no
+      credential was needed. Landed as mantis-landscaping#18.
+    - **10-05 14:02Z: human submit done; 71 closed.** The operator's live
+      contact submission is Turso row `sub_f892e464…` (`contact`,
+      `status new`, spam score 0, `notify_status sent` with a Resend id).
+      "New contact from Mantis Landscaping" reached the operator's inbox
+      at 14:02:43Z. The site is `building`, so the pre-launch guard routes
+      notifications to the operator only. A live newsletter signup is not
+      yet proven; that is optional.
+
+72. **#1143, the D1 nightly Prismic pull-sync: held after two dirty
+    review rounds (#1090, written by its worker on 10-04 22:20Z, carried
+    here by the 10-05 PM pass).** The worker wrote this ask into item 57 on
+    its own branch, `claude/wizardly-brown-2ylvcv` (`dee49526`), and that
+    branch is #1143 itself, so the ask never reached `main`. Round 2 found
+    two safety blockers (fixed on the branch, unreviewed) and two
+    correctness majors (not fixed): `declined` is keyed on the commit sha,
+    so any commit to a site's `main` reopens a PR you declined; and GitHub's
+    "Update branch" leaves a site `held` forever while the run stays green.
+    _Ask:_ (a) split the workflow, so a job with no App token clones,
+    installs and runs codegen and uploads a patch, and a second job with
+    the token applies it, pushes and opens the PR; then fix the two majors
+    and review once more. Or (b) keep one job, fix the two majors, and run
+    a third round on #1143 as it is. _Worker's pick:_ (a). Both blockers
+    came from running a client's own toolchain beside an org-wide write
+    token, and a split removes that class of bug rather than patching a
+    third instance. The held-for-the-operator comment on #1143 (10-04
+    22:19Z; the PR is a draft) has the details. Nothing else waits on it,
+    because the nightly drift sweep still reports model drift [I].
+    **Answered 2026-10-05 ~18:45Z: (b)** — keep one job, fix the two correctness majors, and run a third review round on #1143 as it is. A worker session is queued for it.
+    - **10-05 ~20:00Z: round 3 is dirty; #1143 is still a draft and
+      unmerged.** Branch `claude/wizardly-brown-2ylvcv`, head `f765c982`:
+      `origin/main` merged in (`68382a43`), then both round-2 majors fixed.
+      `declined` is now keyed on a sha256 of the written model files, which
+      the PR body carries. The sync strips that key before closing a PR
+      itself. A clean "Update branch" merge of `main` counts as the bot's.
+      Mutations 28–33 go red; M34 survives as a second layer. Round 3
+      (security, correctness, operations) found:
+      - **Blocker (security):** the site's own prettier and `prismic` CLI
+        run as the same user as the CLI, so they can read
+        `/proc/$PPID/environ`: the App token and every `PRISMIC_TOKEN_*`.
+        `siteProcessEnv` strips only the child's environment. The reviewer
+        demonstrated the read in this container. Also, a process left
+        running by a site's install can read later git commands' auth
+        header from `/proc/<pid>/cmdline`, or rewrite a later clone's
+        `.git/config` between the fingerprint check and the push.
+      - **Major (security):** site code can move `HEAD`/the index, so a
+        commit carrying its own files passes the stray-file check (which
+        is checked against HEAD) and is pushed. _Fix:_ diff against
+        `baseHead`.
+      - **Major (correctness):** "Update with rebase" still holds the site
+        forever.
+      - **Major (operations):** `held` is green with no warning. A human
+        commit on a branch that survives a squash merge parks the site
+        silently.
+      - **Likely major (operations; needs a live check):** the App token
+        has no `workflows` permission. A rebuild whose new parent
+        `baseHead` carries a newer `.github/workflows/*` may be refused.
+      - **Minors:** a declined site still pushes a new commit every night;
+        a decline never expires; the key is not canonical; only 30 closed
+        PRs are read.
+      - _Ask:_ (a) split the workflow as first proposed: a job with no
+        token runs install, format and codegen and uploads a patch; a job
+        with the token runs no site code. Then fix the three majors and
+        review once. Or (b) keep one job, but run all site code as a
+        separate unprivileged user, fix the majors, and review once. _Pick:_
+        (a). The blocker is the class round 2's pick predicted, and a
+        third patch inside one job would leave `/proc` and leftover
+        processes as the next route. Under a split, no site process ever
+        shares a job with the token.
+      - **For the operator, outside #1143:** the security reviewer's demo
+        printed this cloud container's real `PRISMIC_WRITE_TOKEN`
+        (the-pointe-burbank) into its own transcript, which stays in this
+        session. Whether to rotate it is yours (🔴). Its first probe also
+        created a local user `probeu` in the container. Removing it was
+        refused, and it dies with the container.
+    - **Answered 2026-10-05 ~22:45Z: (a), split the workflow.** Built on
+      #1143 (draft, unmerged), head `5a46bd67`. The nightly is now three
+      jobs. **fetch** holds the Prismic tokens and a read-only App token
+      and runs no site code. **build** is one leg per site, with no token,
+      and runs the site's install, prettier and codegen only inside
+      `docker run --rm`. **publish** holds the write token, runs no site
+      code, and builds each commit itself from `baseHead` plus the plan's
+      named paths. It takes a formatted model only when it still equals
+      Prismic's. Round 3's three majors are addressed (HEAD-move gone by
+      construction, "Update with rebase" accepted, `held`/`declined` warn).
+      19 of 19 named mutations go red. The split's one review (security,
+      correctness, operations) at `06207ce2` was **dirty: 2 blockers, 0
+      majors**:
+      - a link the container left in its output would be followed by the
+        host's `upload-artifact`, carrying another site's tree or the
+        upload step's `ACTIONS_RUNTIME_TOKEN` into the artifact and then
+        into the attacker's own PR;
+      - on a night with exactly one site to build, `download-artifact` v8
+        extracts straight into `path`, so publish found no result and
+        failed that site every night.
+
+      Both are fixed in `5a46bd67`, unreviewed. The host deletes anything
+      in the output that is not a plain file or a directory before the
+      upload, and each leg keeps only its own site's tree. Legs upload
+      `built/`, and publish downloads with `merge-multiple`. MB1–MB3 go
+      red; MB4 is a second layer. The 13 minors (CRLF and mode on
+      committed files, key order, one failed leg stops the whole publish,
+      the rebase committer identity, and others) are listed in #1143's
+      body. Nothing has run live; the first scheduled run is the
+      instrument.
+      - _Ask:_ (a) authorise one narrow review of `5a46bd67` alone (the
+        two fixes); land #1143 if it is clean, else back here. Or (b) land
+        #1143 now, with the first scheduled run as the instrument. _Pick:_
+        (a). The security fix closes a route to other clients' source and
+        a runner token, which is the class this PR exists to remove, and
+        a review of two small workflow steps is cheap. When the answer
+        comes, this session lands it, with
+        `node scripts/land-prs.mjs 1143` from a worktree detached at
+        `origin/main`. Adding `fleet-prismic-sync.yml` adds a scheduled
+        workflow whose first run is the instrument still to prove.
+
+    - **Answered 2026-10-06 ~00:00Z (AskUserQuestion): (a), the narrow
+      review, then land.** The review of `5a46bd67` was clean in all three
+      lenses (no blocker, no major). **#1143 landed 2026-10-06 ~00:35Z as
+      `7132170b`; item 72 is closed.** Still to prove: the first
+      scheduled `fleet-prismic-sync` run after a drift sweep on `main`.
+      Watch it end to end: the container build, `prismic gen` inside the
+      image, the artifact hand-off, the App's push, and whether GitHub's
+      "Update with rebase" committer really is `noreply@github.com`.
+      Follow-ups the review left as minors, none of them built:
+      - the cleanup step runs as `runner` over files the container wrote
+        as root, so a link planted inside a container-made directory
+        cannot be deleted. The leg fails, and one hostile site then stops
+        the whole night's publish. It fails closed. Fix: `sudo find …
+-delete`, or `sudo chown -R` first, plus a test with a root-owned
+        tree;
+      - `merge-multiple` gave up the per-artifact directory as a layer;
+        the comment on publish's gate overstates what it refuses;
+      - from the first review: CRLF and mode on committed files, key
+        order in the model check, a dry run that says `would-open` too
+        early, codegen output at unlisted paths dropped silently, one
+        failed leg stopping every site, and an in-sync site closing a held
+        branch's PR.
+
+73. **Merge reddoorla/data-dynamiq#59 (DRAFT `/privacy` and GA4) before item
+    45? (BACKLOG 49, new 2026-10-05.)** The PR is built and green and has been
+    through review. Round 1 (three lenses) found one major, an every-page
+    Vimeo script the policy misdescribed, fixed by removing the dead script;
+    round 2 found no blocker or major. Item 45 says the
+    DRAFT page goes to no client's live site until the lawyer's review, and
+    Data Dynamiq is live, so the worker did not merge it. Roalson was the
+    pre-launch precedent, so it never met this rule.
+    _Ask:_ merge data-dynamiq#59 (DRAFT /privacy + GA4) before item 45, yes or
+    no. _Worker's pick:_ yes. The page is marked DRAFT and `noindex`, and its
+    disclosures are derived from the site's own code. Without a posted policy
+    the site cannot run GA4 under Google's terms, and every day without the tag is data
+    the quarterly report can never recover. The remaining exposure is wording,
+    and item 45 reviews that wording once for every site. If yes, any session
+    lands it with `node scripts/land-prs.mjs` after attaching data-dynamiq.
+    Missing either way: the legal name, privacy contact email and effective
+    date render as placeholders (none is in the repo or on the Turso row).
+    Two follow-ups are recorded in the PR and the journal and are not built:
+    editor traffic (Prismic previews, `/slice-simulator`) on the production
+    host is counted, because `initAnalytics` gates on the hostname alone, and
+    that affects every tagged site.
+    **Answered 2026-10-05 ~18:45Z: yes, merge before item 45.** The PM session's `land-prs` on data-dynamiq#59 was refused by the cloud session's permission policy as a production deploy, so the merge itself is the operator's click (or a laptop `land-prs`).
+    **Extended 2026-10-05 ~21:05Z: "yes, do 1836dig and 29 Navy too"** (the
+    operator, in the Data Dynamiq session). Built as 1836dig#24 and
+    29-navy#73; see item 49.
+
+74. **Williamson Construction hero: upload three poster frames and publish
+    a release (williamson-construction-co#21, new 2026-10-05).** The code
+    half landed: the hero poster is now an `<img>` with a capped imgix
+    srcset, preloaded as the LCP image, and the video fades in on its first
+    `playing`. The poster itself is still the old Webflow still (home and
+    about-us 854×480, services 640×360). Frame 0 of each hero video matches
+    that still's shot and framing exactly, so this is a resolution fix, not
+    a design call. The session could not upload the frames: the Prismic
+    connector's `upload_asset` fetches only a public URL, and the session's
+    permission policy refused both a temp host and `prismic-media-upload.yml`
+    as public uploads. _Ask:_ (a) make the three frames and upload them, or
+    (b) allow this kind of upload for a worker session and re-dispatch it.
+    The frames are reproducible from the published files, with no master
+    needed:
+    `ffmpeg -i https://williamson-construction.cdn.prismic.io/williamson-construction/LZ8LHeWvz0PJscct_wc-teacher-1080.mp4 -frames:v 1 -q:v 1 wc-teacher-poster-1080.jpg`,
+    then the same for `yiKYtvDqi9GC3AAn_wc-first-day-1080.mp4` and
+    `phNtqvqI9BXXgKlF_wc-services-720.mp4` (services is 1280×720 at the
+    master). Set them as `page_hero.background_image` on home, about-us and
+    services in one release, three deltas, and publish it. No code change is
+    needed. The srcset reaches 1920w from the field's dimensions, and
+    desktop LCP should move from the video's first frame to the poster.
+    _Worker's pick:_ (a), because it is fifteen minutes by hand, against a
+    permission change that outlives this one task.
+    **Answered 2026-10-05 ~18:45Z: (a)** — the operator makes the three frames, uploads them and publishes the release by hand.
+    Closed 2026-10-12: carried by P0-5 (dated): the three poster frames, before the Wed 10-14 cutover.
+    - **Reopened 2026-10-12 ~16:00Z for a worker (the operator: "queue a
+      worker for the posters, have it ask me for whatever permissions it
+      needs"; branch `claude/relaxed-brown-tnc6lc`).** The frames are made:
+      1920×1080, 1920×1080 and 1280×720, frame 0 of the hero video each live
+      page uses (home: teacher, about-us: first-day, services: services).
+      Each is the same shot as its old still: SSIM 0.91, 0.86, 0.95 against
+      the stills, against 0.49 for a mismatched pair. None of the three is in
+      the library yet (113 assets, read 16:00Z). The cheapest upload route
+      needs no public host: POST each file from the container straight to
+      `asset-api.prismic.io` with the session's `WILLIAMSON_CONSTRUCTION_PRISMIC`
+      token. That is the same call `src/prismic/asset-api.ts` `uploadAsset`
+      makes. The token answers 200 on a read; a bogus token gets 403. Nothing
+      becomes public but the three assets on Prismic's own CDN. They go
+      public at upload, because Prismic serves every library asset
+      unauthenticated, and stay unused until the release publishes. The
+      alternatives are the 10-05 routes, a temp public host for `upload_asset`
+      or `prismic-media-upload.yml`; each puts the file on a third public
+      host first. _Ask:_ (1) may the worker upload by the direct Asset API
+      route? (2) Once the three deltas are staged in one release, may it
+      publish the release, or only stage it and link it for you? _Worker's
+      pick:_ (1) yes. (2) publish: the swap changes only the poster image,
+      frame-identical to today's, and one release restoring the three old
+      asset ids reverts it.
+      **Answered 2026-10-12 (AskUserQuestion): (1) yes, the direct Asset API
+      route; (2) yes, the worker publishes the release.**
+    - **Done 2026-10-12 16:06Z [M].** Uploaded by the direct route (asset ids
+      `03rQcyPF8o3914Sx`, `jCbfvl180cPKYSpQ`, `9SS-DzzmS4HsHi1J`), staged as one
+      release with three deltas, `background_image` only, and published:
+      <https://williamson-construction.prismic.io/builder/upcoming/as0E3xcAANU9etkN>.
+      Live on williamson-construction-co.netlify.app at 16:06:51Z, from the
+      second of two Prismic-hook deploys (the first, `6acd04e9`, built before
+      the publish was readable and still served the old stills). The hero
+      `img` srcset now reaches 1920w on home and about-us (was 768w) and
+      1280w on services (its native width; was 480w). Lighthouse, 3-run
+      mobile medians before → after: home 2813 → 2682 ms, about-us 2603 →
+      2784, services 2735 → 2822. These are within run spread (2390–3344), and
+      phones now fetch a larger poster: 20 → 50 KB, 22 → 91 KB, 18 → 66 KB.
+      On desktop the LCP element moved from the `VIDEO` to the poster `IMG` on
+      all three pages, as predicted (home 2520 → 1021 ms, one run each).
+
+75. **P1-25, the Prismic toolbar under the CSP baseline (#1157, issue
+    #1155): held after two dirty review rounds (new 2026-10-05).** The
+    branch is `claude/great-turing-v374rg`, head `b2592187`, CI green.
+    It adds `https://prismic.io/prismic-toolbar/` and the one html2canvas
+    file to `BASELINE_CSP`'s `script-src` (no `unsafe-eval`, no `blob:`), and
+    an optional `prismicRepository` that frames exactly
+    `https://<name>.prismic.io`. All four of the brief's mutations go red, and
+    so do five more that round 1 found. Round 1 found three minors, all fixed.
+    Round 2 found one more minor, which round 1's own fix introduced. When a
+    site unsets `frame-src`, the fold seeds it with `'self'` plus the host,
+    but browsers fall back to `child-src`, then `default-src`. So a site with
+    `default-src: ['self', 'https://www.youtube.com']` and no `frame-src`
+    loses YouTube frames once it names a repository. It is only reachable by
+    unsetting `frame-src` on purpose, because the baseline always defines it.
+    _Ask:_ (a) seed from `child-src`, else `default-src`, else `['self']`,
+    and land on a clean third review. Or (b) merge #1157 as it is and file
+    the seed as a follow-up. Or (c) refuse `prismicRepository` when the site
+    has unset `frame-src`. _Worker's pick:_ (a). It is a five-line fix with a
+    test, and it makes the JSDoc's claim true. Two nits from round 2 ride the
+    same push: `JSON.stringify` throws on a BigInt in the error message, and
+    the regex accepts a trailing hyphen and labels over 63 characters.
+    Separately, the security lens noted that the two script sources could be
+    gated on `prismicRepository`, as `analytics` gates GA. Without a framed
+    repository the toolbar never loads them. The brief puts them in the
+    baseline, so they stay there unless you say otherwise.
+    **Answered 2026-10-05 ~18:45Z: (a)** — seed from `child-src`, else `default-src`, else `['self']`, carry round 2's two nits, and land on a clean third review. A worker session is queued for it.
+    **Round 3 (this session, which was still open when the answer came; the
+    queued worker is not needed for the build): dirty too, so held again
+    (new ask below).** `51e56b1a` on the same branch seeds an
+    unset `frame-src` from `child-src`, then `default-src` (dropping
+    `'none'`). It also limits names to one DNS label and makes the error
+    message survive a BigInt. 61 tests pass, and 14 mutations all go red,
+    the brief's four included. Round 3 (`createSvelteConfig` output fed to
+    SvelteKit 2.70.2's own `Csp` class) found two minors. First, a site that
+    writes `frame-src: null` or `false`, or `child-src: false`, is treated as
+    a hand-written value, but SvelteKit drops falsy values, so the browser
+    sees no `frame-src` and the toolbar's host is blocked with no warning.
+    Second, no test pins that a string `child-src` (which blocks every
+    frame) stops the chain: a mutant that skips it and seeds from
+    `default-src` passes all 61 tests and would widen the policy. One nit:
+    an explicit `frame-src: ["none"]` emits `'none'` beside the host, which
+    browsers ignore but warn about. _Ask:_ (a) fix both (treat
+    `null`/`false` as unset at both steps, add the string-`child-src` test,
+    drop `'none'` on the explicit path too) and land on a clean fourth
+    round. Or (b) fix both and land without another round, since each fix
+    is a test plus a one-line condition. Or (c) merge `51e56b1a` as it is
+    and file both as a follow-up. _Worker's pick:_ (a). The round-3 defects
+    are in the same small function, and a fourth review is cheap.
+    **Answered 2026-10-05 ~21:00Z: (a). Round 4 is not clean, so this is held
+    again (new ask below).** `d5d1b1d7` takes the first truthy entry of
+    `frame-src`, `child-src` and `default-src`. An array is extended, minus
+    `'none'` and a hand-quoted `"'none'"`. A string is left as it is. 69
+    tests pass, and 18 mutations all go red. Round 4 ran the config through
+    SvelteKit 2.70.2's `validate_config` as well as its `Csp` class. The
+    emitted policy was right for every input it tried. But round 3's premise
+    was wrong. SvelteKit's validator (`string_array`,
+    `@sveltejs/kit/src/core/config/options.js:445`) rejects `null`, `false`,
+    `""` or a string in any CSP directive, so the header builder's
+    `if (!value) continue` that round 3 read is never reached. That leaves
+    the falsy-as-unset handling, its docstring and two tests resting on
+    inputs a real build refuses. It also hides a site's error when a
+    repository is named: `frame-src: null` builds, because the fold
+    replaces it with a valid list, but the same config without a repository
+    fails the build. Separately, nothing pins that `frame-src: []` blocks
+    every frame: a mutant that treats `[]` as unset survives and would seed
+    from `default-src`. _Ask:_ (a) go back to treating only a missing key as
+    unset (SvelteKit then refuses `null`/`false`/strings loudly, with or
+    without a repository), fix the docstring, add the `[]` and aliasing
+    tests, and land without a fifth round. The code returns to round 3's
+    reviewed shape, with only tests added. Or (b) keep `d5d1b1d7`'s
+    handling, fix the docstring and tests, and land. Or (c) a fifth round
+    after (a). _Worker's pick:_ (a), so a bad config fails the same way
+    whether or not the site names a repository.
+    **Answered 2026-10-05 ~22:50Z: (a). Done in #1157.** Only a missing key
+    counts as unset, and a non-array directive is left for SvelteKit to
+    refuse. `[]` and aliasing are pinned. 73 tests pass, and 19 mutations
+    all go red. Landed without a fifth round, as answered.
+
+76. **#1162, the evening pass: held after two dirty review rounds (new
+    2026-10-05, from its worker).** #1162 (draft, branch
+    `claude/great-johnson-mwzrbr`) adds a 17:18 PT "evening pass" to
+    `docs/pm-pass.md`, ending in one push notification. It also adds the
+    stored Routine prompt for you to paste, and
+    `scripts/evening-branches.mjs`, which flags a question that sits only on
+    a branch (#1143's miss) and commits with no PR (`jolly-keller`'s). Both
+    were proven on today's state, with two negative controls, and 25
+    mutations all go red.
+    - Round 1 found four majors, all fixed: the UTC date at 00:18Z,
+      squash-merged reused branches, substring branch matching, and a
+      case-sensitive ask pattern.
+    - Round 2 found one major, fixed on the branch but unreviewed. A branch
+      reused after its PR merged, and then merged with `main`, read `main`'s
+      commits as its own and was flagged stale. That is a false alarm, not a
+      miss. The fix is `git cherry origin/main <ref> <merged head>`,
+      reproduced in a scratch repo.
+    - _Ask:_ (a) merge #1162 as it is, then paste the Routine prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt"; or (b) run
+      a third review round first.
+    - _Worker's pick:_ (a). Every defect either round found was in the
+      direction of over-reporting or a wrong date, and the date is fixed and
+      reviewed. The one unreviewed fix is a small change with its own test
+      and mutation, and the pass never acts on what it flags.
+    - **Answered 2026-10-05 ~18:23Z: (a), merge #1162 as it is.** The operator
+      merged it at 18:38Z (`2849ba4d`), while `land-prs.mjs` was still gating
+      it. What remains is yours: paste the stored prompt from
+      `docs/pm-pass.md` → "The evening Routine's stored prompt" into a new
+      Routine (cron `CRON_TZ=America/Los_Angeles 18 17 * * 1-4`, push on, a
+      fresh session per fire). Until then no evening pass runs, though the
+      morning pass already runs the branch check (step 5).
+
+77. **The two Routines' schedules (new 2026-10-05, from the evening-pass
+    worker; nothing waits on it).** The morning Routine ("Reddoor Project
+    Manager") runs `48 11 * * 1-4`, a bare UTC cron, so it fires at 03:48 PT
+    from 11-02. Its stored prompt also tells it to call `list_sessions` /
+    `get_session`, which a Routine does not have. The evening Routine in
+    #1162 runs on the same Monday-to-Thursday days.
+    - _Ask:_ (a) extend both Routines to Friday (`1-5`), write the morning
+      cron as `CRON_TZ=America/Los_Angeles 48 4 * * 1-5`, and drop the
+      `list_sessions` line from its prompt; or (b) leave both at Monday to
+      Thursday.
+    - _Pick:_ (a). Otherwise workers started on a Friday morning end with
+      nobody reading them until Monday's pass. Either way, these are edits
+      in the Routines' settings, not a repo change.
+      **Answered 2026-10-05 ~18:45Z: (b), Monday to Thursday** — that is the operator's work week. Still open inside it, not re-asked: the morning cron is bare UTC, so it fires an hour earlier in PT after 11-02 [I], and its prompt names `list_sessions`, which a Routine lacks.
+
+78. **Mantis P5: run the matching gate from the laptop (#1107, new
+    2026-10-05).** P5's last "done when" is the matching gate at
+    1440/834/390 for `/`, one project page and `/contact-us`. It cannot run
+    in a cloud container: `matching/harness.json` points at
+    `~/.claude/skills/matching-a-page/page-diff.mjs`, a user-level skill
+    that is not in the container. No page has a `matching/SPEC.md` section
+    yet, and the matching rules refuse a geometry round without one (Phase
+    1 first). Everything else in P5 is done and measured (see P1-30).
+    _Ask:_ run Phase 1 and the gate in a laptop session, or waive the gate
+    for launch. _Pick:_ run it, starting with `/`; the Blux capture under
+    `matching/spec/` is already in the repo, so a laptop session can begin
+    at Phase 1 with no new capture.
+    **Answered 2026-10-05 ~18:45Z: run it** — Phase 1 and the gate in a laptop session, starting with `/`. A worker card is queued (laptop only).
+
+79. **CalTex: put Erik's Our Story copy and family photo in Prismic, publish,
+    then merge caltex-landing#71 (new 2026-10-05, Erik in #caltex 18:29Z).**
+    The code half is ready and unmerged:
+    [caltex-landing#71](https://github.com/reddoorla/caltex-landing/pull/71).
+    It renames `/leasing` to `/aed-programs` and `/purchases` to `/our-story`,
+    with 301s (all four old paths, `/preview/…` included, proven on the
+    deploy preview). It also changes the nav labels, titles and sitemap, sets
+    the story copy at 24px (18px under 1024), and frames the photo
+    `object-cover object-right`. The content half could not be staged: the
+    Prismic connector answers "Prismic MCP is not activated for repository
+    caltex-landing" to every call, `list_releases` and `upload_asset`
+    included. So no release exists. Before and after at 1440 and 390, with
+    the copy injected in the browser:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix (private to you).
+    _Ask:_ in Prismic, open the `home` document (`Z38tQRIAACcALhJe`) and
+    make these edits:
+    - `s3 title`: replace the text with paragraph 1.
+    - `s3 closing text`: replace the text with paragraph 2. It was not
+      rendered before #71, which renders it as the second paragraph.
+    - `s3 image`: upload `Kohnen-Family_crop.jpg` from
+      `https://www.dropbox.com/scl/fi/sswmsdq01iaycppg02x8k/Kohnen-Family_crop.jpg?rlkey=0s1a4uc3ohgw9q0xk99uob4sp&dl=1`.
+      Set its alt to "Ryan and Lacey Kohnen, founders of Caltex Medical, with
+      their family".
+    - Optionally, `s2 eyebrow` → "AED Programs starting at $68 per month
+      include:". No page renders it.
+
+    Paste the two paragraphs from Erik's Discord message
+    (`1556735086710235317`) or from here. Both keep his U+2011 non-breaking
+    hyphens:
+
+    > Boerne residents Ryan and Lacey Kohnen founded Caltex Medical, Inc. in 2025 with a mission to deliver cost‑effective, fully managed, life‑saving AED programs to schools, churches, youth sports organizations, and smaller organizations. Ryan’s experience working for an AED manufacturer from 2015–2017 introduced him to numerous survivors of Sudden Cardiac Arrest (SCA) whose lives were saved because an AED was accessible and properly maintained. He also saw firsthand how many organizations struggled to afford, manage, and keep their AED programs compliant.
+
+    > Driven by a commitment to strengthen the safety of the community they are active in, Ryan and Lacey built Caltex Medical to ensure that schools, churches, and families throughout San Antonio and the Texas Hill Country have reliable, ready‑to‑use AEDs — giving every SCA victim the best possible chance of survival.
+
+    Then publish, merge caltex-landing#71 (or let a session land it with
+    `land-prs`), and tell Erik. Merge order matters: if #71 goes live first,
+    `/our-story` shows the old "Interested in purchasing…" line under the
+    "Our Story" heading. Also open: #71 keeps the five purchase bullets and
+    the Request Info button under the story. Erik named them only as a size
+    reference. _Worker's pick:_ do the edits by hand. It is a five-minute
+    edit, and you are in Prismic to publish anyway. Activating MCP
+    (https://caltex-landing.prismic.io/builder/settings/mcp/) is the
+    durable fix for the next CalTex worker. Keep the bullets until Erik says
+    otherwise, and use 24px over the 20px alternative on the evidence page.
+
+    **Staged 2026-10-05 ~20:25Z, after the operator activated Prismic MCP:
+    publish CalTex release `asQFsBIAABYMgAt2` ("Our Story + AED Programs
+    (Erik 2026-10-05)"), then merge caltex-landing#71, then tell Erik.** The
+    release holds one document (`home`) with four deltas: `s3_title` and
+    `s3_closing_text` (Erik's paragraphs, U+2011 kept), `s3_image` (the
+    family photo, asset `L7bvh5WEjejahKwq`, 2073×1930, with the alt text
+    above), and `s2_eyebrow`. The manual steps above are no longer needed.
+    Preview at 1440/390, now in the site's real fonts:
+    https://claude.ai/artifact/2Y4NJibfvYqtdKgoiM8Qix. One cleanup is
+    yours: the asset library has a stray copy of the same photo,
+    `_t3eeXeDKfYMiE5v`, filed as a "document". Dropbox's download host
+    serves the JPEG as `application/json`, and Prismic believed the label.
+    Nothing references it, and deleting it from the library is safe.
+
+    **Done 2026-10-05 21:17Z:** the operator published release `asQFsBIAABYMgAt2`; caltex-landing#71 merged and is live. On www.caltexmedical.com, `/leasing`, `/purchases` and `/preview/leasing` return 301, `/our-story` serves Erik's copy and the family photo, and the sitemap lists the new paths. Left for the operator: tell Erik, and delete the stray `_t3eeXeDKfYMiE5v` asset.
+
+80. **mantis-landscaping#29, matching round 1 chrome: held after two dirty
+    review rounds (new 2026-10-05, P1-30 / #1107).** #29 (branch
+    `claude/p5-matching-r1-chrome`, head `15b1fc4`, CI green on `7578ef1`)
+    puts the nav in flow and sticky at 70px, gives the footer the
+    reference's box, and makes the gate countable: `top` passes at all four
+    widths.
+    - Round 1 found one major, fixed and confirmed in round 2. With
+      `scroll-padding-top: 70px` on `html`, every focus inside the stuck nav
+      scrolled the page (1500 → 1078 tapping Close at 390). It also found
+      two wrong citations (the offset and the gutter evidence) and four
+      unguarded behaviours, all fixed or ledgered.
+    - Round 2 found one minor, now fixed but unreviewed. The skip link
+      targets `<main id="main-content">`, which `main [id]` did not cover,
+      so main landed under the nav. The rule is now `main, main [id]`, with
+      a skip-link smoke test at 1440/390. Mutations M8 and M9 both go red.
+    - _Ask:_ (a) land #29 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). The unreviewed change is one selector, with its
+      own red-on-mutation test. The carousels batch (branch
+      `claude/p5-matching-r1-carousels`) is the next round either way.
+    - **Closed [M, 2026-10-06, mantis-landscaping `main`]:** #29 landed
+      10-05 23:37Z as `fa96aa7`, and the carousels round as #30 (`1150d1a`,
+      10-06 00:00Z).
+
+81. **Publish Roalson release `asP91BIAAH8K23X-` ("2026-10-05 final round:
+    map pin corrections") after linking two files (new 2026-10-05, Erik's
+    final-round list).** The release holds 23 documents:
+    - **Pins.** 8 pins moved onto their parcels. Each was checked against
+      the parcel outline in its own package aerial and against Esri
+      imagery. The before and after coordinates are in the roalson PRs and
+      the journal. The other 14 pins were already on their parcels.
+    - **Aerial crops.** 14 feature-image crops keep the whole outlined
+      parcel visible in every frame the site draws them in, measured at
+      1440, 834 and 390: aspect 0.81 (the 834 carousel) to 1.71 (the
+      homepage band).
+    - **New listing.** `hwy-46-at-spencer-ranch-blvd`, 61.81 acres, built
+      from Matt Howard's intake form.
+
+    _Before publishing:_ upload `hwy-46-at-spencer-ranch-feature.jpg` and
+    `hwy-46-at-spencer-ranch-package.pdf` to the Roalson media library
+    (they are in the session scratchpad's `for-prismic/`), or tell a
+    session where they are. The session links them and crops the aerial at
+    (0, 688, 900×710). The listing's open questions for Erik (transaction
+    type; flood plain, where the survey says part is in zone A; Tract 2;
+    and others) are in the package PR. _Pick:_ publish once the two files
+    are linked; the questions don't block it.
+    **10-06 ~11:58Z [M, `list_releases` on `roalson-interests`]:** still
+    unpublished; it is the repository's only release.
+    **10-08 ~18:10Z [M, `diff_release`]: ready to publish.** Both files are
+    uploaded (`PdZtQfQJVpiQ5wti` PDF, `XInzKwHTlKH1BMzH` aerial) and linked
+    on the listing, and nothing else in the release changed. The release
+    holds 15 documents, not 23: 14 crops, 8 of them with pin moves, plus the
+    listing. The crop moved 5 px off the agreed one, to (5, 685, 895×710).
+    The source's first 5 columns are white page margin, and they showed as
+    a white line on the detail photo. The outline stays whole in every
+    frame, measured in a browser through the release content at 1440, 834
+    and 390. The tightest frame is the 834 Land carousel card, at aspect
+    0.763, with 9 px to spare. The package link opens the PDF inline in a
+    new tab. Publishing puts the 14 crops and 8 pin moves live together
+    with the listing. _Pick:_ publish now. If Erik corrects the package (the
+    floodplain first), rebuild the PDF afterwards and relink it in a
+    one-document release. The live package leaves the floodplain line out
+    rather than stating anything false. Hold only if Erik changes the
+    listing itself (Tract 2 would change the 61.81 acres).
+    **Answered 2026-10-08 (AskUserQuestion): publish now.** Published
+    18:12Z via the Prismic connector. Live on roalson-interests.netlify.app
+    at 18:14Z: the listing serves the PDF link and the (5, 685) crop, and
+    the outline frames measure the same as the preview. A package rebuild,
+    if Erik corrects it, is a new one-document release.
+    **10-08 ~19:31Z [M, live page]:** the package is now the new-template
+    version (11 pages). The 10-05 one had copied the old Word template. It
+    was rebuilt with the 09-29 generator, which lives only on unmerged
+    roalson-interests branches (`claude/nifty-dirac-2zmegy`, and this
+    listing on `claude/listing-packages-spencer-ranch`). It is in Dropbox
+    beside the other 22. Its FEMA page prints about 4% of the site in
+    Zone A. The other 22 listings still link the old packages on the site;
+    see the 2026-10-08 19:31 journal entry. The Dropbox file request
+    `jh6y6vw6vpc8u4ip4a71` is still open: close it under Dropbox → File
+    requests.
+    **10-11 [M, Dropbox `list_file_requests`]:** four requests are open, not
+    one. Besides `jh6y6vw6vpc8u4ip4a71` (10-08), the 09-29 refresh left
+    `iyz37ta31o0q6luhveaj`, `ppalikt0nhktpla2iawb` and `szf5iq8hu7vj0if46524`
+    open, each described as "temporary … will be closed after upload".
+    _Ask:_ close all four under Dropbox → File requests.
+    Closed 2026-10-13 [M, Dropbox `list_file_requests` at ~11:58Z]: all four
+    requests read `is_open: false`, and the listing ends with
+    `has_more: false`.
+
+82. **Two Roalson aerials cannot show the whole parcel in the existing card
+    frames (new 2026-10-05, stop condition).** Loop 1604 at Dove Canyon
+    needs a crop 1,371 px wide from a 1,200 px source, and 5930 Bandera Road
+    needs 1,318 px. Both are tall parcels on portrait map pages. They don't
+    fit even if only the landscape frames (1.06–1.71) count. _Ask:_ (a)
+    ask Matt for a landscape aerial of each; (b) letterbox these two
+    (`object-contain` on the card's ground), which is a design change;
+    (c) accept a crop that trims the top and bottom of the outline.
+    _Pick:_ (a); it is content only, and both stay as they are until then.
+83. **The Roalson map rework waits on Nicole's design (new 2026-10-05).**
+    Erik's list: a bigger map, a smaller list, and "the map dictates the
+    listings" (panning or zooming filters the list). Nicole said at 19:12Z
+    that she would adjust the design that day. Nothing had arrived in the
+    channel by the end of this session, so nothing was built. Erik's
+    10-02 hover-to-select already shipped as roalson-interests#253 (200 ms
+    rest), so the brief's "will look Monday" is stale. Fold any change to
+    it into the rework. _Ask:_ none until the frame exists; then a worker
+    builds it as its own PR.
+    **10-06 22:03Z [M, Discord #roalson-interests]: Erik picked Option 1**
+    of Nicole's "Full Screen Map" frame (`7153:969`): from `lg` the
+    Properties page's map is 925 of 1440, full bleed, beside a 515 panel
+    showing one listing at a time. The operator confirmed the reading the
+    same evening: the map holds still on its opening frame, a pin press
+    turns the panel, the arrows move only the highlight, and there is no
+    filter by viewport. Built as roalson-interests#270. Hover-to-select (#253) goes
+    with the stacked list it lived in.
+    **10-08 15:39Z [M, Discord #roalson-interests]: Erik, "the map+listing
+    width breaks the grid".** Measured on production: from `lg` the pair was a
+    centred 1440 box with no gutters, 80px outside the nav, footer and section
+    rule each side at 1280, 1440 and 1920, 32 at 1024. roalson-interests#278
+    (landed 16:27Z as `ee96b2c`)
+    puts it on the page's `GUTTERS`; phone and tablet unchanged. The map is
+    narrower than Nicole's full-bleed frame now (813 of 1440 at 1440); the
+    reply for Erik in the PR names her to confirm the shape.
+
+84. **roalson-interests#263 (Improved Properties, and the menu with ABOUT
+    US): held after two dirty review rounds (new 2026-10-05).**
+    - Round 1 found three things: choosing ABOUT US sent focus back to the
+      menu button (major), the no-script bar grew a third chip, and nits.
+    - Round 2 found that focus still touched the menu button for one frame
+      before reaching the band (minor).
+    - Both are fixed at the PR's head. The focus order is traced as: menu,
+      close, the About Us link, then the band. `menu-about.spec.ts` is red
+      when the landing is disabled.
+
+    ABOUT US links to `/#about`, the homepage's "Our legacy" band, because
+    the site has no About page. That reading of the client's menu is the
+    worker's own. _Ask:_ (a) land without a third round; (b) a third round;
+    (c) the menu should point somewhere else. _Pick:_ (a), with
+    `land-prs 263 --repo reddoorla/roalson-interests`.
+    **Answered 2026-10-05 ~23:10Z (operator): (a), "your about us thought
+    is right".** #263 lands without a third round, and ABOUT US stays on
+    `/#about`. **Landed 10-05 23:26Z as `1595756` [M, roalson-interests
+    `main`].**
+
+85. **CalTex on Prismic slices: merge `staging` into `main` (new 2026-10-05,
+    operator's ask the same evening).** The site now renders every page from
+    slices on caltex-landing's `staging` branch
+    ([caltex-landing#74](https://github.com/reddoorla/caltex-landing/pull/74)).
+    The models went to `main` in caltex-landing#73, inert, because
+    `prismic-models` pushes only from `main`. The content is published as
+    release `asQvEBIAAHEPgEox`, and the live site was unchanged by it,
+    measured before and after. `staging` against live `main`: 14 screenshots
+    (five pages at 1440 and 390, plus the open nav) are pixel-identical, and
+    text, images and alt text, links, ids, titles, meta and nav hrefs match.
+    The sitemap lists the same five URLs, adding `lastmod`. That comparison
+    is a clean build of `staging` at `23763ef`: Netlify deploys neither the
+    `staging` branch nor previews for PRs into it, so there is no hosted
+    staging URL to look at. _Ask:_ merge
+    `staging` into `main` when you want editors working in slices; it is the
+    production deploy. _Worker's pick:_ merge it as is. After the merge, the
+    old `home` fields `s1`–`s8` are unrendered; deleting them is a manual
+    model edit in Prismic, optional and not urgent.
+    **10-06 ~11:58Z [M, `git ls-remote`]:** still open. `staging` is at
+    `23763ef` and `main` at `f4d5291`, which does not contain it.
+
+    **Done 2026-10-06 14:19Z:** the operator merged caltex-landing#75 (`staging` → `main`), after a draft PR got Netlify to build a preview (deploy-preview-75, pixel-identical to live on all 14 shots). After the deploy, live is the slice version (`data-slice-type` markers), pixel-identical to the pre-merge capture on all 14 shots, with the same 301s, 404 and sitemap URLs.
+
+86. **#1195, the backup verify now checks contents: held after two dirty
+    review rounds (new 2026-10-05, from the refute-claims critic's
+    `blob_bytes` question).** `verify-dump` compared row counts and summed
+    `header_image` length only. On a real production dump, one flipped blob
+    byte verified clean on `main` (`mismatches=0`, exit 0). #1195 (branch
+    `claude/compassionate-hypatia-jtydgw`, head `9a93374`) adds a sha256 per
+    table to the manifest and compares it on restore, and that same dump now
+    goes red. The unchanged `blob_bytes` from 10-01 to 10-05 was real: no
+    header image was written between sonder's (09-30 21:02Z) and today's
+    five (18:37Z).
+    - Round 1 found two latent minors, neither reachable with today's data.
+      SQLite misparses some shortest-form doubles by one ULP, which would red
+      the hash every night; fixed by writing fractional REALs with 17 digits.
+      A whole-number REAL of 2^53 or more in an untyped column would crash
+      the verify loudly; left as is, because the only such column holds
+      bytes.
+    - Round 2 found that the fix missed integer-valued doubles of 2^63 or
+      more. That is fixed in `9a93374` with a test that a mutation turns red,
+      but the fix is unreviewed.
+    - _Ask:_ (a) land #1195 as it is; or (b) run a third review round first.
+    - _Worker's pick:_ (a). Both rounds' defects are false-RED paths that
+      need REAL values the fleet does not store (every REAL is rounded or an
+      integer sum, and a fresh production dump verifies clean). The
+      unreviewed change is one bound with its own test. Land with
+      `node scripts/land-prs.mjs 1195`.
+    - **Answered 2026-10-05 ~23:40Z: (b), a third round.** Round 3 found no
+      blocker. Its one minor: past 2^53, `String(v)` is not the double's
+      digits (`String(2 ** 60)` is `1152921504606847000`), so a whole-number
+      REAL in an untyped column restored as a different INTEGER. **Answered
+      ~00:05Z: apply the fix, then land.** Every number that is not a safe
+      integer now goes out as `toExponential(16)` (`d1fa151`), pinned by a
+      test that three mutations turn red. Landed with `land-prs.mjs`.
+87. **Dead letters wait two replay cycles before they alarm? (new 2026-10-05,
+    from issue #1190's inventory.)** A dead letter on a site the fleet knows
+    is a CRITICAL cockpit and digest item from its first row, and the ask
+    says "run `db replay-deadletters`". Since MED-10(a),
+    `forms-deadletter-replay.yml` drains the queue every 6h on its own, so
+    under the 2026-10-05 "just wait" rule it is a (iii) signal. It was left
+    as (i) in #1190 because muting a lost-lead alarm is the operator's call,
+    and the threshold needs the oldest unreplayed row's `received_at`, which
+    changes the query-plan-gated dead-letter count queries.
+    - _Ask:_ (a) wait two replay cycles (12h from the oldest unreplayed
+      row's `received_at`) before alarming, for a slug that resolves to a
+      site; (b) keep alarming from the first row.
+    - _Worker's pick:_ (a). A slug that resolves to no site stays CRITICAL at
+      once either way: replay cannot place it.
+
+88. **Best-practices 78 on five maintained sites: roll the starter's two
+    fixes out as five per-repo PRs (new 2026-10-06, from the bp-78 worker,
+    branch `claude/trusting-brahmagupta-413csl`).** Every 78 is the same two
+    audits: `third-party-cookies` (weight 5) and `inspector-issues` (weight
+    1), 6 of 27 points, failing in 3 of 3 runs [M: the branch's new
+    `LIGHTHOUSE_FAILURES` lines on fleet-lighthouse run 37393496930, and the
+    same result from a container run of the nightly's exact lhci config]. Two
+    third-party cookies set them, and the starter already fixes both:
+    - **Vimeo's Cloudflare `__cf_bm`** on Espada, MSOT, Revogen and
+      Vineyard. Their `ScreenWidthImage`/`ScreenWidthMedia`/`TwoCol`/
+      `ContentWidthMedia` render the `player.vimeo.com` iframe on load. The
+      starter's `VimeoBanner.svelte` (and Vida's `VimeoBackground.svelte`)
+      creates it only after a real pointer, wheel, key or touch event, which
+      no audit produces. 29 Navy and Vida were never controls for this: their
+      audited homepages request no Vimeo player at all.
+    - **The Prismic toolbar's `io.prismic.previewSession`** (about 21
+      cookies) on ERP and Vineyard. Both hard-code
+      `<script src="https://static.cdn.prismic.io/prismic.js?...">` in
+      `src/app.html`, outside the `isPreviewSession` gate that already wraps
+      `<PrismicPreview>` in their layouts. Deleting the tag is the fix; real
+      previews still get the toolbar through the gated component.
+    - **Data Dynamiq is already fixed.** data-dynamiq#59 (merged 21:02Z)
+      deleted `player.vimeo.com/api/player.js` from `app.html`; the branch's
+      dispatches and a direct run read 100. The PM pass ruled #59 out because
+      it merged after the 78 run; it was in fact the fix.
+    - _Ask:_ (a) a worker opens the five per-repo PRs (Espada, MSOT, Revogen:
+      Vimeo; Vineyard: Vimeo and the `app.html` tag; ERP: the `app.html`
+      tag), each checked by a deploy-preview Lighthouse run before merge; or
+      (b) leave them and accept "best practices" per site in the cockpit.
+      _Worker's pick:_ (a). Each change is one component swap or one deleted
+      tag, the starter's components are already proven in production on
+      Vida, and 78 sits only three points above the cockpit's floor of 75.
+      MSOT (`color-contrast`, `heading-order`) and Vineyard (`image-alt`,
+      `color-contrast`) also fail accessibility, which the same nightly now
+      names; that is separate work.
+    - **This is what the held October sends (P0-4) wait on.** Data Dynamiq
+      reads 100 live, but its draft keeps 78: "refresh preview" re-renders
+      from the report row's stored `lighthouse` scores
+      (`src/reports/send/render-from-row.ts:67`), not from `site_health`. So
+      clearing a stored 78 takes a re-draft once the live score is right, for
+      Data Dynamiq now and for the other three after their PRs deploy and a
+      nightly re-stamps them. How to re-draft a held row is your call.
+    - **Answered 2026-10-06 ~14:05Z (operator, to the PM cockpit): (a).** A
+      worker card is queued with the brief from the 10-06 morning report
+      ("Roll out the two best-practices cookie fixes"). How to re-draft the
+      held rows is still open, and the sends stay held until the scores
+      improve.
+    - **2026-10-06 ~16:00Z [M]: three shipped, two open.** The queued
+      worker's PRs (branch `claude/modest-sagan-w1n4h6`) were landed by the
+      bp-78 session at the operator's "ship them all": espada#80
+      (`e912bd6f`), medical-solutions-of-texas#73 (`1e071df1`) and revogen#92
+      (`ab87ca16`). Production read through the nightly's exact lhci config
+      after the deploys: best-practices 1.0 on Espada and Revogen (3 of 3
+      runs) and on MSOT (3 of 3, re-run at 15:58Z; an earlier run caught a
+      deploy switchover 502). The previews read 0.96, all of it Netlify's
+      preview drawer cookie. MSOT accessibility is still 0.92 (separate).
+    - **2026-10-06 16:19Z [M]: all five read 100.** vineyard-custom-homes#73
+      (`b73d59b`) and erp-industrial#70 (`b3d7671`) were merged at
+      15:56–15:57Z from another session. fleet-lighthouse run 37492146619
+      wrote `bp_score` 100 for Data Dynamiq, ERP, Espada, MSOT, Revogen and
+      Vineyard; its only `LIGHTHOUSE_FAILURES` lines are MSOT's and
+      Vineyard's accessibility. The held October drafts still store 78 and
+      need a re-draft.
+
+    **Done 2026-10-06 16:03Z [M]:** five PRs, all merged:
+    espada#80, medical-solutions-of-texas#73 and revogen#92 (the operator,
+    15:51Z), then vineyard-custom-homes#73 and erp-industrial#70
+    (`land-prs.mjs`, 16:00Z). Each was merged at the head that had gone
+    green. Live best practices reads 100 on all five, 3 of 3 runs each,
+    15:57–16:03Z, against 78 in 3 of 3 runs before. The runs used the
+    nightly's deployed-mode settings, and Data Dynamiq read 100 first as
+    the control. `VimeoGate.svelte` (the four Vimeo repos) mounts every
+    Vimeo iframe only after a pointerdown, pointermove, wheel, keydown or
+    touchstart, page-wide. The `app.html` `prismic.js` tag is deleted on
+    Vineyard and ERP. Deploy previews read 96, not 100, because Netlify's
+    own preview drawer (`/.netlify/scripts/cdp`, previews only) sets an
+    `app.netlify.com` cookie. With it blocked, every preview read 100,
+    while production under the same block still read 78. Turso's
+    `site_health.bp_score` keeps 78 until the next nightly re-stamps it.
+    The held October drafts still store 78 (last bullet above, the
+    operator's call). ERP still carries a Vimeo `Hero` and `SlideOverlay`
+    that its home page does not render. If a page that renders one is
+    ever audited, it will set `__cf_bm` again.
+
+89. **#1205, the nightly names failing Lighthouse audits: held after two
+    review rounds (new 2026-10-06, branch
+    `claude/trusting-brahmagupta-413csl`, head `49cc0133`, CI green).** It
+    adds the `LIGHTHOUSE_FAILURES` line, `site_health.lighthouse_failing_audits`
+    (migration 0040, already applied to live Turso by its branch dispatches)
+    and a dashboard line; it is the evidence behind item 88. Round 1 found two
+    defects (an errored audit was dropped, a missing assertion file cleared
+    the column) and seven test gaps; all fixed, and 22 of 22 mutations go
+    red. Round 2 found no blocker or major and one minor that predates the
+    PR: when lhci dies mid-collect, leaving one or two lhr files and no
+    `assertion-results.json`, the audit reports `pass` and "all categories
+    passing" even though nothing was asserted. The PR now leaves the stored
+    list alone in that case, so the dashboard can show an old list under a
+    fresh "Last audited" while the log says pass.
+    _Ask:_ (a) land #1205 as it is and fix the status in a follow-up
+    (`warn` when no assertions were read and lhci exited non-zero); or (b)
+    fix it in #1205 and run a third round. _Worker's pick:_ (a). The defect
+    is older than this PR, the follow-up is a three-line change with its own
+    test, and until #1205 lands the nightly cannot name the audits behind a
+    score. Land with `node scripts/land-prs.mjs 1205`.
+    **Answered 2026-10-06 ~14:05Z (operator): land it.** The PM cockpit's
+    `land-prs.mjs 1205` updated the branch (`49cc013` → `c45c232`); the
+    operator merged it at 14:16:03Z (`6728d61a`) while the checks were
+    green. The follow-up is P1-32.
+
+90. **CalTex: Erik's orange-line fixes (new 2026-10-06, Discord #caltex
+    13:43Z, raised by the operator).** Erik asks for three changes to the
+    AED Programs icon labels: remove the double spaces
+    (`Life-Saving  AED Customized  to`, `Battery and  electrode`), put a hard
+    return after the comma in "No long-term commitment, 12-month terms.",
+    and keep "12-month" on one line. The double spaces are in the published
+    Home doc's `s2_icons` labels (Key Text), and in several other fields of
+    the same doc [M, Prismic `get_document`]. A worker card is queued ("Fix
+    CalTex double spaces and the 12-month line break"). The line break
+    touches code on `main` and on `staging` (item 85).
+    **Note (2026-10-06 ~15:05Z, the slices session):** since item 85 went
+    live at 14:19Z, these cards render from the `aed-programs` page
+    document (`asQvOxIAAC0AgEpz`), Icon Grid slice, `cards[].label`, not
+    from Home's `s2_icons`; editing Home changes nothing on the site. The
+    "double spaces" are U+2028 line separators, not spaces (for example
+    `Battery and \u2028electrode`), copied byte for byte from Home, which
+    the browser draws as a gap. `staging` is merged, so the line break is
+    code on `main` only (`src/lib/slices/IconGrid/index.svelte`).
+
+    **Staged and half live, 2026-10-06 ~14:50Z: publish CalTex release
+    `asUDwhIAAMIrgcs0` ("AED Programs labels (Erik 2026-10-06)"), then
+    paste Erik his reply.** The `staging` half is moot: #75 merged it into
+    `main` at 14:19Z. The code half is live:
+    [caltex-landing#76](https://github.com/reddoorla/caltex-landing/pull/76)
+    merged 10-06 14:45Z as `d3dd1c0`. It renders a newline in an icon
+    label as a line break and changes nothing else on the page. The
+    release holds two documents:
+    - **`aed-programs`**: the two labels without their "double spaces", and
+      `No long-term commitment,` + newline + `12‑month terms.` (U+2011).
+    - **`home`**: the same three labels, plus 7 cleaned fields that no page
+      renders.
+
+    The "double spaces" were U+2028, an invisible line separator, not
+    spaces. There were 15 in 12 fields. Before and after at 1440 and 390:
+    https://claude.ai/artifact/VgQriRLsE6Yf9Tdyc8S4zQ. At 390 "terms."
+    still wraps under "12‑month", because the text column is 140 px wide.
+    Keeping the two words together pushed them 13 px past the card's edge.
+    _Ask:_ publish the release, then paste this in #caltex:
+
+    > Done! Those double spaces were actually hidden line-break characters from the original copy, so I cleaned them out of both lines (and a few other spots that had the same thing). "No long-term commitment," now ends its line with "12-month terms." under it, and 12-month won't split anymore. On phones the cards are narrow, so "terms." can still drop to its own line, but 12-month stays together.
+
+    _Worker's pick:_ publish as is. One thing is unchecked. Prismic's
+    single-line Key Text input might drop the stored newline the next time
+    someone saves that label by hand. If it does, the label wraps on its own
+    again, as it did before.
+    Separately, on the live site the cards' longest words ("replacements")
+    already run past the card's right edge at 320, 360 and 768 px. That
+    predates this change and has no item yet.
+    Closed 2026-10-11: the release is live. www.caltexmedical.com/aed-programs
+    has no U+2028 and carries `No long-term commitment,` + newline +
+    `12‑month terms.` [M, curl 14:00Z], and the operator told Erik "both
+    fixed" in #caltex at 10-06 20:08Z [M, Discord]. Prismic's
+    `list_document_publications` for caltex-landing shows nothing after
+    10-05 23:16Z, so that log is not a complete record of what is live.
+
+91. **Re-draft the four held October drafts that store best practices 78
+    (new 2026-10-07, the Wednesday PM pass; item 88's last bullet made
+    concrete).** Data Dynamiq, Espada, Revogen and Vineyard Custom Homes
+    have unsent Maintenance 2026-10 rows storing `bestPractices` 78, while
+    `site_health.bp_score` reads 100 for each since fleet-lighthouse
+    10-06 16:19Z [M, SELECT-only]. Due 10-05, so two days late on 10-07.
+    Nothing on `main` refreshes an unsent row's scores: "refresh preview"
+    and `report-rerender` re-render from the stored `lighthouse` field
+    (`src/reports/send/render-from-row.ts:67`), and the `--due` path never
+    re-drafts a (site, type) already drafted this cycle
+    (`src/cli/commands/report.ts:431`). Withdrawing is not a re-draft: a
+    withdrawn draft becomes the base of `nextDueDate`
+    (`src/reports/due.ts:114-126`), so the next report moves a cycle later
+    [M, code read].
+    _Ask:_ (a) a worker adds a path that re-reads `site_health` into an
+    unsent row's stored Lighthouse scores (a `report-rerender` input or a
+    `report` flag), with a test, then you refresh and approve; (b) approve
+    the four now with 78; or (c) withdraw them and skip October.
+    _Pick:_ (a). It is small, and a 78 sent after the fix shipped misreports
+    the site to its client. LAHI stores 100 and is not part of this ask.
+    **Answered 2026-10-07 ~12:10Z (operator, to the PM cockpit): (a).**
+    Queued as P1-34, with a brief in the 10-07 morning report's cockpit
+    section. The sends stay held until the four rows read their live scores.
+    **P1-34 landed 2026-10-07 (issue #1236).** The workflow builds from
+    `main`, so no release is needed. **Next, for you:** press "refresh
+    preview" on the `/s/<slug>` pages for Data Dynamiq, Espada and Revogen.
+    The button only says "Queued"; after about two minutes, "draft preview ▸"
+    shows best practices 100 (the preview is no longer cached). The
+    report-rerender run's log in Actions names the change
+    (`scores=refreshed scores_change=…bp:78→100`). The refresh takes all four
+    of the site's current scores, so any other score that moved since the
+    draft moves too, and the log names it. Then approve them. **Vineyard is not in
+    this:** its row was approved from the dashboard at 15:21:53Z with 78.
+    A refresh keeps an approved row's scores (`scores=locked`), and you
+    chose on 10-07 ~15:30Z to let it send at 78 in the 10-08 09:23Z run.
+    Closed 2026-10-11: all four are sent. Espada, LAHI and Revogen went at
+    10-08 16:40Z after their refreshes, and Data Dynamiq at 10-09 16:08Z
+    after its refresh (`bp:78→100 lookup=resolved`) [M, report rows,
+    SELECT-only].
+
+92. **#1232, P1-33(a) directive-citation check: held after two dirty review
+    rounds (new 2026-10-07, #1230).** #1232 (branch
+    `claude/p1-33a-directive-refs`, head `305b5422`) adds
+    `scripts/directive-refs.mjs` and its test, the asking rule's new order
+    in `CLAUDE.md`, and the "land as is" line. On `413bb029` it lists exactly
+    the three dead citations #1224 fixed by hand; on `main` it exits 0; all
+    11 mutations go red.
+    - Round 1 found no blocker; its latent false FAILs were fixed in
+      `305b5422`.
+    - Round 2 found two minors, both reproduced through
+      `node scripts/directive-refs.mjs --root <fixture>`: (1) a regression
+      from round 1: a citation of a dead heading written with curly quotes
+      (→ “Gone rule”) or as a link (→ [Gone rule](x)) is no longer counted,
+      so the run exits 0 where round 1 exited 1, and the test comment
+      wrongly says such citations fail loudly; (2) in a blockquoted list,
+      a valid unquoted citation followed by a second `> -` item is reported
+      dead as "Concurrent sessions - next item", because the list-item test
+      runs before the `>` is stripped. Neither bites the real tree today
+      (10 citations, all resolve).
+    - _Ask:_ (a) fix both (about five lines: put `“` and `[` back in reach of
+      the unquoted shape, or read them as quoted and link shapes; strip `>`
+      before the list-item test), add a fixture and a mutation for each, and
+      land without a third review round; (b) land as is and file both as a
+      follow-up; (c) fix both and run a third round.
+    - _Pick:_ (a). Both fixes are local to one function each and each gets
+      a fixture that goes red without it; the rule bars "land as is" as the
+      worker's pick while (1) is a reproduced false PASS.
+      **Answered 2026-10-07 15:18Z (AskUserQuestion): (c), fix both and run a third review round.**
+    - Round 3 (`e1910c2c`, the round-2 fixes) found two majors and three
+      minors, no blocker. Both majors are false PASSes of the same class as
+      round 2's: a citation spelled in a shape the reader does not know is
+      not counted at all, so a dead heading in it passes. Examples: emphasis
+      around the quote (→ **"Gone"**), § with curly quotes, a bracket with
+      no URL, mismatched quotes, and an unquoted name cut short at `*`
+      (→ A _gone_ rule resolves as "A"). Minors: a link with emphasised
+      text is a false FAIL; the table-row fixture passes for the wrong
+      reason; CLAUDE.md step 4's answer form wraps onto column 0.
+    - _Ask 2:_ each round has added shapes and each added shape has opened
+      a new gap, so: (a) invert the default. Any `CLAUDE.md` or
+      `AUTONOMY.md` code span followed by → or § must read as exactly
+      → "Heading", → Heading (plain words ending at punctuation) or
+      §"Heading"; anything else fails as "cannot read this citation". Curly,
+      link and emphasis forms are dropped. Prototyped, not pushed: all 21 of
+      round 3's probe inputs now fail loudly or resolve correctly, none
+      passes silently, and the real tree still reads 10 of 10. Fix the
+      three minors too, then land without a fourth round. (b) the same, plus
+      a fourth round. (c) land `e1910c2c` as is, with the gaps listed as a
+      follow-up.
+    - _Pick 2:_ (a). The inversion removes the class rather than another
+      instance of it, and its cost is that a valid citation in an unusual
+      spelling fails loudly with the fix in the message; none exists in the
+      tree today.
+      **Answered 2026-10-07 15:28Z (AskUserQuestion): (b), invert the default, fix the three minors, then a fourth review round.**
+    - Round 4 (`133bbbab`, the inverted reader) found two majors, no
+      blocker. (1) An unquoted name stops at a comma or colon and only the
+      part before it is checked, so → Before a fleet sweep, check the
+      archive list (a heading that does not exist) resolves against
+      "Before a fleet sweep, ask which repos…". Two real headings contain a
+      comma, so this is the #1188 rename shape again. (2) A quoted citation
+      of only spaces resolves, because the empty string prefixes every
+      heading. Minors, none present in the tree: other spellings between
+      the code span and the arrow are not counted, a wrapped line starting
+      `#932` or `2.` splits a paragraph, a `## ` line inside an HTML comment
+      or a nested fence counts as a heading, the word boundary is
+      ASCII-only, and the real-tree test asserts at least 8 rather than
+      exactly 10.
+    - _Ask 3:_ (a) drop the unquoted shape: only → "Heading" and §"Heading"
+      read, and the two unquoted citations in the tree
+      (`docs/BACKLOG.md:18`, `docs/worker-brief.md:76-77`) get quotes;
+      reject a blank quote; split paragraphs only on real CommonMark
+      starts (`# ` with a space, a list starting at 1, a row); assert
+      exactly 10 in the real tree; list the remaining minors in the test's
+      "cannot see" comment; land without a fifth round. (b) the same plus a
+      fifth round. (c) land `133bbbab` as is with a follow-up.
+    - _Pick 3:_ (a). The unquoted shape cannot tell where a heading that
+      contains punctuation ends, so it is removed rather than patched, as
+      round 3's shapes were; every remaining minor fails loudly or needs a
+      spelling the tree does not use.
+      **Answered 2026-10-07 15:38Z (AskUserQuestion): (b), quotes only, then a fifth review round.**
+    - Round 5 (`f68c564e`, quotes only) found one major, no blocker. A
+      quote inside the heading ends the citation early, so only the text
+      before it is checked. A real heading already has one: `AUTONOMY.md`'s
+      "Merge authority (current policy: "everything but releases")". If the
+      policy were renamed, the old full citation would still resolve,
+      because only "Merge authority (current policy:" is compared. Minors:
+      a second → or § after the same code span is not counted; two
+      mutations survive (no fixture cites from inside `AUTONOMY.md`, and
+      none has a tab or two spaces around the arrow); the exact-10 pin in
+      the real-tree test turns red on any PR that adds a valid citation;
+      CLAUDE.md step 1 gives a wrong reason (evening-branches does read
+      work branches; the real reason is the line's own PR to `main`).
+    - _Ask 4:_ (a) refuse a quote whose closing mark is followed by a word
+      character (the inner-quote case becomes "cannot read"), add the two
+      repros and the two missing fixtures, list chained citations under
+      "cannot see", correct step 1's reason, keep the exact-10 pin as
+      chosen in ask 3, and land without a sixth round; (b) the same plus a
+      sixth round; (c) land `f68c564e` as is with a follow-up.
+    - _Pick 4:_ (a). The fix is one lookahead, and each round since the
+      quotes-only change has found a narrower gap than the last.
+      **Answered 2026-10-07 17:29Z (AskUserQuestion): (b), fix, then a sixth review round.**
+    - Round 6 (`5cca9ca3`) found one major, no blocker: the round-5
+      lookahead only refuses an inner quote followed by an ASCII letter or
+      digit. Followed by a space, punctuation, a backtick or an accented
+      letter (→ "The "--force" flag", → "The "(x)" gone"), the citation is
+      still cut to the words before the inner quote, and "The" resolves
+      against any heading starting with it. The only quoted heading in the
+      two targets is still caught, so the hazard is a future heading with
+      a quoted flag or code span. Minors: the header says "a letter" where
+      the code means an ASCII letter; the § form's lookahead has no test.
+    - _Ask 5:_ (a) also refuse a quoted capture that begins or ends with
+      whitespace (every one of the seven repros does, since an inner
+      opening quote follows a space; a patched copy keeps the real tree at
+      10 of 10 and fails all seven loudly), make the lookahead
+      Unicode-aware, add a § inner-quote case, and land without a seventh
+      round; (b) the same plus a seventh round; (c) land `5cca9ca3` as is
+      with a follow-up.
+    - _Pick 5:_ (a). Six rounds have each found a narrower case than the
+      last; this one needs a heading the tree does not have.
+      **Answered 2026-10-07 17:56Z (AskUserQuestion): (a), fix and land, no seventh round.**
+
+93. **Data Dynamiq Search Console: Verify, grant `reports@`, and name the
+    property form (new 2026-10-07, operator ask in the PM cockpit).** The
+    verification tag shipped in data-dynamiq#62 (`0e5f8dd`), and the
+    production home page carries exactly one copy at 15:31Z, where it
+    carried none before the merge [M, 2026-10-07, curl + grep -c]. The Turso row
+    (`data-dynamiq`, `maintained`) still has `search_console_property`
+    NULL, and `site_health.search_console_outcome` is `no-property`
+    (checked 10-05 18:36Z) [M, SELECT-only].
+    _Ask:_ (a) press **Verify** for the property in Search Console;
+    (b) Settings → Users and permissions → add `reports@reddoorla.com`
+    (Restricted is enough); (c) say which form the property is: URL-prefix
+    `https://www.datadynamiq.com/` or domain `datadynamiq.com`.
+    _Pick:_ only (c) is a choice. A worker then records the answer with
+    `setSiteDetail` (`searchConsoleProperty`), reads it back, and the next
+    nightly's lookup should stop reading `no-property`.
+    **Answered 2026-10-07 ~15:45Z (operator, AskUserQuestion): (c)
+    URL-prefix.** Recorded with `setSiteDetail` at 15:46Z; the row reads
+    back `search_console_property` = `https://www.datadynamiq.com/`
+    [M, SELECT]. **Still open:** the lookup now finds the property but
+    Google refuses it: `report data-dynamiq --preview --enrich` gives
+    "User does not have sufficient permission for site
+    'https://www.datadynamiq.com/'" as `tucker@` and as `reports@`, while
+    the same command resolves Espada under both subjects [M, 15:47Z]. So
+    (a) or (b) has not taken effect for this property. The next nightly
+    will read `soft-fail`, not `resolved`, until it does.
+    **Re-checked 2026-10-07 17:59Z, after the operator said (a) and (b)
+    were done: still refused, and Google's own `sites.list` says why.**
+    `tucker@reddoorla.com` lists `https://www.datadynamiq.com/` as
+    `siteUnverifiedUser`; `reports@reddoorla.com` lists no datadynamiq
+    property at all; both list `https://espadarealestate.com/` and resolve
+    it [M, service account + DWD, `webmasters/v3/sites`]. The page serves
+    the tag once with a 200, also to a Googlebot user agent [M, curl]. So
+    Verify has not succeeded on this property, and `reports@` was never
+    added to it (Search Console only lets a verified owner add users).
+    _Next (operator):_ open the property signed in as the account that
+    generated this tag's token (an HTML-tag token is per account), press
+    Verify, then add `reports@reddoorla.com`. If the verified property sits
+    under another account, also add `tucker@reddoorla.com`: it is the
+    cloud environment's `GA_SUBJECT`. Nothing to change on the site or in
+    Turso; the next nightly or `report data-dynamiq --preview --enrich`
+    shows whether it took.
+    **Resolved 2026-10-07 19:08Z.** The operator verified the property
+    and added both accounts. `sites.list` now gives `tucker@` `siteOwner`
+    and `reports@` `siteFullUser` on `https://www.datadynamiq.com/`.
+    `report data-dynamiq --preview --enrich` resolves under each subject,
+    with no permission error [M]. It reports no brand-query data yet,
+    which is expected for a property verified today. The first nightly
+    after this should record `search_console_outcome` = `resolved`.
+
+94. **#1244, P1-35 `scripts/pm-cockpit.mts`: held after two dirty review
+    rounds (new 2026-10-07, #1241).** #1244 (branch
+    `claude/stoic-cerf-g7f0du`, head `2f58f632`) adds a SELECT-only script
+    that prints the cockpit's Needs-you and Watch state, and a step 2 in
+    `docs/pm-pass.md`. The live run on 10-07 lists Data Dynamiq and LAHI
+    (`no-property`) on Watch and four pending drafts, which matches a direct
+    SELECT. All 5 mutations go red.
+    - Round 1: two blockers, both fixed in this head. An exhausted vuln was
+      dated by its first flag, and card-less dead letters were dropped.
+    - Round 2: one docs-vs-code defect. A vuln past its wait but not
+      exhausted sits in the **Watch** group and can show `NEW` (`escalated
+<day>`), but step 2 says Watch reasons are never `NEW` and sends only
+      Needs-you items to the top of stack, so the pass would put the moment
+      a vuln needs the operator into the one-line Watch list. There are
+      three minors. A pending approval merged into a broken entry prints
+      `(undated)` and trips the "broken with an undated reason" rule every
+      day. Added entries sort to the end of the broken group. "Dated today"
+      for a new exhaustion rarely fires, because the digest records the
+      exhaustion first.
+    - _Ask:_ (a) fix the docs (step 2 sends every `NEW` Watch site to the
+      top of stack, and exempts escalated vulns from "never `NEW`"),
+      exclude `… ready` reasons from the undated-broken rule, sort the added
+      entries critical-first then A–Z, and land without a third round;
+      (b) land as is and file the four as a follow-up; (c) fix and run a
+      third review round.
+    - _Pick:_ (a). The defect is wording in one docs paragraph. The code's
+      behaviour is the right one, and a test already pins it. The sort is a
+      one-line comparator with a test.
+      **Answered 2026-10-07 (AskUserQuestion): (a), fix and land without a
+      third round.** Done in #1244's next head.
+
+95. **#1235, P1-33(d) PM-pass watcher: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1235 (branch `claude/p1-33d-pm-pass-watch`,
+    head `a2fb6ab2`) adds `scripts/pm-pass-watch.mjs` and
+    `.github/workflows/pm-pass-watch.yml`. When a PM pass's report has not
+    reached `main` by its due time, it emails `vars.OPERATOR_EMAIL`. On the
+    real history it reads 10-06 and 10-07 morning `ran` and 09-29 and 10-05
+    `not-covered`. All ten mutations in the brief go red.
+    - Round 1 found no blocker, and five minors, all fixed in `e1c3ab98`:
+      - a dispatch with `date=2026-11-31` was accepted;
+      - a dry run or a `PM_WATCH=off` run closed the failure issue;
+      - `dry_run` plus `test_send` still sent;
+      - a second `test_send` on the same day was replayed;
+      - a second pass due after midnight was dropped from the window.
+    - Round 2 confirmed all five fixes and found two minors, both fixed in
+      `a2fb6ab2`:
+      - "Re-run jobs" on a `test_send` keeps the run id, so Resend replayed
+        the key and nothing went out;
+      - nothing tested the `unverified=` output that the close step reads.
+        Neither affects a scheduled run.
+    - _Ask:_ (a) land `a2fb6ab2` without a third review round; (b) run a
+      third round first.
+    - _Pick:_ (a). Each round-2 fix is under ten lines and has a test that
+      goes red without it. Neither touches the slot verdicts or the emails
+      a scheduled run sends.
+    - Once it lands, the watcher will probably email "PM pass missed:
+      2026-10-07 second" at 22:41Z. `docs/pm-pass.md` declares `48 4,12`,
+      but the Routine read `48 4,17` at 14:31Z. If so, the alarm is correct.
+      **Answered 2026-10-07 ~15:36Z (AskUserQuestion): (b), run a third
+      round.** Round 3 (`a2fb6ab2`) found no code defect and three test gaps,
+      fixed in `585b3adc`: the run attempt in the test key was not pinned,
+      an empty `RESEND_API_KEY` was untested, and the live CLI test could
+      reach the real Resend if verdicts regressed.
+
+96. **#1238, P1-33(d) digest subject: held after two dirty review rounds
+    (new 2026-10-07, #1231).** #1238 (branch `claude/p1-33d-digest-subject`,
+    head `3ea38339`). Round 1 found no blocker and one medium: a send caused
+    only by a non-critical line getting worse read "no change since …". A
+    `<N> worse — <title>` case now covers it; the brief's step 4 had assumed
+    only heartbeats reach that point. Round 1 also found CR/LF unflattened
+    and no length cap, now capped at a 150-char suffix. Round 2 found one
+    minor: the cap could leave half an emoji. Fixed, with a test.
+    - _Ask:_ (a) run a third round; (b) land without one.
+    - _Pick:_ (a), as on #1235.
+      **Answered 2026-10-07 ~15:44Z (AskUserQuestion): (a).** Round 3 on
+      `3ea38339` was clean.
+
+97. **Eight operator-only chores that had no item (new 2026-10-07, P1-33(b),
+    #1249).** Each was written down in a meta-week or operating-model file and
+    never reached this section, so no morning report could carry it. The
+    first Monday pass on or after 2026-10-12 lists all eight in its "Do, date
+    or drop" section whatever their age; after that they follow the 168 h
+    rule like any other ask. Minutes are estimates [I], from the source where it
+    gives one, never measured. Each `asked` is the UTC time of the source
+    line's first commit unless noted. Checked
+    on `ce197bbb`: none was already done.
+    The "Do, date or drop" list and its 168 h rule were cut on 2026-10-12
+    (item 107(c)), so these chores now appear in the daily open-asks line
+    only.
+    - **97(a) Org-wide secret scanning and push protection** (asked
+      2026-09-13T01:21:28Z). _Ask:_ in org Settings → Code security, enable
+      both for all existing repositories and by default for new ones, ~3 min
+      [I] (the source: "Enabling it org-wide is a one-time setting"; scanning
+      was off on public repos such as `29-navy` and `vida-legacy-foundation`). Unverified on the org's
+      plan: `GET orgs/reddoorla` answers 403 from a cloud session, and the
+      repo's `security_and_analysis` comes back empty. Done here also closes
+      the scanning half of 33(d), whose two repos already exist, only if
+      "all existing repositories" was applied. The Mantis build that failed on a committed
+      Blux key (Watching, #754) is what push protection stops. Source
+      `docs/meta-week/08-second-pass.md:54`.
+      **10-12 (the operator, cockpit session):** started the org-wide apply,
+      and GitHub asked for a monthly fee (Advanced Security / Secret
+      Protection) [the operator's report]. A cost analysis is queued as a
+      worker card: which repos are private, what the fee buys, and the free
+      alternatives. Whether anything was applied is unverified from the
+      cloud; the next `fleet-security` `PROTECTION_AUDIT` line will show it.
+      **Researched 2026-10-12 after the apply asked for a fee:** pick is don't pay ($276/yr today for 4 private repos where none of 7 recorded exposures happened); keep the free public setting, close item 13's alerts, add gitleaks to the private repos. [recommendation](https://github.com/reddoorla/reddoor-workspace/blob/main/reviews/2026-10-12-secret-scanning/recommendation.md)
+    - **97(b) Credential residue on the laptop** (asked 2026-09-13T01:21:28Z;
+      the
+      `FIGMA_PAT` correction 2026-09-29, #965). _Ask:_ in the laptop repo's
+      `.env`, delete `DROPBOX_ACCESS_TOKEN`, `GOOGLE_SEARCH_API_KEY` and
+      `TURNSTILE_SECRET_KEY_1`, which nothing reads, and **keep
+      `FIGMA_PAT`**, which every starter-generated site reads (#874); remove
+      the eleven legacy `<SITE>_PRISMIC` names there (the cloud environment's
+      own `<SITE>_PRISMIC` variables are live and stay); say where
+      `report-edit.env`'s two keys belong; and remove the dead `GITHUB_TOKEN`
+      PAT if it is still in `credentials.env` (#650 left it as "an operator
+      chore"; the code fix is #808). "Ten minutes" [I]. Source
+      `docs/meta-week/06-priorities-system.md:629-638`.
+    - **97(c) `src/blux`, `src/webflow` and canvas-starter: keep, fold or
+      archive?** (asked 2026-09-13T01:21:28Z). _Ask:_ one decision per name. `src/blux`
+      was "a 30-minute operator decision" [I], but its premise has moved:
+      Mantis ran `blux convert` on 10-01 (item 60), so it has a consumer now.
+      `src/webflow` is last touched 2026-07-28 (#466) and the 10-19
+      conversions did not use it. canvas-starter last changed 2026-09-30
+      (canvas-starter#30). Minutes: unknown for the other two. Sources
+      `06-priorities-system.md:685-686`, `08-second-pass.md:184-189`.
+    - **97(d) What is `#trinity-law-school`?** (asked 2026-09-13T01:21:28Z). _Ask:_ say
+      what the channel is and whether fleet output should reach anyone in it.
+      `#roalson-interests`, asked in the same line, is answered (a tracked
+      fleet site). "Ten minutes" [I]. Source
+      `docs/meta-week/07-priorities-workflow.md:441-447`.
+    - **97(e) B7, the team note** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ post the note in
+      `docs/operating-model-rollout.md:60-66` in Discord, or say it is
+      posted (not read: this check had no Discord access). Minutes: unknown.
+      Source `operating-model-rollout.md:26`.
+    - **97(f) B8, the vendor filters** (asked 2026-09-29T17:35:17Z, #970). _Ask:_ add the four
+      Gmail filters in `operating-model-rollout.md:68-79`. Not done [M,
+      2026-10-07]: the mailbox has no `Vendor` label, which every filter
+      applies. Minutes: unknown. Source `operating-model-rollout.md:27`.
+    - **97(g) An off-GitHub copy of the nightly backup** (asked
+      2026-09-13T01:21:28Z).
+      _Ask:_ add one off-GitHub destination for the backup, keeping one copy
+      a month. Today it is a 30-day Actions artifact only
+      (`retention-days: 30` in
+      `.github/workflows/fleet-db-backup.yml:110-116`). The source's first
+      step, finding `BACKUP_PASSPHRASE` in 1Password ("two minutes"), is
+      done: `docs/runbooks/continuity.md:272-274` (#791) places it in a
+      Personal vault. Minutes: unknown. Source
+      `06-priorities-system.md:658-664`.
+    - **97(h) The Rick Garcia lead thread** (asked 2026-09-17T00:11:43Z, the
+      thread's last message). _Ask:_ reply or close. Two messages, with no reply
+      from us since [M, 2026-10-07]. Minutes: unknown. Source
+      `docs/operating-model-review-2026-09-29.md:207-208`.
+      Closed 2026-10-13 (operator): not an unanswered lead. On 09-17 the lead
+      was sent the prefilled /inquiry link and booked an intro call the same
+      day, and Tim posted "First lead using sales pipeline CRM" in Discord.
+      The 09-21 call was logged as a no-show through the call-outcome form.
+      The thread went quiet because the booking path took over [M,
+      reddoor-workspace `reviews/2026-10-12-reddoor-market-position/notes/30-review-internal.md`
+      row 13; `notes/40-crm-activity.md` §5]. "No reply from us" was read
+      off the mailbox alone, a derived view.
+
+98. **P1-38: when `daily-reports` runs, which is when client email goes out
+    (new 2026-10-08, asked 2026-10-08 ~16:00Z, #1258, #1259 on
+    `claude/gifted-cori-7zkrzx`).** #1259 has the six fleet nightlies
+    started at 06:07Z by a `fleet-nightly` conductor, which a Netlify
+    scheduled function fires, so they should finish by about 07:30Z.
+    `daily-reports` is left on its own cron, `23 9 * * *`, which GitHub
+    starts 5–9 h late (10-07: 16:41Z; 14:21Z–18:36Z over 10 days) [M]. Its
+    `--send-ready` step is what emails approved reports to clients: approving
+    in the cockpit only sets the flag, and Vineyard, approved, went out with
+    the 10-07 16:41Z run [M]. So moving the run moves client email. On 10-07
+    it also ran before smoke (17:09Z), so the evidence it reads was a day
+    old [M].
+    _Ask:_ (a) **split**: the conductor drafts and sends the digest right
+    after security, lighthouse and smoke (about 07:30Z, 00:30 PT), and a
+    second Netlify clock sends approved reports at a fixed **16:07Z (09:07
+    PDT, 08:07 PST; 12:07 ET)**. (b) **Split, sends unchanged**: drafts and
+    digest move early, and sends stay on the late GitHub cron (about
+    07:00–11:30 PT, varying). (c) **All in the conductor**: drafts, sends
+    and digest at about 07:30Z, so clients get email around 00:30 PT /
+    03:30 ET. (d) **Leave it**: drafts keep arriving 14:00Z–18:40Z, and P1-38's
+    done-when excludes `daily-reports`.
+    _Pick:_ (a). The drafts and digest are ready before the operator's day
+    and always follow fresh evidence, and clients get email at the same
+    business hour every day instead of at a time GitHub picks. The cost is a
+    `mode` input on `daily-reports` (drafts and digest, or sends only) and a
+    second scheduled function. It is the same `GH_TOKEN` and still no new
+    secret.
+    **Answered 2026-10-08 (AskUserQuestion): (a) split, fixed send at
+    16:07Z.** Built in #1259.
+
+99. **#1264, P1-37 spam pass: held after two dirty review rounds (new
+    2026-10-08, #1257).** #1264 (branch `claude/pensive-fermat-x3wqwb`, head
+    `efb7cb4f`). Built: `vasdirect.com` and three more domains blocked (every
+    row read, all spam), the CC0 disposable list (9,221 domains) vendored into
+    the +45 tier only, and two keywords for the VA flood's second template
+    ("trained va who", "our custom ai system"). Over 90 days of live rows the
+    change flips 7 verdicts, all spam, and touches no genuine lead. Round 1 found a
+    buyer's "a custom AI system … free consultation" scoring 60; the keyword was
+    narrowed to "our …". Round 2 reproduced the same defect through
+    `classifySpam`: "we have a trained VA who handles our scheduling … Do you
+    offer a free consultation?" scores 60, and so does "We'd like our custom AI
+    system for quoting to feed leads … free consultation?". Either keyword
+    promotes a buyer phrase to full weight. No live row hits this today.
+    - _Ask:_ (a) score the template only when both phrases appear together
+      (+60, like lorem-ipsum), and drop both from `SPAM_KEYWORDS` so neither
+      promotes a buyer phrase; (b) drop the two keywords and land the domain
+      blocks and the list without them (vaelitecrew.com-style copies keep
+      reaching the inbox at 0); (c) land as is.
+    - _Pick:_ (a). It keeps the recall: 9 of the 12 live copies carry both
+      phrases, both leaked copies among them, and the other 3 come from domains
+      already blocked. A buyer who writes both phrases in one message is not
+      realistic. It is a
+      ~10-line change plus the round-2 inputs as tests.
+      **Answered 2026-10-08 (AskUserQuestion): (a), the both-phrases
+      signal.**
+
+100.  **#1262, unapprove an approved report: an unapprove can "win" while the
+      email still goes out (new 2026-10-08, branch
+      `claude/nice-thompson-mxumf1`).** Built: an "Unapprove" button on
+      `/s/<slug>` and `POST /api/reports/:id/unapprove`, guarded in SQL on
+      `approved_to_send = 1 AND sent_at IS NULL AND withdrawn_at IS NULL`, with
+      every brief mutation turning a test red. The brief's stop condition fired.
+      The send batch reads its queue once (`listSendableReports`), then renders
+      and calls Resend for each report, and stamps `sent_at` only after Resend
+      answers (`src/reports/send/orchestrate.ts`). So `sent_at IS NULL` catches
+      a send that has finished, not one in flight. Reproduced through the real
+      send loop on a temp libSQL database: an unapprove fired inside the
+      Resend call answered 200 `unapproved`, the email went out, and the row
+      ended `approved_to_send = 0` with `sent_at` set [M]. Control: the same
+      unapprove before the queue read sent nothing [M]. Under Operator
+      decisions 98 the sends run at a fixed 16:07Z, inside the operator's day.
+      _Ask:_ (a) **claim before send**: right before each Resend call the loop
+      takes a conditioned claim (`send_started_at`, migration 0043, set only
+      while the row is approved, unsent and unwithdrawn) and skips the report if
+      it matches nothing. Unapprove also requires no claim and otherwise answers
+      409 "sending". The send path changes, and a run that dies between claim
+      and Resend leaves that row un-unapprovable until the next run sends it.
+      (b) **re-read only**: the loop re-reads approval just before Resend. No
+      new column, but the window shrinks to the Resend call instead of closing.
+      (c) **land as built**: the window stays, and the button's confirm text
+      warns against unapproving around 16:07Z.
+      _Pick:_ (a). It is the only option where "unapproved" on the dashboard
+      means no email goes out, and the brief's done-when ("the send wins and
+      the unapprove reports that it lost") becomes true for an in-flight send.
+      **Answered 2026-10-08 (AskUserQuestion): (a) claim before send.** Built
+      in #1270.
+
+101.  **#1280, P1-42 Williamson cutover checklist and verifier: held after two
+      dirty review rounds (new 2026-10-11, branch
+      `claude/gracious-mccarthy-yh94k1`, head `f8e150d3`).** Built:
+      - `docs/runbooks/williamson-cutover-2026-10-14.md`, your checklist. It
+        changes only the apex `A` and the `www` CNAME. Every other record is
+        DO NOT TOUCH with its live value. It covers the Tue 10-13 steps, and
+        now a redeploy, plus the Wed cutover, the form gate and the rollback.
+      - `scripts/williamson-cutover-verify.mjs`. Live it was RED on Webflow
+        (56 of 64 checks) and GREEN on both previews (32 of 32), and its
+        production-only checks passed on 29 Navy. 32 mutations turn a test
+        red.
+      - **Round 1** (3 lenses) was dirty, and everything it found is fixed in
+        `2ae23a10`:
+        - A second apex `A` row beside the old one passed.
+        - There was no canonical or noindex check. Both sites bake Netlify's
+          build-time `URL` into the canonical, so a cutover without a
+          redeploy would serve every `www` canonical pointing at the
+          noindexed `netlify.app` host and still read GREEN.
+        - The test fake ignored `redirect: "manual"`.
+        - `main()` was untested.
+        - The form gate sat after the step it guards.
+      - **Round 2** found no blocker or major, and two minors, both fixed in
+        `f8e150d3`:
+        - (1) The canonical check compared only the host, so
+          `href="http://www.williamson-homes.com/about-us"` passed
+          (reproduced through `checkPage` with a fake fetch). It now requires
+          the `https://www` origin, and a test goes red without it. Whether
+          Netlify's build-time `URL` is ever `http://` is unconfirmed.
+        - (2) The TTL read-back wording overclaimed. It now points at
+          `dig @ns31.domaincontrol.com`.
+      - _Ask:_
+        - (a) land `f8e150d3` on green CI without a third round, so the
+          checklist is on `main` before your Tue 10-13 steps;
+        - (b) run a third review round first;
+        - (c) hold.
+      - _Pick:_ (a). The round-2 fixes are one comparison with its own red
+        test and three doc sentences. No reproduced defect is left unfixed.
+        **Answered 2026-10-11 by 15:10Z (AskUserQuestion): (b), run a third review round first.**
+      - **Round 3** (`f8e150d3`, the round-2 fixes) found no real defects and
+        three nits. One was carried: the 29 Navy control's
+        swapped-host qualifier. Unquoted attributes and `robots: none`
+        cannot occur with SvelteKit's output. Landed in #1280, per the
+        answer's "then come back if it finds anything".
+102.  **Roalson P1-41, Past Projects: the control Erik asked for already exists
+      (new 2026-10-11, asked 2026-10-11, roalson-interests#280; no branch, the
+      section is on `main`).** The brief and Erik's 10-09 note ask for "a
+      checkbox like featured" on `customtypes/property`, with admin-editable
+      bullets. The model already has it: "Show on the site as" → "Past
+      project", built from Erik's own 09-25 ask, and a Sold status moves a
+      listing there too. Its bullets are the listing's Highlights, and the
+      3-column grid from the comp's "Sold" frame (Figma 6991:1124) is in
+      `PropertyListing`. It shows nothing on the live site because 0 of the 23
+      published listings is marked [M, Content API]. Nicole's mockup: the only
+      3-column one found is that Figma frame (the file was last edited
+      10-06); nothing in Discord or Dropbox [M].
+      _Ask:_ (a) **keep the dropdown**: no model change, Group 3 is
+      screenshots of the existing grid, and the reply to Erik says where the
+      setting is; (b) **a checkbox**: a `past_project` Boolean, the unused
+      "Past project" option dropped from the dropdown (0 documents use it),
+      and the field carried through the Featured band's fetch links, the
+      types and about ten tests, in one PR plus the model workflow.
+      _Pick:_ (a). It already does what Erik described, a second control for
+      the same state invites the two to disagree, and nothing needs
+      migrating.
+      **Answered 2026-10-11 (AskUserQuestion): (a) keep the dropdown.**
+103.  **roalson-interests#281, P1-41 listing page: held after two dirty review
+      rounds (new 2026-10-11, asked 2026-10-11, branch `claude/p1-41-listing`,
+      head `e2e781f`).** "View on Google Maps" → "Aerial Map" (now Google's
+      satellite view on the pin) and the Details facts and tracts folded into
+      the bullets. Round 1 found minors only, all fixed. Round 2 found one
+      major that round 1's photo fix introduced: `lg:self-stretch` let the
+      photo take its width from its stretched height, 679 wide in a 473
+      column at 1024 in Chromium, with 245px of it under the panel [M]. Fixed
+      in `e2e781f` with `lg:justify-self-stretch`: overlap 0 and gap 0 at 1024,
+      1280, 1440 and 1920 in Chromium and WebKit [M].
+      _Ask:_ (a) land on green CI with `e2e781f`, no third round; (b) a third
+      review round first; (c) drop the photo stretch and keep `main`'s photo
+      box, which leaves page ground under the photo when the panel is taller
+      (up to 155px at 1024).
+      _Pick:_ (a). The defect is fixed and measured in two engines, and the
+      round-2 reviewer verified the same fix in three.
+      **Answered 2026-10-11 (AskUserQuestion): (a) land on green CI.**
+
+104.  **hedloc#55, P1-40 Hedloc's 4-wide Executive Team row: held after two
+      dirty review rounds (new 2026-10-11, reddoorla/hedloc branch
+      `claude/p1-40-exec-team-4-wide`, head `cb2b13c`; claimed in
+      hedloc#54).** Built:
+      - At `lg` the four members fill one row, left-aligned. The empty first
+        column that held the selected member is now an absolute slot over
+        column one. With today's three members, the columns keep their 301px
+        (1440) and 206px (1024) widths and move one column left [M].
+      - The open bio grows the section instead of overflowing a fixed 640px
+        box. Shankar's bio is 1,867 characters in five paragraphs. In the
+        fixture it would have run 231px (1440) and 511px (1024) past the
+        section's padding, onto the footer [M].
+      - A wrapped name starts at the column's left edge. At 1024 his name
+        wraps, and its second line was centred 34px in [M].
+      - Phone and tablet still stack. CI was green on `ecf2b55`.
+      - **Round 1** (3 lenses) was dirty. Everything it found is fixed in
+        `1527d34`:
+        - A double-click on member 1 opened its bio and then closed it.
+        - Member 1 ignored clicks for 150ms after Close.
+        - The tests could not see the bio: an overlay stuck at opacity 0 or
+          1 passed them.
+        - The fixture borrowed Shankar's surname.
+      - **Round 2** was dirty on two of three lenses. Both are fixed in
+        `520f284` and `cb2b13c`, each with a red test first and its mutant
+        red [M]. The suite passes 75/75 on a 6-worker repeat. Neither commit
+        has been reviewed.
+        - (1) A defect that round 1's fix introduced: a double-click or
+          double-tap on the open card, to close it, fell through to member 1
+          and opened Jack Harper's bio (live data, 1440). The fix is the same
+          `event.detail > 1` guard on the member buttons that the card
+          already has. A nit is also fixed: `mb-4` lines the card's name up
+          with member 1's during the 150ms cross-fade.
+        - (2) Five test mutants survived. The bio panel out of the shared
+          grid cell, the panel without its background, the bio or headshot
+          hidden by a parent's opacity, and members clickable under the
+          bio all passed.
+      - **The content is separate.** The Prismic MCP is still not activated
+        for hedloc. Shankar's entry (name, title "Advisor", headshot, five
+        paragraphs) went to you as a download card. The page is prerendered,
+        so it shows only after a Netlify build. Erik's reply is in the PR
+        body.
+      - _Ask:_
+        - (a) land `cb2b13c` on green CI without a third round;
+        - (b) run a third review round on `520f284..cb2b13c` first, then
+          land if it is clean;
+        - (c) land `ecf2b55` as reviewed, with the card double-click defect
+          live.
+      - _Pick:_ (b). Round 2's defect came from round 1's own fix, so the
+        fix to that fix deserves one look. Erik's date is the week of 12–16
+        Oct, so a round costs nothing that matters. You answered (b) for
+        #1280's similar ask today.
+        **Answered 2026-10-11 (AskUserQuestion): (b), a third review round on
+        `520f284..cb2b13c`, then land if it is clean.**
+      - **Round 3** found no behaviour defect. It found one minor test-only
+        defect that `cb2b13c` introduced: the bio-panel background check read
+        alpha only from `rgba()`, so a Tailwind `bg-light/0`
+        (`oklab(… / 0)`) passed. That was fixed in `3ad602d` by reading alpha
+        through a 1px canvas, and three background mutants now go red. Since
+        round 3 was not clean, it went back to you.
+        **Answered 2026-10-11 (AskUserQuestion): land on green CI.** Landed
+        as hedloc `2641a0e` (P1-40 is in _Done_).
+
+105.  **roalson-interests#282 and #283, P1-41 Properties and Home: both held
+      after two dirty review rounds (new 2026-10-11, asked 2026-10-11, branches
+      `claude/p1-41-properties` at `dc909c6` and `claude/p1-41-home` at
+      `fa09867`).** In both PRs, neither round found a behaviour defect. Both
+      second rounds found test-only defects, now fixed. In #282, the outline
+      gate measured only the server picture's pins, so live pins dimmed whole
+      passed it, and nine nightly cases still walked Land from the landing
+      view. In #283, the homepage map-link premise matched CSS that the dev
+      server always inlines, and the DISSOLVE parser was unchecked. Each fix
+      goes red under the mutation that found the gap. `@smoke` passes on both
+      heads: 69 passed and 67 passed [M].
+      _Ask:_ (a) land #282 then #283 on green CI, with no third round, merging
+      `main` into #283 between them; (b) run a third review round on each
+      first; (c) hold.
+      _Pick:_ (a). No reproduced behaviour defect is unfixed, and every
+      round-2 fix has its own red mutation.
+      **Answered 2026-10-11 (AskUserQuestion): (b), run a third review round
+      on each first.**
+      **Round 3** found no behaviour defect in either PR. It found one gate
+      gap in each, both fixed, and each fix goes red under its mutation. In
+      #282 (`19b50a2`), only a unit test reading `app.css` as text held the
+      no-script landing view and `#list`. In #283 (`a3aff71`), a heading drawn
+      `sr-only` passed every gate test. Three findings this PR did not cause
+      are filed as roalson-interests#286, #287 and #288. Both PRs landed
+      after the round, as the option said ("before landing"): #282 as
+      `98d24e5` and #283 as `46c1799`. P1-41 is in _Done_. No one has reviewed
+      the round-3 fixes themselves.
+
+106.  **medical-solutions-of-texas#76, P1-43 MSOT home page accessibility:
+      two design calls (new 2026-10-12, branch
+      `fix/home-a11y-contrast-heading-order` at `9d534a6`, screenshots in
+      `99dba5c`).** The nightly scores the home page 0.92 < 0.95 on 10-09,
+      10-10 and 10-11. Reproduced on production with the nightly's lhci
+      config: 0.92 ×3, four nodes [M].
+      - **Built and clean in review (3 lenses, no blocker):** the heading
+        order. Three tags change, and classes keep the look pixel-identical.
+        Alone it gives about 0.944, still under the gate.
+      - **Design call (a): the inactive words in the rotating "We'll get
+        you / Priority Access / contract expertise / Direct Results" list.**
+        They sit at 25% opacity, 1.42:1, and 3:1 is the floor for 80px
+        text.
+        - A: 75% opacity (built on the branch). It passes at 3.30:1, but an
+          inactive word is then only 1.62:1 from the lit one (3.76:1 now),
+          so the one-word spotlight mostly goes. At 1024 and 390 a cut-off
+          "DIRECT" becomes prominent.
+        - B: hide the inactive words, so one word shows at a time. It
+          passes and leaves blank space under the lit word.
+        - C: keep 25%. color-contrast keeps failing, and the score stays
+          under 0.95.
+      - **Design call (b): "We'll Get You" over the footage.** Lighthouse
+        measures it against the box's `bg-light`, which the image always
+        covers. Against the real pixels, the brightest 5% behind the text
+        are 1.9:1 on the still at 1440, and 1.6–2.2:1 behind "YOU" on the
+        playing video's lamp frame [M].
+        - (i): a bottom scrim (black 50% fading to 0) plus `bg-dark`. That
+          takes the brightest 5% to 4.4:1, and the lower footage is visibly
+          darker.
+        - (ii): `bg-dark` only. It is invisible and Lighthouse passes, but
+          the real contrast is unchanged.
+        - (iii): leave it. Lighthouse keeps failing.
+      - **Not in this item:** the same patterns appear where the nightly
+        does not look. The "pain" column on `/` fades to 25% after a
+        scroll, and `/process` and `/about` have the same video-box
+        headings.
+      - _Ask:_ (a) A, B or C; (b) (i), (ii) or (iii); and whether to fold
+        the scroll and other-route cases in or file them.
+      - _Pick:_ (a) B, because it keeps the design's intent of one lit
+        word and passes honestly. (b) (i), because it fixes what a visitor
+        actually sees rather than only what axe measures. File the rest as
+        issues, one task per session.
+        **Answered 2026-10-12 (AskUserQuestion): (a) A, 75% opacity; (b)
+        (i), the scrim plus `bg-dark`; file the scroll and other-route cases
+        as issues.**
+
+107.  **The two-week check of the operating model begun 09-29: keep what
+      moved, cut what did not (new 2026-10-12, the Monday PM pass, asked
+      2026-10-12 ~12:00Z; measured on `main` at `8602f123`).** Every judged
+      row's method reproduced its baseline first [M]:
+      - Discord asks older than two days, per report: 1, 1, 0, 0, 0, then
+        0, 0, 0 (10-07, 10-08, 10-11) and 0 today. Moved and held.
+      - Duplicate-work incidents: 6, still 6; none since 10-07.
+      - Two-dirty-round escalations: 27 at `6ea7c10`, 36 now (92, 94, 95,
+        96, 99, 101, 103, 104, 105), about 3.7 a day before 10-06 and 1.5
+        a day since. The rule is in use; part of the drop may be the 10-07
+        park [I].
+      - Third review rounds: 10 items at `6ea7c10`, 16 items (17 PRs) now.
+        The share of escalations that ran one rose from 37% to 67%. You chose
+        (b), a third round, on 101, 104 and 105.
+      - Release-PR wait: median 15.56 h (n=7) to 17.26 h (n=8); #1214 alone
+        waited 123.25 h.
+      - [TEST] verdicts awaiting: 5, 0, 0. There has been no [TEST] send since
+        10-05, so the streak (0) cannot move.
+      - Open asks: 18 items at `6ea7c10`, 16 today (the morning report lists
+        both sets).
+        _Ask:_ keep, or cut, each of: (a) the two-round stop rule; (b) the
+        daily open-asks line; (c) the Monday do, date or drop list; (d) the
+        evening pass; (e) the clean-send streak table.
+        _Pick:_ keep (a) to (d). Discord asks, duplicates and open asks all
+        moved the right way, and the escalation rate fell. Keep (e) only if a
+        [TEST] send is booked; with no send in a week it measures nothing.
+        Separately: third rounds rose because they were chosen, and are
+        yours to set as a default or not.
+        **Answered 2026-10-12 ~14:55Z (the cockpit session), verbatim:** "a)
+        bump to five rounds but add a file minors as issues side to it so it
+        can stop earlier; b) keep; c) cut; d) cut; e) cut".
+        - (a) Read as: the stop moves from two dirty rounds to five, and a
+          round whose findings are only minors files them as issues and
+          counts as clean, so a PR can stop well before round five. Not yet
+          built: `CLAUDE.md`'s "Two dirty review rounds, then stop",
+          `AUTONOMY.md` and `docs/worker-brief.md` still say two.
+        - (b) The open-asks line stays.
+        - (c) The Monday do, date or drop list is cut.
+        - (d) The evening pass is cut. The Routine's 12:48 PT fire is the
+          operator's to remove; `pm-pass.md` and `pm-pass-watch` still
+          expect it until a worker changes them.
+        - (e) The clean-send streak table is cut.
+        - Closed 2026-10-12: built in #1305 (five rounds with minors filed as
+          issues; Do, date or drop, the evening pass and the streak table
+          removed; `pm-pass-watch` reads the morning-only cron). The Routine's
+          cron and stored prompt are the operator's to change once it lands:
+          that ask is open as item 110.
+
+108.  **vineyard-custom-homes#77, P1-44 Vineyard home page accessibility:
+      held after two review rounds (new 2026-10-12, branch
+      `fix/a11y-image-alt-contrast` at `7768390`, screenshots in `46d8705`
+      and `f54f7da`).** The nightly scores the home page 0.88 < 0.95 on
+      10-09, 10-10 and 10-11. Reproduced on production with the nightly's
+      lhci code path: 0.88 ×3, the same three nodes [M].
+      - **Built:** a code fallback alt for Prismic images on `/` (the
+        Instagram grid and the testimonials), and the failing tile's real
+        alt staged in Prismic release
+        [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU), which is not
+        published. Its label says P1-43 because MSOT took that number
+        mid-flight. "Utmost care" becomes #7196b9 (3.10:1, ΔE_ok 3.3 from
+        the brand blue). The "01 / V" medallion text becomes the existing
+        navy on the four pages where it sits on white. The deploy preview
+        scores 1.00 ×3 [M]. Of 12 mutations, 11 go red. The twelfth,
+        dropping `ignoreLength` alone, stays green as it should, because
+        axe sets aside only failing short text. Both brand lenses judged
+        the brand-colour stop condition not crossed.
+      - **Round 1 (3 lenses):** major, the medallion was navy on `/` only,
+        so the motif was inconsistent. Minors: a vacuous assertion, the
+        axe scan running every rule (`options()` replaced `runOnly`), and
+        one-character text unchecked. All fixed.
+      - **Round 2 (3 lenses at `f54f7da`):** major, round 1's widening had
+        also made the project page's medallion navy, over its darkened
+        hero (1.05–3.44:1). Fixed in `1cc2fdb`, which returns that file to
+        `main`'s markup. The lens that found it reports no defect at that
+        head. Minors (a 5 s hydration wait, an unasserted short-text skip)
+        were fixed in `7768390`.
+      - **For the operator either way:** staging the release fired the
+        site's "Prismic" Netlify build hook. Production rebuilt at 02:54Z
+        and 03:48Z with no content change [M, Netlify API], so publishing
+        will rebuild the prerendered home page on its own. Follow-ups out
+        of scope are filed as vineyard-custom-homes#78.
+      - _Ask:_ (A) land #77 at `7768390` with no third round; (B) run a
+        third review round first; or (C) narrow the medallion change back
+        to `/` only and accept the inconsistency.
+      - _Pick:_ (A). The round-2 defect was a widening error, fixed by
+        restoring `main`'s markup for that one file, and nothing else
+        found in round 2 changes behaviour.
+        **Answered 2026-10-12 (AskUserQuestion): (A), land #77 with no
+        third round (the screenshots commit removed first).**
+
+109.  **medical-solutions-of-texas#77, P1-43 MSOT home page accessibility:
+      held after two dirty review rounds (new 2026-10-12, branch
+      `fix/home-a11y-contrast-heading-order` at `020e841`; issue
+      medical-solutions-of-texas#76).** Built to 106's answers:
+      - Inactive words are at 75% (3.30:1). The word two steps from the lit
+        one is hidden, which removes the cut-off "DIRECT" at 1024 and 390.
+      - A scrim (black 50% fading to 0) plus `bg-dark` sits behind "We'll
+        Get You".
+      - The headings are reordered with no visible change.
+      - The nightly's lhci config scores the build 1.0 ×3, against 0.92 ×3
+        for `main` [M]. CI is green, and the smoke suite passes 19/19.
+      - Filed as you asked: medical-solutions-of-texas#78 (the scroll state)
+        and #79 (`/process` and `/about`).
+      - **Round 1** found no code defect. It raised 106's two design calls.
+      - **Round 2** found no page defect. The tests lens found three defects
+        in the new pixel check, all fixed in `020e841`:
+        - It could pass with the heading unreadable, because it took the
+          colour from CSS, not the render.
+        - Its 5th percentile was set by glyph edges.
+        - It skipped 390.
+      - It now screenshots the heading with and without its text, and needs
+        99% of the still behind it at 3:1. The result is 4.30:1 at 1350 and
+        4.65:1 at 390. Without the scrim, the heading under the overlays, a
+        20% scrim, or the heading hidden, it goes red each time [M]. The PR
+        body was stale and has been rewritten.
+      - **Not covered: the Vimeo video at 390.** It mounts on the first
+        interaction. At 390 "WE'LL GET" wraps to mid-box, where the scrim is
+        about 20% black, so on bright frames it estimates at about 2.4:1
+        [I, arithmetic on a production frame]. On the still it is 4.65:1
+        [M]. At 1440 it is about 4:1 or more on the same frames [I].
+      - _Ask:_
+        - (1) Land #77 on green CI with no third round; or run a third round
+          first; or hold.
+        - (2) For the 390 video case: file it as an issue; or strengthen the
+          scrim at 768 and below before landing.
+      - _Pick:_ (1) land with no third round. No behaviour defect was found
+        in either round, and each round-2 fix has its own red mutation. (2)
+        File it. The nightly and the still both pass, and a stronger phone
+        scrim is a design change you have not seen.
+        **Answered 2026-10-12 (AskUserQuestion): land #77 with no third
+        round; file the 390 video case as an issue.**
+        Asked as 107; renumbered twice when the Monday PM pass and P1-44
+        took 107 and 108 first. **Landed** as medical-solutions-of-texas
+        `709079f` (13:38Z). The 390 video case is
+        medical-solutions-of-texas#80.
+
+110.  **#1305, Operator decisions 107 built: held after two dirty review
+      rounds, plus the Routine change that is yours (new 2026-10-12, asked
+      2026-10-12 ~15:25Z, branch `claude/compassionate-meitner-8n0k4k`).**
+      #1305 builds your 107 answer:
+      - (a) Five rounds; a round with only `minor`/`nit` findings files them
+        as issues and counts as clean.
+      - (c) Do, date or drop removed.
+      - (d) Evening pass removed; `pm-pass-watch` expects a morning pass
+        only.
+      - (e) Streak table removed.
+
+      All nine mutations went red. Round 1 found 2 majors and round 2
+      found 1 major, all in docs wording or hand-off, none in the watcher's
+      code. Round 2's major was that the Routine change below was written
+      only in a `Closed` line, which no pass lifts. All of round 2's findings
+      are fixed on the branch, unreviewed. The old two-round rule still
+      governs #1305, so it is held here.
+      - _Ask (a):_ (A) land #1305 with no third round; or (B) run a third
+        round first.
+        _Pick:_ (A). Every round-2 finding is a wording fix with no behaviour
+        in it. The watcher's code, the one part that can send you a false
+        alarm, came through both rounds with no defect.
+      - _Ask (b), yours once #1305 lands, and only after today's evening pass
+        has landed:_ in the "Reddoor Project Manager" Routine, change the
+        cron to `CRON_TZ=America/Los_Angeles 48 4 * * 1-4`, and replace the
+        stored prompt with the text under "The Routine's stored prompt" in
+        `docs/pm-pass.md`. Until you do, the 12:48 PT fire runs a prompt that
+        names a section #1305 deletes, and the watcher will not notice: it
+        reads `docs/pm-pass.md`, not the Routine.
+        **Answered 2026-10-12 ~15:30Z (AskUserQuestion): (a) (A), land #1305
+        with no third round; (b) yes, the operator changes the Routine once
+        told #1305 has landed (after today's evening pass).**
+        Closed 2026-10-12 for (a): #1305 landed with no third round. (b) stays
+        open until the Routine reads `48 4 * * 1-4` with the new prompt.
+        **10-13 ~11:50Z [M]: (b) is still open.** The Routine's 04:48 PT fire
+        today ran the old stored prompt: it says the Routine "fires twice a
+        day" and still routes a fire at 12:00 PT or later to "The evening
+        pass", a section #1305 removed from `docs/pm-pass.md`.
+        **Closed 2026-10-13 (the operator, in the cockpit session): "routine is
+        saved"**, with the cron `CRON_TZ=America/Los_Angeles 48 4 * * 1-4` and
+        the stored prompt from `docs/pm-pass.md`. Tomorrow's fire is the
+        check: its prompt should say "fires once a day" and name no evening
+        pass.
+
+111.  **roalson-interests#289, the Properties map pins (new 2026-10-12): how
+      dimmed the strokeless pins are.** Branch `claude/ri-pin2-no-stroke`,
+      head `9a4d8f4`. Built: the selected pin is Erik's `Ri-Pin2.svg`, at the
+      old pin's height with its tip on the point, and the other pins draw no
+      stroke, as Erik asked. Finding: the stroke was what kept the dimmed pins
+      at WCAG 1.4.11's 3:1. Without it, a 50% fill fails the site's contrast
+      gate on 356 ground pairs. On screen at 1440 the pin's edge measures
+      2.76:1 on plain map ground and 2.27:1 beside water; with the stroke it
+      was 10.25:1. 0.81 is the lowest fill that passes (the clusters' value):
+      6.23:1 and 4.03:1. Screenshots of both are in the PR body.
+      - _Ask:_ (a) no stroke, fill 0.81. Passes AA; the pins look less
+        dimmed, and the selected pin still stands out by size and the Ri.
+        This is the branch as pushed. (b) No stroke, 50% as Erik had it.
+        Lighter, but it fails 3:1 and the gate is relaxed for pins. (c) No
+        stroke, 50%, plus a soft shadow. Needs another build and Erik's eye.
+      - _My pick:_ (a), because it does what Erik asked, keeps the AA gate
+        green, and the 50% look is one constant away if he prefers it.
+        **Answered 2026-10-12 (AskUserQuestion): (a), no stroke at 0.81;
+        land #289.**
+
+112.  **#1301, P1-45 kit 3 support in `sync-configs`: held after two dirty
+      review rounds (new 2026-10-12, branch `claude/sharp-knuth-o7iku8` at
+      `fb415b89`; issue #1297).** reddoor-starter#187 is landed and live on
+      kit 3. #1301 holds `createKitConfig`, kit-3-aware `sync-configs` and
+      `analytics-tag`, the plan (`docs/sveltekit-3-migration-2026-10.md`),
+      the journal entry, and Operator decisions 113 (the fleet roll-out). CI
+      is green on `2edbb59f`.
+      - **Round 1** found that a `catalog:` or `workspace:` kit spec read as
+        kit 2, so a kit 3 site would have been handed a `svelte.config.js`.
+        It also found the `analytics-tag` refusal ran before its
+        already-installed check, plus five test gaps. All are fixed in
+        `2edbb59f`.
+      - **Round 2** found no kit 2 regression: `--dry` output is
+        byte-identical to `main`'s on all six client clones. It found one
+        behaviour defect, reproduced on mantis-landscaping's clone with kit
+        `^3.0.0`, the config inline in `vite.config.ts` and an
+        `eslint.config.js` still importing `./svelte.config.js`:
+        `--dry --only eslint` read `CLEAN`. It also found three mutations
+        that survived. All are fixed in `fb415b89`, where each of the four
+        now turns a test red.
+
+      _Ask:_ (a) **land `fb415b89` without a third round**, or (b) run a
+      third review round first. I pick (a): the defect was one wrong filter,
+      and its fix is a targeted 3-line change whose test was shown red
+      against the defect. Nothing in it reaches a kit 2 site, which is the
+      whole fleet today.
+      **Answered 2026-10-12 (AskUserQuestion): land without a third round.**
+
+113.  **P1-45, the SvelteKit 3 / adapter-netlify 7 fleet roll-out (new
+      2026-10-12; plan `docs/sveltekit-3-migration-2026-10.md`, #1301;
+      reddoor-starter#187 landed).** Twelve Renovate PRs are red in six repos
+      and stay open until each repo is migrated. Each migration is one PR per
+      repo that replaces that repo's pair, and it is never a sweep (red tier).
+      _Ask:_ which order, and whether a worker may open the six migration PRs.
+      I would pick the plan's §4 order:
+      - vida-legacy-foundation first (maintained, red in the cockpit). Its
+        `lang` matcher must return the param, not a boolean, under kit 3.
+      - Then mantis-landscaping and williamson-construction-co, which are
+        starter-shaped.
+      - Then la-homelessness-youth, gallerysonder and alamo-anatomy, on a
+        published `@reddoorla/maintenance` with `createKitConfig`.
+        gallerysonder also needs its five `$app/stores` imports moved, or
+        every page throws.
+
+      Each PR copies the starter's `src/env.ts`, `src/params.ts` and the
+      origin pieces (`productionOrigin`, the `define`, `siteOrigin`; never
+      `paths.origin`). Each one is held to its own `ci` plus `@smoke`. The
+      alternative is to wait for upstream, but adapter 7 cannot land without
+      kit 3, and Renovate will keep reopening the pair.
+      **Answered 2026-10-12 ~17:40Z (the cockpit session):**
+      - **The order is "decent", with the fleet staging flow folded in**
+        (reddoor-maintenance#545, "Fleet: enforce feature → staging → main
+        flow with branch protection (no direct-to-prod)"; its two comments
+        record staging deleted on promotion and the per-target verification
+        depth). Production stays isolated during the migration: each kit 3
+        migration lands on that repo's `staging` first.
+      - **Only the operator promotes `staging` → `main`.**
+      - **Renovate:** patches and minors target `main` with a fast track
+        (automerge on green, no operator PR per update); majors target
+        `staging`. The operator, verbatim: "if I have to PR and merge for
+        every patch update it pretty much defeats the point of renovate".
+      - **Netlify:** sessions use the token in the environment
+        (`NETLIFY_PAT`, set in the cloud environment) for branch deploys and
+        site settings.
+      - **Workers merge into `staging` on green**, one worker in order, and
+        each repo's migration PR replaces its Renovate pair.
+      - **williamson-construction-co** is held until after its cutover [the
+        cockpit's pick; unanswered, the worker asks].
+        **Status 2026-10-12 ~18:50Z (the worker; Operator decisions 116
+        answered the same day):**
+      - **vida-legacy-foundation:** done up to your merge.
+        - `staging` was cut from `main`, and Netlify builds it at
+          `staging--vida-legacy-foundation-rd.netlify.app`.
+        - `main-gate` (#98) and kit 3 (#100) landed on `staging`, along
+          with the docs and journal (#103).
+        - Smoke on staging matched production: 68 passed on each, and the
+          same 6 failed on each (`/dev` fixtures, which are never
+          deployed).
+        - Promotion PR vida#101 is open for you. Its body lists the
+          ruleset to create **before** you merge.
+        - #96 and #97 are closed as replaced by #100. vida#102 (the Renovate
+          `extends`) is a draft, held for the `.github` patch.
+      - **mantis-landscaping:** the same steps, with promotion PR mantis#44,
+        #40 and #41 closed, and the held `extends` draft mantis#45. Its
+        smoke matched production (53 passed on each, the same 2 failed).
+        **Its `main` has no protection at all** (`protected: false`, with
+        no ruleset). #44 carries the `main` ruleset command as well.
+      - **The Renovate rule:** `docs/patches/2026-10-12-github-renovate-staging-flow.patch`,
+        for you to `git am` on `reddoorla/.github`. It was proven by
+        Renovate's own `dryRun: full` on vida (vida#99, closed). The order,
+        the rulesets and the gate are in `docs/runbooks/staging-flow.md`.
+      - **williamson-construction-co:** held until after the 10-14
+        cutover, per 116(b).
+      - **la-homelessness-youth, gallerysonder, alamo-anatomy:** blocked.
+        `@reddoorla/maintenance` 0.107.0 is not on npm: the registry's
+        latest was 0.106.0 at 18:48Z, and release PR #1317 is still open.
+        **Status 2026-10-12 ~22:50Z (the worker, after 0.107.0 was published):**
+      - **la-homelessness-youth:** done up to your merge. main-gate (#31),
+        kit 3 (#32) and the journal (#34) landed on `staging`. Promotion PR
+        lhy#33 is open, #29 and #30 are closed, and the `extends` draft lhy#35
+        is held. Smoke on staging: 2 of 2, the same as production, and
+        `/health` was identical.
+      - **gallerysonder:** done up to your merge. main-gate (#115), kit 3 with
+        its five `$app/stores` imports moved to `$app/state` (#116), and the
+        journal (#118) landed on `staging`. Promotion PR gallerysonder#117 is
+        open, #113 and #114 are closed, and the `extends` draft #119 is held.
+        Smoke on staging: 123 passed and 1 skipped, the same as production.
+        The same 2 forms tests time out on the live `/contact` on both.
+      - **alamo-anatomy:** done up to your merge. main-gate (#69), kit 3
+        (#70) and the journal (#71) landed on `staging`. Promotion PR
+        alamo-anatomy#72 is open, #67 and #68 are closed, and the `extends`
+        draft #73 is held. Alamo prerendered its origin through kit 2's
+        `prerender.origin`. Kit 3 dropped that option, so seven places would
+        have carried `http://sveltekit-prerender`. They now go through
+        `$lib/site-origin`. Built with `URL` set, no file names the
+        placeholder; built without it, 7 do (the control). On staging,
+        `/health` is identical to production, and the 3 page tests pass on
+        both.
+      - **Every promotion PR (vida#101, mantis#44, lhy#33, gallerysonder#117,
+        alamo#72) needs its `staging` ruleset before you merge it.** Each
+        repo deletes head branches on merge, and a promotion PR's head is
+        `staging`. The command is in each body, and mantis#44 also needs
+        `main`'s ruleset. After each merge, make `main-gate` required (runbook
+        step 6). After the `.github` patch, land the five `extends` drafts.
+      - **Found in review, fleet-wide, not fixed:** `@prismicio/svelte` 2.2.2,
+        the latest, still peers kit `^2`. Its `PrismicPreview` passes `goto`
+        `noScroll: true`, which kit 3 throws on under dev only
+        (`goto_options_removed`). So ending a Prismic preview throws on
+        `pnpm dev` and scrolls to the top in production, on every migrated
+        Prismic site. This comes from reading kit 3.0.1's source; it was not
+        reproduced in a browser. Also, `@reddoorla/maintenance` 0.107.0 still
+        declares a peer of kit `^2.0.0`.
+      - **williamson-construction-co:** still held until after the 10-14
+        cutover.
+        **Status 2026-10-13 ~11:58Z (the Tuesday PM pass) [M, `git ls-remote`]:**
+        none of the five is promoted yet. Each repo still has a `staging`
+        branch ahead of `main` (vida `1db814b3` over `fa46e29d`, mantis
+        `cfb092cf` over `6e87f022`, lhy `c7b87ea3` over `dddb2162`,
+        gallerysonder `b5b6dfac` over `dd2b1f90`, alamo `e42a3e69` over
+        `800a263b`). The `.github` patch is not applied either: `reddoorla/.github`
+        has no `renovate-staging-flow.json`, and its last commit is
+        `3f8ae95` (09-22) [M, a fresh clone].
+        **Status 2026-10-13 ~20:10Z (the worker):**
+      - **All five migrated sites are in production on kit 3** (vida#101,
+        mantis#44, lhy#33, gallerysonder#117 and alamo#72, merged by the
+        operator at 17:45–17:47Z).
+        - Every `staging` survived the merge.
+        - Every production deploy is the merged commit, with `ci / ci`
+          green on each new `main`.
+        - `/health` reports `ok` on each site's production host, with the
+          same form flags as on kit 2 (lhy's Turnstile is off on both).
+        - The canonical and the robots.txt sitemap, where a site
+          generates them, name the real origin, not the placeholder.
+        - mantislandscaping.com still serves the old, non-Netlify site.
+      - **`main-gate` is required on all five `main`s** (pinned to app
+        15368). Read back from `rules/branches/main`, not just from the PUT.
+      - **The preset is live:** `.github` `b3e549e` (#37). The cloud
+        session could not push it: `add_repo` refuses a dot-named repo, and
+        both the git proxy and the connector refused it (403). It went in
+        from the laptop as a PR, because `.github`'s `main` requires PRs
+        and a `validate` check. The five `extends` drafts landed on
+        `staging`.
+      - **Renovate reads its config from `main`,** so the rule takes effect
+        only through a second promotion: vida#104, mantis#47, lhy#36,
+        gallerysonder#120 and alamo#74. Each is clean, with `ci / ci` and
+        `main-gate` green. These are the gate's first runs as a required
+        check, and it passed `staging` as designed.
+      - **Each `staging` shows as 1 behind `main`:** today's promotions were
+        squash merges. The content is identical. A merge commit on a
+        promotion keeps `staging` an ancestor of `main`.
+
+      **Closed 2026-10-14 (the Wednesday PM pass) [M]:** the second
+      promotions merged too (vida#104 21:49:48Z, mantis#47 21:48:10Z, lhy#36
+      21:48:33Z, gallerysonder#120 21:48:51Z, alamo#74 21:49:20Z), so
+      nothing in this item is left for the operator. Two follow-ups sit
+      elsewhere: P1-47 (the preview exit, now in production) and
+      williamson-construction-co's own migration, which was held until after
+      the cutover and is best left until the 10-19 rollback window closes [I].
+
+114.  **erp-industrial: "go" for one per-repo PR, black written in oklab
+      (new 2026-10-12, P1-31; the remedy fix is on branch
+      `claude/optimistic-pascal-08v3f5`).** All 23 Turso sites with a
+      `git_repo` and the three starters were built from their default
+      branch, and the build grepped for `oklab(0% none none` [M].
+      reddoor-website `main` folds nine values and its #260 head none, which
+      are the two controls. **erp-industrial is the only other site that
+      folds**: `oklab(0% none none/.6)` ×4, from `BgVideo.svelte`'s
+      `bg-black/60`, with `black: '#000'` in `tailwind.config.js` read
+      through `@config`. It is on maintenance `^0.95.1`, so its
+      `contrast-unmeasured` gate (0.102.0+) goes red on the Renovate bump.
+      Every other site keeps `var(--color-black)` in the mix, and Chrome
+      computes that to `oklab(0 0 0 / 0.5)`, which axe measures [M, probe
+      in Chromium with axe-core 4.13.0]. The starter and starter-blux are
+      not affected, so the brief's "starter first" does not apply.
+      reddoor-website is fixed on `staging` (#260, with #208's bump), and
+      `main` gets it at the next promotion.
+      - _Ask:_ "go" for an erp-industrial PR that changes `black: '#000'`
+        to `black: 'oklab(0 0 0)'` in `tailwind.config.js`, or hold it
+        until its Renovate bump goes red.
+      - _Pick:_ go. It is one line, it renders byte-identical (#260's
+        sha256 screenshots), and it lands before the bump instead of
+        blocking it.
+        **Answered 2026-10-12 (operator, in session): go.** Landed as
+        erp-industrial#71 (`d259617`, 17:01Z). Its built CSS has no
+        `none` left, and the old and new values render identical pixels.
+        The gate itself is proven when the 0.102+ Renovate bump goes green.
+
+115.  **P1-33(e) Decision 1: where each kind of session starts, read from the
+      probe table (new 2026-10-12; the work is #1318 on
+      `claude/dazzling-wozniak-pgsra9`; the table is reddoor-workspace
+      `plans/2026-10-06-agent-workspace/probe.md` at `25499f6`).** The
+      home-base deny list is on the workspace's `main` (`c8fa41d`) and is
+      live: a session started there refused bare `git stash`, the
+      `rm -rf /tmp/deny-canary-absent` canary, the credentials Read and both
+      new push patterns, and the same session without the file ran all of
+      them [M]. Maintenance's `Read(/Users/…)` rule read the planted file
+      [M], and #1318 fixes it. **Arm c, the one recommendation 1(d) decides
+      on:** a maintenance session attached the workspace (`add_repo` →
+      `appended`, `register_repo_root` → `context_reload_requested`). On the
+      next turn the workspace `CLAUDE.md` was NOT IN CONTEXT in the main
+      thread and in a fresh subagent [M]. The README control never loaded
+      in any arm. a0 and a1 never attached maintenance: both rightly refused
+      a push-access attach asked by another session. The reverse direction
+      is therefore inferred [I], and the 5-minute way to measure it is in
+      `probe.md` under "What is left".
+      - _Ask:_ (1) the no-load branch of 1(d): code sessions start in their
+        own repo, and the PM, the cockpit and non-code work start in the
+        home base. The rules for maintenance's own tools (land-prs,
+        fleet-repos, worktrees, mutations, rounds, asking) stay in
+        maintenance's `CLAUDE.md`, and only the cross-repo sections move.
+        A session that needs the other repo's rules reads that `CLAUDE.md`
+        as its first step, and the Routine's prompt says so. Or (2) the
+        plan as first written: every session starts in the home base. A
+        code session would then run without its repo's `CLAUDE.md`, by
+        arm c. Or (3) hold Decision 1 until you have run a0's and a1's
+        after-attach turns.
+      - _Pick:_ (1). It is the branch 1(d) named for this result, and it
+        keeps each repo's rules loading the one way they were measured to
+        load. Its cost: a section that moves no longer reaches a code
+        session unless that session reads it, so a section moves only
+        when no code session needs it.
+        **Answered 2026-10-12 (AskUserQuestion): "we need the workspace,
+        maint and the repo to be in context most of the time, I want to
+        default to workspace because it'll always be necessary since it
+        has all the agent permissions and tools, but happy to hear other
+        options. Journals should go to their respective repos, home is an
+        operating base for agents".** So sessions default to starting in
+        the workspace, and journals stay in their own repos. By arm c, an
+        attached repo's `CLAUDE.md` does not load on its own. So the
+        cutover must make a session starting in the workspace read the
+        attached repo's `CLAUDE.md` (maintenance's, and the site's) as an
+        explicit step after `register_repo_root`, and pass it to any
+        subagent that works there. The workspace `CLAUDE.md` would carry
+        that rule, and the Routine's prompt and each brief would name the
+        reads. Maintenance's hooks (setup, session-start checks, the
+        subagent-stop guard) would not run either, so the Routine runs
+        setup by hand, as `plan.md` already says. a0's and a1's
+        after-attach turns, which measure exactly this default shape, are
+        still worth the 5 minutes before the cutover.
+
+116.  **P1-45 / #545, the staging-flow pilot on vida-legacy-foundation: three
+      asks (new 2026-10-12; the worker of Operator decisions 113).** On vida
+      so far:
+      - **Built:** `staging` from `main`, and the Netlify branch deploy for
+        `staging`.
+      - **PRs into `staging`:**
+        - vida-legacy-foundation#98, `main-gate`;
+        - vida-legacy-foundation#100, the kit 3 migration, which replaces
+          #96 and #97.
+      - **Proven:** the `renovate-staging-flow` preset, by Renovate's own
+        `dryRun: full` on vida (#99, closed).
+        - Patches and minors open on `main` with the `fast-track` label.
+        - Majors, lock-file maintenance and digests open on `staging`.
+      - **Handed to you as files on `claude/friendly-lamport-wlmrik`:**
+        - the `.github` patch,
+          `docs/patches/2026-10-12-github-renovate-staging-flow.patch`;
+        - the two ruleset steps, in `docs/runbooks/staging-flow.md`. The
+          cloud proxy refuses ruleset writes, and they are red tier anyway.
+      - **(a) #98 after two dirty review rounds.**
+        - **Round 1:** the commit author is only an email, and the bot's
+          email is public. Fixed: commits must be `web-flow`, verified, and
+          the files are limited to manifests.
+        - **Round 2:** a writer who calls
+          `PUT repos/…/contents/package.json` on a Renovate branch with an
+          `author` of the bot gets a commit that GitHub signs, as
+          `web-flow`, verified. The gate passes it. This is reasoned from
+          how GitHub signs API commits, not run; running it would write to
+          vida.
+        - **The fix:** `GET repos/…/activity?ref=refs/heads/<branch>` records
+          who pushed. On vida it shows `reddoor-renovate[bot]` alone on
+          `renovate/sveltejs-kit-3.x`, and the pushing account on a human
+          branch. Also add `previous_filename` to the file list, so a
+          rename cannot hide a deletion.
+        - _Ask:_ (1) add both fixes and land #98 into `staging` without a
+          third round, (2) add them and run a third round, or (3) land as
+          is.
+        - _Pick:_ (1). The gate guards nothing until you promote and then
+          make `main-gate` required, so the fix is in place before it
+          counts. It is shown red on a stubbed push by a human, the same
+          way every other case was.
+          **Answered 2026-10-12 (AskUserQuestion): fix, land, no round 3.**
+      - **(b) williamson-construction-co:**
+        - _Ask:_ hold its kit 3 migration and staging flow until after
+          the 10-14 cutover (P0-5), or do them now.
+        - _Pick:_ hold. A config migration under a cutover adds risk to
+          the one date that cannot move. Its Renovate pair stays red until
+          then, which is the rule working.
+          **Answered 2026-10-12 (AskUserQuestion): hold until after the
+          cutover.**
+      - **(c) the fast track and the never-automerge list.**
+        renovate-config never automerges `@reddoorla/maintenance`,
+        `sharp` and four image packages. Under `group:allNonMajor`, one
+        held package holds the whole grouped PR, and
+        `@reddoorla/maintenance` is in nearly every site's group most
+        weeks. So most weeks the `main` patch/minor PR will still wait for
+        you.
+        - _Ask:_ keep the list as it is, or exempt
+          `@reddoorla/maintenance` minors on flow repos, where a bad bump
+          would reach `main` unreviewed.
+        - _Pick:_ keep. The hold exists because a maintenance minor broke
+          Netlify builds while CI was green, and the fast track does not
+          change that risk.
+          **Answered 2026-10-12 (AskUserQuestion): keep the list.**
+117.  **roalson-interests hero subheadline (Erik, Discord 10-12 19:20Z)**:
+      release [Hero subheadline (Erik, 2026-10-12)](https://roalson-interests.prismic.io/builder/upcoming/as1G6hcAAAJFe_Z2)
+      changes one field, the `home_hero` subheading on `home`, to Erik's
+      text exactly; `diff_release` shows one document, one delta.
+      - _Ask:_ publish it yourself, or the worker publishes via MCP.
+      - _Pick:_ the worker publishes, then curls the live page until the
+        text appears, since the change is one field already diffed.
+        **Answered 2026-10-12 (AskUserQuestion): the worker publishes.**
+
+118.  **Roalson listing packages, 2026-10-12 markup (Erik's notes, Discord
+      `1559317207203315734`, and the client's marked-up 116 Old San Antonio Road
+      package, `1559317238899544165`): held after two dirty review rounds**
+      (new 2026-10-12, asked 2026-10-12). Work: roalson-interests
+      `claude/listing-packages-oct12-markup` (`bfdbf36`, `30fdf49`), stacked on
+      the unmerged `claude/listing-packages-spencer-ranch` and
+      `claude/nifty-dirac-2zmegy`. Built: the client's global standards in the
+      generator (cover chip without "Land", larger contact block, Ri watermark
+      at 262px with its right edge under the wordmark's, "Investment" prints as
+      "Price", exhibits are Location / Area Map with Traffic Counts / Aerial
+      Map / FEMA, no close area map, no close aerial, no survey), the closest
+      major intersection on the area and aerial maps, business names with pins,
+      a per-listing Land ID hero slot; the Hwy 46 package rebuilt to them (11
+      pages to 8), not published, not in Dropbox. Round 1: majors (a failed
+      NAIP tile left a broken, still-stamped image; a Land ID hero would replace
+      broker photography on three listings), all fixed in `30fdf49`. Round 2: one
+      major, reproduced: the flood caption's pin sentence "Tract boundaries
+      appear on the survey and exhibit pages" now prints on four listings with
+      no survey page (menger-springs-road, ih-10-east-at-loop-1604,
+      loop-1604-at-highway-181, ih-10-at-menger-springs); not on Hwy 46. Nine
+      minors and nits besides, the worst an orphan count dot when a count label
+      does not fit.
+      - _Ask:_ (1) fix round 2's major and the orphan-dot minor and review once
+        more, fix without another round, or leave held; (2) business logos on
+        the area map (Erik asked to automate them): names and pins only, a logo
+        service (logo.dev free tier needs a visible credit on commercial use,
+        Brandfetch's free Logo API terms vary between sources), or not now;
+        (3) merge the generator to roalson-interests `main` now, or keep it on
+        its branches; (4) the Land ID list arrived (Matt Howard to Erik 20:35Z,
+        forwarded 21:35Z, 23 links, now in `build/heroes.json`): fetch the Hwy 46
+        hero now or wait for all 23; and do 101 W Commerce, 13810 Lookout Road
+        and Urban Loop Road keep their photo covers (Erik named only 25331).
+      - _Pick:_ (1) fix both, then one more round, since the major is a
+        one-sentence change but it asserts something false; (2) names and pins,
+        since they need no account and assert nothing about a brand; (3) merge
+        after (1), since the tool has lived only on branches since 09-29;
+        (4) wait for all 23, and the three photo covers keep their photos, as
+        Erik's "unless we have photography" reads.
+        **Answered 2026-10-12 (AskUserQuestion): (1) fix both, one more
+        round; (2) do a research turn on the three logo options before
+        choosing; (3) merge after the hold clears; (4) wait, all 23 together.**
+
+119.  **Roalson listing packages, decision 118 follow-up: round 3 found a
+      client-copy major, and the logo research is in** (new 2026-10-12, asked
+      2026-10-12). Work: roalson-interests `claude/listing-packages-oct12-markup`
+      at `fcd6271`. Round 2's major and its orphan-dot minor are fixed, each
+      with a control. Round 3 verified both and found one major, reproduced:
+      five listings' own spec text still says "See Survey" or "Refer to
+      Survey" (cascade-caverns-at-old-san-antonio-road,
+      ih-10-at-highway-87-comfort, ih-10-at-menger-springs,
+      ih-35-at-wonderworld-san-marcos, st-marys-at-martin-river-walk), and
+      their survey pages are now dropped. Not on Hwy 46. Three minors besides
+      (a count dropped from the map can still be quoted in the strip under it;
+      "The specification pages quote the counts" is false for two listings;
+      showcase.py still promises surveys). Logo research: Brandfetch's terms
+      forbid storing a logo ("Programmatic access to logo images is not
+      permitted"), so it cannot go in a PDF; logo.dev allows stored PNGs but its
+      free plan needs a visible "Logos provided by Logo.dev" link on a public
+      page (print not addressed; paid plan ~$33/mo, no credit); a plain name is
+      the stronger nominative fair use, though retailer logos on CRE aerials are
+      routine.
+      - _Ask:_ (1) the five survey references: keep the survey page on those
+        five (`keep_survey`, reading the client's "most packages" as "all but
+        these"), edit the five sentences, or ask the client; (2) logos: names
+        and pins, or logo.dev.
+      - _Pick:_ (1) keep the survey on those five, since their own text relies
+        on it and "most" leaves room for exactly this; (2) names and pins, since
+        logo.dev's credit would have to live on roalson.com and print is
+        unaddressed.
+        **Answered 2026-10-12 (AskUserQuestion): (1) keep the survey on
+        those five; (2) names and pins.**
+        **Overturned 2026-10-12 23:20Z (the operator, in chat):** Matt Howard's
+        package comments (Erik's forward, 22:12Z) say "remove survey" for all
+        five, so none keeps one; four "See Survey" cross-references are cut in
+        roalson-interests `build/corrections.json`, and St. Mary's flood
+        sentence stays as the broker's. The rest of his list is P1-46.
+
+120.  **P1-46, Roalson listing packages: all 23 rebuilt with Matt Howard's
+      comments; four calls before anything is delivered** (new 2026-10-13,
+      asked 2026-10-13). Work: roalson-interests#297 (branch
+      `claude/p1-46-package-rollout`, `80ea71a`). Built: Land ID heroes on 19
+      covers, read with no account (a headless browser keeps each share's own
+      `share.json`; the capture matches Land ID's og:image at 0.03/255 against
+      48 for another site), Land ID outlines on the eight listings Matt named,
+      every copy edit, exhibit keep and removal, "HEB Owned" on Kendall CAD
+      parcel 15300, IH-35's traffic map zoomed out, and an intersection and
+      businesses on every map. Matt's "Perrin Beitel: floor plan stays" has no
+      target: Perrin Beitel is vacant land with no floor plan, and Matt's list
+      leaves out 13810 Lookout Road, whose floor plan stays either way. Three
+      review rounds: a critical (a failed map leaked its legend and counts into
+      the next map) fixed and reproduced with a control; round 3 minors only,
+      filed as roalson-interests#294, #295 and #296.
+      - _Ask:_ (1) five FEMA sentences change with the Land ID outlines: Hwy 46
+        4% → 3%; IH 10 at Menger Springs, which said "no share computed",
+        now "about 5%" in the 1% annual chance area, matching the broker's own
+        Flood Plain row; IH 10 East at 1604 and Loop 1604 at 181 now Zone X;
+        Menger Springs Road now "along the edge (under 3%)" from a 0.08%
+        sliver at its north tip, against the broker's "no floodplain". Accept
+        all five, accept four and put Menger Springs Road to the broker, or
+        hold all five for the broker? (2) Matt asks for HEB's logo on IH 10
+        East at 1604 (HEB is building across 1604): no logo; a plain "H-E-B
+        (opening soon)" label placed by hand, since OpenStreetMap has no HEB
+        there yet; or a logo? (3) The other 15 covers now show the broker's
+        Land ID outline while their exhibits keep the county parcel (overlap
+        57% to 98%). Leave them; move the 11 whose FEMA sentence would not
+        change; or move all 15, which changes four more sentences (Walzem
+        floodway 5% → 8%, IH 35 45% → 50%, Lookout and St. Mary's "along the
+        edge" → none)? (4) Delivery: replace the 23 Prismic `package_pdf`
+        files after you review the set; send the set to Erik for Matt first;
+        or another route (the Dropbox file requests are closed).
+      - _Pick:_ (1) accept four, put Menger Springs Road to the broker, since
+        the four agree with the broker's own rows and the fifth contradicts
+        one; (2) the plain label, which keeps decision 119's names and pins;
+        (3) move the 11, so cover and exhibits agree wherever no flood claim
+        moves, and the other four are a broker question; (4) review first, then
+        Erik for Matt, since these are the client's packages and he marked them
+        up.
+        **Answered 2026-10-13 (AskUserQuestion): (1) accept four, Menger
+        Springs Road to the broker; (2) the plain label; (3) move the 11;
+        (4) review first, then Erik for Matt.**
+      - **10-14 14:18Z, new evidence [M, Discord `#roalson-interests`, GET]:**
+        Erik "took PDF edits into my own hands": he made global changes to
+        the PDFs himself and is "awaiting their approval to upload the
+        current PDFs to the Roalson site". He also moved the current packages
+        into their own Dropbox folder, with the rest under past comps. So the
+        next step is Erik's word that the client approved, and the files to
+        publish are his edited set, not a rebuild from the generator [I].
+
+121.  **P1-33 cutover: four calls before Fri 10-23, and a new finding (new
+      2026-10-13, asked in the discussion session
+      https://claude.ai/code/session_012fijUSNPixm2PaEeAtHCv9).** Finding
+      [M] 2026-10-13 ~13:50Z: that session started in maintenance, attached
+      reddoor-workspace with `add_repo`, and was then restarted. It came back
+      as a multi-repo session (`get_session` listed both repos as sources,
+      cwd `/home/user`). The workspace `CLAUDE.md` now loaded, which arm c
+      never saw without a restart. But no deny list was live: the canary
+      `rm -rf /tmp/deny-canary-absent` ran, and bare `git stash` was refused
+      only by the auto-mode classifier (`[Irreversible Local Destruction]`),
+      not a deny rule. The cloud docs agree that only a single-repo session
+      reads `.claude/settings.json`. So any attach-then-resume session, the
+      all-day cockpit included, runs without the deny list today.
+      - _Ask:_ (1) the deny list after a restart: probe a user-level
+        `~/.claude/settings.json` written by the environment's setup script,
+        with the canary on every resume as the fallback; canary only; or
+        accept the classifier. (2) Does the workspace keep a journal? (3) The
+        cutover date. (4) Will the operator type a0's and a1's after-attach
+        turns (`probe.md`, "What is left")?
+      - _Pick:_ (1) the probe plus the canary on resume; (2) yes,
+        `journal/` for work that changed no code repo; (3) Fri 10-23, proven
+        by the Mon 10-26 fire; (4) skip and prove at the cutover.
+        **Answered 2026-10-13 (AskUserQuestion): (1) probe env-level, canary
+        fallback; (2) workspace `journal/`; (3) Fri 10-23, first proof the
+        Mon 10-26 04:48 PT fire; (4) "I'll type it now".** Prep was queued
+        the same day as four workers: W1 the user-level deny-list probe
+        (`session_01GywkGC61j8SDyeyVWLRJo6`), W2 decision files and
+        `scripts/decisions.mjs` (`session_01TMkyXcUMqt5FxVtQLpoft2`), W3 the
+        staged home-base loop, the new Routine prompt and the cutover runbook
+        (`session_01BCi5djFrhW63uGS7MiwmXP`), and W4 the 200-line home-base
+        `CLAUDE.md` with the rule map (`session_011UosmWgyEfHF9TducWdwNa`).
+        **Follow-up answers 2026-10-13 ~17:45Z (AskUserQuestion), once the
+        four workers had finished:** (a) W1 measured, locally with headless
+        `claude -p`, that a deny list in the user-level
+        `~/.claude/settings.json` applies with two repos under the cwd and
+        stacks with the repo's own file (workspace `e743c37`). The
+        setup-script block goes into the environment **in the 10-23 window**,
+        not before, and is followed there by the five-step live check
+        (runbook step 5a, workspace `fd57bc4`). (b) a0 and a1 are **dropped**:
+        they were archived without their after-attach turns, so this
+        replaces answer (4) above. (c) W4's four keep-or-drop rows are
+        **accepted as picked** (workspace `cutover/claude-md`, `15e4a70`).
+        Your steps before 10-23: add the `RESEND_API_KEY` secret and the
+        `OPERATOR_EMAIL` variable to reddoor-workspace's Actions, and read the
+        staged `CLAUDE.md`. In the window: paste the setup block, then change
+        the Routine's repository and prompt.
+        **Status 2026-10-19 ~13:30Z (a worker, `claude/determined-mendel-ykcemv`):**
+        both cutover drafts carry `main` again, by merge commits, and are still
+        drafts. #1347 merged `main`: `docs/pm-pass.md` stays the
+        stub, the BACKLOG pointer lines sit above the 10-19 re-rank, and
+        `FROZEN` is re-frozen (BACKLOG's digest and the 10-14, 10-15 and 10-19
+        morning reports). Its red `build` was only `moved-files.test.ts` reading
+        main's newer BACKLOG, not a code break. #1342 carries main's one Dropbox
+        bullet (#1388, #1395) as this repo's third cloud rule, because it names
+        this repo's scripts and runbook; the model rule (#1362) and the two-part
+        archive line (#1363) went to the home base instead, on reddoor-workspace
+        `cutover/claude-md` (`09564d5`), with the map's check passing against
+        `4083be93`. Every PM pass edits BACKLOG, so #1347 goes red again on the
+        next one: re-freeze it in the window (runbook step 5), as planned.
+        **Status 2026-10-19 ~14:10Z (the cockpit session):** the operator's
+        two pre-window steps are done, on his word in the cockpit: the
+        `RESEND_API_KEY` secret and the `OPERATOR_EMAIL` variable are in
+        reddoor-workspace's Actions (not read back: the proxy refuses the
+        Actions secrets and variables API), and he read the staged `CLAUDE.md`
+        on workspace `cutover/claude-md` at `09564d5` and accepts it as is.
+        What is left of 121 is the Fri 10-23 window itself.
+        **Answered 2026-10-20 ~02:45Z (the operator, cockpit session): the
+        window moves up to Tue 10-20.** This replaces answer (3) above (Fri
+        10-23, proven by the Mon 10-26 fire). Reason: Williamson is done and
+        nothing big is moving. The window opens once Tuesday's 04:48 PT pass
+        has landed and #1519 has merged, with no worker sessions live. It must
+        finish before Wednesday's 11:48Z fire, which is the first proof. That
+        is under a day, against the three days a Friday window had, so it
+        runs in one sitting with the operator present. The window session
+        re-dates the runbook first (workspace
+        `plans/2026-10-06-agent-workspace/cutover-runbook.md`: the 10-22
+        report check, the watcher's `dry_run date=2026-10-22` → `not-covered`
+        check, and the 10-26 proof), and proves the watcher on the new dates
+        before trusting it.
+        **Answered 2026-10-20 (cockpit, AskUserQuestion), runbook step 2, the
+        decision migration:** `decisions.mjs convert` on `8d909136` flagged 46
+        items against the morning report's 19. The operator closed 31 as
+        already settled in their own text (1, 2, 7, 8, 10, 12, 23, 29, 32,
+        38, 40, 44, 49, both 53s, 55, 63, 70, 71, 75, 81, 83, 85, 88, 90, 93,
+        107, 110, 113, 123, 126, 127, 128), and kept 17 open as files in
+        reddoor-workspace `decisions/` (13, 14, 15, 18, 31, 33, 45, 57, 61,
+        72, 77, 78, 79, 82, 87, 97, 120), the four judgment calls among them:
+        "keep them all open for now, will be a good test of the new system".
+        Two go into the home base's "Settled answers": never draft Discord
+        replies (10-12), and non-maintained sites are not pursued (57(d)).
+        The runbook, the watcher (`FIRST_COVERED` 2026-10-21, `KNOWN_GOOD`
+        2026-10-20T23:59Z) and the proof (Wed 10-21, report due 13:18Z) are
+        re-dated on workspace `cutover/loop-1020`; the watcher read blind,
+        not-covered, not-due, missed and ran on a scratch history first.
+
+122.  **P1-48, Search Console re-check: on a soft-fail, keep the stored
+      `no-property` or write `soft-fail`?** The brief said the nightly re-check
+      writes the cells a draft writes, and a draft writes `soft-fail` when the
+      API errors. Nightly, that erases a true watch: a site with truly no
+      property that hits one transient error gets `soft-fail`, which raises no
+      watch, and it leaves the re-check's own targets (only `no-property` rows
+      are re-checked), so nothing raises the watch again until its next draft.
+      The re-check on `claude/sleepy-newton-xoaf1i` (issue #1336) writes
+      nothing on a soft-fail, and the stored `no-property` stands until a later
+      night answers. (a) **Keep it (my pick):** an unknown answer never retires
+      a known finding. The cost is that a site whose property is fixed while
+      Google errors keeps its watch for one more night. (b) **Write
+      `soft-fail` as a draft does.** It is closer to the brief, but transient
+      errors silently drop real watches until the site's next draft.
+      **Answered 2026-10-13 (AskUserQuestion): (a), write nothing on a
+      soft-fail. #1346 lands as built.**
+
+123.  **P1-51, Williamson launch: the operator's half of the checklist (new
+      2026-10-14).** Both sites went live 10-13; `reddoor-maint launch-check`
+      (reddoorla/reddoor-maintenance#1377) reads each as NOT READY, 2 of 8
+      `ok`. The worker side is done or built: row `url` now
+      `https://www.williamson-construction.com/` and
+      `https://www.williamson-homes.com/`, header images stored, and `/privacy`
+      plus a footer link in reddoorla/williamson-construction-co#29 and
+      reddoorla/williamson-homes#39 (CI green; previews answer 200). Neither
+      Webflow site carried analytics (conversion plan §2), and no Williamson
+      GA or Search Console property is visible to the GA subject, so there is
+      nothing to reuse. _Asks, per site:_ (a) create a GA4 property and a web
+      stream for the `www` host, grant `reports@reddoorla.com` (and every
+      `GA_SUBJECT` subject) Viewer, and send the numeric property ID and the
+      `G-` ID; (b) create a Search Console property (domain, or URL-prefix
+      `https://www.…/`), send the HTML-tag token, then after the tag merges
+      press Verify and add `reports@reddoorla.com`; (c) the report contact and
+      the privacy contact (_pick:_ `brian@williamson-homes.com`, the address
+      the Homes site publishes, unless you name another; Construction's
+      likewise); (d) the schedule (_pick:_ Quarterly, Testing None, counted
+      from the launch day, as most of the fleet runs); (e) merge each repo's
+      PR once a worker adds the contact, the tag and the verification meta to
+      it (one merge per repo); (f) run `reddoor-maint launch <site>` once
+      `launch-check` reads READY, and approve each go-live email. A worker does
+      everything else: the tag (`analytics-tag`), the meta tag, the privacy
+      values, the row writes through the site mirror, and the re-checks.
+      **Answered 2026-10-14 (AskUserQuestion): (a)+(b) the operator creates
+      both GA4 properties and both Search Console properties and sends the
+      numeric property IDs, `G-` IDs and verification tokens; (c) each site's
+      published `info@` (`info@williamson-construction.com`,
+      `info@williamson-homes.com`), not Brian; (d) Quarterly from launch,
+      Testing None; (e)/(f) one merge per repo, then the operator runs
+      `launch` and approves.** Done the same hour: `point_of_contact`,
+      `maintenance_freq` Quarterly, `testing_freq` None and `maintenance_day`
+      2026-10-14 on both rows (site mirror), and the privacy contact and
+      effective date on both PRs (williamson-homes `6af5aa3`,
+      williamson-construction-co `08221a0`). Still waiting on: the IDs and
+      tokens. With them, a worker adds the tag and meta to #39 and #29 and
+      writes `ga4_property_id` and `search_console_property`.
+      **2026-10-14 ~19:55Z:** the operator created both GA4 properties
+      (Homes 559039043 / `G-21KD0G311C`, Construction 559059283 /
+      `G-70PDG1RJBG`) and verified both Search Console domain properties. The
+      worker recorded them on the rows, added `reports@reddoorla.com` as an owner
+      of both domains (Site Verification API) and added each property to its
+      list, so `reports@` reads all four. It also put the tag, the
+      `@reddoorla/maintenance` ^0.108.0 bump and the CSP hosts on
+      williamson-homes#39 and williamson-construction-co#29 (CI green, ready to
+      merge). `launch-check` reads 6/8 `ok` on both, and the two `missing` lines
+      (`ga-tag`, `privacy`) are what the merges fix. Left for the operator:
+      merge #39 and #29, re-run `launch-check`, run `launch`, approve both go-live
+      emails.
+      **2026-10-15 ~11:57Z (the Thursday PM pass) [M]:** #39 and #29 are merged
+      and live, and `launch-check` reads READY, 8/8 `ok`, on both sites. Both
+      rows are still `building`. Left for the operator: (f) run
+      `reddoor-maint launch williamson-construction-co` and
+      `reddoor-maint launch williamson-homes`, then approve both go-live emails.
+      **2026-10-19 ~13:15Z (cloud close-out session) [M]:**
+      `node scripts/williamson-cutover-verify.mjs` reads GREEN, all 64 checks
+      (Homes 28, Construction 36), the second scheduled run. `launch-check`
+      reads READY, 8/8 `ok`, on both sites again. The operator said yes to
+      `launch` on both (AskUserQuestion). `launch williamson-construction-co`
+      then STOPPED at `self-updating`: "could not read branch protection on
+      main, so it was not written: … Resource not accessible by integration
+      (HTTP 403)". It wrote nothing. Renovate's config was not drifted, and
+      `allow_auto_merge` was already false. Neither repo's `main` is protected
+      (`protected=false`), and adding that protection is the bootstrap's job.
+      The Claude GitHub App cannot read or write branch protection from a
+      cloud session. _Ask:_ (f) runs from the operator's laptop
+      (`reddoor-maint launch <site>` in each checkout, under the operator's `gh`
+      login). _Pick:_ yes; the bootstrap's protection is the point of the
+      step, and no flag skips it. Both rows stay `building` until then.
+      **Answered 2026-10-19 (AskUserQuestion): test emails first, from the
+      cloud; then the operator runs `launch` on the laptop.** The rows had no
+      Lighthouse scores (`building` rows are not swept), so `selftest email
+--type launch` skipped both. `audit --only lighthouse --url <www>
+--write-back` stored them (Construction P69 A100 BP100 SEO100, Homes P93
+      A100 BP100 SEO90; `launch` overwrites them at its own audit step). At
+      13:27Z `selftest email <site> --type launch` sent "Williamson Construction
+      Co — October 2026 Launch Report" and "Williamson Homes — October 2026
+      Launch Report" to `tucker@reddoorla.com` only. No Reports row was
+      written. **Still open for (f):** `reddoor-maint launch
+williamson-construction-co` and `… williamson-homes` from the laptop
+      checkouts, then approve both drafts at
+      <https://reddoor-maintenance.netlify.app> (the 16:07Z send clock
+      delivers them and flips each row to `maintained`).
+      **2026-10-19 ~14:10Z: closed.** The operator ran `launch` on both from
+      the laptop (`drafted (awaiting approval)`; protection and the ruleset
+      created; audits P96 A100 BP100 SEO100 and P99 A100 BP100 SEO92), then
+      chose not to send a Launch email at all, only the Maintenance email when
+      it falls due. Both Launch drafts are withdrawn (the dashboard's
+      `withdrawReport`, 14:07Z), and on the operator's yes (AskUserQuestion)
+      both rows' Status is `maintained` through the dashboard's
+      `setSiteDetail`. "Launched at" stays blank. The first Quarterly
+      Maintenance report falls due 2027-01-14 on both [M, `nextDueDates`].
+      Closed.
+
+124.  **reddoorla/medical-solutions-of-texas#81, MSOT `/privacy` and footer
+      link: merge to production (P1-51, reddoorla/reddoor-maintenance#1376;
+      new 2026-10-14).** `launch-check msot` read 7/8 `ok`, `privacy missing`
+      (`/privacy` 404s while the site loads GA4 `G-BZ0WQMEE8L`). #81 ports the
+      starter's DRAFT, `noindex` page as Data Dynamiq, 1836dig and 29 Navy
+      carry it (item 73), with values the site already publishes: "Medical
+      Solutions of Texas" (footer) and `info@MedicalSolutionsofTX.com`
+      (`/contact`), effective 2026-10-14. It names the services measured in a
+      live capture: GA4, Adobe Fonts, Vimeo, Cloudflare Turnstile, the form
+      ingest and Netlify. No Prismic request reaches a visitor's browser, so
+      Prismic is not named. CI green on `7f29752`; review round 1 found one
+      major (a missing space, "messageand"), fixed and pinned by a test; round 2
+      clean (nits filed as medical-solutions-of-texas#82–#85). Six mutations
+      each turned a test red. _Ask:_ merge #81 (a production deploy of a live
+      client site, which item 73 made the operator's click), yes or no.
+      _Worker's pick:_ yes, for item 73's reason: GA4 is already collecting
+      without a disclosure, and item 45 reviews the wording once for every
+      site. After the merge, a worker re-runs `launch-check msot` for 8/8
+      and closes #1376.
+      **Answered 2026-10-14 (AskUserQuestion): yes, land it from this
+      session.**
+      **Landed 2026-10-14** as medical-solutions-of-texas `6df3025` through
+      `land-prs`, which the cloud session's permission policy allowed this
+      time. `/privacy` was live at 20:57:14Z. `launch-check msot` reads READY,
+      8/8 `ok`, and #1376 is closed with that output.
+
+125.  **P1-47, alamo-anatomy: the preview exit still scrolls to the top
+      (new 2026-10-14; issue reddoorla/alamo-anatomy#82, promotion
+      reddoorla/alamo-anatomy#81 open).** The P1-47 fix is on alamo's
+      `staging`, and its bundle carries `{refreshAll:!0,reset:!1}`. Ending a
+      preview there still lands at y 0 from y 600 [M]. The cause is the site's
+      own code, not the component. `redirectToPreviewURL` sends editors to
+      `/preview<path>`, so ending a preview always changes the pathname, and
+      alamo's root `afterNavigate` (`src/routes/+layout.svelte:23-31`) calls
+      `scrollTo(0, 0)` on every pathname change. Mantis, with the same fix and
+      no such hook, stays at 600. _Ask:_ (a) promote #81 as it is, which fixes
+      the `vite dev` throw, and fix the hook as a follow-up through `staging`
+      and the next promotion; or (b) a worker first opens a `staging` PR
+      that treats `/preview/x` → `/x` as the same page in that hook (the
+      patch is in #82, with a test), merges it on green, and #81 then carries
+      both. _Pick:_ (b). It is a two-line change plus a test, and one
+      promotion is one click instead of two.
+      **Answered 2026-10-14 (AskUserQuestion): (b), fix the hook first.** A
+      worker opens the `staging` PR from #82's patch with a test, merges it on
+      green, and #81 then carries both. **Done 21:05Z:** alamo-anatomy#83 is merged into
+      `staging` (6 tests; 5 mutations, each red; review minors filed as
+      #84–#86, and an unverified preview contact-form 404 as #87). Measured on
+      `staging--alamo-anatomy`: `/preview` → `/` and `/preview/about` →
+      `/about` both stay at y 600, and `/about` → `/contact` still lands at
+      0 [M]. #81 now carries both fixes, clean with `main-gate` green; left
+      for the operator: merge it with a merge commit.
+      **Closed 2026-10-14:** the operator merged alamo-anatomy#81 with a merge
+      commit (~23:15Z), and production `/preview/about` → `/about` stays at
+      y 600 (P1-47's Done entry).
+
+126.  **P1-52, erp-industrial: open the lock-file PR that clears three high
+      `devalue` advisories (new 2026-10-15, the Thursday PM pass).** The
+      cockpit's Watch lists ERP Industrials NEW, "3 critical/high vulns —
+      transitive-only, still present after the 2026-10-12 lockfile window".
+      The fix is already built: Renovate's `renovate/lock-file-maintenance`
+      branch (`adcdce11`, 10-12 03:25Z) moves `devalue` 5.9.2 → 5.9.4, and all
+      six advisories are patched at `>=5.9.3`. No PR was opened from it, and
+      the Dependency Dashboard lists it under "Awaiting Schedule", so without
+      a click the next try is Mon 10-19's window, which may stall the same way
+      [I]. _Ask:_ (a) tick "chore(deps): lock file maintenance" under
+      "Awaiting Schedule" on reddoorla/erp-industrial#41. Renovate then opens
+      the PR, and the preset automerges lock-file maintenance on green
+      (`lockFileMaintenance.automerge: true`) straight to `main`, which is
+      ERP's production; or (b) leave it for the 10-19 window and P1-52's
+      worker. _Pick:_ (a). It is one click, the change is lockfile-only, and
+      it clears the advisories before the 10-25 Maintenance report is
+      drafted. _Due:_ 2026-10-22, so the report drafts clean.
+      **Status 2026-10-19 ~12:05Z (the Monday PM pass) [M]:** not done.
+      No lock-file PR exists. Renovate rebuilt the branch at 02:30Z today
+      (`e5095848`), and erp-industrial#41 now lists "chore(deps): lock file
+      maintenance" under **Pending Status Checks**, so the box to tick is
+      there now. The branch has no check runs at all, so it will not open a
+      PR by itself (P1-52, now fleet-wide). _Due:_ 2026-10-22 stands.
+      **Status 2026-10-19 14:01Z (the cockpit session) [M]:** still not
+      done. Item 130's preset fix is live (`reddoorla/.github#38`), but
+      `renovate/lock-file-maintenance` is still `e5095848` and no PR has
+      opened from it. Whether the #41 box is ticked was not read (the repo is
+      not attached to this session). The cockpit re-checks for the PR later
+      today; if none has opened by the end of today's window, the tick is
+      still the operator's. _Due:_ 2026-10-22 stands.
+      **Status 2026-10-19 14:19Z (P1-52's worker) [M]:** the PR is open:
+      erp-industrial#76, created 14:18Z by the operator's 14:13Z dispatched
+      run, after both the tick (#41 now shows it `[x]`) and `.github#38`, so
+      ERP's PR alone cannot say which one opened it. It is head `e5095848`,
+      the branch that resolves `devalue@5.9.4`; its CI was queued at 14:19Z.
+      Renovate automerges it on its first run after CI is green (the next
+      scheduled one is ~02:00Z 10-20), or the operator merges it. Done when
+      it merges and the `devalue` advisories close.
+      **Answered 2026-10-19 (AskUserQuestion): (a), tick it.**
+      **Done 2026-10-19 14:32Z (the item 129 session) [M].** The tick and
+      the 14:13Z dispatches were this session's, not the operator's by hand:
+      the box went to `[x]` at 13:17:15Z, and the operator said "trigger a
+      rebase, let's get everything cleared today" before the dispatch.
+      erp-industrial#76 changes only `pnpm-lock.yaml` (`devalue` 5.9.2 →
+      5.9.4). It landed with `land-prs.mjs` at head `e5095848` once every
+      check was green, as `6a40e922`. The production deploy was published at
+      14:32:24Z, and `main`'s lockfile now resolves only `devalue@5.9.4`.
+
+127.  **Dropbox API uploader: re-authorize the app so its refresh token
+      carries the write scopes (new 2026-10-16, #1388 held as a draft,
+      branch `claude/gifted-goldberg-03dgfe`).** Built:
+      `scripts/dropbox.mjs` (`check`, `upload`, `close-request`, `hash`), 39
+      tests, 21 mutations, each red, and one `CLAUDE.md` bullet. Proven live
+      [M]: a wrong refresh token is refused (400 `invalid_grant`), and the
+      real one names Tucker Lemos on Reddoor Creative. The path-root header
+      resolves `/Design Resources`. The local `content_hash` matches
+      Dropbox's on four real team files of 1 to 10 blocks. At 16:49Z the app
+      lacked `files.content.write`, `file_requests.write` and
+      `file_requests.read` (400 "app not permitted"). After the operator
+      updated the permissions at 16:53Z, the same calls answer 401
+      `missing_scope`: the app has the scopes, but the refresh token was
+      authorized before they were added [M]. So nothing can upload yet, and
+      two file requests are still open: `rwq45cqgv3weniwpv46n` (style guide,
+      deadline 17:50Z) and `jdgy7hgrr2hx22f3thh5` (the tender-bohr session's
+      test, deadline 17:30Z). _Ask:_ redo the one-time authorization and
+      replace `DROPBOX_REFRESH_TOKEN` in the environment settings. Then
+      either (a) say so, and this session starts a fresh session, the only
+      kind that sees the new value, to run #1388's end-to-end test, close
+      both requests and land it; or (b) leave it for whichever session next
+      picks up this line. _Pick:_ (a). The script is finished and proven on
+      the read side, and only the token is missing. If #1387 is answered
+      "keep", its `CLAUDE.md` bullet must stop calling file requests the
+      route, because #1388's says "never".
+      **Answered 2026-10-16 (AskUserQuestion): (b), later, from the
+      backlog.** #1388 stays a held draft. The session that picks this up
+      must start after `DROPBOX_REFRESH_TOKEN` is replaced. It runs
+      `node scripts/dropbox.mjs check`, which must print `granted` for both
+      scopes, then the end-to-end test in #1388's body. It closes both
+      requests, posts the output on #1388, marks it ready and lands it.
+      Review rounds: 1 and 2 each had one major (duplicate file names
+      overwriting each other, case-sensitively and then case-insensitively),
+      both fixed; round 3 is recorded in #1388.
+      **2026-10-16 17:51Z [M, Dropbox `list_file_requests`]:** both
+      requests read `is_open: false` once their deadlines passed, so neither
+      needs closing. At 17:31Z `jdgy7hgrr2hx22f3thh5`'s page already refused
+      uploads while `is_open` still read `true` (item 128's journal entry).
+      **Done 2026-10-16 18:22Z [M] (#1388):** the operator re-authorized
+      the app and replaced `DROPBOX_REFRESH_TOKEN`. In a container started at
+      18:20:34Z, `check` printed `granted` for both write scopes. The
+      end-to-end test passed: three uploads (37,748,741 bytes through
+      start, one append and finish; an accented name; an empty file) each
+      matched Dropbox's `content_hash`, `--no-overwrite` refused a changed
+      file, and `close-request` closed a throwaway request, confirmed through
+      the connector. The test folder and request were deleted. All seven
+      file requests read `is_open: false` through `file_requests/list_v2`.
+
+128.  **Dropbox binaries from a cloud session: keep the file-request
+      uploader beside the coming app and refresh-token route? (new
+      2026-10-16, branch `claude/tender-bohr-eh2rwb` at `fd2a3f4e`, no PR
+      yet).** Built and proven live today:
+      `scripts/dropbox-file-request-upload.mjs`, ported from roalson-interests'
+      `upload.sh` and `frbatch.mjs`, with 19 unit tests (9 mutations, each
+      red), a runbook and one `CLAUDE.md` line. Every test upload into
+      `/Tucker Lemos/Claude uploader test 2026-10-16`, from 1 byte to 8.4 MB,
+      matched the size and `content_hash` that Dropbox reported [M]. At
+      ~16:45Z the operator said a Dropbox app with a refresh token, built
+      elsewhere, should supersede it "unless you see a reason to keep both".
+      _Ask:_ (a) land it as the fallback: the `CLAUDE.md` line calls it the
+      route for when the API credentials are missing or fail, and the app's
+      PR rewrites that line to name the API first; or (b) close the branch
+      unmerged and keep only a journal entry of what was measured. _Pick:_
+      (a). It needs no secret, only the connector, so it works in any
+      session or environment the new credentials have not reached; a saved
+      environment variable reaches only sessions started after it, and this
+      session still held the dead `sl.` token at 16:31Z. It is already built
+      and proven, so keeping it costs one script. The case against it: a
+      script driving Dropbox's upload page breaks silently when the page
+      changes, and a fallback nobody runs goes stale.
+      **Answered 2026-10-16 (AskUserQuestion): (a), land it as the
+      fallback.** The `CLAUDE.md` line and the runbook call it the route for
+      a session without working Dropbox API credentials; the app's PR
+      rewrites the line to name the API first.
+      **Paused 2026-10-16 ~16:50Z (the operator): not before the app and
+      refresh-token work lands, or the two will conflict.** The branch
+      `claude/tender-bohr-eh2rwb` (`3926b85f`) holds the script, its tests,
+      the runbook and the fallback `CLAUDE.md` line; no PR is open. To
+      resume: merge `main` into the branch; put the `CLAUDE.md` line after
+      the API route's, as its fallback; point the runbook's opening at the
+      API route; run the script's tests and `pnpm lint`; open the PR with the
+      mutation table from the 2026-10-16 journal entry; give it the 3-lens
+      review; land it. The app work is #1388, held on item 127. Its
+      `CLAUDE.md` bullet says never to use file requests, so when this lands
+      the two must agree: the API first, and this script only when the API
+      credentials are missing or fail.
+      **Unblocked 2026-10-16 (#1388 landed):** the API route is on `main`,
+      and its `CLAUDE.md` bullet already names this script as the fallback,
+      so the resume steps above apply as written.
+      **Done 2026-10-16 (#1395):** landed as the fallback. The script imports
+      `dropbox.mjs`'s `contentHash`. #1388's `CLAUDE.md` bullet names it after
+      "Run `check` first", for when `dropbox.mjs` cannot upload, with no
+      second bullet. The runbook opens with `dropbox.mjs check`. Review round
+      1 had one major (the runbook said a saved environment value reaches
+      only later sessions; it reaches a container when it next starts), fixed
+      with the round's minors. Round 2 was minors only, filed as #1396–#1401.
+      A second live run after the fixes (six files, two batches, 39 s)
+      matched Dropbox's `content_hash` on every file [M].
+      **Follow-up done 2026-10-16 (roalson-interests#302, `03d6e9a`):**
+      roalson-interests no longer carries the old `upload.sh` and
+      `frbatch.mjs`. Its `tools/listing-packages/README.md` names
+      `dropbox.mjs` first and this script second. The runbook's mention of
+      the old copy is pinned to `90c6d9e`.
+
+129.  **`sharp` 0.35.5 security PRs: 36 green PRs in 15 repos wait on a
+      human merge (new 2026-10-19, the Monday PM pass; P1-54).** [M] Renovate
+      opened `sharp` → 0.35.5 `[security]` (GHSA-wq5f-xc86-pv6w, CVSS 8.9
+      High) on 10-06 and 10-14. All 36 are green and unmerged, 13 days for
+      the oldest. They are held by the preset's rule that `sharp` and five
+      other image packages never automerge without a human and a green
+      Netlify preview, so the merge is yours. The pairs on `main`, by repo:
+      29-navy #76/#77, beachfront-dentistry #85/#86, caltex-landing #77/#78,
+      espada #81/#82, medical-solutions-of-texas #74/#75, revogen #93/#94,
+      vineyard-custom-homes #74/#75, williamson-construction-co #25/#26,
+      williamson-homes #37/#38, roalson-interests #267 (and dependabot's
+      #290, the same bump), gallerysonder #121/#122, vida-legacy-foundation
+      #105/#106, mantis-landscaping #48/#49, alamo-anatomy #75/#76. The
+      `staging` copies (reddoor-website #261; gallerysonder #123/#124, vida
+      #107/#108, mantis #50/#51, alamo #77/#78) ride the next promotion.
+      _Ask:_ (a) merge each `main` pair after a look at its Netlify preview,
+      or (b) say which repos to leave. _Pick:_ (a). The fix is a patch to a
+      package that is already in every build, the previews are green, and
+      the advisory is High. A preset change that lets a `[security]` `sharp`
+      patch automerge on a green preview is a separate, fleet-wide call (🔴),
+      not asked here.
+      **Answered 2026-10-19 (AskUserQuestion): (a), yes to all 14 repos.**
+      **Done 2026-10-19 14:29Z [M].** Before each merge, the head's check
+      runs were all green and its Netlify preview deploy was `ready` on that
+      exact commit (27 previews, read from the Netlify API by `review_id`
+      and `commit_ref`). The first PR of each pair landed with
+      `land-prs.mjs`, pinned to its head, between 13:16 and 13:20Z: 29-navy
+      #76 `df4e91c6`, beachfront-dentistry #85 `73fc873f`, caltex-landing
+      #77 `5af47971`, espada #81 `ff82f319`, medical-solutions-of-texas #74
+      `cb88b545`, revogen #93 `d97bf5b7`, vineyard-custom-homes #74
+      `9805c983`, williamson-construction-co #25 `de5790b4`,
+      williamson-homes #37 `6396b5cb`, roalson-interests #267 `46480eb1`,
+      gallerysonder #121 `10177ccd`, vida-legacy-foundation #105
+      `89b806e6`, mantis-landscaping #48 `1b1418bb`, alamo-anatomy #75
+      `6eab0c9a`. All 17 production deploys (14 merges; MSOT, Revogen and
+      Sonder each build two sites) published between 13:17:41 and
+      13:23:24Z. roalson-interests#290 (dependabot) was closed as
+      superseded by #267. Every second PR went DIRTY. After the 14:13Z
+      Renovate dispatch, Renovate rebased caltex-landing#78, which landed at
+      `7c0b928b` (production published 14:28:46Z), and autoclosed the other
+      12 as no longer needed, 14:15–14:17Z. Skipped: none. Afterwards every
+      one of the 14 `main` lockfiles resolves only `sharp@0.35.5`. Without
+      #78, CalTex's still held 0.35.4 beside it, so an autoclose is not the
+      same as a fix until the lockfile is read. The `staging` copies are
+      untouched.
+
+130.  **P1-52: apply the preset change that lets lock-file maintenance open
+      its PR, fleet-wide (new 2026-10-19, branch `claude/clever-fermi-swf68c`,
+      `docs/patches/2026-10-19-github-renovate-lockfile-immediate.patch`).**
+      [M] The cause is named by Renovate's own log. A lock-file branch has no
+      status and no check run, so under the preset's `prCreation: not-pending`
+      it reads pending; the Monday run that rebuilds it returns before PR
+      creation, and every later in-window run finds it under 25 hours old.
+      Renovate's debug dry run on erp-industrial inside today's window
+      (erp-industrial#72, closed) logged `Branch is 10 hours old - skipping PR
+creation as prNotPendingHours is set to 25` on the unchanged preset, and
+      `DRY-RUN: Would create PR: chore(deps): lock file maintenance` with
+      `lockFileMaintenance.prCreation: "immediate"` added. Nothing else in the
+      two runs differed. The patch sets that one key and adds a `validate.yml`
+      check that goes red on today's preset. It is a patch because a cloud
+      session cannot reach `reddoorla/.github` at all: `add_repo` refuses
+      names that start with a dot, and the git proxy and the GitHub connector
+      both refuse it. _Ask:_ (a) apply the patch to `reddoorla/.github` (`git
+am`), open the PR, and merge it once `validate` is green. Lock-file PRs
+      then open in the next Monday window (10-26) and automerge on green CI,
+      or (b) leave the preset as it is, and tick each repo's Dashboard box by
+      hand every Monday. _Pick:_ (a). It is one key inside
+      `lockFileMaintenance`. It does not loosen the merge, because each PR
+      still waits for CI and the base branch's required check. Without it,
+      transitive-vulnerability cleanup stays stopped in all 15 repos. ERP's
+      `devalue` advisories need item 126's tick this week either way, since
+      10-26 is after its 10-25 report.
+      **Answered 2026-10-19 (AskUserQuestion): (a), apply the patch.** The
+      operator applies it to `reddoorla/.github`; no session can reach that
+      repo.
+      **Closed 2026-10-19 ~14:00Z (the cockpit session) [M]:** the operator
+      merged it as `reddoorla/.github#38` (`2de84b3`, 13:55Z), and
+      `renovate-config.json` on that repo's `main` now reads
+      `lockFileMaintenance.prCreation: "immediate"`. One correction to the
+      text above: an anonymous `git clone` of `reddoorla/.github` through the
+      git proxy works (the repo is public), so a cloud session can read it;
+      it still cannot push to it or reach it through the API or `add_repo`.
+
+131.  **P1-55, model bake-off harness: land #1417 after five review rounds,
+      or hold it (new 2026-10-19, branch `claude/dazzling-galileo-tq6bcd`,
+      reddoorla/reddoor-maintenance#1417).** [M] The PR adds
+      `scripts/model-bakeoff/` (harness, workflow, ledger, 203 tests, 24
+      mutations all red) and the row-4 result, posted to
+      reddoorla/reddoor-workspace#1: Haiku 5.5 at `medium` matched gold on
+      456/456 checks over two runs at about $0.013 a run, against $0.35 for
+      Opus at `low` and $0.71 for the Opus `high` gold. Haiku at `low` missed
+      one check. The `CLAUDE.md` review rule stops at five dirty rounds, and
+      round 5 found one reproduced defect: in the Bash tripwire that reports
+      arms which write, a standalone `curl -G` turned off every curl check,
+      so `curl -G -X POST url` went unflagged. Round 5's fixes, including
+      that one and CodeQL's high-severity regex finding (the `sh -c` scan
+      could backtrack exponentially, now replaced by a lexer), are pushed in
+      `8a3f7cc5`. No review round has seen them. Every round's majors were
+      in that tripwire or in the scorer's handling of items the reference
+      lacks; the measured result did not move once, and the remaining
+      minors are filed as #1419. _Ask:_ (a) land #1417 as it is, with
+      round 5's fixes unreviewed, once CI is green; (b) run a sixth review
+      round on `8a3f7cc5` first; or (c) hold #1417 and redesign the
+      tripwire, for example by denying `gh`, `git push` and `curl` writes
+      through a custom read-only agent type instead of detecting them.
+      _Pick:_ (a). Every round-5 fix has a test that a mutation turns red,
+      and the real run's 93 Bash commands still classify clean. The
+      tripwire only reports; it does not gate the merge, and nothing in the
+      PR touches production. (c) is the better long-term design, but it
+      changes agent definitions, which this slice's brief rules out.
+      **Answered 2026-10-19 (AskUserQuestion): (a), land #1417 now.** The
+      worker lands it with `land-prs.mjs`, ticks workspace#1's first two
+      acceptance boxes and writes the journal entry.
+
+132.  **Maintenance cleanup: confirm scope and order (new 2026-10-19,
+      branch `claude/keen-ptolemy-jg3o8g`, worklist
+      `docs/superpowers/specs/2026-10-19-cleanup-worklist.md`).** [M] Five
+      Sonnet surveys of `main` at `2459645a` found the suite healthy (9,614
+      tests, 0 tautologies, 0 unawaited `.rejects`, no `.only`/`.skip`) and
+      no unreachable `src` file. Of the 56 open issues, 5 can be closed with
+      evidence and about 22 are review minors in 7 themes. The rest are
+      fleet, bot or operator issues. Nineteen agent-ready items are planned,
+      about 17 PRs: CLI `formatResult` x10 deduped (fixing `bump-deps` and
+      `upgrade` printing a failed recipe as `applied: 0 commit(s)`), the
+      form-e2e fixture waits (one file is 163 s of a 4m22s–5m00s CI test
+      step), six themed minor batches, #998, hollow and weak tests, dead
+      exports, and shared helpers in `src/util`, `scripts/lib` and
+      `tests/_helpers`. _Ask:_ (a) run the 19 items in the worklist's order;
+      (b) also retire the dormant Blux emit, catalog, freeze and migrate
+      pipelines (about 3,800 `src` and 4,574 test lines, keeping
+      `blux convert`); (c) also move the 40 workflow failure-issue steps
+      into a composite action. _Pick:_ (a) only. (b) is the biggest cut but
+      `reddoor-starter-blux` still renders `blux_*` slices, and (c) rewrites
+      every alarm path, which can only be proven on `main`.
+      **Answered 2026-10-19 (AskUserQuestion): (a), the 19 items only.**
+      Blux retirement and the workflow composite action stay out of this
+      session.
+      **Done 2026-10-19:** all 19 items landed or closed (#1427–#1494, 24
+      issues closed); journal `docs/journal/2026-10-19-2044-maintenance-cleanup.md`.
+
+133.  **P1-63, bake-off tripwire minors: land #1444 after five review rounds,
+      or hold it (new 2026-10-19, branch `claude/p1-63-tripwire-minors`,
+      reddoorla/reddoor-maintenance#1444, closes #1419).** [M] The PR makes
+      `forbiddenCommand` in `scripts/model-bakeoff/lib/transcripts.mjs` see
+      every form in #1419. It stops flagging read-only `git tag --merged`,
+      `git config -f`, `git clean -n` and the like, and starts flagging
+      `git remote add`, `git config --unset`, `find -exec gh`,
+      `wget --post-data`, `echo 'git push' | sh`, `$(gh api)` inside an
+      unquoted heredoc body, `curl -X $M` and `$(which gh) api`. The final head
+      has 359 tests and about 40 mutations, each of which turns a test red.
+      All five review rounds were dirty (listed below). Round 5's four
+      reproduced defects are fixed and pushed in `0fbf1f77`, with tests and
+      mutations, and no review round has seen them. Two forms stay unfixed and
+      are filed as #1456: an echo with a `$(…)` argument piped into a shell
+      (listed as unseen), and a heredoc body line ending in `\` (a false
+      positive also on `main`). The slow regex from before this PR is #1426.
+      _Ask:_ (a) land #1444 at `0fbf1f77` once CI is green, with #1456 left
+      open; (b) run a sixth review round on `0fbf1f77` first; or (c) hold it.
+      _Pick:_ (b). Each round has found regressions in the previous round's
+      fixes, so landing `0fbf1f77` unreviewed repeats the pattern that this
+      rule exists to stop. #1456's two forms are also on `main` today, so
+      landing does not make them worse. The tripwire only reports and gates
+      nothing in production. **Answered 2026-10-19 (AskUserQuestion): (b),
+      a sixth round on `0fbf1f77`, then land.** The worker runs it and lands
+      #1444 if it is clean or minors-only, filing any minors as issues.
+      **Round 6 (2026-10-19 ~17:15Z) was not clean**: 2 majors, both
+      reproduced. (1) `git -C repo>/dev/null commit -m x` went unflagged; it
+      was a regression from round 5's word split at `>`. (2) Reads with a
+      redirect were flagged, e.g. `git config user.email 2>/dev/null` and
+      `git remote -v 2>&1`. The redirect counted as a positional word. That
+      predates round 5, and some forms were introduced earlier in this PR.
+      Both are fixed in `f0aafb38`: redirects and their targets are dropped
+      from the git, curl and wget args, as bash drops them from argv. There
+      is a test per form and a mutation each, and no round has seen the fix.
+      The round-6 minor (`{fd}>/dev/null gh`) is fixed too, and its nit
+      (`"3">x`) is on #1456. _New ask:_ land at `f0aafb38`, run a seventh
+      round, or hold. **Answered 2026-10-19 (AskUserQuestion): a seventh
+      round on `f0aafb38`, then land if it is clean or minors-only;
+      otherwise hold.**
+      **Round 7 (2026-10-19 ~17:10Z) was not clean, so #1444 is held.** It
+      found no regression from `f0aafb38`, but five reproduced defects,
+      filed as #1486. The major is `&>> out git push` returning false: a
+      regression against `main` from an earlier commit in this PR. The same
+      cause makes `>| out git push` and `<<< x git push` return false, and
+      those were already wrong on `main`. The four minors are
+      redirects in positions not stripped (`{fd}>` after the command,
+      `<>`, inside `find -exec`, among wrapper options). Nothing on the
+      branch is unpushed. #1419 stays open. Resuming takes either a fix of
+      #1486's major, through a round you approve, or OD 131's (c): replace
+      detection with a read-only agent type. The
+      rounds:
+      - Round 1: 4 majors.
+      - Round 2: 3 majors, 2 of them regressions from round 1's fixes.
+      - Round 3: 2 major regressions. Its group-feeder stack was backed out,
+        and the forms it covered are listed as unseen (#1438).
+      - Round 4: 1 major from before this PR. A `\`-newline hid the command,
+        as in `git \⏎ push`.
+      - Round 5: only hand-built shapes, but four of them are reproduced
+        behaviour defects. Two are false positives from round 4,
+        `echo gh pr ''>/dev/null | sh` and `echo gh pr create>|/dev/null | sh`.
+        `"gi\⏎t" push` was missed. `echo gh pr $(true) | sh` was missed.
+        **Answered 2026-10-20 (cockpit): close #1444 unmerged, keep its
+        branch `claude/p1-63-tripwire-minors` at `f0aafb38`, and take OD 131's
+        (c) instead: deny `gh`, `git push` and `curl`/`wget` writes through a
+        read-only agent type rather than detecting them.** A worker gets (c)
+        after the P1-33 cutover window closes (no worker runs during it).
+        Closing it now also takes #1444's `docs/BACKLOG.md` edit out of the
+        window's way (runbook step 1). #1419, #1438, #1456 and #1486 stay open
+        until (c)'s worker settles them.
+
+134.  **P1-58, bake-off row 6 (dependency bumps): land #1475 after five
+      review rounds, or hold it (new 2026-10-19, branch
+      `claude/p1-58-bakeoff-pnpm-update`,
+      reddoorla/reddoor-maintenance#1475).** [M] The PR adds
+      `scripts/model-bakeoff/tasks/pnpm-update.mjs` (the registry frozen as
+      a pnpm metadata-cache snapshot, every arm and the truth running
+      `pnpm update --offline`) and an additive harness hook so an action
+      task is scored from each arm's disk. On reddoor-starter `2a9f493`
+      every arm scored 117/117: Haiku 5.5 `low` and `medium` at about $0.013
+      a run, Sonnet `medium` $0.24, Opus `low` $0.50, the Opus `high` gold
+      $0.80. The bump breaks the starter's `svelte-check` (48 errors,
+      `@types/node` stops arriving transitively), and every arm reported it.
+      All five rounds were dirty, every finding in the scorer, none in the
+      models. Round 5 found two reproduced defects, neither of which any
+      run3 arm triggered. A headline `checks.pass: true` beside
+      `failed: ["check"]` scored perfect, and the failure regex matched
+      execa's "Command failed with exit code 1" inside a passing test log.
+      Both are fixed with tests that a mutation turns red, and run3 still
+      scores 117/117. No round has reviewed those fixes. Minors are filed
+      as #1476 to #1480. _Ask:_ (a) land #1475 as it is, with round 5's
+      fixes unreviewed, once CI is green; (b) run a sixth review round
+      first; or (c) hold it. _Pick:_ (a). The scorer only reports; it gates
+      nothing and touches no production path. t5-census was shown to score
+      byte-identically to `main` in three rounds. The result is the
+      ceiling either way. **Answered 2026-10-19 (AskUserQuestion): (a),
+      land #1475 as it is.** The worker lands it with `land-prs.mjs`, posts
+      the row-6 result on workspace#1 and lands its journal entry.
+
+135.  **P1-62, the `/bakeoff` skill: land reddoorla/claude-skills#21 after
+      five review rounds, or hold it (new 2026-10-19, branch
+      `claude/p1-62-bakeoff-skill` in claude-skills).** [M] The PR adds
+      `skills/bakeoff/` to claude-skills, which drives
+      `scripts/model-bakeoff/` end to end:
+      - It refuses arms without an explicit effort, single-run cheap arms
+        and a set `CLAUDE_CODE_EFFORT_LEVEL`.
+      - It proves the scorer before any score is read.
+      - It loops referee rounds, stopping after three, or at once when the
+        referee shows the reference is wrong.
+      - It prices only the run's transcripts and drafts the workspace#1
+        comment without posting it.
+
+      It has 56 tests and 32 mutations: 30 red, and 2 survivors whose code
+      was removed as unreachable. A live t5-census run through it went
+      228/228 on every arm, and the ledger and the transcripts agree at
+      $2.0220. Round 5 found one reproduced major: the proof was bound to
+      the reference but not to the scorer, so an edit to the shared
+      checkout's `lib/score.mjs` while the arms ran let a scorer that
+      passes everything score the run. The fix (`b504164`, M32 red) records
+      the sha256 of `lib/score.mjs` and the task module in the proof, and
+      `score` and `report` refuse if either changed. No review round has
+      seen it. Round 5's minors are filed as claude-skills#16–#20.
+      _Ask:_ (a) land #21 with the round-5 fix unreviewed; (b) run a sixth
+      round on `b504164` first; or (c) hold it.
+      _Pick:_ (a). The fix adds about 40 lines whose only effect is a refusal, and it was
+      reproduced red and green against a copy of the harness whose scorer
+      was edited after `start`. Every round's majors were in what the skill
+      certifies, not in what it runs, and the measured result never moved.
+      **Answered 2026-10-19 (AskUserQuestion): (a), land #21 with the fix.**
+      The worker lands claude-skills#21, then this repo's README pointer and
+      Done row, posts the result on workspace#1 and clears box 1's note.
+
+136.  **CRCA Brand Friction Audit: deck format, and Tim's assessment
+      (new 2026-10-19, run #1 of the $1,500 Diagnosis; work in
+      `reddoorla/reddoor-workspace` `audits/2026-10-19-crca-brand-friction-audit/`,
+      recipe in `playbooks/brand-friction-audit/README.md`).** [M] The
+      evidence is done and pushed (workspace `c8f712c`): site crawl, ten
+      competitors, search and AI-answer checks, and Reddoor's prospect audit
+      plus Lighthouse with a control run. Nicole's six-dimension assessment
+      is in. Tim's is not: in #crca he wrote "I have completed my assessment"
+      (10-15) and "I will load everything here shortly" (10-16), and nothing
+      had been posted by 2026-10-19 15:58Z. The brief's stop condition holds
+      the deck until both are in. _Ask:_ which format for the deck: (a) a
+      Figma Slides copy of Nicole's template `dxgm8DSKnUz2TkdEhcw8mb`, filled
+      in by the worker through the Figma connector; (b) a claude.ai Slides
+      artifact; (c) a PDF via `reddoor-md-pdf`. _Pick:_ (a). The template is
+      the team's own deck system (Besley and Helvetica Neue, paper texture,
+      a "Reddoor recommends" finding slide, the Friction Audit method slide),
+      Tim and Nicole edit in Figma, and the brief asks for the Rubrik
+      example's look, which lives there. The operator also relays the ask
+      for Tim's assessment, and for the Figma link to the Rubrik competitive
+      visual research if one exists.
+      **Answered 2026-10-19 (AskUserQuestion): (a), a Figma Slides copy
+      of Nicole's template.** The deck is built once Tim's assessment is
+      in #crca.
+      **Answered 2026-10-19 (AskUserQuestion): Inter is the deck sans from
+      now on (Besley stays).** The Figma connector cannot load Helvetica
+      Neue or Pragmatica (local and Adobe fonts), so text in them cannot be
+      edited from a session. Inter is already the brand's documented
+      stand-in. The CRCA copy is converted; Nicole converts the template.
+      **Status 2026-10-20 (the Tuesday PM pass) [M]:** Tim posted his
+      assessment in #crca at 10-19 16:37Z, and the operator posted the Figma
+      deck there at 20:04Z (journal `2026-10-19-2217-crca-brand-friction-audit.md`).
+      Nothing is left here for the operator; closed by reading.
+
+137.  **Review-minor issues filed 2026-10-19: the behaviour choices left
+      after the overnight cleanup (new 2026-10-20, session
+      https://claude.ai/code/session_01HGxX8rysvqbwZvvMyVA7kv; journal
+      `docs/journal/2026-10-20-*-review-minors-cleanup.md`).** [M] 58 issues were filed since 10-19 12:00Z.
+      The mechanical parts are fixed in #1522–#1528 (themed PRs). The parts
+      below need a choice, and each issue stays open until it is made. One line
+      each: the ask, then _Pick:_ and why. Answer by letter.
+      (a) #1468 (1): refuse a typed-over `TODO Ship X?` (capitalised word
+      after TODO) as the decisions ask? _Pick:_ no; `TODO markers …` asks
+      collide, and nobody has hit it.
+      (b) #1454 (2): `dropbox.mjs` checks the file size after `finish`, so a
+      shortened copy is already committed; check `fh.stat()` before finish
+      too? _Pick:_ yes, keep the post-check for a file that grows.
+      (c) #1471 (1, 2): a definite commit failure (403 closed, 200 error)
+      still waits out up to ~22 min; stop early, and inject a fake page to
+      test `uploadBatch`? _Pick:_ stop early only after a live run shows
+      the page does not retry those; the runbook now states the wait.
+      (d) #1429, #1430 (scoping nit): CLAUDE.md's sweep line compares
+      read-only Haiku cost with a Bash-armed Sonnet cost. _Pick:_ fix the
+      wording in P1-33 W4's CLAUDE.md rewrite (#1342), not before.
+      (e) #1431: deny `Read(./.env*)` and `/proc/**` for the sweep agent,
+      and pin `claude-haiku-5-5` instead of the `haiku` alias? _Pick:_ yes
+      to both, after a canary probe shows deny rules bind a subagent.
+      (f) #1512 (rest): raise spawn.test's 4 s margin, count `CI=false` as
+      not-CI, cap `test:watch` workers? _Pick:_ none until a failure is
+      captured.
+      (g) #1515: exercise the `write 0 for "none"` remedy end to end again
+      (needs an aliased axe 4.13)? _Pick:_ no; unit tests cover it.
+      (h) #1435: bake-off costs are lower bounds (stream-start output
+      tokens). _Pick:_ print them as `≥` with a count of unfinished
+      requests; leave the data source as is.
+      (i) #1492: the secrets check sees only a typed file name. _Pick:_
+      move `truth.json` out of the arms' run directory.
+      (j) #1493: refute-repo's decision tally ignores referee rulings.
+      _Pick:_ keep the pre-registered rule; add a line naming each check a
+      ruling changed.
+      (k) #1462, #1465 (a): seeded-review dedup and two-defect findings.
+      _Pick:_ merge overlapping ranges per control file; one finding counts
+      for at most one defect, closest first.
+      (l) #1477, #1479 (timestamps, well-formed), #1480 (prompt,
+      misnamed scripts, secrets): pnpm-update scoring. _Pick:_ refuse
+      pnpm < 11 at prepare; close the two #1479 items as accepted; the rest
+      waits for the next run's re-baseline.
+      (m) #1498, #1499 (1), #1500 (1, 6), #1501, #1502 (1): t4-plan-task
+      isolation and plan wording. _Pick:_ a scorer-owned HOME and store,
+      refuse a `--root` with `filter.*` config, fingerprint the evaluate
+      cache, report-only `referenceDisputes`, and `unshare --mount --net`
+      for write tasks; the plan sentences ride the next gold re-run.
+      (n) #1440 (anchor): move c13's anchor to `corpus/hooks.md:1507-1539`.
+      _Pick:_ yes, with the next refute-claims re-run (it changes the task).
+      (o) #1447, #1448: `protectBranch` sends an empty
+      `dismissal_restrictions` and omits `app_id` on carried checks.
+      _Pick:_ one live GET/PUT/GET on a scratch repo first (🔴-adjacent:
+      branch protection); then send the key only when non-empty and -1 for
+      contexts-only entries.
+      (p) #1450: a null status gets the live-row schedule rule. _Pick:_
+      leave it; no row has a null status.
+      (q) #1451 (2), #1452 (3–5), #1441 (3) in BACKLOG, #1457 (2), #1470 (2),
+      #1474 (2, 3): nits that change a verdict, a BACKLOG Done line (this
+      session kept BACKLOG to this item), or CI time. _Pick:_ fix #1452's
+      and #1441's BACKLOG wording in the next Done-row edit; leave the rest;
+      #1474 (2) needs reddoor-website's call pattern read first.
+      (r) #1464 (rest): nothing turns off `$GIT_DIR/info/attributes` for
+      seeded-review's rebuild (probed). _Pick:_ accept and document it.
+      (s) #1430 (citation): sweep.md still cites workspace#1, not the P1-56
+      result comment; the comment URL is not in the repo. _Pick:_ the
+      operator pastes the URL, or close as is.
+      **Answered 2026-10-20 (in session): every pick, (a)–(s), as written.**
+      So (a), (f), (g), (p) and the (q) leftovers close as won't-fix, with
+      the reason. (b), (h)–(l), (n) and (r) are agent-ready. (o) and (e)
+      each start with their live probe. (c) starts with one live run. (m)
+      gets its own session. (d) rides #1342. (s) closes as is unless the
+      operator pastes the URL. The session also asked whether a
+      cleanup session may fold a clean round's minors in rather than file
+      them. It gave no pick for that, so the question stays open.
+      **Answered 2026-10-20 (cockpit, AskUserQuestion): fold when cheap.** A
+      cleanup session may fold a minor into its own PR when it already
+      touches the same file and the fix needs no new test; anything else is
+      still filed as an issue. The rule line goes into the home base's
+      `CLAUDE.md` with the review-round rule.
+
+## Active projects (the operator's list, read by the PM pass)
+
+The morning report's `## Projects` section gives one status line for each,
+in this order (`docs/pm-pass.md`, step 7). Proposed from the live state on
+2026-10-08 (sites `building` or `launching` in Turso, Discord channels active
+in the last 14 days) and adopted by the operator the same day. Add or drop a
+project only on the operator's word.
+
+1. **Williamson Construction**: building; cutover Wed 10-14 (P0-5).
+2. **Williamson Homes**: building.
+3. **Mantis Landscaping**: building; Blux → native (P1-30).
+4. **Roalson Interests**: building; `#roalson-interests`.
+5. **CalTex**: Erik's changes; `#caltex`.
+6. **Gift of Life Alliance (GOLA)**: `#gift-of-life-alliance`.
+7. **Alamo Anatomy and Hedloc**: launching, waiting on their clients (one line for both).
+
+Not on it: The Tower Burbank and The Pointe Burbank (proofs of concept, the
+operator 2026-10-04), and the Maintenance reports (the top of stack covers
+them). Revogen, Vida Legacy Foundation and Trinity Law School have active
+channels but were not named as projects.
+
+99. **#1259, P1-38 nightly conductor and the 16:07Z send clock: held after
+    two dirty review rounds (new 2026-10-08, asked 2026-10-08 ~16:20Z, branch
+    `claude/gifted-cori-7zkrzx`, head `a6387d43`).** It is built and CI-green
+    on the first head. A `fleet-nightly` conductor, fired at 06:07Z by a
+    Netlify function on the existing `GH_TOKEN`, runs the six fleet nightlies
+    and then the `daily-reports` drafts and digest. A second Netlify function
+    sends at 16:07Z (Operator decisions 98). The full suite passes, 8939
+    tests. 30 of 31 mutations went red.
+
+    - **Round 1** (3 lenses) found three things.
+      - The guard counted partial, branch and skip runs as "already ran".
+      - One failed dispatch made the next fire repeat the whole pass.
+      - The fakes diverged from the API, and there was no fetch timeout and
+        no clock alarm.
+
+      All of these are fixed in `a6387d43`.
+
+    - **Round 2** found two behaviour defects, both by reading the workflow,
+      neither reproduced live.
+      1. _One mode's run closes the other mode's failure issue._ A failed
+         06:07Z draft run opens "Daily reports run failing". The 16:07Z send
+         run then skips drafting, goes green and closes the issue as
+         "Recovered" while drafting is still broken.
+      2. _The send-only fallback cron (`23 13 * * *`) sends whenever GitHub
+         starts it_ (about 17:00–22:40Z), even after the 16:07Z send ran. A
+         report approved at 16:30Z goes out that evening while the cockpit
+         says "next send 16:07 UTC (~23 h)".
+
+      Round 2 also found these gaps:
+      - The clock-missed signal is only a `::warning::`, so it files no
+        issue.
+      - The conductor's `GITHUB_OUTPUT` key and the workflow's own `run:`
+        script are untested. Dropping `--ref` there would let a branch run
+        dispatch main's nightlies.
+      - The fallback-cron test's title says the opposite of what it asserts.
+      - The clock grace and fetch timeout values are unpinned.
+      - The in-code `event`/`head_branch` checks only repeat the query
+        filters.
+      - The guard's `triggering_actor == github-actions[bot]` is unproven
+        live. If it is wrong, the cost is duplicate runs, not missed ones.
+
+    _Ask:_ (a) **fix and land without a third round.** One failure-issue
+    title per mode. The fallback skips its send when a 16:07Z send already
+    succeeded on main that day. `clock-missed` files a tracking issue. Tests
+    for the output key and the `run:` script argv. Pin the grace and
+    timeout. Then land on green CI with the mutation table in the PR body.
+    (b) Fix, then run a third review round. (c) Land as is.
+    _Sub-ask:_ the fallback either (i) still sends when the clock missed,
+    which can only be late, never earlier than promised, or (ii) never sends,
+    so approved reports wait for the next 16:07Z.
+    _Pick:_ (a)(i). Both defects have small, local fixes that the mutation
+    table can pin, and (i) keeps client email going if Netlify fails. Not
+    (c): two reproduced-by-reading behaviour defects are open.
+    **Answered 2026-10-08 (AskUserQuestion): (b) fix, then a third review
+    round; fallback (i), it still sends late when the clock missed.**
+
+## Fleet snapshot (2026-10-19 ~11:55Z, live Turso, SELECT-only) [M]
+
+Read through the Kysely read-only plugin `scripts/pm-cockpit.mts` exports; its
+control, an `UPDATE sites`, was refused before the first read.
+
+- 47 site rows: 15 maintained, 2 launching, 6 building, 9 external, 2
+  hosted-only, 13 archived (unchanged since 10-05; both Williamsons are still
+  `building`). 27 report rows.
+- Cockpit (`pm-cockpit.mts`, no `--since`): `broken=9 watch=1 approval=0
+sites=17`, `just_wait_left_out=0`.
+  - Broken, all first flagged 10-19, each "Renovate PRs failing CI": 1836dig,
+    29 Navy, Beachfront Dentistry, CalTex, Data Dynamiq, Espada, LA
+    Homelessness Initiative and Reddoor (the kit 3 / adapter 7 pair, P1-53),
+    and Vida (a stale `main-gate` failure on its vitest 5 PR).
+  - Watch: ERP Industrials, "3 critical/high vulns — transitive-only, still
+    present after the 2026-10-12 lockfile window (escalated 2026-10-14)"
+    (P1-52, Operator decisions 126).
+  - Not in the cockpit at all: 36 green `sharp` security PRs in 15 repos
+    (P1-54, Operator decisions 129).
+- Sweep freshness (newest stamp across rows): Prismic models 10-19 06:09Z,
+  security 06:12Z, domain, deploy, browser and function health 06:34Z,
+  Lighthouse 06:35Z, GitHub signals 06:36Z, URL 06:36Z, smoke 07:00Z,
+  form-e2e 07:10Z. Search Console 10-14 06:39Z (the nightly re-check reads
+  only `no-property` rows). The newest production deploy on any row is
+  10-15 17:20Z.
+- Forms: **387 unread** (`status = 'new'`, read up to 2000): Sonder 280,
+  Beachfront Dentistry 53, ERP 14, Espada 12, Vineyard 9, Revogen 4, Reddoor
+  4, MSOT 3, Williamson Construction 2, Vida 2, and one each for Mantis,
+  Roalson, 1836dig and Hedloc. On 10-12 it was 353.
+- Certificates: the lowest are Reddoor 41 days, Vineyard 42, Data Dynamiq and
+  MSOT 45, CalTex 47. None is under 25, so none is an ask. Re-read next
+  Monday.
+- Reports: the next due is ERP Industrials Maintenance on 10-25, then 1836dig
+  10-31 and Sonder 11-01. No draft exists for any of them, and nothing is
+  pending approval.
+- `DUMP_VERIFY` rows: 1190 on 10-15, then 1173, 1177, 1183 and 1189 on
+  10-16 to 10-19, each with `mismatches=0`. The drop of 17 on 10-16 was not
+  read [I: a prune].
+
+## Done (move items here when they land)
+
+- 2026-10-19 — P1-53: SvelteKit 3 and adapter-netlify 7 on the eight newly red repos; all eight promotions merged and read live by 10-20 ~02:35Z (#1459, #1504, #1520). The row as it stood:
+  - **SvelteKit 3 and adapter-netlify 7 reached the rest of the fleet: eight more maintained repos are red (new 2026-10-19, the Monday PM pass)** 🟡 (each repo is its own PR, never a sweep; promotion is the operator's). [M] The cockpit lists nine sites NEW today, each "Renovate PRs failing CI": 1836dig, 29 Navy, Beachfront Dentistry, CalTex, Data Dynamiq, Espada, LA Homelessness Initiative and Reddoor (two PRs each: `@sveltejs/kit` v3 and `adapter-netlify` v7, opened 02:43–04:23Z), and Vida (one: vitest v5 on `staging`, titled "abandoned"; its three red `main-gate` runs date from 10-13/14 when the PR was based on `main`, so that alarm is stale, not a new failure). Read on 1836dig#27/#28: the kit 3 PR stops at `prepare` with `config_file_unsupported` ("`svelte.config.js` is no longer used"), and the adapter 7 PR builds on kit 2.70.3 and throws `Cannot read properties of undefined (reading 'assets')` in `adapt`, so neither can land alone. Plan §4 step 5 (`docs/sveltekit-3-migration-2026-10.md:138`) covers this: "every other kit 2 repo, as Renovate reaches it"; the order and flow are Operator decisions 113's answer (each migration lands on that repo's `staging`, workers merge into `staging` on green, only the operator promotes). Of the eight, reddoor-website's pair targets its `staging`, so it has one; the other seven's pairs target `main` [M], and whether they have a `staging` branch was not read [I]. The pair has also opened on williamson-construction-co (#27/#28 since 10-12, held until after the cutover per 116(b)), williamson-homes (#40), roalson-interests, hedloc and erp-industrial (branches only). Also note: `analytics-tag` refuses a kit 3 site (`src/recipes/analytics-tag/index.ts:313`), so any GA tag a site still needs goes in before its migration. _Verify:_ `pnpm tsx scripts/pm-cockpit.mts` lists the nine. Vida needs nothing: kit 3 is already in its production. Done when each of the eight repos' migration PR has replaced its pair on `staging` with `ci` and `@smoke` matching production, and each promotion PR is open for the operator **Status 2026-10-19 ~15:40Z (the worker, `claude/modest-cerf-10f5yv`): done up to the operator's merge on all eight.** Each migration landed on its repo's `staging` after one or more adversarial review rounds, replaced and closed its Renovate pair, and has a promotion PR open. Staging's `/health` is byte-identical to production on every site; reddoor-website differs only in `hiddenContent`, which staging shows by design. Each repo's smoke suite was run against its staging URL and against production. On every site, staging's failures were a subset of production's. The tests that failed only on production assume a dev server or a staging host; reddoor-website and beachfront fail the same accessibility and photo checks on both when run from the cloud container. Shapes: **starter** (hand-written kit config) 1836dig, 29-navy, beachfront-dentistry and data-dynamiq; **factory** (`createSvelteConfig` → `createKitConfig`, `@reddoorla/maintenance` → ^0.109.0) caltex-landing, espada, la-homelessness-initiative and reddoor-website. No repo fit neither shape. Promotion PRs: 1836dig#34, 29-navy#87, beachfront-dentistry#94, caltex-landing#85, data-dynamiq#70, espada#90, la-homelessness-initiative#57, reddoor-website#267. Before merging each one, the operator creates its `staging` ruleset (the command is in each PR body). The exception is reddoor-website, whose `staging` already has a deletion-only ruleset. reddoor-website#267 also carries three earlier unpromoted `staging` commits (#259, #260, #208). Its CodeQL check is red on four test-file false positives from #259 that are not in a required check; see the PR comment. Netlify: `allowed_branches` is now `[main, staging]` on the seven sites. Auto mode refused that PATCH until the operator answered yes by AskUserQuestion. LAHI's Netlify site is named `la-homelessness-general`. Follow-ups are filed as issues in each repo. The gate gaps are the `NETLIFY`/`CI` env in the origin test (1836dig#35, data-dynamiq#71, caltex-landing#87, reddoor-website#268, la-homelessness-initiative#55; fixed on espada) and an a11y `absentFixtures` declaration (caltex-landing#83, espada#89). Beachfront took five review rounds, all on one hazard: kit 3 prerenders with the placeholder host `sveltekit-prerender`. It now ships `scripts/prerender-origin.mjs`, which builds with `URL` set and fails on any built file that names the placeholder. That is the instrument the other starter-shaped sites with prerendered origins would want. **Done 2026-10-20 ~02:35Z: all eight promotion PRs are merged, and each production deploy was read live.** Every production deploy of the merge commit is `ready` and `/` answers 200. `/health` was read before and after the deploy on seven repos and was unchanged on each. On espada it was read only after the deploy; it answers `ok` with Prismic `ok` and every forms flag `true`. caltex-landing#85 and espada#90 had conflicted on `pnpm-lock.yaml`. Each was cleared by merging `main` into `staging` as a merge commit (caltex-landing#89, espada#93); a squash keeps the tree and drops `main` as a parent, and `docs/runbooks/staging-flow.md` now says so (#1504). The merge deleted `staging` on six repos (1836dig, beachfront-dentistry, caltex-landing, data-dynamiq, espada, la-homelessness-initiative), because none had its `staging` ruleset yet. 29-navy and reddoor-website kept theirs. Recutting the six is the operator's call, with the ruleset created first.
+- 2026-10-19 — P1-52: lock-file maintenance opens its PR again, fleet-wide, after `reddoorla/.github#38` (`lockFileMaintenance.prCreation: "immediate"`, Operator decisions 130); erp-industrial#76 merged at 14:32Z (item 126). Follow-up: P1-64. The row as it stood:
+  - **erp-industrial: three high `devalue` advisories sit unfixed because Renovate's lock-file maintenance made a branch but no PR** 🟡 (new 2026-10-15, the Thursday PM pass). [M] The cockpit's Watch lists ERP Industrials NEW: "3 critical/high vulns — transitive-only, still present after the 2026-10-12 lockfile window (escalated 2026-10-14)". All six `devalue` advisories (dependabot #66–#71, 3 high) cover `<=5.9.2` and are patched in `>=5.9.3` (`pnpm audit` on `main`'s lockfile). `main` resolves `devalue@5.9.2` through `@sveltejs/kit@2.70.3`, whose range is `^5.8.1`, so 5.9.4 (published 2026-09-18) fits without a kit change. `renovate/lock-file-maintenance` (`adcdce11`, 2026-10-12 03:25Z) already resolves only `devalue@5.9.4`, but no PR was opened from it: the last lock-file PR is #57 (merged 09-14), and the Dependency Dashboard (erp-industrial#41) lists it under **Awaiting Schedule**. The preset (`reddoorla/.github:renovate-config`) sets `prCreation: not-pending`, `internalChecksFilter: strict`, `minimumReleaseAge: 1 day`, and `lockFileMaintenance.schedule: before 6pm on monday` (UTC). A likely cause is that the branch's checks were still pending when the Monday window closed, so the PR waits for the next window [I, not read in Renovate's log]. #60 (all non-major, green, `clean`) is held by the `@reddoorla/maintenance` `automerge: false` rule, and its lockfile still carries `devalue@5.9.2` beside 5.9.4, so merging it alone would not clear the advisories [M]. ERP's Maintenance report is due 10-25; `approveBlockers` finds nothing for it [M]. _Verify:_ `gh api repos/reddoorla/erp-industrial/issues/41 --jq .body \| grep lock-file-maintenance` shows it under Awaiting Schedule, and `main`'s `pnpm-lock.yaml` has `devalue@5.9.2`. Start here: (1) whether other fleet repos show the same "branch, no PR" for lock-file maintenance (read each Dashboard); (2) the Renovate run log for erp-industrial on 10-12 (`reddoorla/.github`'s renovate workflow) for why the PR was not created; (3) the preset's `prCreation` and `lockFileMaintenance` blocks. Done when ERP's advisories are cleared (by the operator's Dashboard tick, Operator decisions 126, or a fix) and the cause is named with evidence, with a preset change proposed if it is fleet-wide. **2026-10-19 (the Monday PM pass) [M]: it is fleet-wide.** Every one of the 15 maintained repos has a `renovate/lock-file-maintenance` branch and no open lock-file PR; the newest merged one is MSOT#65 (09-15), and 29-navy and vida-legacy-foundation have never had one (`pulls?state=all&head=…`). So no lock-file maintenance has landed anywhere in five Mondays, and transitive-vuln cleanup, which rides on it, is stopped fleet-wide. erp-industrial's branch was rebuilt today at 02:30Z (`e5095848`) and #41 now lists it under **Pending Status Checks**, not Awaiting Schedule. That head has **no check runs at all** and a combined status of `pending` with no contexts, which fits the guess: fleet CI runs on `pull_request`, so a branch with no PR never gets the checks that `prCreation: not-pending` waits for, and the 25 h `prNotPendingHours` fallback (Renovate's default) lands outside the `before 6pm on monday` window. The preset's own 2026-09-21 correction note (`reddoorla/.github` `renovate-config.json:11`, read from a fresh clone at `b3e549e`) describes this path: lock-file maintenance "is exempt from `minimumReleaseAge`, carries no stability status, and so falls through to the 25-hour `prNotPendingHours` timeout, which the grouped branch, rebased every Monday inside an 18-hour window, never reaches". The `internalChecksAsSuccess: true` fix of that day turns a branch green through its `renovate/stability-days` status, and a lock-file branch has none, so the fix did not reach it [I, that this is the whole cause; a Renovate log line or a dry run is the proof]. Fix shape for the worker to prove, not to merge: `prCreation: "immediate"` inside `lockFileMaintenance` only (🔴, the operator merges preset changes). Ranked first: it is fleet-wide, and ERP's report is due 10-25. **2026-10-19 ~13:20Z (P1-52's worker, `claude/clever-fermi-swf68c`) [M]: cause named by Renovate's log, fix built as a patch, merge with the operator (Operator decisions 130).** A two-arm debug dry run on erp-industrial inside the Monday window (erp-industrial#72, closed, run 39258645301) logged `Branch is 10 hours old - skipping PR creation as prNotPendingHours is set to 25` for `renovate/lock-file-maintenance` on the unchanged preset, and `DRY-RUN: Would create PR: chore(deps): lock file maintenance` with `lockFileMaintenance.prCreation: "immediate"` added; the arms' action lists differ by that line only. Renovate 44.151.2's source adds a second path the dry run cannot show (it commits nothing): a live run that pushes a commit to a branch with no PR returns before PR creation unless `prCreation` is `immediate`. So the Monday rebuild run is blocked by that path, later in-window runs by the 25 h timeout. espada shows a third face: its branch was not rebuilt today (still `d2e0bb06`, 10-12) and its Dashboard (espada#49) lists it under **Rate-Limited**, because the 02:03Z run spent the hourly commit limit on three other branches; its next in-window run rebuilds it and hits the first path. The fix is `docs/patches/2026-10-19-github-renovate-lockfile-immediate.patch` (one key plus a `validate.yml` check that is red on `b3e549e` and on two mutations, green with the change). It is a patch because a cloud session cannot reach `reddoorla/.github` (`add_repo` refuses dot-names; proxy and connector refuse it). Not done: the preset merge (🔴, item 130), and ERP's advisories, which still need item 126's tick since the first window after a merge is 10-26. **2026-10-19 14:19Z [M]: the preset change works in production.** The operator merged it (`.github#38`) and dispatched Renovate at 14:13Z. espada, whose box nobody ticked, logged `Branch updated (branch=renovate/lock-file-maintenance)` then `PR created` in the same run, the early return the change removes: espada#86. vida-legacy-foundation#114 (`staging`) and erp-industrial#76 opened in the same minutes; ERP's had the tick too. Left: ERP#76 merging (item 126)
+
+- 2026-10-19 — P1-60: bake-off row 1, one planned task on a T4 site build (roalson-interests `hoverActivate`) (reddoor-workspace#1; this PR; minors #1496–#1502; result `scripts/model-bakeoff/results/2026-10-19-t4-plan-task.json`; journal `2026-10-19-1853-p1-60-t4-plan-task-bakeoff.md`).
+  - **Input [M].** roalson-interests has no written plans: no `docs/superpowers/plans/` at any commit, and no plan in its issues, PRs or journal. The plan is #253's description, which was written beside the code, plus the interface it implies. The task is pinned at `67d27a5`, the parent of `8644d8c`. The pin is green: svelte-check reports 0 errors, lint passes, and 1744/1744 unit tests pass. Each agent gets a one-commit copy of the pin. The scorer builds two trees, the pin plus only the plan's four files: one runs typecheck, lint, the agent's own suite and its own tests; the other runs the commit's held-out `hoverActivate.test.ts` (10 tests). Scope is `git status` against the scorer's own repo. Each run has 32 checks. Before any agent ran, the known-good tree scored 32/32, and six perturbations each failed exactly where changed.
+  - **Result [M].** Every arm scored 32/32 on both runs after the referee: Haiku `medium` ($0.05, $0.10), Sonnet `medium` ($0.40, $0.32), Opus `low` ($0.39, $0.45), Opus `xhigh` ($1.50, $1.85), and the Opus `high` gold ($1.03, $1.05). The held-out tests as written: Haiku and Opus `low` 20/20; Sonnet 18/20; Opus `xhigh` and the gold 19/20. Every miss was one of two details the plan leaves open, and the referee credited 10 of 11 rulings. By workspace#1's rule that is Haiku `medium`.
+  - **Still open:** nothing routes this step yet. The harness is a tripwire, not a sandbox (#1501). The plan's two open details need three sentences before a re-run (#1502).
+
+- 2026-10-19 — P1-58: bake-off row 6, dependency bumps (`pnpm update`) on reddoor-starter `2a9f493`: every arm matched the script truth at the ceiling, Haiku 5.5 at `low` or `medium` about $0.013 a run (#1475; result in reddoorla/reddoor-workspace#1; journal `2026-10-19-1705-p1-58-bakeoff-pnpm-update.md`).
+  - **Built.** `scripts/model-bakeoff/tasks/pnpm-update.mjs`: a `snapshot` step freezes the repo and the pnpm metadata cache an online update filled at one minute, and every agent and the truth run `pnpm update --offline` against it (an empty cache fails, the negative control). Shared harness: an optional task `observe(work, structured, agent)` so an action task is scored from each agent's disk, a per-collection `mechanical` flag that keeps such checks from the referee, `scoreArms` and `byCollection` in `result.json`.
+  - **Measured [M].** 117 checks per run (packages 100, disk 4, checks 13). Gold, two Haiku `low`, two Haiku `medium`, two Sonnet `medium` and one Opus `low` all scored 117/117, with transcripts showing exactly the model and effort asked. All eight lockfiles are byte-identical to the truth's. The update itself breaks `svelte-check` (48 errors: `@types/node` stops arriving transitively), and every arm reported that honestly.
+  - **Ceiling.** Every arm 117/117, so the run bounds the error rate and ranks nothing; 104 of the 117 checks follow from the one prescribed `pnpm update`. One repo, one snapshot, a dictated recipe: judgment (whether the bump caused the `check` failure) was not scored, and only the gold established it. Haiku `low` and `medium` cost the same within noise ($0.0132 and $0.0128 mean).
+
+- 2026-10-19 — P1-57: bake-off row 5, the `refute-claims` skeptics; every arm passed, but the result argues for no routing change (reddoorla/reddoor-workspace#1; minors #1440, #1441).
+  - **Run [M].** The seeded levers control (17 claims) is now a bake-off task, `scripts/model-bakeoff/tasks/refute-claims.mjs`. Each arm gets the production skeptic prompt for every claim, and its verdicts go through the workflow's own quote rule. The gold, Opus at `xhigh` (the effort the skeptics inherit), and two runs each of Opus `medium` and `low` and Sonnet `high` and `medium` all caught 7/7 false claims and left c03 `untested`. The one disagreement in nine runs: both Opus `medium` runs refuted c10, and an Opus `high` referee upheld the key's `confirmed`. Cost per run: gold $1.42, Opus `medium` $0.90 / $0.55, Opus `low` $0.47 / $0.44, Sonnet `high` $0.45 / $0.28, Sonnet `medium` $0.21 / $0.29. Every transcript ran the model and effort it asked for.
+  - **Why no change.** The run saturates: with c10 set aside, every run is perfect. c10's label is contestable today, because `env-vars.md:476` now conditions it on the host. With c10 relabelled `refuted`, only the two Opus `medium` runs pass. One agent also judged all 17 claims, where production spawns one skeptic per claim, which makes the task easier. `DEFAULT_MODEL` stays `"opus"`.
+  - **Corpus drift.** The control's docs corpus is fetched, not committed, and 39 of its 40 pages had changed since 2026-09-14. web.archive.org is blocked from the cloud, so the anchors were re-derived against today's pages, and the task pins those bytes.
+  - **Next:** a harder control, with more seeded false claims, one skeptic per claim and a corpus snapshot that can be re-fetched, is what could separate the arms. It is not a backlog row yet.
+
+- 2026-10-19 — P1-59: bake-off row 3, review on seeded defects (this PR; result on reddoorla/reddoor-workspace#1; journal `2026-10-19-1625-p1-59-seeded-review.md`).
+  - **Task [M].** Eleven real one-file changes, rebuilt from git by `scripts/model-bakeoff/tasks/seeded-review/build.mjs`: eight carry nine later-fixed defects (criticality set before any run), three are clean controls. Two are journal-recorded (#1368, #1274); `docs/journal/` held no more that qualified, so the rest come from fix commits on `main` that name the defect. A finding in the right case and file within 10 lines of a seeded range is a candidate, and the Opus referee rules each one.
+  - **Key corrected after the run [M].** Review found d2 (r03 hard-codes GA to 0, so the double count is not in that change) and d9 (a later feature gap) not visible in their cases. They stay in `key.json` as `excluded`. Scored on the remaining seven (three critical): found, pooled over two runs, out of 14: Opus `medium` 8 with no critical missed, Opus `xhigh` (the comparator) 7 with one missed, Sonnet `medium` 5 (one missed), Sonnet `high` 5 (two), Opus `low` 2 (five). Opus `medium` is within the pre-written tolerance; every other arm is outside. On the key as first written, d2 alone put every arm outside, the comparator included. No run flagged anything on the controls. Total $9.93, all 12 agents on the model and effort they asked for.
+  - **Still open:** the evidence is thin. Two runs; every run missed d1, d4 and d8, so only four defects (d3, d5, d6, d7) separate the arms; and two post-hoc corrections (the matching rule and the key). The comparator fails the zero-critical-miss rule itself (one miss corrected, three on the first key), and Sonnet `medium` matches the recall bar and is outside on one d7 miss, so at two runs that rule hardly separates arms. Before Opus `medium` replaces `xhigh` for review, a second, fresh case set should confirm it. No routing was changed.
+
+- 2026-10-19 — P1-61: bake-off row 2, Figma context to a slice and field inventory (reddoor-workspace#1; this PR; result `scripts/model-bakeoff/results/2026-10-19-figma-inventory.json`).
+  - **Input [M].** Roalson Interests' file `U5KIPY7HmZOQwqJXGGsEIl`, the Homepage (`6802:1416`) and Properties (`6903:1030`) frames, frozen from this session's own `get_metadata` and `get_design_context` responses. The task is `tasks/figma-inventory.mjs`. Its script truth gives 14 slices and 106 text fields, so each run has 630 checks. The frozen JSON is not committed, because the repo is public. A review rebuilt the truth with two independent parsers, ElementTree and `@babel/parser`, and matched it on every slice and field.
+  - **Result [M].** The gold (Opus `high`) scored 630/630 against the truth. Haiku `medium` scored 630/630 on both runs (≥$0.20, ≥$0.17). Sonnet `medium` scored 630/630 on both (≥$0.70, ≥$0.41). Haiku `low` scored 532/630 and 630/630 (≥$0.12, ≥$0.11). Its miss was a hand-off failure: it returned `slices: []` while its own work file held all 14 slices, correct on every check. Under [workspace#1's decision rule](https://github.com/reddoorla/reddoor-workspace/issues/1) (the cheapest arm that matches gold on every check across at least two runs), that is Haiku `medium`.
+  - **What it does not show.** There is a ceiling effect: no model got a single field value wrong. The prompt spells out the algorithm, and every arm wrote a parser. The `text` kind keeps only `a-z0-9` after case folding. That mattered on one field: every arm's raw text equals the truth on 105 of the 106 fields, and on `6822:489` they all dropped a line holding only a zero-width space. Haiku `low` against `medium` comes down to one transcription slip in two runs, which this task cannot tell apart from chance. The costs are floors (#1435).
+  - **Still open:** nothing routes this step yet. P1-56's `sweep` agent (#1425) covers row 4's sweeps, not this step; #1452 holds the round-3 minors.
+
+- 2026-10-19 — P1-56: mechanical sweeps go to a read-only `sweep` agent on Haiku 5.5 at `medium` (#1425; minors #1429–#1431; result in reddoorla/reddoor-workspace#1; journal `2026-10-19-1615-p1-56-sweep-agent.md`).
+  - **Built.** `.claude/agents/sweep.md` sets `model: haiku`, `effort: medium` and `tools: Read, Grep, Glob`. An explicit `tools` list also withholds every MCP tool. `.gitignore` now re-includes `.claude/agents/`, which `.claude/*` had silently excluded. CLAUDE.md routes mechanical sweeps to the agent, with no per-call `model` or `effort`.
+  - **Measured [M].** Three headless spawns of the agent on row 4's frozen census each scored 228/228. Each transcript shows `claude-haiku-5-5` at `medium`, Glob, Read and Grep only, and 0 writes. Cost was $0.06–0.14 a run, 4–10x the $0.013 of row 4's Haiku arm. That arm had Bash and ran a script, so row 4's 456/456 had never measured a read-only agent. In a control pair, an agent whose tools included Write called it and was refused, while a Read/Grep/Glob agent made no call.
+  - **Still open:** #1431, the deny rules for `.env` and `/proc`, which is a permissions change and the operator's call.
+
+- 2026-10-19 — P1-54: a held `sharp` security PR never reached the cockpit, because Dependabot cannot read a pnpm 12 lockfile (#1412; minors #1408–#1411; journal `2026-10-19-1327-p1-54-pnpm12-lockfile-hides-advisories.md`).
+  - **Cause [M].** caltex-landing, espada and revogen store `vulns_high 0, security_advisories []`, and every `fleet-security` run from 10-04 to 10-19 logged `Dependabot: 0 alerts` for CalTex. pnpm 12 writes `pnpm-lock.yaml` as two YAML documents, and GitHub's dependency graph reads only the first, which holds pnpm itself (caltex-landing's SBOM lists 22 packages: pnpm binaries and Actions). Renovate still opened the PRs because the preset has `osvVulnerabilityAlerts: true`. 20 of the 23 active repo-backed sites have a two-document lockfile, and every one stores 0/0. Only the pnpm 11 repos (29-navy, erp-industrial) store any vuln. The brief's guess, a held PR that never escalates, was wrong: 29 Navy's advisory escalated on 10-17 with its counter at null. Today it was hidden because `buildNeedsYouFeed` dropped a non-exhausted vuln from any site broken for another reason.
+  - **Fix.** A multi-document lockfile adds `pnpm audit` to Dependabot's answer, counting an advisory both report once, with `relationship` taken from `package.json` (left unknown in a workspace). The real clone gives `0C/6H/2M/1L` with sharp `direct`. The control, the sharp 0.35.5 branch, drops sharp. A broken site's Needs-you row now names its escalated vulns.
+  - **Still open:** proof. Tomorrow's 06:11Z sweep must store CalTex's sharp advisory, and CalTex should then reach Needs-you about 10-24, when its 4-day wait from the first record ends. Expect about twenty sites to pick up real High advisories in that wave. The merges are still Operator decisions 129.
+
+- 2026-10-19 — P1-62: the `/bakeoff` skill drives `scripts/model-bakeoff/` end to end (reddoorla/claude-skills#21; Operator decisions 135 answered (a); minors claude-skills#16–#20).
+  - **What.** `skills/bakeoff/` in claude-skills runs `start` (it refuses arms without an explicit effort, single-run cheap arms and a set `CLAUDE_CODE_EFFORT_LEVEL`, then proves the scorer), the Workflow, `collect`, the referee rounds, `score` and `report`. `report` prices the run with `ledger.mjs` and drafts the workspace#1 comment without posting it. `scripts/model-bakeoff/README.md` points to it.
+  - **Proven [M].** A fresh session installed it from its branch and ran t5-census end to end: every step exited 0, one referee round, $2.38. Both of the day's runs are on reddoorla/reddoor-workspace#1, and box 1's note there is cleared.
+  - **Finding.** Across six runs, Haiku 5.5 at `medium` missed one check (the bare `"node:"` literal again), so by the strict decision rule Sonnet 5.5 at `medium` is the cheapest arm that matched on every check. That bears on P1-56's Haiku sweep route (#1425); the call is the operator's.
+
+- 2026-10-14 — P1-47: ending a Prismic preview works on kit 3 (issue #1369; reddoor-starter#188; this PR widens the kit peer to `^2.0.0 || ^3.0.0`).
+  - **Reproduced [M].** On the starter (kit 3.0.1, `@prismicio/svelte` 2.2.2), in Chromium, on `/privacy` with the preview cookie, scrolled to 600 px, then `prismicPreviewEnd`. `vite dev` threw `goto_options_removed`. The production build (`vite preview`) jumped from 600 to 0. After the fix, both stay at 600 and still navigate (`history.length` 2 → 3).
+  - **Fix.** A local copy, `src/lib/components/PrismicPreview.svelte`, passes `{ refreshAll: true, reset: false }`, the same change as the unreleased prismicio/prismic-svelte#64. That PR already covers it, so no upstream issue was filed. A copy rather than a pnpm patch, because 2.2.2 and 2.2.3 ship the file with different formatting, so a version-keyed patch breaks on the next Renovate bump.
+  - **Port note for vida-legacy-foundation, mantis-landscaping, la-homelessness-youth, gallerysonder, alamo-anatomy (the operator's roll-out; nothing was pushed to them).** In each repo, cut a branch from `staging` and copy `src/lib/components/PrismicPreview.svelte` and `src/routes/layout-preview-end.test.ts` from reddoor-starter#188. Where the root layout mounts `PrismicPreview`, change `import { PrismicPreview } from "@prismicio/svelte/kit"` to `import PrismicPreview from "$lib/components/PrismicPreview.svelte"`. If a site's layout differs from the starter's (other `$app/navigation` imports, a different preview-cookie prop), adjust the test's mocks and `data`. Run `pnpm verify`, open the PR into `staging`, then promote `staging` to `main` as usual. Once `@prismicio/svelte` releases a kit 3 version (watch #64), switch the import back and delete the copy.
+  - **Still open:** the five sites stay broken in production until that roll-out is promoted.
+  - **Roll-out, 2026-10-14 ~20:30Z (worker `claude/practical-wright-0k26cm`).** The fix is on `staging` in four repos: vida#109, mantis#52, alamo#79 and gallerysonder#125, each squash-merged on green `ci / ci` after a minors-only review round. The minors are filed as vida#110, mantis#53–54, alamo#80 and gallerysonder#126–127. The promotion PRs are open and **not merged**: vida#111, mantis#55, alamo#81 and gallerysonder#128. Each is clean with `main-gate` green, and each should be merged with a merge commit. **la-homelessness-youth has no Prismic at all** (no `@prismicio/*` in `package.json`, the lockfile or `src`), so it had nothing to fix; this entry named it in error. In Chromium, against live deploys, with a hand-set preview cookie and no Prismic write [M]: gallerysonder production y 600 → 0 and staging 600 → 600; mantis `main--` 600 → 0 and `staging--` 600 → 600. On alamo, staging first still went to 0 because of its own `afterNavigate`. Operator decisions 125 answered "fix it first": alamo#83 is now on `staging`, and alamo's staging stays at 600. Vida's scroll handling moves the page on both deploys, so its check is inconclusive.
+  - **Live, 2026-10-14 ~23:15Z.** The operator merged all four promotions (vida#111, mantis#55, alamo#81 and gallerysonder#128) with merge commits, and each `staging` is still an ancestor of `main`. Measured on production the same way [M]: gallerysonder.com `/about` stays at 600 (it went to 0 before); `main--mantis-landscaping` `/preview` → `/` stays at 600; `main--alamo-anatomy` `/preview/about` → `/about` stays at 600. Nothing in P1-47 is left open. The filed minors (vida#110, mantis#53–54, alamo#80 and #84–87, gallerysonder#126–127) are ordinary backlog.
+- 2026-10-14 — P1-50: the protection audit reads a not-yet-created Renovate branch as "no branch", not a probe failure (#1368).
+  - **Cause.** `branchTip` returned `null` only on HTTP 404. GitHub answers `GET commits/<branch>` for a branch that does not exist with 422 "No commit found for SHA" (measured on vida-legacy-foundation, 2026-10-14 ~14:10Z, for `renovate/staging-major-vitest-monorepo`, `renovate/zz-nonexistent` and a slash-free name alike), and the staging-flow preset made the Dashboard name `renovate/staging-…` branches before Renovate creates them. The throw turned the whole repo into `probe failed`, so alamo-anatomy and vida took `PROTECTION_AUDIT` from 13 gaps to 15 on 10-14.
+  - **What changed.** A 422 whose message carries "No commit found for SHA" is `null`, as a 404 is. Any other 422, and a "No commit found" without the 422 status, still throws. Tests drive vida's exact error through `makeGitHub` → `resolveBlockedBranches`; three mutations (drop the 422 case, accept every 422, drop the status check) each turn one red.
+  - **Still open:** proof. The next `fleet-security` run's `PROTECTION_AUDIT` must not list either probe failure; the result goes in a later journal entry.
+  - **Proven 2026-10-15 [M].** The 06:12Z `fleet-security` run (38691035295) printed `PROTECTION_AUDIT gaps=13 covered=17 skipped=7 total=37`, down from 15, and its log has no `probe failed` and no `422` line. Recorded in the 2026-10-15 PM pass journal entry.
+- 2026-10-14 — P1-49: Vineyard's WCAG 2.1 AA check, audit only (issue #1365; report in reddoor-workspace `audits/2026-10-14-vineyard-wcag/`, `4297567`).
+  - **Answer.** Not yet WCAG 2.1 AA. There are 17 findings: 5 already in vineyard-custom-homes#78, and 12 filed as vineyard-custom-homes#79–#90. Two are blockers: the portrait-only overlay on phones in landscape (1.3.4), and about 50 project photos with no `alt` (1.1.1). 10 affect keyboard or screen-reader users. Fixing them is about 16–22 h. The report opens with a status paragraph the operator can relay.
+  - **Measured.** axe (wcag2a/2aa/21a/21aa) on all 11 pages at 390 and 1440; Lighthouse through `lighthouseAudit`'s deployed path: `/` 1.00, `/about` 0.85, `/contact` 0.93, `/gallery` 0.90, each project 0.84. The controls passed first: a planted missing alt was caught, the clean fixture passed, and `innerWidth` was logged at 390.
+  - **Still the operator's:** whether to fix, and row 4's brand-colour call.
+- 2026-10-13 — P1-48: a nightly re-check clears a stale Search Console `no-property` watch (issue #1336, this PR).
+  - **Why.** The lookup was written only by a report draft and by an operator's "refresh preview" (P1-36). A property fixed after a site's last draft therefore kept its cockpit watch until the next draft. LAHI's watch line had been false since 10-05, and its next report is due 11-30.
+  - **What changed.** `search-console-recheck --fleet --write-back` re-runs the draft's own lookup (`fetchSearch`) for every `maintained` site whose stored outcome is `no-property`. It writes the same three cells through `searchConsoleLookupFields`. A soft-fail writes nothing, so the stored answer stands (Operator decisions 122 kept it: answered (a) on 2026-10-13). A no-property control (`no-such-property-zz9q.invalid`) runs first, and if it misreads, nothing is written. `fleet-lighthouse` runs the command nightly, before `daily-reports` drafts and digests.
+  - **Proven before landing [M, 2026-10-13 ~13:55Z].** I ran it on the live roster with the real lookup and a mirror that records instead of writing. The control read `no-property`. LAHI was the only target, and it read `resolved` against `https://www.lahomelessnessawareness.org/`. Nothing was written, so the next nightly is the proof.
+  - **Still open:** the next nightly clearing LAHI's Watch line (`pnpm tsx scripts/pm-cockpit.mts`). The result goes in a later journal entry. Review minors are filed as #1339, #1340 and #1341.
+- 2026-10-12 — P1-31: `contrast-unmeasured` names Tailwind's `black/<alpha>` and its fix for `oklab(0 none none / α)` (this PR; the erp-industrial fix waits on Operator decisions 114).
+  - **The shape.** Tailwind v4 writes `black/10` as `color-mix(in oklab, #000 10%, transparent)` when black is inlined (a JS config read through `@config`), and lightningcss 1.32.0 and 1.33.0 both fold it to `oklab(0% none none/.1)`. `#000`, `black`, `rgb(0 0 0)`, `hsl(0 0% 0%)` and `oklch(0 0 0)` all fold to `none none`; `oklab(0 0 0)` folds to `0 0`; greys and white fold to near-zero numbers, never `none` [M, `lightningcss.transform`]. Chrome serializes it as `oklab(0 none none / 0.5)`, and axe-core 4.13.0 leaves it `colorParse` [M].
+  - **The remedy** now says the colour is Tailwind's `black/<alpha>` folded by lightningcss, that no such token is in the source, and to define black as `oklab(0 0 0)`. Other `none` colours keep "write 0 for none".
+  - **Fleet list** (all 26 repos built, `grep -rhoE 'oklab\(0% none none'`): erp-industrial only, plus reddoor-website `main` until `staging` (#260) is promoted. The starters are not affected: `@theme { --color-black: black }` keeps `var(--color-black)` in the mix, which Chrome computes to `oklab(0 0 0 / 0.5)` and axe measures [M].
+- 2026-10-12 — P1-45: SvelteKit 3 and adapter-netlify 7, the starter first (issue #1297; reddoor-starter#187 `4e1f3b6`, #1301).
+  - **The starter is on kit 3** and live on reddoor-wireframer.netlify.app. CI on the merged head: a11y 0 violations, 14/14 `@smoke`, 75 unit files. Lighthouse matches production except best-practices on deploy previews, which is Netlify's drawer and is the same on a kit 2 preview [M].
+  - **`paths.origin` is not set.** Set from `URL`, it made kit 3 refuse form POSTs from a domain alias or a later-attached custom domain (403, measured). Canonical, og:url and og:image take `URL` through `$lib/seo`'s `siteOrigin` instead.
+  - **Here:** `createKitConfig`, kit-3-aware `sync-configs` (never writes `svelte.config.js` on kit 3; reports what a sync cannot fix as `DRIFT … (move by hand, sync-configs will not)`), and `analytics-tag` refusing kit 3. The plan is `docs/sveltekit-3-migration-2026-10.md`.
+  - **Still the operator's:** the fleet roll-out, Operator decisions 113. The twelve client PRs are open and unmerged.
+- 2026-10-12 — P1-44: Vineyard's home page accessibility goes from 0.88 to 1.00 on production (vineyard-custom-homes#76, PR #77, `6a9f6ae`; Operator decisions 108 answered (A)).
+  - **Measured.** The nightly's own lighthouse code path read 1.00 ×3 on production after the 13:37Z deploy, against 0.88 ×3 before. The run dispatched at 13:40Z (38257285103) prints `lighthouse pass vineyard-custom-homes` with no `LIGHTHOUSE_FAILURES` line. `site_health` (14:02Z) has `lighthouse_failing_audits` null and all scores at 100 [M].
+  - **What changed.** A described alt fallback for Prismic images on `/` (`withFallbackAlt`, which refuses an empty fallback). "Utmost care" moves to #7196b9 (3.10:1, ΔE_ok 3.3). The "01 / V" medallion text goes navy on the four pages where it sits on white; the project page's, over its dark hero, stays light blue.
+  - **Published and live.** The operator published release [`asxLxxIAAEc3J2qU`](https://vineyard-custom-homes.prismic.io/builder/upcoming/asxLxxIAAEc3J2qU). Its Prismic hook rebuilt production (ready 14:34:31Z). The live tile's alt reads "Vintage teal-and-white pickup truck with the Vineyard Custom Homes logo on its door, parked outside a home under construction", the code fallback no longer appears in the page, and the nightly's code path still reads 1.00 ×3 [M, 14:35Z].
+  - **Filed:** vineyard-custom-homes#78. It covers the tile links' `aria-label`, which hides the alt, filename-like alts, hover contrast, light blue on white on the other pages, and two alt-less photos on `/about`.
+- 2026-10-12 — P1-43: MSOT's home page passes Lighthouse accessibility (issue medical-solutions-of-texas#76, PR #77, `709079f`; Operator decisions 106 and 109).
+  - **Before.** `fleet-lighthouse` printed `accessibility:0.92<0.95` with `color-contrast` and `heading-order` failing 3/3 on 10-09, 10-10 and 10-11. The nightly's lhci config reproduced 0.92 ×3 on production at 02:43Z [M].
+  - **What changed.**
+    - "We'll Get You" has a bottom scrim (black 50% to 0), and its box is `bg-dark`. 99% of the still behind it reaches 4.30:1 at 1350 and 4.65:1 at 390 [M].
+    - The rotating list's inactive words are at 75% (3.30:1), and the word two steps away is hidden.
+    - Three heading tags were reordered with no visible change.
+    - The operator chose the scrim and the 75% (106), then landing with no third round (109).
+  - **After.** The nightly's config on production at 13:40Z scored 1.0, 1.0 and 1.0 [M]. Run 38257285103 audited MSOT at 13:53:40Z: `lighthouse pass msot`, with no `LIGHTHOUSE_FAILURES` line. `lighthouse_failing_audits` is `null` [M].
+  - **Not covered: Lighthouse no longer judges "We'll Get You".** axe stops at the scrim's gradient and reports it "incomplete". The site's pixel test, `tests/smoke/home-a11y.spec.ts`, is the guard.
+  - **Filed:** medical-solutions-of-texas#78 (the column that fades after a scroll), #79 (`/process` and `/about`) and #80 (the video at 390).
+
+- 2026-10-11 — P1-39: the conductor dispatches `fleet-prismic-sync` right after the drift sweep (issue #1285, PR #1287).
+  - **What changed.** `NIGHTLIES` holds eight, with the sync third, on a 20-minute wait. It is dispatched once drift's run completes, or once drift's own 20-minute wait runs out; it reads nothing drift writes. Its three runs so far took 1m55s, 2m34s and 2m01s [M, Actions API], but every site was in sync on all three, so `build` was skipped. A night with a changed site adds a Docker `pnpm install` per changed site, which the 20 minutes is meant to cover, though no such run has been measured. A sync still running when its wait runs out is reported `wait-exceeded`, and it files its own issue if it then fails. The conductor's step and job timeouts went from 260 and 270 minutes to 290 and 300, so they still outlast every wait. The 12 h guard and `NIGHTLY_CONDUCTOR_SUMMARY` count the sync like the others (`total=8`).
+  - **The `workflow_run` trigger is gone.** A drift run the conductor dispatches never started the sync. If one ever did, for example after the conductor moved to an App token, the sync would run twice every night. A test now refuses a `workflow_run` trigger on any conducted nightly. One behaviour is lost: a drift dispatched by hand no longer starts a sync, so dispatch `fleet-prismic-sync` by hand instead.
+  - **Still to read (the next PM pass: its step 1 reads each `NIGHTLY` line, and its step 7 now lists the sync).** The sync has never run from a `workflow_dispatch` on `main`: all three of its runs came from `workflow_run`. So the done-when holds only once the 2026-10-12 06:07Z conductor run prints `NIGHTLY fleet-prismic-sync.yml run=<id> conclusion=success` and `total=8`, and that sync run prints a `PRISMIC_SYNC_SUMMARY` line. To prove it sooner, dispatch `fleet-prismic-sync.yml` directly. The guard does not count a run dispatched that way, but a conductor run with `only=fleet-prismic-sync` after 18:07Z would make the 06:07Z run skip the sync.
+- 2026-10-11 — P1-41: Roalson, Erik's pre-launch notes (roalson-interests#280). Listing #281 (`edb356f`), Properties and pins #282 (`98d24e5`) and Home #283 (`46c1799`) are live on roalson-interests.netlify.app.
+  - **Home.** The band's map is gone. "Featured Properties" is set in `t-h2`, in the column the map left. A bio's Go Back goes to `/#about`.
+  - **Properties.** All comes first and is selected on landing, with all 23 live listings on one map. The selected pin is drawn at 1.8× with the Ri mark. The others are at 0.9× with their fill at 0.5 and a solid outline, to keep 3:1.
+  - **Listing.** "Aerial Map" opens Google's satellite view on the pin, and the Details section is now bullets.
+  - **Past Projects** needed no code. The control already exists (Operator decisions 102).
+  - **Review.** #281 took two rounds (Operator decisions 103). #282 and #283 took three (Operator decisions 105).
+  - **The copy is live.** The operator published the Prismic release `asuc3hcAAAAleEdb`. At 21:23Z the live homepage showed the new hero subhead and "About Us", and "Our legacy" was gone [M].
+  - **Still the operator's:** post the reply for Erik drafted in #283's body.
+  - **Filed:** roalson-interests#284–#288. Erik's listing-PDF notes come Mon 10-12.
+- 2026-10-11 — P1-40: Hedloc's Executive Team row is 4 wide at `lg` (hedloc#55, `2641a0e`; issue hedloc#54). Erik's ask from 10-09, "slide these three to the left, and have 4-wide".
+  - **Layout.** The empty first column that held the selected member is now an absolute slot over column one, so four members fill the row and the open view is unchanged. Today's three members keep their 301px/206px columns and slide one column left [M].
+  - **Long bios.** An open bio grows the section instead of overflowing the fixed 640px box. In the fixture, a bio of Shankar's length would have run 231px (1440) and 511px (1024) onto the footer [M]. His bio is 1,855 characters. The 1,867 first cited here counted the .docx's XML entities, and the fixture's paragraphs are 12 characters longer in all.
+  - **Wrapped names** start at the left edge.
+  - **Review.** Three rounds. After two dirty rounds the PR was held as Operator decisions 104, and was landed on the operator's answers.
+  - **Shankar is live** [M, 2026-10-11 21:22Z, https://hedloc.netlify.app/executive-team]. The operator activated the Prismic MCP, the entry was staged in release `asvLKRIAALUvJrWz`, and the operator published it and rebuilt the site. Issue hedloc#54 is closed.
+    - The page's HTML lists Jack, Dan, Ben and Shankar ("Advisor"), with headshot `tFb0uvkVPwH3KOz0`.
+    - At 1440 and 1024 the four sit in one row: x 58/399/740/1081 at 301px, and 41/286/532/778 at 206px.
+    - His bio opens, and its last line ends exactly at the section's content edge.
+    - At 1024 his name wraps to two lines, both starting at the left edge. At 390 the members stack.
+    - No console errors at any width.
+  - **Still the operator's:**
+    - Erik's reply from hedloc#55's body, planned for 10-12.
+    - The stray "document" asset `FyXEaSXx6pW_KKta` (a failed first upload) is still in hedloc's media library on 10-11. The MCP has no delete, so remove it there by hand.
+
+- 2026-10-11 — P1-42: OD7-P4, the Williamson cutover checklist and verifier (issue #1279, PR #1280).
+  - **The checklist** is `docs/runbooks/williamson-cutover-2026-10-14.md`. It changes only the apex `A` (to `75.2.60.5`) and the `www` CNAME (to each site's `*.netlify.app` name). Every other record it found is listed as DO NOT TOUCH with its current value. It also carries the 10-13 Netlify custom-domain and TTL steps and a rollback.
+  - **The verifier** is `scripts/williamson-cutover-verify.mjs`. It was RED on today's Webflow hosts (56 of 64 checks) and GREEN on both previews (32 of 32) [M, 10-11 14:42Z]. It also checks the apex `A` and the `www` CNAME, and that `www` is the canonical, indexable host.
+  - **Live DNS matched the plan's §2.** The verify-first probe printed 1, 1, 0, 0, and the plan's §2 now carries the exact values.
+  - **New facts for the operator:**
+    - Homes has two `_dmarc` records, which leaves no DMARC policy in effect.
+    - GoDaddy's custom TTL floor is reported at 600 seconds, not 300.
+    - Construction's preview `/health` has `turnstile: false`.
+    - Both sites bake their canonical at build time from Netlify's `URL`, so they need a redeploy once `www` is the primary domain (checklist, Tue step 4).
+- 2026-10-11 — P1-38: the fleet nightlies finish before 12:00Z (issue #1258, built in #1259). The done-when held on 10-09, 10-10 and 10-11 [M, the PM pass's read of the conductor logs]: the Netlify clock fired `fleet-nightly` at 06:07Z each night, and each run printed `NIGHTLY_CONDUCTOR_SUMMARY dispatched=7 completed=7 wait_exceeded=0 skipped=0 dispatch_failed=0 total=7`. The last completion was the draft run at 07:09:34Z, 07:07:14Z and 07:11:48Z. The 02:17Z fallback started at 09:07Z, 08:31Z and 08:54Z and skipped all seven each time, with no `clock-missed`. The 16:07Z send clock sent Data Dynamiq on 10-09 and found nothing ready on 10-10; its fallback sent nothing both days. The row's open question, whether `fleet-prismic-sync` follows a conducted drift run, has the answer no, which is now P1-39.
+- 2026-10-08 — P1-36: "refresh preview" (`report --rerender`) writes the
+  Search Console lookup back to `site_health` (issue #1261). A refresh whose
+  lookup ran writes `search_console_outcome`, `_resolved` and `_checked_at`
+  through `mirrorHealthFields`, the same three cells and the same
+  `lookupFields` builder the draft uses; a lookup that did not run (no
+  credentials, not enrolled, no period) writes nothing. An approved but
+  unsent report now runs the lookup alone and records it without touching
+  the report's evidence, scores or body, because the lookup is site state
+  and the approval lock covers report content. The `REPORT_RERENDER` line
+  names it: `lookup=resolved|no-property|soft-fail|not-run|no-row|write-failed`.
+  The button was not drawn for an approved report (the operator, 17:45Z: "can't
+  click refresh preview on an already approved draft"); the follow-up PR adds
+  it beside Unapprove in the site page's report history. To clear the 10-05
+  Watch lines for Data Dynamiq and LAHI: press that "refresh preview" on each
+  October report and look for `lookup=resolved` in the run's line.
+- 2026-10-08 — #1262: "Unapprove" on `/s/<slug>` for an approved, unsent
+  report (#1270). The operator asked for it from the cockpit after Data
+  Dynamiq's October report was approved 20 s before its refresh preview and
+  kept best practices 78. `POST /api/reports/:id/unapprove` clears the
+  approval and the send-anyway flag, stamps `unapproved_at` / `unapproved_by`,
+  and puts the report back in pending, where refresh preview re-reads its
+  scores. Per Operator decisions 100, `--send-ready` claims each report
+  (`send_started_at`) right before Resend, under the `approved_at` it read; an
+  unapprove refuses a claimed row, and a lost claim skips the report. A send
+  Resend refuses outright releases its claim; an ambiguous failure keeps it.
+- 2026-10-08 — P1-37: spam pass (issue #1257). `vasdirect.com` is blocked
+  (6/6 spam, every row read; its 10-08 copy had reached the inbox), with
+  `virtualeaseservice.com` (7/7), `parallelaid.com` (3/3) and `erpfunds.com`
+  (3/3). A `va-template` signal (+60 only when "trained va who" and "our
+  custom ai system" both appear; Operator decisions 99) catches the second VA
+  template, which had sent two copies to the inbox at score 0. The CC0
+  `disposable-email-domains` list (9,221 domains at `2a79805e`) is vendored into
+  the +45 disposable tier only, via `scripts/refresh-disposable-domains.mts`. Over
+  90 days of live rows it changes no verdict: no sender used a listed domain.
+  The whole change flips 7 of 491 verdicts, all spam, and no genuine lead's score
+  moved. Not built, proposed: a dot-trick Gmail signal (20/20 rows with 3+ dots in
+  the local part are spam).
+- 2026-10-07 — P1-35: the daily PM pass reads the cockpit's Needs-you and
+  Watch state (issue #1241, #1244). `scripts/pm-cockpit.mts` builds
+  `buildCockpitModel` from the same Turso inputs
+  `netlify/functions/fleet-homepage.mts` loads, over a SELECT-only connection
+  that must refuse an UPDATE before the first read, and prints
+  `PM_COCKPIT_SUMMARY`, the Needs-you items and the Watch sites, plus the
+  two things the cockpit's own feed drops: a failed-deploy-only site and a
+  card-less dead letter. `--since` dates attention items from the digest
+  snapshot (first-flagged day, a vuln's escalation day, or today for a vuln
+  the snapshot has not yet recorded as exhausted, which is rare because the
+  digest usually records it first); watch reasons, approvals and failed
+  deploys print `(undated)`, so Data Dynamiq's `no-property` shows on the Watch line every
+  day but never as `NEW`. The pass runs it as step 2 of "The pass, in order".
+  P1-33's queued `scripts/pm-facts.mjs` should absorb it.
+- 2026-10-07 — P1-34: "refresh preview" (`report --rerender`) writes the
+  site row's current four Lighthouse scores to an unsent, unapproved report
+  and renders with them; the result line names the change
+  (`scores=refreshed scores_change=bp:78→100`). An approved report keeps its
+  stored scores (`scores=locked`), and a site row with a null score leaves
+  the stored ones alone (`scores=site-missing`). Operator decisions 91 (a);
+  issue #1236.
+
+- 2026-10-06 — P1-32: a Lighthouse run whose lhci exited non-zero without
+  writing assertion results reports `warn` ("no assertion results … were not
+  checked") instead of "all categories passing" (#1213, item 89's
+  follow-up).
+- 2026-10-05 — "Just wait" leaves Watch (issue #1190). `markWaiting`
+  (`src/alerts/waiting.ts`) marks a vuln Renovate is still fixing as waiting:
+  a transitive-only one until two days after the first Monday lock-file
+  window that opens after it was first flagged, a direct one for four days
+  (one night past auto-fix exhaustion's own schedule). A waiting item stays
+  on the site's own page and leaves the cockpit's tiers, the Needs-you feed
+  and the digest's asks; an unread or empty digest snapshot mutes nothing.
+  The rule is under "Settled answers" in `docs/pm-pass.md`. ERP Industrials'
+  transitive-only vulns were the instance; whether ERP is off Watch today
+  depends on its real first-flag date, unread (see the PR). Dead letters (auto-replayed every
+  6h) are the one other (iii) signal and wait on Operator decision 87.
+- 2026-10-05 — P1-24, a bundle-only hydration marker (#947, starter and
+  recipe half): landed in two PRs. reddoor-starter#184: the root layout's
+  `onMount` writes `html[data-hydrated]`, the template's smoke routes wait on
+  it for up to 20 s, and a no-JS `@smoke` control plus two unit tests prove it
+  is absent without script and not written before mount. This repo's smoke
+  recipe now scaffolds `hydrationMarker: "html[data-hydrated]"` where a
+  site's Svelte source writes the marker, and falls back to `footer`, `main`
+  or `body` otherwise, with a note that this proves paint, not hydration.
+  `tests/recipes/smoke-suite.test.ts` pins the marker; the brief's three
+  mutations and four more each turn a test red (tables in both PRs). The
+  a11y spec's wait, the fleet rollout, the blux cherry-pick and #1148 stay
+  open under "Watching", unranked.
+
+- 2026-10-05 — P1-25, the Prismic toolbar under the shared CSP baseline
+  (#1157, issue #1155). `BASELINE_CSP` admits `https://prismic.io/prismic-toolbar/`
+  and the one html2canvas file in `script-src`; a new `prismicRepository`
+  option on `createSvelteConfig` frames exactly `https://<name>.prismic.io`,
+  folded after any site override, and refuses a name that is not letters,
+  digits and hyphens. No `unsafe-eval` or `blob:` was needed. The fleet
+  rollout (each site passing `prismicRepository`) is per-repo PRs, not done
+  here.
+- 2026-10-05 — P1-27, the audits' port race (#1156): #1164. The a11y,
+  lighthouse and smoke audits start their server again on a fresh port when
+  the server's own output names one of the audit's ports as taken (Node's
+  `EADDRINUSE`, vite's `Port N is already in use`, Playwright's "is already
+  used"), up to three tries; any other failure is reported at once, and
+  `--strictPort` is unchanged. The helper is `src/util/port-retry.ts`. A
+  live test in `tests/audits/a11y-live-spec.test.ts` squats the preview
+  port, then the dev port, and still gets a passing scan; the four named
+  mutations each turn a test red (table in the PR).
+
+- 2026-10-04 — P1-26, the fleet `/privacy` page (#1055, option A): landed in
+  three PRs.
+  - reddoor-starter#165 (`f538398`): the template.
+    - It is rendered from per-site values, with service switches derived
+      from the site's resolved CSP and code.
+    - It adds a footer link, a contact-form notice and Do Not Track.
+    - It is DRAFT, `noindex` and out of the sitemap.
+    - It went to Operator decision 68 after two dirty review rounds and was
+      merged on the operator's "merge on green CI".
+  - #1129 (`83855ad`): `analytics-tag` refuses a site with no `/privacy`
+    page (two rounds, the second clean).
+  - roalson-interests#257 (`187510a`): the page before launch adds GA4 (two
+    rounds, the second clean). It also discloses OpenFreeMap, the property
+    map's tile host, which is a service the starter's rules did not know.
+  - **Still open:**
+    - roalson's legal name, privacy email and effective date
+      (roalson-interests#258, which also holds two wording details).
+    - Item 45, the lawyer's review, which clears the DRAFT.
+    - Item 46, consent.
+    - Rolling the page out to maintained sites: per-repo PRs, after item 45.
+    - The starter has no rule yet for a map tile host.
+
+- 2026-10-01 — P1-23, `launch` scores the live site, not the checkout:
+  #1056. `launch` resolves its site from a local path, which never carries
+  `deployedUrl`, so Lighthouse scored the checkout's dev server. It now looks
+  up the row, refuses a url that is not http(s), runs dev-guard (whose
+  `/health` control proves the url answers) before the audit, and audits with
+  `deployedUrl` set to the row's url; a failed live audit stops the chain
+  rather than falling back. Two review rounds (round 1 test gaps, round 2
+  clean), 12 mutations all red. Correction to the item: the go-live email
+  renders no Lighthouse; the scores land in `site_health` and on the Launch
+  report row.
+
+- 2026-10-01 — `roster-urls` retries a transport error once before writing
+  a fail: #1103, #1106. MSOT's 10-01 `error: TimeoutError` was a blip (the
+  same run's other checks passed; 200 three of three an hour later). A row
+  with no HTTP answer is re-read after a 25 s pause and the second read is
+  the verdict; HTTP answers and both controls keep one read. `retried=N` on
+  `ROSTER_URL_SUMMARY`. 14 mutations all red; review round 1 four test gaps,
+  round 2 clean. The 10-minute step outgrows the retry at about 108 rows.
+
+- 2026-10-01 — P1-29, how Prismic wants models managed (#1090, research):
+  `docs/prismic-model-management-2026-10.md`. Slice Machine is deprecated
+  (four sources, negative control on `@prismicio/client`), replaced by the
+  Type Builder and the `prismic` CLI. Options A–D against today's three
+  routes; the pick is under Operator decisions 57.
+
+- 2026-10-01 — Operator rule: a Testing report sent within a month of a
+  Maintenance due date pushes Maintenance back one cycle: #1099, `4bfc2fc`.
+  `pushPastTesting` in `src/reports/due.ts`; measured from the later of the
+  due date and the Testing report, re-checked, each Testing report pushes
+  once, approved-unsent Testing counts for 3 days. Two review rounds (round 1
+  two majors, round 2 clean), 13 mutations all red. Sonder Maintenance moved
+  10-01 → 11-01 before that day's run.
+
+- 2026-10-01 — P1-28, withdraw a report draft the operator decided not to
+  send: #1078, `57f5049d`. "Don't send" on `/s/<slug>`
+  (`POST /api/reports/:id/withdraw`, migrations 0038–0039). A withdrawn draft
+  leaves every pending list, can never be approved or sent, and its cycle
+  counts as used from the day it was drafted. Two review rounds plus an
+  operator-chosen fold-in (item 51).
+- 2026-09-30 — OD7-P2b, Construction's fidelity pass (BACKLOG 44 and 52):
+  williamson-construction-co#8, `205608d`. It ships:
+  - the reference's favicon and apple-touch-icon;
+  - `freight-sans-pro` / `-lights` from kit `noj4tji`;
+  - every reference hover, measured on the capture;
+  - the IX2 mobile menu.
+
+  Two review rounds; the operator chose to land after fixing round 2's four
+  findings. The matching-gate done-when is still an open question in 52.
+
+- 2026-09-30 — P1-22 closed by measurement, not code: the first scheduled
+  fleet-security run after #985 (run 36709631159, 11:37Z) printed
+  `RULESET_BYPASS unread=0 read=28`. The reddoor-renovate token reads every
+  bypass list, so P1-17's credential fork does not arise.
+
+- 2026-09-30 — #948 (PR #1039, reddoor-starter#163): the a11y audit's axe scan
+  runs on a production build it makes itself (`npm run build && npm run
+preview`, `VITE_REDDOOR_GATE_FIXTURES=1`, probed on `/_app/version.json`),
+  never on `vite dev`. The starter's `/dev` guard lets only that build serve
+  the fixtures, and Netlify refuses the flag. Cold runs on roalson went from
+  191/201/191/208/191 on dev to 208 in 12 of 14 on the preview; the residual
+  race is the #947 item above. **Rollout:** each of the 25 site repos with the
+  one-line guard needs its guard PR merged before it takes a
+  `@reddoorla/maintenance` bump carrying #1039, or its a11y gate fails with a
+  line naming the guard. Landed `f1ad1cec`. The 25 guard PRs merged on green
+  2026-09-30 on the operator's go (reddoor-website#233 by merge commit; its
+  ruleset allows only that): roalson-interests#219, williamson-construction-co#1, williamson-homes#4, vida-legacy-foundation#88, reddoor-website#233, reddoor-starter-blux#37, beachfront-dentistry#70, 29-navy#59, medical-solutions-of-texas#70, revogen#89, caltex-landing#68, erp-industrial#64, vineyard-custom-homes#70, espada#78, alamo-anatomy#61, 1836dig#23, data-dynamiq#56, the-pointe-burbank#40, gallerysonder#104, la-homelessness-initiative#48, canvas-starter#30, the-tower-burbank#27, composition-hospitality#36, la-homelessness-youth#28, hedloc#51.
+
+- 2026-09-30 — #779 central widening (PR #1017, `d1e42c4a`): the form-e2e probe
+  fills required select, checkbox, radio and text fields outside its standard
+  four, names what it synthesized, and keeps its `testMode` marker on the form
+  at submit (a capturing `submit` listener, plus a refusal to click when the
+  marker is missing). The nightly runs a localhost positive control in the
+  sweep's own job first and fails when that control measured nothing, and it
+  names each uncovered site. It covers no new site by itself: item 31, the
+  client half, is still open.
+
+- 2026-09-30 — #905, #949, #1018: the a11y spec's motion-freezing sheet is adopted
+  through CSSOM (`freezeMotion`), so a CSP without `'unsafe-inline'` in
+  `style-src` no longer fails the audit, and the page's CSP stays enforced
+  (`bypassCSP` would have switched it off). A spec that writes no results is
+  summarised from Playwright's stdout, where the line reporter prints the
+  error, followed by the tail of the web server's stderr less npm warnings
+  (a dying server prints its cause last; review round 3); a missing
+  browser gets its own line naming the absent executable and
+  `npx playwright install chromium`. Both reproduced on `1b1c52fd` first: each
+  summary read "no results written (exit 1) — [WebServer] npm warn …".
+  A typed error (`TypeError:`) or a test timeout on stdout is named too
+  (#1018, found by review round 2; round 3 ran on the operator's call,
+  Operator decisions 27).
+
+- 2026-09-30 — #1014 + #1035 (BACKLOG 29, vida's part of item 23): axe's
+  `blendFunctions[blendMode] is not a function` crash (plus-lighter) is "not
+  measured" and warns, instead of failing the page, on a top-level non-host
+  element. #1014 (`a00d50d4`) re-runs the rule around each crashed node;
+  #1035 (`b4aa1948`) gives up the re-run, so the crash fails, when a crashed
+  node's selector stops naming that one element. Vida's #86 and #87 are
+  merged. Both changesets ride release PR #988.
+- 2026-09-29 — P1-3 / #912, PR 2 (the surface): a fresh `url_resolves = 'fail'`
+  on any non-archived row reaches the digest as `url-unresolved:<siteId>`,
+  naming the url and the status; stale stamps (older than three days, unreadable, or never
+  set while no row in the fleet is fresh) roll into one `url-probe-stale` fleet item whose metric is the count; `url not deployed`
+  in Accepted Watch Conditions mutes only the failure; maintained rows also watch
+  on the cockpit. PR 1 (#986) stores the verdict.
+- 2026-09-30 — #943: the "Search Console set up" launch check passes only on
+  evidence (#1016). Every draft or announcement whose Search Console lookup
+  runs stores its outcome in `site_health` (`search_console_outcome` /
+  `_resolved` / `_checked_at`, migrations 0035–0037). The check passes on a
+  resolved lookup within the site's shorter report cadence + 14 days
+  (45/106/380 days), or on the "no search console" opt-out, which wins. A
+  soft-fail reads as unknown. The cockpit watch `search-console-no-property`
+  names the host whose lookup matched nothing. No backfill: each site
+  reads "no report lookup on record" until its next draft. #943's point 3
+  (falling back from a recorded property to the by-host candidates) is not
+  done.
+- 2026-09-29 — P1-7 / #910: the a11y audit's route coverage is stored next to
+  its violation count. `details.routes = { scanned, total }` (the numbers the
+  summary's "N of M routes" prints) is written by `audit --write-back` to
+  `site_health.a11y_routes_scanned` / `a11y_routes_total` (migrations
+  0033–0034). A 1-of-2 run and a 2-of-2 run with the same violation count now
+  read back from Turso as different rows (`tests/audits/a11y-routes-turso.test.ts`).
+  The site page's Accessibility tile and the cockpit card say when a run was
+  partial. Not done, and still #910's larger half: no fleet sweep runs the
+  a11y audit, so the columns fill only when someone runs `audit --write-back`
+  from a site checkout. The report gate does not read them.
+
+- 2026-09-29 — Operator decisions 17: a checklist row whose evidence is
+  `n/a` (no CMS, no form, no CI) is dropped from the client Maintenance and
+  Testing email on every render path, and a list that empties takes its heading
+  with it (#1015).
+
+- 2026-09-29 — #969: a timed-out spawn reaps the process groups its
+  descendants detached into (Playwright's webServer, Chrome under
+  chrome-launcher), found from a `ps -A -o pid=,ppid=,pgid=` snapshot taken
+  before the first SIGTERM (#989). The Verify probe went from
+  `Sl; accepting=true` 7 s after the timeout to `gone; accepting=false`.
+
+- 2026-09-29 — P1-17 / #981: `protection-audit` joins each
+  `required_status_checks` rule on a non-default Renovate base branch to its
+  ruleset's `bypass_actors`; a branch every one of whose gating rulesets can be
+  bypassed is a gap, and a ruleset read without the field is unverified (#985).
+  The new `RULESET_BYPASS` line's first live number is P1-22.
+
+- 2026-09-29 — P1-12 / #983: `fleet-config-drift.yml` runs
+  `sync-configs --fleet turso --dry` every Sunday at 07:23 UTC behind a
+  three-fixture positive control, and files "Fleet config drift" with the DRIFT
+  and SKIPPED lines (#995). It closes only when every repo in the issue's
+  own body comes back CLEAN. `--dry` now reports a tracked `build/` file as
+  `.gitignore` drift, as the real run already committed it. The Verify line held:
+  no workflow ran `sync-configs`, and the probe printed `no changes needed`
+  against the real run's `applied: 1 commit(s)` on `e2d4aa67`.
+
+- 2026-09-29 — P1-16 / #980: a prospect audit that throws after a paid stage
+  (or in its render) marks its row `failed`, re-stamped to the failure, which
+  counts toward the cap for the full 24 h; a pre-spend throw still releases
+  (#992). Readers take the no-report statuses from one deny-list,
+  `NO_REPORT_STATUSES`. Measured before: 0 at failure +3 h; after: 1 at +3 h
+  and +23 h 59 m, 0 at +24 h 01 m.
+
+- 2026-09-29 — Operator decision 11 / #888: #916 lands over #950. main was merged
+  in, not rebased, because a text-only resolution put the detection after the
+  axe loop's `finally`. Every unit test and tsc passed on that, and every real
+  audit died on `results is not defined`. #916's findings go through #950's
+  cross-origin frame split. The "9 of 12 sampled sites red" figure came from a
+  static grep for `none`-hued tokens. Nobody measured it against the gate. Both
+  of axe's shapes occur. The whole-rule throw (`rule-errored`) that the issue
+  reported, and that the correction posted on it called impossible, is what the
+  starter's `Hero` produces: a white CTA over `bg-neutral-900`. It ships in
+  0.102.0, together with the reddoor-starter `@theme` fix that keeps the
+  starter's own gate green. reddoor-starter-blux has the same Hero and needs
+  the same 13-token block (measured: FAIL on the #916 build, then PASS with
+  66 contrast nodes). That fix is to follow.
+
+- 2026-09-29 — P1-19 / #982: a report whose site matched no Search Console
+  property stores `search_found_page1` NULL, not 0, on the draft create path and
+  the announce create and reuse paths (#990). A property-found miss still
+  stores 0; soft-fail keeps the last value. No reader renders the two differently.
+- 2026-09-29 — P1-20: the digest sends only when an item or ask part the
+  record does not hold appears, a metric beats its high-water baseline (a
+  Lighthouse score by more than 5 points), or weekly; what is gone two runs is
+  forgotten so a recurrence re-sends. Repeated items carry their age and a
+  blocked draft carries the exact ask with its `/s/<slug>` path (#975).
+
+- 2026-09-29 — #960's flake: the `spawn.test` grandchild-reap test polls to a
+  4 s deadline (under `defaultSpawn`'s 5 s SIGKILL grace), probes after its
+  final wait, counts only ESRCH as reaped, and its cleanup kill ignores `ESRCH`
+  (#972). The test only; `spawn.ts` is unchanged. #960 stays open for its first
+  suggestion, counting a zombie as dead via `ps` (see _Watching_).
+- 2026-09-29 — P1-18: #967 proven live. fleet-security run 36564241156
+  rewrote #754's body to name that run, including the new
+  `reddoor-website:staging` gap from #966, which also proves #966 live.
+- 2026-09-29 — P1-2 / #942 (#959), P1-4 / #941 (#961), P1-11 tracking-issue
+  bodies rewritten on every failure (#967), P1-13 `land-prs` retries transient
+  reads (#963), P1-14 / P1-15 (#964).
+
+- 2026-09-29 — P1-8 / #907: the prospect-audit daily cap reserves a `running`
+  row before the spend, atomically, and counts finished plus non-stale running
+  rows (#968). The row cited `src/db/prospect-audits.ts:27`, the
+  old two-state union. That union is now `FinishedProspectAuditStatus` at `:28`,
+  and `ProspectAuditStatus` (with `running`) is at `:36`.
+
+- 2026-09-29 — P1-6 / #892: `protection-audit` judges every branch Renovate
+  merges into, not only the default branch (#966).
+  reddoor-website's `staging` is expected to show as the one new gap;
+  applying its ruleset stays 🔴.
+
+- 2026-09-29 — P1-10: forward pointers to #874 on the three meta-week docs that
+  recommended deleting `FIGMA_PAT` (the docs half; the credential half stays
+  with the operator).
+
+- 2026-09-29 — P1-3's #889 half: a maintained site with a blank Git repo or
+  Netlify ID is a cockpit watch item, acceptable as `no git repo` /
+  `no netlify id` (#962). #912 stays in P1-3.
+
+- 2026-09-29 — `land-prs.mjs` is REST-only and proven from the cloud: it landed
+  itself (#953), then #902 and #896 through update-branch (adopted from the
+  orphaned `claude/happy-cerf-xb0xif`; review found and fixed a
+  neutral-checks gate hole and a CLOSED-reported-as-merged path).
+- 2026-09-29 — Renovate majors #902 (`@types/mjml` v5) and #896
+  (upload-artifact v7; proven by backup artifact `turso-backup-36530796403`).
+- 2026-09-29 — P0-2 alarms (#956) and P0-3 / #911 (#957).
+- 2026-09-29 — P1-14: `js-yaml` is a devDependency and all 14 workflows are
+  parsed, with `workflowSteps` cross-checked against the parse (#964).
+- 2026-09-29 — P1-15: release-health files "Daily release-health check failing"
+  when the checker itself fails or hangs, and time-travel files "Time-travel run
+  failing outside the suite" for a red run whose suite step did not fail
+  (#964).
+
+- 2026-09-29 — P1-21: AUTONOMY.md's settings and journal lines fixed by #971
+  (another session).
+- 2026-09-29 — P0-1: all seven nightlies green on post-Airtable `main`.
+- 2026-09-29 — #895 time-travel red since 09-21: shallow checkout, not a clock
+  (#951, `33c01b3`).
+- 2026-09-29 — Closed as resolved, with evidence comments: #717 (every exposed
+  host re-probed 404 or unpublished, with controls), #698 (the namespace went
+  with #937/#940), #863 (fixed by #875).
+- Meta-week S1–S7 all shipped by 09-14, including the sharp security wave
+  (S1/A7). Airtable Phase 6 finished (#937, #940, #945). #646, #539 and #891
+  are closed.

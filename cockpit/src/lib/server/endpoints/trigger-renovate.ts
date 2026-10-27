@@ -1,0 +1,85 @@
+import type { Context } from "@netlify/functions";
+import { openDb, readDbConfig } from "../../../../../src/db/client.js";
+import { getSiteBySlug } from "../../../../../src/db/fleet-state.js";
+import {
+  requireOperator,
+  denialResponse,
+  triggerRenovateForSite,
+} from "../../../../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
+import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";
+import { makeGitHubRest } from "../../../../../src/github/gh-rest.js";
+import { RENOVATE_WORKFLOW_FILE } from "../../../../../src/github/renovate-dispatch.js";
+
+// The slug arrives in ctx.params.slug.
+
+function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...extra },
+  });
+}
+
+export default async (req: Request, ctx: Context): Promise<Response> => {
+  // GET health check — presence-only, mirrors the other dashboard endpoints.
+  if (req.method === "GET") {
+    return Response.json(
+      {
+        status: "ok",
+        service: "reddoor-trigger-renovate",
+        env: {
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
+          DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
+          GH_TOKEN: typeof process.env.GH_TOKEN === "string",
+        },
+      },
+      { status: 200 },
+    );
+  }
+
+  if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
+
+  // CSRF defense before auth — same posture as the other state-changing endpoints.
+  if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
+
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
+
+  // The dashboard's first request-path GitHub write needs a token with
+  // actions:write. Absent → degrade cleanly (button shows "not configured").
+  const token = process.env.GH_TOKEN?.trim();
+  if (!token) return json({ ok: false, error: "not-configured" }, 503);
+
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[trigger-renovate] TURSO_DATABASE_URL missing");
+    return json({ ok: false, error: "db-env-missing" }, 500);
+  }
+
+  const slug = ctx.params?.slug;
+  if (!slug) return json({ ok: false, error: "missing-slug" }, 400);
+
+  try {
+    // Phase 2 (#539): the site lookup is a Turso read.
+    const db = await openDb(readDbConfig());
+    // REST (fetch) client, not the gh-CLI client: this runs in the Netlify
+    // (Lambda) runtime, which has no `gh` binary — shelling out throws ENOENT.
+    const gh = makeGitHubRest({ token });
+    const result = await triggerRenovateForSite(
+      {
+        getSite: (s) => getSiteBySlug(db, s),
+        dispatch: async (repo) => {
+          const ref = await gh.defaultBranch(repo);
+          await gh.dispatchWorkflow(repo, RENOVATE_WORKFLOW_FILE, ref);
+        },
+      },
+      slug,
+    );
+    if (result.status === "not-found") return json({ ok: false, error: "not-found" }, 404);
+    if (result.status === "no-repo") return json({ ok: false, error: "no-repo" }, 400);
+    if (result.status === "failed")
+      return json({ ok: false, error: "dispatch-failed", detail: result.error }, 502);
+    return json({ ok: true, repo: result.repo }, 200);
+  } catch (err) {
+    return handlerError("trigger-renovate", err);
+  }
+};

@@ -1,0 +1,89 @@
+import type { WebsiteRow } from "../fleet/site-row.js";
+import { siteSlug } from "../fleet/site-row.js";
+import type { LighthouseScores, ReportData, ReportType } from "./types.js";
+import { resolveCopy } from "./copy.js";
+import { fetchGaVisits, fetchSearch } from "./draft.js";
+import { REPORT_WINDOW_DAYS } from "./ga/window.js";
+import { announcementSiteExtras } from "./announcement-email/template.js";
+import type { PreparedHeader } from "./send/render-email.js";
+import { autoTickChecklist } from "./auto-tick.js";
+
+/** The traffic/search lookback window (days) used for report-email previews. */
+const PREVIEW_WINDOW_DAYS = 30;
+
+/** The four stored Lighthouse scores off a Websites row, or null if ANY is missing. */
+export function scoresFromRow(site: WebsiteRow): LighthouseScores | null {
+  if (
+    site.pScore === null ||
+    site.rScore === null ||
+    site.bpScore === null ||
+    site.seoScore === null
+  ) {
+    return null;
+  }
+  return {
+    performance: site.pScore,
+    accessibility: site.rScore,
+    bestPractices: site.bpScore,
+    seo: site.seoScore,
+  };
+}
+
+/**
+ * Assemble the `ReportData` for a report email from a Websites row, for a given report type. Used
+ * by the `selftest` command to preview any report type without a Reports row. Reuses the
+ * same enrichment helpers as the real drafts (`fetchGaVisits`/`fetchSearch`, `resolveCopy`,
+ * `announcementSiteExtras`). GA counts the same fixed 30 complete days as every report (P1-73);
+ * the search window is 30 days to now (a no-write preview can't read the real recurrence anchor). `Launch` skips GA entirely — the launch email shows no analytics.
+ */
+export async function buildReportDataForSite(
+  site: WebsiteRow,
+  type: ReportType,
+  now: Date,
+  opts: { scores: LighthouseScores; header: PreparedHeader },
+): Promise<ReportData> {
+  const { scores, header } = opts;
+  const cidName = `${siteSlug(site.name)}-header`;
+  const base: ReportData = {
+    siteName: site.name,
+    siteUrl: site.url,
+    reportType: type,
+    completedOn: now,
+    lighthouse: scores,
+    lastTestedDate:
+      type === "Maintenance" && site.lastLighthouseAuditAt
+        ? new Date(site.lastLighthouseAuditAt)
+        : null,
+    commentary: null,
+    copy: resolveCopy(site),
+    headerImageCid: cidName,
+    headerWidth: header.displayWidth,
+    headerHeight: header.displayHeight,
+    headerBgColor: header.placeholderColor,
+  };
+
+  // The launch email renders no analytics — don't even fetch GA/search.
+  if (type === "Launch") return base;
+
+  const periodStart = new Date(now.getTime() - PREVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const gaUsers = (await fetchGaVisits(site, now)).value;
+  const searchResult = await fetchSearch(site, periodStart, now);
+  const search = searchResult.value;
+
+  const withAnalytics: ReportData = {
+    ...base,
+    ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+    gaPeriodDays: REPORT_WINDOW_DAYS,
+    ...(search?.foundOnPage1 && search.position !== null
+      ? { searchPosition: search.position }
+      : {}),
+  };
+
+  if (type === "Announcement") {
+    return { ...withAnalytics, ...announcementSiteExtras(site) };
+  }
+  // The checklist rows a real draft would drop (decision 17): the same evidence, from the same
+  // site row, so a selftest preview cannot show a row the client's email would not.
+  const evidence = autoTickChecklist(site, type, now, { search: searchResult });
+  return { ...withAnalytics, checklistEvidence: Object.fromEntries(evidence) }; // Maintenance / Testing
+}
