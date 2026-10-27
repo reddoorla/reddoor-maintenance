@@ -138,6 +138,9 @@ async function main(): Promise<void> {
           inp.notifyBounces,
           inp.deadLetters,
           inp.deadLetterOldest,
+          // P1-78c: the newest stored night's readings (tonight's row is still being
+          // written), as the cockpit itself reads before this writer runs.
+          inp.deps ?? null,
         );
       },
       now,

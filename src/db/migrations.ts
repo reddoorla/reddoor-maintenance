@@ -742,4 +742,10 @@ export const MIGRATIONS: Migration[] = [
     id: "0051_site_health_deps_behind_packages_at",
     sql: `ALTER TABLE site_health ADD COLUMN deps_behind_packages_at TEXT;`,
   },
+  {
+    // P1-78c: accessibility runs weekly in its own workflow, so its verdict needs a
+    // stamp of its own to say whether it still claims the present (8 days).
+    id: "0052_site_health_a11y_checked_at",
+    sql: `ALTER TABLE site_health ADD COLUMN a11y_checked_at TEXT;`,
+  },
 ];

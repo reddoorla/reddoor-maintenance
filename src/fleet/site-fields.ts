@@ -114,6 +114,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
     a11yRoutesScanned: (f["A11y Routes Scanned"] as number | undefined) ?? null,
     a11yRoutesTotal: (f["A11y Routes Total"] as number | undefined) ?? null,
+    a11yCheckedAt: (f["A11y Checked At"] as string | undefined) ?? null,
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
     depsOutdated: (f["Deps Outdated"] as number | undefined) ?? null,
@@ -278,6 +279,8 @@ function a11yFields(counts: A11yCounts): FieldSet {
     "A11y Violations": counts.violations,
     "A11y Routes Scanned": counts.routesScanned,
     "A11y Routes Total": counts.routesTotal,
+    // P1-78c: the counts and their stamp travel together.
+    "A11y Checked At": new Date().toISOString(),
   };
 }
 

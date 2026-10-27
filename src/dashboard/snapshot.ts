@@ -11,6 +11,7 @@ import { readDigestState, readCockpitRollup } from "../db/digest-state.js";
 import { listRecentProspectAudits } from "../db/prospect-audits.js";
 import { readCockpitVersion } from "../db/cockpit-version.js";
 import { orElse } from "./or-else.js";
+import { readLatestDeps } from "../fleet-daily/read.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import {
   RECENT_AUDITS_LIMIT,
@@ -66,6 +67,7 @@ export async function loadCockpitSnapshot(
     submissions,
     screenOuts,
     audits,
+    deps,
   ] = await Promise.all([
     // First, in the same read batch as the rest, so it is the version of exactly
     // these rows. Should the batch fail and its reads run one by one, first still
@@ -107,6 +109,8 @@ export async function loadCockpitSnapshot(
       () => listRecentProspectAudits(db, RECENT_AUDITS_LIMIT),
       null,
     ),
+    // P1-78c: one fleet_daily row by primary key; absent, the dependency alarm is.
+    read<CockpitSnapshot["deps"]>("fleet-daily", () => readLatestDeps(db), null),
   ]);
   return {
     takenAt: now.toISOString(),
@@ -136,6 +140,7 @@ export async function loadCockpitSnapshot(
     rawSubmissionEnums: submissions?.raw ?? new Map(),
     screenOuts,
     audits,
+    deps,
   };
 }
 

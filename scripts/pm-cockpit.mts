@@ -44,6 +44,8 @@ import {
 } from "../src/alerts/waiting.js";
 import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
+import { readLatestDeps } from "../src/fleet-daily/read.js";
+import type { LatestDeps } from "../src/alerts/production-signals.js";
 import { isMain } from "./lib/cli.mjs";
 
 const USAGE = "usage: pnpm tsx scripts/pm-cockpit.mts [--since <iso with Z or offset>]";
@@ -119,6 +121,9 @@ export type CockpitInputs = {
   deadLetters: ReadonlyMap<string, number>;
   /** OD 87: the oldest unreplayed row per slug, the clock of a known site's hold. */
   deadLetterOldest: ReadonlyMap<string, string>;
+  /** P1-78c. The latest `fleet_daily` dependency readings; optional, so a test that
+   *  builds inputs by hand needs none. */
+  deps?: LatestDeps | null;
 };
 
 export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInputs> {
@@ -139,6 +144,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
   );
   const deadLetters = await countUnreplayedDeadLettersBySlug(db);
   const deadLetterOldest = await oldestUnreplayedDeadLetterBySlug(db);
+  const deps = await readLatestDeps(db);
   return {
     websites,
     reports,
@@ -151,6 +157,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
     notifyBounces,
     deadLetters,
     deadLetterOldest,
+    deps,
   };
 }
 
@@ -255,6 +262,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
     inputs.notifyBounces,
     inputs.deadLetters,
     inputs.deadLetterOldest,
+    inputs.deps ?? null,
   );
   const today = now.toISOString().slice(0, 10);
   const dated = new Map<string, DatedReason>();
@@ -337,6 +345,7 @@ export function buildPmCockpit(inputs: CockpitInputs, now: Date, since?: string)
       inputs.deadLetters,
       inputs.prior,
       inputs.deadLetterOldest,
+      inputs.deps ?? null,
     );
     for (const it of ctx.items) if (it.waiting === true) waitingKeys.push(it.key);
   }

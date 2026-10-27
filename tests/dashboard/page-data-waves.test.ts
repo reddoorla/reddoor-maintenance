@@ -108,6 +108,7 @@ const COCKPIT_READS: Record<string, Matcher> = {
   countAutoSpamSince: and(has('from "submissions"'), param("spam_auto")),
   countUnreplayedDeadLettersBySlug: and(has('from "submission_deadletter"'), has("count(")),
   oldestUnreplayedDeadLetterBySlug: and(has('from "submission_deadletter"'), has("min(")),
+  readLatestDeps: has('from "fleet_daily"'),
 };
 
 /** The defensive reads of `/s/:slug`. */
@@ -119,6 +120,7 @@ const SITE_READS: Record<string, Matcher> = {
   countUnreplayedDeadLettersForSlug: and(has('from "submission_deadletter"'), has("count(")),
   oldestUnreplayedDeadLetterForSlug: and(has('from "submission_deadletter"'), has("min(")),
   readDigestState: and(has('from "digest_state"'), param("default")),
+  readLatestDeps: has('from "fleet_daily"'),
 };
 
 async function seedSite(
@@ -213,6 +215,30 @@ async function seedEverything() {
     error: "store down",
     receivedAt: new Date("2026-10-20T11:30:00.000Z"),
   } as never);
+  // P1-78c: one night whose dependency readings put Acme a major behind for over
+  // 90 days, so failing the fleet_daily read shows (the deps-far item goes).
+  await db
+    .insertInto("fleet_daily")
+    .values({
+      night: "2026-10-19",
+      counts: JSON.stringify({
+        deps: {
+          value: {
+            sites: {
+              recA: {
+                name: "Acme",
+                packages: ["svelte@4"],
+                at: "2026-10-20T06:00:00.000Z",
+                firstSeen: { "svelte@4": "2026-06-01" },
+              },
+            },
+            behind: 1,
+          },
+        },
+      }),
+      written_at: "2026-10-20T07:00:00.000Z",
+    })
+    .execute();
   // Acme's dead letter is fresh, so it is held (OD 87) and only the oldest read
   // shows it; Beta's is days old and alarms, so only the count shows it.
   await createDeadLetter(db, {
@@ -238,7 +264,7 @@ describe("round trips per load", () => {
   it("/ reads everything in one wave", async () => {
     const w = waves();
     await loadCockpitModel(db.withPlugin(w.plugin), NOW, BASE);
-    expect(w.count()).toBe(9);
+    expect(w.count()).toBe(10);
     expect(w.depth()).toBe(1);
   });
 
@@ -246,7 +272,7 @@ describe("round trips per load", () => {
     const w = waves();
     const data = await loadSiteDashboard(db.withPlugin(w.plugin), "acme", NOW, BASE);
     expect(data?.site.name).toBe("Acme");
-    expect(w.count()).toBe(9);
+    expect(w.count()).toBe(10);
     expect(w.depth()).toBe(2);
   });
 

@@ -2,12 +2,14 @@
  * P1-78a: the Turso half of the nightly `fleet_daily` writer. Nightly only, never
  * on a request path, so the all-time counts here may scan their tables (the
  * EXPLAIN gate covers `src/db/`, the request path's modules). The overview reads
- * the row this writes, not these queries.
+ * the row this writes, not these queries. The one exception is `readLatestDeps`,
+ * which the cockpit calls: one row by primary key, newest first.
  */
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
+import type { LatestDeps } from "../alerts/production-signals.js";
 
 const failed = (what: string, e: unknown): { value: null; reason: string } => ({
   value: null,
@@ -36,6 +38,15 @@ export async function readRecentRows(db: Db, limit = 7): Promise<StoredRow[]> {
     counts: JSON.parse(r.counts) as FleetDailyCounts,
     writtenAt: r.written_at,
   }));
+}
+
+/** The newest night's dependency readings (P1-78c), for the deps alarm: one row, never
+ *  history, so it is cheap on the cockpit's request path. Null before the first night or
+ *  when that night has no deps reading. */
+export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
+  const [row] = await readRecentRows(db, 1);
+  const deps = row?.counts.deps?.value;
+  return row && deps ? { night: row.night, sites: deps.sites } : null;
 }
 
 /** One night's row, or null. */
