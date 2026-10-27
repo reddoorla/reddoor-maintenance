@@ -451,15 +451,26 @@ a sandbox: the gates execute the agent's code, which can write anywhere the scor
 agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. So t4 exports
 `writes: true`, and `prepare` refuses it unless given `--unsandboxed`. The run's args and its
 result then record `unsandboxed: true`, and `score` prints that the transcripts need an audit (#1501). On Linux each gate
-runs in its own user, mount and network namespace (`unshare`; Linux only, the operator,
-2026-10-26). It has no network. Only its own tree, its report dir and a private tmp are
-writable, the rest of `/` is read-only, and the root clone, every agent's repo, the other
-arms' eval dirs, the other tree and the run's answer files read as empty. pnpm's pre-run
-dependency check is off inside it, because the store is read-only. Each result records
-`gatesSandboxed`. Where `unshare` cannot make a namespace (macOS, a runner that restricts user
-namespaces), the gates run unboxed, which `gatesSandboxed: false` records. The agents' own
-sessions are never boxed, so read the plan's files of every agent for `node:fs`,
-`child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
+runs in a box (`lib/box.mjs`; Linux only, the operator, 2026-10-26).
+
+- **Namespaces:** its own user, mount, network and pid namespaces, so there is no network.
+- **What it can write:** its own tree, its own report dir and a private `TMPDIR`. `/dev/shm`
+  is a fresh tmpfs, and every other mount is read-only.
+- **What it cannot see:** the root clone, every agent's repo, the other arms' eval dirs, the
+  other tree, the run's answer files and any earlier bake-off run beside this one all read as
+  empty.
+- **Capabilities:** the gate starts through `setpriv` with none, so it cannot unmount or
+  remount anything.
+- **pnpm:** its pre-run dependency check is off, because an install cannot work in the box.
+
+Each result records `gatesSandboxed`. Where no box can be built (macOS, a runner that restricts
+user namespaces), the gates run unboxed and record `false`. Not covered either way:
+
+- the agents' own sessions are never boxed;
+- the held-out run's code can still write its own report.
+
+So read the plan's files of every agent for `node:fs`, `child_process`, `process` and patches
+to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
 agent's own `vitest run` there, with no secrets in the environment. Every install and gate pnpm
 reads an empty config directory made for that one step, instead of the caller's `~/.npmrc`, pnpm
 `rc` or `config.yaml`, which an agent can write: a `global-pnpmfile` or `script-shell` named there would

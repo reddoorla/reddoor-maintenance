@@ -19,6 +19,7 @@ import {
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
 import * as task from "../../scripts/model-bakeoff/tasks/t4-plan-task.mjs";
+import { boxCommand, mountPoints } from "../../scripts/model-bakeoff/lib/box.mjs";
 
 const { ALLOWED, HELD_OUT, heldOutResults, scopeCheck, truth } = task;
 
@@ -713,23 +714,40 @@ describe("the scorer's snapshot of the pin (#1498)", () => {
 describe("the gates' box (#1501, Linux only)", () => {
   it("refuses a box that would hide a writable directory or its ancestor", () => {
     expect(() =>
-      task.boxArgs({ hide: ["/r/eval"], writable: ["/r/eval/a/tree"] }, "true", []),
+      boxCommand({ hide: ["/r/eval"], writable: ["/r/eval/a/tree"] }, "true", []),
     ).toThrow(/would hide \/r\/eval, which holds its writable \/r\/eval\/a\/tree/);
-    expect(() => task.boxArgs({ hide: ["/r/x"], writable: ["/r/x"] }, "true", [])).toThrow(
+    expect(() => boxCommand({ hide: ["/r/x"], writable: ["/r/x"] }, "true", [])).toThrow(
       /would hide/,
     );
-    expect(task.boxArgs({ hide: ["/r/eval/b"], writable: ["/r/eval/a"] }, "true", [])).toContain(
-      "/r/eval/b",
-    );
+    const [cmd, args] = boxCommand({ hide: ["/r/eval/b"], writable: ["/r/eval/a"] }, "true", []);
+    expect(cmd).toBe("unshare");
+    // Every path is an argument in a JSON spec, never shell text.
+    expect(JSON.parse(args.at(-1)!)).toEqual({
+      hide: ["/r/eval/b"],
+      writable: ["/r/eval/a"],
+      cmd: "true",
+      args: [],
+    });
   });
 
-  it("hides the root clone, the agents' repos, the other arms and the run's answer files", () =>
+  it("reads mount points with their escapes decoded", () => {
+    const text = "22 1 0:21 / / rw - ext4 /dev/vda rw\n23 22 0:5 / /a\\040b rw - tmpfs t rw\n";
+    expect(mountPoints(text)).toEqual(["/", "/a b"]);
+  });
+
+  it("hides the root clone, the agents' repos, the other arms, earlier runs and answer files", () =>
     withTmp("t4-hide-", (dir) => {
       const runDir = join(dir, "run");
       for (const d of ["eval/a", "eval/b", "eval/c", "work/a/repo", "input"])
         mkdirSync(join(runDir, d), { recursive: true });
-      for (const f of ["t4.json", "evaluated.json"]) writeFileSync(join(runDir, f), "{}");
+      for (const f of ["t4.json", "evaluated.json", "workflow-args.json"])
+        writeFileSync(join(runDir, f), "{}");
       for (const k of ["truth", "runs", "result"]) writeFileSync(`${runDir}.${k}.json`, "{}");
+      // An earlier run beside this one, and a directory that is not a run.
+      mkdirSync(join(dir, "old", "eval", "x", "held"), { recursive: true });
+      writeFileSync(join(dir, "old", "workflow-args.json"), "{}");
+      writeFileSync(join(dir, "old.truth.json"), "{}");
+      mkdirSync(join(dir, "notes"));
       const root = join(dir, "root");
       mkdirSync(root);
       expect(task.hiddenFrom(runDir, "a", root).sort()).toEqual(
@@ -743,6 +761,8 @@ describe("the gates' box (#1501, Linux only)", () => {
           `${runDir}.result.json`,
           join(runDir, "t4.json"),
           join(runDir, "evaluated.json"),
+          join(dir, "old"),
+          join(dir, "old.truth.json"),
         ].sort(),
       );
     }));
@@ -765,10 +785,12 @@ describe("the gates' box (#1501, Linux only)", () => {
     expect(task.scoreRuns({ ...runs, boxed: false }).detail.gatesSandboxed).toBe(false);
   });
 
-  // Where unshare cannot make a user namespace (macOS, a runner that restricts them), the gates
+  // Where unshare cannot build a box (macOS, a runner that restricts user namespaces), the gates
   // run unboxed and record it, so there is no box here to test (the operator, 2026-10-26).
-  describe.runIf(task.sandboxAvailable())("where unshare works", () => {
-    it("runs with no network, the hidden paths empty, and writes only where allowed", () =>
+  describe.runIf(task.sandboxAvailable())("where a box can be built", () => {
+    const dns = `node -e "require('dns').lookup('registry.npmjs.org',e=>console.log(e?'no-network':'NETWORK'))"`;
+
+    it("hides, confines and cuts the network, and the command cannot undo it", () =>
       withTmp("t4-box-", (dir) => {
         const keep = join(dir, "keep");
         const tmp = join(dir, "tmp");
@@ -778,41 +800,82 @@ describe("the gates' box (#1501, Linux only)", () => {
         for (const d of [keep, tmp, secretDir, outside]) mkdirSync(d);
         writeFileSync(join(secretDir, "key"), "answer");
         writeFileSync(secretFile, "answer");
+        const mark = `t4-box-${process.pid}-${Date.now()}`;
         const probe = [
           `cat ${secretDir}/key ${secretFile} 2>/dev/null; echo "[read]"`,
+          `umount ${secretDir} 2>/dev/null; umount ${secretFile} 2>/dev/null; cat ${secretDir}/key ${secretFile} 2>/dev/null; echo "[after umount]"`,
+          `mount -o remount,rw / 2>/dev/null && echo REMOUNTED || echo no-remount`,
           `touch ${keep}/w && echo kept-writable`,
-          `touch ${tmp}/w && echo tmp-writable`,
+          `touch "$TMPDIR/w" && [ "$TMPDIR" = ${tmp} ] && echo tmp-is-${"$"}{TMPDIR##*/}`,
           `touch ${outside}/w 2>/dev/null && echo OUTSIDE-WRITABLE || echo outside-read-only`,
           `touch ${secretDir}/w 2>/dev/null && echo SECRET-WRITABLE || echo secret-read-only`,
-          `node -e "require('dns').lookup('registry.npmjs.org',e=>console.log(e?'no-network':'NETWORK'))"`,
+          `touch /dev/shm/${mark} /dev/${mark} 2>/dev/null; echo "[dev]"`,
+          dns,
         ].join("; ");
         const box = { hide: [secretDir, secretFile], writable: [keep, tmp], tmp };
         const r = task.run(dir, "sh", ["-c", probe], 60_000, box);
+        // The control: outside the box the same lookup resolves, or "no-network" proves nothing.
+        const control = task.run(dir, "sh", ["-c", dns]).stdout.trim();
+        expect(control).toBe("NETWORK");
         expect(r.stdout.split("\n").filter(Boolean)).toEqual([
           "[read]",
+          "[after umount]",
+          "no-remount",
           "kept-writable",
-          "tmp-writable",
+          "tmp-is-tmp",
           "outside-read-only",
           "secret-read-only",
+          "[dev]",
           "no-network",
         ]);
         expect(readFileSync(secretFile, "utf8")).toBe("answer");
+        // A box's /dev/shm is its own, and /dev is read-only: neither reaches the host.
+        expect(existsSync(`/dev/shm/${mark}`)).toBe(false);
+        expect(existsSync(`/dev/${mark}`)).toBe(false);
       }));
 
-    it("runs pnpm inside the box with the store read-only", () =>
-      withTmp("t4-box-pnpm-", (dir) => {
-        const proj = join(dir, "proj");
-        const tmp = join(dir, "tmp");
-        mkdirSync(proj);
-        mkdirSync(tmp);
-        writeFileSync(
-          join(proj, "package.json"),
-          '{"name":"p","version":"1.0.0","scripts":{"x":"echo ran-x"}}\n',
-        );
-        expect(
-          task.run(proj, "pnpm", ["run", "x"], 60_000, { hide: [], writable: [proj, tmp], tmp })
-            .stdout,
-        ).toContain("ran-x");
-      }));
+    // pnpm's pre-run dependency check installs when it finds the install stale, which opens the
+    // store's index read-write: in the box that fails, so the check is off there.
+    it(
+      "runs pnpm on a project installed from the store, with the store read-only",
+      () =>
+        withTmp("t4-box-pnpm-", (dir) => {
+          const proj = join(dir, "proj");
+          const tmp = join(dir, "tmp");
+          mkdirSync(proj);
+          mkdirSync(tmp);
+          const cac = JSON.parse(
+            readFileSync(join(process.cwd(), "node_modules/cac/package.json"), "utf8"),
+          );
+          writeFileSync(
+            join(proj, "package.json"),
+            JSON.stringify({
+              name: "p",
+              version: "1.0.0",
+              dependencies: { cac: cac.version },
+              scripts: { x: "echo ran-x" },
+            }),
+          );
+          expect(task.run(proj, "pnpm", ["install", "--prefer-offline"]).status).toBe(0);
+          // A manifest edited after the install (an agent can edit package.json in its own tree)
+          // makes pnpm's pre-run check want to install again, which cannot work in the box.
+          const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
+          writeFileSync(
+            join(proj, "package.json"),
+            JSON.stringify({
+              ...pkg,
+              dependencies: { ...pkg.dependencies, cac: `^${cac.version}` },
+            }),
+          );
+          const r = task.run(proj, "pnpm", ["run", "x"], 60_000, {
+            hide: [],
+            writable: [proj, tmp],
+            tmp,
+          });
+          expect(r.stdout + r.stderr).toContain("ran-x");
+          expect(r.status).toBe(0);
+        }),
+      120_000,
+    );
   });
 });
