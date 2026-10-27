@@ -127,7 +127,8 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
   });
 
   it("a file that is not YAML gets no can-never-run gap (the string checks still run)", () => {
-    expect(cannotRun(`${CANONICAL}\n  : : [\n`)).toEqual([]);
+    const broken = `${place("false", "job").replace("- cron: 0 */12 * * *", "- cron: 0 0 * * *")}\n  : : [\n`;
+    expect(renovateActionGaps(broken)).toEqual([expect.stringMatching(/cron/)]);
   });
 
   // Review round 1 of this PR. Each "runs" verdict below is the oracle's.
@@ -203,6 +204,44 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     for (const v of ["${{ '''''' }}", "${{ 0x0 }}", "${{ always() && false }}"]) {
       expect(cannotRun(place(v, "job")), v).toHaveLength(1);
     }
+  });
+
+  // Review round 2. The oracle runs the Renovate step in each.
+  it("a token with a fallback does not come only from the skipped step", () => {
+    const fallbacks = ["steps.app-token-2.outputs.token", "secrets.RENOVATE_PAT", "github.token"];
+    for (const fallback of fallbacks) {
+      const yml = place("false", "app")
+        .replace(
+          /( {6}- uses: actions\/checkout@)/,
+          "      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1\n        id: app-token-2\n$1",
+        )
+        .replace(
+          "${{ steps.app-token.outputs.token }}",
+          `\${{ steps.app-token.outputs.token || ${fallback} }}`,
+        );
+      expect(yml).toContain(`|| ${fallback} }}`);
+      expect(cannotRun(yml), fallback).toEqual([]);
+    }
+  });
+
+  it("a step that runs Renovate some other way means no verdict", () => {
+    for (const step of [
+      "      - run: npx renovate --token=${{ steps.app-token.outputs.token }}\n",
+      "      - uses: docker://ghcr.io/renovatebot/renovate@sha256:0000000000000000000000000000000000000000000000000000000000000000\n",
+      "      - uses: ./.github/actions/renovate\n",
+    ]) {
+      expect(cannotRun(place("false", "step") + step), step).toEqual([]);
+    }
+  });
+
+  it("many steps are read in linear time", () => {
+    const step = CANONICAL.match(/ {6}- uses: renovatebot\/github-action@[\s\S]*$/)![0];
+    const yml =
+      place("false", "job").replace(step, step.replace("- uses:", "- &r\n        uses:")) +
+      "      - *r\n".repeat(40_000);
+    const started = Date.now();
+    expect(cannotRun(yml)).toHaveLength(1);
+    expect(Date.now() - started).toBeLessThan(3_000);
   });
 
   it("0X0 and .nan are always false (the oracle skips both)", () => {

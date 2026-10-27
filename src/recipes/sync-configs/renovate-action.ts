@@ -227,9 +227,12 @@ export function renovateActionGaps(contents: string): string[] {
  *
  * The question is "can Renovate run at all": some `renovatebot/github-action`
  * step whose job `if:` and own `if:` are not always false, and whose `token:`
- * does not come only from steps that are always skipped. A disabled checkout
+ * is not exactly `${{ steps.<id>.outputs.<x> }}` of steps that are always
+ * skipped (a fallback such as `|| secrets.X` may run). A disabled checkout
  * does not block it (the action works through the API), and a token from
- * nowhere is left to the App-auth check above.
+ * nowhere is left to the App-auth check above. A step that runs Renovate some
+ * other way (`run: npx renovate`, a docker image, a local action) means no
+ * verdict.
  *
  * It reads the parsed tree, never lines: the line scanner #1680 tried kept
  * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
@@ -279,18 +282,42 @@ function renovateNeverRuns(contents: string): string | null {
     if (typeof record(job)?.uses === "string") return null;
     const steps = record(job)?.steps;
     if (!Array.isArray(steps)) continue;
+    const renovate: unknown[] = [];
+    const byId = new Map<string, unknown[]>();
     for (const step of steps) {
-      const uses = record(step)?.uses;
-      if (typeof uses !== "string") continue;
-      if (!uses.trim().toLowerCase().startsWith("renovatebot/github-action@")) continue;
+      const r = record(step);
+      const uses = typeof r?.uses === "string" ? r.uses.trim().toLowerCase() : "";
+      if (uses.startsWith("renovatebot/github-action@")) renovate.push(step);
+      else if (uses.includes("renovate")) return null;
+      if (typeof r?.run === "string" && /renovate/i.test(r.run)) return null;
+      if (typeof r?.id === "string") {
+        const same = byId.get(r.id);
+        if (same) same.push(step);
+        else byId.set(r.id, [step]);
+      }
+    }
+    if (renovate.length === 0) continue;
+    const jobOff = off(job);
+    const mintersOff = new Map<string, boolean>();
+    for (const step of renovate) {
       const token = record(record(step)?.with)?.token;
-      const source = /steps\.([\w-]+)\.outputs\b/.exec(String(token ?? ""))?.[1];
-      const minters = steps.filter((s) => source !== undefined && record(s)?.id === source);
-      const blocker = off(job)
+      const source =
+        typeof token === "string"
+          ? /^\$\{\{\s*steps\.([\w-]+)\.outputs\.[\w-]+\s*\}\}$/.exec(token.trim())?.[1]
+          : undefined;
+      const tokenOff = () => {
+        if (source === undefined) return false;
+        if (!mintersOff.has(source)) {
+          const minters = byId.get(source) ?? [];
+          mintersOff.set(source, minters.length > 0 && minters.every(off));
+        }
+        return mintersOff.get(source)!;
+      };
+      const blocker = jobOff
         ? `job \`${name}\``
         : off(step)
           ? `the renovatebot/github-action step in job \`${name}\``
-          : minters.length > 0 && minters.every(off)
+          : tokenOff()
             ? `step \`${source}\`, which mints its token, in job \`${name}\``
             : null;
       if (!blocker) return null;
@@ -312,8 +339,8 @@ function record(v: unknown): Record<string, unknown> | null {
  * values (#1607, 2026-10-22; `tests/fixtures/renovate-action-if-oracle.json`):
  *
  * - absent, null, or a string empty after trimming means `success()`: runs.
- * - a YAML boolean or number is its text (`False` is false, `0x0` is 0, `.nan`
- *   is NaN).
+ * - a YAML boolean or number is read as js-yaml's value (`False` is false,
+ *   `0x0` is 0, `.nan` is NaN).
  * - a string that is exactly one `${{ … }}` is that expression, and one holding
  *   only a quoted literal is unwrapped to the literal's text (`${{ 'false' }}`
  *   is `false`). Anything else around a `${{` (padding inside the quotes, a

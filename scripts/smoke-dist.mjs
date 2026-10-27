@@ -233,10 +233,11 @@ const devDepBlocker = pathToFileURL(resolve(here, "register-dev-dep-blocker.mjs"
 
 await check("dev-dep blocker is active (negative self-test)", () => {
   const probe = ["--input-type=module", "-e", 'await import("happy-dom")'];
-  execFileSync(process.execPath, probe, { stdio: "ignore" });
+  execFileSync(process.execPath, probe, { cwd: repoRoot, stdio: "ignore" });
   let refused = false;
   try {
     execFileSync(process.execPath, ["--import", devDepBlocker, ...probe], {
+      cwd: repoRoot,
       encoding: "utf-8",
       stdio: ["ignore", "ignore", "pipe"],
     });
@@ -249,30 +250,40 @@ await check("dev-dep blocker is active (negative self-test)", () => {
 await check("sync-configs --dry flags a disabled Renovate job with devDependencies blocked", () => {
   const site = mkdtempSync(join(tmpdir(), "smoke-renovate-"));
   cpSync(resolve(repoRoot, "tests/fixtures/sync-clean"), site, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd: site, stdio: "ignore" });
+  const commit = (msg) => {
+    git("add", "-A");
+    git("-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-qm", msg);
+  };
+  const dry = () => {
+    try {
+      return execFileSync(
+        process.execPath,
+        ["--import", devDepBlocker, distBin, "sync-configs", "--dry"],
+        { cwd: site, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+      ).split("\n");
+    } catch (e) {
+      throw new Error(`sync-configs --dry failed in a consumer install: ${e.stderr ?? e.message}`, {
+        cause: e,
+      });
+    }
+  };
+  git("init", "-q");
+  commit("site");
+  const name = site.split("/").at(-1);
+  // Baseline: the untouched fixture is clean, so the DRIFT below is the if:'s.
+  if (!dry().includes(`CLEAN ${name}`))
+    throw new Error("the sync-clean fixture did not read CLEAN");
   const file = join(site, ".github/workflows/renovate.yml");
   writeFileSync(
     file,
     readFileSync(file, "utf-8").replace("  renovate:\n", "  renovate:\n    if: false\n"),
   );
-  const git = (...args) => execFileSync("git", args, { cwd: site, stdio: "ignore" });
-  git("init", "-q");
-  git("add", "-A");
-  git("-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-qm", "site");
-  let out;
-  try {
-    out = execFileSync(
-      process.execPath,
-      ["--import", devDepBlocker, distBin, "sync-configs", "--dry"],
-      { cwd: site, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
-    );
-  } catch (e) {
-    throw new Error(`sync-configs --dry failed in a consumer install: ${e.stderr ?? e.message}`, {
-      cause: e,
-    });
-  }
-  const want = `DRIFT ${site.split("/").at(-1)} .github/workflows/renovate.yml`;
-  if (!out.split("\n").includes(want)) {
-    throw new Error(`expected "${want}" for an if: false Renovate job; got:\n${out}`);
+  commit("disable renovate");
+  const out = dry();
+  const want = `DRIFT ${name} .github/workflows/renovate.yml`;
+  if (!out.includes(want)) {
+    throw new Error(`expected "${want}" for an if: false Renovate job; got:\n${out.join("\n")}`);
   }
 });
 
