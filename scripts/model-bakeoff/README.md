@@ -594,8 +594,8 @@ plus cache write), Haiku 5.5 bills $0.50 / $2.50 input / output, cache reads at 
 
 ## The usage ledger
 
-`usage-ledger.mjs` keeps a standing ledger of all Claude Code work, one row per session per
-model, plus one per agent where a transcript survives (P1-83,
+`usage-ledger.mjs` keeps a standing ledger of all Claude Code work: per session, one row per
+model for each run of its usage counter, plus one per agent where a transcript survives (P1-83,
 [reddoorla/reddoor-workspace#3](https://github.com/reddoorla/reddoor-workspace/issues/3)). The
 data are private: they live in the workspace's `usage/` folder, and nothing from them is ever
 committed here, tests included.
@@ -646,23 +646,26 @@ unreported cost never reached the server, while the next process restored the fu
 the transcript. It reads higher where the counter restarted from zero, so that the newest result
 holds only the last run.
 
-So `get_session` is a floor. When it exceeds a session's rows, a run is missing from them: one the
-pages read did not reach, or one that left no drop to see, because the restarted counter had
+So `get_session` is a floor. When it exceeds a session's rows, a run is missing from them: one no
+harvest's pages reached, or one that left no drop to see, because the restarted counter had
 already passed the old total by its first result. `finalize` books the difference as one
-`get_session-residual` row, model `(unattributed)`. It rebuilds those rows from the stored state
-on every write, so a harvest that read no `get_session` cannot drop one.
+`get_session-residual` row, model `(unattributed)`.
 
-Merging a new reading into the stored ledger:
+**What is stored, and how harvests merge.** `usage/results.jsonl` holds every result event any
+harvest has read, cut down to its uuid, time, total and `modelUsage`. A new harvest's results are
+added to it as a set union by uuid, which no order of harvests can lose, and every `modelUsage`
+row and every residual in `ledger.csv` is rebuilt from that union on each write. Stored rows are
+never merged with rows, which three review rounds found loses runs on some order of harvests.
+Around that:
 
-- An older reading changes nothing, and nor does one as new but less full (`complete` beats
-  `newest-page`).
-- A newer reading replaces the runs it covers. It keeps a stored run that ended before its first
-  result when the counter dropped in between: that run is earlier than the pages read.
+- `sessions.csv` takes listing fields (title, status, `updated_at`) from the newer listing or
+  `get_session`, and `get_session` figures from the newer `get_session` reading. An empty field
+  never blanks a stored one. `history: complete` and the fullest `coverage` stick once seen.
 - `transcript` rows merge per agent, so a resumed container that lacks an earlier agent's file
-  keeps that agent's rows. Whether a resumed container restores `subagents/` has not been
-  checked.
-- A harvest that lacks a session's `list_sessions` or `get_session` keeps the stored title and
-  figures; a newer listing's title and status replace the stored ones.
+  keeps that agent's rows. Within an agent, the reading whose last message is newer wins, or on a
+  tie the one with more requests; a row's `as_of` is its newest message, so re-reading an
+  unchanged transcript changes nothing. Whether a resumed container restores `subagents/` has not
+  been checked.
 
 `check` reconciles each run's `modelUsage` rows, within half a cent, with that run's
 `total_cost_usd`. `stale` prints the cloud sessions that the newest `list_sessions` under `--root`

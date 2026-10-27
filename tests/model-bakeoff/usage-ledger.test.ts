@@ -4,18 +4,20 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   COLUMNS,
+  SESSION_COLUMNS,
   assistantEventRows,
-  backfill,
-  finalize,
+  harvestSessions,
+  historyComplete,
+  ingest,
   lastResult,
+  listedSessions,
   mcpCalls,
   mergeRows,
+  mergeSessions,
   modelUsageRows,
   parseCsv,
   reconcile,
   sessionUsage,
-  listedSessions,
-  mergeSessions,
   staleSessions,
   toCsv,
   transcriptId,
@@ -189,30 +191,39 @@ describe("sessionUsage", () => {
   });
 });
 
+let clock = 0;
+// A list_events call as mcpCalls returns it; `at` is when its result arrived, in call order.
 const listEvents = (sid: string, data: object[], payload: object = {}, input: object = {}) => ({
   tool: "list_events",
   input: { session_id: sid, kinds: ["result"], limit: 100, ...input },
   payload: { data, ...payload },
   file: "f",
+  at: `2026-02-01T00:${String(Math.floor(clock / 60)).padStart(2, "0")}:${String(clock++ % 60).padStart(2, "0")}Z`,
 });
-const getSession = (sid: string, cost: number, updated_at = T(9)) => ({
+const getSession = (sid: string, cost: number, updated_at = T(9), extra: object = {}) => ({
   tool: "get_session",
   input: { session_id: sid },
-  payload: { id: sid, updated_at, external_metadata: { usage: { cost_usd: cost } } },
+  payload: { id: sid, updated_at, external_metadata: { usage: { cost_usd: cost } }, ...extra },
   file: "f",
+  at: "",
 });
-const harvest = (
-  calls: object[],
-  stored = { rows: [] as LedgerRow[], sessions: [] as LedgerRow[] },
-) => {
-  const b = backfill(calls as Parameters<typeof backfill>[0]);
-  return finalize(mergeRows(stored.rows, b.rows), mergeSessions(stored.sessions, b.sessions));
-};
+type Store = { results: object[]; rows: LedgerRow[]; sessions: LedgerRow[] };
+const empty: Store = { results: [], rows: [], sessions: [] };
+// Through CSV and JSON on every step, as the CLI stores it.
+const roundTrip = (st: Store): Store => ({
+  results: JSON.parse(JSON.stringify(st.results)),
+  rows: parseCsv(toCsv(st.rows, COLUMNS)),
+  sessions: parseCsv(toCsv(st.sessions, SESSION_COLUMNS)),
+});
+const harvest = (calls: object[], stored: Store = empty): Store =>
+  roundTrip(ingest(stored as never, { calls: calls as never }));
 const sources = (rows: LedgerRow[]) => rows.map((r) => [r.source, r.cost_usd]);
+const total = (st: Store) =>
+  Math.round(st.rows.reduce((n, r) => n + Number(r.cost_usd), 0) * 100) / 100;
 
-describe("backfill", () => {
+describe("ingest: server rows", () => {
   it("writes one row per run per model, each run with its own total", () => {
-    const { rows } = backfill([
+    const { rows } = harvest([
       listEvents("s1", [rev(T(1), 10, { a: mu(9), b: mu(1) }), rev(T(5), 3, { a: mu(3) })]),
     ]);
     expect(rows.map((r) => [r.model, r.cost_usd, r.run_from, r.run_total_usd])).toEqual([
@@ -222,25 +233,153 @@ describe("backfill", () => {
     ]);
   });
 
-  it("counts a history complete only along a backwards chain from the newest page", () => {
-    const head = listEvents("s1", [rev(T(4), 4, {})], { has_more: true, first_id: "p1" });
-    const cases: [object, string][] = [
-      [listEvents("s1", [], {}, { after_id: "x" }), "newest-page"],
-      [listEvents("s1", [], {}, { kinds: ["assistant"], before_id: "p1" }), "newest-page"],
-      [listEvents("s1", [], {}, { before_id: "elsewhere" }), "newest-page"],
-      [listEvents("s1", [], {}, { before_id: "p1" }), "complete"],
-      // An older poll's page that looked whole says nothing about what came after it.
-      [listEvents("s1", [rev(T(1), 1, {})]), "newest-page"],
-    ];
-    for (const [extra, history] of cases) {
-      const { sessions } = backfill([head, extra] as Parameters<typeof backfill>[0]);
-      expect(sessions[0]!.history).toBe(history);
-    }
+  it("stores the cumulative modelUsage, never the turn's model_usage_since_last_result", () => {
+    const ev = {
+      created_at: T(1),
+      result: {
+        uuid: "u1",
+        internal_anthropic_catchall: {
+          total_cost_usd: 9,
+          modelUsage: { a: mu(9) },
+          model_usage_since_last_result: { a: mu(1) },
+        },
+      },
+    };
+    const st = harvest([listEvents("s1", [ev])]);
+    expect(st.rows.map((r) => r.cost_usd)).toEqual([9]);
+    expect(JSON.stringify(st.results)).not.toContain("since_last");
   });
 
-  it("keeps the newest get_session reading, whatever order the files were read in", () => {
-    const { sessions } = backfill([getSession("s1", 7, T(5)), getSession("s1", 3, T(1))]);
-    expect(sessions[0]).toMatchObject({ get_session_cost_usd: 7, read_updated_at: T(5) });
+  it("treats a zero-total result with no usage as carrying no total", () => {
+    const { rows } = harvest([
+      listEvents("s1", [
+        rev(T(1), 10, { a: mu(10) }),
+        rev(T(2), 0, {}),
+        rev(T(3), 12, { a: mu(12) }),
+      ]),
+    ]);
+    expect(rows.map((r) => r.cost_usd)).toEqual([12]);
+  });
+});
+
+// Each scenario's harvests, applied in every order, must give the same, true total.
+describe("ingest: any order of harvests", () => {
+  const orders = <X>(xs: X[]): X[][] =>
+    xs.length <= 1
+      ? [xs]
+      : xs.flatMap((x, i) => orders([...xs.slice(0, i), ...xs.slice(i + 1)]).map((o) => [x, ...o]));
+  const ev = (h: number, t: number) => rev(T(h), t, { a: mu(t) });
+  const scenarios: [string, object[][], number][] = [
+    [
+      // Runs of 2, 10 and 3 read whole; later only the newest page: the last run, now at 4.
+      "an earlier run before a kept one",
+      [
+        [listEvents("s1", [ev(1, 2), ev(2, 1), ev(3, 10), ev(4, 1), ev(5, 3)])],
+        [listEvents("s1", [ev(7, 4)], { has_more: true })],
+      ],
+      16,
+    ],
+    [
+      "a fuller as-new page read after a partial one",
+      [
+        [listEvents("s1", [ev(1, 1), ev(2, 10)])],
+        [listEvents("s1", [ev(6, 4)], { has_more: true })],
+        [
+          listEvents("s1", [ev(6, 4)], { has_more: true, first_id: "p1" }),
+          listEvents("s1", [ev(3, 1), ev(4, 8), ev(5, 2)], { has_more: true }, { before_id: "p1" }),
+        ],
+      ],
+      22,
+    ],
+    [
+      "a complete reading after a newer partial one",
+      [
+        [listEvents("s1", [ev(1, 4), ev(2, 10), ev(4, 3), ev(5, 5)])],
+        [listEvents("s1", [ev(6, 6)], { has_more: true })],
+      ],
+      16,
+    ],
+    [
+      "the same newest page read twice",
+      [
+        [listEvents("s1", [ev(1, 2), ev(2, 1), ev(3, 10), ev(4, 1), ev(5, 4)], { has_more: true })],
+        [listEvents("s1", [ev(5, 4)], { has_more: true })],
+      ],
+      16,
+    ],
+  ];
+  for (const [name, harvests, want] of scenarios)
+    it(name, () => {
+      for (const order of orders(harvests))
+        expect(total(order.reduce((st, h) => harvest(h, st), empty))).toBe(want);
+    });
+});
+
+describe("historyComplete", () => {
+  it("follows the backwards chain from the newest cursorless page", () => {
+    const head = listEvents("s1", [rev(T(4), 4, {})], { has_more: true, first_id: "p1" });
+    const cases: [object, boolean][] = [
+      // An after_id page holding a result is never the head, however late it arrived.
+      [listEvents("s1", [rev(T(9), 9, {})], {}, { after_id: "x" }), false],
+      [listEvents("s1", [], {}, { kinds: ["assistant"], before_id: "p1" }), false],
+      [listEvents("s1", [], {}, { before_id: "elsewhere" }), false],
+      [listEvents("s1", [], {}, { before_id: "p1" }), true],
+    ];
+    for (const [extra, want] of cases) expect(historyComplete([head, extra] as never)).toBe(want);
+  });
+
+  it("ignores an older poll that looked whole, in either order of files", () => {
+    const old = listEvents("s1", [rev(T(1), 2, {}), rev(T(2), 5, {})]);
+    const head = listEvents("s1", [], { has_more: true, first_id: "p1" });
+    expect(historyComplete([old, head] as never)).toBe(false);
+    expect(historyComplete([head, old] as never)).toBe(false);
+  });
+});
+
+describe("harvestSessions", () => {
+  it("keeps the newest get_session reading, in either order of files", () => {
+    const [a, b] = [getSession("s1", 7, T(5)), getSession("s1", 3, T(1))];
+    for (const calls of [
+      [a, b],
+      [b, a],
+    ])
+      expect(harvestSessions(calls as never)[0]).toMatchObject({
+        get_session_cost_usd: 7,
+        read_updated_at: T(5),
+      });
+  });
+
+  it("takes each field from the newer of the listing and get_session", () => {
+    const listing = {
+      tool: "list_sessions",
+      input: {},
+      payload: {
+        data: [
+          {
+            id: "s1",
+            updated_at: T(10),
+            title: "Renamed",
+            session_status: "SESSION_STATUS_ARCHIVED",
+          },
+        ],
+      },
+      file: "f",
+      at: "",
+    };
+    const got = getSession("s1", 3, T(5), {
+      title: "Old",
+      session_status: "SESSION_STATUS_RUNNING",
+    });
+    for (const calls of [
+      [listing, got],
+      [got, listing],
+    ])
+      expect(harvestSessions(calls as never)[0]).toMatchObject({
+        title: "Renamed",
+        status: "SESSION_STATUS_ARCHIVED",
+        updated_at: T(10),
+        get_session_cost_usd: 3,
+      });
   });
 });
 
@@ -283,39 +422,10 @@ describe("finalize: the get_session residual", () => {
     const more = listEvents("s1", [rev(T(7), 31, { a: mu(31) })], { has_more: true });
     expect(sources(harvest([more], first).rows)).toEqual([["modelUsage", 31]]);
   });
-});
 
-describe("merging readings", () => {
-  // A complete read: a run to 10, then a restarted run 3 -> 5.
-  const whole = listEvents("s1", [
-    rev(T(1), 4, { a: mu(4) }),
-    rev(T(2), 10, { a: mu(10) }),
-    rev(T(4), 3, { a: mu(3) }),
-    rev(T(5), 5, { a: mu(5) }),
-  ]);
-
-  it("keeps an earlier run a later newest-page read did not reach", () => {
-    const first = harvest([whole]);
-    const newest = listEvents("s1", [rev(T(6), 6, { a: mu(6) })], { has_more: true });
-    const after = harvest([newest], first);
-    expect(after.rows.map((r) => [r.run_from, r.cost_usd])).toEqual([
-      [T(1), 10],
-      [T(6), 6],
-    ]);
-    expect(after.sessions[0]).toMatchObject({ result_segments: 2, model_usage_total_usd: 16 });
-  });
-
-  it("keeps a complete reading over an as-new newest-page one", () => {
-    const first = harvest([whole]);
-    const partial = listEvents("s1", [rev(T(5), 5, { a: mu(5) })], { has_more: true });
-    const after = harvest([partial], first);
-    expect(after.rows.map((r) => r.cost_usd)).toEqual([10, 5]);
-    expect(after.sessions[0]).toMatchObject({ history: "complete", model_usage_total_usd: 15 });
-  });
-
-  it("is idempotent", () => {
-    const once = harvest([whole, getSession("s1", 20)]);
-    expect(harvest([whole, getSession("s1", 20)], once)).toEqual(once);
+  it("is idempotent through CSV", () => {
+    const once = harvest([page, getSession("s1", 30)]);
+    expect(harvest([page, getSession("s1", 30)], once)).toEqual(once);
   });
 });
 
@@ -327,11 +437,10 @@ describe("mergeSessions", () => {
     title: "T",
     status: "SESSION_STATUS_RUNNING",
     environment: "anthropic_cloud",
-    as_of: T(5),
+    coverage: "no-result",
     history: "complete",
     get_session_cost_usd: 20,
     read_updated_at: T(9),
-    model_usage_total_usd: 15,
   };
 
   it("keeps stored fields a later harvest left empty", () => {
@@ -360,20 +469,43 @@ describe("mergeSessions", () => {
     });
   });
 
-  it("takes a newer listing's title and status even when it read no usage", () => {
+  it("takes newer listing fields and newer get_session figures, each on its own clock", () => {
     const listing = {
       session_id: "s1",
       updated_at: T(10),
       title: "Renamed",
       status: "SESSION_STATUS_ARCHIVED",
-      as_of: "",
-      history: "",
+      read_updated_at: "",
     };
     expect(mergeSessions([full], [listing])[0]).toMatchObject({
       title: "Renamed",
       status: "SESSION_STATUS_ARCHIVED",
+      get_session_cost_usd: 20,
+    });
+    expect(
+      mergeSessions([full], [{ ...listing, updated_at: T(1), title: "Older" }])[0],
+    ).toMatchObject({
+      title: "T",
+    });
+    const reading = {
+      session_id: "s1",
+      read_updated_at: T(10),
+      get_session_cost_usd: 25,
+      updated_at: "",
+    };
+    expect(mergeSessions([full], [reading])[0]).toMatchObject({
+      get_session_cost_usd: 25,
+      title: "T",
+    });
+    const staleReading = { ...reading, read_updated_at: T(1), get_session_cost_usd: 5 };
+    expect(mergeSessions([full], [staleReading])[0]).toMatchObject({ get_session_cost_usd: 20 });
+  });
+
+  it("keeps a complete history and the fullest coverage once seen", () => {
+    const later = { session_id: "s1", history: "newest-page", coverage: "" };
+    expect(mergeSessions([full], [later])[0]).toMatchObject({
       history: "complete",
-      as_of: T(5),
+      coverage: "no-result",
     });
   });
 });
@@ -548,45 +680,35 @@ describe("CSV", () => {
 });
 
 describe("mergeRows", () => {
-  const row = (
-    session_id: string,
-    source: string,
-    model: string,
-    as_of: string,
-    cost: number,
-    agent_id = "(all)",
-  ) => ({
-    session_id,
-    source,
+  const row = (agent_id: string, model: string, as_of: string, cost: number, requests = 1) => ({
+    session_id: "s1",
+    source: "transcript",
     model,
     agent_id,
-    run_from: as_of,
     as_of,
+    requests,
     cost_usd: cost,
   });
 
-  it("keeps the stored rows when the incoming reading is older, and leaves other sources alone", () => {
-    const old = [
-      row("s1", "modelUsage", "opus", T(2), 5),
-      row("s1", "transcript", "opus", T(1), 4, "main"),
-    ];
-    const merged = mergeRows(old, [row("s1", "modelUsage", "opus", T(1), 1)]);
-    expect(merged.map((r) => [r.source, r.cost_usd])).toEqual([
-      ["modelUsage", 5],
-      ["transcript", 4],
-    ]);
-  });
-
   it("merges transcript rows per agent, so an agent missing from a later reading keeps its rows", () => {
-    const old = [
-      row("s1", "transcript", "opus", T(1), 4, "main"),
-      row("s1", "transcript", "haiku", T(1), 1, "agent-a"),
-    ];
-    const merged = mergeRows(old, [row("s1", "transcript", "opus", T(2), 6, "main")]);
+    const old = [row("main", "opus", T(1), 4), row("agent-a", "haiku", T(1), 1)];
+    const merged = mergeRows(old, [row("main", "opus", T(2), 6)]);
     expect(merged.map((r) => [r.agent_id, r.cost_usd])).toEqual([
       ["main", 6],
       ["agent-a", 1],
     ]);
+  });
+
+  it("keeps the agent's reading with the newer last message, or on a tie the larger one", () => {
+    const old = [row("main", "opus", T(2), 6, 3)];
+    expect(mergeRows(old, [row("main", "opus", T(1), 9, 9)]).map((r) => r.cost_usd)).toEqual([6]);
+    expect(mergeRows(old, [row("main", "opus", T(2), 2, 1)]).map((r) => r.cost_usd)).toEqual([6]);
+    expect(mergeRows(old, [row("main", "opus", T(2), 8, 4)]).map((r) => r.cost_usd)).toEqual([8]);
+  });
+
+  it("drops stored server rows: those are rebuilt from the stored results", () => {
+    const server = { ...row("(all)", "opus", T(1), 5), source: "modelUsage" };
+    expect(mergeRows([server], [])).toEqual([]);
   });
 });
 
@@ -715,11 +837,15 @@ describe("mcpCalls and backfill", () => {
     expect(calls.every((c) => c.payload && !("error" in c.payload))).toBe(true);
   });
 
-  it("builds rows from each session's newest result and a sessions table with get_session beside it", () => {
-    const { rows, sessions } = backfill(mcpCalls(fixtureTree()));
+  it("builds rows and a sessions table, with get_session beside the results", () => {
+    const { rows, sessions } = ingest(
+      { results: [], rows: [], sessions: [] },
+      { calls: mcpCalls(fixtureTree()) },
+    );
+    // Sorted by session, source, agent, run, then model.
     expect(rows.map((r) => [r.session_id, r.model, r.cost_usd])).toEqual([
-      ["session_A", "claude-opus-5-5", 2.004],
       ["session_A", "claude-haiku-5-5", 0.003],
+      ["session_A", "claude-opus-5-5", 2.004],
     ]);
     expect(rows[0]!).toMatchObject({
       session_created_at: "2026-01-01T00:00:00Z",
@@ -731,6 +857,7 @@ describe("mcpCalls and backfill", () => {
       result_total_cost_usd: 2.007,
       get_session_cost_usd: 1.95,
       coverage: "modelUsage",
+      history: "newest-page",
       as_of: "2026-01-01T08:00:00Z",
     });
     const b = sessions.find((s) => s.session_id === "session_B")!;
@@ -773,7 +900,9 @@ describe("listedSessions", () => {
       file: "f",
     });
     const calls = [page("2026-01-03T00:00:00Z"), page("2026-01-01T00:00:00Z")];
-    expect(listedSessions(calls).map((s) => s.updated_at)).toEqual(["2026-01-03T00:00:00Z"]);
+    expect(listedSessions(calls as never).map((s) => s.updated_at)).toEqual([
+      "2026-01-03T00:00:00Z",
+    ]);
   });
 });
 

@@ -108,7 +108,10 @@ export function cmpTime(a, b) {
 }
 
 const totalOf = (ev) => {
-  const t = resultBody(ev)?.total_cost_usd;
+  const body = resultBody(ev);
+  const t = body?.total_cost_usd;
+  // An error result with no usage reads 0; it says nothing about the counter, so it is no total.
+  if (t === 0 && !Object.keys(body?.modelUsage ?? {}).length) return undefined;
   return typeof t === "number" ? t : undefined;
 };
 
@@ -194,6 +197,7 @@ export function modelUsageRows(session, ev, run = { from: ev.created_at }) {
 
 function addRecord(row, r) {
   row.requests++;
+  if (r.timestamp && cmpTime(r.timestamp, row.as_of) > 0) row.as_of = r.timestamp;
   row.input_tokens += r.usage.in;
   row.output_tokens += r.usage.out;
   row.thinking_tokens += r.thinking;
@@ -247,10 +251,14 @@ function records(text, { skipSidechain = false } = {}) {
     if (skipSidechain && (o.isSidechain || o.parent_tool_use_id)) continue;
     const u = o?.message?.usage;
     if (o?.message?.id && u) {
-      extra.set(o.message.id, {
-        thinking: u.output_tokens_details?.thinking_tokens ?? 0,
-        webSearch: u.server_tool_use?.web_search_requests ?? 0,
-      });
+      // The same rule as usageRecords: a stream-start line never replaces a finished one.
+      const finished = o.message.stop_reason != null;
+      if (finished || !extra.get(o.message.id)?.finished)
+        extra.set(o.message.id, {
+          finished,
+          thinking: u.output_tokens_details?.thinking_tokens ?? 0,
+          webSearch: u.server_tool_use?.web_search_requests ?? 0,
+        });
     }
     lines.push(line);
   }
@@ -266,6 +274,8 @@ function groupInto(rows, key, make, r) {
  * Rows per agent and model from one session's transcripts: `main` is the session's own JSONL,
  * `agents` each subagent's JSONL with its `.meta.json`. A subagent's lines that the main file
  * also carries (`isSidechain`) are counted from the agent's own file, never on the main thread.
+ * A row's `as_of` is its newest message's timestamp, so re-reading an unchanged transcript
+ * changes nothing.
  */
 export function transcriptRows(session, { main, agents }, as_of = "") {
   const rows = new Map();
@@ -451,7 +461,13 @@ export function mcpCalls(root) {
           } catch (e) {
             payload = { error: String(e) };
           }
-          out.push({ tool: use.name.slice(TOOL.length), input: use.input ?? {}, payload, file });
+          out.push({
+            tool: use.name.slice(TOOL.length),
+            input: use.input ?? {},
+            payload,
+            file,
+            at: o.timestamp ?? "",
+          });
         }
       }
     }
@@ -473,22 +489,20 @@ export function listedSessions(calls) {
 }
 
 /**
- * Whether a session's list_events pages hold its whole history: the chain read backwards from
- * its newest cursorless page over result events, each `before_id` the previous page's
- * `first_id`, ends on a page with no `has_more`. An `after_id` page's has_more is about newer
- * events, a kinds filter without "result" says nothing about results, and an older poll's
- * complete-looking page says nothing about what came after it.
+ * Whether one harvest's list_events pages hold a session's whole history: the chain read
+ * backwards from its newest cursorless page over result events (the one whose result arrived
+ * last), each `before_id` the previous page's `first_id`, ends on a page with no `has_more`. An
+ * `after_id` page's has_more is about newer events, a kinds filter without "result" says nothing
+ * about results, and an older poll's complete-looking page says nothing about what came after it.
  */
-function historyComplete(pages) {
+export function historyComplete(pages) {
   const ok = pages.filter((p) => {
     const kinds = p.input.kinds;
     return (!Array.isArray(kinds) || kinds.includes("result")) && !p.input.after_id;
   });
-  const newestOf = (p) =>
-    (p.payload.data ?? []).reduce((m, e) => (cmpTime(e.created_at, m) > 0 ? e.created_at : m), "");
   const heads = ok.filter((p) => !p.input.before_id);
   if (!heads.length) return false;
-  let page = heads.reduce((a, b) => (cmpTime(newestOf(b), newestOf(a)) >= 0 ? b : a));
+  let page = heads.reduce((a, b) => (cmpTime(b.at, a.at) >= 0 ? b : a));
   for (let hops = 0; hops <= ok.length; hops++) {
     if (page.payload.has_more !== true) return true;
     const next = ok.find((p) => p.input.before_id && p.input.before_id === page.payload.first_id);
@@ -498,73 +512,53 @@ function historyComplete(pages) {
   return false;
 }
 
-/** Ledger rows (one per run of the counter per model) and a sessions table from MCP calls. */
-export function backfill(calls) {
-  const listed = new Map(listedSessions(calls).map((s) => [s.id, s]));
-  const got = new Map();
-  const pages = new Map();
+/**
+ * The result events in a harvest's list_events pages, cut down to what the ledger is built from.
+ * They are what `usage/results.jsonl` stores: merging two harvests is a union of these by
+ * `uuid`, which no order of harvests can lose, and every server row is rebuilt from the union.
+ */
+export function resultRecords(calls) {
+  const out = [];
   for (const c of calls) {
-    const p = c.payload;
-    if (!p || p.error) continue;
-    if (c.tool === "get_session" && p.id) {
-      const old = got.get(p.id);
-      if (!old || cmpTime(p.updated_at, old.updated_at) >= 0) got.set(p.id, p);
-    } else if (c.tool === "list_events" && c.input.session_id) {
-      const sid = c.input.session_id;
-      if (!pages.has(sid)) pages.set(sid, []);
-      pages.get(sid).push(c);
+    if (c.tool !== "list_events" || !c.input.session_id || !c.payload || c.payload.error) continue;
+    for (const ev of c.payload.data ?? []) {
+      const body = resultBody(ev);
+      if (!body) continue;
+      out.push({
+        session_id: c.input.session_id,
+        uuid: ev.result.uuid ?? ev.created_at,
+        created_at: ev.created_at,
+        total_cost_usd: body.total_cost_usd ?? null,
+        modelUsage: body.modelUsage ?? {},
+      });
     }
   }
-  const rows = [];
-  const sessions = [];
-  const ids = new Set([...listed.keys(), ...got.keys(), ...pages.keys()]);
-  for (const id of [...ids].sort()) {
-    const meta = { ...(listed.get(id) ?? {}), ...(got.get(id) ?? {}) };
-    const session = { id, created_at: meta.created_at, environment: meta.environment_kind };
-    const read = pages.get(id) ?? [];
-    const su = sessionUsage(read.flatMap((c) => c.payload.data ?? []));
-    const history = !read.length ? "" : historyComplete(read) ? "complete" : "newest-page";
-    const mine = [];
-    for (const run of su?.runs ?? []) mine.push(...modelUsageRows(session, run.end, run));
-    for (const r of mine) r.history = history;
-    rows.push(...mine);
-    const usage = got.get(id)?.external_metadata?.usage;
-    let coverage = "not-read";
-    if (mine.length) coverage = "modelUsage";
-    else if (su) coverage = "no-server-usage";
-    else if (read.length) coverage = "no-result";
-    sessions.push({
-      session_id: id,
-      created_at: meta.created_at ?? "",
-      updated_at: meta.updated_at ?? "",
-      title: meta.title ?? "",
-      origin: meta.origin ?? "",
-      environment: meta.environment_kind ?? "",
-      status: meta.session_status ?? "",
-      coverage: read.length ? coverage : "",
-      history,
-      as_of: su?.as_of ?? "",
-      result_segments: su?.segments ?? "",
-      result_total_cost_usd: totalOf(su?.last) ?? "",
-      model_usage_total_usd: su ? su.total : "",
-      get_session_cost_usd: usage?.cost_usd ?? "",
-      get_session_input_tokens: usage?.input_tokens ?? "",
-      get_session_output_tokens: usage?.output_tokens ?? "",
-      get_session_cache_read_tokens: usage?.cache_read_tokens ?? "",
-      get_session_cache_write_tokens: usage?.cache_write_tokens ?? "",
-      read_updated_at: got.get(id)?.updated_at ?? "",
-    });
-  }
-  return { rows, sessions };
+  return out;
 }
 
-const RANK = { complete: 2, "newest-page": 1 };
-/** Whether reading `a` (as_of, history) should replace stored reading `b`. */
-function newer(a, b) {
-  const c = cmpTime(a.as_of, b.as_of);
-  if (c) return c > 0;
-  return (RANK[a.history] ?? 0) >= (RANK[b.history] ?? 0);
+/** The union of stored and incoming result records, one per session and uuid. */
+export function mergeResults(stored, incoming) {
+  const by = new Map();
+  for (const r of [...stored, ...incoming]) by.set(`${r.session_id}\u0000${r.uuid}`, r);
+  return [...by.values()].sort((a, b) =>
+    a.session_id < b.session_id
+      ? -1
+      : a.session_id > b.session_id
+        ? 1
+        : cmpTime(a.created_at, b.created_at),
+  );
 }
+
+const asEvent = (r) => ({
+  created_at: r.created_at,
+  result: {
+    uuid: r.uuid,
+    internal_anthropic_catchall: {
+      total_cost_usd: r.total_cost_usd ?? undefined,
+      modelUsage: r.modelUsage,
+    },
+  },
+});
 
 const groupBy = (rows, key) => {
   const m = new Map();
@@ -575,92 +569,113 @@ const groupBy = (rows, key) => {
   }
   return m;
 };
-const reading = (rows) => ({
-  as_of: rows.reduce((m, r) => (cmpTime(r.as_of, m) > 0 ? r.as_of : m), ""),
-  history: rows[0]?.history ?? "",
-});
-const runKey = (r) => `${r.run_from}\u0000${r.as_of}`;
 
-/**
- * Merge new rows into stored ones; residual rows are not merged but rebuilt by `finalize`.
- * - `modelUsage`: an older reading, or an as-new and less full one, changes nothing. A newer
- *   reading replaces the stored runs it covers. A stored run is kept when the new reading is
- *   only the newest pages and the counter dropped between that run's end and the new pages'
- *   first result: it is an earlier run those pages did not reach.
- * - `transcript`: per agent, so a resumed container that lacks an earlier agent's file keeps it.
- * - any other source: per session, the newer reading wins.
- */
-export function mergeRows(stored, incoming) {
-  const family = (r) =>
-    r.source === "transcript"
-      ? `${r.session_id}\u0000transcript\u0000${r.agent_id}`
-      : `${r.session_id}\u0000${r.source}`;
-  const groups = groupBy(
-    stored.filter((r) => r.source !== "get_session-residual"),
-    family,
-  );
-  const fresh = groupBy(
-    incoming.filter((r) => r.source !== "get_session-residual"),
-    family,
-  );
-  for (const [k, rows] of fresh) {
-    const old = groups.get(k);
-    if (old && !newer(reading(rows), reading(old))) continue;
-    let kept = [];
-    if (old && rows[0].source === "modelUsage" && rows[0].history !== "complete") {
-      const first = rows.reduce((a, r) => (cmpTime(r.run_from, a.run_from) < 0 ? r : a));
-      const firstFloor = Number(
-        first.run_from_cost_usd !== "" ? first.run_from_cost_usd : first.run_total_usd,
-      );
-      for (const run of groupBy(old, runKey).values()) {
-        const r = run[0];
-        if (cmpTime(r.as_of, first.run_from) < 0 && Number(r.run_total_usd) > firstFloor)
-          kept.push(...run);
-      }
-    }
-    groups.set(k, [...kept, ...rows]);
+/** One row per run of the counter per model, from every stored result of each session. */
+export function serverRows(results, sessions) {
+  const meta = new Map(sessions.map((s) => [s.session_id, s]));
+  const rows = [];
+  for (const [id, mine] of groupBy(results, (r) => r.session_id)) {
+    const m = meta.get(id) ?? {};
+    const session = { id, created_at: m.created_at, environment: m.environment };
+    const su = sessionUsage(mine.map(asEvent));
+    for (const run of su?.runs ?? [])
+      for (const r of modelUsageRows(session, run.end, run))
+        rows.push({ ...r, history: m.history ?? "" });
   }
-  return [...groups.values()].flat();
+  return rows;
 }
 
-const SESSION_USAGE = [
-  "coverage",
-  "history",
-  "as_of",
-  "result_segments",
-  "result_total_cost_usd",
-  "model_usage_total_usd",
-];
+const COVERAGE = { "": 0, "not-read": 0, "no-result": 1, "no-server-usage": 2, modelUsage: 3 };
 
 /**
- * Merge a sessions table, one row per session. Its usage fields come from the newer reading (as
- * `mergeRows` judges it); its other fields from the newer listing or get_session (`updated_at`,
- * `read_updated_at`). A field a harvest left empty keeps its stored value.
+ * One harvest's sessions table. A session's fields come, one by one, from whichever of its
+ * listing and its get_session reading is newer (`updated_at`); its usage figures from
+ * get_session; `pages_read` and `history` from its list_events pages.
+ */
+export function harvestSessions(calls) {
+  const listed = new Map(listedSessions(calls).map((s) => [s.id, s]));
+  const got = new Map();
+  const pages = new Map();
+  for (const c of calls) {
+    const p = c.payload;
+    if (!p || p.error) continue;
+    if (c.tool === "get_session" && p.id) {
+      const old = got.get(p.id);
+      if (!old || cmpTime(p.updated_at, old.updated_at) >= 0) got.set(p.id, p);
+    } else if (c.tool === "list_events" && c.input.session_id) {
+      if (!pages.has(c.input.session_id)) pages.set(c.input.session_id, []);
+      pages.get(c.input.session_id).push(c);
+    }
+  }
+  const out = [];
+  for (const id of [...new Set([...listed.keys(), ...got.keys(), ...pages.keys()])].sort()) {
+    const l = listed.get(id) ?? {};
+    const g = got.get(id) ?? {};
+    const newerOf = (k) => {
+      const lv = l[k];
+      const gv = g[k];
+      if (lv === undefined || lv === "") return gv ?? "";
+      if (gv === undefined || gv === "") return lv;
+      return cmpTime(g.updated_at, l.updated_at) >= 0 ? gv : lv;
+    };
+    const usage = g.external_metadata?.usage;
+    const read = pages.get(id) ?? [];
+    out.push({
+      session_id: id,
+      created_at: newerOf("created_at"),
+      updated_at: newerOf("updated_at"),
+      title: newerOf("title"),
+      origin: newerOf("origin"),
+      environment: newerOf("environment_kind"),
+      status: newerOf("session_status"),
+      coverage: read.length ? "no-result" : "",
+      history: !read.length ? "" : historyComplete(read) ? "complete" : "newest-page",
+      get_session_cost_usd: usage?.cost_usd ?? "",
+      get_session_input_tokens: usage?.input_tokens ?? "",
+      get_session_output_tokens: usage?.output_tokens ?? "",
+      get_session_cache_read_tokens: usage?.cache_read_tokens ?? "",
+      get_session_cache_write_tokens: usage?.cache_write_tokens ?? "",
+      read_updated_at: g.updated_at ?? "",
+    });
+  }
+  return out;
+}
+
+const META = ["created_at", "updated_at", "title", "origin", "environment", "status"];
+
+/**
+ * Merge sessions tables, one row per session. Listing fields come from the newer `updated_at`,
+ * get_session figures from the newer `read_updated_at`; an empty incoming field never blanks a
+ * stored one. `history: complete` and the fullest `coverage` stick: once a harvest read a
+ * session to its start, that stays true of the results stored.
  */
 export function mergeSessions(stored, incoming) {
   const by = new Map(stored.map((s) => [s.session_id, s]));
-  const pick = (a, b, takeB) =>
-    takeB && b !== undefined && b !== "" ? b : a !== undefined && a !== "" ? a : (b ?? "");
+  const pick = (a, b, takeB) => {
+    const has = (v) => v !== undefined && v !== "";
+    if (has(a) && has(b)) return takeB ? b : a;
+    return has(b) ? b : (a ?? "");
+  };
   for (const s of incoming) {
     const old = by.get(s.session_id);
     if (!old) {
-      by.set(s.session_id, s);
+      by.set(s.session_id, { ...s });
       continue;
     }
-    const usageB = newer(
-      { as_of: s.as_of || "", history: s.history },
-      { as_of: old.as_of || "", history: old.history },
-    );
     const metaB = cmpTime(s.updated_at, old.updated_at) >= 0;
     const readB = cmpTime(s.read_updated_at, old.read_updated_at) >= 0;
-    const merged = {};
+    const merged = { ...old };
     for (const k of new Set([...Object.keys(old), ...Object.keys(s)])) {
-      const takeB = SESSION_USAGE.includes(k)
-        ? usageB
-        : k.startsWith("get_session_") || k === "read_updated_at"
-          ? readB
-          : metaB;
-      merged[k] = pick(old[k], s[k], takeB);
+      if (k === "history")
+        merged[k] =
+          old.history === "complete" || s.history === "complete"
+            ? "complete"
+            : pick(old[k], s[k], true);
+      else if (k === "coverage")
+        merged[k] =
+          (COVERAGE[s.coverage] ?? 0) > (COVERAGE[old.coverage] ?? 0) ? s.coverage : old.coverage;
+      else if (META.includes(k)) merged[k] = pick(old[k], s[k], metaB);
+      else merged[k] = pick(old[k], s[k], readB);
     }
     by.set(s.session_id, merged);
   }
@@ -668,30 +683,55 @@ export function mergeSessions(stored, incoming) {
 }
 
 /**
- * Rebuild what follows from the stored rows: each session's `model_usage_total_usd` and
- * `result_segments` from its stored runs, and its `get_session-residual` row. get_session's cost
- * is a floor (a process that dies mid-turn never reports its tail), so where it exceeds the
- * session's rows, a run is missing from them: one the pages read did not reach, or one that left
- * no drop to see. The difference is booked as one row, model `(unattributed)`. Built from stored
- * state, a harvest that read no get_session cannot drop it.
+ * Merge non-server rows (transcript, assistant-events). Transcript rows merge per agent, so a
+ * resumed container that lacks an earlier agent's file keeps its rows; within an agent, the
+ * reading with the newer last message wins, or on a tie the one with more requests.
  */
-export function finalize(rows, sessions) {
-  const usage = rows.filter((r) => r.source !== "get_session-residual");
+export function mergeRows(stored, incoming) {
+  const family = (r) =>
+    r.source === "transcript"
+      ? `${r.session_id}\u0000transcript\u0000${r.agent_id}`
+      : `${r.session_id}\u0000${r.source}`;
+  const local = (rows) =>
+    rows.filter((r) => r.source !== "modelUsage" && r.source !== "get_session-residual");
+  const groups = groupBy(local(stored), family);
+  const size = (rows) => rows.reduce((n, r) => n + Number(r.requests || 0), 0);
+  const last = (rows) => rows.reduce((m, r) => (cmpTime(r.as_of, m) > 0 ? r.as_of : m), "");
+  for (const [k, rows] of groupBy(local(incoming), family)) {
+    const old = groups.get(k);
+    const c = old ? cmpTime(last(rows), last(old)) : 1;
+    if (c > 0 || (c === 0 && size(rows) >= size(old))) groups.set(k, rows);
+  }
+  return [...groups.values()].flat();
+}
+
+const runKey = (r) => `${r.run_from}\u0000${r.as_of}`;
+
+/**
+ * What follows from the stored state: each session's `coverage`, `as_of`, `result_segments`,
+ * `result_total_cost_usd` and `model_usage_total_usd` from its stored results, and its
+ * `get_session-residual` row. get_session's cost is a floor (a process that dies mid-turn never
+ * reports its tail), so where it exceeds the session's server rows a run is missing from them:
+ * one no harvest's pages reached, or one that left no drop to see. The difference is booked as
+ * one row, model `(unattributed)`.
+ */
+export function finalize(rows, sessions, results) {
   const bySession = groupBy(
-    usage.filter((r) => r.source === "modelUsage"),
+    rows.filter((r) => r.source === "modelUsage"),
     (r) => r.session_id,
   );
-  const out = [...usage];
+  const stored = groupBy(results, (r) => r.session_id);
+  const out = rows.filter((r) => r.source !== "get_session-residual");
   const table = sessions.map((s) => {
     const mine = bySession.get(s.session_id) ?? [];
-    const runs = [...groupBy(mine, runKey).values()];
+    const su = sessionUsage((stored.get(s.session_id) ?? []).map(asEvent));
     const next = { ...s, coverage: s.coverage || "not-read" };
-    if (runs.length) {
-      next.result_segments = runs.length;
-      next.model_usage_total_usd = runs.reduce(
-        (n, run) => n + Number(run[0].run_total_usd || 0),
-        0,
-      );
+    if (su) {
+      next.coverage = mine.length ? "modelUsage" : "no-server-usage";
+      next.as_of = su.as_of;
+      next.result_segments = su.segments;
+      next.result_total_cost_usd = totalOf(su.last) ?? "";
+      next.model_usage_total_usd = su.total;
     }
     const sum = mine.reduce((n, r) => n + Number(r.cost_usd), 0);
     const floor = Number(s.get_session_cost_usd);
@@ -707,13 +747,38 @@ export function finalize(rows, sessions) {
         model: "(unattributed)",
         cost_usd: floor - sum,
         cost_basis: "get_session usage.cost_usd less the modelUsage rows",
-        as_of: s.as_of ?? "",
+        as_of: next.as_of ?? "",
         history: s.history ?? "",
       });
     }
     return next;
   });
   return { rows: out, sessions: table };
+}
+
+/**
+ * One harvest into the stored state. `calls` are its remote-sessions MCP results, `local` its
+ * transcript rows. Results are unioned, sessions merged, local rows merged per agent, and every
+ * server row and residual rebuilt from what is stored.
+ */
+export function ingest(store, { calls = [], local = [] } = {}) {
+  const results = mergeResults(store.results ?? [], resultRecords(calls));
+  const sessions = mergeSessions(store.sessions ?? [], harvestSessions(calls));
+  const rows = [...serverRows(results, sessions), ...mergeRows(store.rows ?? [], local)];
+  const done = finalize(rows, sessions, results);
+  const SOURCE = { modelUsage: 0, "get_session-residual": 1, transcript: 2, "assistant-events": 3 };
+  const order = (r) =>
+    [
+      r.session_created_at,
+      r.session_id,
+      SOURCE[r.source] ?? 9,
+      r.agent_id,
+      r.run_from,
+      r.model,
+      r.effort,
+    ].join("\u0000");
+  done.rows.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
+  return { results, rows: done.rows, sessions: done.sessions };
 }
 
 /**

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The per-model usage ledger (P1-83). Writes `ledger.csv` and `sessions.csv` in the workspace's
 // private `usage/` folder; see this directory's README for the commands and when each runs.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,12 +9,9 @@ import { parseArgs } from "node:util";
 import {
   COLUMNS,
   SESSION_COLUMNS,
-  backfill,
-  finalize,
+  ingest,
   listedSessions,
   mcpCalls,
-  mergeRows,
-  mergeSessions,
   parseCsv,
   readSessionTranscripts,
   reconcile,
@@ -25,22 +22,29 @@ import {
 } from "./lib/usage.mjs";
 
 const read = (p) => (existsSync(p) ? parseCsv(readFileSync(p, "utf8")) : []);
+const readJsonl = (p) =>
+  existsSync(p)
+    ? readFileSync(p, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+    : [];
 
-function store(out, rows, sessions) {
+/** One harvest into `<out>`: results.jsonl, sessions.csv and ledger.csv, rebuilt together. */
+function store(out, harvest) {
   mkdirSync(out, { recursive: true });
-  const ledgerPath = join(out, "ledger.csv");
-  const sessionsPath = join(out, "sessions.csv");
-  const done = finalize(
-    mergeRows(read(ledgerPath), rows),
-    mergeSessions(read(sessionsPath), sessions),
+  const paths = {
+    results: join(out, "results.jsonl"),
+    sessions: join(out, "sessions.csv"),
+    rows: join(out, "ledger.csv"),
+  };
+  const done = ingest(
+    { results: readJsonl(paths.results), sessions: read(paths.sessions), rows: read(paths.rows) },
+    harvest,
   );
-  const order = (r) =>
-    [r.session_created_at, r.session_id, r.source, r.agent_id, r.run_from, r.model, r.effort].join(
-      "\u0000",
-    );
-  done.rows.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
-  writeFileSync(ledgerPath, toCsv(done.rows, COLUMNS));
-  writeFileSync(sessionsPath, toCsv(done.sessions, SESSION_COLUMNS));
+  writeFileSync(paths.results, done.results.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  writeFileSync(paths.sessions, toCsv(done.sessions, SESSION_COLUMNS));
+  writeFileSync(paths.rows, toCsv(done.rows, COLUMNS));
   return done;
 }
 
@@ -82,9 +86,12 @@ const HELP = `usage-ledger.mjs <command> --out <workspace>/usage [options]
               anthropic_cloud when that variable is set, else laptop).
   stale       Print the cloud sessions the newest list_sessions under --root shows as updated
               after their stored reading: the ones the next mcp harvest must re-read.
-  check       Reconcile the stored modelUsage rows with each session's result total, to the cent.`;
+  check       Reconcile each stored run's modelUsage rows with its result total, within half a cent.`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))
+) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
@@ -113,8 +120,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const calls = mcpCalls(root);
     const failed = calls.filter((x) => x.payload?.error);
     for (const x of failed) console.error(`unparsed tool result in ${x.file}: ${x.payload.error}`);
-    const { rows, sessions } = backfill(calls);
-    const stored = store(out, rows, sessions);
+    const stored = store(out, { calls });
     process.exit(report(stored).mismatches.length ? 1 : 0);
   } else if (cmd === "transcript") {
     if (values.all && values.id) {
@@ -144,11 +150,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const t = readSessionTranscripts(dir, uuid);
       const first = t.main.slice(0, 4096).match(/"timestamp":"([^"]+)"/)?.[1] ?? "";
       const id = transcriptId(uuid, process.env, values);
-      rows.push(
-        ...transcriptRows({ id, created_at: first, environment }, t, new Date().toISOString()),
-      );
+      rows.push(...transcriptRows({ id, created_at: first, environment }, t));
     }
-    const stored = store(out, rows, []);
+    const stored = store(out, { local: rows });
     console.log(
       `${targets.length} session(s), ${rows.length} rows merged into ${join(out, "ledger.csv")}.`,
     );
