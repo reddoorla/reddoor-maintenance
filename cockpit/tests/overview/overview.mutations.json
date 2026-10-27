@@ -18,11 +18,24 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "        : String(latestScreen.value.honeypot + latestScreen.value.tooFast),",
-        "replace": "        : String(latestScreen.value.honeypot + latestScreen.value.tooFast + (subs === null ? 0 : tally(subs).screened)),"
+        "find": "          : String(latestScreen.value.honeypot + latestScreen.value.tooFast),",
+        "replace": "          : String(latestScreen.value.honeypot + latestScreen.value.tooFast + (subs === null ? 0 : tally(subs, status).screened)),"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-spam-counters-summed-on-the-page",
+    "why": "The two spam counters are summed in a headline, by the page rather than the model",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}",
+        "replace": ">{Number(v.leads.stoppedAllTime) + v.leads.allTime.screened}{#if v.leads.stoppedAsOf}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
   },
   {
@@ -31,11 +44,24 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    perSite: [...bySite]\n",
-        "replace": "    perSite: [...bySite].filter(([, rows]) => rows.some((r) => r.formType !== \"rsvp\"))\n"
+        "find": "  const perSite = [...bySite]\n",
+        "replace": "  const perSite = [...bySite].filter(([, rows]) => rows.some((r) => r.formType !== \"rsvp\"))\n"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3b-rsvp-left-out-on-the-page",
+    "why": "The RSVP site is left out of the per-site leads table, by the page",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each v.leads.perSite as s (s.siteId)}",
+        "replace": "{#each v.leads.perSite.filter((s) => !s.siteName.includes(\"Rsvp\")) as s (s.siteId)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
   },
   {
@@ -52,6 +78,19 @@
     "expect": "red"
   },
   {
+    "id": "4b-broken-missing-on-the-page",
+    "why": "A Broken site is missing from section 1, because the page drops a lone one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if v.status.broken.length > 0}",
+        "replace": "{#if v.status.broken.length > 1}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
     "id": "5-no-row-reads-zero",
     "why": "A count falls back to 0 when fleet_daily has no row",
     "edits": [
@@ -62,8 +101,8 @@
       },
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      window.length === 0\n        ? NOT_YET",
-        "replace": "      window.length === 0\n        ? \"0 of 0 runs green\""
+        "find": "      : window.length === 0\n        ? NOT_YET",
+        "replace": "      : window.length === 0\n        ? \"0 of 0 runs green\""
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -127,6 +166,19 @@
       "cockpit/tests/shell/triage-route.ssr.test.ts",
       "tests/dashboard/auth/oauth-state.test.ts"
     ],
+    "expect": "red"
+  },
+  {
+    "id": "11-typed-count",
+    "why": "(review round 1, T2) A count is typed into the page instead of read from the view",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.allTime.submissions} submissions",
+        "replace": ">705 submissions"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
   },
   {

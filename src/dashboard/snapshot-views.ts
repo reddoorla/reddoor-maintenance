@@ -160,7 +160,7 @@ export function assembleCockpitModel(
 /** What a submission's `status` and `form_type` columns hold: the SQL compares
  *  these, and a stored value that is not ours (`toStatus` reads it as "new") must
  *  not match a filter it never matched. */
-function storedStatus(s: CockpitSnapshot, r: SubmissionRow): string {
+export function storedStatus(s: CockpitSnapshot, r: SubmissionRow): string {
   return s.rawSubmissionEnums.get(r.id)?.status ?? r.status;
 }
 function storedFormType(s: CockpitSnapshot, r: SubmissionRow): string {

@@ -1,14 +1,31 @@
 import type { CockpitSnapshot } from "../../../../src/dashboard/snapshot-views.js";
-import { cockpitModelFromSnapshot } from "../../../../src/dashboard/snapshot-views.js";
+import {
+  cockpitModelFromSnapshot,
+  storedStatus,
+} from "../../../../src/dashboard/snapshot-views.js";
 import type { CockpitModel, SiteCard, Tier } from "../../../../src/dashboard/fleet-cockpit.js";
 import {
   buildNeedsYouFeed,
   isFailedDeployStatus,
   isReadyDeployStatus,
+  itemLevel,
 } from "../../../../src/dashboard/fleet-cockpit.js";
+import type { AttentionItem } from "../../../../src/alerts/attention.js";
+import {
+  DIRECT_VULN_WAIT_DAYS,
+  LOCKFILE_SETTLE_DAYS,
+  directVulnEscalatesAt,
+  markWaiting,
+  transitiveVulnEscalatesAt,
+} from "../../../../src/alerts/waiting.js";
 import { daysFlagged, levelOf } from "../../../../src/alerts/ladder.js";
-import { freshWithin, PRODUCTION_STALE_DAYS } from "../../../../src/alerts/production-signals.js";
-import { urlProbeFresh } from "../../../../src/alerts/digest-collectors.js";
+import {
+  CERT_ATTENTION_DAYS,
+  freshWithin,
+  PRODUCTION_STALE_DAYS,
+} from "../../../../src/alerts/production-signals.js";
+import { collectVulnAlerts, urlProbeFresh } from "../../../../src/alerts/digest-collectors.js";
+import { diffAttention } from "../../../../src/alerts/digest-state.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import {
   NIGHTLY_CRON,
@@ -30,11 +47,14 @@ import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
  * plans/2026-10-26-cockpit-for-the-team/plan.md, "The overview at `/`"). It reads
  * the snapshot every page reads, plus its `fleet_daily` nights, and nothing else:
  * no GitHub call, and no count typed into the page. Every number it shows has a
- * line in `howWeCount`, and a number nothing measured yet reads "not yet
+ * line in `HOW_WE_COUNT`, and a number nothing measured yet reads "not yet
  * collected", never 0.
  */
 
 export const NOT_YET = "not yet collected";
+
+/** A read that failed when the snapshot was taken: never 0, never "not yet". */
+export const UNREADABLE = "not readable";
 
 /** How many nights a window may span: "over the last K nights", K up to this. */
 export const WINDOW_NIGHTS = 30;
@@ -50,16 +70,52 @@ export function isTestSend(r: Pick<ReportRow, "approvedBy">): boolean {
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 const count = (n: number, one: string, many: string): string => `${n} ${plural(n, one, many)}`;
 
+const PACIFIC_STAMP = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+/** "Oct 27, 11:40pm PT". */
+export function pacificStamp(iso: string): string {
+  const parts = PACIFIC_STAMP.formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("month")} ${get("day")}, ${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()} PT`;
+}
+
+const PACIFIC_DAY = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+});
+
+/** "Nov 2", the Pacific calendar day of an instant. */
+const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
+
 // ---- section 1: the one-line status ----
 
-export type BrokenRow = { siteName: string; url: string; reasons: string; age: string | null };
+export type BrokenRow = {
+  key: string;
+  siteName: string;
+  url: string;
+  reasons: string;
+  age: string | null;
+};
+
+/** One sentence of the status line. A count links to its group on the Triage page
+ *  (an anchor there, not a filter: /triage has none). `term` is its How-we-count line. */
+export type StatusPart = { text: string; term: string; href?: string };
 
 export type StatusView = {
-  /** "17 sites in our care. All live. 2 need attention this week." */
+  /** "17 sites in our care. All live at the last check, Oct 26, 11:30pm PT. …" */
   line: string;
+  parts: StatusPart[];
   cls: "ok" | "broken" | "attention" | "watch";
   broken: BrokenRow[];
-  link: string;
+  counts: { attention: number; fleetAttention: number; watch: number; approval: number };
 };
 
 function ageOf(since: string | undefined | null, now: Date): string | null {
@@ -68,8 +124,31 @@ function ageOf(since: string | undefined | null, now: Date): string | null {
   return days === 0 ? "since today" : `for ${count(days, "day", "days")}`;
 }
 
+/** A Broken item in plain words, for section 1. The triage titles are the operator's
+ *  ("a sampled page did not answer 2xx or 3xx"); a kind with no line here keeps it. */
+const BROKEN_IN_PLAIN_WORDS: Partial<Record<AttentionItem["kind"], string>> = {
+  uptime: "a page on the site did not answer at the last check",
+  url: "the site's address does not answer",
+  domain: "the domain does not answer",
+  cert: "its security certificate runs out within 7 days",
+  deploy: "the latest deploy failed",
+  "function-health": "a server function (the code behind forms and similar) is failing",
+  cms: "the site cannot reach its CMS, where its content is edited",
+  render: "pages fail to show in a browser",
+  form: "the contact form failed its nightly test",
+  deadletter: "leads are stuck and have not reached the client",
+  "notify-bounce": "lead emails to the client are bouncing",
+  turnstile: "the form's spam check is turning people away",
+};
+
+function plainReasons(items: readonly AttentionItem[]): string | null {
+  const words = [...new Set(items.map((it) => BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title))];
+  return words.length > 0 ? words.join("; ") : null;
+}
+
 function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView {
   const feed = buildNeedsYouFeed(model);
+  const cards = new Map(model.cards.map((c) => [c.site.name, c]));
   const cardless = (model.cardless ?? []).filter((i) => i.waiting !== true);
   const cardlessAt = (l: string) =>
     cardless.filter((i) => (i.level ?? levelOf(i, undefined, now)) === l);
@@ -77,55 +156,110 @@ function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView
     ...feed
       .filter((i) => i.group === "broken")
       .map((i) => ({
+        key: i.slug || i.siteName,
         siteName: i.siteName,
         url: i.url,
-        reasons: i.reasons.join(" · "),
+        reasons:
+          plainReasons(
+            (cards.get(i.siteName)?.items ?? []).filter((it) => itemLevel(it) === "broken"),
+          ) ?? i.reasons.join(" · "),
         age: ageOf(i.since, now),
       })),
     ...cardlessAt("broken").map((i) => ({
+      key: i.key,
       siteName: i.siteName || "The fleet",
       url: TRIAGE_PATH,
-      reasons: i.title,
+      reasons: plainReasons([i]) ?? i.title,
       age: ageOf(i.firstFlaggedAt, now),
     })),
   ];
-  const attention =
-    feed.filter((i) => i.group === "attention").length + cardlessAt("attention").length;
+  // Sites, never mixed with fleet-wide items: those are counted on their own.
+  const attention = feed.filter((i) => i.group === "attention").length;
+  const fleetAttention = cardlessAt("attention").length;
   const watch = feed.filter((i) => i.group === "watch").length;
-  const approval = feed.filter((i) => i.group === "approval").length;
+  // Every draft waiting for a yes, however many on one site and whatever else that
+  // site carries (the feed's approval group holds only sites with nothing worse).
+  const approval = model.pending.length;
 
   const inCare = model.cards.filter((c) => c.site.status === "maintained").length;
   const down = live.filter((r) => r.live.ok === false).length;
   const unknown = live.filter((r) => r.live.ok === null).length;
-  const parts = [`${count(inCare, "site", "sites")} in our care.`];
-  if (down === 0 && unknown === 0) parts.push(inCare === 1 ? "It is live." : "All live.");
-  else {
-    if (down > 0) parts.push(`${down} not live.`);
-    if (unknown > 0)
-      parts.push(`${down > 0 ? "" : "The rest live; "}${unknown} not checked lately.`);
+  const up = live.filter((r) => r.live.ok === true);
+  const oldest = up
+    .map((r) => r.live.atIso)
+    .filter((t): t is string => t !== null)
+    .sort()[0];
+  const asOf = oldest === undefined ? "" : ` at the last check, ${pacificStamp(oldest)}`;
+  const parts: StatusPart[] = [
+    { text: `${count(inCare, "site", "sites")} in our care.`, term: "Sites in our care" },
+  ];
+  if (live.length > 0) {
+    if (down === 0 && unknown === 0)
+      parts.push({ text: `${inCare === 1 ? "It was live" : "All live"}${asOf}.`, term: "Live" });
+    else {
+      if (down > 0) parts.push({ text: `${down} not live.`, term: "Live" });
+      if (unknown > 0) parts.push({ text: `${unknown} not checked lately.`, term: "Live" });
+      if (up.length > 0) parts.push({ text: `${up.length} live${asOf}.`, term: "Live" });
+    }
   }
-  const levels = [
-    broken.length > 0 ? `${broken.length} broken.` : null,
-    attention > 0
-      ? `${attention} ${plural(attention, "needs", "need")} attention this week.`
-      : null,
-    watch > 0 ? `${watch} to watch.` : null,
-    approval > 0 ? `${count(approval, "report waits", "reports wait")} for your yes.` : null,
-  ].filter((s): s is string => s !== null);
-  parts.push(...(levels.length > 0 ? levels : ["Nothing needs attention."]));
+  const levels: StatusPart[] = [];
+  const LEVEL = "Broken, attention, watch";
+  if (broken.length > 0)
+    levels.push({ text: `${broken.length} broken.`, term: LEVEL, href: `${TRIAGE_PATH}#broken` });
+  if (attention > 0)
+    levels.push({
+      text: `${count(attention, "site needs", "sites need")} attention this week.`,
+      term: LEVEL,
+      href: `${TRIAGE_PATH}#attention`,
+    });
+  if (fleetAttention > 0)
+    levels.push({
+      text: `${count(fleetAttention, "fleet-wide item needs", "fleet-wide items need")} attention too.`,
+      term: LEVEL,
+      href: `${TRIAGE_PATH}#cardless`,
+    });
+  if (watch > 0)
+    levels.push({
+      text: `${count(watch, "site", "sites")} to watch.`,
+      term: LEVEL,
+      href: `${TRIAGE_PATH}#watch`,
+    });
+  if (approval > 0)
+    levels.push({
+      text: `${count(approval, "report waits", "reports wait")} for your yes.`,
+      term: "Waiting for your yes",
+      href: `${TRIAGE_PATH}#approval`,
+    });
+  parts.push(...(levels.length > 0 ? levels : [{ text: "Nothing needs attention.", term: LEVEL }]));
   const cls =
-    broken.length > 0 ? "broken" : attention > 0 ? "attention" : watch > 0 ? "watch" : "ok";
-  return { line: parts.join(" "), cls, broken, link: TRIAGE_PATH };
+    broken.length > 0
+      ? "broken"
+      : attention + fleetAttention > 0
+        ? "attention"
+        : watch > 0
+          ? "watch"
+          : "ok";
+  return {
+    line: parts.map((p) => p.text).join(" "),
+    parts,
+    cls,
+    broken,
+    counts: { attention, fleetAttention, watch, approval },
+  };
 }
 
 // ---- section 2: is every site live? ----
 
 export type Cell = { ok: boolean | null; text: string };
 
+/** The Live cell also says when it was read: the older of its two checks. */
+export type LiveCell = Cell & { at: string | null; atIso: string | null };
+
 export type LiveRow = {
+  siteId: string;
   siteName: string;
   url: string;
-  live: Cell;
+  live: LiveCell;
   domain: Cell;
   deploy: Cell;
   forms: Cell;
@@ -141,11 +275,20 @@ const TIER_TEXT: Record<Tier, string> = {
   "pre-launch": "Launching",
 };
 
+const olderOf = (stamps: Array<string | null>): string | null =>
+  stamps
+    .filter((t): t is string => t !== null && Number.isFinite(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+
 /** Live = the address resolves (the URL probe) AND its pages answer (the browser
  *  audit's uptime check). Either fresh fail is named; anything stale is unknown. */
-export function liveCell(site: WebsiteRow, now: Date): Cell {
+export function liveCell(site: WebsiteRow, now: Date): LiveCell {
   const urlFresh = urlProbeFresh(site.urlCheckedAt, now);
   const pagesFresh = freshWithin(site.browserCheckedAt, PRODUCTION_STALE_DAYS, now);
+  const stamped = (atIso: string | null) => ({
+    atIso,
+    at: atIso === null ? null : pacificStamp(atIso),
+  });
   const failed = [
     urlFresh && site.urlResolves === "fail"
       ? `address not answering${site.urlStatus ? ` (${site.urlStatus})` : ""}`
@@ -154,27 +297,44 @@ export function liveCell(site: WebsiteRow, now: Date): Cell {
   ].filter((s): s is string => s !== null);
   if (failed.length > 0) {
     const text = failed.join(", ");
-    return { ok: false, text: text[0]!.toUpperCase() + text.slice(1) };
+    return {
+      ok: false,
+      text: text[0]!.toUpperCase() + text.slice(1),
+      ...stamped(
+        olderOf([
+          urlFresh && site.urlResolves === "fail" ? site.urlCheckedAt : null,
+          pagesFresh && site.reachableOk === "fail" ? site.browserCheckedAt : null,
+        ]),
+      ),
+    };
   }
   if (urlFresh && site.urlResolves === "pass" && pagesFresh && site.reachableOk === "pass")
-    return { ok: true, text: "Live" };
-  return { ok: null, text: "Not checked lately" };
+    return {
+      ok: true,
+      text: "Live",
+      ...stamped(olderOf([site.urlCheckedAt, site.browserCheckedAt])),
+    };
+  return { ok: null, text: "Not checked lately", at: null, atIso: null };
 }
 
-function domainCell(site: WebsiteRow, now: Date): Cell {
+export function domainCell(site: WebsiteRow, now: Date): Cell {
   const d = site.certDaysRemaining;
   if (!freshWithin(site.domainCheckedAt, PRODUCTION_STALE_DAYS, now) || d === null)
     return { ok: null, text: "Not checked lately" };
   if (d < 0) return { ok: false, text: "Certificate expired" };
-  return { ok: d > 30, text: `${count(d, "day", "days")} left` };
+  return { ok: d > CERT_ATTENTION_DAYS, text: `${count(d, "day", "days")} left` };
 }
 
-function deployCell(site: WebsiteRow, now: Date): Cell {
+/** The latest production deploy, as the nightly deploy check last read it. A reading
+ *  older than the freshness window is unknown, never a green "published". */
+export function deployCell(site: WebsiteRow, now: Date): Cell {
+  if (!freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now))
+    return { ok: null, text: "Not checked lately" };
   if (site.deployStatus === null) return { ok: null, text: "No deploy recorded" };
   if (isFailedDeployStatus(site.deployStatus)) return { ok: false, text: "Latest deploy failed" };
   if (isReadyDeployStatus(site.deployStatus))
     return { ok: true, text: `Published ${relativeTimeFromNow(site.lastDeployAt, now)}` };
-  return { ok: null, text: `In progress (${site.deployStatus})` };
+  return { ok: null, text: "A deploy was in progress" };
 }
 
 /** The nightly live form test. A verdict counts only beside a fresh stamp: a stale
@@ -184,15 +344,21 @@ export function formsCell(site: WebsiteRow, now: Date): Cell {
     return { ok: null, text: "Not tested lately" };
   if (site.formE2eOk === "fail") return { ok: false, text: "Test failed" };
   if (site.formE2eOk === "pass") return { ok: true, text: "Test passed" };
-  return { ok: null, text: "No form to test" };
+  return { ok: null, text: "No result (no form, or the test skipped it)" };
 }
 
-function liveRows(model: CockpitModel, subs: SubmissionRow[] | null, now: Date): LiveRow[] {
+function liveRows(
+  model: CockpitModel,
+  subs: SubmissionRow[] | null,
+  status: (r: SubmissionRow) => string,
+  now: Date,
+): LiveRow[] {
   const lastReal = new Map<string, string>();
   for (const r of subs ?? []) {
-    if (!ACCEPTED.has(r.status) || r.submittedAt === null) continue;
+    if (!ACCEPTED.has(status(r)) || r.submittedAt === null) continue;
     const prev = lastReal.get(r.siteId);
-    if (prev === undefined || r.submittedAt > prev) lastReal.set(r.siteId, r.submittedAt);
+    if (prev === undefined || Date.parse(r.submittedAt) > Date.parse(prev))
+      lastReal.set(r.siteId, r.submittedAt);
   }
   return model.cards
     .filter((c) => c.site.status === "maintained")
@@ -200,6 +366,7 @@ function liveRows(model: CockpitModel, subs: SubmissionRow[] | null, now: Date):
     .map((c: SiteCard) => {
       const at = lastReal.get(c.site.id);
       return {
+        siteId: c.site.id,
         siteName: c.site.name,
         url: `/s/${siteSlug(c.site.name)}`,
         live: liveCell(c.site, now),
@@ -208,10 +375,10 @@ function liveRows(model: CockpitModel, subs: SubmissionRow[] | null, now: Date):
         forms: formsCell(c.site, now),
         lastLead:
           subs === null
-            ? "not readable"
+            ? UNREADABLE
             : at === undefined
-              ? "none yet"
-              : `last real one ${relativeTimeFromNow(at, now)}`,
+              ? "no real lead yet"
+              : `last real lead ${relativeTimeFromNow(at, now)}`,
         level: { tier: c.tier, text: TIER_TEXT[c.tier] },
       };
     });
@@ -231,83 +398,167 @@ export type LeadsView = {
   /** Null when the submissions read failed. */
   allTime: LeadCounts | null;
   thisMonth: LeadCounts | null;
-  /** Since this, all time: the oldest submission's date. */
+  /** Since this, all time: the oldest submission's Pacific date, "Jun 15, 2026". */
   since: string | null;
+  /** The site with the most submissions and its share of the total, so the headline
+   *  never hides that one site (an RSVP site, today) holds much of it. Null with
+   *  fewer than two sites. */
+  biggest: { siteName: string; submissions: number; share: number } | null;
   /** All time, from the newest `fleet_daily` night; this month, from the snapshot's
    *  screen-out buckets. Their own line, never added to `screened`. */
   stoppedAllTime: string;
+  /** The night the all-time figure was counted, "Oct 26"; null with no count. */
+  stoppedAsOf: string | null;
   stoppedThisMonth: string;
   /** Every site with a submission, biggest first: per-site counts beside the total. */
-  perSite: Array<{ siteName: string } & LeadCounts>;
+  perSite: Array<{ siteId: string; siteName: string } & LeadCounts>;
 };
 
-function tally(rows: SubmissionRow[]): LeadCounts {
+/** `status` is the stored value: one the code does not know is no kind of lead. */
+function tally(rows: SubmissionRow[], status: (r: SubmissionRow) => string): LeadCounts {
   const n: LeadCounts = { submissions: 0, accepted: 0, notified: 0, screened: 0, byHand: 0 };
   for (const r of rows) {
     n.submissions++;
-    if (ACCEPTED.has(r.status)) {
+    const st = status(r);
+    if (ACCEPTED.has(st)) {
       n.accepted++;
       if (r.notifyStatus === "sent") n.notified++;
-    } else if (r.status === "spam_auto") n.screened++;
-    else if (r.status === "spam") n.byHand++;
+    } else if (st === "spam_auto") n.screened++;
+    else if (st === "spam") n.byHand++;
   }
   return n;
 }
 
-/** The first of this UTC month, `YYYY-MM-01`. */
-const monthStart = (now: Date): string => `${now.toISOString().slice(0, 7)}-01`;
+const PACIFIC_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
 
-function leadsView(s: CockpitSnapshot, siteName: (id: string) => string, now: Date): LeadsView {
+function pacificParts(t: number): Record<string, number> {
+  return Object.fromEntries(
+    PACIFIC_PARTS.formatToParts(new Date(t))
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, Number(p.value)]),
+  );
+}
+
+/** The start of this Pacific calendar month: the instant, and its day `YYYY-MM-01`
+ *  for the screen-out buckets, which are kept by day. */
+export function pacificMonthStart(now: Date): { at: number; day: string } {
+  const { year, month } = pacificParts(now.getTime());
+  const day = `${year}-${String(month).padStart(2, "0")}-01`;
+  // Midnight Pacific is 07:00 or 08:00 UTC, by daylight saving on the 1st.
+  for (const h of [7, 8]) {
+    const at = Date.UTC(year!, month! - 1, 1, h);
+    const p = pacificParts(at);
+    if (p.day === 1 && p.hour === 0) return { at, day };
+  }
+  throw new Error(`pacificMonthStart: no Pacific midnight on ${day}`);
+}
+
+const LONG_DAY = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+function leadsView(
+  s: CockpitSnapshot,
+  siteName: (id: string) => string,
+  status: (r: SubmissionRow) => string,
+  now: Date,
+): LeadsView {
   const subs = s.submissions;
-  const month = monthStart(now);
+  const month = pacificMonthStart(now);
   const latestScreen = newestMeasured(s.nights, (c) => c.screenouts);
-  const monthBuckets = (s.screenOuts ?? []).filter((b) => b.date >= month);
+  const monthBuckets = (s.screenOuts ?? []).filter((b) => b.date >= month.day);
   const bySite = new Map<string, SubmissionRow[]>();
   for (const r of subs ?? []) bySite.set(r.siteId, [...(bySite.get(r.siteId) ?? []), r]);
-  const dates = (subs ?? [])
-    .map((r) => r.submittedAt)
-    .filter((d): d is string => d !== null)
-    .sort();
+  const oldest = (subs ?? [])
+    .map((r) => (r.submittedAt === null ? Number.NaN : Date.parse(r.submittedAt)))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b)[0];
+  const perSite = [...bySite]
+    .map(([id, rows]) => ({ siteId: id, siteName: siteName(id), ...tally(rows, status) }))
+    .sort((a, b) => b.submissions - a.submissions || a.siteName.localeCompare(b.siteName));
+  const total = subs?.length ?? 0;
+  const top = perSite[0];
   return {
-    allTime: subs === null ? null : tally(subs),
-    thisMonth: subs === null ? null : tally(subs.filter((r) => (r.submittedAt ?? "") >= month)),
-    since: dates[0]?.slice(0, 10) ?? null,
+    allTime: subs === null ? null : tally(subs, status),
+    thisMonth:
+      subs === null
+        ? null
+        : tally(
+            subs.filter((r) => r.submittedAt !== null && Date.parse(r.submittedAt) >= month.at),
+            status,
+          ),
+    since: oldest === undefined ? null : LONG_DAY.format(new Date(oldest)),
+    biggest:
+      top === undefined || perSite.length < 2
+        ? null
+        : {
+            siteName: top.siteName,
+            submissions: top.submissions,
+            share: Math.round((100 * top.submissions) / total),
+          },
     stoppedAllTime:
-      latestScreen === null
-        ? NOT_YET
-        : String(latestScreen.value.honeypot + latestScreen.value.tooFast),
+      s.nights === null
+        ? UNREADABLE
+        : latestScreen === null
+          ? NOT_YET
+          : String(latestScreen.value.honeypot + latestScreen.value.tooFast),
+    stoppedAsOf:
+      latestScreen === null ? null : pacificDay(new Date(`${latestScreen.night}T12:00:00Z`)),
     stoppedThisMonth:
       s.screenOuts === null
-        ? "not readable"
+        ? UNREADABLE
         : String(monthBuckets.reduce((t, b) => t + b.honeypot + b.tooFast, 0)),
-    perSite: [...bySite]
-      .map(([id, rows]) => ({ siteName: siteName(id), ...tally(rows) }))
-      .sort((a, b) => b.submissions - a.submissions || a.siteName.localeCompare(b.siteName)),
+    perSite,
   };
 }
 
 // ---- section 4: client reports ----
 
+/** The step's number in the nightly, counted from `NIGHTLY_STEPS`, so a reordered
+ *  nightly renumbers every proof below instead of leaving a typed "Step 5" behind. */
+export function stepNumber(file: string): number {
+  const i = NIGHTLY_STEPS.findIndex((s) => s.file === file);
+  if (i < 0) throw new Error(`overview: no nightly step ${file}`);
+  return i + 1;
+}
+
+const LIGHTHOUSE_STEP = "fleet-lighthouse.yml";
+
 /** The nightly job that proves each check a Maintenance report carries. Keyed by
- *  the report's own check names (`DEFAULT_COPY.maintenanceChecks`). */
-export const CHECK_PROOF: Record<string, string> = {
-  "Deploy & Function Health":
-    "Step 5 reads the latest production deploy and calls the site's server functions.",
-  "CMS Checked":
-    "Step 5 checks the CMS answers; step 2 checks its content models match the site's code.",
-  "Domain, DNS & SSL": "Step 5 resolves the domain and reads the certificate's days left.",
-  "Google Indexed": "Step 8 asks Google Search Console when it drafts the report.",
-  "Security Updates": "Step 4 lists known vulnerabilities; automatic updates fix them.",
-  "Uptime Checked": "Step 5 checks the address resolves and its pages answer.",
+ *  the report's own check names (`DEFAULT_COPY.maintenanceChecks`); each names its
+ *  steps by file, and `n` turns a file into its number. */
+export const CHECK_PROOF: Record<string, (n: (file: string) => number) => string> = {
+  "Deploy & Function Health": (n) =>
+    `Step ${n(LIGHTHOUSE_STEP)} reads the latest production deploy and calls the site's server functions.`,
+  "CMS Checked": (n) =>
+    `Step ${n(LIGHTHOUSE_STEP)} checks the CMS answers; step ${n("fleet-prismic-drift.yml")} checks its content models match the site's code.`,
+  "Domain, DNS & SSL": (n) =>
+    `Step ${n(LIGHTHOUSE_STEP)} resolves the domain and reads the security certificate's days left.`,
+  "Google Indexed": (n) =>
+    `Step ${n("daily-reports.yml")} asks Google Search Console when it drafts the report.`,
+  "Security Updates": (n) =>
+    `Step ${n("fleet-security.yml")} lists known vulnerabilities. Automatic updates open the fixes, and one that waits too long comes to us.`,
+  "Uptime Checked": (n) =>
+    `Step ${n(LIGHTHOUSE_STEP)} checks, once a night, that the address resolves and its pages answer. It is not a minute-by-minute monitor.`,
 };
 
 export type ReportsView = {
   checks: Array<{ name: string; proof: string }>;
-  /** Fleet medians over maintained sites with a score. */
+  /** Four separate medians over maintained sites with a score, one per category. */
   lighthouse: Array<{ label: string; median: string }>;
   /** Null when the reports read failed. */
   sent: { real: number; approvedFirst: number; aroundGate: number; testSends: number } | null;
-  perSite: Array<{ siteName: string; nextDue: string; waiting: number }>;
+  perSite: Array<{ siteId: string; siteName: string; nextDue: string; waiting: number }>;
 };
 
 function median(xs: number[]): number | null {
@@ -333,12 +584,15 @@ function reportsView(model: CockpitModel, reports: ReportRow[] | null, now: Date
   ];
   const sentRows = (reports ?? []).filter((r) => r.sentAt !== null);
   const real = sentRows.filter((r) => !isTestSend(r));
-  const approvedFirst = real.filter((r) => r.approvedAt !== null && r.approvedAt <= r.sentAt!);
+  // Compared as instants: "…:00Z" and "…:00.000Z" are one moment but not one string.
+  const approvedFirst = real.filter(
+    (r) => r.approvedAt !== null && Date.parse(r.approvedAt) <= Date.parse(r.sentAt!),
+  );
   return {
     checks: DEFAULT_COPY.maintenanceChecks.map((name) => {
       const proof = CHECK_PROOF[name];
       if (proof === undefined) throw new Error(`overview: no nightly proof for "${name}"`);
-      return { name, proof };
+      return { name, proof: proof(stepNumber) };
     }),
     lighthouse: scores.map(([label, get]) => {
       const m = median(maintained.map(get).filter((v): v is number => v !== null));
@@ -361,6 +615,7 @@ function reportsView(model: CockpitModel, reports: ReportRow[] | null, now: Date
           .filter((d): d is { type: "Maintenance" | "Testing"; at: Date } => d.at !== null)
           .sort((a, b) => a.at.getTime() - b.at.getTime())[0];
         return {
+          siteId: site.id,
           siteName: site.name,
           nextDue: due ? `${due.type}, ${SHORT_DATE.format(due.at)}` : "none scheduled",
           waiting: (reports ?? []).filter((r) => r.siteId === site.id && isPendingApproval(r))
@@ -393,7 +648,8 @@ const nightsBetween = (from: string, to: string): number =>
 
 /** A running total's growth over the last K nights, K up to `WINDOW_NIGHTS`: the
  *  newest measured night less the oldest measured one inside the window. One night
- *  alone has nothing to subtract, so it is "not yet collected", never 0. */
+ *  alone has nothing to subtract, so it is "not yet collected", never 0. K counts
+ *  calendar nights, as every "the last K nights" on the page does. */
 export function windowed(
   nights: OverviewNight[] | null,
   pick: (c: Counts) => number | null | undefined,
@@ -410,8 +666,22 @@ export function windowed(
   return { value: newest.v - base.v, nights: nightsBetween(base.night, newest.night) };
 }
 
-const overNights = (w: { value: number; nights: number } | null, unit: string): string =>
-  w === null ? NOT_YET : `${w.value} ${unit} over the last ${count(w.nights, "night", "nights")}`;
+/** A window as the page says it; a failed read of the nights is "not readable". */
+function overNights(
+  nights: OverviewNight[] | null,
+  pick: (c: Counts) => number | null | undefined,
+): string {
+  if (nights === null) return UNREADABLE;
+  const w = windowed(nights, pick);
+  return w === null ? NOT_YET : `${w.value} over the last ${count(w.nights, "night", "nights")}`;
+}
+
+/** A running total of one event type. A type missing from a measured total did not
+ *  happen yet: 0, not unmeasured. */
+const eventTotal =
+  (type: string) =>
+  (c: Counts): number | null =>
+    c.events.value === null ? null : (c.events.value[type] ?? 0);
 
 // ---- section 5: what runs every night ----
 
@@ -431,18 +701,21 @@ type StampField = keyof Pick<
 
 /** The conductor's eight steps, in its order (`scripts/nightly-conductor.mjs`
  *  NIGHTLIES; a test holds the two in step). `coverage` names the `fleet_daily`
- *  coverage columns a step stamps; `stamps`, the site row's own stamps. */
+ *  coverage columns a step stamps; `stamps`, the site row's own stamps. A step that
+ *  stamps no site says what it reaches in `reach` instead. */
 export const NIGHTLY_STEPS: ReadonlyArray<{
   file: string;
   label: string;
   coverage: readonly string[];
   stamps: readonly StampField[];
+  reach?: string;
 }> = [
   {
     file: "fleet-db-backup.yml",
-    label: "Backup, with a restore rehearsal",
+    label: "Backup, with a restore rehearsal (the copy is restored to prove it works)",
     coverage: [],
     stamps: [],
+    reach: "the whole database, every site's records in one copy",
   },
   {
     file: "fleet-prismic-drift.yml",
@@ -450,7 +723,13 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
     coverage: ["prismic_models_checked_at"],
     stamps: ["prismicModelsCheckedAt"],
   },
-  { file: "fleet-prismic-sync.yml", label: "Prismic sync", coverage: [], stamps: [] },
+  {
+    file: "fleet-prismic-sync.yml",
+    label: "Prismic sync (a change made in the CMS comes back to the site's code for review)",
+    coverage: [],
+    stamps: [],
+    reach: "sites on Prismic, with a pull request only where something changed",
+  },
   {
     file: "fleet-security.yml",
     label: "Security (known vulnerabilities, and packages behind)",
@@ -459,7 +738,8 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-lighthouse.yml",
-    label: "Lighthouse, domain, browsers, deploy, functions and the URL probe",
+    label:
+      "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers, the deploy, server functions, and the URL probe (does the address answer)",
     coverage: [
       "lighthouse_at",
       "domain_checked_at",
@@ -489,7 +769,13 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
     coverage: ["form_e2e_checked_at"],
     stamps: ["formE2eCheckedAt"],
   },
-  { file: "daily-reports.yml", label: "Report drafts", coverage: [], stamps: [] },
+  {
+    file: "daily-reports.yml",
+    label: "Report drafts",
+    coverage: [],
+    stamps: [],
+    reach: "sites with a report due",
+  },
 ];
 
 export type StepView = { label: string; outcome: string; lastFinished: string; sites: string };
@@ -498,31 +784,29 @@ export type NightlyView = {
   startsAt: string;
   sendsAt: string;
   steps: StepView[];
-  /** "17 sites, 11 checks on each", from the newest night's coverage. */
+  /** "11 kinds of check ran on the newest night, reaching up to 17 sites". */
   scale: string;
   /** "N of M runs green over the last K nights". */
   reliability: string;
 };
 
-const PACIFIC_STAMP = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+/** GitHub's conclusions, in plain words. */
+const CONCLUSION_TEXT: Record<string, string> = {
+  success: "green",
+  failure: "failed",
+  cancelled: "cancelled",
+  timed_out: "ran out of time",
+  skipped: "skipped",
+  action_required: "waiting for a person to approve it",
+  neutral: "finished with no verdict",
+  stale: "too old to count",
+  startup_failure: "could not start",
+};
 
-function pacificStamp(iso: string): string {
-  const parts = PACIFIC_STAMP.formatToParts(new Date(iso));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("month")} ${get("day")}, ${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()} PT`;
-}
-
-function outcomeText(r: StepResult | null | undefined): string {
+export function outcomeText(r: StepResult | null | undefined): string {
   if (r === undefined || r === null) return "not recorded";
-  if (r.outcome === "completed") return r.conclusion === "success" ? "green" : r.conclusion;
-  if (r.outcome === "running") return "still running at the write";
+  if (r.outcome === "completed") return CONCLUSION_TEXT[r.conclusion] ?? "did not succeed";
+  if (r.outcome === "running") return "still running when the night was written";
   if (r.outcome === "skipped") return "already run that night";
   return "could not start";
 }
@@ -533,6 +817,7 @@ const finished = (r: StepResult | null | undefined): boolean =>
   r?.outcome === "completed" || r?.outcome === "failed";
 
 function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
+  const unread = s.nights === null;
   const nights = s.nights ?? [];
   const newest = nights[0];
   const coverage = newestMeasured(s.nights, (c) => c.coverage);
@@ -545,44 +830,58 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
     const stamps = maintained
       .flatMap((site) => step.stamps.map((f) => site[f]))
       .filter((v): v is string => typeof v === "string" && Number.isFinite(Date.parse(v)))
-      .sort();
+      .sort((a, b) => Date.parse(a) - Date.parse(b));
+    // A step that stamps no site: the newest night it finished in, and how.
+    const lastRun = nights.find((n) => finished(n.counts.steps[step.file]));
     const sites = step.coverage.map(covered).filter((v): v is number => v !== null);
     return {
       label: step.label,
-      outcome: newest ? outcomeText(newest.counts.steps[step.file]) : NOT_YET,
-      lastFinished: stamps.length > 0 ? pacificStamp(stamps.at(-1)!) : "—",
+      outcome: unread ? UNREADABLE : newest ? outcomeText(newest.counts.steps[step.file]) : NOT_YET,
+      lastFinished:
+        stamps.length > 0
+          ? pacificStamp(stamps.at(-1)!)
+          : step.stamps.length > 0
+            ? "no site stamped yet"
+            : unread
+              ? UNREADABLE
+              : lastRun === undefined
+                ? NOT_YET
+                : `in the run that started ${pacificStamp(lastRun.counts.run.startedAt)} (${outcomeText(lastRun.counts.steps[step.file])})`,
       sites:
-        step.coverage.length === 0
-          ? "the whole fleet at once"
+        step.reach ??
+        (unread
+          ? UNREADABLE
           : sites.length === 0
             ? NOT_YET
-            : count(Math.max(...sites), "site", "sites"),
+            : count(Math.max(...sites), "site", "sites")),
     };
   });
   const values = Object.values(coverage?.value ?? {})
     .map((m) => m.value)
     .filter((v): v is number => v !== null);
-  const scale =
-    values.length === 0
+  const ran = values.filter((v) => v > 0);
+  const scale = unread
+    ? UNREADABLE
+    : ran.length === 0
       ? NOT_YET
-      : `${count(Math.max(...values), "site", "sites")}, ${count(
-          values.filter((v) => v > 0).length,
-          "check",
-          "checks",
-        )} on each`;
+      : `${count(ran.length, "kind of check", "kinds of check")} ran on the newest night, reaching up to ${count(Math.max(...ran), "site", "sites")}`;
   const window = nights.filter(
     (n) => newest !== undefined && nightsBetween(n.night, newest.night) < WINDOW_NIGHTS,
   );
   const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);
+  // Calendar nights, newest back to the oldest recorded one; any not recorded are said.
+  const span = window.length === 0 ? 0 : nightsBetween(window.at(-1)!.night, window[0]!.night) + 1;
+  const missing = span - window.length;
   return {
     startsAt: pacificTimeOfCron(NIGHTLY_CRON, now),
     sendsAt: pacificTimeOfCron(SEND_CRON, now),
     steps,
     scale,
-    reliability:
-      window.length === 0
+    reliability: unread
+      ? UNREADABLE
+      : window.length === 0
         ? NOT_YET
-        : `${results.filter(isGreen).length} of ${count(results.length, "run", "runs")} green over the last ${count(window.length, "night", "nights")}`,
+        : `${results.filter(isGreen).length} of ${count(results.length, "run", "runs")} green over the last ${count(span, "night", "nights")}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded)` : ""}`,
   };
 }
 
@@ -591,44 +890,81 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
 export type UpkeepView = {
   automerged: string;
   vulnsCleared: string;
-  open: Array<{ siteName: string; text: string }>;
+  open: Array<{ siteId: string; siteName: string; text: string }>;
   depsBehind: string;
 };
 
-function upkeepView(model: CockpitModel, s: CockpitSnapshot): UpkeepView {
-  // A vulnerability inside its wait never reaches a card (markWaiting), so a site
-  // holding critical or high ones with no vuln item on its card is waiting on the
-  // fix that is already scheduled.
+/** What is fixing a site's open vulnerabilities, from the item itself: the one wait
+ *  rule that applies (markWaiting, src/alerts/waiting.ts) and its date, or that the
+ *  wait is over. Plain words; the How-we-count line glosses the two rules. */
+function openText(item: AttentionItem | undefined, waiting: boolean, now: Date): string {
+  if (item === undefined) return "no alert raised yet; the site's page shows the reading";
+  if (item.autoFixExhausted === true)
+    return "the automatic update tried and gave up, so it is ours to fix by hand";
+  const since = item.firstFlaggedAt;
+  const at =
+    since === undefined
+      ? null
+      : item.transitiveOnly === true
+        ? transitiveVulnEscalatesAt(since)
+        : directVulnEscalatesAt(since);
+  if (waiting && at !== null)
+    return item.transitiveOnly === true
+      ? `it sits deeper in the site's packages, so Monday's weekly package refresh should clear it; if it is still here on ${pacificDay(at)}, it comes to us`
+      : `an automatic update should clear it; if it is still here on ${pacificDay(at)}, it comes to us`;
+  // Not held, yet inside its wait: the digest's first sighting could not be read, and
+  // missing data never mutes (markWaiting), so it is ours to look at.
+  if (at === null || now.getTime() < at.getTime())
+    return "we could not confirm when it was first seen, so it is ours to look at this week";
+  return item.transitiveOnly === true
+    ? `Monday's weekly package refresh did not clear it by ${pacificDay(at)}, so it is ours to fix this week`
+    : `the automatic update did not clear it by ${pacificDay(at)}, so it is ours to fix this week`;
+}
+
+/** A vulnerability `markWaiting` holds never reaches the card, so it is rebuilt here
+ *  through the model's own steps for that one item (the collector, the digest's
+ *  first sighting, markWaiting), never a second copy of the rule. Undefined when it
+ *  is not held. */
+function heldVuln(site: WebsiteRow, s: CockpitSnapshot, now: Date): AttentionItem | undefined {
+  const raw = collectVulnAlerts([site], s.baseUrl);
+  const { next } = diffAttention(raw, s.digest, now.toISOString().slice(0, 10));
+  const [it] = markWaiting(raw, next, now, Object.keys(s.digest).length > 0);
+  const firstFlaggedAt = it === undefined ? undefined : next[it.key]?.firstFlaggedAt;
+  return it?.waiting === true && firstFlaggedAt !== undefined
+    ? { ...it, firstFlaggedAt }
+    : undefined;
+}
+
+function upkeepView(model: CockpitModel, s: CockpitSnapshot, now: Date): UpkeepView {
   const open = model.cards
     .filter((c) => c.site.status === "maintained")
-    .map((c) => ({
-      card: c,
-      n: (c.site.securityVulnsCritical ?? 0) + (c.site.securityVulnsHigh ?? 0),
-      item: c.items.find((i) => i.kind === "vuln"),
-    }))
+    .map((c) => {
+      const onCard = c.items.find((i) => i.kind === "vuln");
+      const held = onCard === undefined ? heldVuln(c.site, s, now) : undefined;
+      return {
+        card: c,
+        n: (c.site.securityVulnsCritical ?? 0) + (c.site.securityVulnsHigh ?? 0),
+        item: onCard ?? held,
+        waiting: onCard === undefined && held !== undefined,
+      };
+    })
     .filter((x) => x.n > 0)
     .sort((a, b) => a.card.site.name.localeCompare(b.card.site.name));
   const deps = newestMeasured(s.nights, (c) => c.deps);
   return {
-    automerged: overNights(
-      windowed(s.nights, (c) => c.events.value?.["pr_automerged"] ?? null),
-      "merged",
-    ),
-    vulnsCleared: overNights(
-      windowed(s.nights, (c) => c.events.value?.["vuln_cleared"] ?? null),
-      "cleared",
-    ),
-    open: open.map(({ card, n, item }) => ({
+    automerged: overNights(s.nights, eventTotal("pr_automerged")),
+    vulnsCleared: overNights(s.nights, eventTotal("vuln_cleared")),
+    open: open.map(({ card, n, item, waiting }) => ({
+      siteId: card.site.id,
       siteName: card.site.name,
-      text: `${count(n, "critical or high vulnerability", "critical or high vulnerabilities")}: ${
-        item === undefined
-          ? "waiting on the automatic fix already scheduled (a direct one waits 4 days; one deeper in the tree waits for the Monday lockfile window)"
-          : item.autoFixExhausted === true
-            ? "the automatic fix gave up, so we fix it by hand"
-            : "past its wait, so it needs us this week"
-      }`,
+      text: `${count(n, "critical or high vulnerability", "critical or high vulnerabilities")}: ${openText(item, waiting, now)}`,
     })),
-    depsBehind: deps === null ? NOT_YET : count(deps.value.behind, "package", "packages"),
+    depsBehind:
+      s.nights === null
+        ? UNREADABLE
+        : deps === null
+          ? NOT_YET
+          : count(deps.value.behind, "package", "packages"),
   };
 }
 
@@ -643,27 +979,26 @@ export type OverviewView = {
   upkeep: UpkeepView;
   /** Section 7: PRs merged in the stack's own repo. */
   prsMerged: string;
-  /** How many `fleet_daily` nights the page has, for "over the last K nights". */
-  nightsCollected: number;
+  /** How many `fleet_daily` nights the page has, for "over the last K nights"; null
+   *  when they could not be read. */
+  nightsCollected: number | null;
 };
 
 /** The overview from the snapshot. Pure: every number is a test against fixture rows. */
 export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewView {
   const model = cockpitModelFromSnapshot(s, now);
   const names = new Map((s.sites ?? []).map((x) => [x.id, x.name]));
-  const live = liveRows(model, s.submissions, now);
+  const status = (r: SubmissionRow) => storedStatus(s, r);
+  const live = liveRows(model, s.submissions, status, now);
   return {
     status: statusView(model, live, now),
     live,
-    leads: leadsView(s, (id) => names.get(id) ?? "A site no longer listed", now),
+    leads: leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now),
     reports: reportsView(model, s.reports, now),
     nightly: nightlyView(s, now),
-    upkeep: upkeepView(model, s),
-    prsMerged: overNights(
-      windowed(s.nights, (c) => c.prsMerged.value),
-      "merged",
-    ),
-    nightsCollected: s.nights?.length ?? 0,
+    upkeep: upkeepView(model, s, now),
+    prsMerged: overNights(s.nights, (c) => c.prsMerged.value),
+    nightsCollected: s.nights === null ? null : s.nights.length,
   };
 }
 
@@ -675,7 +1010,10 @@ export const LADDER_LINES: readonly string[] = [
   "OK: every check passed.",
 ];
 
-/** The page's own "How we count": one line for every number it shows. */
+const STALE = `A result more than ${count(PRODUCTION_STALE_DAYS, "day", "days")} old`;
+
+/** The page's own "How we count": one line for every number it shows. The page marks
+ *  each number's label with `data-term`, and a test holds the two sets equal. */
 export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Sites in our care",
@@ -683,24 +1021,39 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Broken, attention, watch",
-    text: "Each site's worst open item on the ladder below, the same as the Triage page. A report waiting for your yes is counted on its own.",
+    text: "How many sites sit at each level of the ladder (in Upkeep below), by each site's worst open item, the same as the Triage page; each count opens its group there. A Broken one is named with how long it has been flagged. Items that belong to no one site are counted on their own, as fleet-wide.",
+  },
+  {
+    term: "Waiting for your yes",
+    text: "Every report draft ready for your approval, however many one site has.",
   },
   {
     term: "Live",
-    text: 'The address resolves (the URL probe) and its pages answer (the uptime check). A result more than 3 days old reads "not checked lately".',
+    text: `The address resolves (the URL probe) and its pages answer (the uptime check). The time beside it is the older of the two checks; in the status line, the oldest across our sites. ${STALE} reads "not checked lately".`,
   },
   {
     term: "Domain",
-    text: "Days left on the site's security certificate, from the nightly domain check.",
+    text: `Days left on the site's security certificate, from the nightly domain check. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold.`,
   },
-  { term: "Deploy", text: "The latest production deploy (the site's newest published version)." },
+  {
+    term: "Deploy",
+    text: `The latest production deploy (the newest version published to the live site), from the nightly deploy check. ${STALE} reads "not checked lately".`,
+  },
   {
     term: "Forms",
-    text: 'The nightly live form test sends a real test entry through the form. A result more than 3 days old reads "not tested lately", never "passed". "Last real one" is the newest submission accepted as real.',
+    text: `The nightly live form test sends a real test entry through the form. ${STALE} reads "not tested lately", never "passed". "No result" means the test gave no verdict: the site has no form, or the test skipped it. "Last real lead" is the newest submission accepted as real.`,
+  },
+  {
+    term: "Level",
+    text: "The site's place on the ladder, explained in Upkeep below.",
   },
   {
     term: "Submissions",
-    text: "Everything a site's forms received and stored. This month counts from the 1st, by the UTC date it arrived.",
+    text: "Everything a site's forms received and stored. This month counts from the 1st, Pacific time.",
+  },
+  {
+    term: "Biggest share",
+    text: "The site with the most submissions, and its part of the total. One site can hold far more than the rest (an RSVP form, say), so every site's own count sits in the table.",
   },
   {
     term: "Accepted as real",
@@ -711,19 +1064,23 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   { term: "Marked spam by hand", text: "Marked spam by one of us." },
   {
     term: "Stopped before storage",
-    text: "Bots stopped by the hidden field and the timing check, never stored. All time is from the last nightly count; it is never added to the spam counts above.",
+    text: "Bots stopped by the hidden field and the timing check, never stored. All time is from the newest nightly count, dated beside it; it is never added to the spam counts above.",
+  },
+  {
+    term: "Per site",
+    text: "The same counts for each site, all time, the biggest first.",
   },
   {
     term: "Reports sent",
-    text: 'Client reports that went out, less the August test sends (approved by "test send via Claude"). Approved first means approved before it went; around the gate is the rest.',
+    text: 'Reports that went out to clients, less the August test sends (approved by "test send via Claude"). Approved first means one of us said yes before it went; the rest went without that yes.',
   },
   {
     term: "Lighthouse",
-    text: "The middle score of our sites on a maintenance plan, from Google's Lighthouse audit, out of 100.",
+    text: "Google's Lighthouse audit scores each site out of 100 in four areas. Each figure is the middle score for that area across our sites on a maintenance plan (half score higher, half lower), worked out for each area on its own.",
   },
   {
     term: "Next report due",
-    text: "The earlier of the next Maintenance and Testing report, from each site's schedule. Waiting is drafts ready for your yes.",
+    text: "The earlier of the next Maintenance and Testing report, from each site's schedule.",
   },
   {
     term: "Times",
@@ -731,15 +1088,15 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Steps",
-    text: "Each step's result on the newest night, the last time it stamped a site, and how many sites it reached that night.",
+    text: "Each step's result on the newest night, when it last finished, and how many sites it reached that night. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result.",
   },
   {
     term: "Scale",
-    text: "The most sites any check reached on the newest night, and how many kinds of check reached at least one.",
+    text: "How many kinds of check ran on the newest night (each stamps the sites it reached), and the most sites any one of them reached.",
   },
   {
     term: "Runs green",
-    text: "Of the steps that finished on each night we have counted (up to 30), how many came back green.",
+    text: `Of the steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many came back green. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count is said.`,
   },
   {
     term: "Updates merged automatically",
@@ -751,7 +1108,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Open now",
-    text: "Critical and high vulnerabilities on each site, and what is already fixing them.",
+    text: `Critical and high vulnerabilities on each site, and what is fixing them. One in a package the site uses directly waits up to ${count(DIRECT_VULN_WAIT_DAYS, "day", "days")} for an automatic update; one deeper in the packages waits for Monday's weekly package refresh, plus ${count(LOCKFILE_SETTLE_DAYS, "day", "days")}. After its date, it comes to us.`,
   },
   {
     term: "Dependencies behind",
@@ -759,6 +1116,10 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "PRs merged",
-    text: "Changes merged into the maintenance stack itself, counted each night.",
+    text: "Changes merged into the maintenance stack (the code that runs these checks and sends the reports), counted each night.",
+  },
+  {
+    term: "Nights counted",
+    text: "How many nights the nightly has written its counts for. Every window on this page needs two.",
   },
 ];

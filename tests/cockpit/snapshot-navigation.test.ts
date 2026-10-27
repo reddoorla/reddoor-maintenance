@@ -66,6 +66,9 @@ function newestSource(): number {
   return newest;
 }
 
+/** One word of 52 letters: nothing to wrap at, wider than a 390px screen. */
+const LONG_NAME = "Extraordinarilylongnamedbeachfrontvacationrentalsinc";
+
 async function seed(url: string): Promise<void> {
   const db = await openDb({ url });
   for (const [id, name, slug] of [
@@ -77,6 +80,51 @@ async function seed(url: string): Promise<void> {
       .values({ id, slug, name, url: `https://${slug}.example.com`, status: "maintained" } as never)
       .execute();
   }
+  // P1-78g review round 1 (T5): a Broken site with a long, unbreakable name, so the
+  // overview's six-column tables would overflow a 390px screen if they did not stack.
+  // Its page answers "fail", freshly, so it is Broken and named in section 1.
+  const now = new Date().toISOString();
+  await db
+    .insertInto("sites")
+    .values({
+      id: "recL",
+      slug: "longname",
+      name: LONG_NAME,
+      url: "https://longname.example.com",
+      status: "maintained",
+    } as never)
+    .execute();
+  await db
+    .insertInto("site_health")
+    .values({
+      site_id: "recL",
+      uptime_reachable: "fail",
+      browser_checked_at: now,
+      url_resolves: "pass",
+      url_checked_at: now,
+      cert_days_remaining: 12,
+      domain_checked_at: now,
+      deploy_status: "building",
+      deploy_checked_at: now,
+    } as never)
+    .execute();
+  // Leads on it, so the per-site leads table carries its name too: an hour old, so
+  // Pat's lead below stays the newest on /submissions.
+  const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  for (const [i, status] of ["new", "read", "spam_auto", "spam"].entries())
+    await db
+      .insertInto("submissions")
+      .values({
+        id: `subL${i}`,
+        site_id: "recL",
+        form_type: "contact",
+        name: "Lee",
+        email: `lee${i}@example.com`,
+        status,
+        notify_status: "sent",
+        submitted_at: anHourAgo,
+      } as never)
+      .execute();
   await db
     .insertInto("submissions")
     .values({
@@ -152,11 +200,11 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function signedIn(): Promise<Page> {
+async function signedIn(user = "op"): Promise<Page> {
   // The gate redirects rather than challenging, so the header goes on every request.
   const context = await browser.newContext({
     extraHTTPHeaders: {
-      authorization: `Basic ${Buffer.from(`op:${PASSWORD}`).toString("base64")}`,
+      authorization: `Basic ${Buffer.from(`${user}:${PASSWORD}`).toString("base64")}`,
     },
   });
   contexts.push(context);
@@ -224,7 +272,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   });
 
   // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with
-  // nothing scrolling sideways.
+  // nothing scrolling sideways. Review round 1 (T5): the seed's long-named Broken
+  // site makes the unstacked tables overflow, and every element is checked, not only
+  // the page, so the phone layout's loss turns this red (mutation 10).
   it.each(["light", "dark"] as const)(
     "the overview fits a 390px-wide screen in the %s theme",
     async (scheme) => {
@@ -233,11 +283,36 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto(`${origin}/`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      // The content the check needs is on the page: the long name, in section 1 and both tables.
+      expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
+      expect(await page.locator(".ov-live tbody th", { hasText: LONG_NAME }).count()).toBe(1);
+      expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
+        1,
+      );
+      await page.locator(".ov-how summary").click();
       const fit = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth,
         width: window.innerWidth,
         dark: getComputedStyle(document.body).backgroundColor,
+        // Every element that lays out a box and lets its content show: one whose
+        // content is wider than itself pushes something sideways. A box that clips
+        // on purpose (the visually hidden heading and table heads), and all inside
+        // it, is left out.
+        wide: [...document.body.querySelectorAll("*")]
+          .filter((e) => {
+            for (let a: Element | null = e; a !== null; a = a.parentElement) {
+              const o = getComputedStyle(a).overflowX;
+              if (o === "hidden" || o === "clip") return false;
+            }
+            const d = getComputedStyle(e).display;
+            return d !== "inline" && d !== "contents" && e.clientWidth > 0;
+          })
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map(
+            (e) => `${e.tagName.toLowerCase()}.${e.className}: ${e.scrollWidth} > ${e.clientWidth}`,
+          ),
       }));
+      expect(fit.wide).toEqual([]);
       expect(fit.scroll).toBeLessThanOrEqual(fit.width);
       // The theme took: dark ground is not light ground.
       const [r] = fit.dark.match(/\d+/g)!.map(Number);
@@ -245,6 +320,25 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       else expect(r!).toBeGreaterThan(180);
     },
   );
+
+  // P1-78g's Done-when, review round 1 (T7): everyone signed in sees the same page.
+  // The shared password ignores the user name, so two names are two people at the gate.
+  it("two people signed in get the same overview", async () => {
+    const overview = async (user: string) => {
+      const page = await signedIn(user);
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      const html = await page.evaluate(() =>
+        [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
+      );
+      // Relative times may tick between the two loads; everything else must match.
+      return html.replace(/\b(just now|\d+[mhd] ago)/g, "<ago>");
+    };
+    const erik = await overview("erik");
+    const tim = await overview("tim");
+    expect(erik).toContain(LONG_NAME);
+    expect(tim).toBe(erik);
+  });
 
   it("a page's stylesheets leave with it", async () => {
     const page = await signedIn();

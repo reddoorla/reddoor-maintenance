@@ -65,17 +65,28 @@ export type OverviewNight = {
  *  that their first delta is taken from. */
 export const OVERVIEW_NIGHTS = 31;
 
+/** A block an older or partial row does not carry: unmeasured, never a thrown page. */
+const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
+
 /** The overview's nights, newest first: `OVERVIEW_NIGHTS` rows by primary key, so it
- *  stays cheap on the request path, as `readLatestDeps` does. */
+ *  stays cheap on the request path, as `readLatestDeps` does. Every block the overview
+ *  reads is guarded the way `readLatestDeps` guards `deps`: a row written before a
+ *  block existed (or hand-written) reads it as unmeasured, so `/`, the sign-in
+ *  landing, never fails on one (review round 1). */
 export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
   const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
   return rows.map(({ night, counts }) => {
-    const { deps, ...rest } = counts;
+    const { deps, ...rest } = counts as Partial<FleetDailyCounts>;
     return {
       night,
       counts: {
-        ...rest,
-        deps: deps.value === null ? deps : { value: { behind: deps.value.behind } },
+        ...(rest as Omit<FleetDailyCounts, "deps">),
+        steps: rest.steps ?? {},
+        coverage: rest.coverage ?? NOT_IN_ROW,
+        screenouts: rest.screenouts ?? NOT_IN_ROW,
+        events: rest.events ?? NOT_IN_ROW,
+        prsMerged: rest.prsMerged ?? NOT_IN_ROW,
+        deps: deps?.value != null ? { value: { behind: deps.value.behind } } : (deps ?? NOT_IN_ROW),
       },
     };
   });
