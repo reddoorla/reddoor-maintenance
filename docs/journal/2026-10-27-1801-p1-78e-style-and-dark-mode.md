@@ -54,8 +54,9 @@ The guide has one red, used for "bad", and no status palette. Its brand faces ar
   - The gate missed red arriving by alias, by `:not(.broken)`, or by `content:`.
 - **Round 4:** only gate gaps (red on red and ink on ink passed). Every fill now sets its tested text partner, and the token set is closed. The toggle's own rule, dropped in round 3, is back; it measures 27.6px, not the 26px the round-4 commit message gave.
 - **Round 5:** the correctness and operator lenses were clean for the second round in a row. The tests lens found three more gate gaps, each a one-line edit that would hide text: a partner colour set without its fill, `--rule` used as text, and a new colour inside the red band. All three are closed and pinned. Five dirty rounds sent the PR to the operator (`decisions/2026-10-27-1810-p1-78e-after-five-rounds.md`).
+- **Round 6** (the operator's call over landing): the correctness lens found one defect a person sees. Links are ink, marked only by their underline, and the Sites table's sort headers and three `.home` links had the underline removed. A sort header read exactly like the plain "Health" header in both themes, and hover changed nothing. The underline is back. The operator lens was clean. The tests lens found four more gate gaps (the red band's spinner border, the control border token, rule-level contrast and dimming, and the focus ring), now pinned.
 
-The sidecar grew from the brief's 7 mutants to 78, every one red.
+The sidecar grew from the brief's 7 mutants to 86, every one red.
 
 **Beliefs corrected on contact.**
 
