@@ -144,6 +144,17 @@ describe("the github-signals Turso mirror (#539 Phase 3 dual-write)", () => {
     );
   });
 
+  // #1650: nothing reads a FLEET_WRITE_GATE verdict from this sweep (its
+  // fleet-lighthouse step is continue-on-error and greps nothing), so it prints
+  // none, on a green run or a red one. The summary line stays.
+  it("prints no FLEET_WRITE_GATE lines, only the summary", async () => {
+    for (const mirror of [async () => true, async () => false]) {
+      const r = await run(mirror);
+      expect(r.output).toContain("FLEET_WRITE_SUMMARY wrote=3 failed=0 total=3");
+      expect(r.output).not.toContain("FLEET_WRITE_GATE");
+    }
+  });
+
   it("counts mirrored and mirror_failed independently — 2 land, 1 throws (kills the increment swap)", async () => {
     // Asymmetric on purpose: a 1-success/1-throw run reads identically with the
     // increments swapped; 2/1 does not.

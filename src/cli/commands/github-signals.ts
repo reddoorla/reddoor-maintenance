@@ -170,7 +170,8 @@ export async function runGitHubSignalsCommand(
   // here is an operator-visibility signal, not a red build.
   const probesFailed = githubSignalsExitCode(result.written.length, result.failed.length) === 1;
   return {
-    output: formatFleetWriteSummary(result),
+    // #1650: no step reads a verdict from this sweep, so it prints none.
+    output: formatFleetWriteSummary(result, { gate: false }),
     code: probesFailed || tursoWriteFailed(result) ? 1 : 0,
   };
 }
