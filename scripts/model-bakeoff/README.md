@@ -467,7 +467,8 @@ runs in a box (`lib/box.mjs`; Linux only, the operator, 2026-10-26).
 - **Timeouts:** a step that runs past its timeout is killed with its whole box.
 
 Each result records `gatesSandboxed`. Where no box can be built (macOS, a runner that restricts
-user namespaces), the gates run unboxed and record `false`. Not covered either way:
+user namespaces, or a container whose `/proc` has masked submounts, as Docker's default has, since
+the kernel then refuses the box a fresh `/proc`), the gates run unboxed and record `false`. Not covered either way:
 
 - the agents' own sessions are never boxed;
 - the held-out run's code can still write its own report.

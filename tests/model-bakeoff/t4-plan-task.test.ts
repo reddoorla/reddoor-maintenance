@@ -21,6 +21,8 @@ import {
 import * as task from "../../scripts/model-bakeoff/tasks/t4-plan-task.mjs";
 import { boxCommand, mountPoints } from "../../scripts/model-bakeoff/lib/box.mjs";
 
+const T4 = new URL("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs", import.meta.url).href;
+
 const { ALLOWED, HELD_OUT, heldOutResults, scopeCheck, truth } = task;
 
 const passing = (names: string[]) => ({
@@ -856,6 +858,12 @@ describe("the gates' box (#1501, Linux only)", () => {
             join(proj, "package.json"),
             JSON.stringify({ ...pkg, dependencies: { dep: "file:../dep" } }),
           );
+          // pnpm 10 leaves the check off by default, so only pnpm 11 (the repo's packageManager)
+          // can show the box turning it off; `vitest` run directly can find an older pnpm first.
+          const version = execFileSync("pnpm", ["--version"], { cwd: proj, encoding: "utf8" });
+          expect(Number(version.split(".")[0]), `pnpm ${version.trim()}`).toBeGreaterThanOrEqual(
+            11,
+          );
           // Into a store of the test's own: no registry, no cache.
           const store = `--config.store-dir=${join(dir, "store")}`;
           expect(task.run(proj, "pnpm", ["install", "--offline", store]).status).toBe(0);
@@ -879,12 +887,21 @@ describe("the gates' box (#1501, Linux only)", () => {
       () =>
         withTmp("t4-box-hang-", (dir) => {
           const mark = String(4000 + (process.pid % 1000));
+          // In a child of its own: run() blocks the event loop, so a timeout that failed to kill
+          // the box would hang vitest instead of failing this test.
           const t0 = Date.now();
-          const r = task.run(dir, "sh", ["-c", `sleep ${mark}`], 3000, {
-            hide: [],
-            writable: [dir],
-            tmp: dir,
-          });
+          const out = execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `import { run } from ${JSON.stringify(T4)};
+               const box = { hide: [], writable: [${JSON.stringify(dir)}], tmp: ${JSON.stringify(dir)} };
+               process.stdout.write(JSON.stringify(run(${JSON.stringify(dir)}, "sh", ["-c", "sleep ${mark}"], 3000, box)));`,
+            ],
+            { encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" },
+          );
+          const r = JSON.parse(out);
           expect(Date.now() - t0).toBeLessThan(15_000);
           expect(r.error).toBe("ETIMEDOUT");
           const left = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
