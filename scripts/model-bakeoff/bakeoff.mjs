@@ -593,7 +593,10 @@ async function score(opts) {
       ),
     });
   }
-  const { per, referenceErrors, contradictions, realExtras } = finalScores(checksByArm, rulings);
+  const { per, referenceErrors, referenceDisputes, contradictions, realExtras } = finalScores(
+    checksByArm,
+    rulings,
+  );
   for (const c of realExtras) {
     const p = `${c}: the referee ruled this item real, so the reference is missing it and its field values went unscored; fix the reference and score again`;
     problems.push(p);
@@ -610,6 +613,7 @@ async function score(opts) {
     disagreements: disagreements.length,
     unruled: unruled.length,
     referenceErrors,
+    referenceDisputes,
     arms: all
       .filter((a) => agents[a.id])
       .map((a) => ({
@@ -684,6 +688,13 @@ export function formatResult(r) {
   }
   // Only a priced cost prints ≥, so only one explains the note.
   if (r.arms.some((a) => a.unfinished && a.cost !== null)) lines.push("", LOWER_BOUND_NOTE);
+  if (r.referenceDisputes?.length) {
+    lines.push(
+      "",
+      "Reference disputes (the reference is right by construction, so its matches keep these checks):",
+      ...r.referenceDisputes.map((d) => `- ${d.check}: reference ${d.reference}. ${d.note}`.trim()),
+    );
+  }
   if (r.decision?.lines) lines.push("", ...r.decision.lines);
   if (r.problems.length) lines.push("", "Problems:", ...r.problems.map((p) => `- ${p}`));
   return lines.join("\n");

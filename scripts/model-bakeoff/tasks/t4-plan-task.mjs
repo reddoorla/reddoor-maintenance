@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -12,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Row 1 of reddoor-workspace#1: implement one planned task on a T4 site build. roalson-interests
 // keeps no written plans (no docs/superpowers/plans/ at any commit), so the plan is the spec in
@@ -464,21 +466,39 @@ function planTree(root, repo, to, store) {
 }
 
 // score calls observe() for every agent. The gates take minutes an agent, so each result is cached
-// in <run>/evaluated.json; delete that file to evaluate again.
-export function observe(work) {
+// in <run>/evaluated.json under a key: an agent with no output yet (still running) is evaluated
+// but never cached, and a change to this module or to the agent's output evaluates again (#1500).
+export function observe(work, structured, agent) {
   const runDir = dirname(dirname(work));
   const id = basename(work);
-  return cachedEvaluation(runDir, id, () => evaluate({ run: runDir, work: dirname(work), id }));
+  return cachedEvaluation(runDir, id, evaluationKey(structured, agent), () =>
+    evaluate({ run: runDir, work: dirname(work), id }),
+  );
 }
 
-export function cachedEvaluation(runDir, id, compute) {
+const MODULE_SHA = createHash("sha256")
+  .update(readFileSync(fileURLToPath(import.meta.url)))
+  .digest("hex");
+
+// Null when the agent has returned nothing: its tree may still be changing. An agent that ended
+// for good without output is then evaluated on every score, which costs time, not a wrong result.
+export function evaluationKey(structured, agent, moduleSha = MODULE_SHA) {
+  if (structured == null) return null;
+  return createHash("sha256")
+    .update(JSON.stringify([moduleSha, agent?.transcript ?? null, structured]))
+    .digest("hex");
+}
+
+export function cachedEvaluation(runDir, id, key, compute) {
   const file = join(runDir, "evaluated.json");
   const cache = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
-  if (!cache[id]) {
-    cache[id] = compute();
+  if (key !== null && cache[id]?.key === key) return cache[id].value;
+  const value = compute();
+  if (key !== null) {
+    cache[id] = { key, value };
     writeFileSync(file, JSON.stringify(cache, null, 1) + "\n");
   }
-  return cache[id];
+  return value;
 }
 
 // score: the gates run on the pinned tree with only the plan's files taken from the agent, so a
