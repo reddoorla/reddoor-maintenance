@@ -3,7 +3,7 @@ export const meta = {
   description:
     "Run one bake-off task on a gold arm and N cheap arms (explicit model and effort each), or referee its disagreements",
   whenToUse:
-    "After `node scripts/model-bakeoff/bakeoff.mjs prepare`; pass its workflow-args.json (or referee-args.json) as args",
+    "After `node scripts/model-bakeoff/bakeoff.mjs prepare`; pass its workflow-args.json (or the <run>.referee-args.json that score writes) as args",
   phases: [
     { title: "Extract", detail: "gold run plus every arm on the same prompt and schema" },
     { title: "Adjudicate", detail: "a source-reading referee rules on each disagreement" },
