@@ -16,7 +16,17 @@ function runStep(
   file: string,
   step: string,
   env: Record<string, string>,
-  fakes: { ghOut?: string; ghFail?: boolean; hhmm?: string; day?: string; yesterday?: string } = {},
+  fakes: {
+    ghOut?: string;
+    ghFail?: boolean;
+    hhmm?: string;
+    day?: string;
+    yesterday?: string;
+    /** A failed run's job ids, and its job log (#1639). */
+    ghJobs?: string;
+    ghLog?: string;
+    ghLogFail?: boolean;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "nightly-step-"));
   roots.push(dir);
@@ -26,12 +36,17 @@ function runStep(
     chmodSync(join(dir, name), 0o755);
   };
   stub("node", `printf 'node %s\\n' "$*" >> "${log}"`);
+  writeFileSync(join(dir, "job.log"), fakes.ghLog ?? "");
   stub(
     "gh",
     `printf 'gh %s\\n' "$*" >> "${log}"
 ${fakes.ghFail ? "exit 1" : ""}
 case "$1" in
-  api) printf '%s\\n' "${fakes.ghOut ?? "0 0"}" ;;
+  api) case "$2" in
+    */logs) ${fakes.ghLogFail ? "exit 1" : `cat "${join(dir, "job.log")}"`} ;;
+    */jobs) printf '%s\\n' "${fakes.ghJobs ?? ""}" ;;
+    *) printf '%s\\n' "${fakes.ghOut ?? "0 0"}" ;;
+  esac ;;
   issue) [ "$2" = list ] && printf '%s\\n' "${fakes.ghOut ?? ""}" ;;
 esac`,
   );
@@ -134,6 +149,130 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("send-run-failed");
     expect(r.out).not.toContain("send-clock-missed");
+  });
+
+  // #1639. A stuck approval reds the clock's send run by name every day. The
+  // fallback reads that run's log: when the ✗ unqueued-approval line is the only
+  // failure in it, a retry cannot help, so it names the report instead.
+  const ts = "2026-10-09T16:07:12.3456789Z";
+  const stuckLine = async (reportId: string) => {
+    const { sendApprovedReports } = await import("../../src/reports/send/orchestrate.js");
+    const r = await sendApprovedReports({
+      sendable: async () => [],
+      approvedUnqueued: async () => [{ id: "rec1", reportId }],
+      roster: async () => [],
+      loadHeaderPlate: async () => null,
+      siteMirror: {} as never,
+      reportSentMirror: async () => {},
+      claimForSend: async () => true,
+      releaseSendClaim: async () => {},
+      resend: {} as never,
+    });
+    expect(r.code).toBe(1);
+    return r.output;
+  };
+  // What GitHub's job log also carries: each step's script, echoed, and the
+  // tracking-issue step's body, both quoting the phrase the fallback looks for.
+  const echoed = [
+    `${ts} ##[group]Run if [ "$MODE" = "draft" ]; then`,
+    `${ts}   stuck=$(printf '%s\\n' "$log" | sed -nE 's/^([0-9TZ:.-]+ )?✗ (.+) — approved but not in the send queue.*/\\2/p')`,
+    `${ts} A \`✗ … approved but not in the send queue\` line names an approved report`,
+  ];
+  const jobLog = (...lines: string[]) =>
+    [
+      ...echoed,
+      ...lines.map((l) => `${ts} ${l}`),
+      `${ts} ##[error]Process completed with exit code 1.`,
+    ].join("\n");
+
+  it("when the clock's run failed only on an unqueued approval, it names the report and does not retry", async () => {
+    const line = await stuckLine("Acme Co — Testing — 2026-10");
+    const r = fallback({
+      hhmm: "1900",
+      ghOut: "1 0 98765",
+      ghJobs: "4321",
+      ghLog: jobLog("✓ sent: BETA-2026-10-M (Beta)", line),
+    });
+    expect(sends(r.calls)).toEqual([]);
+    expect(r.code).toBe(1);
+    const first = r.out.split("\n").find((l) => l.startsWith("::error::"))!;
+    expect(first).toContain("unqueued-approval");
+    expect(first).toContain("Acme Co — Testing — 2026-10");
+    expect(first).toContain("https://github.com/reddoorla/reddoor-maintenance/actions/runs/98765");
+    expect(first).toMatch(/unapprove each/i);
+    expect(r.out).not.toContain("send-run-failed");
+    expect(r.calls).toContain(
+      "gh api repos/reddoorla/reddoor-maintenance/actions/runs/98765/jobs --jq .jobs[].id",
+    );
+    expect(r.calls).toContain("gh api repos/reddoorla/reddoor-maintenance/actions/jobs/4321/logs");
+  });
+
+  it("two stuck approvals are both named", async () => {
+    const r = fallback({
+      hhmm: "1900",
+      ghOut: "1 0 98765",
+      ghJobs: "4321",
+      ghLog: jobLog(await stuckLine("ACME-2026-10-M"), await stuckLine("BETA-2026-10-T")),
+    });
+    expect(sends(r.calls)).toEqual([]);
+    expect(r.out).toContain("ACME-2026-10-M; BETA-2026-10-T");
+  });
+
+  it("when the clock's run also failed on something else, it retries as send-run-failed", async () => {
+    const line = await stuckLine("ACME-2026-10-M");
+    for (const other of [
+      "✗ BETA-2026-10-M — Resend refused the send",
+      "  ✗ sent-stamp mirror failed for BETA-2026-10-M: timeout",
+      "  ⚠ launch flip failed for Beta: timeout",
+      // Indented, it is not the CLI's line, so it is not taken as a stuck approval.
+      "  ✗ BETA-2026-10-M — approved but not in the send queue (not draft-ready)",
+    ]) {
+      const r = fallback({
+        hhmm: "1900",
+        ghOut: "1 0 98765",
+        ghJobs: "4321",
+        ghLog: jobLog(line, other),
+      });
+      expect(sends(r.calls), other).toHaveLength(1);
+      expect(r.out, other).toContain("send-run-failed");
+      expect(r.code, other).toBe(1);
+    }
+  });
+
+  it("the runs query, run through real jq, gives the newest failed send run, or none", () => {
+    const script = stepRunScript(wf("daily-reports.yml"), SEND);
+    const jq = /--jq '([^']+)'\) \|\| \{/.exec(script)?.[1];
+    expect(jq).toContain("failure");
+    const runs = (...rs: Array<[number, string, string | null]>) =>
+      JSON.stringify({
+        workflow_runs: rs.map(([id, mode, conclusion]) => ({
+          id,
+          display_title: `daily-reports ${mode}`,
+          conclusion,
+        })),
+      });
+    const q = (json: string) =>
+      spawnSync("jq", ["-r", jq!], { input: json, encoding: "utf-8" }).stdout.trim();
+    // GitHub lists runs newest first.
+    expect(
+      q(runs([300, "send", "failure"], [250, "draft", "failure"], [200, "all", "failure"])),
+    ).toBe("2 0 300");
+    expect(q(runs([400, "send", null], [300, "send", "failure"]))).toBe("2 0 300");
+    expect(q(runs([300, "send", "cancelled"], [200, "send", "success"]))).toBe("2 1");
+    expect(q(runs([300, "send", "cancelled"]))).toBe("1 0");
+  });
+
+  it("when the failed run's log cannot be read, or holds no unqueued line, it retries as before", () => {
+    for (const fakes of [
+      { ghJobs: "4321", ghLogFail: true },
+      { ghJobs: "4321", ghLog: jobLog("✗ BETA-2026-10-M — Resend refused the send") },
+      { ghJobs: "" },
+    ]) {
+      const r = fallback({ hhmm: "1900", ghOut: "1 0 98765", ...fakes });
+      expect(sends(r.calls)).toHaveLength(1);
+      expect(r.out).toContain("send-run-failed");
+      expect(r.code).toBe(1);
+    }
   });
 
   it("when the runs cannot be read, it sends nothing and fails", () => {
