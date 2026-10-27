@@ -6,6 +6,11 @@ import { dirname, join, normalize, relative } from "node:path";
 // run as Explore itself (Agent tool, subagent_type "Explore", with a model and effort per call),
 // so they answer in text, not through a schema tool. Every answer is computed by script from the
 // frozen tree, never taken from a model.
+//
+// Decision rule, fixed before the first run (workspace#1's rule for a mechanical step): route
+// Explore to the cheapest arm that matches the script truth on every check of every one of its
+// three runs, after the referee. An arm with any faulted run (wrong model or effort, a tool outside
+// the allowlist, no parseable answer) does not qualify. With no arm qualifying, nothing moves.
 export const id = "explore-questions";
 export const title = "Built-in Explore: codebase questions on a frozen reddoor-maintenance tree";
 export const row = 10;
