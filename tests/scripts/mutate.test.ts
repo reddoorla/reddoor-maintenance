@@ -300,7 +300,7 @@ if (process.env.MUTATE_FAKE_CRLF && !readFileSync("src/crlf.txt", "utf-8").inclu
 if (process.env.MUTATE_FAKE_PAIR && files.includes("tests/b.test.ts") && !files.includes("tests/a.test.ts")) value = "fail";
 const link = lstatSync("node_modules").isSymbolicLink() ? "link" : "dir";
 // Like vitest's cache, which lands in the cwd's node_modules/.vite.
-if (process.env.MUTATE_FAKE_CACHE) { mkdirSync("node_modules/.vite", { recursive: true }); writeFileSync("node_modules/.vite/results.json", "{}"); }
+if (process.env.MUTATE_FAKE_CACHE) { for (const d of [".vite", ".vite-temp"]) { mkdirSync("node_modules/" + d, { recursive: true }); writeFileSync("node_modules/" + d + "/x.json", "{}"); } }
 if (process.env.MUTATE_FAKE_LOG) appendFileSync(process.env.MUTATE_FAKE_LOG, process.cwd() + " " + value + " " + link + "\\n");
 const kase = (status) => ({ status, fullName: "case " + status, failureMessages: status === "failed" ? ["AssertionError: no"] : [] });
 const report = (cases, message = "") => ({
@@ -1321,6 +1321,11 @@ describe("mutate, against a real repo", () => {
       );
       expect(rep.results[0]?.result).toBe("red");
       expect(existsSync(join(f.dir, "node_modules", ".vite"))).toBe(false);
+      // Vite leaves an empty .vite-temp behind after a run; a later run's config bundle
+      // must not land in the checkout's.
+      mkdirSync(join(f.dir, "node_modules", ".vite-temp"));
+      await withEnv({ MUTATE_FAKE_CACHE: "1" }, () => mutate(opts(p), { cwd: f.dir, ...quiet }));
+      expect(readdirSync(join(f.dir, "node_modules", ".vite-temp"))).toEqual([]);
     });
 
     it("--json prints JSON when it stops with an error before any result", () => {

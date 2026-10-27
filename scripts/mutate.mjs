@@ -645,9 +645,15 @@ export async function mutate(o, deps = {}) {
       } else {
         // Each entry is linked, not the folder, so the run's caches (vitest's
         // node_modules/.vite) land in the worktree and leave with it (#1646).
+        // A checkout of HEAD that already holds node_modules/ tracks files there.
+        if (existsSync(join(wt, "node_modules")))
+          throw new Refusal(
+            "the repo tracks files under node_modules/, which the worktree cannot link",
+          );
         mkdirSync(join(wt, "node_modules"));
         for (const e of readdirSync(join(root, "node_modules"))) {
-          if (/^\.(vite|vitest|cache)$/.test(e)) continue;
+          // .vite, .vite-temp (Vite's bundled config), .vitest, .cache.
+          if (/^\.(vite|vitest|cache)/.test(e)) continue;
           symlinkSync(join(root, "node_modules", e), join(wt, "node_modules", e));
         }
         ignore.push("?? node_modules/");
