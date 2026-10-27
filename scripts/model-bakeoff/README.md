@@ -246,7 +246,7 @@ is for measuring a built-in agent as it is, which the workflow cannot launch: `e
 prompt, model and effort the workflow would give it (the workflow script itself runs, with its
 `agent()` calls recorded instead of made) and the `subagent_type` to launch it with through the
 Agent tool. Launch each with that `model` and `effort` on the call. `prompts --run <run> --referee`
-does the same from the referee args, adding how to write the rulings in text. Then `collect` the
+does the same from the referee args (`<run>.referee-args.json`), adding how to write the rulings in text. Then `collect` the
 session's `subagents/` directory and `score` as usual: `collect` keeps only transcripts that carry
 a marker.
 

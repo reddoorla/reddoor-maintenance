@@ -781,9 +781,7 @@ export const RULINGS_IN_TEXT =
 // reads the referee args score wrote instead of the run's workflow args.
 async function prompts(opts) {
   const run = resolve(opts.run);
-  const args = readJson(
-    opts.referee ? join(run, "referee-args.json") : join(run, "workflow-args.json"),
-  );
+  const args = readJson(opts.referee ? refereeArgsPath(run) : join(run, "workflow-args.json"));
   const task = await loadTask(args.task);
   const source = readFileSync(join(REPO, ".claude/workflows/model-bakeoff.workflow.js"), "utf8");
   console.log(JSON.stringify(await launches(args, source, task), null, 1));
