@@ -62,37 +62,41 @@ select,
 textarea {
   font-weight: var(--weight-text);
 }
-/* Beside the nav where there is room; on a phone, its own row above it, so the
-   nav is never squeezed into a column (review round 2, at 390px). */
-.shell-account {
+/* The browser's grey placeholder is 4.26:1 on paper and 3.69:1 on the dark
+   surface, and on the API key field it says whether a key is stored. */
+::placeholder {
+  color: var(--ink-muted);
+  opacity: 1;
+}
+/* The header is one wrapping row: the nav on the left, the account (and the
+   theme toggle) pushed right. When both do not fit, the account wraps onto its
+   own row ABOVE the nav (wrap-reverse), so the nav is never squeezed into a
+   column beside it (review rounds 2 and 3: a float did that from 390 to 800px). */
+header[data-shell] {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap-reverse;
+  align-items: center;
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  margin: 0 0 1.25rem;
+}
+.shell-account {
+  order: 1;
+  margin-left: auto;
+  display: flex;
   flex-wrap: wrap;
-  margin-bottom: var(--space-2);
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-3);
   font-size: 0.8rem;
   color: var(--ink-muted);
-}
-@media (min-width: 40rem) {
-  .shell-account {
-    float: right;
-    margin-bottom: 0;
-  }
-}
-.theme-toggle {
-  padding: 0.2rem 0.6rem;
-  border: 1px solid var(--control-border);
-  background: transparent;
-  color: var(--ink);
-  font-size: 0.8rem;
-  cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .shell-nav {
+  order: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin: 0 0 1.25rem;
 }
 .shell-nav a {
   display: inline-block;

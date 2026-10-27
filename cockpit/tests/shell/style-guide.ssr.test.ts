@@ -382,6 +382,13 @@ describe("red marks Broken only", () => {
     expect(weight(".pill")).toBe("700");
     expect(weight(".pill.attention")).toBeUndefined();
     expect(weight(".pill.watch")).toBe("var(--weight-text)");
+    // Round 3: /s/:slug had its own bold Watch pill.
+    const site = rules(read(join(SRC, "routes/s/[slug]/site.css")));
+    const siteWatch = site
+      .filter(([sel]) => sel === ".pill.watch")
+      .map(([, b]) => /font-weight\s*:\s*([^;]+);/.exec(b)?.[1]?.trim())
+      .find(Boolean);
+    expect(siteWatch).toBe("var(--weight-text)");
   });
 
   it("an Attention or Watch marker is never red", () => {
@@ -567,13 +574,26 @@ describe("layout and weight the round-2 review pinned", () => {
     ).toBe(true);
   });
 
-  // Round 2: the toggle widened the floated account block, which squeezed the nav
-  // into a column at 390px. It floats only where there is room.
-  it("the account block floats only at a min-width breakpoint", () => {
+  // Rounds 2 and 3: a floated account block, widened by the toggle, squeezed
+  // the nav into a column from 390 to about 800px and overlapped a long email.
+  // The header is one wrapping flex row instead; the account wraps above the nav.
+  it("the header wraps the account above the nav instead of floating it", () => {
     const base = stripComments(read(join(SRC, "lib/base.css")));
-    const outside = base.replace(/@media[^{]+\{([\s\S]*?\})\s*\}/g, "");
-    expect(blockAfter(outside, ".shell-account {")).not.toMatch(/float\s*:/);
-    expect(base).toMatch(/@media \(min-width: [^)]+\) \{\s*\.shell-account \{\s*float: right;/);
+    expect(base).not.toMatch(/\.shell-account\s*\{[^}]*float/);
+    const header = blockAfter(base, "header[data-shell] {");
+    expect(header).toMatch(/display:\s*flex/);
+    expect(header).toMatch(/flex-wrap:\s*wrap-reverse/);
+    expect(blockAfter(base, ".shell-account {")).toMatch(/order:\s*1/);
+    expect(blockAfter(base, ".shell-nav {")).toMatch(/order:\s*0/);
+  });
+
+  // Round 3: the browser's placeholder grey was 4.26:1 on paper, and on the API
+  // key field the placeholder is the only sign a key is stored.
+  it("placeholders are the muted ink at full strength", () => {
+    const base = stripComments(read(join(SRC, "lib/base.css")));
+    const ph = blockAfter(base, "::placeholder {");
+    expect(ph).toMatch(/color:\s*var\(--ink-muted\)/);
+    expect(ph).toMatch(/opacity:\s*1/);
   });
 
   it("a Broken chip is bold as well as red, in each sheet that styles it", () => {

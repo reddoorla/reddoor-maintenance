@@ -109,7 +109,7 @@
   font-weight: var(--weight-bold);
 }
 /* On the red fill, a stuck mark and a NEW or WORSE badge keep the on-broken colour
-   (the .stuck and .badge rules above set ink, black on red at 4.05:1). */
+   (the .stuck and .badge rules set ink, black on red at 4.05:1, and lose to these on specificity). */
 .chip.broken.stuck,
 .chip.broken .badge {
   color: var(--on-broken);

@@ -245,7 +245,7 @@ button.unapprove:disabled {
   background: transparent;
   border: 1px solid var(--rule);
   color: var(--ink);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-text);
 }
 .pill.attention {
   background: transparent;
@@ -270,7 +270,6 @@ button.unapprove:disabled {
 .advisory {
   font-size: 0.72rem;
   color: var(--ink-muted);
-  font-style: italic;
 }
 .check-note {
   font-size: 0.75rem;
@@ -495,7 +494,7 @@ button.trigger-renovate:disabled {
   font-weight: var(--weight-bold);
 }
 /* On the red fill, a stuck mark and a NEW or WORSE badge keep the on-broken colour
-   (the .stuck and .badge rules above set ink, black on red at 4.05:1). */
+   (the .stuck and .badge rules set ink, black on red at 4.05:1, and lose to these on specificity). */
 .chip.broken.stuck,
 .chip.broken .badge {
   color: var(--on-broken);
