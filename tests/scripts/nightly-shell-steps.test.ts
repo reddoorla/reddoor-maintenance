@@ -214,7 +214,7 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
       ghLog: jobLog(await stuckLine("ACME-2026-10-M"), await stuckLine("BETA-2026-10-T")),
     });
     expect(sends(r.calls)).toEqual([]);
-    expect(r.out).toContain("ACME-2026-10-M, BETA-2026-10-T");
+    expect(r.out).toContain("ACME-2026-10-M; BETA-2026-10-T");
   });
 
   it("when the clock's run also failed on something else, it retries as send-run-failed", async () => {
@@ -223,6 +223,8 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
       "✗ BETA-2026-10-M — Resend refused the send",
       "  ✗ sent-stamp mirror failed for BETA-2026-10-M: timeout",
       "  ⚠ launch flip failed for Beta: timeout",
+      // Indented, it is not the CLI's line, so it is not taken as a stuck approval.
+      "  ✗ BETA-2026-10-M — approved but not in the send queue (not draft-ready)",
     ]) {
       const r = fallback({
         hhmm: "1900",
@@ -234,6 +236,29 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
       expect(r.out, other).toContain("send-run-failed");
       expect(r.code, other).toBe(1);
     }
+  });
+
+  it("the runs query, run through real jq, gives the newest failed send run, or none", () => {
+    const script = stepRunScript(wf("daily-reports.yml"), SEND);
+    const jq = /--jq '([^']+)'\) \|\| \{/.exec(script)?.[1];
+    expect(jq).toContain("failure");
+    const runs = (...rs: Array<[number, string, string | null]>) =>
+      JSON.stringify({
+        workflow_runs: rs.map(([id, mode, conclusion]) => ({
+          id,
+          display_title: `daily-reports ${mode}`,
+          conclusion,
+        })),
+      });
+    const q = (json: string) =>
+      spawnSync("jq", ["-r", jq!], { input: json, encoding: "utf-8" }).stdout.trim();
+    // GitHub lists runs newest first.
+    expect(
+      q(runs([300, "send", "failure"], [250, "draft", "failure"], [200, "all", "failure"])),
+    ).toBe("2 0 300");
+    expect(q(runs([400, "send", null], [300, "send", "failure"]))).toBe("2 0 300");
+    expect(q(runs([300, "send", "cancelled"], [200, "send", "success"]))).toBe("2 1");
+    expect(q(runs([300, "send", "cancelled"]))).toBe("1 0");
   });
 
   it("when the failed run's log cannot be read, or holds no unqueued line, it retries as before", () => {

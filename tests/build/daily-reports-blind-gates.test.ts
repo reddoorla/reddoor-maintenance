@@ -461,6 +461,10 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     '{"sent":{}}',
     '{"sentOn":"2026-10-20","sent":{},"readySince":[]}',
     '{"sentOn":7,"sent":{},"readySince":{}}',
+    '{"sentOn":null,"sent":[],"readySince":{}}',
+    '{"sentOn":null,"sent":null,"readySince":{}}',
+    '{"sent":{},"readySince":{}}',
+    '{"sentOn":null,"sent":{}}',
   ])(
     "a send-log row of the wrong shape (%s) reads as corrupt, not as a clean first send",
     async (snapshot) => {

@@ -267,7 +267,7 @@ jobs:
               marks=$(printf '%s\n' "$joblog" | sed -E 's/^[0-9TZ:.-]+ //' | grep -E '^ *(✗|⚠)' || true)
               stuck=$(printf '%s\n' "$marks" | sed -nE 's/^✗ (.+) — approved but not in the send queue .*/\1/p')
               if [ -n "$stuck" ] && [ "$(printf '%s\n' "$marks" | grep -c .)" -eq "$(printf '%s\n' "$stuck" | grep -c .)" ]; then
-                echo "::error::unqueued-approval: the send clock's run failed only because an approved report is not in the send queue (not draft-ready): $(printf '%s\n' "$stuck" | paste -sd, - | sed 's/,/, /g'). Unapprove it in its site's report history to clear this, then re-draft it to send it. This fallback does not retry: a retry cannot send it"
+                echo "::error::unqueued-approval: the send clock's run ($REPO run $failed_run) printed no send failure but an approved report outside the send queue: $(printf '%s\n' "$stuck" | awk 'NR > 1 { printf "; " } { printf "%s", $0 }'). It is not draft-ready; a pending higher-tier draft for the site can hold it out. Unapprove it in its site's report history to clear this, then re-draft it to send it. This fallback does not retry: a retry cannot send it, and a report approved since 16:07Z waits for the next send clock, as on any day"
                 exit 1
               fi
             fi
@@ -440,7 +440,7 @@ jobs:
           title="Daily reports run failing (${MODE})"
           prefix="Daily reports run failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried; `unqueued-approval` means it fired and failed only on an approved report the send queue cannot see, so the fallback named it and did not retry. A `✗ … approved but not in the send queue` line names an approved report the send queue cannot see: unapproving it in the report history on its site page clears the red, and re-drafting it is what sends it; `NEXT_DUE_WRITE` and `DIGEST_SEND_LOG … read=` errors name a write or read that did not land.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
+          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried; `unqueued-approval` means its run printed no send failure but an approved report the send queue cannot see, so the fallback named it and did not retry. A `✗ … approved but not in the send queue` line names an approved report the send queue cannot see: unapproving it in the report history on its site page clears the red, and re-drafting it is what sends it; `NEXT_DUE_WRITE` and `DIGEST_SEND_LOG … read=` errors name a write or read that did not land.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
