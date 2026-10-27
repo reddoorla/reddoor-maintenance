@@ -286,5 +286,57 @@
     ],
     "test": "tests/alerts/production-signals.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r1-cockpit-only-new",
+    "why": "Review round 1: a cockpit-only Watch item keeps the NEW status the diff gives it every load",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  ).map(undated);",
+        "replace": "  );"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-pm-dated",
+    "why": "Review round 1: pm-cockpit dates a cockpit-only item first flagged today, so it is NEW every morning",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "  if (isCockpitOnly(it)) return { text: it.title, day: null, how: null };\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-optout-ignored",
+    "why": "Review round 1: an opted-out site still shows its Search Console soft-fail",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        !searchConsoleOptedOut(s) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-cert-not-aged",
+    "why": "Review round 1: cert days are read as stored, not aged by the stamp",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        : stored -\n          Math.max(0, Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY));",
+        "replace": "        : stored;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
   }
 ]

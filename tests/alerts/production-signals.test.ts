@@ -28,6 +28,8 @@ import { summarizeBrowser } from "../../src/audits/browser.js";
 import { browserFieldsFromAudit } from "../../src/audits/browser-fields.js";
 import { auditFields } from "../../src/fleet/site-fields.js";
 import { auditNeedsCheckout } from "../../src/cli/commands/audit.js";
+import { buildPmCockpit, formatPmCockpit } from "../../scripts/pm-cockpit.mjs";
+import { NO_SEARCH_CONSOLE } from "../../src/fleet/opt-outs.js";
 import type { AuditName } from "../../src/types.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -545,6 +547,96 @@ describe("the form test and smoke are built but not wired (the operator, 2026-10
       deadLetters: new Map(),
     });
     expect(keys(items)).not.toContain("form:recS");
+  });
+});
+
+describe("review round 1 (P1-78c)", () => {
+  const behind: LatestDeps = {
+    night: "2026-10-25",
+    sites: {
+      recS: {
+        name: "Sonder",
+        packages: ["svelte@4"],
+        at: FRESH,
+        firstSeen: { "svelte@4": "2026-09-01" },
+      },
+    },
+  };
+  // The snapshot the digest writes: it never holds a cockpit-only key.
+  const prior = { "vuln:other": { metric: 1, firstFlaggedAt: "2026-10-01" } };
+
+  it("a cockpit-only Watch item is standing and undated on the card, never NEW", () => {
+    const m = buildCockpitModel(
+      [site()],
+      [],
+      prior,
+      BASE,
+      NOW,
+      [],
+      null,
+      [],
+      0,
+      new Map(),
+      new Map(),
+      new Map(),
+      behind,
+    );
+    const it = m.cards[0]!.items.find((i) => i.key === "deps:recS")!;
+    expect(it.status).toBe("standing");
+    expect(it.firstFlaggedAt).toBeUndefined();
+  });
+
+  it("pm-cockpit prints it undated and never counts it new", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        {
+          websites: [site()],
+          reports: [],
+          prior,
+          baseUrl: BASE,
+          newSubmissions: [],
+          spamTotals: null,
+          recentEvents: [],
+          autoFilteredCount: 0,
+          notifyBounces: new Map(),
+          deadLetters: new Map(),
+          deadLetterOldest: new Map(),
+          deps: behind,
+        },
+        NOW,
+        "2026-10-26T00:00:00Z",
+      ),
+    );
+    expect(out).toContain("1 package a major behind (undated)");
+    expect(out).toContain("new=0");
+    expect(out).not.toContain("NEW Sonder");
+  });
+
+  it("an opted-out site's Search Console soft-fail is not a Watch item", () => {
+    expect(
+      collectSearchConsoleAlerts(
+        [
+          site({
+            searchConsoleOutcome: "soft-fail",
+            searchConsoleCheckedAt: FRESH,
+            maintenanceFreq: "Monthly",
+            acceptedWatchConditions: [NO_SEARCH_CONSOLE],
+          }),
+        ],
+        BASE,
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("certificate days are aged by the stamp: 9 days stored 2.5 days ago is Broken at 7", () => {
+    const [it] = collectDomainAlerts(
+      [site({ certDaysRemaining: 9, domainCheckedAt: ago(2.5) })],
+      BASE,
+      NOW,
+    );
+    expect(it!.key).toBe("cert-expiring:recS");
+    expect(it!.title).toBe("TLS certificate expires in 7 days");
   });
 });
 

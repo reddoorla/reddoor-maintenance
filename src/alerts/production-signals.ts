@@ -23,6 +23,7 @@ import type { AttentionItem } from "./attention.js";
 import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import type { DepsSite } from "../fleet-daily/types.js";
 import { searchConsoleFreshDays } from "../fleet/search-console-evidence.js";
+import { searchConsoleOptedOut } from "../fleet/opt-outs.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -36,6 +37,23 @@ export const CERT_BROKEN_DAYS = 7;
 export const CERT_ATTENTION_DAYS = 30;
 /** A package a major behind for longer than this many calendar days is Attention. */
 export const DEPS_FAR_DAYS = 90;
+
+/** The kinds only the cockpit collects (Watch: no mail, no age needed). Only the digest
+ *  writes `digest_state`, so their keys never reach the snapshot, and a diff against it
+ *  would read them NEW, flagged today, on every load. The cockpit leaves them standing
+ *  and undated instead (review round 1). */
+export const COCKPIT_ONLY_PREFIXES = ["deps:", "search-console:", "smoke:"] as const;
+
+export function isCockpitOnly(it: Pick<AttentionItem, "key">): boolean {
+  return COCKPIT_ONLY_PREFIXES.some((p) => it.key.startsWith(p));
+}
+
+/** A cockpit-only item as the cockpit shows it: standing, with no first-flagged date. */
+export function undated(it: AttentionItem): AttentionItem {
+  if (!isCockpitOnly(it)) return it;
+  const { firstFlaggedAt: _f, ...rest } = it;
+  return { ...rest, status: "standing" };
+}
 
 /** Is a stamp current? Null or unparseable is not; a future stamp is. */
 export function freshWithin(stamp: string | null, days: number, now: Date): boolean {
@@ -89,7 +107,14 @@ export function collectUptimeAlerts(
         s.reachableOk === "fail" && freshWithin(s.browserCheckedAt, PRODUCTION_STALE_DAYS, now),
     )
     .map((s) =>
-      item(s, baseUrl, "uptime", "uptime", "site down: a sampled page did not answer", "critical"),
+      item(
+        s,
+        baseUrl,
+        "uptime",
+        "uptime",
+        "site down: a sampled page did not load (no 2xx or 3xx)",
+        "critical",
+      ),
     );
 }
 
@@ -104,7 +129,13 @@ export function collectDomainAlerts(
   const items: AttentionItem[] = [];
   for (const s of maintained(sites)) {
     if (!freshWithin(s.domainCheckedAt, PRODUCTION_STALE_DAYS, now)) continue;
-    const days = s.certDaysRemaining;
+    const stored = s.certDaysRemaining;
+    // The audit counted the days when it ran; a stamp up to 3 days old has used some.
+    const days =
+      stored === null
+        ? null
+        : stored -
+          Math.max(0, Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY));
     if (days === null) {
       items.push(
         item(
@@ -252,7 +283,15 @@ export function collectTitleMetaAlerts(
       (s) =>
         s.titleMetaOk === "fail" && freshWithin(s.browserCheckedAt, PRODUCTION_STALE_DAYS, now),
     )
-    .map((s) => item(s, baseUrl, "titles", "titles", "page titles or meta descriptions missing"));
+    .map((s) =>
+      item(
+        s,
+        baseUrl,
+        "titles",
+        "titles",
+        "page titles or meta descriptions missing or duplicated",
+      ),
+    );
 }
 
 /** Accessibility violations from a complete weekly run: every route scanned, stamped within
@@ -375,6 +414,9 @@ export function collectSearchConsoleAlerts(
     .filter(
       (s) =>
         s.searchConsoleOutcome === "soft-fail" &&
+        // An opted-out site's lookup no longer runs, so its last soft-fail would stay
+        // fresh for a whole cadence; the opt-out wins, as in searchConsoleEvidence.
+        !searchConsoleOptedOut(s) &&
         freshWithin(s.searchConsoleCheckedAt, searchConsoleFreshDays(s), now),
     )
     .map((s) =>

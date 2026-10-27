@@ -808,10 +808,10 @@ export type DigestRunOptions = {
    * as if the drift wiring had broken. `collectAttention` already takes a `now`
    * for exactly this reason; this threads the same lever one layer out.
    */
+  now?: Date;
   /** P1-78c. The latest `fleet_daily` dependency readings; production reads Turso
    *  (report.ts). Optional and defensive: a failed read drops the dependency items. */
   latestDeps?: () => Promise<LatestDeps | null>;
-  now?: Date;
 };
 
 /** The dependency readings, or null: a failed read drops one signal, never the digest. */

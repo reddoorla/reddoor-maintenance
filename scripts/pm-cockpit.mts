@@ -45,7 +45,7 @@ import {
 import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { readLatestDeps } from "../src/fleet-daily/read.js";
-import type { LatestDeps } from "../src/alerts/production-signals.js";
+import { isCockpitOnly, type LatestDeps } from "../src/alerts/production-signals.js";
 import { isMain } from "./lib/cli.mjs";
 
 const USAGE = "usage: pnpm tsx scripts/pm-cockpit.mts [--since <iso with Z or offset>]";
@@ -218,6 +218,9 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
     if (at !== null)
       return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };
   }
+  // P1-78c: a cockpit-only Watch item never reaches the digest's snapshot, so it has
+  // no first-flagged day; it prints undated, like every other Watch reason, never NEW.
+  if (isCockpitOnly(it)) return { text: it.title, day: null, how: null };
   const was = prior[it.key];
   if (was === undefined) return { text: it.title, day: today, how: "first flagged" };
   if (it.kind === "vuln" && it.autoFixExhausted === true)

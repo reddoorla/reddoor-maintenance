@@ -43,6 +43,7 @@ import {
   collectTitleMetaAlerts,
   collectUptimeAlerts,
   type LatestDeps,
+  undated,
 } from "../alerts/production-signals.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { markWaiting } from "../alerts/waiting.js";
@@ -863,7 +864,9 @@ export function buildSiteAlarmContext(
     markWaiting(raw, next, now, Object.keys(priorSnapshot).length > 0),
     next,
     now,
-  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  )
+    .map(undated)
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
     watchReasons,
@@ -985,7 +988,7 @@ export function buildCockpitModel(
     markWaiting(diffed.tagged, diffed.next, now, Object.keys(priorSnapshot).length > 0),
     diffed.next,
     now,
-  );
+  ).map(undated);
 
   // Group by siteName (the collectors set siteName from the row). This relies on the
   // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if
