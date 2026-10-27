@@ -367,5 +367,31 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r2-control-inherits",
+    "why": "Round 2: a control inherits the red band's white onto its white surface",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  color: var(--ink);\n  background: var(--surface);",
+        "replace": "  color: inherit;\n  background: var(--surface);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-checklist-red",
+    "why": "Round 2: a failing report check renders red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "return { cls: \"blocks\", word: \"blocks\" };",
+        "replace": "return { cls: \"broken\", word: \"blocks\" };"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
