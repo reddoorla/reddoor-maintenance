@@ -25,7 +25,7 @@ import {
   scoreRun,
 } from "./lib/score.mjs";
 import { LOWER_BOUND_NOTE, formatCost } from "./lib/ledger.mjs";
-import { readAgentTranscript } from "./lib/transcripts.mjs";
+import { readAgentTranscript, textStructured } from "./lib/transcripts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
@@ -279,13 +279,32 @@ function collect(opts) {
   }
 }
 
+/**
+ * For a task whose agents answer in text, each agent with no schema output gets the last ```json
+ * block of its final message as its output; any other task's agents are returned as they are.
+ */
+export function withTextOutputs(task, agents) {
+  if (!task.textOutput) return { ...agents };
+  return Object.fromEntries(
+    Object.entries(agents).map(([k, a]) => [
+      k,
+      a.structured ? a : { ...a, structured: textStructured(a.finalText) },
+    ]),
+  );
+}
+
+/** The agent type a task's agents run as. */
+export const typeOf = (task) => task.agentType ?? AGENT_TYPE;
+
 const MODEL_IDS = {
   haiku: "claude-haiku-5-5",
   sonnet: "claude-sonnet-5-5",
   opus: "claude-opus-5-5",
 };
 
-export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
+// `agentType` is the type the task's agents run as: bakeoff-readonly unless the task names one
+// (explore-questions runs as the built-in Explore).
+export function verifyRan(arm, agent, work, { needOutput = true, agentType = AGENT_TYPE } = {}) {
   const problems = [];
   const label = agent.marker ? agentKey(agent.marker) : arm.id;
   const want = MODEL_IDS[arm.model] || arm.model;
@@ -305,10 +324,10 @@ export function verifyRan(arm, agent, work, { needOutput = true } = {}) {
     );
   } else if (agent.agentType === null) {
     problems.push(
-      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${AGENT_TYPE}`,
+      `${label}: no agent type recorded (its .meta.json is missing, unreadable or names none), so it cannot be shown to be ${agentType}`,
     );
-  } else if (agent.agentType !== AGENT_TYPE) {
-    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${AGENT_TYPE}`);
+  } else if (agent.agentType !== agentType) {
+    problems.push(`${label}: ran as agent type ${agent.agentType}, not ${agentType}`);
   }
   if (needOutput && !agent.structured) problems.push(`${label}: no accepted structured output`);
   if (agent.forbidden.length)
@@ -345,7 +364,7 @@ export function combineItems(task, args, agents, arm) {
       problems.push(`${key}: no transcript found`);
       continue;
     }
-    problems.push(...verifyRan(arm, a, workDir(args.work, key)));
+    problems.push(...verifyRan(arm, a, workDir(args.work, key), { agentType: typeOf(task) }));
     parts.push(a);
     if (a.structured) outputs[item.id] = a.structured;
   }
@@ -403,7 +422,7 @@ export function scoreArms(task, args, agents, reference, truth) {
     }
     // An item run's arm record is assembled from item agents `combineItems` already checked.
     if (!args.items) {
-      const p = verifyRan(arm, a, workDir(args.work, arm.id));
+      const p = verifyRan(arm, a, workDir(args.work, arm.id), { agentType: typeOf(task) });
       problems.push(...p);
       if (p.length) invalid.push(arm.id);
     }
@@ -456,7 +475,7 @@ async function score(opts) {
       else invalid.add(h.split(/[/:]/)[0]);
     }
   }
-  const agents = { ...transcripts };
+  const agents = withTextOutputs(task, transcripts);
   if (Array.isArray(args.items)) {
     for (const arm of [args.gold, ...args.arms]) {
       const { record, problems: p } = combineItems(task, args, transcripts, arm);
@@ -511,7 +530,10 @@ async function score(opts) {
   const unruled = disagreements.filter((d) => !rulings[d.id]);
   for (const [k, a] of referees) {
     const work = workDir(args.work, k.replace(":", "-"));
-    const p = verifyRan(REFEREE, a, work, { needOutput: unruled.length > 0 });
+    const p = verifyRan(REFEREE, a, work, {
+      needOutput: unruled.length > 0,
+      agentType: typeOf(task),
+    });
     problems.push(...p);
     blockers.push(...p);
   }
@@ -671,7 +693,65 @@ function split(opts) {
   }
 }
 
-const COMMANDS = { prepare, collect, score, split };
+/**
+ * The agents the workflow would spawn for these args, each with the exact prompt, model and
+ * effort: the workflow script itself runs, with a runtime that records its agent() calls instead
+ * of spawning them. For a task whose agents answer in text, launched one by one with the Agent
+ * tool (`subagent_type` the task's agentType), a referee's prompt also says how to write its
+ * rulings, just before its marker.
+ */
+export async function launches(args, source, task) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, opts });
+    return {};
+  };
+  const parallel = (thunks) => Promise.all(thunks.map((t) => t()));
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const body = new AsyncFunction(
+    "args",
+    "agent",
+    "parallel",
+    "phase",
+    "log",
+    source.replace(/^export const meta/m, "const meta"),
+  );
+  const result = await body(
+    args,
+    agent,
+    parallel,
+    () => {},
+    () => {},
+  );
+  if (!calls.length) throw new Error(`the workflow launched nothing: ${JSON.stringify(result)}`);
+  return calls.map(({ prompt, opts }) => ({
+    label: opts.label,
+    model: opts.model,
+    effort: opts.effort,
+    subagent_type: typeOf(task),
+    prompt:
+      task.textOutput && args.mode === "referee"
+        ? prompt.replace(/\n\n(\(BAKEOFF-REFEREE: [^)]*\))$/, `\n\n${RULINGS_IN_TEXT}\n\n$1`)
+        : prompt,
+  }));
+}
+
+export const RULINGS_IN_TEXT =
+  'End your final message with one fenced ```json block, and nothing after it, holding exactly {"rulings": [{"id": "<id>", "armCorrect": true or false, "refCorrect": true or false, "note": "<note>"}, …]}.';
+
+// prompts: what to launch by hand, for a task whose agents cannot run in the workflow. `--referee`
+// reads the referee args score wrote instead of the run's workflow args.
+async function prompts(opts) {
+  const run = resolve(opts.run);
+  const args = readJson(
+    opts.referee ? join(run, "referee-args.json") : join(run, "workflow-args.json"),
+  );
+  const task = await loadTask(args.task);
+  const source = readFileSync(join(REPO, ".claude/workflows/model-bakeoff.workflow.js"), "utf8");
+  console.log(JSON.stringify(await launches(args, source, task), null, 1));
+}
+
+const COMMANDS = { prepare, collect, score, split, prompts };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { positionals, values } = parseArgs({
@@ -683,12 +763,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       arms: { type: "string" },
       run: { type: "string" },
       transcripts: { type: "string" },
+      referee: { type: "boolean" },
     },
   });
   const cmd = COMMANDS[positionals[0]];
   if (!cmd) {
     console.error(
-      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir>",
+      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir> | prompts --run <dir> [--referee]",
     );
     process.exit(2);
   }

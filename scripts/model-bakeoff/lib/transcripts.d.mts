@@ -29,6 +29,9 @@ export interface AgentTranscript {
   reads?: string[];
   otherTools: string[];
   prompt: string;
+  /** The text of the last assistant message that has any. Absent before explore-questions. */
+  finalText?: string;
   forbidden: string[];
 }
 export function readAgentTranscript(text: string): AgentTranscript;
+export function textStructured(text: string | undefined): Record<string, unknown> | null;

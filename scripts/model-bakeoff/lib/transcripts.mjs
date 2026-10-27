@@ -382,6 +382,9 @@ export function readAgentTranscript(text) {
   const otherTools = [];
   const reads = [];
   let prompt = "";
+  // The text of the last assistant message that has any: a task whose agents answer in text (no
+  // schema tool, as an Agent-tool subagent) is scored from it.
+  let finalText = "";
   for (const line of lines) {
     let o;
     try {
@@ -404,6 +407,11 @@ export function readAgentTranscript(text) {
         markerError = `the first prompt holds ${count} markers and does not end with exactly one`;
     }
     if (m.role === "assistant" && Array.isArray(m.content)) {
+      const text = m.content
+        .filter((b) => b && b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text)
+        .join("\n");
+      if (text.trim()) finalText = text;
       for (const b of m.content) {
         if (!b || b.type !== "tool_use") continue;
         if (b.name === "StructuredOutput") outputs.push(b);
@@ -451,6 +459,22 @@ export function readAgentTranscript(text) {
     reads,
     otherTools,
     prompt,
+    finalText,
     forbidden: bash.filter((c) => forbiddenCommand(c)),
   };
+}
+
+/**
+ * The answer of an agent that replies in text: the last fenced ```json block of its final
+ * message, parsed, when it is a JSON object; otherwise null, which scores as no output.
+ */
+export function textStructured(text) {
+  const blocks = [...String(text ?? "").matchAll(/```json[ \t]*\n([\s\S]*?)\n```/g)];
+  if (!blocks.length) return null;
+  try {
+    const v = JSON.parse(blocks[blocks.length - 1][1]);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
 }
