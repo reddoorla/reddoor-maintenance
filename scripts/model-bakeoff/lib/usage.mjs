@@ -4,7 +4,7 @@
 // session ID, title or cost here or in a test: this repo is public.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { PRICE_SOURCE, priceRequest, splitLines, usageRecords } from "./ledger.mjs";
+import { PRICES, PRICE_SOURCE, priceRequest, splitLines, usageRecords } from "./ledger.mjs";
 
 export const COLUMNS = Object.freeze([
   "session_id",
@@ -960,6 +960,216 @@ export function staleSessions(listed, stored) {
     .filter((s) => s.environment_kind !== "bridge")
     .filter((s) => !seen.has(s.id) || cmpTime(s.updated_at, seen.get(s.id)) > 0)
     .map((s) => s.id);
+}
+
+// ---- The weekly report ----
+
+const CLOUD_SOURCES = new Set(["modelUsage", "get_session-residual"]);
+const isOpus = (model) => String(model).startsWith("claude-opus");
+const WEEK_MS = 7 * 24 * 3600 * 1000;
+const iso = (ms) => new Date(ms).toISOString().replace(".000Z", "Z");
+const byCost = (a, b) => b.cost_usd - a.cost_usd || (a.model < b.model ? -1 : 1);
+
+/**
+ * The weekly usage summary (P1-83c) over the rows whose `as_of` falls in [since, until); since
+ * defaults to seven days before until, and until to now. The cloud figures are the `modelUsage`
+ * and `get_session-residual` rows, which make each session's total; `transcript` rows are a split
+ * of that total by agent, so they feed only the main-thread and subagent figures. A run's row
+ * counts whole in the week of its `as_of`, even when the run began earlier.
+ */
+export function weeklyReport({ rows, sessions }, opts = {}) {
+  const until = opts.until ?? iso(Date.now());
+  const since = opts.since ?? iso(Date.parse(until) - WEEK_MS);
+  const info = new Map(sessions.map((s) => [s.session_id, s]));
+  // finalize books a residual with no as_of when the session has no stored result; it is dated
+  // by the get_session reading it came from.
+  const dated = rows.map((r) =>
+    r.as_of || r.source !== "get_session-residual"
+      ? r
+      : {
+          ...r,
+          as_of:
+            info.get(r.session_id)?.cost_read_at || info.get(r.session_id)?.read_updated_at || "",
+        },
+  );
+  const inWindow = dated.filter(
+    (r) => r.as_of && cmpTime(r.as_of, since) >= 0 && cmpTime(r.as_of, until) < 0,
+  );
+  const cloudRows = inWindow.filter((r) => CLOUD_SOURCES.has(r.source));
+  const total = cloudRows.reduce((n, r) => n + Number(r.cost_usd), 0);
+  const byModel = [...groupBy(cloudRows, (r) => r.model)]
+    .map(([model, rs]) => {
+      const cost_usd = rs.reduce((n, r) => n + Number(r.cost_usd), 0);
+      return { model, cost_usd, share: total ? cost_usd / total : 0 };
+    })
+    .sort(byCost);
+  const opusCloud = byModel.filter((m) => isOpus(m.model)).reduce((n, m) => n + m.cost_usd, 0);
+
+  const top = [...groupBy(cloudRows, (r) => r.session_id)]
+    .map(([session_id, rs]) => {
+      const created = info.get(session_id)?.created_at || rs[0].session_created_at;
+      const last = rs.reduce((t, r) => (cmpTime(r.as_of, t) > 0 ? r.as_of : t), rs[0].as_of);
+      return {
+        session_id,
+        title: String(info.get(session_id)?.title ?? ""),
+        hours: created ? (Date.parse(last) - Date.parse(created)) / 3.6e6 : null,
+        cost_usd: rs.reduce((n, r) => n + Number(r.cost_usd), 0),
+      };
+    })
+    .sort((a, b) => b.cost_usd - a.cost_usd || (a.session_id < b.session_id ? -1 : 1))
+    .slice(0, 5);
+
+  const transcript = inWindow.filter((r) => r.source === "transcript");
+  const isMain = (r) => r.agent_id === "main";
+  const agentsByModel = [...groupBy(transcript, (r) => r.model)]
+    .map(([model, rs]) => ({
+      model,
+      main: rs.filter(isMain).reduce((n, r) => n + Number(r.cost_usd), 0),
+      subagent: rs.filter((r) => !isMain(r)).reduce((n, r) => n + Number(r.cost_usd), 0),
+    }))
+    .filter((m) => m.main || m.subagent)
+    .sort((a, b) => b.main + b.subagent - (a.main + a.subagent) || (a.model < b.model ? -1 : 1));
+  const subagents = transcript.filter((r) => !isMain(r));
+  const subagentTotal = subagents.reduce((n, r) => n + Number(r.cost_usd), 0);
+  const opusSubagent = subagents
+    .filter((r) => isOpus(r.model))
+    .reduce((n, r) => n + Number(r.cost_usd), 0);
+
+  // A cache write with no TTL split (most modelUsage rows) is priced from the row's own server
+  // cost: what the other classes leave of it, held between the 5-minute and the 1-hour rate.
+  // Pricing it all at the 5-minute rate, as ledger.mjs does, read 1% to 10% short in aggregate on real rows.
+  const opusTokens = {
+    input: 0,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    total: 0,
+    serverCost: 0,
+    unpriced: [],
+  };
+  for (const r of cloudRows.filter((r) => isOpus(r.model))) {
+    const p = PRICES[r.model];
+    if (!p) {
+      if (!opusTokens.unpriced.includes(r.model)) opusTokens.unpriced.push(r.model);
+      continue;
+    }
+    const n = (k) => Number(r[k]) || 0;
+    opusTokens.input += (n("input_tokens") * p.in) / 1e6;
+    opusTokens.output += (n("output_tokens") * p.out) / 1e6;
+    opusTokens.cache_read += (n("cache_read_tokens") * p.cr) / 1e6;
+    const known =
+      (n("input_tokens") * p.in +
+        n("output_tokens") * p.out +
+        n("cache_read_tokens") * p.cr +
+        n("cache_write_5m_tokens") * p.cw5m +
+        n("cache_write_1h_tokens") * p.cw1h) /
+      1e6;
+    const unsplit = n("cache_write_unsplit_tokens");
+    const left = Number(r.cost_usd) - known;
+    const unsplitCost = Math.min(
+      Math.max(left, (unsplit * p.cw5m) / 1e6),
+      (unsplit * p.cw1h) / 1e6,
+    );
+    opusTokens.cache_write +=
+      (n("cache_write_5m_tokens") * p.cw5m + n("cache_write_1h_tokens") * p.cw1h) / 1e6 +
+      unsplitCost;
+    opusTokens.serverCost += Number(r.cost_usd);
+  }
+  opusTokens.total =
+    opusTokens.input + opusTokens.output + opusTokens.cache_read + opusTokens.cache_write;
+
+  return {
+    since,
+    until,
+    cloud: { total, byModel, opusShare: total ? opusCloud / total : 0 },
+    top,
+    agents: {
+      byModel: agentsByModel,
+      subagentTotal,
+      opusSubagent,
+      opusSubagentShare: subagentTotal ? opusSubagent / subagentTotal : 0,
+    },
+    opusTokens,
+  };
+}
+
+const PT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+/** An instant as the operator reads it: "Jan 7 4:00pm PT". */
+const pacific = (t) => {
+  const p = Object.fromEntries(PT.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+  return `${p.month} ${p.day} ${p.hour}:${p.minute}${p.dayPeriod.toLowerCase()} PT`;
+};
+const usd = (n) => `$${n.toFixed(2)}`;
+const pct = (x) => `${Math.round(x * 100)}%`;
+const cellText = (s) =>
+  String(s)
+    .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|");
+
+/** `weeklyReport` as text: one summary line for the Monday report, then the tables. */
+export function formatReport(r) {
+  const [first] = r.top;
+  const summary = [
+    `Usage, ${pacific(r.since)} to ${pacific(r.until)}: ${usd(r.cloud.total)} cloud list price, Opus ${pct(r.cloud.opusShare)}`,
+    first
+      ? `top session ${usd(first.cost_usd)} over ${first.hours === null ? "?" : Math.round(first.hours)}h`
+      : "no session",
+    r.agents.subagentTotal
+      ? `Opus ${pct(r.agents.opusSubagentShare)} of subagent spend (${usd(r.agents.opusSubagent)} of ${usd(r.agents.subagentTotal)}).`
+      : "no subagent rows.",
+  ].join("; ");
+  const t = r.opusTokens;
+  return [
+    summary,
+    "",
+    "Cloud list-price spend by model (modelUsage plus get_session-residual; transcript rows are inside it):",
+    "",
+    "| model | spend | share |",
+    "|---|---|---|",
+    ...r.cloud.byModel.map((m) => `| ${m.model} | ${usd(m.cost_usd)} | ${pct(m.share)} |`),
+    `| **total** | ${usd(r.cloud.total)} | |`,
+    "",
+    "Top 5 sessions by spend (the sum of their runs in the window; hours from created_at to as_of):",
+    "",
+    "| session | title | hours | spend |",
+    "|---|---|---|---|",
+    ...r.top.map(
+      (s) =>
+        `| ${s.session_id} | ${cellText(s.title)} | ${s.hours === null ? "?" : s.hours.toFixed(1)} | ${usd(s.cost_usd)} |`,
+    ),
+    "",
+    "Main thread against subagents, from transcript rows (laptop sessions included, so not a split of the cloud total):",
+    "",
+    "| model | main | subagent |",
+    "|---|---|---|",
+    ...r.agents.byModel.map((m) => `| ${m.model} | ${usd(m.main)} | ${usd(m.subagent)} |`),
+    "",
+    r.agents.subagentTotal
+      ? `Opus share of subagent spend: ${pct(r.agents.opusSubagentShare)} (${usd(r.agents.opusSubagent)} of ${usd(r.agents.subagentTotal)}).`
+      : "Opus share of subagent spend: no subagent rows.",
+    "",
+    "Opus cost by token class (cloud rows, priced from PRICES; a write with no TTL from what the row's server cost leaves, between the 5-minute and 1-hour rates):",
+    "",
+    "| class | cost | share |",
+    "|---|---|---|",
+    ...[
+      ["input", t.input],
+      ["output", t.output],
+      ["cache read", t.cache_read],
+      ["cache write", t.cache_write],
+    ].map(([k, v]) => `| ${k} | ${usd(v)} | ${t.total ? pct(v / t.total) : "-"} |`),
+    "",
+    `The classes total ${usd(t.total)} against ${usd(t.serverCost)} of server cost on the same rows.`,
+    ...(t.unpriced.length ? ["", `Unpriced Opus models, left out: ${t.unpriced.join(", ")}.`] : []),
+  ].join("\n");
 }
 
 // ---- CSV ----
