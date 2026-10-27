@@ -20,6 +20,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -29,7 +30,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
 const USAGE =
@@ -325,13 +326,16 @@ async function git(ctx, cwd, args) {
   return r.stdout;
 }
 
-/** `git status --porcelain` minus the node_modules link this script made itself. */
+/** `git status --porcelain` minus the node_modules links this script made itself. */
 async function dirtyLines(ctx, cwd, ignore = []) {
   const out = await git(ctx, cwd, ["status", "--porcelain", "--untracked-files=all"]);
-  return out
-    .split("\n")
-    .filter(Boolean)
-    .filter((l) => !ignore.includes(l));
+  return (
+    out
+      .split("\n")
+      .filter(Boolean)
+      // An entry ending in `/` ignores everything under it.
+      .filter((l) => !ignore.some((i) => (i.endsWith("/") ? l.startsWith(i) : l === i)))
+  );
 }
 
 // ── the run ──────────────────────────────────────────────────────────────────────────
@@ -443,12 +447,15 @@ export async function mutate(o, deps = {}) {
     }
     stopping = true;
     cleanupSync();
-    if (results.length && rep) {
-      const partial = o.json
-        ? JSON.stringify({ ...rep, stopped: sig }, null, 2) + "\n"
-        : `${formatReport(rep)}\n(stopped by ${sig}; results so far)\n`;
-      (deps.writeOut ?? ((t) => writeSync(1, t)))(partial);
-    }
+    // --json always prints JSON, with no results yet too (#1646).
+    if (o.json)
+      (deps.writeOut ?? ((t) => writeSync(1, t)))(
+        JSON.stringify({ ...(rep ?? {}), results, stopped: sig }, null, 2) + "\n",
+      );
+    else if (results.length && rep)
+      (deps.writeOut ?? ((t) => writeSync(1, t)))(
+        `${formatReport(rep)}\n(stopped by ${sig}; results so far)\n`,
+      );
     ctx.log(`mutate: stopped by ${sig}; files restored`);
     proc.exit(SIGNAL_EXIT[sig]);
   };
@@ -509,10 +516,17 @@ export async function mutate(o, deps = {}) {
     )
       .split("\0")
       .filter(Boolean)
-      .map((l) => ({ mode: l.split(" ")[0], file: l.split("\t")[1] }));
+      // `<mode> <sha> <stage>\t<path>`: the path is everything after the first tab, and
+      // may hold a tab itself (#1646).
+      .map((l) => ({ mode: l.split(" ")[0], file: l.slice(l.indexOf("\t") + 1) }));
     const untracked = files.filter((f) => !staged.some((x) => x.file === f));
     if (untracked.length)
       throw new Refusal(`edits name files git does not track: ${untracked.join(", ")}`);
+    const gitlinks = staged.filter((x) => x.mode === "160000").map((x) => x.file);
+    if (gitlinks.length)
+      throw new Refusal(
+        `edits name submodules, which hold no text to edit: ${gitlinks.join(", ")}`,
+      );
     const links = staged.filter((x) => x.mode === "120000").map((x) => x.file);
     if (links.length)
       throw new Refusal(`edits name symlinks, which would write through: ${links.join(", ")}`);
@@ -629,8 +643,14 @@ export async function mutate(o, deps = {}) {
           });
         if (ri.code !== 0) throw new Refusal(`pnpm install in the worktree failed:\n${tail(ri)}`);
       } else {
-        symlinkSync(join(root, "node_modules"), join(wt, "node_modules"), "dir");
-        ignore.push("?? node_modules");
+        // Each entry is linked, not the folder, so the run's caches (vitest's
+        // node_modules/.vite) land in the worktree and leave with it (#1646).
+        mkdirSync(join(wt, "node_modules"));
+        for (const e of readdirSync(join(root, "node_modules"))) {
+          if (/^\.(vite|vitest|cache)$/.test(e)) continue;
+          symlinkSync(join(root, "node_modules", e), join(wt, "node_modules", e));
+        }
+        ignore.push("?? node_modules/");
       }
       // cockpit/tsconfig.json extends the git-ignored cockpit/.svelte-kit/tsconfig.json, so a
       // test reaching cockpit/ code fails to transform until it is generated, as
@@ -669,7 +689,9 @@ export async function mutate(o, deps = {}) {
         throw new Error(`the tree is not clean after ${after}:\n  ${left.join("\n  ")}`);
     };
 
-    const outside = relative(root, sidecarPath).startsWith("..");
+    // `..x.json` inside the repo is not outside it (#1646).
+    const rel = relative(root, sidecarPath);
+    const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
     const shown = outside ? sidecarPath : relative(root, sidecarPath);
     const command = [
       "node scripts/mutate.mjs",
@@ -906,13 +928,17 @@ async function main() {
       return;
     }
     const r = e?.report;
-    if (r?.results?.length) {
+    // --json always prints JSON, with no results yet too (#1646).
+    if (o.json)
+      process.stdout.write(
+        JSON.stringify({ results: [], ...(r ?? {}), error: e?.message ?? String(e) }, null, 2) +
+          "\n",
+      );
+    else if (r?.results?.length) {
       const all = r.results.length === r.planned;
-      if (o.json) process.stdout.write(JSON.stringify({ ...r, error: e.message }, null, 2) + "\n");
-      else
-        process.stdout.write(
-          `${formatReport(r)}\n(${all ? "every mutant ran; the error came after" : "stopped early; results so far"})\n`,
-        );
+      process.stdout.write(
+        `${formatReport(r)}\n(${all ? "every mutant ran; the error came after" : "stopped early; results so far"})\n`,
+      );
     }
     process.stderr.write(`mutate: error: ${e?.message ?? e}\n`);
     process.exitCode = 3;
