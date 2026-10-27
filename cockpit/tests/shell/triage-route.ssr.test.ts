@@ -3,7 +3,6 @@ import { isHttpError, isRedirect } from "@sveltejs/kit";
 import { load as rootLoad } from "../../src/routes/+page.js";
 import { load as triageLoad } from "../../src/routes/triage/+page.js";
 import { NAV_ITEMS } from "../../src/lib/nav.js";
-import { COCKPIT_HOME } from "../../../src/dashboard/home-path.js";
 import { safeReturnTo } from "../../../src/dashboard/auth/oauth-state.js";
 import { collectUrlResolveAlerts } from "../../../src/alerts/digest-collectors.js";
 import { collectDomainAlerts } from "../../../src/alerts/production-signals.js";
@@ -26,10 +25,6 @@ async function thrownBy(run: () => unknown): Promise<unknown> {
 }
 
 describe("the start page lives at /triage", () => {
-  it("the cockpit's home is /triage until the overview lands", () => {
-    expect(COCKPIT_HOME).toBe("/triage");
-  });
-
   it("/ redirects to /triage temporarily (307), carrying the query", async () => {
     const thrown = await thrownBy(() =>
       (rootLoad as (e: unknown) => unknown)({ url: new URL("https://dash.example/?since=7") }),

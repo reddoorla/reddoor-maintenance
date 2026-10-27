@@ -1,6 +1,6 @@
 import { sign, verify } from "./signing.js";
 import { serializeCookie, clearCookie } from "./cookies.js";
-import { COCKPIT_HOME } from "../home-path.js";
+import { SIGN_IN_HOME } from "../home-path.js";
 
 /**
  * The short-lived cookie that carries one in-flight sign-in: the CSRF `state`,
@@ -85,7 +85,7 @@ function hasControlChar(value: string): boolean {
 
 /**
  * Reduce a caller-supplied `returnTo` to a safe same-origin path, falling back
- * to `COCKPIT_HOME` (`/triage` until P1-78g; P1-78f).
+ * to `SIGN_IN_HOME` (`/triage` until P1-78g sets it back to `/`; P1-78f).
  *
  * Without this the login endpoint is an open redirect: `?returnTo=https://evil`
  * would send an operator off-origin at the exact moment they have just proven
@@ -102,14 +102,14 @@ function hasControlChar(value: string): boolean {
  * them staring at a sign-in button they have already used.
  */
 export function safeReturnTo(raw: string | null | undefined): string {
-  if (!raw) return COCKPIT_HOME;
+  if (!raw) return SIGN_IN_HOME;
   const value = raw.trim();
-  if (!value.startsWith("/")) return COCKPIT_HOME;
-  if (value.startsWith("//")) return COCKPIT_HOME;
-  if (value.startsWith("/\\")) return COCKPIT_HOME;
-  if (hasControlChar(value)) return COCKPIT_HOME;
+  if (!value.startsWith("/")) return SIGN_IN_HOME;
+  if (value.startsWith("//")) return SIGN_IN_HOME;
+  if (value.startsWith("/\\")) return SIGN_IN_HOME;
+  if (hasControlChar(value)) return SIGN_IN_HOME;
   if (value === "/auth" || value.startsWith("/auth/") || value.startsWith("/auth?"))
-    return COCKPIT_HOME;
+    return SIGN_IN_HOME;
   return value;
 }
 

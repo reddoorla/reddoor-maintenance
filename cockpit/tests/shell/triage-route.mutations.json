@@ -21,7 +21,7 @@
     "edits": [
       {
         "file": "src/alerts/digest-collectors.ts",
-        "find": "return slug ? `${root}/s/${slug}` : `${root}${COCKPIT_HOME}`;",
+        "find": "return slug ? `${root}/s/${slug}` : `${root}${TRIAGE_PATH}`;",
         "replace": "return slug ? `${root}/s/${slug}` : `${root}/`;"
       }
     ],
@@ -34,7 +34,7 @@
     "edits": [
       {
         "file": "src/alerts/digest-collectors.ts",
-        "find": "url: `${baseUrl.replace(/\\/$/, \"\")}${COCKPIT_HOME}`,",
+        "find": "url: `${baseUrl.replace(/\\/$/, \"\")}${TRIAGE_PATH}`,",
         "replace": "url: `${baseUrl.replace(/\\/$/, \"\")}/`,"
       }
     ],
@@ -50,7 +50,7 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "return slug ? `${root}/s/${slug}` : `${root}${COCKPIT_HOME}`;",
+        "find": "return slug ? `${root}/s/${slug}` : `${root}${TRIAGE_PATH}`;",
         "replace": "return slug ? `${root}/s/${slug}` : `${root}/`;"
       }
     ],
@@ -63,7 +63,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${COCKPIT_HOME}`,",
+        "find": "dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,",
         "replace": "dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}/`,"
       }
     ],
@@ -76,8 +76,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.ts",
-        "find": "redirect(307, `${COCKPIT_HOME}${url.search}`);",
-        "replace": "redirect(308, `${COCKPIT_HOME}${url.search}`);"
+        "find": "redirect(307, `${TRIAGE_PATH}${url.search}`);",
+        "replace": "redirect(308, `${TRIAGE_PATH}${url.search}`);"
       }
     ],
     "test": [
@@ -92,8 +92,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.ts",
-        "find": "redirect(307, `${COCKPIT_HOME}${url.search}`);",
-        "replace": "redirect(301, `${COCKPIT_HOME}${url.search}`);"
+        "find": "redirect(307, `${TRIAGE_PATH}${url.search}`);",
+        "replace": "redirect(301, `${TRIAGE_PATH}${url.search}`);"
       }
     ],
     "test": "cockpit/tests/shell/triage-route.ssr.test.ts",
@@ -126,7 +126,7 @@
     "edits": [
       {
         "file": "src/dashboard/auth/oauth-state.ts",
-        "find": "  if (!raw) return COCKPIT_HOME;",
+        "find": "  if (!raw) return SIGN_IN_HOME;",
         "replace": "  if (!raw) return \"/\";"
       }
     ],
@@ -142,7 +142,7 @@
     "edits": [
       {
         "file": "src/dashboard/auth/oauth-state.ts",
-        "find": "  if (!value.startsWith(\"/\")) return COCKPIT_HOME;",
+        "find": "  if (!value.startsWith(\"/\")) return SIGN_IN_HOME;",
         "replace": "  if (!value.startsWith(\"/\")) return \"/\";"
       }
     ],

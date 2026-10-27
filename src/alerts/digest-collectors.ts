@@ -11,15 +11,15 @@ import {
 import type { ReportRow } from "../reports/report-fields.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
-import { COCKPIT_HOME } from "../dashboard/home-path.js";
+import { TRIAGE_PATH } from "../dashboard/home-path.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
  *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the cockpit's home
- *  page (COCKPIT_HOME, `/triage` until P1-78g), exactly like the ready-section does. */
+ *  page (TRIAGE_PATH, `/triage`), exactly like the ready-section does. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
   const root = baseUrl.replace(/\/$/, "");
   const slug = siteSlug(siteName);
-  return slug ? `${root}/s/${slug}` : `${root}${COCKPIT_HOME}`;
+  return slug ? `${root}/s/${slug}` : `${root}${TRIAGE_PATH}`;
 }
 
 /**
@@ -934,7 +934,7 @@ export function collectUrlResolveAlerts(
       kind: "url",
       siteName: "(fleet)",
       title: `Roster url probe is behind on ${stale} of ${covered} non-archived rows (${parts.join(", ")}) — check fleet-lighthouse's "Probe roster urls to Turso" step`,
-      url: `${baseUrl.replace(/\/$/, "")}${COCKPIT_HOME}`,
+      url: `${baseUrl.replace(/\/$/, "")}${TRIAGE_PATH}`,
       severity: "warning",
       metric: stale,
     });

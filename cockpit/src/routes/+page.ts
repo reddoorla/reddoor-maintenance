@@ -1,6 +1,6 @@
 import { redirect } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
-import { COCKPIT_HOME } from "../../../src/dashboard/home-path.js";
+import { TRIAGE_PATH } from "../../../src/dashboard/home-path.js";
 
 /**
  * P1-78f: the triage start page lives at `/triage` until the overview takes `/`
@@ -9,5 +9,5 @@ import { COCKPIT_HOME } from "../../../src/dashboard/home-path.js";
  * the overview lands. The query string travels with it.
  */
 export const load: PageLoad = ({ url }) => {
-  redirect(307, `${COCKPIT_HOME}${url.search}`);
+  redirect(307, `${TRIAGE_PATH}${url.search}`);
 };
