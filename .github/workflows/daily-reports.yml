@@ -245,8 +245,8 @@ jobs:
             else
               day=$(date -u +%F)
             fi
-            read -r fired ok < <(gh api "repos/$REPO/actions/workflows/daily-reports.yml/runs?event=workflow_dispatch&branch=main&created=>=${day}T00:00:00Z&per_page=100" \
-              --jq '[.workflow_runs[] | select(.display_title == "daily-reports send" or .display_title == "daily-reports all")] | "\(length) \(map(select(.conclusion == "success")) | length)"') || {
+            read -r fired ok failed_run < <(gh api "repos/$REPO/actions/workflows/daily-reports.yml/runs?event=workflow_dispatch&branch=main&created=>=${day}T00:00:00Z&per_page=100" \
+              --jq '[.workflow_runs[] | select(.display_title == "daily-reports send" or .display_title == "daily-reports all")] | "\(length) \(map(select(.conclusion == "success")) | length) \(map(select(.conclusion == "failure")) | .[0].id // "")"') || {
               echo "::error::could not read the send runs since ${day}, so the fallback sends nothing"
               exit 1
             }
@@ -254,6 +254,22 @@ jobs:
               echo "a send run succeeded since ${day} ($ok), so the fallback sends nothing"
               echo "sent=no-op" >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+            # #1639. An approved report the queue cannot see reds the clock's run by
+            # name every day until someone unapproves it, and a retry cannot send
+            # it. When the newest failed run's log has that ✗ line and no other
+            # ✗ or ⚠ line, name the report and do not retry. The anchor on the
+            # line start skips the step scripts GitHub echoes into the same log.
+            if [ "${fired:-0}" -gt 0 ] && [ -n "${failed_run:-}" ]; then
+              joblog=$(for job in $(gh api "repos/$REPO/actions/runs/$failed_run/jobs" --jq '.jobs[].id'); do
+                gh api "repos/$REPO/actions/jobs/$job/logs"
+              done) || joblog=""
+              marks=$(printf '%s\n' "$joblog" | sed -E 's/^[0-9TZ:.-]+ //' | grep -E '^ *(✗|⚠)' || true)
+              stuck=$(printf '%s\n' "$marks" | sed -nE 's/^✗ (.+) — approved but not in the send queue .*/\1/p')
+              if [ -n "$stuck" ] && [ "$(printf '%s\n' "$marks" | grep -c .)" -eq "$(printf '%s\n' "$stuck" | grep -c .)" ]; then
+                echo "::error::unqueued-approval: the send clock's run failed only because an approved report is not in the send queue (not draft-ready): $(printf '%s\n' "$stuck" | paste -sd, - | sed 's/,/, /g'). Unapprove it in its site's report history to clear this, then re-draft it to send it. This fallback does not retry: a retry cannot send it"
+                exit 1
+              fi
             fi
             if [ "${fired:-0}" -gt 0 ]; then
               echo "::error::send-run-failed: the send clock fired ($fired run(s) since ${day}) but none succeeded, so this fallback retries the send"
@@ -424,7 +440,7 @@ jobs:
           title="Daily reports run failing (${MODE})"
           prefix="Daily reports run failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried. A `✗ … approved but not in the send queue` line names an approved report the send queue cannot see: unapproving it in the report history on its site page clears the red, and re-drafting it is what sends it; `NEXT_DUE_WRITE` and `DIGEST_SEND_LOG … read=` errors name a write or read that did not land.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
+          body=$(printf 'The daily **daily-reports** run in mode `%s` failed. If its log says `send-clock-missed`, the sends went out late from the fallback cron because the 16:07Z Netlify send clock did not fire; `send-run-failed` means it fired but its run failed, and the fallback retried; `unqueued-approval` means it fired and failed only on an approved report the send queue cannot see, so the fallback named it and did not retry. A `✗ … approved but not in the send queue` line names an approved report the send queue cannot see: unapproving it in the report history on its site page clears the red, and re-drafting it is what sends it; `NEXT_DUE_WRITE` and `DIGEST_SEND_LOG … read=` errors name a write or read that did not land.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run that covers this mode._' "$MODE" "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then

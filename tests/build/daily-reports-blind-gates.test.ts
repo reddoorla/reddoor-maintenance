@@ -451,7 +451,17 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
     expect(day2.step.log).toContain("::error::");
   });
 
-  it.each(["null", "[]", '"x"', '{"sent_on":"2026-10-20"}'])(
+  it.each([
+    "null",
+    "[]",
+    '"x"',
+    '{"sent_on":"2026-10-20"}',
+    // #1639: one known key was enough, so a hand edit read as ok with sent={}.
+    '{"sentOn":"2026-10-20","sent":"x"}',
+    '{"sent":{}}',
+    '{"sentOn":"2026-10-20","sent":{},"readySince":[]}',
+    '{"sentOn":7,"sent":{},"readySince":{}}',
+  ])(
     "a send-log row of the wrong shape (%s) reads as corrupt, not as a clean first send",
     async (snapshot) => {
       await seedDigestFleet();
@@ -467,6 +477,23 @@ describe("#1613 (3) and (4) the digest reads what it read, not only what it wrot
       await d.destroy();
     },
   );
+
+  it.each([
+    '{"sentOn":null,"sent":{},"readySince":{}}',
+    '{"sentOn":"2026-10-20","sent":{"a":{"metric":1}},"readySince":{"a":"2026-10-19"}}',
+  ])("KNOWN-GOOD: a send log of the writer's shape (%s) reads as ok", async (snapshot) => {
+    await seedDigestFleet();
+    await digestThroughGate();
+    const d = await db();
+    await d
+      .updateTable("digest_state")
+      .set({ snapshot })
+      .where("id", "=", "digest_send_log")
+      .execute();
+    const { readDigestSendLogChecked } = await import("../../src/db/digest-state.js");
+    expect((await readDigestSendLogChecked(d)).state).toBe("ok");
+    await d.destroy();
+  });
 
   it("KNOWN-GOOD: the send log the digest itself writes reads back as ok", async () => {
     await seedDigestFleet();
