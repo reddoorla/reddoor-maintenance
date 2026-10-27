@@ -234,13 +234,16 @@ const devDepBlocker = pathToFileURL(resolve(here, "register-dev-dep-blocker.mjs"
 await check("dev-dep blocker is active (negative self-test)", () => {
   const probe = ["--input-type=module", "-e", 'await import("happy-dom")'];
   execFileSync(process.execPath, probe, { stdio: "ignore" });
-  let threw = false;
+  let refused = false;
   try {
-    execFileSync(process.execPath, ["--import", devDepBlocker, ...probe], { stdio: "ignore" });
-  } catch {
-    threw = true;
+    execFileSync(process.execPath, ["--import", devDepBlocker, ...probe], {
+      encoding: "utf-8",
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    refused = String(e.stderr).includes("[dev-dep-blocker]");
   }
-  if (!threw) throw new Error('the dev-dep blocker did not refuse `import "happy-dom"`');
+  if (!refused) throw new Error('the dev-dep blocker did not refuse `import "happy-dom"`');
 });
 
 await check("sync-configs --dry flags a disabled Renovate job with devDependencies blocked", () => {

@@ -226,22 +226,26 @@ export function renovateActionGaps(contents: string): string[] {
  * renovatebot step can run (#1607 input 2: `if: false` on the job read CLEAN).
  *
  * The question is "can Renovate run at all": some `renovatebot/github-action`
- * step whose job `if:` and own `if:` are not always false, in a job where at
- * least one `create-github-app-token` step is not always false either. A
- * disabled checkout does not block it (the action works through the API), and
- * a job with no app-token step is left to the App-auth check above.
+ * step whose job `if:` and own `if:` are not always false, and whose `token:`
+ * does not come only from steps that are always skipped. A disabled checkout
+ * does not block it (the action works through the API), and a token from
+ * nowhere is left to the App-auth check above.
  *
  * It reads the parsed tree, never lines: the line scanner #1680 tried kept
  * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
  * own `sidecar:` job). A false gap opens a PR that overwrites a working file,
  * so anything not decidable without GitHub's runtime context counts as "may
- * run", and a file js-yaml cannot parse gets no verdict here.
+ * run", and a file js-yaml cannot parse, or one with a job that calls a
+ * reusable workflow, gets no verdict here.
  */
 function renovateNeverRuns(contents: string): string | null {
-  // Strings that came from a `|` or `>` block scalar. GitHub keeps such a
-  // template's indentation, so `|-\n  ${{ false }}` is a non-empty format()
-  // string that runs, though js-yaml's value is exactly `${{ false }}`.
-  const blockScalars = new Set<string>();
+  // Strings GitHub builds from their source text, not their value: block
+  // scalars, and quoted scalars over several lines. A `${{ }}` in one keeps
+  // its indentation or quotes, so it is a non-empty format() string that
+  // runs, though js-yaml's value for `|-\n  ${{ false }}` is exactly
+  // `${{ false }}`. The node opens before js-yaml skips the space, tag,
+  // anchor and comments in front of it, so those are stripped here.
+  const fromSource = new Set<string>();
   const opened: number[] = [];
   let doc: unknown;
   try {
@@ -250,8 +254,12 @@ function renovateNeverRuns(contents: string): string | null {
         if (event === "open") return void opened.push(state.position);
         const start = opened.pop()!;
         if (state.kind !== "scalar" || typeof state.result !== "string") return;
-        if (/^(?:\s|[!&]\S*)*[|>]/.test(state.input.slice(start, state.position))) {
-          blockScalars.add(state.result);
+        const source = state.input
+          .slice(start, state.position)
+          .replace(/^(?:\s|[!&]\S*|#[^\n]*)*/, "")
+          .trimEnd();
+        if (/^[|>]/.test(source) || (/^["']/.test(source) && /[\r\n]/.test(source))) {
+          fromSource.add(state.result);
         }
       },
     });
@@ -261,28 +269,33 @@ function renovateNeverRuns(contents: string): string | null {
   const jobs = record(record(doc)?.jobs);
   if (!jobs) return null;
 
-  const usesAction = (step: unknown, slug: string) => {
-    const uses = record(step)?.uses;
-    return typeof uses === "string" && uses.trim().startsWith(`${slug}@`);
-  };
   const off = (owner: unknown) => {
     const r = record(owner);
-    return r !== null && alwaysFalse(r.if, blockScalars);
+    return r !== null && alwaysFalse(r.if, fromSource);
   };
 
   let blockedAt: string | null = null;
   for (const [name, job] of Object.entries(jobs)) {
+    if (typeof record(job)?.uses === "string") return null;
     const steps = record(job)?.steps;
     if (!Array.isArray(steps)) continue;
-    const renovate = steps.filter((s) => usesAction(s, "renovatebot/github-action"));
-    if (renovate.length === 0) continue;
-    const appTokens = steps.filter((s) => usesAction(s, "actions/create-github-app-token"));
-    if (off(job)) blockedAt ??= `job \`${name}\``;
-    else if (appTokens.length > 0 && appTokens.every(off)) {
-      blockedAt ??= `every actions/create-github-app-token step in job \`${name}\``;
-    } else if (renovate.every(off)) {
-      blockedAt ??= `every renovatebot/github-action step in job \`${name}\``;
-    } else return null;
+    for (const step of steps) {
+      const uses = record(step)?.uses;
+      if (typeof uses !== "string") continue;
+      if (!uses.trim().toLowerCase().startsWith("renovatebot/github-action@")) continue;
+      const token = record(record(step)?.with)?.token;
+      const source = /steps\.([\w-]+)\.outputs\b/.exec(String(token ?? ""))?.[1];
+      const minters = steps.filter((s) => source !== undefined && record(s)?.id === source);
+      const blocker = off(job)
+        ? `job \`${name}\``
+        : off(step)
+          ? `the renovatebot/github-action step in job \`${name}\``
+          : minters.length > 0 && minters.every(off)
+            ? `step \`${source}\`, which mints its token, in job \`${name}\``
+            : null;
+      if (!blocker) return null;
+      blockedAt ??= blocker;
+    }
   }
   return blockedAt;
 }
@@ -299,21 +312,23 @@ function record(v: unknown): Record<string, unknown> | null {
  * values (#1607, 2026-10-22; `tests/fixtures/renovate-action-if-oracle.json`):
  *
  * - absent, null, or a string empty after trimming means `success()`: runs.
- * - a YAML boolean or number is its text (`False` is false, `0x0` is 0).
+ * - a YAML boolean or number is its text (`False` is false, `0x0` is 0, `.nan`
+ *   is NaN).
  * - a string that is exactly one `${{ … }}` is that expression, and one holding
  *   only a quoted literal is unwrapped to the literal's text (`${{ 'false' }}`
  *   is `false`). Anything else around a `${{` (padding inside the quotes, a
- *   block scalar, a second template) makes a non-empty format() string: runs.
+ *   block or multi-line quoted scalar, a second template) makes a format()
+ *   string, read as "may run": it is non-empty unless every piece is empty.
  * - any other string, trimmed, is the expression.
  */
-function alwaysFalse(value: unknown, blockScalars: Set<string>): boolean {
+function alwaysFalse(value: unknown, fromSource: Set<string>): boolean {
   if (typeof value === "boolean") return !value;
-  if (typeof value === "number") return value === 0;
+  if (typeof value === "number") return !truthy(value);
   if (typeof value !== "string") return false;
   let text = value;
   if (text.includes("${{")) {
     const whole = /^\$\{\{([\s\S]*)\}\}$/.exec(text);
-    if (!whole || blockScalars.has(text)) return false;
+    if (!whole || fromSource.has(text)) return false;
     const inner = whole[1]!;
     if (inner.includes("${{") || inner.includes("}}")) return false;
     const literal = /^\s*'((?:[^']|'')*)'\s*$/.exec(inner);
@@ -343,7 +358,7 @@ function truthy(v: Value): boolean {
 function evaluate(expr: string): Value | typeof UNDECIDED {
   const tokens: Array<{ op: string } | { value: Value }> = [];
   const re =
-    /(\(|\)|!|&&|\|\|)|'((?:[^']|'')*)'|(0x[0-9a-fA-F]+|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?![\w.])|(true|false|null)(?![\w.-])|always\(\s*\)/y;
+    /(\(|\)|!|&&|\|\|)|'((?:[^']|'')*)'|(0[xX][0-9a-fA-F]+|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)(?![\w.])|(true|false|null)(?![\w.-])|always\(\s*\)/y;
   for (let at = 0; ;) {
     while (/\s/.test(expr[at] ?? "")) at++;
     if (at === expr.length) break;

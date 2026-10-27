@@ -66,8 +66,8 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
 
   it("the gap names where the always-false if: sits", () => {
     expect(cannotRun(place("false", "job"))[0]).toMatch(/job `renovate`/);
-    expect(cannotRun(place("false", "step"))[0]).toMatch(/renovatebot\/github-action step/);
-    expect(cannotRun(place("false", "app"))[0]).toMatch(/create-github-app-token/);
+    expect(cannotRun(place("false", "step"))[0]).toMatch(/the renovatebot\/github-action step/);
+    expect(cannotRun(place("false", "app"))[0]).toMatch(/step `app-token`, which mints its token/);
   });
 
   it("a disabled sidecar: job beside a working renovate: job is no gap", () => {
@@ -121,17 +121,94 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
   });
 
   it("an if: that reads a context is left undecided: no gap", () => {
-    for (const v of [
-      "github.event_name == 'schedule'",
-      "${{ vars.RENOVATE_OFF != 'true' }}",
-      "false && github.ref",
-    ]) {
+    for (const v of ["github.event_name == 'schedule'", "${{ vars.RENOVATE_OFF != 'true' }}"]) {
       expect(cannotRun(place(v, "job")), v).toEqual([]);
     }
   });
 
   it("a file that is not YAML gets no can-never-run gap (the string checks still run)", () => {
     expect(cannotRun(`${CANONICAL}\n  : : [\n`)).toEqual([]);
+  });
+
+  // Review round 1 of this PR. Each "runs" verdict below is the oracle's.
+  for (const lvl of ["job", "step", "app"] as const) {
+    it(`a ${lvl} if: whose ${"${{ }}"} GitHub keeps as source text runs, so is no gap`, () => {
+      for (const v of [
+        "# note\n      |-\n      ${{ false }}", // a comment before the block header
+        "!!str # note\n      >-\n      ${{ false }}",
+        '"${{ false\n      }}"', // a quoted scalar over two lines
+        "'${{\n      false }}'",
+        '"${{ false }}\\\n      "', // an escaped line break
+      ]) {
+        expect(cannotRun(place(v, lvl)), JSON.stringify(v)).toEqual([]);
+      }
+    });
+  }
+
+  it("a CRLF file with a comment before the block header is no gap", () => {
+    const crlf = place("# note\n      |-\n      ${{ false }}", "job").replaceAll("\n", "\r\n");
+    expect(cannotRun(crlf)).toEqual([]);
+  });
+
+  it("a disabled create-github-app-token step the Renovate step does not take its token from is no gap", () => {
+    const other = CANONICAL.replace(
+      /( {6}- uses: actions\/create-github-app-token@)/,
+      "      - uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a\n        id: minted\n        with:\n          app_id: x\n$1",
+    )
+      .replace("        id: app-token\n", "        id: old-token\n        if: false\n")
+      .replace("steps.app-token.outputs.token", "steps.minted.outputs.token");
+    expect(other).toContain("id: old-token\n        if: false");
+    expect(cannotRun(other)).toEqual([]);
+  });
+
+  it("a job that calls a reusable workflow means no verdict, whatever a leftover job says", () => {
+    const withCall = place("false", "job").replace(
+      "jobs:\n",
+      "jobs:\n  call:\n    uses: reddoorla/reddoor-maintenance/.github/workflows/renovate.yml@3beb63f4bd073e61482598c45c71c1019b59b73a\n    secrets: inherit\n",
+    );
+    expect(cannotRun(withCall)).toEqual([]);
+  });
+
+  it("a renovatebot step spelled in another case still counts as Renovate", () => {
+    const step = CANONICAL.match(/ {6}- uses: renovatebot\/github-action@[\s\S]*$/)![0];
+    const twice = place("false", "step") + step.replace("renovatebot/", "RenovateBot/");
+    expect(cannotRun(twice)).toEqual([]);
+  });
+
+  // Review round 1: a regex that can split a run of characters many ways
+  // hung on these (an anchor of 40 `!`s took over 100 s; 20,000 digits 1.1 s).
+  it("a long anchor or number in an if: is read in linear time", () => {
+    for (const v of [`&a${"!".repeat(40)}  foo`, `${"1".repeat(200_000)}a`]) {
+      const started = Date.now();
+      renovateActionGaps(place(v, "job"));
+      expect(Date.now() - started, v.slice(0, 12)).toBeLessThan(2_000);
+    }
+  });
+
+  // Review round 1: each pins a rule a mutant broke without a test going red.
+  // The verdicts are the oracle's.
+  it("values GitHub runs are no gap", () => {
+    for (const v of [
+      "-1",
+      "${{ !true || true }}", // ! binds tighter than ||
+      "false false", // GitHub rejects it: two values, no operator
+      "!!str |\n      ${{ false }}", // a tag before the block header
+      "&a >\n      ${{ false }}", // an anchor before it
+    ]) {
+      expect(cannotRun(place(v, "job")), JSON.stringify(v)).toEqual([]);
+    }
+  });
+
+  it("values GitHub always skips are a gap", () => {
+    for (const v of ["${{ '''''' }}", "${{ 0x0 }}", "${{ always() && false }}"]) {
+      expect(cannotRun(place(v, "job")), v).toHaveLength(1);
+    }
+  });
+
+  it("0X0 and .nan are always false (the oracle skips both)", () => {
+    for (const v of ["0X0", "${{ 0X0 }}", ".nan", "!!float .nan"]) {
+      expect(cannotRun(place(v, "job")), v).toHaveLength(1);
+    }
   });
 });
 
@@ -228,7 +305,7 @@ describe("renovateActionGaps — #1680's review-round inputs (#1607)", () => {
     ).toBe(true);
   });
 
-  it("if: false inside a block scalar (a run: | body) is text, not a condition", () => {
+  it("if: false inside a block scalar (an env: value) is text, not a condition", () => {
     const inBlock = CANONICAL.replace(
       "        id: app-token\n",
       "        id: app-token\n        env:\n          NOTE: |\n            if: false\n            if: 0\n",
@@ -347,6 +424,7 @@ describe("renovateActionGaps — #1680's review-round inputs (#1607)", () => {
       "  renovate:\n    runs-on",
       "  renovate-old:\n    if: false\n    runs-on",
     );
+    expect(old).toContain("renovate-old:");
     noGap(CANONICAL.trimEnd() + "\n" + old); // after the working job
     noGap(CANONICAL.slice(0, at) + old.trimEnd() + "\n" + job); // and before it
   });

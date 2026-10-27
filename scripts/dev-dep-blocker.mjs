@@ -9,12 +9,20 @@
 // central-dep-blocker.mjs blocks a named ten for entries that must stay light;
 // this one blocks them all, for commands that legitimately use runtime deps.
 // Registered via scripts/register-dev-dep-blocker.mjs (`node --import …`).
+//
+// Its blind spot, shared with central-dep-blocker: a CommonJS `require` (or
+// `createRequire`) does not pass through this ESM hook. dist is ESM with no
+// `createRequire`, so every first-party import does.
 import { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
+// An optional peer (`@sveltejs/kit`) may be absent from a consumer's install.
+const optionalPeers = Object.entries(pkg.peerDependenciesMeta ?? {})
+  .filter(([, meta]) => meta?.optional)
+  .map(([name]) => name);
 const installed = new Set([
   ...Object.keys(pkg.dependencies ?? {}),
-  ...Object.keys(pkg.peerDependencies ?? {}),
+  ...Object.keys(pkg.peerDependencies ?? {}).filter((p) => !optionalPeers.includes(p)),
 ]);
 const blocked = new Set(Object.keys(pkg.devDependencies ?? {}).filter((d) => !installed.has(d)));
 
