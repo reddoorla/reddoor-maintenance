@@ -148,7 +148,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "      if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };",
+        "find": "    if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };",
         "replace": ""
       }
     ],
@@ -174,7 +174,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "      if (touchedBy(it, changes.worse)) return { ...it, status: \"worse\" };\n",
+        "find": "    if (touchedBy(it, changes.worse)) return { ...it, status: \"worse\" };\n",
         "replace": ""
       }
     ],
