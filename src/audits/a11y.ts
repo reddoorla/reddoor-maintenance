@@ -11,6 +11,7 @@ import {
 } from "../configs/playwright-a11y.js";
 import { readSiteConfig, readsPlaceholderPrismicRepo } from "./util/site-config.js";
 import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
+import { installSiteDeps } from "./util/install-site.js";
 import type { AuditContext } from "./util/inject.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
@@ -1150,10 +1151,23 @@ export function describeNoResults(raw: SpawnResult): string {
   return `a11y: no results written (exit ${raw.code})${detail ? ` — ${detail}` : ""}`;
 }
 
+/** Set to "1" by `fleet-a11y.yml`: install a fresh clone before auditing it (P1-78c). */
+export const A11Y_INSTALL_ENV = "REDDOOR_A11Y_INSTALL";
+
 export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
   const site = ctx.site;
   const label = siteLabel(site);
+
+  // P1-78c: the weekly fleet sweep (fleet-a11y.yml) runs on fresh clones, which have
+  // no node_modules and no browser at the site's own Playwright revision. Only that
+  // workflow opts in, so a site's own CI gate and a local run are unchanged.
+  if (process.env[A11Y_INSTALL_ENV] === "1") {
+    const notReady = await installSiteDeps(site.path, spawn, { browser: true });
+    if (notReady !== null) {
+      return { audit: "a11y", site: label, status: "skip", summary: `a11y: ${notReady}` };
+    }
+  }
 
   // specDir lives INSIDE site.path (not /tmp) so the spec's
   // `import AxeBuilder from "@axe-core/playwright"` resolves via Node's
