@@ -135,6 +135,21 @@ describe("the writer stores null when nothing was sampled", () => {
     expect(cells["Uptime Reachable"]).toBe("fail");
     expect(cells["Links OK"]).toBe(false);
   });
+
+  // Round 6: only an explicit null means "not measured"; a details object missing the key
+  // is a fail, as it was before P1-78c.
+  it("a missing verdict key is still a fail, not 'not measured'", () => {
+    const fields = browserFieldsFromAudit({
+      audit: "browser",
+      site: "sonder",
+      status: "warn",
+      summary: "",
+      details: { checkedAt: FRESH },
+    });
+    const cells = auditFields({ browser: fields });
+    expect(cells["Uptime Reachable"]).toBe("fail");
+    expect(cells["Links OK"]).toBe(false);
+  });
 });
 
 describe("domain and certificate", () => {
@@ -157,6 +172,50 @@ describe("domain and certificate", () => {
     );
     expect(level(it!)).toBe("broken");
     expect(it!.title).toContain("expired");
+  });
+
+  // Round 6: the boundary. A certificate one day past expiry is expired, never "-1 days".
+  it("a certificate one day past expiry says expired", () => {
+    const [it] = collectDomainAlerts(
+      [site({ certDaysRemaining: -1, domainCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(it!.title).toBe("TLS certificate expired");
+  });
+
+  // Round 6: the site alarm sorts by severity, so a Broken item that is not critical ranks
+  // under a broken link (review round 5 pinned uptime's; these are the other three).
+  it("a dead domain, an expiring certificate and an unreachable CMS are critical", () => {
+    const dead = collectDomainAlerts(
+      [site({ certDaysRemaining: null, domainCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(keys(dead)).toEqual(["domain:recS"]);
+    expect(dead[0]!.severity).toBe("critical");
+    const expiring = collectDomainAlerts(
+      [site({ certDaysRemaining: 3, domainCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(expiring[0]!.severity).toBe("critical");
+    const cms = collectFunctionHealthAlerts(
+      [site({ cmsReachable: "fail", functionHealthCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(keys(cms)).toEqual(["cms:recS"]);
+    expect(cms[0]!.severity).toBe("critical");
+  });
+
+  // Round 6: a base URL configured with a trailing slash still links to /s/<slug>.
+  it("links to the site page whether or not the base URL ends in a slash", () => {
+    const at = (base: string) =>
+      collectDomainAlerts([site({ certDaysRemaining: 3, domainCheckedAt: FRESH })], base, NOW)[0]!
+        .url;
+    expect(at("https://cockpit.test/")).toBe("https://cockpit.test/s/sonder");
+    expect(at("https://cockpit.test")).toBe("https://cockpit.test/s/sonder");
   });
 
   it("a fresh run with no certificate days is a dead domain, Broken", () => {
@@ -260,6 +319,15 @@ describe("broken links (Attention)", () => {
     expect(it!.title).toBe("2 broken links");
   });
 
+  it("one broken link is singular", () => {
+    const [it] = collectLinkAlerts(
+      [site({ linksOk: false, brokenLinks: 1, browserCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(it!.title).toBe("1 broken link");
+  });
+
   it("a links fail that named no broken link (no link checked) is nothing", () => {
     expect(
       collectLinkAlerts(
@@ -299,6 +367,12 @@ describe("accessibility (Attention, weekly)", () => {
     const [it] = collectA11yAlerts([site({ ...complete, a11yCheckedAt: ago(5) })], BASE, NOW);
     expect(level(it!)).toBe("attention");
     expect(it!.title).toBe("3 accessibility findings");
+    const [one] = collectA11yAlerts(
+      [site({ ...complete, a11yViolations: 1, a11yCheckedAt: ago(5) })],
+      BASE,
+      NOW,
+    );
+    expect(one!.title).toBe("1 accessibility finding");
     expect(
       collectA11yAlerts([site({ ...complete, a11yCheckedAt: ago(7.9) })], BASE, NOW),
     ).toHaveLength(1);
@@ -364,6 +438,9 @@ describe("dependencies behind (Attention past 90 days, else Watch)", () => {
     );
     expect(d.far).toEqual([]);
     expect(d.behind).toHaveLength(1);
+    // Round 6: the Watch line counts its packages, as title and as metric.
+    expect(d.behind[0]!.title).toBe("3 packages a major behind");
+    expect(d.behind[0]!.metric).toBe(3);
   });
 
   it("a night with no reading uses the run carried through it, unreset", () => {
@@ -430,6 +507,8 @@ describe("Watch signals", () => {
     expect(sc("resolved")).toEqual([]);
     expect(sc("no-property")).toEqual([]);
     expect(sc("soft-fail", ago(60))).toEqual([]);
+    // Round 6: the window is the report cadence, not the nightly 3 days.
+    expect(sc("soft-fail", ago(10)).map(level)).toEqual(["watch"]);
   });
 });
 

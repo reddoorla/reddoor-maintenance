@@ -36,6 +36,15 @@ describe("installSiteDeps", () => {
     expect(r.calls).toEqual([]);
   });
 
+  // Round 6: a runner with no pnpm is a skip with a reason, never a thrown audit.
+  it("says pnpm is not available when it cannot be spawned", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "install-site-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("spawn pnpm ENOENT");
+    };
+    expect(await installSiteDeps(dir, spawn, { browser: false })).toBe("pnpm not available");
+  });
+
   it("retries unfrozen once, then says why it cannot run", async () => {
     const dir = await mkdtemp(join(tmpdir(), "install-site-"));
     const r = recorder({ "pnpm install --frozen-lockfile": 1, "pnpm install": 1 });
