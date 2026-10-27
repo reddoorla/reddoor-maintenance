@@ -14,7 +14,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { prepare, truthPath, type Task } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import {
+  prepare,
+  refereeArgsPath,
+  resultPath,
+  runsPath,
+  truthPath,
+  type Task,
+} from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as figmaInventory from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import * as pnpmUpdate from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
 import * as exploreQuestions from "../../scripts/model-bakeoff/tasks/explore-questions.mjs";
@@ -143,6 +150,18 @@ describe("prepare", () => {
     );
     expect(existsSync(out)).toBe(false);
     expect(readFileSync(truthPath(out), "utf8")).toBe("{}\n");
+  });
+
+  // A stale <run>.runs.json from a deleted run would be merged into the new one (#1540).
+  it("refuses an --out that a runs, referee-args or result file already sits beside", async () => {
+    for (const path of [runsPath, refereeArgsPath, resultPath]) {
+      const out = fresh();
+      writeFileSync(path(out), "{}\n");
+      await expect(prepare({ out, root: src }, fake())).rejects.toThrow(
+        `${path(out)} exists; pick a fresh --out`,
+      );
+      expect(existsSync(out)).toBe(false);
+    }
   });
 
   it("removes the truth it wrote when a later step fails", async () => {
