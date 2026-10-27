@@ -138,9 +138,7 @@ jobs:
           # than a quarter of the fleet, cannot fire here: this run is smoke only.
           # A site whose smoke measured nothing (deps would not install, a timeout)
           # never reaches this gate: the never-measured check above reds on it first
-          # (#1611). The gate runs before the bare counts below: a fleet that wrote
-          # nothing also reads `wrote=0`, and "check the Turso creds" would send
-          # triage the wrong way when the cause is something else.
+          # (#1611).
           # The CLI's exit status cannot carry this (a failing audit exits 1 by
           # design, so the step tolerates it), so the verdict line is the contract,
           # and an absent line is red.
@@ -152,21 +150,6 @@ jobs:
           grep -E "^FLEET_WRITE_GATE_WARNING " "${RUNNER_TEMP:-/tmp}/smoke.out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true
           if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
             grep -E "^FLEET_WRITE_GATE_REASON " "${RUNNER_TEMP:-/tmp}/smoke.out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet smoke: /' || true
-            exit 1
-          fi
-
-          # The two bare counts below are a floor behind the gate above, which reds on
-          # every input they do. They fire only if the gate's line and the summary
-          # ever disagree.
-          # Total write-back failure: nothing landed at all (creds/API/inventory).
-          if [ "$wrote" -eq 0 ]; then
-            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check the Turso creds / API)."
-            exit 1
-          fi
-
-          # Mass flake: more than 25% of attempted sites failed to write.
-          if [ $((failed * 4)) -gt "$total" ]; then
-            echo "::error::fleet smoke: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
             exit 1
           fi
 
