@@ -16,12 +16,20 @@ vi.mock("@playwright/test", () => {
     waitFor: async (opts: unknown) => void calls.push({ name: "waitFor", opts }),
     textContent: async () => null,
   };
+  // The consent-gate handler (#1736) builds a locator and registers it; nothing
+  // in this fake ever shows a gate, so the handler never runs.
+  const gate: Record<string, unknown> = {};
+  gate.or = () => gate;
+  gate.filter = () => gate;
   const page = {
     on: () => {},
+    getByRole: () => gate,
+    addLocatorHandler: async () => {},
     goto: async () => ({ ok: () => true }),
     locator: (selector: string) => ({
       count: async () => (selector === ".cf-turnstile" ? 0 : 1),
       first: () => first,
+      filter: () => gate,
     }),
     fill: async () => {},
     evaluate: async (expr: string) => {

@@ -69,6 +69,9 @@ export type FormSubmitOutcome =
       hydrationUnconfirmed?: boolean;
       synthesized?: string[];
       resynthesized?: string[];
+      /** The button the probe pressed to answer a cookie-consent gate that covered
+       *  the page (#1736), e.g. "Reject". Absent = no gate appeared. */
+      consentAnswered?: string;
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -527,6 +530,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
     const synthesizedNote =
+      (outcome.consentAnswered !== undefined
+        ? ` — answered a cookie-consent dialog with "${outcome.consentAnswered}"`
+        : "") +
       (outcome.synthesized?.length
         ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
         : "") +
@@ -671,6 +677,97 @@ const PAGE_TIMEOUT_MS = 30_000;
  *  this is slack for a page that shows its region before the reply arrives. */
 const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
+
+/** A dialog that asks for cookie consent, by its accessible name or its text. */
+const CONSENT_DIALOG = /cookie|consent/i;
+const COOKIE_TEXT = /cookie/i;
+/** Declining first: the probe is not a visitor, and accepting would load the
+ *  site's analytics and count it as one. */
+const CONSENT_DECLINE = /reject|decline|deny|refuse|necessary|essential/i;
+const CONSENT_ACCEPT = /accept|agree|allow|got it|^ok/i;
+/** How long the probe gives a consent gate's button to take its click. */
+const CONSENT_CLICK_MS = 5_000;
+
+/**
+ * Answer a cookie-consent gate whenever one covers the page (#1736).
+ *
+ * gallerysonder mounts a full-screen `role="dialog"` named "Cookie consent" 3 s
+ * after load, over the form, and every visitor must press Accept or Reject
+ * before anything under it takes a click. The probe never did, so its submit
+ * click waited out 30 s on "<div role=dialog …> intercepts pointer events" for
+ * 14 nights while the form delivered. Playwright runs this handler before any
+ * action it would otherwise block, whenever the gate appears, so a gate on a
+ * timer is covered too. A gate with no button a visitor could press is left up,
+ * and the click still fails: that site is broken for visitors as well.
+ *
+ * Returns what the handler did, read when the outcome is written.
+ */
+export async function answerConsentGates(page: import("@playwright/test").Page): Promise<{
+  answered?: string;
+  unanswerable: boolean;
+}> {
+  const seen: { answered?: string; unanswerable: boolean } = { unanswerable: false };
+  const gate = page
+    .getByRole("dialog", { name: CONSENT_DIALOG })
+    .or(page.getByRole("alertdialog", { name: CONSENT_DIALOG }))
+    .or(page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: COOKIE_TEXT }));
+  await page.addLocatorHandler(
+    gate,
+    async (dialog) => {
+      const decline = dialog.getByRole("button", { name: CONSENT_DECLINE }).first();
+      const button =
+        (await decline.count()) > 0
+          ? decline
+          : dialog.getByRole("button", { name: CONSENT_ACCEPT }).first();
+      // Answered once already: this is the same gate on its way out. Svelte keeps an
+      // outroing element in the DOM, inert, for its fade, so it still matches, and
+      // a second click on it lands on the page beneath (gallerysonder, 2026-10-27).
+      if (seen.answered !== undefined) return;
+      if ((await button.count()) === 0) {
+        seen.unanswerable = true;
+        return;
+      }
+      const label = ((await button.textContent().catch(() => null)) ?? "").trim().slice(0, 40);
+      // Never thrown: a handler's throw escapes the action as an unhandled
+      // rejection, which crashed the whole run. The action it interrupted
+      // reports the blocked click itself.
+      const clicked = await button
+        .click({ timeout: CONSENT_CLICK_MS })
+        .then(() => true)
+        .catch(() => false);
+      if (!clicked) {
+        seen.unanswerable = true;
+        return;
+      }
+      seen.answered = label;
+      await dialog.waitFor({ state: "hidden", timeout: CONSENT_CLICK_MS }).catch(() => {});
+    },
+    // The handler waits for the gate itself, above, and only after an answer; an
+    // unanswerable gate then leaves the action to time out with its "intercepts"
+    // reason instead of the handler's.
+    { noWaitAfter: true },
+  );
+  return seen;
+}
+
+/** A thrown probe's detail: the error's first line, plus the actionability
+ *  reason Playwright puts in its call log ("… intercepts pointer events"),
+ *  which a plain cut at 120 characters dropped (#1736). */
+export function probeErrorDetail(err: unknown, consent?: { unanswerable: boolean }): string {
+  const text = String(err);
+  const head = (text.split("\n")[0] ?? "").slice(0, 120);
+  const blocker = text
+    .match(/[^\n]*intercepts pointer events/)?.[0]
+    ?.trim()
+    .slice(0, 200);
+  return (
+    head +
+    (blocker ? ` — ${blocker}` : "") +
+    (consent?.unanswerable
+      ? " — a cookie-consent dialog covered the page and the probe could not answer it"
+      : "")
+  );
+}
 
 /** The slice of a Playwright page the route probe needs. Declared structurally so
  *  the discovery loop is unit-testable without launching a browser; the real
@@ -940,10 +1037,16 @@ export async function defaultFormRunner(
       let containerPresent = false;
       const synthesized: string[] = [];
       let resynthesized: string[] = [];
+      // Hoisted with the rest: a click a consent gate blocked throws, and the
+      // catch below names the gate.
+      let consent: { answered?: string; unanswerable: boolean } = { unanswerable: false };
+      const consentNote = () =>
+        consent.answered !== undefined ? { consentAnswered: consent.answered } : {};
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
+        consent = await answerConsentGates(page);
         // The tell that the framework recreated the DOM under the probe (Svelte 5
         // logs a svelte.dev/e/hydration_mismatch warning when it does). Recorded
         // for the failure detail — on 2026-08-31 this was the discriminator
@@ -1241,6 +1344,7 @@ export async function defaultFormRunner(
             ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
             ...(synthesized.length > 0 ? { synthesized } : {}),
             ...(resynthesized.length > 0 ? { resynthesized } : {}),
+            ...consentNote(),
             turnstile: turnstileSeen(),
             formsHealth,
           };
@@ -1284,6 +1388,7 @@ export async function defaultFormRunner(
           ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
+          ...consentNote(),
           detail: noBannerDetail({
             post,
             alertText,
@@ -1308,7 +1413,8 @@ export async function defaultFormRunner(
         return {
           formPresent: true,
           success: false,
-          detail: String(err).slice(0, 120),
+          detail: probeErrorDetail(err, consent),
+          ...consentNote(),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
           turnstile: {
