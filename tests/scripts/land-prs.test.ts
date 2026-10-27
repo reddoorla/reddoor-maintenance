@@ -2730,7 +2730,7 @@ describe("land-prs: test changes", () => {
         `LAND #5 test change: ${T}: removed assertion not re-added: expect(count()).toBe(3);`,
       );
       expect(r.lines.at(-1)).toMatch(
-        /^LAND #5 stopped reason=1 flagged test file is not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+        /^LAND #5 stopped reason=1 flagged test file is not named in the PR body: .*; checked before merging head aaaaaaa$/,
       );
       expect(kinds(r.calls)).toEqual(["checks"]);
     });
@@ -2747,7 +2747,7 @@ describe("land-prs: test changes", () => {
       );
       expect(r.code).toBe(1);
       expect(r.lines.at(-1)).toMatch(
-        /not named in the PR body: .*; seen on the merging head aaaaaaa$/,
+        /not named in the PR body: .*; checked before merging head aaaaaaa$/,
       );
       expect(kinds(r.calls)).toEqual(["checks"]);
     });
@@ -2808,6 +2808,248 @@ describe("land-prs: test changes", () => {
       expect(r.lines.at(-1)).toBe(
         "LAND #5 stopped reason=gh api pulls/5/files?per_page=100&page=1 failed: gh: Not Found (HTTP 404)",
       );
+    });
+  });
+
+  // #1617 and #1755: the gate's minors and its two matcher gaps.
+  describe("#1617 and #1755", () => {
+    const patch = (...ls: string[]) => `@@ -1,${ls.length} +1,${ls.length} @@\n${ls.join("\n")}`;
+
+    it("test paths match in any case, and a root spec/ directory holds tests", () => {
+      for (const t of [
+        "Tests/a.ts",
+        "TESTS/fixtures/x.json",
+        "E2E/a.ts",
+        "spec/a.rb",
+        "packages/x/spec/b.ts",
+        "src/A.Test.ts",
+        "src/b.SPEC.tsx",
+      ]) {
+        expect(isTestFile(t), t).toBe(true);
+      }
+      for (const n of ["src/spec/a.ts", "docs/spec.md", "specs/a.ts"]) {
+        expect(isTestFile(n), n).toBe(false);
+      }
+    });
+
+    it("a deleted non-code file under a test directory is named as a fixture, not as a test", () => {
+      expect(testChangeFlags([file("tests/fixtures/old-site.json", "removed")])).toEqual([
+        {
+          file: "tests/fixtures/old-site.json",
+          reasons: ["fixture deleted (not a test's code): say why"],
+        },
+      ]);
+      expect(testChangeFlags([file("tests/a.test.ts", "removed")])).toEqual([
+        { file: "tests/a.test.ts", reasons: ["test file deleted"] },
+      ]);
+    });
+
+    it("a non-code file under a test directory is not scanned, and its left-out patch is not flagged", () => {
+      expect(
+        testChangeFlags([
+          file(
+            "tests/fixtures/page.html",
+            "modified",
+            patch("-<p>expect(x).toBe(1)</p>", "+<p>gone</p>"),
+          ),
+          file("tests/fixtures/big.json", "modified", undefined, { changes: 9_000 }),
+          file("tests/__snapshots__/a.test.ts.snap", "modified", undefined, { changes: 9_000 }),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("an added .only is flagged: it skips every other test in the file", () => {
+      for (const line of [
+        'it.only("a", () => {});',
+        'describe.only("b", () => {});',
+        'test.concurrent.only("c", async () => {});',
+        'fit("d", () => {});',
+        'fdescribe("e", () => {});',
+      ]) {
+        const f = file(T, "modified", patch(" keep();", `+${line}`));
+        expect(testChangeFlags([f]), line).toEqual([
+          { file: T, reasons: [`added .only: ${line}`] },
+        ]);
+      }
+      // A word, a read, or an unrelated `only` is not.
+      for (const line of ["const only = pick(xs);", "if (opts.only) run();", 'logger.only("x");']) {
+        expect(testChangeFlags([file(T, "modified", patch(" keep();", `+${line}`))]), line).toEqual(
+          [],
+        );
+      }
+    });
+
+    it("an added { skip: true } or { todo: true } in a test's options is flagged", () => {
+      for (const line of [
+        'it("a", { skip: true }, () => {});',
+        'test("b", { todo: true }, () => {});',
+      ]) {
+        const f = file(T, "modified", patch(" keep();", `+${line}`));
+        expect(testChangeFlags([f]), line).toEqual([{ file: T, reasons: [`added skip: ${line}`] }]);
+      }
+    });
+
+    it("a changed include or exclude in a test runner's config is flagged", () => {
+      for (const name of [
+        "vitest.config.ts",
+        "cockpit/vitest.config.mts",
+        "vitest.workspace.ts",
+        "playwright.config.ts",
+      ]) {
+        const f = file(
+          name,
+          "modified",
+          patch('-    exclude: ["dist/**"],', '+    exclude: ["dist/**", "tests/slow/**"],'),
+        );
+        expect(testChangeFlags([f]), name).toEqual([
+          {
+            file: name,
+            reasons: [
+              'test runner config changed which files run: exclude: ["dist/**", "tests/slow/**"],',
+            ],
+          },
+        ]);
+      }
+      expect(
+        testChangeFlags([
+          file(
+            "vitest.config.ts",
+            "modified",
+            patch("-  testTimeout: 5000,", "+  testTimeout: 9000,"),
+          ),
+        ]),
+      ).toEqual([]);
+      expect(
+        testChangeFlags([
+          file("src/exclude.ts", "modified", patch("-  exclude: 1,", "+  exclude: 2,")),
+        ]),
+      ).toEqual([]);
+    });
+
+    it("a removed assertion re-added without its trailing comment is not a removal", () => {
+      const f = file(T, "modified", patch("-expect(x).toBe(1); // flaky", "+expect(x).toBe(1);"));
+      expect(testChangeFlags([f])).toEqual([]);
+      // A string is still compared whole: a // inside it is not a comment.
+      const g = file(
+        T,
+        "modified",
+        patch('-expect(u).toBe("http://a"); // x', '+expect(u).toBe("http://b");'),
+      );
+      expect(testChangeFlags([g])[0]?.reasons).toEqual([
+        'removed assertion not re-added: expect(u).toBe("http://a"); // x',
+      ]);
+    });
+
+    it("#1755: a matcher line opening with }) or ]) is an assertion line", () => {
+      for (const line of [
+        "}).toEqual({ a: 1 });",
+        "]).toStrictEqual([1]);",
+        "}).not.toThrow();",
+        "})).resolves.toBe(1);",
+      ]) {
+        const f = file(T, "modified", patch(`-${line}`, " keep();"));
+        expect(testChangeFlags([f]), line).toEqual([
+          { file: T, reasons: [`removed assertion not re-added: ${line}`] },
+        ]);
+      }
+      for (const line of ["});", "}).catch(() => {});", "]);"]) {
+        expect(testChangeFlags([file(T, "modified", patch(`-${line}`, " keep();"))]), line).toEqual(
+          [],
+        );
+      }
+    });
+
+    it("#1755: a type assertion's matcher line with generics or .returns is an assertion line", () => {
+      for (const line of [
+        ").toEqualTypeOf<{ a: number }>();",
+        ").returns.toEqualTypeOf<string>();",
+        ").parameters.toEqualTypeOf<[number]>();",
+      ]) {
+        const f = file(T, "modified", patch(`-${line}`, " keep();"));
+        expect(testChangeFlags([f]), line).toEqual([
+          { file: T, reasons: [`removed assertion not re-added: ${line}`] },
+        ]);
+      }
+    });
+
+    it("#1755: a line of an expected value written across lines is part of the assertion", () => {
+      const f = file(
+        T,
+        "modified",
+        [
+          "@@ -10,6 +10,6 @@",
+          "   expect(read()).toEqual({",
+          "     id: 7,",
+          "-    a: 1,",
+          "+    a: 2,",
+          "     b: [1, 2],",
+          "   });",
+          "   other({",
+          "-    a: 1,",
+          "+    a: 3,",
+          "   });",
+        ].join("\n"),
+      );
+      expect(testChangeFlags([f])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: a: 1,"] },
+      ]);
+      // The value opened on a matcher line Prettier split off, and a value moved within it.
+      const g = file(
+        T,
+        "modified",
+        [
+          "@@ -3,6 +3,6 @@",
+          "   expect(",
+          "     read(),",
+          "   ).toEqual([",
+          "-    1,",
+          "     2,",
+          "+    1,",
+          "   ]);",
+        ].join("\n"),
+      );
+      expect(testChangeFlags([g])).toEqual([]);
+      const h = file(
+        T,
+        "modified",
+        [
+          "@@ -3,5 +3,5 @@",
+          "   ).toMatchObject({",
+          "-    ok: true,",
+          "+    ok: false,",
+          "   });",
+        ].join("\n"),
+      );
+      expect(testChangeFlags([h])).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: ok: true,"] },
+      ]);
+    });
+
+    it("a stop says when a flagged file is written only outside the section, or only where a reader cannot see it", async () => {
+      for (const [body, why] of [
+        [
+          `Test changes: none\n\n${T}: dup`,
+          `${T} is written outside the "Test changes:" section, which ends at a heading, or at a blank line followed by anything but a list item`,
+        ],
+        [
+          `Test changes:\n\n\`\`\`\n${T}\n\`\`\``,
+          `${T} is written only where a reader cannot see it (an HTML comment, a fenced block or a link's destination), which does not count`,
+        ],
+        [
+          `Test changes:\n- see below\n<!-- ${T} -->`,
+          `${T} is written only where a reader cannot see it (an HTML comment, a fenced block or a link's destination), which does not count`,
+        ],
+      ] as const) {
+        const r = await land(
+          [5],
+          [
+            [FILES(5), [files(WEAKENED)]],
+            [VIEW(5), [view({ body })]],
+          ],
+        );
+        expect(r.code, body).toBe(1);
+        expect(r.lines.at(-1), body).toContain(why);
+      }
     });
   });
 });
