@@ -3085,6 +3085,56 @@ describe("land-prs: test changes", () => {
       expect(performance.now() - at).toBeLessThan(500);
     });
 
+    it("round 2 (#1812): a comment on the matcher line still opens the value", () => {
+      for (const opener of ["expect(x).toEqual({ // shape", "expect(x).toEqual({ /* shape */"]) {
+        const f = file(
+          T,
+          "modified",
+          ["@@ -1,4 +1,4 @@", `   ${opener}`, "-    a: 1,", "+    a: 2,", "   });"].join("\n"),
+        );
+        expect(testChangeFlags([f]), opener).toEqual([
+          { file: T, reasons: ["removed assertion not re-added: a: 1,"] },
+        ]);
+      }
+    });
+
+    it("round 2 (#1812): fit( with a variable name or its title on the next line is a .only", () => {
+      for (const line of ["fit(name, () => {", "fit("]) {
+        const f = file(T, "modified", patch(" keep();", `+${line}`));
+        expect(testChangeFlags([f]), line).toEqual([
+          { file: T, reasons: [`added .only: ${line}`] },
+        ]);
+      }
+    });
+
+    it("round 2 (#1812): a runner config renamed, or with its patch left out, is flagged; a comment-only change is not", () => {
+      expect(
+        testChangeFlags([
+          file("vitest.config.bak", "renamed", undefined, {
+            previous_filename: "vitest.config.ts",
+          }),
+        ]),
+      ).toEqual([
+        {
+          file: "vitest.config.bak",
+          reasons: ["test runner config renamed from vitest.config.ts"],
+        },
+      ]);
+      expect(
+        testChangeFlags([file("vitest.config.ts", "modified", undefined, { changes: 900 })]),
+      ).toEqual([
+        {
+          file: "vitest.config.ts",
+          reasons: ["test runner config changed, and GitHub left out the patch: read the diff"],
+        },
+      ]);
+      expect(
+        testChangeFlags([
+          file("vitest.config.ts", "modified", patch("-  // old note", "+  // new note")),
+        ]),
+      ).toEqual([]);
+    });
+
     it("a stop says when a flagged file is written only outside the section, or only where a reader cannot see it", async () => {
       for (const [body, why] of [
         [

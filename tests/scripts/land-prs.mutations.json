@@ -147,8 +147,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (RUNNER_CONFIG.test(name) && typeof f?.patch === \"string\") {",
-        "replace": "if (false) {"
+        "find": "    const config = RUNNER_CONFIG.test(name) || RUNNER_CONFIG.test(before);",
+        "replace": "    const config = false;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -167,5 +167,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617: `{ skip: true }` in a test's options would pass."
+  },
+  {
+    "id": "M14-retry-not-open-quote",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "} else if (net > 0 && !open && hasCall(t, OPENS_VALUE, withoutGenerics)) {",
+        "replace": "} else if (net > 0 && !codeOf(t).retry && hasCall(t, OPENS_VALUE, withoutGenerics)) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1812 r2: a trailing comment on the matcher line would hide the expected value again."
   }
 ]

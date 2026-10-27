@@ -778,7 +778,7 @@ const SKIP = new RegExp(
 const ONLY = new RegExp(
   [
     `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*only\\b`,
-    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*["'\`]`,
+    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|[\\w.]+\\s*,|$)`,
   ].join("|"),
 );
 // The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
@@ -821,7 +821,7 @@ function patchLines(patch) {
  *  text), a quote opened right after a `/` (a regex literal `/'/`), or a comment began
  *  after code (a regex literal `/\//`). One pass, linear. */
 function codeOf(line) {
-  if (/^\*(?!\/)/.test(line)) return { code: "", retry: false };
+  if (/^\*(?!\/)/.test(line)) return { code: "", retry: false, open: false };
   let out = "";
   let quote = "";
   let retry = false;
@@ -849,7 +849,7 @@ function codeOf(line) {
       i = end + 1;
     } else out += c;
   }
-  return { code: out.trim(), retry: retry || quote !== "" };
+  return { code: out.trim(), retry: retry || quote !== "", open: quote !== "" };
 }
 
 /** Whether `re` finds a call on the line: on its code, and also on the raw line when
@@ -957,12 +957,12 @@ function valueLines(patch) {
     if (raw.startsWith("+") || raw.startsWith("\\")) continue;
     const t = raw.slice(1).trim();
     if (t.length > MAX_LINE) continue;
-    const { code, retry } = codeOf(t);
+    const { code, open } = codeOf(t);
     const net = netBrackets(code);
     if (depth > 0) {
       if (raw.startsWith("-")) out.push(t);
       depth = Math.max(0, depth + net);
-    } else if (net > 0 && !retry && hasCall(t, OPENS_VALUE, withoutGenerics)) {
+    } else if (net > 0 && !open && hasCall(t, OPENS_VALUE, withoutGenerics)) {
       // Not when a quote is left open (a template literal running on): bracket depth
       // cannot follow its lines.
       depth = net;
@@ -1022,15 +1022,30 @@ export function testChangeFlags(files) {
       });
       continue;
     }
-    if (RUNNER_CONFIG.test(name) && typeof f?.patch === "string") {
+    const config = RUNNER_CONFIG.test(name) || RUNNER_CONFIG.test(before);
+    if (config && (typeof f?.patch !== "string" || f?.status === "renamed")) {
+      // A rename, or a patch GitHub left out, hides what changed.
+      out.push({
+        file: name,
+        reasons: [
+          `test runner config ${f?.status === "renamed" ? `renamed from ${before}` : "changed, and GitHub left out the patch: read the diff"}`,
+        ],
+      });
+      continue;
+    }
+    if (config) {
       // Any changed line: an include or exclude is often a multi-line array, and
       // Playwright's grep and grepInvert pick tests too, so no keyword list is safe.
       const { removed, added } = patchLines(f.patch);
       const addedLeft = lineCounts(added.map(matchKey));
       const removedLeft = lineCounts(removed.map(matchKey));
       const changed = [
-        ...removed.filter((t) => t !== "" && !takeOne(addedLeft, matchKey(t))).map((t) => `-${t}`),
-        ...added.filter((t) => t !== "" && !takeOne(removedLeft, matchKey(t))).map((t) => `+${t}`),
+        ...removed
+          .filter((t) => codeOf(t).code !== "" && !takeOne(addedLeft, matchKey(t)))
+          .map((t) => `-${t}`),
+        ...added
+          .filter((t) => codeOf(t).code !== "" && !takeOne(removedLeft, matchKey(t)))
+          .map((t) => `+${t}`),
       ];
       if (changed.length > 0) {
         out.push({ file: name, reasons: changed.map((t) => `test runner config changed: ${t}`) });
