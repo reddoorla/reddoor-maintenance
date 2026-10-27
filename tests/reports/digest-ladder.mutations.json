@@ -148,7 +148,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "      if (changes.added.includes(it.key)) return { ...it, status: \"new\" };",
+        "find": "      if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };",
         "replace": ""
       }
     ],
