@@ -604,12 +604,12 @@
   },
   {
     "id": "r2-shell-float",
-    "why": "Round 2 operator 2: the account block floats at every width",
+    "why": "Round 2/3 operator: the account block floats again, squeezing the nav",
     "edits": [
       {
         "file": "cockpit/src/lib/base.css",
-        "find": ".shell-account {\n  display: flex;",
-        "replace": ".shell-account {\n  float: right;\n  display: flex;"
+        "find": ".shell-account {\n  order: 1;",
+        "replace": ".shell-account {\n  float: right;\n  order: 1;"
       }
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
@@ -639,6 +639,45 @@
       }
     ],
     "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-header-wrap",
+    "why": "Round 3 operator: the header wraps the nav above the account (plain wrap)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  flex-wrap: wrap-reverse;",
+        "replace": "  flex-wrap: wrap;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-placeholder-grey",
+    "why": "Round 3 operator: placeholders fall back to the browser grey",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "::placeholder {\n  color: var(--ink-muted);\n  opacity: 1;\n}",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-site-watch-bold",
+    "why": "Round 3 correctness: /s/:slug's Watch pill is bold",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": "  color: var(--ink);\n  font-weight: var(--weight-text);\n}\n.pill.attention",
+        "replace": "  color: var(--ink);\n  font-weight: var(--weight-bold);\n}\n.pill.attention"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
   }
 ]
