@@ -41,7 +41,16 @@ export function run(
   cmd: string,
   args: string[],
   timeout?: number,
+  box?: { hide: string[]; writable: string[]; tmp: string },
 ): { status: number | null; error?: string; stdout: string; stderr: string };
+export const UNSHARE_BIN: string;
+export function sandboxAvailable(): boolean;
+export function boxArgs(
+  box: { hide: string[]; writable: string[] },
+  cmd: string,
+  args: string[],
+): string[];
+export function hiddenFrom(runDir: string, armId: string, root: string): string[];
 export function install(
   cwd: string,
   store?: string,
@@ -76,6 +85,7 @@ export function changedOrFlood(
 ): string[];
 export function copyPlanFiles(repo: string, to: string, files?: string[]): void;
 export function scoreRuns(o: {
+  boxed?: boolean;
   changed: string[];
   scope: { pass: boolean; outside: string[] };
   check: { status: number | null; error?: string; stdout: string; stderr: string };

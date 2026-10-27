@@ -709,3 +709,110 @@ describe("the scorer's snapshot of the pin (#1498)", () => {
       expect(existsSync(ran)).toBe(false);
     }));
 });
+
+describe("the gates' box (#1501, Linux only)", () => {
+  it("refuses a box that would hide a writable directory or its ancestor", () => {
+    expect(() =>
+      task.boxArgs({ hide: ["/r/eval"], writable: ["/r/eval/a/tree"] }, "true", []),
+    ).toThrow(/would hide \/r\/eval, which holds its writable \/r\/eval\/a\/tree/);
+    expect(() => task.boxArgs({ hide: ["/r/x"], writable: ["/r/x"] }, "true", [])).toThrow(
+      /would hide/,
+    );
+    expect(task.boxArgs({ hide: ["/r/eval/b"], writable: ["/r/eval/a"] }, "true", [])).toContain(
+      "/r/eval/b",
+    );
+  });
+
+  it("hides the root clone, the agents' repos, the other arms and the run's answer files", () =>
+    withTmp("t4-hide-", (dir) => {
+      const runDir = join(dir, "run");
+      for (const d of ["eval/a", "eval/b", "eval/c", "work/a/repo", "input"])
+        mkdirSync(join(runDir, d), { recursive: true });
+      for (const f of ["t4.json", "evaluated.json"]) writeFileSync(join(runDir, f), "{}");
+      for (const k of ["truth", "runs", "result"]) writeFileSync(`${runDir}.${k}.json`, "{}");
+      const root = join(dir, "root");
+      mkdirSync(root);
+      expect(task.hiddenFrom(runDir, "a", root).sort()).toEqual(
+        [
+          root,
+          join(runDir, "work"),
+          join(runDir, "eval", "b"),
+          join(runDir, "eval", "c"),
+          `${runDir}.truth.json`,
+          `${runDir}.runs.json`,
+          `${runDir}.result.json`,
+          join(runDir, "t4.json"),
+          join(runDir, "evaluated.json"),
+        ].sort(),
+      );
+    }));
+
+  it("records whether the gates ran boxed", () => {
+    const r = (status: number) => ({ status, stdout: "", stderr: "" });
+    const runs = {
+      changed: ["a"],
+      scope: { pass: true, outside: [] },
+      check: r(0),
+      lint: r(0),
+      suite: r(0),
+      ownRun: r(0),
+      ownReport: null,
+      heldRun: r(0),
+      report: null,
+      held: "/h",
+    };
+    expect(task.scoreRuns({ ...runs, boxed: true }).detail.gatesSandboxed).toBe(true);
+    expect(task.scoreRuns({ ...runs, boxed: false }).detail.gatesSandboxed).toBe(false);
+  });
+
+  // Where unshare cannot make a user namespace (macOS, a runner that restricts them), the gates
+  // run unboxed and record it, so there is no box here to test (the operator, 2026-10-26).
+  describe.runIf(task.sandboxAvailable())("where unshare works", () => {
+    it("runs with no network, the hidden paths empty, and writes only where allowed", () =>
+      withTmp("t4-box-", (dir) => {
+        const keep = join(dir, "keep");
+        const tmp = join(dir, "tmp");
+        const secretDir = join(dir, "secret");
+        const secretFile = join(dir, "truth.json");
+        const outside = join(dir, "outside");
+        for (const d of [keep, tmp, secretDir, outside]) mkdirSync(d);
+        writeFileSync(join(secretDir, "key"), "answer");
+        writeFileSync(secretFile, "answer");
+        const probe = [
+          `cat ${secretDir}/key ${secretFile} 2>/dev/null; echo "[read]"`,
+          `touch ${keep}/w && echo kept-writable`,
+          `touch ${tmp}/w && echo tmp-writable`,
+          `touch ${outside}/w 2>/dev/null && echo OUTSIDE-WRITABLE || echo outside-read-only`,
+          `touch ${secretDir}/w 2>/dev/null && echo SECRET-WRITABLE || echo secret-read-only`,
+          `node -e "require('dns').lookup('registry.npmjs.org',e=>console.log(e?'no-network':'NETWORK'))"`,
+        ].join("; ");
+        const box = { hide: [secretDir, secretFile], writable: [keep, tmp], tmp };
+        const r = task.run(dir, "sh", ["-c", probe], 60_000, box);
+        expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+          "[read]",
+          "kept-writable",
+          "tmp-writable",
+          "outside-read-only",
+          "secret-read-only",
+          "no-network",
+        ]);
+        expect(readFileSync(secretFile, "utf8")).toBe("answer");
+      }));
+
+    it("runs pnpm inside the box with the store read-only", () =>
+      withTmp("t4-box-pnpm-", (dir) => {
+        const proj = join(dir, "proj");
+        const tmp = join(dir, "tmp");
+        mkdirSync(proj);
+        mkdirSync(tmp);
+        writeFileSync(
+          join(proj, "package.json"),
+          '{"name":"p","version":"1.0.0","scripts":{"x":"echo ran-x"}}\n',
+        );
+        expect(
+          task.run(proj, "pnpm", ["run", "x"], 60_000, { hide: [], writable: [proj, tmp], tmp })
+            .stdout,
+        ).toContain("ran-x");
+      }));
+  });
+});
