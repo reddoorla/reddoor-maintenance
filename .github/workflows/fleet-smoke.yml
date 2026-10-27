@@ -2,7 +2,8 @@ name: fleet-smoke
 
 # Nightly fleet-wide smoke suite → the Report Health Gate's `Smoke OK` signal.
 # Unlike fleet-lighthouse (checkout-free, hits each DEPLOYED url), `smoke` is
-# clone-based: it clones each active site and runs the site's OWN `pnpm test:smoke`
+# clone-based: it clones each active site, runs the site's `pnpm build` first as the
+# site's own CI does (a spec may read the build, #1777), then its OWN `pnpm test:smoke`
 # (which boots a local vite dev server on an audit-allocated REDDOOR_SMOKE_PORT and
 # runs Playwright/chromium smoke specs against localhost), writing Smoke OK +
 # Last Smoke At back to its row. This repo is the central scheduler (it's
