@@ -30,8 +30,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*",
-        "replace": "to\\w*"
+        "find": "to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\\w*\\s*\\(/;",
+        "replace": "to\\w*\\s*\\(/;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -160,7 +160,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    `[{,]\\\\s*(skip|todo)\\\\s*:\\\\s*true\\\\b`,\n",
+        "find": "    `(^|[{,])\\\\s*(skip|todo|only)\\\\s*:\\\\s*true\\\\b`,\n",
         "replace": ""
       }
     ],

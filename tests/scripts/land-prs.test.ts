@@ -2889,7 +2889,7 @@ describe("land-prs: test changes", () => {
       }
     });
 
-    it("a changed include or exclude in a test runner's config is flagged", () => {
+    it("any changed line in a test runner's config is flagged, added or removed", () => {
       for (const name of [
         "vitest.config.ts",
         "cockpit/vitest.config.mts",
@@ -2905,18 +2905,30 @@ describe("land-prs: test changes", () => {
           {
             file: name,
             reasons: [
-              'test runner config changed which files run: exclude: ["dist/**", "tests/slow/**"],',
+              'test runner config changed: -exclude: ["dist/**"],',
+              'test runner config changed: +exclude: ["dist/**", "tests/slow/**"],',
             ],
           },
         ]);
       }
+      // Round 1 (#1812): a removed project, one item of a multi-line array, a grepInvert.
+      for (const line of [
+        '-  { extends: true, test: { name: "node", include: ["tests/**/*.test.ts"] } },',
+        '-      "tests/**/*.test.ts",',
+        "+  grepInvert: /@slow/,",
+      ]) {
+        const f = file("vitest.config.ts", "modified", patch(" keep,", line));
+        expect(testChangeFlags([f]), line).toEqual([
+          {
+            file: "vitest.config.ts",
+            reasons: [`test runner config changed: ${line.slice(0, 1)}${line.slice(1).trim()}`],
+          },
+        ]);
+      }
+      // A line only moved or re-indented is not a change.
       expect(
         testChangeFlags([
-          file(
-            "vitest.config.ts",
-            "modified",
-            patch("-  testTimeout: 5000,", "+  testTimeout: 9000,"),
-          ),
+          file("vitest.config.ts", "modified", patch('-  include: ["a"],', '+    include: ["a"],')),
         ]),
       ).toEqual([]);
       expect(
@@ -3025,6 +3037,54 @@ describe("land-prs: test changes", () => {
       ]);
     });
 
+    it("round 1 (#1812): fit( must name a test; skip, todo and only may stand on their own line", () => {
+      const flag = (line: string) =>
+        testChangeFlags([file(T, "modified", patch(" keep();", `+${line}`))]);
+      expect(flag('fit([req("price-signal", "met")]),')).toEqual([]);
+      expect(flag("  skip: true,")[0]?.reasons).toEqual(["added skip: skip: true,"]);
+      expect(flag('it("a", { only: true }, () => {});')[0]?.reasons).toEqual([
+        'added skip: it("a", { only: true }, () => {});',
+      ]);
+    });
+
+    it("round 1 (#1812): only a matcher opens a value, and a template literal left open does not", () => {
+      const sorted = file(
+        T,
+        "modified",
+        [
+          "@@ -1,4 +1,4 @@",
+          "   const s = arr.toSorted((a, b) => {",
+          "-    return a - b;",
+          "+    return b - a;",
+          "   });",
+        ].join("\n"),
+      );
+      expect(testChangeFlags([sorted])).toEqual([]);
+      const snap = file(
+        T,
+        "modified",
+        [
+          "@@ -1,6 +1,6 @@",
+          "   expect(x).toMatchInlineSnapshot(`",
+          "     a: 1",
+          "   `);",
+          "   other({",
+          "-    z: 1,",
+          "+    z: 2,",
+          "   });",
+        ].join("\n"),
+      );
+      expect(testChangeFlags([snap])).toEqual([]);
+    });
+
+    it("round 1 (#1812): a long run of // takes linear time", () => {
+      const t = "x//".repeat(40_000);
+      const f = file(T, "modified", patch(`-${t}`, `+${t}y`));
+      const at = performance.now();
+      testChangeFlags([f]);
+      expect(performance.now() - at).toBeLessThan(500);
+    });
+
     it("a stop says when a flagged file is written only outside the section, or only where a reader cannot see it", async () => {
       for (const [body, why] of [
         [
@@ -3039,6 +3099,10 @@ describe("land-prs: test changes", () => {
           `Test changes:\n- see below\n<!-- ${T} -->`,
           `${T} is written only where a reader cannot see it (an HTML comment, a fenced block or a link's destination), which does not count`,
         ],
+        [
+          `Tests changed: ${T}: why`,
+          `${T} is written in the body, but not under a "Test changes:" line or heading`,
+        ],
       ] as const) {
         const r = await land(
           [5],
@@ -3050,6 +3114,16 @@ describe("land-prs: test changes", () => {
         expect(r.code, body).toBe(1);
         expect(r.lines.at(-1), body).toContain(why);
       }
+      // Round 1 (#1812): a longer path is not a hidden mention of the flagged one.
+      const r = await land(
+        [5],
+        [
+          [FILES(5), [files(WEAKENED)]],
+          [VIEW(5), [view({ body: `Test changes:\n- ${T}x: renamed` })]],
+        ],
+      );
+      expect(r.code).toBe(1);
+      expect(r.lines.at(-1)).not.toMatch(/is written/);
     });
   });
 });

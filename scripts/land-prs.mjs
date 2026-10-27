@@ -729,7 +729,6 @@ const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 const CODE = /\.([cm]?[jt]sx?|svelte|vue|astro)$/i;
 // A test runner's config, whose include and exclude decide which tests run at all.
 const RUNNER_CONFIG = /(^|\/)(vitest|vite|playwright|jest)\.(config|workspace)\.[cm]?[jt]s$/i;
-const RUNS_WHICH = /\b(include|exclude|testMatch|testIgnore|testDir)\b/;
 // A call, not a word, tested on a line's code (see `codeOf`) with its generics taken out
 // (see `withoutGenerics`): `expect(`, `expect.soft(`, `expectTypeOf(`, `assert(`,
 // `assert.equal(`, `assertEquals(`, `assertType(`, `expect (x)`. Strings are blanked first,
@@ -771,7 +770,7 @@ const SKIP = new RegExp(
     `(^|[{;)?:]|=>|&&|\\|\\||\\b(?:else|return))\\s*(await\\s+)?skip(If)?\\s*\\([^()]*\\)\\s*(;|\\}|$)`,
     `(^|[^\\w.$])x(it|test|describe)\\s*[.(]`,
     // A test's options object (#1617): `it("a", { skip: true }, …)`.
-    `[{,]\\s*(skip|todo)\\s*:\\s*true\\b`,
+    `(^|[{,])\\s*(skip|todo|only)\\s*:\\s*true\\b`,
   ].join("|"),
 );
 // An added `.only` (#1617): every other test in the file stops running. `fit` and
@@ -779,7 +778,7 @@ const SKIP = new RegExp(
 const ONLY = new RegExp(
   [
     `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*only\\b`,
-    `(^|[^\\w.$])f(it|describe)\\s*\\(`,
+    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*["'\`]`,
   ].join("|"),
 );
 // The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
@@ -902,17 +901,27 @@ function lineKey(t) {
  *  not comments, and are compared whole. */
 function withoutTrailingComment(t) {
   let quote = "";
+  let last = ""; // the last character before any spaces just read; one pass, linear
+  let spaced = false;
   for (let i = 0; i < t.length; i++) {
     const c = t[i];
     if (quote) {
       if (c === "\\") i++;
       else if (c === quote) quote = "";
+      last = c;
+      spaced = false;
+      continue;
+    }
+    if (c === "/" && t[i + 1] === "/" && spaced && ";,)]}".includes(last) && last !== "") {
+      return t.slice(0, i).trimEnd();
+    }
+    if (/\s/.test(c)) {
+      spaced = true;
       continue;
     }
     if (c === '"' || c === "'" || c === "`") quote = c;
-    else if (c === "/" && t[i + 1] === "/" && /[;,)\]}]\s+$/.test(t.slice(0, i))) {
-      return t.slice(0, i).trimEnd();
-    }
+    last = c;
+    spaced = false;
   }
   return t;
 }
@@ -930,7 +939,8 @@ function netBrackets(code) {
 
 // A line that opens an expected value: a matcher (`.toEqual({`, `).toMatchObject([`) or an
 // `assert` call. A bare `expect(` does not: its argument is the value under test.
-const OPENS_VALUE = /\.\s*to[A-Z]\w*\s*\(|\bassert\w*(\s*\.\s*\w+){0,3}\s*\(/;
+const OPENS_VALUE =
+  /\.\s*to(Be|Equal|StrictEqual|Contain|Have|Match|Throw|Satisfy|Return|Pass|Extend)\w*\s*\(|\bassert\w*(\s*\.\s*\w+){0,3}\s*\(/;
 
 /** The removed lines of `patch` that sit inside an assertion's expected value written
  *  across lines (#1755): `expect(x).toEqual({` then `-  a: 1,`. Read on the old side
@@ -947,11 +957,14 @@ function valueLines(patch) {
     if (raw.startsWith("+") || raw.startsWith("\\")) continue;
     const t = raw.slice(1).trim();
     if (t.length > MAX_LINE) continue;
-    const net = netBrackets(codeOf(t).code);
+    const { code, retry } = codeOf(t);
+    const net = netBrackets(code);
     if (depth > 0) {
       if (raw.startsWith("-")) out.push(t);
       depth = Math.max(0, depth + net);
-    } else if (net > 0 && hasCall(t, OPENS_VALUE, withoutGenerics)) {
+    } else if (net > 0 && !retry && hasCall(t, OPENS_VALUE, withoutGenerics)) {
+      // Not when a quote is left open (a template literal running on): bracket depth
+      // cannot follow its lines.
       depth = net;
     }
   }
@@ -1010,19 +1023,17 @@ export function testChangeFlags(files) {
       continue;
     }
     if (RUNNER_CONFIG.test(name) && typeof f?.patch === "string") {
+      // Any changed line: an include or exclude is often a multi-line array, and
+      // Playwright's grep and grepInvert pick tests too, so no keyword list is safe.
       const { removed, added } = patchLines(f.patch);
+      const addedLeft = lineCounts(added.map(matchKey));
       const removedLeft = lineCounts(removed.map(matchKey));
-      const changed = added.filter(
-        (t) =>
-          t.length <= MAX_LINE &&
-          RUNS_WHICH.test(codeOf(t).code) &&
-          !takeOne(removedLeft, matchKey(t)),
-      );
+      const changed = [
+        ...removed.filter((t) => t !== "" && !takeOne(addedLeft, matchKey(t))).map((t) => `-${t}`),
+        ...added.filter((t) => t !== "" && !takeOne(removedLeft, matchKey(t))).map((t) => `+${t}`),
+      ];
       if (changed.length > 0) {
-        out.push({
-          file: name,
-          reasons: changed.map((t) => `test runner config changed which files run: ${t}`),
-        });
+        out.push({ file: name, reasons: changed.map((t) => `test runner config changed: ${t}`) });
       }
       continue;
     }
@@ -1285,8 +1296,10 @@ async function checkTestChanges(ctx, n, pr, { seen = null, at = "" } = {}) {
     const notes = missing
       .map((file) =>
         named(visible, file)
-          ? `; ${file} is written outside the "Test changes:" section, which ends at a heading, or at a blank line followed by anything but a list item`
-          : raw.includes(file)
+          ? section === null
+            ? `; ${file} is written in the body, but not under a "Test changes:" line or heading`
+            : `; ${file} is written outside the "Test changes:" section, which ends at a heading, or at a blank line followed by anything but a list item`
+          : named(raw, file)
             ? `; ${file} is written only where a reader cannot see it (an HTML comment, a fenced block or a link's destination), which does not count`
             : "",
       )
