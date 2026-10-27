@@ -411,7 +411,8 @@ const MODULE_SHA = createHash("sha256")
   .update(readFileSync(fileURLToPath(import.meta.url)))
   .digest("hex");
 
-// Null when the agent has returned nothing: its tree may still be changing.
+// Null when the agent has returned nothing: its tree may still be changing. An agent that ended
+// for good without output is then evaluated on every score, which costs time, not a wrong result.
 export function evaluationKey(structured, agent, moduleSha = MODULE_SHA) {
   if (structured == null) return null;
   return createHash("sha256")

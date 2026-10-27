@@ -411,7 +411,9 @@ what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked exam
 - t4's `observe` runs the gates (below), about two minutes an agent, and caches each result in
   `<run>/evaluated.json` under a key: a hash of the task module, the agent's transcript path and
   its structured output. An agent with no output yet (still running) is evaluated but never
-  cached, and a change to the module or the output evaluates again (#1500).
+  cached, and a change to the module or the output evaluates again (#1500). A failure is cached
+  like any result, so delete that file (or its `<id>` entry) to evaluate again, for example after
+  a gate timed out. An agent that ended with no output is evaluated afresh on every `score`.
 - t4 marks only its `gates` collection `mechanical`: an exit code has nothing for a referee to read.
 - An item with `mechanical: true` in `observe`'s output makes that item's field checks mechanical
   too (an agent's own report cannot do this); t4 marks a held-out
