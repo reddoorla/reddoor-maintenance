@@ -46,7 +46,10 @@ export function truth() {
   return FACTS;
 }
 
-export const checkCount = 13;
+// Which option the decision picks, and whether its ask reads well, are judgment: three review
+// rounds of phrasing rules each failed a right answer or passed a wrong one. The blind referee
+// (README, "Main-thread arms") rules on both; these checks are the mechanical part.
+export const checkCount = 12;
 
 const frontMatter = (text) => {
   const m = String(text).match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -71,18 +74,6 @@ const refsOf = (v) =>
 const PT_0905 = /(?<!\d)0?9:05\s*a\.?m\.?\s*P[DS]?T\b/i;
 const Z_TIME = /(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\s*(?:Z\b|UTC\b)/;
 const BARE_REF = /(^|[^\w/.-])#\d{2,}\b/m;
-// The option a Pick section chooses: the first "(b)", "option c" or a leading "B," that is not
-// negated ("not (a)", "rather than (a)").
-const firstOption = (text) => {
-  const t = String(text)
-    .replace(/\(?a\)?[^.\n]*?\bruled out\b/gi, "")
-    .replace(/\b(?:not|neither|nor|rather than|over|instead of)\s+(?:option\s+)?\(?[abc]\)?/gi, "");
-  const m = t.match(
-    /\(([abc])\)|\boption\s+\(?([abc])\b|^\W*(?:(?:my\s+)?pick:?\s*)?([abc])\b\s*[),.:—–-]/im,
-  );
-  return m ? (m[1] ?? m[2] ?? m[3]).toLowerCase() : null;
-};
-
 export function check(out, f) {
   const d = out?.decision ?? {};
   const j = out?.journal ?? {};
@@ -98,10 +89,10 @@ export function check(out, f) {
     Date.parse(f.asked),
   );
   const firstLine = parsed.ask ?? "";
-  const pickSection =
-    (body.match(/^##[^\n]*\bpick\b[^\n]*\n([\s\S]*?)(?=\n## |(?![\s\S]))/im) ?? [])[1] ?? "";
+  // Markdown emphasis is formatting: `**Usage:** $4.27, …` is a Usage line.
   const usageLine =
     jText
+      .replace(/[*_`]/g, "")
       .split("\n")
       .filter((l) => l.trim())
       .at(-1) ?? "";
@@ -144,19 +135,12 @@ export function check(out, f) {
       f.refs,
     ),
     c(
-      "decisions.mjs parses it; the ask is a question",
-      parsed.errors.length === 0 && /\?\s*$/.test(firstLine),
+      "decisions.mjs parses it",
+      parsed.errors.length === 0 && firstLine !== "",
       parsed.errors.length ? parsed.errors : firstLine,
-      "no errors, an ask ending in ?",
+      "no errors",
     ),
     c("has ## Answer", /^## Answer\s*$/m.test(body), null, "## Answer"),
-    c(
-      // CLAUDE.md: a pick may not be "land as is" while a reproduced defect is unfixed.
-      "pick is not (a)",
-      ["b", "c"].includes(firstOption(pickSection)),
-      pickSection.trim().split("\n")[0],
-      "(b) or (c)",
-    ),
     c(
       "round 5 time in PT",
       PT_0905.test(dText) || PT_0905.test(jText),

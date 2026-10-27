@@ -371,11 +371,17 @@ node scripts/model-bakeoff/session-arms.mjs score   --task session-cockpit [--js
    every page back to `has_more: false`), then archive it.
 3. `score` reads those results out of this session's own transcripts (`mcpCalls`, as
    `usage-ledger.mjs mcp` does; `--root` defaults to `~/.claude/projects`), so no figure is
-   retyped. Per child it takes the last result's text and its last fenced `json` block, the cost
-   as the usage ledger books it (each run of the `modelUsage` counter's last reading), and the
-   models. It reports a child whose `configured_model`, `last_served_model` or any main-thread
-   `message.model` is not the one asked, a Bash command the Bash check above flags, and a Write or
-   Edit outside `/tmp`.
+   retyped. Per child it takes the last result's text and its last fenced `json` block, the
+   models, and the cost: each run of the `modelUsage` counter's last reading. That is the
+   ledger's `modelUsage` figure without its `get_session` residual, so it reads a fraction of a
+   percent under `get_session`'s `cost_usd` (0.1 to 0.2% on the 2026-10-27 run).
+4. It reports a child when:
+   - its history was not read to the end from unfiltered pages, or was read before its last change;
+   - its `configured_model`, `last_served_model` or any main-thread `message.model` is not the one asked (`<synthetic>` aside);
+   - any of its turns, its subagents' included, ran a command the Bash check flags, wrote (Write, Edit, or a Bash `>`, `>>`, `>|`, `&>` or `tee` outside quotes, resolved, not under `/tmp`), or called an outward tool: an MCP tool whose action does not read (`get_`, `list_`, `…_read` and the like), or `Artifact`, `ArtifactData`, `ArtifactComments`, `SendMessage`, `SendUserFile`, `PushNotification`, `CronCreate` or `Workflow` with any action but a read. `sed -i`, `cp`, `rm` and an interpreter's own writes are not seen: it is a tripwire, like the Bash check.
+
+`--run <tag>` adds the tag to every marker, so a second run of a task under the same root is
+scored apart from the first.
 
 `create_session` takes no `effort`, so every child runs at the environment's default effort; a
 child's subagents follow the workspace's `CLAUDE_CODE_SUBAGENT_MODEL`. Its cost includes them.
@@ -384,13 +390,16 @@ The three tasks are routine whole-session work, with synthetic frozen inputs and
 by script. A child starts in the workspace, so `CLAUDE.md`, `pm-pass.md` and `decisions/README.md`
 are there for it to read; that is part of what is measured.
 
-- `session-first-screen`: the PM pass's four "First screen" lines (6 checks). Traps: an
+- `session-first-screen`: the PM pass's four "First screen" lines (10 checks: the six fields and each report line). Traps: an
   unreadable force-push log, an unfiltered backlog log with a `Revert "pm: …"`, one answered ask.
 - `session-cockpit`: the cockpit section of step 2 (6 checks): top of stack, the attention,
   Watch and Setup lines. Traps: a NEW site in Watch, an undated reason ending `ready`.
-- `session-decision`: a decision file and journal entry from given facts (13 checks): the front
-  matter, the ask as the first line, the pick, times in PT, `owner/repo#N` references, the
-  measured number and the `Usage:` line. Prose quality beyond those is for a blind referee.
+- `session-decision`: a decision file and journal entry from given facts (12 checks): the file
+  name, the front matter, `decisions.mjs`'s own parse, `## Answer`, times in PT, `owner/repo#N`
+  references, the measured number and the `Usage:` line. Which option it picks, and how well it
+  reads, are judgment: three review rounds of phrasing rules for the pick each failed a right
+  answer or passed a wrong one. A blind Opus referee scores those against a rubric written before
+  it runs, twice with the outputs in reversed order, and a disagreement between the passes is a tie.
 
 ## Adding a task type
 

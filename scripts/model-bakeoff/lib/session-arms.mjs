@@ -3,6 +3,7 @@
 // thread's long cached context. The only way here to vary the main model is to start a session
 // with `create_session` and a `model`, so each arm is one child session, and everything about it
 // is read back from the remote-sessions MCP results this session's transcript already holds.
+import { isAbsolute, resolve } from "node:path";
 import { forbiddenCommand, textStructured, withoutHeredocs } from "./transcripts.mjs";
 import { cmpTime, historyComplete, sessionUsage } from "./usage.mjs";
 
@@ -54,6 +55,22 @@ const MCP_READ =
   /^(?:get|list|search|read|fetch|query|find|check|describe|who|whoami|preview|download|diff|present|suggest)(?:_|$)|_read$/;
 export const isOutwardMcp = (name) =>
   String(name).startsWith("mcp__") && !MCP_READ.test(String(name).split("__").at(-1));
+
+// Built-in tools that reach past the container: a published page, its data and comments, a
+// message to another session, a file or notification sent to the person, a scheduled job.
+const OUTWARD_TOOLS = new Set([
+  "Artifact",
+  "ArtifactData",
+  "ArtifactComments",
+  "SendMessage",
+  "SendUserFile",
+  "PushNotification",
+  "CronCreate",
+  "Workflow",
+]);
+const READ_ACTIONS = /^(?:read|list|get|query|quickstart|open)$/;
+export const isOutwardTool = (name, input) =>
+  OUTWARD_TOOLS.has(name) && !READ_ACTIONS.test(String(input?.action ?? ""));
 
 /**
  * The files a Bash command redirects into (`>`, `>>`, `>|`, `&>`, `tee`), with quoted strings set
@@ -125,7 +142,7 @@ export function childRecord(sessionId, calls) {
       if (["Write", "Edit", "NotebookEdit"].includes(b.name))
         writes.push(b.input?.file_path ?? b.input?.notebook_path ?? "");
       if (b.name === "Bash") writes.push(...redirectTargets(b.input?.command ?? ""));
-      if (isOutwardMcp(b.name ?? "")) outward.push(b.name);
+      if (isOutwardMcp(b.name ?? "") || isOutwardTool(b.name, b.input)) outward.push(b.name);
     }
   }
   const finalText = results.length ? String(body(results.at(-1)).result ?? "") : "";
@@ -135,7 +152,9 @@ export function childRecord(sessionId, calls) {
     complete:
       historyComplete(pages) &&
       (!newest?.updated_at ||
-        pages.some((p) => !p.input.before_id && cmpTime(p.at, newest.updated_at) >= 0)),
+        pages.some(
+          (p) => !p.input.before_id && !p.input.after_id && cmpTime(p.at, newest.updated_at) >= 0,
+        )),
     configuredModel: newest?.configured_model ?? newest?.session_context?.model ?? null,
     lastServedModel: newest?.external_metadata?.last_served_model ?? null,
     mainModels: [...servedBy].sort(),
@@ -154,6 +173,7 @@ export function childRecord(sessionId, calls) {
 
 /** Why a child does not count as the arm it was meant to be; empty when it does. */
 export function verifyChild(arm, rec, { scratch = /^\/tmp\// } = {}) {
+  // `/tmp/../home/…` is not scratch: paths are resolved before the test.
   const want = MODEL_IDS[arm.model] ?? arm.model;
   const label = arm.id;
   const problems = [];
@@ -170,7 +190,7 @@ export function verifyChild(arm, rec, { scratch = /^\/tmp\// } = {}) {
   if (!rec.results) problems.push(`${label}: no result event read`);
   if (!rec.output) problems.push(`${label}: no json block in its last result`);
   if (rec.forbidden.length) problems.push(`${label}: ran ${rec.forbidden.join(" ;; ")}`);
-  const outside = rec.writes.filter((p) => !scratch.test(p));
+  const outside = rec.writes.filter((p) => !(isAbsolute(p) && scratch.test(resolve(p))));
   if (outside.length) problems.push(`${label}: wrote ${outside.join(", ")}`);
   if (rec.outward.length) problems.push(`${label}: called ${rec.outward.join(", ")}`);
   return problems;

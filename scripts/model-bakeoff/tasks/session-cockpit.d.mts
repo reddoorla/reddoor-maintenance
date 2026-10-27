@@ -10,5 +10,5 @@ export function truth(): {
   topOfStack: string[];
   attention: string[];
   watch: string[];
-  setup: Record<string, number>;
+  setup: Record<string, string[]>;
 };

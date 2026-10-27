@@ -85,7 +85,7 @@ export function check(out, t) {
   );
   const asks = lines.map((l) => l.match(asksLine)).find(Boolean);
   // "none" as the status, not "this is not none".
-  const saysNone = (l) => /(?<!not\s*"?)\bnone\b/i.test(l);
+  const saysNone = (l) => /(?<!(?:not|never as)\s*"?)\bnone\b/i.test(l);
   const backlogLine = lines.find((l) => /backlog/i.test(l)) ?? "";
   return [
     {
@@ -107,13 +107,18 @@ export function check(out, t) {
     },
     {
       check: "line: canary refused",
-      ok: lines.some((l) => /canary/i.test(l) && /refused|denied/i.test(l)),
+      ok: lines.some(
+        (l) => /canary/i.test(l) && /refused|denied/i.test(l) && !/\bran\b|not live/i.test(l),
+      ),
       got: lines.find((l) => /canary/i.test(l)),
       want: "refused",
     },
     {
       check: "line: backlog commits without pm:",
-      ok: t.backlogWithoutPm.every((sha) => backlogLine.includes(sha)) && !saysNone(backlogLine),
+      // Exactly the commits without `pm:`: the shas the line names are the truth's.
+      ok:
+        JSON.stringify([...new Set(backlogLine.match(/\b[0-9a-f]{7}\b/g) ?? [])].sort()) ===
+        JSON.stringify(t.backlogWithoutPm),
       got: backlogLine,
       want: t.backlogWithoutPm.join(", "),
     },

@@ -4,6 +4,7 @@ import {
   childRecord,
   children,
   isOutwardMcp,
+  isOutwardTool,
   redirectTargets,
   verifyChild,
 } from "../../scripts/model-bakeoff/lib/session-arms.mjs";
@@ -198,7 +199,7 @@ describe("the task scorers pass a known-good answer and fail a wrong one", () =>
     expect(decision.check(GOOD_DECISION, decision.truth())).toHaveLength(decision.checkCount);
   });
 
-  it("decision: UTC prose, a bare #NNN, picking (a) and a lost Usage line each fail", () => {
+  it("decision: UTC prose, a bare #NNN and a lost Usage line each fail", () => {
     const with_ = (d: string, j = JOURNAL_TEXT) => ({
       decision: { ...GOOD_DECISION.decision, text: d },
       journal: { ...GOOD_DECISION.journal, text: j },
@@ -213,9 +214,6 @@ describe("the task scorers pass a known-good answer and fail a wrong one", () =>
         with_(DECISION_TEXT.replace("reddoorla/reddoor-maintenance#1690 to", "#1690 to")),
       ),
     ).toEqual(["no bare #NNN"]);
-    expect(failed(decision, with_(DECISION_TEXT.replace("(b), because", "(a), because")))).toEqual([
-      "pick is not (a)",
-    ]);
     expect(
       failed(decision, with_(DECISION_TEXT, JOURNAL_TEXT.replace("5,120,334", "5.1M"))),
     ).toEqual(["journal ends with the Usage line"]);
@@ -446,10 +444,10 @@ describe("review round 1 (P1-83d)", () => {
   it("decision: a heading for the ask, swapped Usage figures and a wrong cost fail", () => {
     expect(
       failed(decision, with_(DECISION_TEXT.replace("\nP1-77: may I", "\n# P1-77: may I"))),
-    ).toEqual(["decisions.mjs parses it; the ask is a question"]);
+    ).toEqual(["decisions.mjs parses it"]);
     // The ask is fine, but decisions.mjs refuses the file: a comment never closes.
     expect(failed(decision, with_(DECISION_TEXT + "<!-- note\n"))).toEqual([
-      "decisions.mjs parses it; the ask is a question",
+      "decisions.mjs parses it",
     ]);
     const swapped = JOURNAL_TEXT.replace(
       "1,834/90,211 tokens, 5,120,334/402,118 cache",
@@ -589,5 +587,92 @@ describe("review round 2 (P1-83d)", () => {
 
   it("refuses a run tag the marker cannot carry", () => {
     expect(() => armPrompt(firstScreen, arm, "2026-10-27.b")).toThrow(/--run/);
+  });
+});
+
+describe("review round 3 (P1-83d)", () => {
+  const arm = { id: "sonnet-1", model: "sonnet" };
+
+  it("does not take an after_id page as a fresh read", () => {
+    const calls = childCalls("s1", { results: [result(json({}), 0.1)] });
+    (calls[1] as { at: string }).at = "2026-10-27T18:05:00Z";
+    calls.push({
+      tool: "list_events",
+      input: { session_id: "s1", after_id: "r1", limit: 1 } as never,
+      payload: { data: [], has_more: true } as never,
+      at: "2026-10-27T18:41:00Z",
+    } as never);
+    expect(childRecord("s1", calls).complete).toBe(false);
+  });
+
+  it("flags a published artifact and a message to another session, not a read", () => {
+    expect(isOutwardTool("Artifact", { action: "publish" })).toBe(true);
+    expect(isOutwardTool("Artifact", {})).toBe(true);
+    expect(isOutwardTool("SendMessage", {})).toBe(true);
+    expect(isOutwardTool("Artifact", { action: "read" })).toBe(false);
+    expect(isOutwardTool("Read", {})).toBe(false);
+    const rec = childRecord(
+      "s1",
+      childCalls("s1", {
+        results: [result(json({}), 0.1)],
+        tools: [
+          {
+            type: "tool_use",
+            name: "Artifact",
+            input: { action: "publish", file_path: "/tmp/x.html" },
+          },
+        ],
+      }),
+    );
+    expect(verifyChild(arm, rec)).toEqual(["sonnet-1: called Artifact"]);
+  });
+
+  it("resolves a write path before calling it scratch", () => {
+    const rec = childRecord(
+      "s1",
+      childCalls("s1", {
+        results: [result(json({}), 0.1)],
+        tools: [
+          { type: "tool_use", name: "Write", input: { file_path: "/tmp/../home/user/B.md" } },
+        ],
+      }),
+    );
+    expect(verifyChild(arm, rec)).toEqual(["sonnet-1: wrote /tmp/../home/user/B.md"]);
+  });
+
+  it("first screen: the rule's own wording passes; a ran canary and pm: commits fail", () => {
+    const lines = [...GOOD_FIRST.lines];
+    lines[1] = "Force pushes: could not read the push log; reported as itself, never as none.";
+    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([]);
+    lines[1] = GOOD_FIRST.lines[1] as string;
+    lines[0] = "Canary: ran, not refused. DENY LIST NOT LIVE";
+    lines[2] = "Backlog commits without pm: a1b2c3d, b2c3d4e, c3d4e5f, d4e5f6a";
+    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
+      "line: canary refused",
+      "line: backlog commits without pm:",
+    ]);
+  });
+
+  it("cockpit: a wrong gap fails, a re-cased one passes", () => {
+    const wrong = [
+      { slug: "juniper-tours", gaps: ["no GA4", "Search Console no-property"] },
+      { slug: "kauri-arts", gaps: ["no git repo"] },
+    ];
+    expect(failed(cockpit, { ...GOOD_COCKPIT, setup: wrong })).toEqual(["setup gaps"]);
+    const recased = [
+      { slug: "juniper-tours", gaps: ["No GA4.", "Search Console: no-property"] },
+      { slug: "kauri-arts", gaps: ["No custom domain"] },
+    ];
+    expect(failed(cockpit, { ...GOOD_COCKPIT, setup: recased })).toEqual([]);
+  });
+
+  it("decision: a Usage line in bold still counts", () => {
+    const j = JOURNAL_TEXT.replace("Usage:", "**Usage:**");
+    expect(
+      failed(decision, {
+        decision: GOOD_DECISION.decision,
+        journal: { ...GOOD_DECISION.journal, text: j },
+      }),
+    ).toEqual([]);
   });
 });

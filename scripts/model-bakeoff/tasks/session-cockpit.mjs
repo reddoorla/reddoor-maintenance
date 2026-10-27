@@ -66,6 +66,13 @@ function parse(text) {
   return sites;
 }
 
+// A gap compared without case or punctuation: "No GA4" and "no GA4." are one gap.
+const gapKey = (g) =>
+  String(g)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
 export function truth() {
   const sites = parse(COCKPIT);
   const undatedNotReady = (s) =>
@@ -82,7 +89,7 @@ export function truth() {
     setup: Object.fromEntries(
       sites
         .filter((s) => s.section === "Setup")
-        .map((s) => [s.slug, s.reasons[0].split("; ").length]),
+        .map((s) => [s.slug, s.reasons[0].split("; ").map(gapKey).sort()]),
     ),
   };
 }
@@ -98,7 +105,7 @@ export function check(out, t) {
   const top = slugsOf(got.topOfStack);
   const asks = (got.topOfStack ?? []).filter((x) => x && typeof x === "object");
   const setup = Object.fromEntries(
-    (got.setup ?? []).map((x) => [String(x?.slug), (x?.gaps ?? []).length]),
+    (got.setup ?? []).map((x) => [String(x?.slug), (x?.gaps ?? []).map(gapKey).sort()]),
   );
   return [
     { check: "topOfStack", ok: same(top, t.topOfStack), got: top, want: t.topOfStack },
@@ -131,7 +138,10 @@ export function check(out, t) {
     },
     {
       check: "setup gaps",
-      ok: same(Object.entries(setup).sort(), Object.entries(t.setup).sort()),
+      ok: same(
+        Object.entries(setup).sort(([a], [b]) => (a < b ? -1 : 1)),
+        Object.entries(t.setup).sort(([a], [b]) => (a < b ? -1 : 1)),
+      ),
       got: setup,
       want: t.setup,
     },
