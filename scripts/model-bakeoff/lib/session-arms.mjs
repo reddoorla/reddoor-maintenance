@@ -87,7 +87,9 @@ export function redirectTargets(command) {
   const keep = (p) => !/^\/dev\/(?:null|stdout|stderr)$/.test(p) && out.push(p);
   for (const m of bare.matchAll(/(?<![<>\d])(?:&|\d)?>>?\|?(?!&)\s*(["']?)([^\s"';|&<>()]+)\1/g))
     keep(m[2]);
-  for (const m of bare.matchAll(/\btee((?:\s+-[-\w]+)*)\s+(["']?)([^\s"';|&<>()]+)\2/g)) keep(m[3]);
+  // tee writes every file it is given: each word after it up to the end of the command.
+  for (const m of bare.matchAll(/\btee\b([^;|&<>()\n]*)/g))
+    for (const w of m[1].trim().split(/\s+/)) if (w && !w.startsWith("-") && w !== "Q") keep(w);
   return out;
 }
 
@@ -155,6 +157,7 @@ export function childRecord(sessionId, calls) {
         pages.some(
           (p) => !p.input.before_id && !p.input.after_id && cmpTime(p.at, newest.updated_at) >= 0,
         )),
+    status: newest?.session_status ?? null,
     configuredModel: newest?.configured_model ?? newest?.session_context?.model ?? null,
     lastServedModel: newest?.external_metadata?.last_served_model ?? null,
     mainModels: [...servedBy].sort(),
@@ -187,6 +190,9 @@ export function verifyChild(arm, rec, { scratch = /^\/tmp\// } = {}) {
     problems.push(
       `${label}: its history was not read to the end (list_events from the newest page back to has_more false, with no kinds filter)`,
     );
+  // Idle or archived when last read: a child still working could change after it.
+  if (rec.status && !/IDLE|ARCHIVED/.test(rec.status))
+    problems.push(`${label}: last read while ${rec.status}`);
   if (!rec.results) problems.push(`${label}: no result event read`);
   if (!rec.output) problems.push(`${label}: no json block in its last result`);
   if (rec.forbidden.length) problems.push(`${label}: ran ${rec.forbidden.join(" ;; ")}`);

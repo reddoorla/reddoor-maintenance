@@ -374,9 +374,9 @@ node scripts/model-bakeoff/session-arms.mjs score   --task session-cockpit [--js
    retyped. Per child it takes the last result's text and its last fenced `json` block, the
    models, and the cost: each run of the `modelUsage` counter's last reading. That is the
    ledger's `modelUsage` figure without its `get_session` residual, so it reads a fraction of a
-   percent under `get_session`'s `cost_usd` (0.1 to 0.2% on the 2026-10-27 run).
+   percent under `get_session`'s `cost_usd` (0.08 to 0.25% on the 2026-10-27 run).
 4. It reports a child when:
-   - its history was not read to the end from unfiltered pages, or was read before its last change;
+   - its history was not read to the end from unfiltered pages, or was read before its last change, or while it was still working;
    - its `configured_model`, `last_served_model` or any main-thread `message.model` is not the one asked (`<synthetic>` aside);
    - any of its turns, its subagents' included, ran a command the Bash check flags, wrote (Write, Edit, or a Bash `>`, `>>`, `>|`, `&>` or `tee` outside quotes, resolved, not under `/tmp`), or called an outward tool: an MCP tool whose action does not read (`get_`, `list_`, `…_read` and the like), or `Artifact`, `ArtifactData`, `ArtifactComments`, `SendMessage`, `SendUserFile`, `PushNotification`, `CronCreate` or `Workflow` with any action but a read. `sed -i`, `cp`, `rm` and an interpreter's own writes are not seen: it is a tripwire, like the Bash check.
 
@@ -390,7 +390,9 @@ The three tasks are routine whole-session work, with synthetic frozen inputs and
 by script. A child starts in the workspace, so `CLAUDE.md`, `pm-pass.md` and `decisions/README.md`
 are there for it to read; that is part of what is measured.
 
-- `session-first-screen`: the PM pass's four "First screen" lines (10 checks: the six fields and each report line). Traps: an
+- `session-first-screen`: the PM pass's four "First screen" lines (8 checks: the six fields, and the
+  backlog and open-asks lines, whose form pm-pass prescribes; how a line words the canary or the
+  unreadable log is judgment, and their status is scored as fields). Traps: an
   unreadable force-push log, an unfiltered backlog log with a `Revert "pm: …"`, one answered ask.
 - `session-cockpit`: the cockpit section of step 2 (6 checks): top of stack, the attention,
   Watch and Setup lines. Traps: a NEW site in Watch, an undated reason ending `ready`.

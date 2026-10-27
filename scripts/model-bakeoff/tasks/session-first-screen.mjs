@@ -69,7 +69,10 @@ export function truth() {
   };
 }
 
-export const checkCount = 10;
+// The canary's and the force-push log's status are scored as fields: four review rounds of
+// phrasing rules for their report lines each failed a right answer or passed a wrong one. The
+// two lines whose form pm-pass prescribes are scored as lines.
+export const checkCount = 8;
 
 export function check(out, t) {
   const got = out ?? {};
@@ -79,39 +82,17 @@ export function check(out, t) {
   const lines = (Array.isArray(got.lines) ? got.lines : []).map((l) =>
     String(l).replace(/[*`_]/g, ""),
   );
-  const pushLines = lines.filter((l) => /force.?push|push log/i.test(l));
   const asksLine = new RegExp(
     `\\b${t.openAsks.count} open, oldest (\\d+(?:\\.\\d+)?) ?h \\(${t.openAsks.oldestSlug}(?:\\.md)?\\)`,
   );
   const asks = lines.map((l) => l.match(asksLine)).find(Boolean);
-  // "none" as the status, not "this is not none".
-  const saysNone = (l) => /(?<!(?:not|never as)\s*"?)\bnone\b/i.test(l);
   const backlogLine = lines.find((l) => /backlog/i.test(l)) ?? "";
   return [
-    {
-      // The rule: "A failure in any of them is reported as itself, never as none."
-      check: "line: force-push failure reported as itself",
-      // A line may say why it is not "none" ("this is not none"); it must say the log was unreadable.
-      ok:
-        pushLines.some((l) =>
-          /could not read|unreadable|not readable|unknown|refused|failed/i.test(l),
-        ) && !pushLines.some(saysNone),
-      got: pushLines,
-      want: "the push log could not be read",
-    },
     {
       check: "line: N open, oldest X h (<slug>)",
       ok: !!asks && Math.abs(Number(asks[1]) - t.openAsks.oldestHours) <= 1,
       got: lines.find((l) => /\bopen\b/.test(l)),
       want: `${t.openAsks.count} open, oldest … h (${t.openAsks.oldestSlug})`,
-    },
-    {
-      check: "line: canary refused",
-      ok: lines.some(
-        (l) => /canary/i.test(l) && /refused|denied/i.test(l) && !/\bran\b|not live/i.test(l),
-      ),
-      got: lines.find((l) => /canary/i.test(l)),
-      want: "refused",
     },
     {
       check: "line: backlog commits without pm:",

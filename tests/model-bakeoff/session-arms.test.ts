@@ -309,8 +309,8 @@ describe("collecting a child session", () => {
     ];
     const r = scoreTask(firstScreen, calls);
     const by = (id: string) => r.rows.find((x) => x.arm.id === id) ?? { problems: ["absent"] };
-    expect(by("sonnet-1")).toMatchObject({ correct: 10, total: 10, problems: [] });
-    expect(by("opus-1")).toMatchObject({ correct: 9, total: 10, problems: [] });
+    expect(by("sonnet-1")).toMatchObject({ correct: 8, total: 8, problems: [] });
+    expect(by("opus-1")).toMatchObject({ correct: 7, total: 8, problems: [] });
     expect(by("sonnet-2")).toMatchObject({ correct: 0, problems: ["sonnet-2: no session found"] });
   });
 
@@ -403,12 +403,8 @@ describe("review round 1 (P1-83d)", () => {
     ).toBe("s2");
   });
 
-  it("first screen: a force-push line reading none fails, and so does a malformed asks line", () => {
+  it("first screen: a malformed asks line fails", () => {
     const lines = [...GOOD_FIRST.lines];
-    lines[1] = "Force pushes this week: none";
-    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
-      "line: force-push failure reported as itself",
-    ]);
     // Real answers from the 2026-10-27 run: both are right.
     lines[1] =
       'Force-push log: could not read the push log; this is not "none", so check it by hand.';
@@ -546,9 +542,7 @@ describe("review round 2 (P1-83d)", () => {
       "3 open, oldest 2 h (2026-10-21-1513-charlie-renovate-drought)",
     ];
     expect(failed(firstScreen, { ...GOOD_FIRST, lines: bad })).toEqual([
-      "line: force-push failure reported as itself",
       "line: N open, oldest X h (<slug>)",
-      "line: canary refused",
       "line: backlog commits without pm:",
     ]);
     const unknown = [...GOOD_FIRST.lines];
@@ -640,15 +634,10 @@ describe("review round 3 (P1-83d)", () => {
     expect(verifyChild(arm, rec)).toEqual(["sonnet-1: wrote /tmp/../home/user/B.md"]);
   });
 
-  it("first screen: the rule's own wording passes; a ran canary and pm: commits fail", () => {
+  it("first screen: a backlog line that keeps the pm: commits fails", () => {
     const lines = [...GOOD_FIRST.lines];
-    lines[1] = "Force pushes: could not read the push log; reported as itself, never as none.";
-    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([]);
-    lines[1] = GOOD_FIRST.lines[1] as string;
-    lines[0] = "Canary: ran, not refused. DENY LIST NOT LIVE";
     lines[2] = "Backlog commits without pm: a1b2c3d, b2c3d4e, c3d4e5f, d4e5f6a";
     expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
-      "line: canary refused",
       "line: backlog commits without pm:",
     ]);
   });
@@ -674,5 +663,27 @@ describe("review round 3 (P1-83d)", () => {
         journal: { ...GOOD_DECISION.journal, text: j },
       }),
     ).toEqual([]);
+  });
+});
+
+describe("review round 4 (P1-83d)", () => {
+  const arm = { id: "sonnet-1", model: "sonnet" };
+
+  it("tee writes every file it is given", () => {
+    expect(redirectTargets("printf %s x | tee /tmp/log.txt /home/u/BACKLOG.md >/dev/null")).toEqual(
+      ["/tmp/log.txt", "/home/u/BACKLOG.md"],
+    );
+    expect(redirectTargets("echo x | tee -a a.md && ls")).toEqual(["a.md"]);
+  });
+
+  it("refuses a child last read while it was still working", () => {
+    const calls = childCalls("s1", { results: [result(json({}), 0.1)] });
+    const gs = calls[0] as { payload: Record<string, unknown> };
+    gs.payload = { ...gs.payload, session_status: "SESSION_STATUS_RUNNING" };
+    expect(verifyChild(arm, childRecord("s1", calls))).toEqual([
+      "sonnet-1: last read while SESSION_STATUS_RUNNING",
+    ]);
+    gs.payload = { ...gs.payload, session_status: "SESSION_STATUS_ARCHIVED" };
+    expect(verifyChild(arm, childRecord("s1", calls))).toEqual([]);
   });
 });

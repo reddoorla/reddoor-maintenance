@@ -27,6 +27,7 @@ export interface Call {
 export interface ChildRecord {
   sessionId: string;
   complete: boolean;
+  status: string | null;
   configuredModel: string | null;
   lastServedModel: string | null;
   mainModels: string[];
