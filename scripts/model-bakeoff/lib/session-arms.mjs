@@ -3,7 +3,7 @@
 // thread's long cached context. The only way here to vary the main model is to start a session
 // with `create_session` and a `model`, so each arm is one child session, and everything about it
 // is read back from the remote-sessions MCP results this session's transcript already holds.
-import { forbiddenCommand, textStructured } from "./transcripts.mjs";
+import { forbiddenCommand, textStructured, withoutHeredocs } from "./transcripts.mjs";
 import { cmpTime, historyComplete, sessionUsage } from "./usage.mjs";
 
 export const MODEL_IDS = Object.freeze({
@@ -14,6 +14,7 @@ export const MODEL_IDS = Object.freeze({
 
 // `run` tells one run of a task from another under the same transcript root.
 export function sessionMarker(task, arm, run = "") {
+  if (!/^[\w-]*$/.test(run)) throw new Error(`--run must be letters, digits, _ or -: ${run}`);
   return `(BAKEOFF-SESSION: ${task}/${arm}${run ? ` run=${run}` : ""})`;
 }
 
@@ -47,17 +48,29 @@ export function children(calls, taskId, run = "") {
   return out;
 }
 
-// An MCP tool that acts outside the container: posts, sends, creates, changes or deletes.
-const MCP_WRITE =
-  /^mcp__.*__(?:.*_)?(?:add|archive|copy|create|delete|fire|forward|label|merge|move|post|push|register|reply|request|resolve|run|send|set|share|submit|subscribe|trash|unarchive|update|upload|write)(?:_|$)/;
+// An MCP tool counts as outward unless its action reads: `get_…`, `list_…`, `…_read` and the
+// like. Naming the read verbs, not the write ones, means a new write tool is flagged by default.
+const MCP_READ =
+  /^(?:get|list|search|read|fetch|query|find|check|describe|who|whoami|preview|download|diff|present|suggest)(?:_|$)|_read$/;
+export const isOutwardMcp = (name) =>
+  String(name).startsWith("mcp__") && !MCP_READ.test(String(name).split("__").at(-1));
 
-/** The files a Bash command redirects into (`>`, `>>`, `tee`), `/dev/null` and fds aside. */
+/**
+ * The files a Bash command redirects into (`>`, `>>`, `>|`, `&>`, `tee`), with quoted strings set
+ * aside first, so `grep 'x > 0'` reads as no write. `/dev/null`, `/dev/stdout` and `/dev/stderr`
+ * aside. A tripwire, like the Bash check: `sed -i`, `cp` and an interpreter's own writes are not
+ * seen.
+ */
 export function redirectTargets(command) {
+  // A quoted word that is just a path stays (`> "out.md"`); any other quoted text is set aside.
+  const bare = withoutHeredocs(String(command)).replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (q) =>
+    /^[^\s<>|&;'"]+$/.test(q.slice(1, -1)) ? q.slice(1, -1) : " Q ",
+  );
   const out = [];
-  for (const m of String(command).matchAll(/(?<![<>&\d])\d?>>?(?!&)\s*(["']?)([^\s"';|&<>()]+)\1/g))
-    if (m[2] !== "/dev/null") out.push(m[2]);
-  for (const m of String(command).matchAll(/\btee\s+(?:-a\s+)?(["']?)([^\s"';|&<>()]+)\1/g))
-    out.push(m[2]);
+  const keep = (p) => !/^\/dev\/(?:null|stdout|stderr)$/.test(p) && out.push(p);
+  for (const m of bare.matchAll(/(?<![<>\d])(?:&|\d)?>>?\|?(?!&)\s*(["']?)([^\s"';|&<>()]+)\1/g))
+    keep(m[2]);
+  for (const m of bare.matchAll(/\btee((?:\s+-[-\w]+)*)\s+(["']?)([^\s"';|&<>()]+)\2/g)) keep(m[3]);
   return out;
 }
 
@@ -77,7 +90,8 @@ export function childRecord(sessionId, calls) {
   for (const c of calls) {
     if (c.payload?.error) continue;
     if (c.tool === "list_events" && c.input?.session_id === sessionId) {
-      pages.push(c);
+      // Only an unfiltered page can show what the child ran.
+      if (!c.input.kinds) pages.push(c);
       for (const ev of c.payload?.data ?? []) {
         const inner = Object.values(ev).find((v) => v && typeof v === "object");
         events.set(inner?.uuid ?? `${ev.created_at}:${events.size}`, ev);
@@ -100,22 +114,28 @@ export function childRecord(sessionId, calls) {
   const servedBy = new Set();
   for (const ev of all) {
     const m = message(ev);
-    if (!m || ev.assistant?.internal_anthropic_catchall?.parent_tool_use_id) continue;
-    // An API error or an interrupt writes a `<synthetic>` message; no model served it.
-    if (m.model && m.model !== "<synthetic>") servedBy.add(m.model);
+    if (!m) continue;
+    // A child's own subagents run on their own model, but what they run still counts. An API
+    // error or an interrupt writes a `<synthetic>` message, which no model served.
+    const sub = ev.assistant?.internal_anthropic_catchall?.parent_tool_use_id;
+    if (!sub && m.model && m.model !== "<synthetic>") servedBy.add(m.model);
     for (const b of m.content ?? []) {
       if (b?.type !== "tool_use") continue;
       if (b.name === "Bash" && b.input?.command) bash.push(b.input.command);
       if (["Write", "Edit", "NotebookEdit"].includes(b.name))
         writes.push(b.input?.file_path ?? b.input?.notebook_path ?? "");
       if (b.name === "Bash") writes.push(...redirectTargets(b.input?.command ?? ""));
-      if (MCP_WRITE.test(b.name ?? "")) outward.push(b.name);
+      if (isOutwardMcp(b.name ?? "")) outward.push(b.name);
     }
   }
   const finalText = results.length ? String(body(results.at(-1)).result ?? "") : "";
   return {
     sessionId,
-    complete: historyComplete(pages),
+    // Read to the end, and read after the child's last change: a later turn would be unseen.
+    complete:
+      historyComplete(pages) &&
+      (!newest?.updated_at ||
+        pages.some((p) => !p.input.before_id && cmpTime(p.at, newest.updated_at) >= 0)),
     configuredModel: newest?.configured_model ?? newest?.session_context?.model ?? null,
     lastServedModel: newest?.external_metadata?.last_served_model ?? null,
     mainModels: [...servedBy].sort(),

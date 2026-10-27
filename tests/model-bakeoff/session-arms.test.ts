@@ -3,6 +3,8 @@ import {
   armPrompt,
   childRecord,
   children,
+  isOutwardMcp,
+  redirectTargets,
   verifyChild,
 } from "../../scripts/model-bakeoff/lib/session-arms.mjs";
 import { scoreTask } from "../../scripts/model-bakeoff/session-arms.mjs";
@@ -46,6 +48,7 @@ function childCalls(
     {
       tool: "list_events",
       input: { session_id: id, limit: 100 },
+      at: "2026-10-27T18:20:00Z",
       payload: {
         data: [
           assistant(tools, "a-tools"),
@@ -308,8 +311,8 @@ describe("collecting a child session", () => {
     ];
     const r = scoreTask(firstScreen, calls);
     const by = (id: string) => r.rows.find((x) => x.arm.id === id) ?? { problems: ["absent"] };
-    expect(by("sonnet-1")).toMatchObject({ correct: 8, total: 8, problems: [] });
-    expect(by("opus-1")).toMatchObject({ correct: 7, total: 8, problems: [] });
+    expect(by("sonnet-1")).toMatchObject({ correct: 10, total: 10, problems: [] });
+    expect(by("opus-1")).toMatchObject({ correct: 9, total: 10, problems: [] });
     expect(by("sonnet-2")).toMatchObject({ correct: 0, problems: ["sonnet-2: no session found"] });
   });
 
@@ -458,5 +461,133 @@ describe("review round 1 (P1-83d)", () => {
     expect(
       failed(decision, with_(DECISION_TEXT, JOURNAL_TEXT.replace("$4.27,", "$4.2799,"))),
     ).toEqual(["journal ends with the Usage line"]);
+  });
+});
+
+describe("review round 2 (P1-83d)", () => {
+  const arm = { id: "sonnet-1", model: "sonnet" };
+  const with_ = (d: string, j = JOURNAL_TEXT) => ({
+    decision: { ...GOOD_DECISION.decision, text: d },
+    journal: { ...GOOD_DECISION.journal, text: j },
+  });
+
+  it("sees what a child's own subagents ran", () => {
+    const calls = childCalls("s1", { results: [result(json({}), 0.1)] });
+    const page = calls[1] as { payload: { data: unknown[] } };
+    page.payload.data.push({
+      created_at: "2026-10-27T18:00:30Z",
+      assistant: {
+        uuid: "a-sub",
+        internal_anthropic_catchall: {
+          parent_tool_use_id: "toolu_1",
+          message: {
+            model: "claude-haiku-5-5",
+            content: [
+              { type: "tool_use", name: "Bash", input: { command: "git push origin HEAD:main" } },
+              { type: "tool_use", name: "mcp__github__add_issue_comment", input: {} },
+            ],
+          },
+        },
+      },
+    });
+    const p = verifyChild(arm, childRecord("s1", calls)).join("\n");
+    expect(p).toMatch(/ran git push origin HEAD:main/);
+    expect(p).toMatch(/called mcp__github__add_issue_comment/);
+    expect(p).not.toMatch(/main thread ran/);
+  });
+
+  it("does not call a history complete from a kinds-filtered page, or from a read before the child's last change", () => {
+    const filtered = childCalls("s1", { results: [result(json({}), 0.1)] });
+    (filtered[1] as { input: Record<string, unknown> }).input.kinds = ["result"];
+    expect(childRecord("s1", filtered).complete).toBe(false);
+    const stale = childCalls("s1", { results: [result(json({}), 0.1)] });
+    (stale[1] as { at: string }).at = "2026-10-27T18:05:00Z";
+    expect(childRecord("s1", stale).complete).toBe(false);
+  });
+
+  it("reads redirects outside quotes only", () => {
+    for (const c of [
+      "grep -n 'x > 0' file.js",
+      "awk '$3 > 100' f",
+      "git log --format='%h > %s' -3",
+      'node -e "console.log(1 > 0)"',
+      'grep -E "a>b" f',
+      "echo x > /dev/stderr",
+      "ls 2>&1 >&2",
+      'cat <<< "a > b"',
+    ])
+      expect(redirectTargets(c)).toEqual([]);
+    expect(redirectTargets("cmd &> out.log")).toEqual(["out.log"]);
+    expect(redirectTargets("echo x >| c.md")).toEqual(["c.md"]);
+    expect(redirectTargets("echo x | tee --append notes.md")).toEqual(["notes.md"]);
+    expect(redirectTargets("cat > d/a.md <<'E'\nx > y\nE")).toEqual(["d/a.md"]);
+  });
+
+  it("calls an MCP tool outward unless its action reads", () => {
+    for (const n of [
+      "mcp__github__pull_request_read",
+      "mcp__github__get_label",
+      "mcp__Dropbox__get_file_request",
+      "mcp__claude-code-remote__list_events",
+    ])
+      expect(isOutwardMcp(n)).toBe(false);
+    for (const n of [
+      "mcp__Prisimic__publish_release",
+      "mcp__ccd_session__spawn_task",
+      "mcp__Gmail__untrash_message",
+      "mcp__Claude_Docs__batch",
+    ])
+      expect(isOutwardMcp(n)).toBe(true);
+  });
+
+  it("first screen: every report line is scored", () => {
+    const bad = [
+      "Canary: ran.",
+      "Force pushes: none (could not read the push log).",
+      "Backlog commits without pm: none.",
+      "3 open, oldest 2 h (2026-10-21-1513-charlie-renovate-drought)",
+    ];
+    expect(failed(firstScreen, { ...GOOD_FIRST, lines: bad })).toEqual([
+      "line: force-push failure reported as itself",
+      "line: N open, oldest X h (<slug>)",
+      "line: canary refused",
+      "line: backlog commits without pm:",
+    ]);
+    const unknown = [...GOOD_FIRST.lines];
+    unknown[1] = "Force pushes this week: unknown, the push log was not readable.";
+    expect(failed(firstScreen, { ...GOOD_FIRST, lines: unknown })).toEqual([]);
+  });
+
+  it("decision: more right picks pass, and a wrong rate limit fails", () => {
+    for (const pick of [
+      "Neither (a) nor (c): (b), because",
+      "Landing it as is, (a), is ruled out; I pick (b), because",
+      "B — a sixth round, because",
+      "Pick: b, a sixth round, because",
+    ])
+      expect(failed(decision, with_(DECISION_TEXT.replace("(b), because", pick)))).toEqual([]);
+    expect(failed(decision, with_(DECISION_TEXT.replace("## Pick\n\n", "## My pick\n\n")))).toEqual(
+      [],
+    );
+    expect(
+      failed(
+        decision,
+        with_(DECISION_TEXT, JOURNAL_TEXT.replace("rate limit allowed", "rate limit not allowed")),
+      ),
+    ).toEqual(["journal ends with the Usage line"]);
+    expect(
+      failed(
+        decision,
+        with_(
+          DECISION_TEXT.replace("9:05am PT", "the 9:05 review"),
+          JOURNAL_TEXT +
+            "\nRound 5 ended 9:05am PT.\n\nUsage: $4.27, 1,834/90,211 tokens, 5,120,334/402,118 cache, rate limit allowed\n",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("refuses a run tag the marker cannot carry", () => {
+    expect(() => armPrompt(firstScreen, arm, "2026-10-27.b")).toThrow(/--run/);
   });
 });

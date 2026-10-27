@@ -74,11 +74,12 @@ const BARE_REF = /(^|[^\w/.-])#\d{2,}\b/m;
 // The option a Pick section chooses: the first "(b)", "option c" or a leading "B," that is not
 // negated ("not (a)", "rather than (a)").
 const firstOption = (text) => {
-  const t = String(text).replace(
-    /\b(?:not|rather than|over|instead of)\s+(?:option\s+)?\(?[abc]\)?/gi,
-    "",
+  const t = String(text)
+    .replace(/\(?a\)?[^.\n]*?\bruled out\b/gi, "")
+    .replace(/\b(?:not|neither|nor|rather than|over|instead of)\s+(?:option\s+)?\(?[abc]\)?/gi, "");
+  const m = t.match(
+    /\(([abc])\)|\boption\s+\(?([abc])\b|^\W*(?:(?:my\s+)?pick:?\s*)?([abc])\b\s*[),.:—–-]/im,
   );
-  const m = t.match(/\(([abc])\)|\boption\s+\(?([abc])\b|^\W*([abc])\b[),.:]/im);
   return m ? (m[1] ?? m[2] ?? m[3]).toLowerCase() : null;
 };
 
@@ -90,9 +91,15 @@ export function check(out, f) {
   const fm = frontMatter(dText);
   const body = fm?.body ?? "";
   // The repository's own checker, so the scorer and `decisions.mjs check` cannot disagree.
-  const parsed = parseDecision(basename(String(d.filename ?? "decision.md")), dText);
+  // Read at the moment asked, so "asked is in the future" depends on nothing but the file.
+  const parsed = parseDecision(
+    basename(String(d.filename ?? "decision.md")),
+    dText,
+    Date.parse(f.asked),
+  );
   const firstLine = parsed.ask ?? "";
-  const pickSection = (body.match(/## Pick\n([\s\S]*?)(\n## |$)/) ?? [])[1] ?? "";
+  const pickSection =
+    (body.match(/^##[^\n]*\bpick\b[^\n]*\n([\s\S]*?)(?=\n## |(?![\s\S]))/im) ?? [])[1] ?? "";
   const usageLine =
     jText
       .split("\n")
@@ -111,7 +118,7 @@ export function check(out, f) {
     Math.abs(Number(um[1]) - Number(u.cost)) < 0.005 &&
     [um[2], um[3], um[4], um[5]].join("/") ===
       [u.input, u.output, u.cacheRead, u.cacheWrite].join("/") &&
-    usageLine.includes(u.rateLimit);
+    new RegExp(`rate limit (?:status )?${u.rateLimit}\\b`).test(usageLine);
   const asked = f.asked.replace(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}).*/, "$1-$2-$3-$4$5");
   const c = (check, ok, got, want) => ({ check, ok: !!ok, got, want });
   return [
@@ -152,7 +159,7 @@ export function check(out, f) {
     ),
     c(
       "round 5 time in PT",
-      PT_0905.test(dText),
+      PT_0905.test(dText) || PT_0905.test(jText),
       (dText.match(/\d{1,2}:\d{2}\s*[ap]\.?m\.?\s*\w*/i) ?? [null])[0],
       "9:05am PT",
     ),

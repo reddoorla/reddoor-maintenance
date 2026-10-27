@@ -44,6 +44,7 @@ export interface ChildRecord {
 export const MODEL_IDS: Readonly<Record<string, string>>;
 export function sessionMarker(task: string, arm: string, run?: string): string;
 export function redirectTargets(command: string): string[];
+export function isOutwardMcp(name: string): boolean;
 export function armPrompt(
   task: Pick<SessionTask, "id" | "prompt">,
   arm: SessionArm,
