@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
   isUnmeasuredSmoke,
   SMOKE_TIMEOUT_MS,
   SMOKE_UNMEASURED_PREFIX,
+  SMOKE_BUILD_TIMEOUT_MS,
 } from "../../src/audits/smoke.js";
 import { SpawnTimeoutError } from "../../src/audits/util/spawn.js";
 import { PORT_ATTEMPTS } from "../../src/util/port-retry.js";
@@ -453,5 +454,131 @@ describe("formatUnmeasuredSmokeSummary", () => {
       { audit: "lighthouse", site: "caltex", summary: `${SMOKE_UNMEASURED_PREFIX} — decoy` },
     ]);
     expect(out).toContain("count=0");
+  });
+});
+
+describe("audits/smoke — the site's CI builds before its suite, so the fleet does too (#1777)", () => {
+  // The audit builds only under CI, as fleet-smoke runs (the spec's own condition).
+  const priorCI = process.env.CI;
+  beforeEach(() => {
+    process.env.CI = "true";
+  });
+  afterEach(() => {
+    if (priorCI === undefined) delete process.env.CI;
+    else process.env.CI = priorCI;
+  });
+
+  /** A site whose package.json carries `build` beside `test:smoke`, as every
+   *  SvelteKit site in the fleet does. Its smoke suite may hold specs that read
+   *  the production build (`slice-simulator.spec`'s "the built client" block
+   *  skips without one only when `CI` is unset, and Actions sets it). */
+  async function siteWithBuild(): Promise<{ path: string; name: string }> {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-smoke-build-"));
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "acme",
+        scripts: {
+          build: "vite build",
+          "test:smoke": "playwright install chromium && playwright test",
+        },
+      }),
+      "utf-8",
+    );
+    await mkdir(join(dir, "node_modules"), { recursive: true });
+    return { path: dir, name: "acme" };
+  }
+
+  it("runs `pnpm build` after sync and before the suite", async () => {
+    const site = await siteWithBuild();
+    const calls: Array<{ args: readonly string[]; timeoutMs: number | undefined }> = [];
+    const spawn: SpawnFn = async (_c, a, opts) => {
+      calls.push({ args: a, timeoutMs: opts?.timeoutMs });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(calls.map((c) => c.args)).toEqual([
+      ["exec", "svelte-kit", "sync"],
+      ["build"],
+      ["test:smoke"],
+    ]);
+    expect(calls[1]?.timeoutMs).toBe(SMOKE_BUILD_TIMEOUT_MS);
+    expect(r.status).toBe("pass");
+  });
+
+  it("does not build without CI, where the spec skips itself and a11y may be building", async () => {
+    delete process.env.CI;
+    const site = await siteWithBuild();
+    const calls: Array<readonly string[]> = [];
+    const spawn: SpawnFn = async (_c, a) => {
+      calls.push(a);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(calls.some((a) => a[0] === "build")).toBe(false);
+    expect(r.status).toBe("pass");
+  });
+
+  it("names vite's build error, not its warnings or its stack", async () => {
+    const site = await siteWithBuild();
+    // vite's shape: warnings, then the error, then its stack and fields.
+    const stderr =
+      "npm warn config x\n".repeat(30) +
+      "error during build:\nRollupError: boom in +page.ts\n" +
+      "    at getRollupError (file:///x/rollup/dist/es/shared/parseAst.js:1:1)\n".repeat(12) +
+      "  code: 'PLUGIN_ERROR'\n}";
+    const spawn: SpawnFn = async (_c, a) =>
+      a[0] === "build" ? { code: 1, stdout: "", stderr } : { code: 0, stdout: "", stderr: "" };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.summary).toContain("error during build: RollupError: boom in +page.ts");
+  });
+
+  it("a build that cannot spawn pnpm is a skip, not a crash", async () => {
+    const site = await siteWithBuild();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "build") throw Object.assign(new Error("spawn pnpm ENOENT"), { code: "ENOENT" });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r).toMatchObject({ status: "skip", summary: "pnpm not available" });
+  });
+
+  it("does not build a site with no build script", async () => {
+    const site = await siteWithSmokeScript();
+    const calls: Array<readonly string[]> = [];
+    const spawn: SpawnFn = async (_c, a) => {
+      calls.push(a);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await smokeAudit({ site, spawn, now: NOW });
+    expect(calls.some((a) => a[0] === "build")).toBe(false);
+  });
+
+  it("a build that fails is NOT MEASURED, never a smoke fail, and the suite never runs", async () => {
+    const site = await siteWithBuild();
+    let suiteRan = false;
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "build") return { code: 1, stdout: "", stderr: "Error: missing env PUBLIC_X" };
+      if (a[0] === "test:smoke") suiteRan = true;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(suiteRan).toBe(false);
+    expect(r.summary.startsWith(SMOKE_UNMEASURED_PREFIX)).toBe(true);
+    expect(r.summary).toContain("pnpm build");
+    expect(r.summary).toContain("missing env PUBLIC_X");
+    expect(r.details).toBeUndefined();
+    expect(isUnmeasuredSmoke(r)).toBe(true);
+  });
+
+  it("a build that times out is NOT MEASURED", async () => {
+    const site = await siteWithBuild();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "build") throw new SpawnTimeoutError("pnpm", SMOKE_BUILD_TIMEOUT_MS);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.summary.startsWith(SMOKE_UNMEASURED_PREFIX)).toBe(true);
+    expect(r.details).toBeUndefined();
   });
 });
