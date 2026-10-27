@@ -211,5 +211,161 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r1t-write-unwrapped",
+    "why": "Round 1 tests lens T3: applyTheme's storage write is unwrapped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "  try {\n    if (t === \"system\") storage?.removeItem(THEME_KEY);\n    else storage?.setItem(THEME_KEY, t);\n  } catch {",
+        "replace": "  {\n    if (t === \"system\") storage?.removeItem(THEME_KEY);\n    else storage?.setItem(THEME_KEY, t);\n  }\n  if (false) {"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-read-unwrapped",
+    "why": "Round 1 tests lens T1: readTheme's read is unwrapped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "  try {\n    const t = storage?.getItem(THEME_KEY);\n    return t === \"light\" || t === \"dark\" ? t : \"system\";\n  } catch {\n    return \"system\";\n  }",
+        "replace": "  const t = storage?.getItem(THEME_KEY);\n  return t === \"light\" || t === \"dark\" ? t : \"system\";"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-getter-unwrapped",
+    "why": "Round 1 tests lens T2: the toggle reads window.localStorage unguarded",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/ThemeToggle.svelte",
+        "find": "    try {\n      return window.localStorage;\n    } catch {\n      return undefined;\n    }",
+        "replace": "    return window.localStorage;"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-no-shell-toggle",
+    "why": "Round 1 tests lens T5: the shell drops the toggle",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "    <ThemeToggle />\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/shell.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-named-red",
+    "why": "Round 1 tests lens T6: a named red on an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: red;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-focus-red-on-stuck",
+    "why": "Round 1 tests lens T7: the red focus token on a stuck chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.stuck {\n",
+        "replace": ".chip.stuck {\n  border-color: var(--focus);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-round-chip",
+    "why": "Round 1 tests lens T8: a rounded chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.stuck {\n",
+        "replace": ".chip.stuck {\n  border-radius: 12px;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-font-never-swaps",
+    "why": "Round 1 tests lens T9: the Adobe sheet never swaps in, so Pragmatica never applies",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "href=\"https://use.typekit.net/noj4tji.css\"\n      media=\"print\"\n      onload=\"this.media = 'all'\"",
+        "replace": "href=\"https://use.typekit.net/noj4tji.css\"\n      media=\"print\""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-dark-scheme-light",
+    "why": "Round 1 tests lens T4: a stored dark leaves native controls light",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/* The system",
+        "replace": "  --focus: #ff6b70;\n}\n\n/* The system"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-watch-bold",
+    "why": "Round 1 tests lens 8: a Watch pill as bold as Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": "  color: var(--ink);\n  font-weight: var(--weight-text);\n}",
+        "replace": "  color: var(--ink);\n  font-weight: 700;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-warn-preflight-glyph",
+    "why": "Round 1 tests lens E1: a glyph in the warn-only preflight chip no fixture renders",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "text: `preflight: ${warns.length}",
+        "replace": "text: `preflight ⚠ ${warns.length}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-layout-canvas",
+    "why": "Round 1 operator lens: the layout notice back on system colours",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "    background: var(--surface);",
+        "replace": "    background: Canvas;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
