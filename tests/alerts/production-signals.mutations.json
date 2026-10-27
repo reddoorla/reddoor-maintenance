@@ -715,5 +715,44 @@
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4t-far-metric-all",
+    "why": "Review round 4: a far item counts every package behind, so a fresh one joining reads WORSE",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "          old.length,\n        ),\n      );\n    } else {",
+        "replace": "          packages.length,\n        ),\n      );\n    } else {"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-far-names-one",
+    "why": "Review round 4: a far item names only the first old package",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "${old.join(\", \")}",
+        "replace": "${old[0]}"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-two-failed-nights",
+    "why": "Review round 4: two failed nights in a row drop every deps item",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "readRecentRows(db, 7)",
+        "replace": "readRecentRows(db, 2)"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
   }
 ]

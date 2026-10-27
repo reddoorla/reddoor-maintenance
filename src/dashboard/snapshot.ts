@@ -109,7 +109,7 @@ export async function loadCockpitSnapshot(
       () => listRecentProspectAudits(db, RECENT_AUDITS_LIMIT),
       null,
     ),
-    // P1-78c: one fleet_daily row by primary key; absent, the dependency alarm is.
+    // P1-78c: a week of fleet_daily rows by primary key; absent, the dependency alarm is.
     read<CockpitSnapshot["deps"]>("fleet-daily", () => readLatestDeps(db), null),
   ]);
   return {

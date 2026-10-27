@@ -144,6 +144,29 @@ describe("edges the main suite leaves open", () => {
     expect(d.behind).toEqual([]);
   });
 
+  it("a far item counts only the packages past 90 days, so a fresh one joining is not WORSE", () => {
+    const one = collectDepsAlerts([site()], reading({ "svelte@4": "2026-06-01" }), BASE, NOW).far;
+    const more = collectDepsAlerts(
+      [site()],
+      reading({ "svelte@4": "2026-06-01", "vite@6": "2026-10-20" }),
+      BASE,
+      NOW,
+    ).far;
+    expect(one[0]!.metric).toBe(1);
+    expect(more[0]!.metric).toBe(1);
+  });
+
+  it("two packages past 90 days are both named, and counted", () => {
+    const [it] = collectDepsAlerts(
+      [site()],
+      reading({ "svelte@4": "2026-06-01", "kit@1": "2026-05-01" }),
+      BASE,
+      NOW,
+    ).far;
+    expect(it!.title).toBe("2 packages a major behind for over 90 days: svelte@4, kit@1");
+    expect(it!.metric).toBe(2);
+  });
+
   it("a site with no package behind (an empty list) raises nothing", () => {
     const none: LatestDeps = {
       night: "2026-10-25",
@@ -385,6 +408,15 @@ describe("readLatestDeps carries a night whose deps measure failed (review round
     await put("2026-10-25", { value: { ...reading({ "vite@5": "2026-06-01" }), behind: 1 } });
     await put("2026-10-26", { value: null, reason: "deps: read failed" });
     expect((await readLatestDeps(db))?.sites.recS?.packages).toEqual(["vite@5"]);
+  });
+
+  it("two failed nights in a row still serve the reading before them", async () => {
+    await put("2026-10-24", { value: { ...reading({ "vite@5": "2026-06-01" }), behind: 1 } });
+    await put("2026-10-25", { value: null, reason: "deps: read failed" });
+    await put("2026-10-26", { value: null, reason: "deps: read failed" });
+    const got = await readLatestDeps(db);
+    expect(got?.night).toBe("2026-10-26");
+    expect(got?.sites.recS?.packages).toEqual(["vite@5"]);
   });
 
   it("no reading in any row is null", async () => {
