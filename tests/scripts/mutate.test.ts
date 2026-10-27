@@ -299,6 +299,8 @@ if (process.env.MUTATE_FAKE_CRLF && !readFileSync("src/crlf.txt", "utf-8").inclu
 // tests/b.test.ts passes only when tests/a.test.ts runs beside it (shared state).
 if (process.env.MUTATE_FAKE_PAIR && files.includes("tests/b.test.ts") && !files.includes("tests/a.test.ts")) value = "fail";
 const link = lstatSync("node_modules").isSymbolicLink() ? "link" : "dir";
+// Like vitest's cache, which lands in the cwd's node_modules/.vite.
+if (process.env.MUTATE_FAKE_CACHE) { for (const d of [".vite", ".vite-temp"]) { mkdirSync("node_modules/" + d, { recursive: true }); writeFileSync("node_modules/" + d + "/x.json", "{}"); } }
 if (process.env.MUTATE_FAKE_LOG) appendFileSync(process.env.MUTATE_FAKE_LOG, process.cwd() + " " + value + " " + link + "\\n");
 const kase = (status) => ({ status, fullName: "case " + status, failureMessages: status === "failed" ? ["AssertionError: no"] : [] });
 const report = (cases, message = "") => ({
@@ -1263,5 +1265,126 @@ describe("mutate, against a real repo", () => {
     const ok = sidecar(f.side, [toValue("kill", "fail")]);
     const r3 = spawnSync(process.execPath, [SCRIPT, ok], { cwd: f.dir, encoding: "utf-8" });
     expect(r3.status).toBe(0);
+  });
+
+  // #1646's nits.
+  describe("#1646", () => {
+    const commit = (dir: string) => {
+      sh(dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"]);
+      sh(dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "more"]);
+    };
+
+    it("edits a tracked file whose path holds a tab, rather than calling it untracked", async () => {
+      const f = fixture();
+      writeFileSync(join(f.dir, "src", "a\tb.txt"), "pass\n");
+      commit(f.dir);
+      const p = sidecar(f.side, [
+        {
+          ...toValue("tab", "fail"),
+          edits: [{ file: "src/a\tb.txt", find: "pass", replace: "fail" }],
+        },
+      ]);
+      const rep = await withEnv({ MUTATE_FAKE_LOG: f.log, MUTATE_FAKE_READ: "src/a\tb.txt" }, () =>
+        mutate(opts(p), { cwd: f.dir, ...quiet }),
+      );
+      expect(rep.results.map((r) => [r.id, r.result])).toEqual([["tab", "red"]]);
+    });
+
+    it("refuses an edit naming a submodule, rather than failing with EISDIR", async () => {
+      const f = fixture();
+      const head = sh(f.dir, "git", ["rev-parse", "HEAD"]).trim();
+      mkdirSync(join(f.dir, "sub"));
+      sh(f.dir, "git", ["update-index", "--add", "--cacheinfo", `160000,${head},sub`]);
+      sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "sub"]);
+      const p = sidecar(f.side, [
+        { ...toValue("m", "fail"), edits: [{ file: "sub", find: "pass", replace: "x" }] },
+      ]);
+      await expect(mutate(opts(p), { cwd: f.dir, ...quiet })).rejects.toThrow(
+        /edits name submodules, which hold no text to edit: sub/,
+      );
+    });
+
+    it("prints a sidecar inside the repo named like ..x.json by its relative path", async () => {
+      const f = fixture();
+      writeFileSync(join(f.dir, "..x.mutations.json"), JSON.stringify([toValue("kill", "fail")]));
+      commit(f.dir);
+      const rep = await mutate(opts(join(f.dir, "..x.mutations.json")), { cwd: f.dir, ...quiet });
+      expect(rep.sidecar).toBe("..x.mutations.json");
+      expect(rep.command).toBe("node scripts/mutate.mjs ..x.mutations.json --timeout-ms 60000");
+    });
+
+    it("in a repo without pnpm, the worktree's caches stay out of the checkout's node_modules", async () => {
+      const f = fixture();
+      const p = sidecar(f.side, [toValue("kill", "fail")]);
+      const rep = await withEnv({ MUTATE_FAKE_CACHE: "1" }, () =>
+        mutate(opts(p), { cwd: f.dir, ...quiet }),
+      );
+      expect(rep.results[0]?.result).toBe("red");
+      expect(existsSync(join(f.dir, "node_modules", ".vite"))).toBe(false);
+      // Vite leaves an empty .vite-temp behind after a run; a later run's config bundle
+      // must not land in the checkout's.
+      mkdirSync(join(f.dir, "node_modules", ".vite-temp"));
+      await withEnv({ MUTATE_FAKE_CACHE: "1" }, () => mutate(opts(p), { cwd: f.dir, ...quiet }));
+      expect(readdirSync(join(f.dir, "node_modules", ".vite-temp"))).toEqual([]);
+    });
+
+    it("refuses a repo that tracks files under node_modules, leaving nothing behind", async () => {
+      const f = fixture();
+      writeFileSync(join(f.dir, "node_modules", "tracked.txt"), "x\n");
+      sh(f.dir, "git", ["add", "-f", "node_modules/tracked.txt"]);
+      sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "nm"]);
+      const tmp = mkdtempSync(join(tmpdir(), "mutate-tmp-"));
+      temps.push(tmp);
+      const p = sidecar(f.side, [toValue("kill", "fail")]);
+      await expect(mutate(opts(p), { cwd: f.dir, tmpdir: tmp, ...quiet })).rejects.toThrow(
+        /tracks files under node_modules\/.*rerun with --in-place/,
+      );
+      expect(worktrees(f.dir)).toBe(1);
+      expect(readdirSync(tmp)).toEqual([]);
+    });
+
+    it("--json prints JSON when it stops with an error before any result", () => {
+      const f = fixture("litter");
+      const p = sidecar(f.side, [
+        {
+          ...toValue("m", "fail"),
+          edits: [{ file: "src/value.txt", find: "litter", replace: "fail" }],
+        },
+      ]);
+      const r = spawnSync(process.execPath, [SCRIPT, p, "--json"], {
+        cwd: f.dir,
+        encoding: "utf-8",
+      });
+      expect(r.status).toBe(3);
+      const out = JSON.parse(r.stdout);
+      expect(out.results).toEqual([]);
+      expect(out.error).toMatch(/not clean after the unmutated run/);
+    });
+
+    it("--json prints JSON when a signal stops it before the first result", async () => {
+      const f = fixture("hang");
+      const p = sidecar(f.side, [
+        {
+          ...toValue("m", "fail"),
+          edits: [{ file: "src/value.txt", find: "hang", replace: "fail" }],
+        },
+      ]);
+      const child = spawn(process.execPath, [SCRIPT, p, "--json"], {
+        cwd: f.dir,
+        env: { ...process.env, MUTATE_FAKE_MARKER: f.marker },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.on("data", (c) => (stdout += c));
+      const deadline = Date.now() + 30_000;
+      while (!existsSync(f.marker) && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 50));
+      child.kill("SIGINT");
+      const code = await new Promise<number | null>((r) => child.on("close", r));
+      expect(code).toBe(130);
+      const out = JSON.parse(stdout);
+      expect(out.stopped).toBe("SIGINT");
+      expect(out.results).toEqual([]);
+    });
   });
 });
