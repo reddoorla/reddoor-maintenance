@@ -51,7 +51,8 @@ describe("renderFleetTableHtml — document + rows", () => {
   it("renders a full document with one row per site and a back link home", () => {
     const html = render();
     expect(html).toContain("<!doctype html>");
-    expect(html).toContain('href="/"'); // ← Fleet home, same as the submissions page
+    // P1-78f: the start page (nav "Triage") moved from / to /triage.
+    expect(html).toContain('href="/triage"');
     // Since #672 step 3 a row also carries its signals for the chip filter.
     expect((html.match(/<tr class="fleet-row"/g) ?? []).length).toBe(3);
     expect(html).toContain("3 of 3 sites");

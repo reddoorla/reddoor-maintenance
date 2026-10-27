@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import Page from "../../src/routes/+page.svelte";
+import Page from "../../src/routes/triage/+page.svelte";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { canonical, renderPage } from "../_helpers/parity.js";
 import { cases, NOW } from "./fixtures.js";

@@ -752,7 +752,8 @@ describe("collectPreflightBlocked", () => {
       kind: "preflight",
       severity: "critical",
       siteName: "(unlinked site)",
-      url: "https://d",
+      // P1-78f: the empty-slug fallback is the cockpit's home, /triage until P1-78g.
+      url: "https://d/triage",
     });
     expect(items[0]!.title).toContain("site-not-found");
   });

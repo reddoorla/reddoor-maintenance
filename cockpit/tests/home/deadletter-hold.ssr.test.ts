@@ -1,5 +1,5 @@
 /** OD 87 through the production cockpit load: the root layout's snapshot, then
- *  the page's own `load` (`cockpit/src/routes/+page.ts`).
+ *  the page's own `load` (`cockpit/src/routes/triage/+page.ts`).
  *
  *  Moved from tests/dashboard/fleet-homepage-deadletter.test.ts (#1575) when the
  *  cockpit cutover (#582) retired the fleet-homepage function: it drives the
@@ -14,8 +14,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
-import Page from "../../src/routes/+page.svelte";
-import { load } from "../../src/routes/+page.js";
+import Page from "../../src/routes/triage/+page.svelte";
+import { load } from "../../src/routes/triage/+page.js";
 import { runPage } from "../_helpers/snapshot-load.js";
 import { openDb } from "../../../src/db/client.js";
 import { createDeadLetter } from "../../../src/db/deadletter.js";

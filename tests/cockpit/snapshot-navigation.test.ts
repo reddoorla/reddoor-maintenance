@@ -189,7 +189,8 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       if (r.resourceType() === "document") documents.push(r.url());
     });
 
-    const first = await page.goto(`${origin}/`);
+    // P1-78f: the start page moved to /triage.
+    const first = await page.goto(`${origin}/triage`);
     expect(first?.status()).toBe(200);
     expect(first?.headers()["cache-control"]).toBe("private, no-store");
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("fleet cockpit");
@@ -201,10 +202,27 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await follow(page, "/s/acme", "Acme");
     await follow(page, "/submissions", "Submissions");
     await follow(page, "/audits", "Prospect audits");
-    await follow(page, "/", "fleet cockpit");
+    await follow(page, "/triage", "fleet cockpit");
 
     expect(data).toEqual([]);
-    expect(documents).toEqual([`${origin}/`]);
+    expect(documents).toEqual([`${origin}/triage`]);
+  });
+
+  // P1-78f: / sends a browser to the start page with a temporary redirect.
+  it("/ lands on /triage through a 307", async () => {
+    const page = await signedIn();
+    const hops: Array<[string, number]> = [];
+    page.on("response", (r) => {
+      if (r.request().resourceType() === "document")
+        hops.push([new URL(r.url()).pathname, r.status()]);
+    });
+    const res = await page.goto(`${origin}/`);
+    expect(res?.status()).toBe(200);
+    expect(new URL(page.url()).pathname).toBe("/triage");
+    expect(hops).toEqual([
+      ["/", 307],
+      ["/triage", 200],
+    ]);
   });
 
   it("a page's stylesheets leave with it", async () => {
@@ -308,7 +326,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     page.on("request", (r) => {
       if (r.resourceType() === "document") documents.push(new URL(r.url()).pathname);
     });
-    await page.goto(`${origin}/`);
+    await page.goto(`${origin}/triage`); // P1-78f: the start page moved
     await page.waitForLoadState("networkidle");
     await follow(page, "/submissions", "Submissions");
     const posted = page.waitForResponse((r) => r.url().includes("/api/submissions/"));
@@ -317,12 +335,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       .locator("button", { hasText: /^Spam$/ })
       .click();
     expect((await posted).status()).toBe(200);
-    // Back lands on `/` and reloads it in full. Mark this document, so the wait
+    // Back lands on `/triage` and reloads it in full. Mark this document, so the wait
     // below is for a new one, fully loaded and hydrated, before stepping Forward:
     // a step taken while the reload is in flight aborts it.
     await page.evaluate(() => Object.assign(window, { __beforeBack: true }));
     await page.goBack();
-    await page.waitForURL(`${origin}/`);
+    await page.waitForURL(`${origin}/triage`);
     await page.waitForFunction(
       () =>
         !("__beforeBack" in window) &&
@@ -332,14 +350,14 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       { timeout: 15_000 },
     );
     await page.waitForLoadState("networkidle");
-    expect(documents).toEqual(["/", "/"]);
+    expect(documents).toEqual(["/triage", "/triage"]);
     await page.goForward();
     await page.waitForURL(`${origin}/submissions`);
     // That reload read a fresh snapshot, so Forward derives in the browser and
     // already shows the change.
     const row = page.locator("li.subm-item", { hasText: "pat@example.com" }).first();
     await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain("spam");
-    expect(documents).toEqual(["/", "/"]);
+    expect(documents).toEqual(["/triage", "/triage"]);
   });
 
   it("on focus with nothing changed, one counter read and no notice", async () => {

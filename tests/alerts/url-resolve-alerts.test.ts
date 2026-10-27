@@ -174,7 +174,7 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
       kind: "url",
       severity: "warning",
       metric: 3,
-      url: BASE,
+      url: `${BASE}/triage`, // P1-78f: the cockpit home, not the bare root
     });
     expect(items[0]!.title).toMatch(/3 of 3/);
     expect(items[0]!.title).toContain("1 never checked");
@@ -250,7 +250,7 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
 
   it("links the fleet root without a trailing slash", () => {
     const items = collectUrlResolveAlerts([passing({ urlCheckedAt: null })], `${BASE}/`, NOW);
-    expect(items[0]!.url).toBe(BASE);
+    expect(items[0]!.url).toBe(`${BASE}/triage`); // P1-78f
   });
 
   it("an empty roster raises nothing", () => {

@@ -1,7 +1,7 @@
 import { createRawSnippet, type Component } from "svelte";
 import { render } from "svelte/server";
 import Layout from "../../src/routes/+layout.svelte";
-import HomePage from "../../src/routes/+page.svelte";
+import HomePage from "../../src/routes/triage/+page.svelte";
 import FleetPage from "../../src/routes/fleet/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
 import SubmissionsPage from "../../src/routes/submissions/+page.svelte";

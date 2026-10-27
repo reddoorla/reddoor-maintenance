@@ -22,7 +22,7 @@ import {
   submissionsPageFromSnapshot,
 } from "../../../src/dashboard/snapshot-views.js";
 import { isHttpError, type RequestEvent } from "@sveltejs/kit";
-import { load as homeLoad } from "../../src/routes/+page.js";
+import { load as homeLoad } from "../../src/routes/triage/+page.js";
 import { handle } from "../../src/hooks.server.js";
 import { runLayout, runPage } from "../_helpers/snapshot-load.js";
 

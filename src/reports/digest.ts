@@ -75,6 +75,7 @@ export type {
   DigestSections,
   SubmissionsDigestSection,
 } from "../alerts/attention.js";
+import { COCKPIT_HOME } from "../dashboard/home-path.js";
 
 const GREY = "#757575";
 const RED = "#C00";
@@ -855,7 +856,7 @@ export async function runDigest(
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
-        dashboardUrl: slug ? `${baseUrl}/s/${slug}` : baseUrl,
+        dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${COCKPIT_HOME}`,
       });
     }
 

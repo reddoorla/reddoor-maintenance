@@ -342,7 +342,8 @@ describe("runDigest", () => {
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
     const html = captured[0]!.html;
-    expect(html).toContain('href="https://reddoor-maintenance.netlify.app"');
+    // P1-78f: the empty-slug fallback is the cockpit's home, /triage until P1-78g.
+    expect(html).toContain('href="https://reddoor-maintenance.netlify.app/triage"');
     expect(html).not.toContain("/s/"); // no malformed empty-slug link
   });
 
