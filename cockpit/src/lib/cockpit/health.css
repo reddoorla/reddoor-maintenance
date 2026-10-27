@@ -97,7 +97,7 @@
   padding: 0.1rem 0.5rem;
   background: var(--band);
 }
-.chip.critical {
+.chip.broken {
   background: var(--broken-fill);
   color: var(--on-broken);
 }

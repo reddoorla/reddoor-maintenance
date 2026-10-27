@@ -29,6 +29,7 @@ import {
   UNAPPROVE_CONFIRM_TEXT,
 } from "../../../../src/dashboard/report-confirm.js";
 import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
+import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 
 /**
@@ -388,11 +389,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
       });
       continue;
     }
-    const cls = it.autoFixExhausted
-      ? "chip critical stuck"
-      : it.severity === "critical"
-        ? "chip critical"
-        : "chip";
+    const cls = chipClass(it);
     chips.push({ cls, title: null, text: it.title });
   }
   a.watchReasons.forEach((reason, i) => {

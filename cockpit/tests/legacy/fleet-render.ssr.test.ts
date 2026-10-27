@@ -1059,8 +1059,11 @@ describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
     // data-signals carries BOTH the base vuln token and the new one
     expect(html).toMatch(/data-signals="[^"]*\bvulns\b[^"]*"/);
     expect(html).toMatch(/data-signals="[^"]*\bauto-fix-failed\b[^"]*"/);
-    // the chip renders with the distinct stuck class + escalated text
-    expect(html).toContain("chip critical stuck");
+    // the chip renders with the distinct stuck class + escalated text. P1-78e: a
+    // stuck vulnerability is Attention on the ladder, so its chip is never red
+    // (it was "chip critical stuck", red by severity).
+    expect(html).toContain('class="chip stuck"');
+    expect(html).not.toContain("chip broken");
     expect(html).toContain("auto-fix failed (3×)");
   });
 });

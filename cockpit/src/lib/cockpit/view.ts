@@ -10,7 +10,9 @@ import {
   fleetLastAuditedAt,
   isFailedDeployStatus,
   isReadyDeployStatus,
+  itemLevel,
 } from "../../../../src/dashboard/fleet-cockpit.js";
+import type { AttentionItem } from "../../../../src/alerts/attention.js";
 import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/onboarding.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
@@ -86,7 +88,6 @@ export type CardView = {
 
 export type RecentRowView = {
   type: FleetEventType;
-  icon: string;
   siteName: string | null;
   summary: string;
   when: string;
@@ -147,7 +148,7 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 
 /** The glance verdict, on the ladder (P1-78b): "1 site broken · 2 need attention ·
  *  3 to watch · 1 waiting on your yes". Each band that has sites is named, worst
- *  first; the colour is the worst band's. Green "✓ All clear" on an empty feed. The
+ *  first; only a Broken verdict is red (P1-78e). "All clear" on an empty feed. The
  *  healthy, pre-launch and archived counts and the audit recency ride in the meta
  *  line (zero terms omitted). */
 function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictView {
@@ -270,7 +271,7 @@ function securityDisplay(
   return total === 0 ? "0" : `${critical}C/${high}H/${moderate}M/${low}L`;
 }
 
-/** Green = ready/success, red = failed, amber = anything else; grey "—" when no
+/** Ready, failed or anything else, said in words (P1-78e: no status colour); "—" when no
  *  deploy was read. Linked only to a real http(s) deploy log: `safeUrl`
  *  allowlists the scheme, and its "#" fallback would be a dead link. */
 function deployView(site: WebsiteRow, now: Date): DeployView {
@@ -298,13 +299,22 @@ const PILL_LABEL: Record<Tier, string> = {
 const WATCH_CHIP_TITLE =
   "Add this exact text to the site's Accepted Watch Conditions to mute this watch";
 
+/** A chip's class. P1-78e: red marks Broken only, so the red comes from the item's
+ *  ladder level, never its severity: a stuck vulnerability or an approved report's
+ *  preflight is critical but Attention, and a failed deploy is Broken at warning. */
+export function chipClass(it: AttentionItem): string {
+  return [
+    "chip",
+    itemLevel(it) === "broken" ? "broken" : null,
+    it.autoFixExhausted ? "stuck" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function chips(c: SiteCard): ChipView[] {
   const out: ChipView[] = c.items.map((it) => ({
-    cls: it.autoFixExhausted
-      ? "chip critical stuck"
-      : it.severity === "critical"
-        ? "chip critical"
-        : "chip",
+    cls: chipClass(it),
     badge: it.status === "new" ? "NEW" : it.status === "worse" ? "WORSE" : null,
     text: it.title,
     title: null,
@@ -435,20 +445,9 @@ export const FLEET_FILTERS = [
 
 // ---- lanes ----
 
-const RECENT_ICON: Record<FleetEventType, string> = {
-  pr_automerged: "",
-  vuln_cleared: "",
-  ci_recovered: "",
-  site_launched: "",
-  cert_renewed: "",
-  fleet_swept: "",
-  report_sent_with_override: "",
-};
-
 function recently(model: CockpitModel, now: Date): RecentRowView[] {
   return (model.recent ?? []).map((e) => ({
     type: e.type,
-    icon: RECENT_ICON[e.type] ?? "•",
     siteName: e.siteName || null,
     summary: e.summary,
     when: relativeTimeFromNow(e.ts, now),

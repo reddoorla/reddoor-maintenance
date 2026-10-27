@@ -178,6 +178,10 @@ details.inbox > summary {
 .dot.broken {
   background: var(--broken-fill);
 }
+/* Nothing red on a red ground (the guide): links in the Broken verdict hover white. */
+.verdict.broken a:hover {
+  color: var(--on-broken);
+}
 .dot.attention {
   background: transparent;
   box-shadow: inset 0 0 0 2px currentColor;

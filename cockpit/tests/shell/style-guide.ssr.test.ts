@@ -8,7 +8,8 @@ import FleetPage from "../../src/routes/fleet/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
 import SubmissionsPage from "../../src/routes/submissions/+page.svelte";
 import AuditsPage from "../../src/routes/audits/+page.svelte";
-import { buildCockpitView, buildSitesView } from "../../src/lib/cockpit/view.js";
+import { buildCockpitView, buildSitesView, chipClass } from "../../src/lib/cockpit/view.js";
+import type { AttentionItem } from "../../../src/alerts/attention.js";
 import { buildSiteView } from "../../src/lib/site/view.js";
 import { buildSubmissionsPageData } from "../../src/routes/submissions/data.js";
 import { auditsPageView } from "../../src/lib/audits/view.js";
@@ -183,7 +184,9 @@ function rules(css: string): Array<[string, string]> {
 describe("red marks Broken only", () => {
   // The red tokens may appear only on Broken markers, and in base.css for the
   // guide's focus ring and link hover, which are not state.
-  const BROKEN_SELECTOR = /broken|critical/;
+  // Only "broken": "critical" is a severity, and a critical item can be Attention
+  // (review round 1: a stuck vulnerability's chip was red).
+  const BROKEN_SELECTOR = /broken/;
 
   it("every rule that paints red is a Broken marker", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
@@ -329,5 +332,31 @@ describe("type", () => {
     expect(body).toMatch(/font-family:\s*var\(--font-sans\)/);
     expect(body).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(stripComments(read(TOKENS))).toMatch(/--font-sans:\s*pragmatica/);
+  });
+});
+
+describe("a chip is red by its ladder level, never its severity", () => {
+  const item = (over: Partial<AttentionItem>): AttentionItem => ({
+    key: "x:rec1",
+    kind: "vuln",
+    siteName: "Acme",
+    title: "t",
+    url: "u",
+    severity: "critical",
+    metric: 1,
+    ...over,
+  });
+
+  it("a critical Attention item, stuck or not, is not red", () => {
+    expect(chipClass(item({ level: "attention" }))).toBe("chip");
+    expect(chipClass(item({ level: "attention", autoFixExhausted: true }))).toBe("chip stuck");
+  });
+
+  it("a Broken item is red whatever its severity", () => {
+    expect(chipClass(item({ kind: "deploy", severity: "warning", level: "broken" }))).toBe(
+      "chip broken",
+    );
+    // A hand-built item with no level set takes the ladder's: deploy is Broken.
+    expect(chipClass(item({ kind: "deploy", severity: "warning" }))).toBe("chip broken");
   });
 });

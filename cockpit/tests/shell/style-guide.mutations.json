@@ -133,5 +133,31 @@
     ],
     "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r1-chip-by-severity",
+    "why": "Review round 1: a chip is red by severity, so a critical Attention item (a stuck vuln) is red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "itemLevel(it) === \"broken\" ? \"broken\" : null",
+        "replace": "it.severity === \"critical\" ? \"broken\" : null"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-sev-critical-red",
+    "why": "Review round 1: an advisory's severity pill is red, though it is no ladder level",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": ".pill.sev-critical {\n  background: transparent;",
+        "replace": ".pill.sev-critical {\n  background: var(--broken-fill);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]

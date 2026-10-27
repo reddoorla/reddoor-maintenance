@@ -356,9 +356,12 @@ button.override-submit:disabled {
   gap: 0.5rem;
   align-items: baseline;
 }
+/* An advisory's own severity is not a ladder level, so it is never red (P1-78e). */
 .pill.sev-critical {
-  background: var(--broken-fill);
-  color: var(--on-broken);
+  background: transparent;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .pill.sev-high {
   background: transparent;
@@ -473,7 +476,7 @@ button.trigger-renovate:disabled {
   padding: 0.1rem 0.5rem;
   background: var(--band);
 }
-.chip.critical {
+.chip.broken {
   background: var(--broken-fill);
   color: var(--on-broken);
 }
