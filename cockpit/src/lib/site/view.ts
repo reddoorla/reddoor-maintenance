@@ -239,12 +239,15 @@ function recipients(site: WebsiteRow): PendingView["recipients"] {
   return { missing: false, text: `To ${to.join(", ")}${ccPart}` };
 }
 
-function healthPresentation(status: EvidenceResult): { cls: string; word: string } {
+/** A checklist row's pill. P1-78e: a failing check blocks a send, which is not the
+ *  ladder's Broken (nothing outside Reddoor is affected), so it is ink and bold,
+ *  never red (review round 2). */
+export function healthPresentation(status: EvidenceResult): { cls: string; word: string } {
   switch (status) {
     case "pass":
       return { cls: "healthy", word: "clear" };
     case "fail":
-      return { cls: "broken", word: "blocks" };
+      return { cls: "blocks", word: "blocks" };
     case "n/a":
       return { cls: "na", word: "n/a" };
     default:

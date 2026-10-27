@@ -39,7 +39,6 @@ input,
 select,
 textarea {
   font: inherit;
-  color: inherit;
 }
 /* Controls default to the tokens, so one no page styles is never the browser's
    grey in the dark theme; a page's own rule, loaded after this one, still wins. */
@@ -47,6 +46,9 @@ button,
 input,
 select,
 textarea {
+  /* Ink, never inherited: a control on the red band would take its white onto a
+     white surface (review round 2: an invisible "Reload"). */
+  color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);

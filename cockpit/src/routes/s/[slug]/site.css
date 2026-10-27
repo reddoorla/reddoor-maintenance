@@ -256,6 +256,12 @@ button.unapprove:disabled {
   background: var(--broken-fill);
   color: var(--on-broken);
 }
+.pill.blocks {
+  background: transparent;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}
 .pill.na {
   background: transparent;
   border: 1px solid var(--rule);

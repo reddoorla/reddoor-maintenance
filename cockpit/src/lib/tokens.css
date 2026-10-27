@@ -34,7 +34,7 @@
   --rule: #bbbdbf; /* hairlines only: 1.74:1, never text */
   --control-border: #6e6f72; /* the only boundary of a control: 4.65:1 */
 
-  /* Red: Broken, links' hover, focus */
+  /* Red: Broken, and the focus ring */
   --broken: #d71920; /* text: 4.80:1 on ground */
   --broken-fill: #d71920; /* a filled Broken pill or dot */
   --on-broken: #ffffff; /* text on the fill: 5.19:1 */

@@ -10,7 +10,7 @@ import SubmissionsPage from "../../src/routes/submissions/+page.svelte";
 import AuditsPage from "../../src/routes/audits/+page.svelte";
 import { buildCockpitView, buildSitesView, chipClass } from "../../src/lib/cockpit/view.js";
 import type { AttentionItem } from "../../../src/alerts/attention.js";
-import { buildSiteView } from "../../src/lib/site/view.js";
+import { buildSiteView, healthPresentation } from "../../src/lib/site/view.js";
 import { buildSubmissionsPageData } from "../../src/routes/submissions/data.js";
 import { auditsPageView } from "../../src/lib/audits/view.js";
 import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
@@ -487,6 +487,25 @@ describe("type", () => {
     expect(body).toMatch(/font-family:\s*var\(--font-sans\)/);
     expect(body).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(stripComments(read(TOKENS))).toMatch(/--font-sans:\s*pragmatica/);
+  });
+});
+
+describe("red marks Broken only, in the views", () => {
+  // Review round 2: a failing report check rendered "pill broken" (red) beside
+  // "advisory — never blocks". A pre-send check is not the ladder's Broken.
+  it("a report checklist row is never the Broken class, whatever its result", () => {
+    for (const r of ["pass", "fail", "n/a", "unknown"] as const) {
+      expect(healthPresentation(r).cls).not.toBe("broken");
+    }
+    expect(healthPresentation("fail")).toEqual({ cls: "blocks", word: "blocks" });
+  });
+
+  // Review round 2: controls inherited the red band's white onto a white surface.
+  it("a control's text is ink on its surface, never inherited", () => {
+    const base = rules(read(join(SRC, "lib/base.css")));
+    const controls = base.filter(([sel]) => /\bbutton\b/.test(sel) && /\binput\b/.test(sel));
+    expect(controls.some(([, b]) => /color\s*:\s*var\(--ink\)/.test(b))).toBe(true);
+    expect(controls.some(([, b]) => /(^|;|\s)color\s*:\s*inherit/.test(b))).toBe(false);
   });
 });
 
