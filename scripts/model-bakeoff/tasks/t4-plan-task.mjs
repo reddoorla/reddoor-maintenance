@@ -368,13 +368,18 @@ function notIgnoredBy(base, paths) {
     });
   } catch (e) {
     // Exit 1 means none of the paths is ignored; its output still lists every one.
-    if (e?.status !== 1) throw e;
-    out = e.stdout;
+    if (e?.status === 1) out = e.stdout;
+    else if (e?.code === "ENOBUFS") throw e;
+    // Anything else (a path beyond a symlink base tracks is fatal) fails closed: every path
+    // counts, so scope fails and the score goes on.
+    else return paths;
   }
   const f = out.split("\0");
   const result = [];
-  // -v -n -z: source, line, pattern, path for each path; an empty source matched no rule.
-  for (let i = 0; i + 3 < f.length; i += 4) if (f[i] === "") result.push(f[i + 3]);
+  // -v -n -z: source, line, pattern, path for each path. An empty source matched no rule, and a
+  // `!` pattern is base re-including the path, so neither is base ignoring it.
+  for (let i = 0; i + 3 < f.length; i += 4)
+    if (f[i] === "" || f[i + 2].startsWith("!")) result.push(f[i + 3]);
   return result;
 }
 
