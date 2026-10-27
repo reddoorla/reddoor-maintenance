@@ -1,0 +1,254 @@
+[
+  {
+    "id": "1-cert-7-attention",
+    "why": "A certificate at 7 days reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    } else if (days <= CERT_BROKEN_DAYS) {",
+        "replace": "    } else if (days < CERT_BROKEN_DAYS) {"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-form-4-days-broken",
+    "why": "A form-test fail stamped 4 days ago reads Broken",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "freshWithin(s.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "freshWithin(s.formE2eCheckedAt, PRODUCTION_STALE_DAYS + 2, now)"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-smoke-attention",
+    "why": "A smoke fail reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": "    case \"smoke\":\n    case \"search-console\":\n      return \"watch\";",
+        "replace": "    case \"search-console\":\n      return \"watch\";\n    case \"smoke\":\n      return \"attention\";"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-null-stamp-pass",
+    "why": "A null stamp reads as fresh",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "  if (stamp === null) return false;",
+        "replace": "  if (stamp === null) return true;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-unreachable-healthy",
+    "why": "An unreachable route reads healthy (the cockpit drops the uptime collector)",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectUptimeAlerts(sites, baseUrl, now),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-dead-domain-stale",
+    "why": "A domain check with null cert days and a stale stamp reads Broken",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    if (!freshWithin(s.domainCheckedAt, PRODUCTION_STALE_DAYS, now)) continue;\n",
+        "replace": "    if (s.domainCheckedAt === null) continue;\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-no-route-down",
+    "why": "An audit that sampled no route stores a fail (site down), not null",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  const reachableOk = routes.length === 0 ? null : unreachableUrls.length === 0;",
+        "replace": "  const reachableOk = routes.length === 0 ? false : unreachableUrls.length === 0;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-digest-omits-broken",
+    "why": "The digest's collectAttention omits a Broken collector, so its age resets daily",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    ...runCollector(\"uptime\", () => collectUptimeAlerts(websites, deps.baseUrl, now)),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-deps-89-attention",
+    "why": "A package 89 days behind reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "nightsBetween(first, deps.night) > DEPS_FAR_DAYS",
+        "replace": "nightsBetween(first, deps.night) > DEPS_FAR_DAYS - 2"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-null-night-resets",
+    "why": "A night with no reading resets the run (no packages counted)",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    const packages = d.packages ?? Object.keys(d.firstSeen);",
+        "replace": "    const packages = d.packages ?? [];"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-smoke-in-digest",
+    "why": "A Watch collector (smoke) is registered in the digest's collectAttention",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    ...runCollector(\"uptime\", () => collectUptimeAlerts(websites, deps.baseUrl, now)),\n",
+        "replace": "    ...runCollector(\"uptime\", () => collectUptimeAlerts(websites, deps.baseUrl, now)),\n    ...runCollector(\"smoke\", () => collectSmokeAlerts(websites, deps.baseUrl, now)),\n"
+      },
+      {
+        "file": "src/reports/digest.ts",
+        "find": "  collectUptimeAlerts,\n",
+        "replace": "  collectUptimeAlerts,\n  collectSmokeAlerts,\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-no-link-attention",
+    "why": "links_ok with no link checked reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        (s.brokenLinks ?? 0) > 0 &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-a11y-unstamped",
+    "why": "An a11y count with a stale or missing stamp reads Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        s.a11yRoutesScanned >= s.a11yRoutesTotal &&\n        freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now),",
+        "replace": "        s.a11yRoutesScanned >= s.a11yRoutesTotal,"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-lighthouse-a11y",
+    "why": "fleet-lighthouse's --only gains a11y (auditNeedsCheckout turns true)",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-lighthouse.yml",
+        "find": "--only lighthouse,domain,browser,netlify-deploy,function-health \\",
+        "replace": "--only lighthouse,domain,browser,netlify-deploy,function-health,a11y \\"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-ladder-1",
+    "why": "fleet_daily keeps writing ladder_version 1",
+    "edits": [
+      {
+        "file": "src/fleet-daily/core.ts",
+        "find": "export const LADDER_VERSION = 2;",
+        "replace": "export const LADDER_VERSION = 1;"
+      }
+    ],
+    "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-partial-a11y",
+    "why": "A partial a11y run reads as measured",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        s.a11yRoutesScanned >= s.a11yRoutesTotal &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-stale-smoke",
+    "why": "A prior smoke fail stamped more than 3 days ago reads as a fail",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "freshWithin(s.lastSmokeAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "s.lastSmokeAt !== null"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-a11y-5-days-ignored",
+    "why": "An a11y verdict stamped 5 days ago is ignored (3-day window, not 8)",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "export const A11Y_STALE_DAYS = 8;",
+        "replace": "export const A11Y_STALE_DAYS = 3;"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-a11y-no-issue",
+    "why": "A failed fleet-a11y run opens no tracking issue",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "            gh issue create --title \"$title\" --body \"$body\"",
+        "replace": "            true"
+      }
+    ],
+    "test": "tests/build/fleet-a11y-workflow.test.ts",
+    "expect": "red"
+  }
+]
