@@ -728,6 +728,7 @@ export async function answerConsentGates(
     .getByRole("dialog", { name: CONSENT_DIALOG })
     .or(page.getByRole("alertdialog", { name: CONSENT_DIALOG }))
     .or(page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: COOKIE_TEXT }));
+  let clickRefused = false;
   const seen: ConsentGates = {
     unanswerable: false,
   };
@@ -738,6 +739,10 @@ export async function answerConsentGates(
       // outroing element in the DOM, inert, for its fade, so it still matches, and
       // a second click on it lands on the page beneath (gallerysonder, 2026-10-27).
       if (seen.answered !== undefined) return;
+      // A button that refused its click once is not tried again: each try costs
+      // CONSENT_CLICK_MS, and Playwright calls the handler on every retry of the
+      // action. A gate seen with no button yet is looked at again (late buttons).
+      if (clickRefused) return;
       // Never thrown: a handler's throw escapes the action as an unhandled
       // rejection, which crashed the whole run. The action it interrupted
       // reports the blocked click itself.
@@ -752,7 +757,15 @@ export async function answerConsentGates(
           return;
         }
         const label = ((await button.textContent().catch(() => null)) ?? "").trim().slice(0, 40);
-        await button.click({ timeout: CONSENT_CLICK_MS });
+        const clicked = await button
+          .click({ timeout: CONSENT_CLICK_MS })
+          .then(() => true)
+          .catch(() => false);
+        if (!clicked) {
+          clickRefused = true;
+          seen.unanswerable = true;
+          return;
+        }
         seen.answered = label;
       } catch {
         seen.unanswerable = true;

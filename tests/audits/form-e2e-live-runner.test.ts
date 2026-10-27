@@ -124,7 +124,7 @@ const contactPage = (opts: {
 </body></html>`;
 
 /** Which answers the cookie-consent gate offers (#1736). */
-type Consent = "both" | "acceptOnly" | "none" | "covered";
+type Consent = "both" | "acceptOnly" | "none" | "covered" | "lateButtons" | "accordion";
 
 /** gallerysonder's gate, reduced: a full-screen `role="dialog"` named "Cookie
  *  consent" that mounts on a timer (3 s there) over the whole page, so it
@@ -140,7 +140,10 @@ const consentGate = (offer: Consent) => `
       gate.setAttribute("aria-label", "Cookie consent");
       gate.style.cssText = "position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5)";
       gate.innerHTML = '<p>We use cookies to improve your experience.</p>' +
-        (${JSON.stringify(offer)} === "none" ? "" :
+        // An accordion toggle whose name mentions "necessary", before the real answer.
+        (${JSON.stringify(offer)} === "accordion"
+          ? '<button type="button">Strictly necessary cookies ▸</button><button type="button" data-answer="reject">Reject all</button>' : "") +
+        (["none", "accordion", "lateButtons"].includes(${JSON.stringify(offer)}) ? "" :
           '<button type="button" data-answer="accept">Accept</button>' +
           (${JSON.stringify(offer)} === "both" || ${JSON.stringify(offer)} === "covered"
             ? '<button type="button" data-answer="reject">Reject</button>' : "") +
@@ -158,24 +161,31 @@ const consentGate = (offer: Consent) => `
         setTimeout(() => gate.remove(), 600);
       });
       document.body.appendChild(gate);
+      // The shell first, its buttons 300 ms later, as some consent managers mount.
+      if (${JSON.stringify(offer)} === "lateButtons") setTimeout(() => {
+        gate.insertAdjacentHTML("beforeend", '<button type="button" data-answer="reject">Reject</button>');
+      }, 300);
     }, 300);
   </script>`;
 
 /** A contact form with no required field, and a consent gate that mounts
- *  `gateAfterMs` after load, later than the probe's trial click: inside the
- *  real submit click, as gallerysonder's does. With `reload`, answering it
+ *  `gateAfterMs` after load, while the probe's submit click is already
+ *  waiting on the button, as gallerysonder's does. With `reload`, answering it
  *  reloads the page (once per tab), as some consent managers do, so the click
  *  that follows meets a fresh form with no fills and no marker (#1736 review). */
 const lateGatePage = (gateAfterMs: number, reload: boolean) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
   <form id="contact" method="POST">
-    <input type="text" name="name"><input type="email" name="email">
-    <textarea name="message"></textarea><button type="submit">Send</button>
+    <input type="text" name="name"><input type="email" name="email"><input type="tel" name="phone">
+    <textarea name="message"></textarea><button type="submit" disabled>Send</button>
   </form>
   <p role="status" id="ok" hidden>Thanks, we will be in touch.</p>
   <script>
     const f = document.getElementById("contact");
+    // Enabled 500 ms after the gate mounts, so the probe's click is already
+    // waiting on it when the gate lands, as gallerysonder's 3 s gate meets it.
+    setTimeout(() => (f.querySelector("button").disabled = false), ${gateAfterMs} + 500);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = Object.fromEntries(new FormData(f));
@@ -876,7 +886,7 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
     expect(detail).toMatch(/intercepts pointer events/);
   }, 90_000);
 
-  it("a gate that mounts after the trial click, inside the real click, is answered and passes", async () => {
+  it("a gate that lands while the submit click waits is answered, and the click passes", async () => {
     const out = await submit(
       { health: DECLARED, banner: true, lateGate: { afterMs: 1500, reload: false } },
       { ...FAST, submitTimeoutMs: 8000 },
@@ -896,9 +906,24 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
     expect(posts.length).toBeGreaterThan(0);
   }, 90_000);
 
+  it("a gate whose buttons arrive after its shell is still answered", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "lateButtons" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    expect(posts[0]?.cookieConsent).toBe("reject");
+  }, 90_000);
+
+  it("presses Reject all, not an accordion toggle whose name mentions necessary cookies", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "accordion" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject all" });
+  }, 90_000);
+
   it("a gate whose buttons refuse the click fails without crashing the run", async () => {
+    const t0 = Date.now();
     const out = await submit({ health: DECLARED, banner: true, consent: "covered" }, FAST_FAIL);
     expect(out).toMatchObject({ formPresent: true, success: false, consentUnanswered: true });
+    // One 5 s try at the refused button, not one per retry of the click: 9 s
+    // measured, 44 s when every retry tried again.
+    expect(Date.now() - t0).toBeLessThan(25_000);
     expect(posts).toHaveLength(0);
     expect((out as { detail?: string }).detail).toContain(
       "a cookie-consent dialog covered the page and the probe could not answer it",
