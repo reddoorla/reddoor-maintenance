@@ -431,7 +431,11 @@ a sandbox: the gates execute the agent's code, which can write anywhere the scor
 agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. Running each agent
 and each gate in its own namespace would close that; until then, read the plan's files of every
 agent for `node:fs`, `child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
-agent's own `vitest run` there, with no secrets in the environment. Then the plan's own test file, taken
+agent's own `vitest run` there, with no secrets in the environment. Every install and gate pnpm
+reads an empty config directory made for that one step, instead of the caller's `~/.npmrc`, pnpm
+`rc` or `config.yaml`, which an agent can write: a `global-pnpmfile` or `script-shell` named there would
+otherwise run inside the scorer. The pin is archived from a bare repository the scorer fetches it
+into, not from the `--root` clone, whose own filter drivers `git archive` would apply. Then the plan's own test file, taken
 from the implementing commit, replaces the agent's version and runs alone, in a second tree
 (`eval/<id>/held`) built before any of the agent's code ran. Each of its tests is a
 `(present)` check and a `result` check, so a run has 32 checks: 10 tests and 5 gates, two checks
