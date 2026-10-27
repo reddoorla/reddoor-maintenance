@@ -45,6 +45,40 @@ export function truthPath(run) {
   return `${resolve(run)}.truth.json`;
 }
 
+/**
+ * Where `collect` keeps the agents it read, and where `score` writes the referee's args: beside
+ * the run too. Both hold the reference's values (the gold's output, each disagreement's
+ * REFERENCE), and an arm launched after a `collect` (the per-arm `only` flow) could read them
+ * inside the run (#1540).
+ */
+export function runsPath(run) {
+  return `${resolve(run)}.runs.json`;
+}
+export function refereeArgsPath(run) {
+  return `${resolve(run)}.referee-args.json`;
+}
+// score's result lists each arm's errors with the reference's value beside them.
+export function resultPath(run) {
+  return `${resolve(run)}.result.json`;
+}
+
+// The files a run kept inside it before the move. Neither collect nor score reads, merges or
+// writes past one, which would leave the old copy for a later arm to read.
+const MOVED = {
+  "runs.json": runsPath,
+  "referee-args.json": refereeArgsPath,
+  "result.json": resultPath,
+};
+function refuseInsideRuns(run) {
+  for (const [name, to] of Object.entries(MOVED)) {
+    const old = join(run, name);
+    if (existsSync(old))
+      throw new Error(
+        `${old} is inside the run, where its arms could read it (#1540). Move it to ${to(run)} (or delete it) first.`,
+      );
+  }
+}
+
 export async function loadTask(name) {
   const file = join(HERE, "tasks", `${name}.mjs`);
   if (!existsSync(file)) throw new Error(`no task ${name} (looked for ${relative(REPO, file)})`);
@@ -124,7 +158,9 @@ export async function prepare(opts, task) {
   }
   const run = resolve(opts.out);
   // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
-  for (const p of [run, truthPath(run)]) {
+  // The files collect and score write beside the run too: a stale one would be merged into this
+  // run (#1540).
+  for (const p of [run, truthPath(run), runsPath(run), refereeArgsPath(run), resultPath(run)]) {
     if (lstatSync(p, { throwIfNoEntry: false })) throw new Error(`${p} exists; pick a fresh --out`);
   }
   const input = join(run, "input");
@@ -266,12 +302,13 @@ function recordedAgentType(meta) {
 function collect(opts) {
   const run = resolve(opts.run);
   const files = walk(resolve(opts.transcripts)).filter((f) => /agent-[^/]*\.jsonl$/.test(f));
-  const prior = existsSync(join(run, "runs.json")) ? readJson(join(run, "runs.json")) : {};
+  refuseInsideRuns(run);
+  const prior = existsSync(runsPath(run)) ? readJson(runsPath(run)) : {};
   const found = files.map(collectFile);
   const args = readJson(join(run, "workflow-args.json"));
   const { agents, errors } = mergeAgents(prior, found, args);
   if (errors.length) throw new Error(`collect refused:\n  ${errors.join("\n  ")}`);
-  writeJson(join(run, "runs.json"), agents);
+  writeJson(runsPath(run), agents);
   for (const [k, a] of Object.entries(agents)) {
     console.log(
       `${k}: agentType=${a.agentType ?? "none"} models=${a.models.join(",")} efforts=${a.efforts.join(",")} requests=${a.requests} cost=${formatCost(a.cost, a.unfinished, a.requests, 4)} output=${a.structured ? "yes" : "NO"} forbidden=${a.forbidden.length} writes=${a.writes.length} otherTools=${a.otherTools.length}`,
@@ -442,7 +479,8 @@ async function score(opts) {
   const run = resolve(opts.run);
   const args = readJson(join(run, "workflow-args.json"));
   const task = await loadTask(args.task);
-  const transcripts = readJson(join(run, "runs.json"));
+  refuseInsideRuns(run);
+  const transcripts = readJson(runsPath(run));
   const problems = [];
   // Arms `score` found a problem in, for a task's decision hook.
   const invalid = new Set();
@@ -520,7 +558,7 @@ async function score(opts) {
     const chunks = [];
     for (let i = 0; i < unruled.length; i += REFEREE_CHUNK)
       chunks.push(unruled.slice(i, i + REFEREE_CHUNK));
-    writeJson(join(run, "referee-args.json"), {
+    writeJson(refereeArgsPath(run), {
       mode: "referee",
       task: args.task,
       dir: args.dir,
@@ -593,12 +631,12 @@ async function score(opts) {
       },
     );
   }
-  writeJson(join(run, "result.json"), result);
+  writeJson(resultPath(run), result);
   console.log(formatResult(result));
   if (result.summary && typeof task.formatSummary === "function") {
     console.log(task.formatSummary(result.summary));
   }
-  if (unruled.length) console.log(`\nreferee args: ${join(run, "referee-args.json")}`);
+  if (unruled.length) console.log(`\nreferee args: ${refereeArgsPath(run)}`);
   if (problems.length) process.exitCode = 1;
 }
 

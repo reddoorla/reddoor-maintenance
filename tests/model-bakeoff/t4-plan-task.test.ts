@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { extractArgs, formatResult } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
@@ -239,6 +239,69 @@ describe("changedFiles", () => {
     expect(task.changedFiles(base, tree)).toEqual(["package.json", "src/gone.ts", "src/new.ts"]);
     expect(existsSync(ran)).toBe(false);
   });
+
+  it("finds a new .gitignore that hides itself and a stray file, and what base ignores stays out (#1499)", () =>
+    withTmp("t4-scope-ignore-", (dir) => {
+      const base = join(dir, "base");
+      mkdirSync(join(base, "lib"), { recursive: true });
+      writeFileSync(join(base, ".gitignore"), "node_modules\nbuild/\n");
+      writeFileSync(join(base, "lib", ".gitignore"), "gen.txt\n");
+      writeFileSync(join(base, "lib", "a.ts"), "a\n");
+      sh(base, "init", "-q");
+      sh(base, "add", "-A");
+      sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+      const tree = join(dir, "tree");
+      cpSync(base, tree, { recursive: true });
+      mkdirSync(join(tree, "sub"));
+      writeFileSync(join(tree, "sub", ".gitignore"), "*\n");
+      writeFileSync(join(tree, "sub", "stray.ts"), "s\n");
+      for (const f of ["node_modules/q/i.js", "build/o.js", "lib/gen.txt"]) {
+        mkdirSync(dirname(join(tree, f)), { recursive: true });
+        writeFileSync(join(tree, f), "x\n");
+      }
+      expect(task.changedFiles(base, tree)).toEqual(["sub/.gitignore", "sub/stray.ts"]);
+    }));
+
+  const pinRepo = (
+    dir: string,
+    files: Record<string, string>,
+    links: Record<string, string> = {},
+  ) => {
+    const base = join(dir, "base");
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(base, f)), { recursive: true });
+      writeFileSync(join(base, f), body);
+    }
+    for (const [l, to] of Object.entries(links)) symlinkSync(to, join(base, l));
+    sh(base, "init", "-q");
+    sh(base, "add", "-A");
+    sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+    const tree = join(dir, "tree");
+    cpSync(base, tree, { recursive: true, verbatimSymlinks: true });
+    return { base, tree };
+  };
+
+  it("finds a path base re-includes with ! that a new .gitignore hides (#1781 review)", () =>
+    withTmp("t4-scope-negate-", (dir) => {
+      const { base, tree } = pinRepo(dir, {
+        ".gitignore": "!.claude/\n.claude/*\n!.claude/settings.json\n",
+        "a.ts": "a\n",
+      });
+      mkdirSync(join(tree, ".claude"));
+      writeFileSync(join(tree, ".claude", "settings.json"), "{}\n");
+      writeFileSync(join(tree, ".claude", ".gitignore"), "settings.json\n");
+      expect(task.changedFiles(base, tree)).toEqual([".claude/settings.json"]);
+    }));
+
+  it("counts every hidden path, without stopping the score, when check-ignore fails (#1781 review)", () =>
+    withTmp("t4-scope-link-", (dir) => {
+      const { base, tree } = pinRepo(dir, { "real/x.ts": "x\n" }, { link: "real" });
+      rmSync(join(tree, "link"));
+      mkdirSync(join(tree, "link"));
+      writeFileSync(join(tree, "link", ".gitignore"), "*\n");
+      writeFileSync(join(tree, "link", "s.ts"), "s\n");
+      expect(task.changedFiles(base, tree)).toEqual(["link", "link/.gitignore", "link/s.ts"]);
+    }));
 });
 
 describe("refereed held-out tests", () => {
@@ -552,4 +615,97 @@ describe("the evidence key (#1502)", () => {
     expect(key("haiku-1")).toBe("failed: boom [haiku-1]");
     expect(key("opus-low-1")).toBe("failed: boom [opus-low-1]");
   });
+});
+
+describe("the scorer's pnpm (#1498)", () => {
+  // An agent can write the caller's pnpm config with Bash. Neither the hook nor the shell they name
+  // may run inside the scorer: not on its install, and not on a gate's `pnpm <script>`.
+  it("reads no hook or script-shell from the caller's pnpm config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-pnpmrc-"));
+    {
+      const ran = (what: string) => join(dir, `${what}-ran`);
+      writeFileSync(
+        join(dir, "hook.cjs"),
+        `require("fs").writeFileSync(${JSON.stringify(ran("hook"))}, "")\n`,
+      );
+      writeFileSync(join(dir, "shell.sh"), `#!/bin/sh\ntouch ${ran("shell")}\n`, { mode: 0o755 });
+      const rc = `global-pnpmfile=${join(dir, "hook.cjs")}\nscript-shell=${join(dir, "shell.sh")}\n`;
+      const home = join(dir, "home");
+      mkdirSync(join(home, ".config", "pnpm"), { recursive: true });
+      writeFileSync(join(home, ".npmrc"), rc);
+      writeFileSync(join(home, ".config", "pnpm", "rc"), rc);
+      // pnpm 11 reads its global settings from config.yaml, pnpm 10 from the rc files.
+      writeFileSync(
+        join(home, ".config", "pnpm", "config.yaml"),
+        `globalPnpmfile: ${join(dir, "hook.cjs")}\nscriptShell: ${join(dir, "shell.sh")}\n`,
+      );
+      const proj = join(dir, "proj");
+      mkdirSync(proj);
+      writeFileSync(
+        join(proj, "package.json"),
+        '{"name":"p","version":"1.0.0","scripts":{"x":"true"}}\n',
+      );
+      // The lockfile is made with no rc at all, as the pin's is.
+      execFileSync("pnpm", ["install", "--offline"], {
+        cwd: proj,
+        env: { ...process.env, HOME: join(dir, "clean"), XDG_CONFIG_HOME: join(dir, "clean") },
+      });
+      const saved = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME };
+      process.env.HOME = home;
+      process.env.XDG_CONFIG_HOME = join(home, ".config");
+      vi.resetModules();
+      try {
+        const fresh = await import("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs");
+        expect(fresh.install(proj).status).toBe(0);
+        expect(fresh.run(proj, "pnpm", ["run", "x"]).status).toBe(0);
+        expect(existsSync(ran("hook"))).toBe(false);
+        expect(existsSync(ran("shell"))).toBe(false);
+      } finally {
+        process.env.HOME = saved.HOME;
+        if (saved.XDG === undefined) delete process.env.XDG_CONFIG_HOME;
+        else process.env.XDG_CONFIG_HOME = saved.XDG;
+        vi.resetModules();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    // Three pnpm processes.
+  }, 30_000);
+
+  it("gives each step a config directory of its own, which one step's code cannot leave behind", () =>
+    withTmp("t4-pnpm-step-", (dir) => {
+      const plant = `mkdir -p "$XDG_CONFIG_HOME/pnpm" && echo planted > "$XDG_CONFIG_HOME/pnpm/config.yaml" && echo "$XDG_CONFIG_HOME"`;
+      const first = task.run(dir, "sh", ["-c", plant]).stdout.trim();
+      expect(existsSync(first)).toBe(false);
+      const second = task.run(dir, "sh", [
+        "-c",
+        'echo "$XDG_CONFIG_HOME"; ls -A "$XDG_CONFIG_HOME"',
+      ]);
+      expect(second.stdout.trim()).not.toContain(first);
+      expect(second.stdout.trim().split("\n")).toHaveLength(1);
+    }));
+});
+
+describe("the scorer's snapshot of the pin (#1498)", () => {
+  it("runs no filter driver from the --root clone's own config or info/attributes", () =>
+    withTmp("t4-root-filter-", (dir) => {
+      const root = join(dir, "root");
+      mkdirSync(root);
+      const sh = (...a: string[]) =>
+        execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...a], {
+          encoding: "utf8",
+        }).trim();
+      sh("init", "-q");
+      writeFileSync(join(root, "a.ts"), "a\n");
+      sh("add", "-A");
+      sh("commit", "-qm", "pin");
+      const pin = sh("rev-parse", "HEAD");
+      const ran = join(dir, "filter-ran");
+      sh("config", "filter.evil.smudge", `touch ${ran}; cat`);
+      mkdirSync(join(root, ".git", "info"), { recursive: true });
+      writeFileSync(join(root, ".git", "info", "attributes"), "* filter=evil\n");
+      const to = join(dir, "out");
+      task.snapshot(root, pin, to);
+      expect(readFileSync(join(to, "a.ts"), "utf8")).toBe("a\n");
+      expect(existsSync(ran)).toBe(false);
+    }));
 });
