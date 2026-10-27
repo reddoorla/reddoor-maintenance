@@ -230,10 +230,9 @@ export function renovateActionGaps(contents: string): string[] {
  * is not exactly `${{ steps.<id>.outputs.<x> }}` of steps that are always
  * skipped (a fallback such as `|| secrets.X` may run). A disabled checkout
  * does not block it (the action works through the API), and a token from
- * nowhere is left to the App-auth check above, as is a `RENOVATE_TOKEN` env,
- * which the action falls back to. A step that can run and runs Renovate some
- * other way (a `uses:` naming renovate, or a `run:` whose command is Renovate,
- * see `runsRenovate`) means no verdict.
+ * nowhere is left to the App-auth check above. A step that can run and runs
+ * Renovate some other way (a `uses:` naming renovate, or a `run:` whose
+ * command is Renovate, see `runsRenovate`) means no verdict.
  *
  * It reads the parsed tree, never lines: the line scanner #1680 tried kept
  * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
@@ -312,7 +311,7 @@ function renovateNeverRuns(contents: string): string | null {
           ? /^\$\{\{\s*steps\.([\w-]+)\.outputs\.[\w-]+\s*\}\}$/.exec(token.trim())?.[1]
           : undefined;
       const tokenOff = () => {
-        if (source === undefined || [step, job, doc].some(hasTokenEnv)) return false;
+        if (source === undefined) return false;
         if (!mintersOff.has(source)) {
           const minters = byId.get(source) ?? [];
           mintersOff.set(source, minters.length > 0 && minters.every(off));
@@ -332,8 +331,6 @@ function renovateNeverRuns(contents: string): string | null {
   }
   return blockedAt;
 }
-
-const hasTokenEnv = (owner: unknown) => record(record(owner)?.env)?.RENOVATE_TOKEN !== undefined;
 
 /**
  * Whether a `run:` script runs Renovate: a command that is `renovate`, called

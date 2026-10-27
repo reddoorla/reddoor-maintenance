@@ -277,15 +277,6 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     }
   });
 
-  it("a RENOVATE_TOKEN env fallback means the skipped token step is not fatal", () => {
-    const yml = place("false", "app").replace(
-      "          RENOVATE_REPOSITORIES:",
-      "          RENOVATE_TOKEN: ${{ secrets.RENOVATE_PAT }}\n          RENOVATE_REPOSITORIES:",
-    );
-    expect(yml).toContain("RENOVATE_TOKEN: ${{");
-    expect(cannotRun(yml)).toEqual([]);
-  });
-
   it("0X0 and .nan are always false (the oracle skips both)", () => {
     for (const v of ["0X0", "${{ 0X0 }}", ".nan", "!!float .nan"]) {
       expect(cannotRun(place(v, "job")), v).toHaveLength(1);
