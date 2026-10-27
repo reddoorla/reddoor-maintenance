@@ -274,7 +274,11 @@ describe("no emoji in any rendered page", () => {
 
 describe("the stored theme is applied before first paint", () => {
   const html = read(join(SRC, "app.html"));
-  const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+  // Our own app.html's one inline script, cut out by its tags (a regex over HTML
+  // reads as a sanitiser to CodeQL; this is not one).
+  const open = html.indexOf("<script>");
+  const script =
+    open < 0 ? "" : html.slice(open + "<script>".length, html.indexOf("</script>", open));
 
   function runHead(stored: string | null, refuse = false): string | null {
     let theme: string | null = null;
