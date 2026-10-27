@@ -212,22 +212,25 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.goto(`${origin}/s/acme`);
     await page.waitForLoadState("networkidle");
     const siteSheets = await pageSheets(page);
-    // base + site + submission
-    expect(siteSheets.length).toBe(3);
+    // tokens + base (the shell's two, P1-78e) + site + submission
+    expect(siteSheets.length).toBe(4);
 
     await follow(page, "/audits", "Prospect audits");
     const auditSheets = await pageSheets(page);
-    // base + audits; none of the site page's sheets is still in the head.
-    expect(auditSheets.length).toBe(2);
-    for (const sheet of siteSheets.slice(1)) expect(auditSheets).not.toContain(sheet);
-    expect(auditSheets[0]).toBe(siteSheets[0]);
+    // tokens + base + audits; none of the site page's sheets is still in the head.
+    expect(auditSheets.length).toBe(3);
+    for (const sheet of siteSheets.slice(2)) expect(auditSheets).not.toContain(sheet);
+    expect(auditSheets.slice(0, 2)).toEqual(siteSheets.slice(0, 2));
     // However a sheet arrived (an inline <style> or a <link>), none of the site
     // page's rules applies now. `.tiles` is the site page's alone.
     const selectors = (): Promise<string[]> =>
       page.evaluate(() =>
-        [...document.styleSheets].flatMap((sh) =>
-          [...sh.cssRules].map((r) => (r as CSSStyleRule).selectorText ?? ""),
-        ),
+        [...document.styleSheets]
+          // The font sheets (Adobe Fonts, Google Fonts; P1-78e) are cross-origin,
+          // and the browser refuses to let a script read their rules. Every sheet
+          // the cockpit serves is same-origin or inline, and all of those are read.
+          .filter((sh) => sh.href === null || new URL(sh.href).origin === location.origin)
+          .flatMap((sh) => [...sh.cssRules].map((r) => (r as CSSStyleRule).selectorText ?? "")),
       );
     expect(await selectors()).not.toContain(".tiles");
     await follow(page, "/fleet", "Sites");

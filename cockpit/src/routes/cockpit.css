@@ -2,15 +2,14 @@ body {
   max-width: 1100px;
 }
 .meta {
-  color: #666;
+  color: var(--ink-muted);
   margin-bottom: 1.5rem;
 }
 .empty {
-  color: #999;
+  color: var(--ink-muted);
   padding: 2rem;
   text-align: center;
-  border: 1px dashed #ccc;
-  border-radius: 6px;
+  border: 1px dashed var(--rule);
 }
 .spam-rollup {
   font-size: 0.9rem;
@@ -23,22 +22,15 @@ body {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.3rem 0.8rem;
-  border: 1px solid #1a1a1a;
-  border-radius: 999px;
-  background: #1a1a1a;
-  color: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--on-ink);
   cursor: pointer;
 }
 .refresh-fleet:disabled {
   opacity: 0.6;
   cursor: default;
-}
-@media (prefers-color-scheme: dark) {
-  .refresh-fleet {
-    background: #e8e8e8;
-    color: #111;
-    border-color: #e8e8e8;
-  }
 }
 .rf-status {
   margin-top: 0.6rem;
@@ -51,7 +43,7 @@ body {
   margin-left: 0.3rem;
 }
 .rf-sub {
-  color: #999;
+  color: var(--ink-muted);
   font-size: 0.8rem;
   margin-left: 1.1rem;
 }
@@ -59,7 +51,7 @@ body {
   display: inline-block;
   width: 0.8em;
   height: 0.8em;
-  border: 2px solid #999;
+  border: 2px solid var(--ink-muted);
   border-top-color: transparent;
   border-radius: 50%;
   animation: rf-spin 0.8s linear infinite;
@@ -86,35 +78,45 @@ details.inbox > summary {
   padding: 0.25rem 0;
 }
 .verdict {
-  border-radius: 8px;
   padding: 0.9rem 1.1rem;
   margin-bottom: 1.25rem;
 }
 .verdict .verdict-line {
-  font-weight: 800;
+  font-weight: var(--weight-bold);
   font-size: 1.4rem;
 }
 .verdict .verdict-meta {
-  color: #666;
+  color: var(--ink-muted);
   font-size: 0.9rem;
   margin-top: 0.2rem;
 }
 .verdict.ok {
-  background: #e8f5e9;
-  color: #1b7a2f;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
 }
 .verdict.ok .verdict-meta {
-  color: #2e7d32;
+  color: var(--ink-muted);
 }
-.verdict.warn {
-  background: #fdecea;
-  color: #b00;
+.verdict.broken {
+  background: var(--broken-fill);
+  color: var(--on-broken);
 }
-.verdict.warn .verdict-meta {
-  color: #b00;
-  opacity: 0.85;
+/* Everything on the red band is the on-broken colour at full strength: 0.85
+   opacity took the meta line to 4.04:1, and grey or red on red is gone. */
+.verdict.broken .verdict-meta,
+.verdict.broken .rf-sub,
+.verdict.broken a {
+  color: var(--on-broken);
 }
-/* P1-78b: Attention, interim until P1-78e's tokens: a dark outline, never red. */
+.verdict.broken .rf-spin {
+  border-color: var(--on-broken);
+  border-top-color: transparent;
+}
+.verdict.broken :focus-visible {
+  outline-color: var(--on-broken);
+}
+/* Attention: a dark outline, never red (P1-78b, on the tokens in P1-78e). */
 .verdict.attention {
   background: transparent;
   color: inherit;
@@ -122,53 +124,30 @@ details.inbox > summary {
   outline-offset: -2px;
 }
 .verdict.watch {
-  background: #fff4e5;
-  color: #a65a00;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .verdict.watch .verdict-meta {
-  color: #a65a00;
-  opacity: 0.85;
+  color: var(--ink-muted);
 }
 .verdict.soft {
-  background: #e7f1ff;
-  color: #1c5d99;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
 }
 .verdict.soft .verdict-meta {
-  color: #1c5d99;
-  opacity: 0.85;
-}
-@media (prefers-color-scheme: dark) {
-  .verdict.ok {
-    background: #10240f;
-    color: #7fce85;
-  }
-  .verdict.warn {
-    background: #2a0f0d;
-    color: #ff8a80;
-  }
-  .verdict.watch {
-    background: #2a2410;
-    color: #ffd454;
-  }
-  .verdict.soft {
-    background: #0f1d2a;
-    color: #7fb6e8;
-  }
+  color: var(--ink-muted);
 }
 .verdict .fleet-actions {
   margin: 0.6rem 0 0;
 }
 .needs-you {
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
   padding: 0.75rem 1rem;
   margin-bottom: 1.25rem;
-}
-@media (prefers-color-scheme: dark) {
-  .needs-you {
-    border-color: #2a2a2a;
-    background: #181818;
-  }
 }
 .needs-you h2 {
   font-size: 1.05rem;
@@ -178,7 +157,7 @@ details.inbox > summary {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.72rem;
-  color: #999;
+  color: var(--ink-muted);
   margin: 0.6rem 0 0.2rem;
 }
 .feed-row {
@@ -186,15 +165,10 @@ details.inbox > summary {
   gap: 0.5rem;
   align-items: center;
   padding: 0.3rem 0;
-  border-bottom: 1px dashed #eee;
+  border-bottom: 1px dashed var(--rule);
 }
 .feed-row:last-child {
   border-bottom: 0;
-}
-@media (prefers-color-scheme: dark) {
-  .feed-row {
-    border-bottom-color: #262626;
-  }
 }
 .feed-what {
   flex: 1;
@@ -210,15 +184,19 @@ details.inbox > summary {
   flex: 0 0 auto;
 }
 .dot.broken {
-  background: #dc2626;
+  background: var(--broken-fill);
+}
+/* Nothing red on a red ground (the guide): links in the Broken verdict hover white. */
+.verdict.broken a:hover {
+  color: var(--on-broken);
 }
 .dot.attention {
   background: transparent;
   box-shadow: inset 0 0 0 2px currentColor;
 }
 .dot.approval {
-  background: #2563eb;
+  background: var(--ink-muted);
 }
 .dot.watch {
-  background: #f59e0b;
+  background: var(--ink-muted);
 }

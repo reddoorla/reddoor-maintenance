@@ -43,7 +43,7 @@
               ><strong>{row.siteName}</strong> — {row.reasons}{#if row.age}
                 <span class="muted feed-age">&nbsp;· {row.age}</span>{/if}</span
             >
-            <a class="feed-open" href={row.url}>Open ▸</a>
+            <a class="feed-open" href={row.url}>Open →</a>
           </div>
         {/each}
       </div>
@@ -55,7 +55,7 @@
      never moves a site's tier. -->
 {#if v.setup}
   <details class="setup-lane">
-    <summary>🧰 Setup ({v.setup.count} site{v.setup.count === 1 ? "" : "s"})</summary>
+    <summary>Setup ({v.setup.count} site{v.setup.count === 1 ? "" : "s"})</summary>
     {#each v.setup.rows as row, i (i)}
       <div class="setup-row">
         <a href={row.href}><strong>{row.name}</strong></a>
@@ -71,7 +71,7 @@
 {#if v.cardless.length > 0}
   <!-- Open when it holds an alarm: the verdict counts these rows. -->
   <details class="cardless" open={v.cardless.some((c) => c.level !== "watch")}>
-    <summary>⚠ Not on any site card ({v.cardless.length})</summary>
+    <summary>Not on any site card ({v.cardless.length})</summary>
     {#each v.cardless as item, i (i)}
       <div class="approve-row" data-level={item.level}>
         <span class="pill {item.level}">{item.levelLabel}</span>
@@ -94,7 +94,7 @@
         <strong>{sub.siteName}</strong>
         <span class="muted">{sub.what}</span>
         <span class="muted">{sub.when}</span>
-        <a href={sub.href}>open ▸</a>
+        <a href={sub.href}>open →</a>
       </div>
     {/each}
     {#if v.inbox.more}
@@ -107,7 +107,7 @@
     {/if}
     {#if v.inbox.autoFiltered !== null}
       <div class="spam-rollup muted">
-        🚫 {v.inbox.autoFiltered} auto-filtered this week —
+        {v.inbox.autoFiltered} auto-filtered this week —
         <a href="/submissions?status=spam_auto">review</a>
       </div>
     {/if}

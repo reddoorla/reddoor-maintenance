@@ -13,7 +13,7 @@
   } from "./fleet-refresh.js";
 
   const REFRESH_URL = "/api/fleet/refresh";
-  const IDLE = "↻ Audit fleet";
+  const IDLE = "Audit fleet";
 
   let label = $state(IDLE);
   let disabled = $state(false);
@@ -69,7 +69,7 @@
           rows = workflowRows(data.status, startedAt, Date.now());
           if (data.status.allDone) {
             if (!data.status.anyFailure) {
-              rows = [...rows, { kind: "text", text: "✓ Done — reloading…" }];
+              rows = [...rows, { kind: "text", text: "Done — reloading…" }];
               stop();
               later(() => location.reload(), 2000);
               return;
@@ -105,7 +105,7 @@
       const res = await postAction(REFRESH_URL);
       if (res.ok) {
         const data = await res.json();
-        label = "↻ Audit running…";
+        label = "Audit running…";
         if (data && data.since) begin(data.since, Date.now());
       } else {
         label = "Failed to start";
@@ -127,7 +127,7 @@
     }
     if (saved) {
       disabled = true;
-      label = "↻ Audit running…";
+      label = "Audit running…";
       begin(saved.since, saved.startedAt);
     }
     return () => {
@@ -148,7 +148,7 @@
     {#each rows as row, i (i)}
       {#if row.kind === "workflow"}
         <div class="rf-row">
-          {#if row.icon === "done"}✓{:else if row.icon === "failed"}✗{:else}<span class="rf-spin"
+          {#if row.icon === "done" || row.icon === "failed"}{:else}<span class="rf-spin"
             ></span>{/if}
           {row.label} — {row.state}{#if row.progress}<div class="rf-sub">
               {row.progress.elapsed}{row.progress.eta
@@ -156,7 +156,7 @@
                 : ""}{#if row.progress.url}{" · "}<a
                   href={row.progress.url}
                   target="_blank"
-                  rel="noopener">view run ↗</a
+                  rel="noopener">view run →</a
                 >{/if}
             </div>{:else if row.failedUrl}{" "}<a
               href={row.failedUrl}

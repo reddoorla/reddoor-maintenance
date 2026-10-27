@@ -1008,7 +1008,10 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     ]);
     expect(html).toContain('data-checklist-for="recREP1"');
     expect(html).toMatch(/pill healthy/); // pass → green
-    expect(html).toMatch(/pill broken/); // fail → red
+    // P1-78e: a failing check blocks the send but is not the ladder's Broken, so
+    // it is the bold ink "blocks" pill, never red (was "pill broken").
+    expect(html).toMatch(/pill blocks/);
+    expect(html).not.toMatch(/pill broken/);
     expect(html).toMatch(/pill watch/); // unknown → amber
     // A health-red report keeps its Approve button disabled (server gate).
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
@@ -1348,7 +1351,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow(), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ✓");
+    expect(html).toContain("preflight: clear");
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 
@@ -1356,7 +1359,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow({ pointOfContact: null }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ✗");
+    expect(html).toMatch(/preflight: \d+ failing/);
     expect(html).toContain("recipients-missing");
     expect(html).toMatch(/<button class="approve"[^>]*data-send-blocked="1"[^>]*disabled/);
   });
@@ -1373,7 +1376,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow({ pointOfContact: "tucker@reddoorla.com" }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ⚠");
+    expect(html).toMatch(/preflight: \d+ warnings?/);
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 

@@ -84,7 +84,7 @@ describe("renderCockpitHtml — submissions", () => {
       }),
     );
     expect(html).toContain('<details class="inbox">');
-    expect(html).toContain("📥 Submissions (1 new)");
+    expect(html).toContain("Submissions (1 new)");
     expect(html).toContain("Acme &lt;b>");
     expect(html).toContain('href="/s/acme"');
   });
@@ -117,7 +117,7 @@ describe("renderCockpitHtml — submissions", () => {
     // Positive control: an un-timestamped model must not grow a fabricated "as
     // of", which would be a worse lie than no label at all.
     const html = renderCockpitHtml(oneSubmissionModel());
-    expect(html).toContain("🛡 Spam (30d)");
+    expect(html).toContain("Spam (30d)");
     expect(html).not.toContain("as of");
   });
 
@@ -157,7 +157,7 @@ describe("renderCockpitHtml — inbox lane lead/signup split", () => {
     const html = renderCockpitHtml(
       model({ submissions: [entry("s1", "contact"), entry("s2", "inquiry")] }),
     );
-    expect(html).toContain("📥 Submissions (2 new)");
+    expect(html).toContain("Submissions (2 new)");
     expect(html).not.toContain("newsletter/rsvp");
   });
 
@@ -173,13 +173,13 @@ describe("renderCockpitHtml — inbox lane lead/signup split", () => {
         ],
       }),
     );
-    expect(html).toContain("📥 Submissions (2 new · +3 newsletter/rsvp)");
+    expect(html).toContain("Submissions (2 new · +3 newsletter/rsvp)");
   });
 
   it("renders a signup-only backlog honestly as 0 new", () => {
     const subs = Array.from({ length: 73 }, (_, i) => entry(`s${i}`, "newsletter"));
     const html = renderCockpitHtml(model({ submissions: subs }));
-    expect(html).toContain("📥 Submissions (0 new · +73 newsletter/rsvp)");
+    expect(html).toContain("Submissions (0 new · +73 newsletter/rsvp)");
   });
 });
 
@@ -201,14 +201,14 @@ describe("renderFleetBrowsePanel — per-card submissions chip split", () => {
     const html = renderFleetBrowsePanel(
       cardModel({ newSubmissions: 3, newLeads: 1, newSignups: 2 }),
     );
-    expect(html).toContain("📥 1 new · +2 newsletter");
+    expect(html).toContain("1 new · +2 newsletter");
   });
 
   it("renders only the lead count when there are no signups", () => {
     const html = renderFleetBrowsePanel(
       cardModel({ newSubmissions: 2, newLeads: 2, newSignups: 0 }),
     );
-    expect(html).toContain("📥 2 new");
+    expect(html).toContain("2 new");
     expect(html).not.toContain("newsletter");
   });
 
@@ -216,13 +216,13 @@ describe("renderFleetBrowsePanel — per-card submissions chip split", () => {
     const html = renderFleetBrowsePanel(
       cardModel({ newSubmissions: 2, newLeads: 0, newSignups: 2 }),
     );
-    expect(html).toContain("📥 +2 newsletter");
+    expect(html).toContain("+2 newsletter");
     expect(html).not.toContain("0 new");
   });
 
   it("legacy card with only newSubmissions still renders the old label (fallback)", () => {
     const html = renderFleetBrowsePanel(cardModel({ newSubmissions: 3 }));
-    expect(html).toContain("📥 3 new");
+    expect(html).toContain("3 new");
   });
 
   it("renders no chip when all counts are zero", () => {

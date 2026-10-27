@@ -29,6 +29,7 @@ import {
   UNAPPROVE_CONFIRM_TEXT,
 } from "../../../../src/dashboard/report-confirm.js";
 import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
+import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 
 /**
@@ -185,20 +186,20 @@ function preflight(findings: PreflightFinding[]): PendingView["preflight"] {
     return {
       cls: "preflight preflight-fail",
       title: fails.map((f) => `${f.check}: ${f.message}`).join("\n"),
-      text: `preflight ✗ ${fails.length}`,
+      text: `preflight: ${fails.length} failing`,
     };
   }
   if (warns.length > 0) {
     return {
       cls: "preflight preflight-warn",
       title: warns.map((f) => `${f.check}: ${f.message}`).join("\n"),
-      text: `preflight ⚠ ${warns.length}`,
+      text: `preflight: ${warns.length} warning${warns.length === 1 ? "" : "s"}`,
     };
   }
   return {
     cls: "preflight preflight-ok",
     title: "recipients, header image and report scores all present",
-    text: "preflight ✓",
+    text: "preflight: clear",
   };
 }
 
@@ -238,12 +239,15 @@ function recipients(site: WebsiteRow): PendingView["recipients"] {
   return { missing: false, text: `To ${to.join(", ")}${ccPart}` };
 }
 
-function healthPresentation(status: EvidenceResult): { cls: string; word: string } {
+/** A checklist row's pill. P1-78e: a failing check blocks a send, which is not the
+ *  ladder's Broken (nothing outside Reddoor is affected), so it is ink and bold,
+ *  never red (review round 2). */
+export function healthPresentation(status: EvidenceResult): { cls: string; word: string } {
   switch (status) {
     case "pass":
       return { cls: "healthy", word: "clear" };
     case "fail":
-      return { cls: "broken", word: "blocks" };
+      return { cls: "blocks", word: "blocks" };
     case "n/a":
       return { cls: "na", word: "n/a" };
     default:
@@ -388,11 +392,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
       });
       continue;
     }
-    const cls = it.autoFixExhausted
-      ? "chip critical stuck"
-      : it.severity === "critical"
-        ? "chip critical"
-        : "chip";
+    const cls = chipClass(it);
     chips.push({ cls, title: null, text: it.title });
   }
   a.watchReasons.forEach((reason, i) => {
@@ -404,7 +404,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
     });
   });
   for (const reason of a.acceptedReasons)
-    chips.push({ cls: "chip accepted", title: null, text: `✓ accepted: ${reason}` });
+    chips.push({ cls: "chip accepted", title: null, text: `accepted: ${reason}` });
   if (chips.length === 0) return null;
   const label =
     a.tier === "broken"

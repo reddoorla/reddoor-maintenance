@@ -6,11 +6,11 @@ body {
   margin-bottom: 0.75rem;
 }
 .meta {
-  color: #666;
+  color: var(--ink-muted);
   margin-bottom: 1.25rem;
 }
 .muted {
-  color: #999;
+  color: var(--ink-muted);
 }
 /* Read by a screen reader, not drawn (#1636). */
 .visually-hidden {
@@ -25,10 +25,9 @@ body {
   border: 0;
 }
 .empty {
-  color: #999;
+  color: var(--ink-muted);
   padding: 1rem;
-  border: 1px dashed #ccc;
-  border-radius: 6px;
+  border: 1px dashed var(--rule);
   text-align: center;
 }
 .filters {
@@ -42,6 +41,7 @@ body {
 .filters input,
 .filters button {
   font: inherit;
+  font-weight: var(--weight-text);
   padding: 0.3rem 0.5rem;
 }
 .fleet-table-wrap {
@@ -56,11 +56,8 @@ table.fleet th,
 table.fleet td {
   text-align: left;
   padding: 0.4rem 0.6rem;
-  border-bottom: 1px solid #8883;
+  border-bottom: 1px solid var(--rule);
   white-space: nowrap;
-}
-table.fleet th a {
-  text-decoration: none;
 }
 table.fleet td.num {
   text-align: right;
@@ -90,7 +87,7 @@ table.fleet td.health .cluster {
   margin-left: 0.4rem;
 }
 table.fleet td.health .metric-label {
-  color: #999;
+  color: var(--ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

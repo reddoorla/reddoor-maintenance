@@ -3,6 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- P1-78e: the stored theme, applied before any stylesheet or paint, so a
+         stored choice never flashes the other theme. No choice stored (or
+         storage refused) leaves the attribute off, and tokens.css follows the
+         system. The toggle is lib/ThemeToggle.svelte; the key is lib/theme.ts. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("cockpit-theme");
+          if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {}
+      })();
+    </script>
+    <!-- The guide's two families, loaded without blocking first paint (its
+         "media=print swap"): Pragmatica from the Adobe Fonts kit, Besley from
+         Google Fonts. -->
+    <link rel="preconnect" href="https://use.typekit.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://use.typekit.net/noj4tji.css"
+      media="print"
+      onload="this.media = 'all'"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Besley:wght@400&display=swap"
+      media="print"
+      onload="this.media = 'all'"
+    />
     %sveltekit.head%
   </head>
   <!-- Links navigate in the browser: every page derives from the snapshot the

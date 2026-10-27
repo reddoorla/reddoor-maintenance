@@ -1,0 +1,1135 @@
+[
+  {
+    "id": "1-toggle-ignores-stored",
+    "why": "The toggle ignores the stored choice on reload",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/ThemeToggle.svelte",
+        "find": "    choice = readTheme(storage());\n",
+        "replace": "    choice = readTheme(undefined);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1b-head-ignores-stored",
+    "why": "The head script ignores the stored choice on reload",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "if (t === \"light\" || t === \"dark\")",
+        "replace": "if (false)"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-system-ignored",
+    "why": "Dark mode ignores the system setting when no choice is stored",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) {",
+        "replace": "@media (prefers-color-scheme: dark) {\n  :root[data-theme=\"never\"] {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-emoji-survives",
+    "why": "An emoji survives in a rendered page",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "return make(\"ok\", \"All clear\",",
+        "replace": "return make(\"ok\", \"\\u2713 All clear\","
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-red-attention",
+    "why": "Red is used for an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: var(--broken);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-theme-after-paint",
+    "why": "The theme is applied after first paint (the script moves to the body)",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "    <script>\n      (function () {\n        try {\n          var t = localStorage.getItem(\"cockpit-theme\");\n          if (t === \"light\" || t === \"dark\") document.documentElement.setAttribute(\"data-theme\", t);\n        } catch (e) {}\n      })();\n    </script>\n",
+        "replace": ""
+      },
+      {
+        "file": "cockpit/src/app.html",
+        "find": "  <body>\n",
+        "replace": "  <body>\n    <script>\n      (function () {\n        try {\n          var t = localStorage.getItem(\"cockpit-theme\");\n          if (t === \"light\" || t === \"dark\") document.documentElement.setAttribute(\"data-theme\", t);\n        } catch (e) {}\n      })();\n    </script>\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-media-block-survives",
+    "why": "A prefers-color-scheme block survives in a page stylesheet",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".dot.attention {\n",
+        "replace": "@media (prefers-color-scheme: dark) {\n  .meta {\n    color: var(--ink);\n  }\n}\n.dot.attention {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-inline-hex",
+    "why": "An inline hex survives in the Shell",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "<div class=\"shell-account\">",
+        "replace": "<div class=\"shell-account\" style=\"color:#666\">"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-raw-hex-page-sheet",
+    "why": "A raw hex survives in a page stylesheet",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  border-color: #a65a00;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-toggle-no-store",
+    "why": "The toggle applies the theme but never stores it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "    else storage?.setItem(THEME_KEY, t);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-chip-by-severity",
+    "why": "Review round 1: a chip is red by severity, so a critical Attention item (a stuck vuln) is red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "itemLevel(it) === \"broken\" ? \"broken\" : null",
+        "replace": "it.severity === \"critical\" ? \"broken\" : null"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-sev-critical-red",
+    "why": "Review round 1: an advisory's severity pill is red, though it is no ladder level",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": ".pill.sev-critical {\n  background: transparent;",
+        "replace": ".pill.sev-critical {\n  background: var(--broken-fill);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-meta-dimmed",
+    "why": "Review round 1: the Broken verdict's meta line dimmed to 0.85 (4.04:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}",
+        "replace": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}\n.verdict.broken .verdict-meta {\n  opacity: 0.85;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-badge-ink-on-red",
+    "why": "Review round 1: a NEW badge on a red chip is ink, black on red at 4.05:1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n.chip.broken .badge {",
+        "replace": ".chip.broken.stuck {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-red-hover",
+    "why": "Review round 1: every link hovers red, so red is not Broken only",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "a:hover {\n  text-decoration-thickness: 2px;\n}",
+        "replace": "a:hover {\n  color: var(--broken);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-focus-red-on-red",
+    "why": "Review round 1: the focus ring on the red band is red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}",
+        "replace": ".verdict.broken :focus-visible {\n  outline-color: var(--focus);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-write-unwrapped",
+    "why": "Round 1 tests lens T3: applyTheme's storage write is unwrapped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "  try {\n    if (t === \"system\") storage?.removeItem(THEME_KEY);\n    else storage?.setItem(THEME_KEY, t);\n  } catch {",
+        "replace": "  {\n    if (t === \"system\") storage?.removeItem(THEME_KEY);\n    else storage?.setItem(THEME_KEY, t);\n  }\n  if (false) {"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-read-unwrapped",
+    "why": "Round 1 tests lens T1: readTheme's read is unwrapped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "  try {\n    const t = storage?.getItem(THEME_KEY);\n    return t === \"light\" || t === \"dark\" ? t : \"system\";\n  } catch {\n    return \"system\";\n  }",
+        "replace": "  const t = storage?.getItem(THEME_KEY);\n  return t === \"light\" || t === \"dark\" ? t : \"system\";"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-getter-unwrapped",
+    "why": "Round 1 tests lens T2: the toggle reads window.localStorage unguarded",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/ThemeToggle.svelte",
+        "find": "    try {\n      return window.localStorage;\n    } catch {\n      return undefined;\n    }",
+        "replace": "    return window.localStorage;"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-no-shell-toggle",
+    "why": "Round 1 tests lens T5: the shell drops the toggle",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "    <ThemeToggle />\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/shell.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-named-red",
+    "why": "Round 1 tests lens T6: a named red on an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: red;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-focus-red-on-stuck",
+    "why": "Round 1 tests lens T7: the red focus token on a stuck chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.stuck {\n",
+        "replace": ".chip.stuck {\n  border-color: var(--focus);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-round-chip",
+    "why": "Round 1 tests lens T8: a rounded chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.stuck {\n",
+        "replace": ".chip.stuck {\n  border-radius: 12px;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-font-never-swaps",
+    "why": "Round 1 tests lens T9: the Adobe sheet never swaps in, so Pragmatica never applies",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "href=\"https://use.typekit.net/noj4tji.css\"\n      media=\"print\"\n      onload=\"this.media = 'all'\"",
+        "replace": "href=\"https://use.typekit.net/noj4tji.css\"\n      media=\"print\""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-dark-scheme-light",
+    "why": "Round 1 tests lens T4: a stored dark leaves native controls light",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/* The system",
+        "replace": "  --focus: #ff6b70;\n}\n\n/* The system"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-watch-bold",
+    "why": "Round 1 tests lens 8: a Watch pill as bold as Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": "  color: var(--ink);\n  font-weight: var(--weight-text);\n}",
+        "replace": "  color: var(--ink);\n  font-weight: 700;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-warn-preflight-glyph",
+    "why": "Round 1 tests lens E1: a glyph in the warn-only preflight chip no fixture renders",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "text: `preflight: ${warns.length}",
+        "replace": "text: `preflight ⚠ ${warns.length}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1t-layout-canvas",
+    "why": "Round 1 operator lens: the layout notice back on system colours",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "    background: var(--surface);",
+        "replace": "    background: Canvas;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-control-inherits",
+    "why": "Round 2: a control inherits the red band's white onto its white surface",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  color: var(--ink);\n  background: var(--surface);",
+        "replace": "  color: inherit;\n  background: var(--surface);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-checklist-red",
+    "why": "Round 2: a failing report check renders red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "return { cls: \"blocks\", word: \"blocks\" };",
+        "replace": "return { cls: \"broken\", word: \"blocks\" };"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-home-callsite",
+    "why": "Round 2 tests lens 1: the card chips drop chipClass",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "    cls: chipClass(it),",
+        "replace": "    cls: it.autoFixExhausted ? \"chip stuck\" : \"chip\","
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-site-callsite",
+    "why": "Round 2 tests lens 1: the site alarm drops chipClass",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "    const cls = chipClass(it);",
+        "replace": "    const cls = it.autoFixExhausted ? \"chip stuck\" : \"chip\";"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-head-attr",
+    "why": "Round 2 tests lens 2: the head script sets the wrong attribute",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "setAttribute(\"data-theme\", t)",
+        "replace": "setAttribute(\"data-mode\", t)"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-group-selector",
+    "why": "Round 2 tests lens 3: a grouped selector paints every badge red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken {\n  background: var(--broken-fill);",
+        "replace": ".chip.broken,\n.badge {\n  background: var(--broken-fill);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-dark-band",
+    "why": "Round 2 tests lens 4: dark --band too light for chip text",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --band: #2a2b2f;\n  --ink: #f2f2f2;\n  --ink-muted: #a1a2a6;\n  --ink-dark: #c3c8d1;\n  --on-ink: #121212;\n  --rule: #5c5d61;\n  --control-border: #a1a2a6;\n  --broken: #ff6b70;\n  --broken-fill: #d71920;\n  --on-broken: #ffffff;\n  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/*",
+        "replace": "  --band: #d0d0d0;\n  --ink: #f2f2f2;\n  --ink-muted: #a1a2a6;\n  --ink-dark: #c3c8d1;\n  --on-ink: #121212;\n  --rule: #5c5d61;\n  --control-border: #a1a2a6;\n  --broken: #ff6b70;\n  --broken-fill: #d71920;\n  --on-broken: #ffffff;\n  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/*"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-style-directive",
+    "why": "Round 2 tests lens 5: a style:color directive in the Shell",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "<div class=\"shell-account\">",
+        "replace": "<div class=\"shell-account\" style:color={\"#666\"}>"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-darkred",
+    "why": "Round 2 tests lens 6: darkred on an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: darkred;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-oklch",
+    "why": "Round 2 tests lens 6: an oklch red on an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: oklch(55% 0.2 27);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-radius-16",
+    "why": "Round 2 tests lens 7: the control radius is 16px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "--radius-control: 4px;",
+        "replace": "--radius-control: 16px;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-radius-longhand",
+    "why": "Round 2 tests lens 7: a longhand radius on a stuck chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.stuck {\n",
+        "replace": ".chip.stuck {\n  border-top-left-radius: 12px;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-badge-ink-override",
+    "why": "Round 2 tests lens 8: an override brings black on red back",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n.chip.broken .badge {",
+        "replace": ".chip.broken > .badge {\n  color: var(--ink);\n}\n.chip.broken.stuck,\n.chip.broken .badge {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-slash-glyph",
+    "why": "Round 2 tests lens 9: a glyph hidden after // inside a string",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "text: `preflight: ${warns.length}",
+        "replace": "text: `preflight // ⚠ ${warns.length}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-cross-glyph",
+    "why": "Round 2 tests lens 9: a multiplication-x glyph in the fail chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "text: `preflight: ${fails.length} failing`",
+        "replace": "text: `preflight ✕ ${fails.length} failing`"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-svelte-red",
+    "why": "Round 2 tests lens 10: the layout notice paints red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "    color: var(--ink);",
+        "replace": "    color: var(--broken);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-tabular-reset",
+    "why": "Round 2 tests lens 11: numerals reset to proportional",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "strong,\nb {",
+        "replace": "* {\n  font-variant-numeric: normal;\n}\nstrong,\nb {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-audits-weight",
+    "why": "Round 2 operator 1: /audits inputs inherit the label's 600",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/audits/audits.css",
+        "find": ".run-form textarea {\n  font: inherit;\n  font-weight: var(--weight-text);",
+        "replace": ".run-form textarea {\n  font: inherit;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-shell-float",
+    "why": "Round 2/3 operator: the account block floats again, squeezing the nav",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ".shell-account {\n  order: 1;",
+        "replace": ".shell-account {\n  float: right;\n  order: 1;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-chip-not-bold",
+    "why": "Round 2 operator 5: a Broken chip is told apart by red alone",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken {\n  background: var(--broken-fill);\n  color: var(--on-broken);\n  font-weight: var(--weight-bold);\n}",
+        "replace": ".chip.broken {\n  background: var(--broken-fill);\n  color: var(--on-broken);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-inbox-label",
+    "why": "Round 2 operator 4: the bare '4 new' chip",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "      ? `Inbox: ${leads} new`",
+        "replace": "      ? `${leads} new`"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-header-wrap",
+    "why": "Round 3 operator: the header wraps the nav above the account (plain wrap)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  flex-wrap: wrap-reverse;",
+        "replace": "  flex-wrap: wrap;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-placeholder-grey",
+    "why": "Round 3 operator: placeholders fall back to the browser grey",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "::placeholder {\n  color: var(--ink-muted);\n  opacity: 1;\n}",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-site-watch-bold",
+    "why": "Round 3 correctness: /s/:slug's Watch pill is bold",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": "  color: var(--ink);\n  font-weight: var(--weight-text);\n}\n.pill.attention",
+        "replace": "  color: var(--ink);\n  font-weight: var(--weight-bold);\n}\n.pill.attention"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-chip-grey",
+    "why": "Round 3 tests lens D: a Broken chip loses its red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken {\n  background: var(--broken-fill);",
+        "replace": ".chip.broken {\n  background: var(--band);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-verdict-grey",
+    "why": "Round 3 tests lens E: the Broken verdict loses its red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken {\n  background: var(--broken-fill);",
+        "replace": ".verdict.broken {\n  background: var(--surface);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-alias-red",
+    "why": "Round 3 tests lens G2: red on an Attention pill through a token alias",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #d71920;\n",
+        "replace": "  --focus: #d71920;\n  --alert: var(--broken-fill);\n"
+      },
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  background: var(--alert);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-local-tint",
+    "why": "Round 3 tests lens A: a local custom property carries darkred",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  --tint: darkred;\n  color: var(--tint);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-not-broken",
+    "why": "Round 3 tests lens F: ':not(.broken)' paints every other badge red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".badge:not(.broken) {\n  background: var(--broken-fill);\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-text-fill",
+    "why": "Round 3 tests lens B: -webkit-text-fill-color darkred",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  -webkit-text-fill-color: darkred;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-accent",
+    "why": "Round 3 tests lens J: accent-color darkred on inputs",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "::placeholder {\n",
+        "replace": "input {\n  accent-color: darkred;\n}\n::placeholder {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-content-glyph",
+    "why": "Round 3 tests lens C: a stylesheet draws a warning sign",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".chip.stuck::before {\n  content: \"⚠ \";\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-style-attr",
+    "why": "Round 3 tests lens M: <style lang=\"css\"> hides a red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "<style>\n",
+        "replace": "<style lang=\"css\">\n  .x {\n    color: darkred;\n  }\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-serif",
+    "why": "Round 3 tests lens H: the serif token is Georgia",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "--font-serif: Besley, serif;",
+        "replace": "--font-serif: Georgia, serif;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-logical-radius",
+    "why": "Round 3 tests lens I: a logical longhand radius",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".chip.stuck {\n  border-start-start-radius: 12px;\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-junk-label",
+    "why": "Round 3 tests lens K: junk in storage gives the toggle no label",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "return t === \"light\" || t === \"dark\" ? t : \"system\";",
+        "replace": "return (t as ThemeChoice) || \"system\";"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-red-on-red-verdict",
+    "why": "Round 4 tests lens 1: the Broken verdict's text is red on red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken {\n  background: var(--broken-fill);\n  color: var(--on-broken);",
+        "replace": ".verdict.broken {\n  background: var(--broken-fill);\n  color: var(--broken);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-ink-on-ink-nav",
+    "why": "Round 4 tests lens 2: the current nav item is ink on ink",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  background: var(--ink);\n  color: var(--on-ink);\n  border-color: var(--ink);\n  font-weight: var(--weight-bold);",
+        "replace": "  background: var(--ink);\n  border-color: var(--ink);\n  font-weight: var(--weight-bold);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-fifth-red",
+    "why": "Round 4 tests lens 3: a new red token on Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #d71920;\n",
+        "replace": "  --focus: #d71920;\n  --alert: #c8102e;\n"
+      },
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n  background: transparent;\n  color: inherit;",
+        "replace": ".pill.attention {\n  background: transparent;\n  color: var(--alert);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-site-pill-weight",
+    "why": "Round 4 tests lens 4: /s/:slug pills lose their weight",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/s/[slug]/site.css",
+        "find": ".pill {\n  font-size: 0.75rem;\n  padding: 0.1rem 0.5rem;\n  font-weight: 700;\n}",
+        "replace": ".pill {\n  font-size: 0.75rem;\n  padding: 0.1rem 0.5rem;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-h1-sans",
+    "why": "Round 4 tests lens 5: the h1 is not the serif",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  font-family: var(--font-serif);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-body-white",
+    "why": "Round 4 tests lens 6: the body loses the paper ground",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  color: var(--ink);\n  background: var(--ground);\n",
+        "replace": "  color: var(--ink);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4t-style-expr",
+    "why": "Round 4 tests lens 7: a style={...} expression sets red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "<div class=\"shell-account\">",
+        "replace": "<div class=\"shell-account\" style={`color: var(--broken)`}>"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-toggle-padding",
+    "why": "Round 4 operator: the toggle loses its own padding",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ".theme-toggle {\n  padding: 0.2rem 0.6rem;\n",
+        "replace": ".theme-toggle {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-nav-no-fill",
+    "why": "Round 5 tests lens A: the current nav item loses its ink fill, white on paper",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ".shell-nav a[aria-current=\"page\"] {\n  background: var(--ink);\n",
+        "replace": ".shell-nav a[aria-current=\"page\"] {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-filter-no-fill",
+    "why": "Round 5 tests lens B: the pressed filter loses its ink fill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".signal-filters button[aria-pressed=\"true\"] {\n  background: var(--ink);\n",
+        "replace": ".signal-filters button[aria-pressed=\"true\"] {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-refresh-transparent",
+    "why": "Round 5 tests lens C: the Audit fleet button goes transparent, white on paper",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": "  border-radius: var(--radius-control);\n  background: var(--ink);\n  color: var(--on-ink);\n  cursor: pointer;",
+        "replace": "  border-radius: var(--radius-control);\n  background: transparent;\n  color: var(--on-ink);\n  cursor: pointer;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-rule-as-text",
+    "why": "Round 5 tests lens D: the hairline token as text (1.74:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.accepted {\n  background: transparent;\n  border: 1px dashed var(--rule);\n  color: var(--ink-muted);",
+        "replace": ".chip.accepted {\n  background: transparent;\n  border: 1px dashed var(--rule);\n  color: var(--rule);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-rf-status-muted",
+    "why": "Round 5 tests lens E: the refresh status in muted ink on the red band",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".rf-status {\n",
+        "replace": ".rf-status {\n  color: var(--ink-muted);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-dark-only-token",
+    "why": "Round 5 tests lens F: a red token in the dark theme only",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/*",
+        "replace": "  --focus: #ff6b70;\n  --alert: #e0242b;\n  color-scheme: dark;\n}\n\n/*"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-sort-header-no-underline",
+    "why": "Round 6: the Sites table's sort headers lose their underline, indistinguishable from plain headers",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.num {",
+        "replace": "table.fleet th a {\n  text-decoration: none;\n}\ntable.fleet td.num {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-deploy-no-hover",
+    "why": "Round 6: a linked deploy badge loses its hover underline",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": "a.metric.deploy:hover {\n  text-decoration: underline;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-spin-override-gone",
+    "why": "Round 6 tests lens 1: the spinner's red-band override is deleted",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken .rf-spin {\n  border-color: var(--on-broken);\n  border-top-color: transparent;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-control-rule-border",
+    "why": "Round 6 tests lens 2: controls bounded by the hairline (1.74:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  background: var(--surface);\n  border: 1px solid var(--control-border);\n  border-radius: var(--radius-control);",
+        "replace": "  background: var(--surface);\n  border: 1px solid var(--rule);\n  border-radius: var(--radius-control);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-chip-muted",
+    "why": "Round 6 tests lens 3a: chip text muted on --band (4.10:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip {\n  font-size: 0.8rem;\n  padding: 0.1rem 0.5rem;\n  background: var(--band);\n}",
+        "replace": ".chip {\n  font-size: 0.8rem;\n  padding: 0.1rem 0.5rem;\n  background: var(--band);\n  color: var(--ink-muted);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-meta-dimmed",
+    "why": "Round 6 tests lens 3b: .meta dimmed to about 3:1",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".meta {\n",
+        "replace": ".meta {\n  opacity: 0.75;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-focus-off",
+    "why": "Round 6 tests lens 4: the global focus ring is turned off",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ":focus-visible {\n  outline: 2px solid var(--focus);\n  outline-offset: 2px;\n}",
+        "replace": ":focus-visible {\n  outline: none;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-svelte-rule-text",
+    "why": "Round 6 tests lens 5: the layout notice's text in the hairline token",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "    color: var(--ink);",
+        "replace": "    color: var(--rule);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  }
+]

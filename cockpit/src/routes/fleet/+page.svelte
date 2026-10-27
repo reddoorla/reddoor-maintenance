@@ -170,10 +170,9 @@
 <!-- The Recently and Archived lanes, moved here from / (#672 step 3). -->
 {#if s.recently.length > 0}
   <details class="recently">
-    <summary>🔧 Recently ({s.recently.length})</summary>
+    <summary>Recently ({s.recently.length})</summary>
     {#each s.recently as e, i (i)}
       <div class="recent-row" data-type={e.type}>
-        <span class="recent-icon">{e.icon}</span>
         <span class="recent-what"
           >{#if e.siteName}<strong>{e.siteName}</strong>{" — "}{/if}{e.summary}</span
         >
@@ -186,11 +185,11 @@
 
 {#if s.archived.length > 0}
   <details class="archived">
-    <summary>🗄 Archived ({s.archived.length})</summary>
+    <summary>Archived ({s.archived.length})</summary>
     {#each s.archived as a, i (i)}
       <div class="approve-row">
         <strong>{a.name}</strong> <span class="muted">{a.status}</span>
-        <a href="/s/{a.slug}">open ▸</a>
+        <a href="/s/{a.slug}">open →</a>
       </div>
     {/each}
   </details>

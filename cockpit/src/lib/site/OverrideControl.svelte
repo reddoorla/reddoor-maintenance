@@ -25,7 +25,7 @@
         body: JSON.stringify({ reason }),
       });
       if (res.ok) {
-        status = "Overridden ✓";
+        status = "Overridden";
         ui.overrideReasonDisabled = true;
         // Both Approve twins stop implying "waiting on you" once an override has
         // gone through; they stay server-gated disabled.

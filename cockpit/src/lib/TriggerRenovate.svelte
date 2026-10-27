@@ -11,7 +11,7 @@
     label = "Dispatching…";
     try {
       const res = await postAction(url);
-      label = res.ok ? "Dispatched ✓" : "Failed";
+      label = res.ok ? "Dispatched" : "Failed";
       if (!res.ok) disabled = false;
     } catch {
       label = "Failed";

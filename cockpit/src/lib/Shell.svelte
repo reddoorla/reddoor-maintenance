@@ -3,6 +3,8 @@
   import { FAVICON_LINK } from "../../../src/dashboard/favicon.js";
   import { NAV_ITEMS } from "./nav.js";
   import PageStyles from "./PageStyles.svelte";
+  import ThemeToggle from "./ThemeToggle.svelte";
+  import tokensCss from "./tokens.css?inline";
   import baseCss from "./base.css?inline";
 
   let { email, path, children }: { email: string | null; path: string; children: Snippet } =
@@ -12,16 +14,17 @@
 <svelte:head>
   {@html FAVICON_LINK}
 </svelte:head>
-<PageStyles sheets={[baseCss]} />
+<PageStyles sheets={[tokensCss, baseCss]} />
 
 <header data-shell>
   <!-- No identity under the shared-password fallback: "signed in as cockpit"
        would dress an anonymous shared credential up as a person. -->
-  {#if email}
-    <div style="float:right;font-size:0.8rem;color:#666">
-      {email} · <a href="/auth/logout">sign out</a>
-    </div>
-  {/if}
+  <div class="shell-account">
+    {#if email}
+      <span>{email} · <a href="/auth/logout">sign out</a></span>
+    {/if}
+    <ThemeToggle />
+  </div>
   <nav class="shell-nav" aria-label="Cockpit pages">
     {#each NAV_ITEMS as item (item.href)}
       <a href={item.href} aria-current={item.match(path) ? "page" : undefined}>{item.label}</a>

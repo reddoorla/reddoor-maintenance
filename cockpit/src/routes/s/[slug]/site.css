@@ -2,14 +2,14 @@ body {
   max-width: 860px;
 }
 .meta {
-  color: #666;
+  color: var(--ink-muted);
   margin-bottom: 2rem;
 }
 .meta a {
   color: inherit;
 }
 .audited {
-  color: #999;
+  color: var(--ink-muted);
   font-size: 0.85rem;
   margin-bottom: 1.5rem;
 }
@@ -21,7 +21,7 @@ body {
   margin: 0 0 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #666;
+  color: var(--ink-muted);
 }
 .tiles {
   display: grid;
@@ -30,14 +30,8 @@ body {
 }
 .tile {
   padding: 1rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid var(--rule);
   text-align: center;
-}
-@media (prefers-color-scheme: dark) {
-  .tile {
-    border-color: #333;
-  }
 }
 .tile-value {
   font-size: 2rem;
@@ -45,12 +39,12 @@ body {
 }
 .tile-label {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--ink-muted);
   margin-top: 0.25rem;
 }
 .tile-sub {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--ink-muted);
   margin-top: 0.15rem;
 }
 table {
@@ -61,47 +55,36 @@ th,
 td {
   text-align: left;
   padding: 0.5rem;
-  border-bottom: 1px solid #eee;
-}
-@media (prefers-color-scheme: dark) {
-  th,
-  td {
-    border-color: #2a2a2a;
-  }
+  border-bottom: 1px solid var(--rule);
 }
 .muted {
-  color: #999;
+  color: var(--ink-muted);
 }
 .empty {
-  color: #999;
+  color: var(--ink-muted);
   padding: 1rem;
-  border: 1px dashed #ccc;
-  border-radius: 6px;
+  border: 1px dashed var(--rule);
   text-align: center;
 }
 button.approve {
   font: inherit;
   padding: 0.35rem 0.85rem;
-  border: 1px solid #2c7;
-  border-radius: 6px;
-  background: #2c7;
-  color: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--on-ink);
   cursor: pointer;
   position: relative;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease;
+  transition: opacity 0.12s ease;
 }
 button.approve:hover:not(:disabled) {
-  background: #25b36a;
-  border-color: #25b36a;
+  opacity: 0.85;
 }
 button.approve:active:not(:disabled) {
-  background: #1e9a5b;
-  border-color: #1e9a5b;
+  opacity: 0.7;
 }
 button.approve:focus-visible {
-  outline: 2px solid #2c7;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 button.approve:disabled {
@@ -124,7 +107,7 @@ button.approve.is-loading::after {
   width: 0.85em;
   height: 0.85em;
   margin: -0.45em 0 0 -0.45em;
-  border: 2px solid #ffffff80;
+  border: 2px solid var(--on-ink);
   border-top-color: transparent;
   border-radius: 50%;
   animation: approve-spin 0.8s linear infinite;
@@ -142,28 +125,31 @@ button.approve.is-loading::after {
 }
 /* Terminal success. Wins over :disabled's dimming (the button stays disabled after a
    successful approve, and a 0.6-opacity "Approved" reads as not-quite-done). */
+/* Approved reads as done without colour (the guide: state is never colour alone):
+   the ink fill empties to an outline, and the label goes bold. */
 button.approve.is-approved,
 button.approve.is-approved:disabled {
-  background: #14663c;
-  border-color: #14663c;
-  color: #fff;
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
   opacity: 1;
 }
 button.withdraw {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.3rem 0.7rem;
-  border: 1px solid #999;
-  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   cursor: pointer;
 }
 button.withdraw:hover:not(:disabled) {
-  background: #9992;
+  background: var(--band);
 }
 button.withdraw:focus-visible {
-  outline: 2px solid #999;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 button.withdraw:disabled {
@@ -174,17 +160,17 @@ button.unapprove {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.3rem 0.7rem;
-  border: 1px solid #999;
-  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   cursor: pointer;
 }
 button.unapprove:hover:not(:disabled) {
-  background: #9992;
+  background: var(--band);
 }
 button.unapprove:focus-visible {
-  outline: 2px solid #999;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 button.unapprove:disabled {
@@ -199,25 +185,26 @@ button.unapprove:disabled {
   margin: 0.3rem 0 0.15rem;
 }
 .recipients-missing {
-  color: #e57373;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .preflight {
   font-size: 0.78rem;
   padding: 0.1rem 0.45rem;
-  border-radius: 999px;
   white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--rule);
 }
 .preflight-ok {
-  background: #1b5e2033;
-  color: #7bc67e;
+  color: var(--ink-muted);
 }
 .preflight-warn {
-  background: #f9a82533;
-  color: #d79921;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .preflight-fail {
-  background: #b71c1c33;
-  color: #e57373;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .pending-list {
   list-style: none;
@@ -226,12 +213,7 @@ button.unapprove:disabled {
 }
 .pending-list li {
   padding: 0.5rem;
-  border-bottom: 1px solid #eee;
-}
-@media (prefers-color-scheme: dark) {
-  .pending-list li {
-    border-color: #2a2a2a;
-  }
+  border-bottom: 1px solid var(--rule);
 }
 .pending-head {
   display: flex;
@@ -255,12 +237,15 @@ button.unapprove:disabled {
   font-size: 0.9rem;
 }
 .pill.healthy {
-  background: #e8f5e9;
-  color: #1b7a2f;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
 }
 .pill.watch {
-  background: #fff4e5;
-  color: #a65a00;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--weight-text);
 }
 .pill.attention {
   background: transparent;
@@ -268,44 +253,31 @@ button.unapprove:disabled {
   box-shadow: inset 0 0 0 1.5px currentColor;
 }
 .pill.broken {
-  background: #fdecea;
-  color: #b00;
+  background: var(--broken-fill);
+  color: var(--on-broken);
+}
+.pill.blocks {
+  background: transparent;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .pill.na {
-  background: #f0f0f0;
-  color: #666;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
 }
 .advisory {
   font-size: 0.72rem;
-  color: #999;
-  font-style: italic;
+  color: var(--ink-muted);
 }
 .check-note {
   font-size: 0.75rem;
-  color: #999;
-}
-@media (prefers-color-scheme: dark) {
-  .pill.healthy {
-    background: #10240f;
-    color: #7fce85;
-  }
-  .pill.watch {
-    background: #2a2410;
-    color: #ffd454;
-  }
-  .pill.broken {
-    background: #2a0f0d;
-    color: #ff8a80;
-  }
-  .pill.na {
-    background: #222;
-    color: #999;
-  }
+  color: var(--ink-muted);
 }
 .pill {
   font-size: 0.75rem;
   padding: 0.1rem 0.5rem;
-  border-radius: 999px;
   font-weight: 700;
 }
 .override {
@@ -315,31 +287,19 @@ button.override-toggle {
   font: inherit;
   font-size: 0.78rem;
   padding: 0.15rem 0.6rem;
-  border: 1px solid #b00;
-  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
-  color: #b00;
+  color: var(--ink);
   cursor: pointer;
   transition: background-color 0.12s ease;
 }
 button.override-toggle:hover {
-  background: #bb00001a;
+  background: var(--band);
 }
 button.override-toggle:focus-visible {
-  outline: 2px solid #b00;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
-}
-@media (prefers-color-scheme: dark) {
-  button.override-toggle {
-    border-color: #ff8a80;
-    color: #ff8a80;
-  }
-  button.override-toggle:hover {
-    background: #ff8a801f;
-  }
-  button.override-toggle:focus-visible {
-    outline-color: #ff8a80;
-  }
 }
 .override-form {
   margin-top: 0.35rem;
@@ -352,41 +312,32 @@ button.override-toggle:focus-visible {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.25rem 0.45rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   min-width: 220px;
   flex: 1 1 220px;
 }
-@media (prefers-color-scheme: dark) {
-  .override-reason {
-    border-color: #444;
-  }
-}
 button.override-submit {
   font: inherit;
   font-size: 0.8rem;
   padding: 0.25rem 0.7rem;
-  border: 1px solid #b00;
-  border-radius: 6px;
-  background: #b00;
-  color: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--on-ink);
   cursor: pointer;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease;
+  transition: opacity 0.12s ease;
 }
 button.override-submit:hover:not(:disabled) {
-  background: #900;
-  border-color: #900;
+  opacity: 0.85;
 }
 button.override-submit:active:not(:disabled) {
-  background: #7a0000;
-  border-color: #7a0000;
+  opacity: 0.7;
 }
 button.override-submit:focus-visible {
-  outline: 2px solid #b00;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 button.override-submit:disabled {
@@ -395,7 +346,7 @@ button.override-submit:disabled {
 }
 .override-status {
   font-size: 0.78rem;
-  color: #999;
+  color: var(--ink-muted);
 }
 .vuln-list {
   list-style: none;
@@ -404,50 +355,51 @@ button.override-submit:disabled {
 }
 .vuln-item {
   padding: 0.45rem 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--rule);
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: baseline;
 }
-@media (prefers-color-scheme: dark) {
-  .vuln-item {
-    border-color: #2a2a2a;
-  }
-}
+/* An advisory's own severity is not a ladder level, so it is never red (P1-78e). */
 .pill.sev-critical {
-  background: #fdecea;
-  color: #b00;
+  background: transparent;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .pill.sev-high {
-  background: #fff0e6;
-  color: #c4500a;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
 }
 .pill.sev-moderate {
-  background: #fff8e1;
-  color: #8a6d00;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
 }
 .pill.sev-low {
-  background: #f0f0f0;
-  color: #555;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
 }
 .home {
   display: inline-block;
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
-  text-decoration: none;
 }
 .setup-line {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--ink-muted);
   margin-bottom: 1rem;
 }
 .setup-ok {
-  color: #1b7a2f;
+  color: var(--ink-muted);
   font-weight: 600;
 }
 .setup-missing {
-  color: #a65a00;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .details {
   display: grid;
@@ -466,7 +418,7 @@ button.override-submit:disabled {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #999;
+  color: var(--ink-muted);
 }
 .detail dd {
   margin: 0;
@@ -477,9 +429,10 @@ button.override-submit:disabled {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
+  font-weight: var(--weight-text);
   padding: 0.25rem 0.4rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
 }
@@ -489,15 +442,15 @@ button.override-submit:disabled {
 }
 .detail-saved {
   font-size: 0.8rem;
-  color: #2a8;
+  color: var(--ink-muted);
 }
 button.trigger-renovate {
   font: inherit;
   font-size: 0.8rem;
   padding: 0.15rem 0.6rem;
   margin-left: 0.5rem;
-  border: 1px solid #888;
-  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -506,11 +459,11 @@ button.trigger-renovate {
     border-color 0.12s ease;
 }
 button.trigger-renovate:hover:not(:disabled) {
-  background: #88888822;
-  border-color: #666;
+  background: var(--band);
+  border-color: var(--ink);
 }
 button.trigger-renovate:focus-visible {
-  outline: 2px solid #888;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 button.trigger-renovate:disabled {
@@ -526,40 +479,34 @@ button.trigger-renovate:disabled {
 .chip {
   font-size: 0.8rem;
   padding: 0.1rem 0.5rem;
-  border-radius: 6px;
-  background: #f0f0f0;
+  background: var(--band);
 }
-@media (prefers-color-scheme: dark) {
-  .chip {
-    background: #222;
-  }
-}
-.chip.critical {
-  background: #fdecea;
-  color: #b00;
+/* Red and bold: a Broken chip is never told from its neighbours by colour alone. */
+.chip.broken {
+  background: var(--broken-fill);
+  color: var(--on-broken);
+  font-weight: var(--weight-bold);
 }
 .chip.stuck {
-  border: 1px solid #b00;
-  font-weight: 600;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}
+/* On the red fill, a stuck mark and a NEW or WORSE badge keep the on-broken colour
+   (the .stuck and .badge rules set ink, black on red at 4.05:1, and lose to these on specificity). */
+.chip.broken.stuck,
+.chip.broken .badge {
+  color: var(--on-broken);
 }
 .chip.accepted {
   background: transparent;
-  border: 1px dashed #bbb;
-  color: #888;
+  border: 1px dashed var(--rule);
+  color: var(--ink-muted);
 }
 .chip.waiting {
   background: transparent;
-  border: 1px dotted #bbb;
-  color: #777;
-}
-@media (prefers-color-scheme: dark) {
-  .chip.accepted {
-    border-color: #444;
-  }
-  .chip.critical {
-    background: #2a0f0d;
-    color: #ff8a80;
-  }
+  border: 1px dotted var(--rule);
+  color: var(--ink-muted);
 }
 /* Who approved a report (#672 step 4), beside its actions. */
 .approved-by {

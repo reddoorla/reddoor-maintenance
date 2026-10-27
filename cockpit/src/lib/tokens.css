@@ -1,0 +1,98 @@
+/* The cockpit's one token sheet (P1-78e): the Reddoor style guide's colours, type
+   roles and spacing (workspace brand/2026-10-16-reddoor-style-guide). No page
+   stylesheet carries a raw colour; each names a token here.
+
+   Themes. The guide defines one light theme and no dark one, so the dark tokens
+   are derived: paper becomes a near-black ground, ink an off-white, and the red
+   is lifted until it clears 4.5:1 on the dark ground. Contrast is measured on
+   the page ground, which is paper (#f6f6f6), never white: the guide (:84-86)
+   puts every ratio on paper about 7.5% under white.
+
+   The theme follows the system unless the shell's toggle stored a choice. The
+   inline script in app.html sets `data-theme` on <html> before first paint, so
+   a stored choice wins and nothing flashes. A stored "light" must beat a dark
+   system, which a bare media query could not, so the one media block below is
+   guarded by :root:not([data-theme="light"]).
+
+   State. There is no status palette: red marks Broken only (the guide's "bad"
+   state). Attention, Watch and the rest are ink, told apart by word, weight and
+   position, never by colour alone. */
+
+:root {
+  /* Grounds */
+  --ground: #f6f6f6; /* paper: the page */
+  --surface: #ffffff; /* cards and panels on the page */
+  --band: #e7e8eb; /* tracks, hover fills and the plain chip: ink on it is 17.14:1 */
+
+  /* Ink */
+  --ink: #000000; /* 19.43:1 on ground */
+  --ink-muted: #6e6f72; /* 4.65:1 on ground */
+  --ink-dark: #424b5a; /* labels: 8.14:1 on ground */
+  --on-ink: #ffffff; /* text on an ink fill */
+
+  /* Lines */
+  --rule: #bbbdbf; /* hairlines only: 1.74:1, never text */
+  --control-border: #6e6f72; /* the only boundary of a control: 4.65:1 */
+
+  /* Red: Broken, and the focus ring */
+  --broken: #d71920; /* text: 4.80:1 on ground */
+  --broken-fill: #d71920; /* a filled Broken pill or dot */
+  --on-broken: #ffffff; /* text on the fill: 5.19:1 */
+  --focus: #d71920;
+
+  /* Type */
+  --font-sans: pragmatica, helvetica, sans-serif;
+  --font-serif: Besley, serif;
+  --weight-text: 300;
+  --weight-bold: 700;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* Corners: square, except the guide's 4px controls */
+  --radius-control: 4px;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ground: #121212; /* ink 16.73:1, muted 7.35:1, broken 6.77:1 */
+  --surface: #1c1c1e; /* ink 15.20:1, muted 6.67:1, broken 6.15:1 */
+  --band: #2a2b2f;
+  --ink: #f2f2f2;
+  --ink-muted: #a1a2a6;
+  --ink-dark: #c3c8d1;
+  --on-ink: #121212;
+  --rule: #5c5d61;
+  --control-border: #a1a2a6;
+  --broken: #ff6b70;
+  --broken-fill: #d71920;
+  --on-broken: #ffffff;
+  --focus: #ff6b70;
+  color-scheme: dark;
+}
+
+/* The system's dark setting, when no choice is stored. Same values as above. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #121212;
+    --surface: #1c1c1e;
+    --band: #2a2b2f;
+    --ink: #f2f2f2;
+    --ink-muted: #a1a2a6;
+    --ink-dark: #c3c8d1;
+    --on-ink: #121212;
+    --rule: #5c5d61;
+    --control-border: #a1a2a6;
+    --broken: #ff6b70;
+    --broken-fill: #d71920;
+    --on-broken: #ffffff;
+    --focus: #ff6b70;
+    color-scheme: dark;
+  }
+}

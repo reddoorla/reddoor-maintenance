@@ -166,7 +166,7 @@ export function piercesPreLaunchMute(item: AttentionItem): boolean {
 
 /** An item's level: the one `withLevels` set, or, for a hand-built item that never
  *  went through the diff, its level with no date (only Renovate reads the date). */
-function itemLevel(item: AttentionItem): Level {
+export function itemLevel(item: AttentionItem): Level {
   return item.level ?? levelOf(item, undefined, new Date(0));
 }
 

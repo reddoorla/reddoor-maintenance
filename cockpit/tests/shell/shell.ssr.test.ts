@@ -46,7 +46,9 @@ describe("the shell", () => {
 
   it("names the signed-in operator with a sign-out link, escaped", () => {
     const { root } = shell("/", `<i>op</i>@example.com`);
-    const chrome = root.querySelector('header div[style^="float:right"]');
+    // P1-78e: the identity moved from an inline-styled div into .shell-account,
+    // beside the theme toggle; the selector follows it, the assertions do not change.
+    const chrome = root.querySelector("header .shell-account > span");
     expect(chrome?.text.replace(/\s+/g, " ").trim()).toBe("<i>op</i>@example.com · sign out");
     expect(chrome?.querySelector("i")).toBeNull();
     expect(chrome?.querySelector("a")?.getAttribute("href")).toBe("/auth/logout");
@@ -54,8 +56,16 @@ describe("the shell", () => {
 
   it("names nobody under the shared-password fallback", () => {
     const { root } = shell("/", null);
-    expect(root.querySelector('header div[style^="float:right"]')).toBeNull();
+    expect(root.querySelector("header .shell-account > span")).toBeNull();
     expect(root.querySelector("nav")).not.toBeNull();
+  });
+
+  // P1-78e: the theme toggle is in the shell, so it is on every page.
+  it("carries the theme toggle in the header, signed in or not", () => {
+    expect(
+      shell("/", "op@example.com").root.querySelector("header [data-theme-toggle]"),
+    ).not.toBeNull();
+    expect(shell("/", null).root.querySelector("header [data-theme-toggle]")).not.toBeNull();
   });
 
   it("carries the favicon in the head", () => {

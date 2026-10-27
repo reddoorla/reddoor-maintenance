@@ -10,7 +10,9 @@ import {
   fleetLastAuditedAt,
   isFailedDeployStatus,
   isReadyDeployStatus,
+  itemLevel,
 } from "../../../../src/dashboard/fleet-cockpit.js";
+import type { AttentionItem } from "../../../../src/alerts/attention.js";
 import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/onboarding.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
@@ -32,9 +34,9 @@ import { safeUrl } from "../../../../src/util/html.js";
 const DASH = "—";
 
 export type VerdictView = {
-  /** ok = nothing needs you, warn = broken, attention = fix this week, watch = watch,
+  /** ok = nothing needs you, broken = broken, attention = fix this week, watch = watch,
    *  soft = approvals only. */
-  cls: "ok" | "warn" | "attention" | "watch" | "soft";
+  cls: "ok" | "broken" | "attention" | "watch" | "soft";
   line: string;
   meta: string;
 };
@@ -86,7 +88,6 @@ export type CardView = {
 
 export type RecentRowView = {
   type: FleetEventType;
-  icon: string;
   siteName: string | null;
   summary: string;
   when: string;
@@ -147,7 +148,7 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 
 /** The glance verdict, on the ladder (P1-78b): "1 site broken · 2 need attention ·
  *  3 to watch · 1 waiting on your yes". Each band that has sites is named, worst
- *  first; the colour is the worst band's. Green "✓ All clear" on an empty feed. The
+ *  first; only a Broken verdict is red (P1-78e). "All clear" on an empty feed. The
  *  healthy, pre-launch and archived counts and the audit recency ride in the meta
  *  line (zero terms omitted). */
 function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictView {
@@ -182,7 +183,7 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
 
   if (broken + attention + watch + approval === 0) {
     const healthyWord = healthy > 0 ? `${healthy} site${healthy === 1 ? "" : "s"} healthy` : null;
-    return make("ok", "✓ All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
+    return make("ok", "All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
   }
   const line = [
     broken > 0 ? `${broken} ${plural(broken, "site", "sites")} broken` : null,
@@ -194,7 +195,7 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
     .join(" · ");
   const healthyTerm = healthy > 0 ? `${healthy} healthy` : null;
   const cls: VerdictView["cls"] =
-    broken > 0 ? "warn" : attention > 0 ? "attention" : watch > 0 ? "watch" : "soft";
+    broken > 0 ? "broken" : attention > 0 ? "attention" : watch > 0 ? "watch" : "soft";
   return make(cls, line, [healthyTerm, preLaunchTerm, archivedTerm, auditedTerm]);
 }
 
@@ -270,7 +271,7 @@ function securityDisplay(
   return total === 0 ? "0" : `${critical}C/${high}H/${moderate}M/${low}L`;
 }
 
-/** Green = ready/success, red = failed, amber = anything else; grey "—" when no
+/** Ready, failed or anything else, said in words (P1-78e: no status colour); "—" when no
  *  deploy was read. Linked only to a real http(s) deploy log: `safeUrl`
  *  allowlists the scheme, and its "#" fallback would be a dead link. */
 function deployView(site: WebsiteRow, now: Date): DeployView {
@@ -298,13 +299,22 @@ const PILL_LABEL: Record<Tier, string> = {
 const WATCH_CHIP_TITLE =
   "Add this exact text to the site's Accepted Watch Conditions to mute this watch";
 
+/** A chip's class. P1-78e: red marks Broken only, so the red comes from the item's
+ *  ladder level, never its severity: a stuck vulnerability or an approved report's
+ *  preflight is critical but Attention, and a failed deploy is Broken at warning. */
+export function chipClass(it: AttentionItem): string {
+  return [
+    "chip",
+    itemLevel(it) === "broken" ? "broken" : null,
+    it.autoFixExhausted ? "stuck" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function chips(c: SiteCard): ChipView[] {
   const out: ChipView[] = c.items.map((it) => ({
-    cls: it.autoFixExhausted
-      ? "chip critical stuck"
-      : it.severity === "critical"
-        ? "chip critical"
-        : "chip",
+    cls: chipClass(it),
     badge: it.status === "new" ? "NEW" : it.status === "worse" ? "WORSE" : null,
     text: it.title,
     title: null,
@@ -322,7 +332,7 @@ function chips(c: SiteCard): ChipView[] {
     });
   });
   for (const reason of c.acceptedReasons)
-    out.push({ cls: "chip accepted", badge: null, text: `✓ accepted: ${reason}`, title: null });
+    out.push({ cls: "chip accepted", badge: null, text: `accepted: ${reason}`, title: null });
   return out;
 }
 
@@ -356,11 +366,12 @@ function submissionsBadge(c: SiteCard): string | null {
   const leads = c.newLeads ?? c.newSubmissions ?? 0;
   const signups = c.newSignups ?? 0;
   if (leads === 0 && signups === 0) return null;
+  // "Inbox:" names the chip now its icon is gone; "4 new" alone read as 4 new problems.
   return leads > 0 && signups > 0
-    ? `📥 ${leads} new · +${signups} newsletter`
+    ? `Inbox: ${leads} new · +${signups} newsletter`
     : leads > 0
-      ? `📥 ${leads} new`
-      : `📥 +${signups} newsletter`;
+      ? `Inbox: ${leads} new`
+      : `Inbox: +${signups} newsletter`;
 }
 
 function cardView(c: SiteCard, now: Date): CardView {
@@ -435,27 +446,16 @@ export const FLEET_FILTERS = [
 
 // ---- lanes ----
 
-const RECENT_ICON: Record<FleetEventType, string> = {
-  pr_automerged: "🔧",
-  vuln_cleared: "🛡",
-  ci_recovered: "✅",
-  site_launched: "🚀",
-  cert_renewed: "🔒",
-  fleet_swept: "🔄",
-  report_sent_with_override: "✳️",
-};
-
 function recently(model: CockpitModel, now: Date): RecentRowView[] {
   return (model.recent ?? []).map((e) => ({
     type: e.type,
-    icon: RECENT_ICON[e.type] ?? "•",
     siteName: e.siteName || null,
     summary: e.summary,
     when: relativeTimeFromNow(e.ts, now),
     link: e.url
-      ? { href: e.url, text: "view ▸" }
+      ? { href: e.url, text: "view →" }
       : e.slug
-        ? { href: `/s/${e.slug}`, text: "open ▸" }
+        ? { href: `/s/${e.slug}`, text: "open →" }
         : null,
   }));
 }
@@ -487,7 +487,7 @@ function inbox(model: CockpitModel, now: Date): InboxView | null {
   const signups = subs.length - leads;
   const count = signups === 0 ? `${leads} new` : `${leads} new · +${signups} newsletter/rsvp`;
   return {
-    summary: `📥 Submissions (${count})${hasSpam ? " · 🛡 Spam (30d)" : ""}`,
+    summary: `Submissions (${count})${hasSpam ? " · Spam (30d)" : ""}`,
     rows: shown.map((sub, i) => ({
       key: `${i}:${sub.submissionId}`,
       siteName: sub.siteName,
@@ -503,7 +503,7 @@ function inbox(model: CockpitModel, now: Date): InboxView | null {
               overflow > 0 ? `+${overflow} more — view all submissions` : "View all submissions →",
           },
     spamLine: hasSpam
-      ? `🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}`
+      ? `Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}`
       : null,
     autoFiltered: autoFiltered > 0 ? autoFiltered : null,
   };

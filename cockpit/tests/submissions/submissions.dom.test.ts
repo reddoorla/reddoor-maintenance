@@ -75,7 +75,7 @@ describe("submission triage buttons", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status: "read" }),
     });
-    expect(b.textContent).toBe("✓");
+    expect(b.textContent).toBe("Done");
     expect(b.disabled).toBe(true);
   });
 

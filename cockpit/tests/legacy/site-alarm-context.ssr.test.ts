@@ -147,7 +147,10 @@ describe("renderSiteDashboardHtml — alarm strip", () => {
     const html = renderSiteDashboardHtml(s, [], [], null, NOW, alarm);
     expect(html).toContain('class="section alarm"');
     expect(html).toContain("Needs attention");
-    expect(html).toContain("chip critical");
+    // P1-78e: red comes from the ladder level, not the severity; a critical
+    // vulnerability is Attention, so its chip is a plain chip (was "chip critical").
+    expect(html).toMatch(/<span class="chip">(?:\s|<!--[^>]*-->)*\d+ critical\/high/);
+    expect(html).not.toContain("chip broken");
   });
 
   it("renders no alarm section for a healthy site with nothing to show", () => {

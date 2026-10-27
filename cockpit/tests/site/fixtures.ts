@@ -374,6 +374,9 @@ export const CASES: Array<[string, SiteInput]> = [
         setup: [],
         tier: "broken",
         items: [
+          // P1-78e: a real Broken item, so a Broken site renders a red chip (an
+          // uptime fail is Broken on the ladder; the vuln below is Attention).
+          { key: "uptime:recS", title: "Site down", severity: "critical", kind: "uptime" },
           { title: "Critical vuln", severity: "critical", kind: "vuln" },
           { title: "Stuck PR", severity: "warning", kind: "renovate", autoFixExhausted: true },
           { title: "Being fixed", severity: "warning", kind: "ci", waiting: true },

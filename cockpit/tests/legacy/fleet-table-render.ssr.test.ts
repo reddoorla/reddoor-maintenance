@@ -130,12 +130,12 @@ describe("renderFleetTableHtml — sort headers", () => {
   it("toggles the active column to the opposite direction and marks it", () => {
     const html = render({ sort: "perf", dir: "asc" });
     expect(html).toMatch(/href="\/fleet\?[^"]*sort=perf[^"]*dir=desc/);
-    expect(html).toContain("▲"); // active asc indicator
+    expect(html).toContain("↑"); // active asc indicator
   });
   it("links inactive columns ascending", () => {
     const html = render({ sort: "perf", dir: "desc" });
     expect(html).toMatch(/href="\/fleet\?[^"]*sort=name[^"]*dir=asc/);
-    expect(html).toContain("▼"); // active desc indicator
+    expect(html).toContain("↓"); // active desc indicator
   });
   it("preserves the active filters in every sort link", () => {
     const html = render({ status: "maintained", q: "acme" });

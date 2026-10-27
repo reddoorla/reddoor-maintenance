@@ -17,7 +17,7 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify("ack" in button ? { ack: button.ack } : { status: button.status }),
       });
-      label = res.ok ? "✓" : "Failed";
+      label = res.ok ? "Done" : "Failed";
       if (!res.ok) disabled = false;
     } catch {
       label = "Failed";

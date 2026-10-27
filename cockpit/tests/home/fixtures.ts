@@ -257,6 +257,8 @@ export function cases(): Array<[string, CockpitModel]> {
             }),
             tier: "broken",
             items: [
+              // P1-78e: a real Broken item, so the Broken card renders a red chip.
+              item({ key: "uptime:x", kind: "uptime", severity: "critical", title: "Site down" }),
               item({ status: "new", title: `New ${HOSTILE} $& $1` }),
               item({ key: "vuln:y", status: "worse", autoFixExhausted: true, title: "stuck" }),
               item({ key: "ci:z", kind: "ci", severity: "warning" as never, title: "CI red" }),

@@ -78,7 +78,7 @@
                 href={p.previewHref}
                 rel="noopener noreferrer"
                 title="rendered at draft time or at the last refresh preview; edits since then show after the next refresh"
-                >draft preview ▸</a
+                >draft preview →</a
               >{:else}<span class="muted">no preview yet</span>{/if}
             {#if p.rerenderUrl !== null}<RerenderButton url={p.rerenderUrl} />{/if}
             <ApproveButton approve={p.approve} />
@@ -142,7 +142,7 @@
           <strong>{a.module}</strong>{#if a.dev}{" "}<span class="muted">(dev)</span
             >{/if}{#if a.title !== null}{" "}— {a.title}{/if}{#if a.cves !== null}{" "}<span
               class="muted">({a.cves})</span
-            >{/if}{#if a.href !== null}{" "}<a href={a.href} rel="noopener noreferrer">advisory ▸</a
+            >{/if}{#if a.href !== null}{" "}<a href={a.href} rel="noopener noreferrer">advisory →</a
             >{/if}
         </li>
       {/each}

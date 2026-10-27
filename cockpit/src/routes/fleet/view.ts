@@ -34,7 +34,7 @@ export function sortHref(m: FleetTableModel, key: FleetSortKey): string {
 }
 
 export function sortArrow(m: FleetTableModel, key: FleetSortKey): string {
-  return m.query.sort === key ? (m.query.dir === "asc" ? " ▲" : " ▼") : "";
+  return m.query.sort === key ? (m.query.dir === "asc" ? " ↑" : " ↓") : "";
 }
 
 /** Href that shows every site, the hidden archived and external ones included,
