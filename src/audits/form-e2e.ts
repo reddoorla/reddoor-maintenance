@@ -682,10 +682,6 @@ export const SYNTHESIZE_REQUIRED_EXPR = `
  *  never reached), so the probe waits past this before submitting. */
 const FILL_SETTLE_MS = 1200;
 const PAGE_TIMEOUT_MS = 30_000;
-/** How long, once the status region shows, to wait for the action POST's response
- *  before trusting the banner (#1610). The banner normally follows the response, so
- *  this is slack for a page that shows its region before the reply arrives. */
-const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
 
 /** An error's first line, for a detail that has to stay one line. */
@@ -1035,6 +1031,10 @@ export type NoBannerEvidence = {
   /** The `role="status"` region became visible, but the action POST failed
    *  (#1610): a site that renders its error in the same region as its thanks. */
   bannerShown?: boolean;
+  /** The marker POST went out but got no answer within the cap (#1668). */
+  postUnanswered?: boolean;
+  /** The POST answered only after the status region showed (#1668). */
+  postAfterStatus?: boolean;
 };
 
 /** Compose the failure detail line. PURE — the line must say WHY nothing
@@ -1044,8 +1044,11 @@ export function noBannerDetail(e: NoBannerEvidence): string {
   const bits: string[] = [
     e.post
       ? `POST ${e.post.status}${(e.post.status >= 400 || e.bannerShown) && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
-      : "no same-site POST: the submission never left the page",
+      : e.postUnanswered
+        ? "the POST was sent but got no answer"
+        : "no same-site POST: the submission never left the page",
   ];
+  if (e.post && e.postAfterStatus) bits.push("it answered after the status showed");
   if (e.alertText?.trim()) bits.push(`alert: ${e.alertText.trim().slice(0, 80)}`);
   if (e.formState) {
     if (!e.formState.formPresent) bits.push("the form is gone from the page");
@@ -1059,9 +1062,13 @@ export function noBannerDetail(e: NoBannerEvidence): string {
       "fields were wiped and re-filled once" +
         (e.hydrationUnconfirmed ? HYDRATION_UNCONFIRMED_NOTE : ""),
     );
-  const head = e.bannerShown
-    ? "the status region showed, but the submission failed"
-    : "no success banner after submit";
+  const head = !e.bannerShown
+    ? "no success banner after submit"
+    : e.post
+      ? "the status region showed, but the submission failed"
+      : e.postUnanswered
+        ? "the status region showed, but its POST never answered"
+        : "the status region showed, but no POST was sent";
   return `${head} — ${bits.join("; ")}`;
 }
 
@@ -1078,8 +1085,6 @@ export async function defaultFormRunner(
     /** Test-only: the pause after the fills (default FILL_SETTLE_MS). A local
      *  fixture has no bot-timing screen to beat. */
     settleMs?: number;
-    /** Once the status region shows, how long to wait for the action POST (#1610). */
-    postSettleMs?: number;
     /** Test-only: the cap on the action POST, the submit click and the success
      *  banner (default PAGE_TIMEOUT_MS), so a fixture that must fail does not
      *  wait out 30 s to do it. */
@@ -1092,7 +1097,6 @@ export async function defaultFormRunner(
   const { chromium } = await import("@playwright/test");
   const hydrationTimeoutMs = opts.hydrationTimeoutMs ?? HYDRATION_TIMEOUT_MS;
   const settleMs = opts.settleMs ?? FILL_SETTLE_MS;
-  const postSettleMs = opts.postSettleMs ?? POST_SETTLE_MS;
   const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
   const fillTimeoutMs = opts.fillTimeoutMs;
   return {
@@ -1467,16 +1471,24 @@ export async function defaultFormRunner(
           // audit treats absent timing as "no claim to make".
           let startedAt = 0;
           let postElapsedMs: number | undefined;
+          const isMarkerPost = (req: {
+            method(): string;
+            url(): string;
+            postData(): string | null;
+          }) =>
+            req.method() === "POST" &&
+            isSameSitePost(req.url(), baseUrl) &&
+            carriesProbeMarker(req.postData());
+          // Sent, as against answered: "no POST was sent" and "it never answered"
+          // are different failures (#1668).
+          let markerPostSent = false;
+          page.on("request", (req) => {
+            if (isMarkerPost(req)) markerPostSent = true;
+          });
           const postResponse = page
-            .waitForResponse(
-              (r) =>
-                r.request().method() === "POST" &&
-                isSameSitePost(r.url(), baseUrl) &&
-                carriesProbeMarker(r.request().postData()),
-              {
-                timeout: submitTimeoutMs,
-              },
-            )
+            .waitForResponse((r) => isMarkerPost(r.request()), {
+              timeout: submitTimeoutMs,
+            })
             .then((r) => {
               if (startedAt > 0) postElapsedMs = Date.now() - startedAt;
               return r;
@@ -1499,27 +1511,20 @@ export async function defaultFormRunner(
             .then(() => true)
             .catch(() => false);
           const elapsedMs = Date.now() - startedAt;
-          // The banner alone is not the verdict (#1610): a site can render its error
-          // text into the same `role="status"` region as its thanks, and a POST that
-          // came back 500 then read as a pass. Once the region shows, give the
-          // action POST a moment to answer, and a 4xx/5xx is a failure.
-          let settleTimer: ReturnType<typeof setTimeout> | undefined;
-          const settledPost = ok
-            ? await Promise.race([
-                postResponse,
-                new Promise<null>((r) => {
-                  settleTimer = setTimeout(() => r(null), postSettleMs);
-                }),
-              ])
-            : null;
-          clearTimeout(settleTimer);
+          const postAfterStatus = ok && postElapsedMs === undefined;
+          // The banner alone is not the verdict (#1610, #1668): a site can render
+          // its error into the same `role="status"` region as its thanks, before or
+          // without its POST. A pass is the marker POST answering below 400 (a
+          // native form's 303 included), however long after the region showed, up
+          // to the submit cap. The wait costs nothing when the POST has answered.
+          const settledPost = ok ? await postResponse : null;
           // A SvelteKit action's failure arrives as a 200 whose JSON says so.
           const bodyFailure =
             settledPost !== null && settledPost.status() < 400
               ? actionFailureStatus(await settledPost.text().catch(() => ""))
               : null;
           const bannerLied =
-            settledPost !== null && (settledPost.status() >= 400 || bodyFailure !== null);
+            ok && (settledPost === null || settledPost.status() >= 400 || bodyFailure !== null);
           if (ok && !bannerLied)
             return {
               formPresent: true,
@@ -1585,6 +1590,8 @@ export async function defaultFormRunner(
               refilled,
               hydrationUnconfirmed,
               ...(bannerLied ? { bannerShown: true } : {}),
+              ...(actionResp === null && markerPostSent ? { postUnanswered: true } : {}),
+              ...(bannerLied && postAfterStatus ? { postAfterStatus: true } : {}),
             }),
             turnstile: turnstileSeen(),
             formsHealth,
