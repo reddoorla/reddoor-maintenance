@@ -6,6 +6,12 @@
  * `null` with a reason beside it, never `0`.
  */
 
+/** How many nights the overview reads (`readOverviewNights`): 30 for its windows,
+ *  and the one before them that their first delta is taken from. Here, not in
+ *  read.ts, so the cockpit's page code can say "at least 31" without importing
+ *  the database reader. */
+export const OVERVIEW_NIGHTS = 31;
+
 /** A value the writer may fail to read: null, and why, rather than a fake 0. */
 export type Measured<T> = { value: T; reason?: undefined } | { value: null; reason: string };
 

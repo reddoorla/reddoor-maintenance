@@ -27,7 +27,15 @@ import { NOW, FRESH, healthy, night, report, snapshot } from "./fixtures.js";
 /** A Broken site, a healthy one, and an RSVP site holding most of the leads. */
 const SNAP = snapshot({
   sites: [
-    healthy({ id: "recA", name: "Acme" }),
+    healthy({
+      id: "recA",
+      name: "Acme",
+      pScore: 90,
+      rScore: 95,
+      bpScore: 85,
+      seoScore: 99,
+      lastLighthouseAuditAt: FRESH,
+    }),
     healthy({ id: "recB", name: "Bravo", reachableOk: "fail" }),
     healthy({ id: "recR", name: "Rsvp Site" }),
   ],
@@ -94,7 +102,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
     expect(li).toEqual(["Bravo: a page on the site did not answer at the last check, for 2 days"]);
     // Each count links to its own group on the Triage page, and looks like a link.
     const links = DOC.querySelectorAll(".ov-line a").map((a) => [text(a), a.getAttribute("href")]);
-    expect(links).toContainEqual(["1 broken.", "/triage#broken"]);
+    expect(links).toContainEqual(["1 site broken.", "/triage#broken"]);
   });
 
   it("keeps the RSVP site in the per-site leads rows", () => {
@@ -107,7 +115,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
     ]);
     // ...and the headline names it with its share, beside the total.
     expect(pageText(DOC)).toContain(
-      "13 submissions since Jul 2, 2026. 10 were accepted as real, and the client was notified of 9. 9 of them (69%) came from one site, Rsvp Site;",
+      "13 submissions since Jul 2, 2026. 10 were accepted as real, and the client was notified of 9. Of the 13 submissions, 9 (69%) came from one site, Rsvp Site, through an RSVP form; 9 of the 10 accepted are from it.",
     );
   });
 
@@ -255,5 +263,243 @@ describe("the overview's stylesheet (T5)", () => {
     const red = rules.filter(([, , body]) => /var\(--(broken|broken-fill)\)/.test(body!));
     expect(red.length).toBeGreaterThan(0);
     for (const [, sel] of red) expect(sel).toMatch(/\.broken\b/);
+  });
+});
+
+/**
+ * Review round 2 (T1, T2): the sentinel render. Every number the view hands the page
+ * (a number, or a count carried as text, "248") becomes its own distinct sentinel,
+ * and each is asserted in its labelled cell. A count typed into the page, even one
+ * that matches a fixture value, and a binding to the wrong field (all time in the
+ * This-month column) both fail here: the digit check above cannot see either.
+ */
+function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, string> } {
+  const at = new Map<string, string>();
+  let next = 70001;
+  const walk = (v: unknown, path: string): unknown => {
+    if (typeof v === "number") {
+      const n = next++;
+      at.set(path, String(n));
+      return n;
+    }
+    if (typeof v === "string" && /^\d+$/.test(v)) {
+      const n = String(next++);
+      at.set(path, n);
+      return n;
+    }
+    if (Array.isArray(v)) return v.map((x, i) => walk(x, `${path}[${i}]`));
+    if (v !== null && typeof v === "object")
+      return Object.fromEntries(
+        Object.entries(v).map(([k, x]) => [k, walk(x, path ? `${path}.${k}` : k)]),
+      );
+    return v;
+  };
+  return { view: walk(view, "") as OverviewView, at };
+}
+
+const S = sentinelize(VIEW);
+const SV = S.view;
+const SDOC = parse(pageHtml(SV));
+const sent = (path: string): string => {
+  const v = S.at.get(path);
+  if (v === undefined) throw new Error(`no sentinel at ${path}`);
+  return v;
+};
+
+describe("the sentinel render: each number in its labelled cell (T1, T2)", () => {
+  it("gives every number in the view its own sentinel", () => {
+    // Enough to mean something, and none repeated.
+    expect(S.at.size).toBeGreaterThan(40);
+    expect(new Set(S.at.values()).size).toBe(S.at.size);
+  });
+
+  it("shows every sentinel the page renders, so no count is typed in its place", () => {
+    const shown = new Set(shownNumbers(SDOC));
+    // Numbers the view carries that the page does not show: the status counts reach
+    // it only inside the status line's text, this month's submissions and the test
+    // sends are worked out but not shown.
+    const unrendered = (p: string) =>
+      p.startsWith("status.counts.") ||
+      p === "leads.thisMonth.submissions" ||
+      p === "reports.sent.testSends";
+    for (const [path, v] of S.at) {
+      if (unrendered(path)) continue;
+      expect.soft(shown.has(v), `${path} (${v}) is on the page`).toBe(true);
+    }
+  });
+
+  it("the leads headline reads each count from its own field", () => {
+    const span = (term: string) =>
+      text(
+        SDOC.querySelector(`section[aria-labelledby="ov-leads"] > p span[data-term="${term}"]`)!,
+      );
+    expect(span("Submissions")).toMatch(
+      new RegExp(`^${sent("leads.allTime.submissions")} submissions`),
+    );
+    expect(span("Accepted as real")).toBe(
+      `${sent("leads.allTime.accepted")} were accepted as real,`,
+    );
+    expect(span("Client notified")).toBe(
+      `and the client was notified of ${sent("leads.allTime.notified")}.`,
+    );
+    expect(span("Biggest share")).toBe(
+      `Of the ${sent("leads.allTime.submissions")} submissions, ${sent("leads.biggest.submissions")} (${sent("leads.biggest.share")}%) came from one site, Rsvp Site, through an RSVP form; ${sent("leads.biggest.accepted")} of the ${sent("leads.allTime.accepted")} accepted are from it. Every site's own count is in the table below.`,
+    );
+  });
+
+  it("the totals table puts this month and all time each in its own column", () => {
+    const row = (term: string) => {
+      const tr = SDOC.querySelector(`.ov-leads-totals tr[data-term="${term}"]`)!;
+      return [
+        text(tr.querySelector('td[data-label="This month"]')!),
+        text(tr.querySelector('td[data-label="All time"]')!),
+      ];
+    };
+    const fields = [
+      ["Accepted as real", "accepted"],
+      ["Client notified", "notified"],
+      ["Screened as spam", "screened"],
+      ["Marked spam by hand", "byHand"],
+    ] as const;
+    for (const [term, f] of fields)
+      expect(row(term), term).toEqual([sent(`leads.thisMonth.${f}`), sent(`leads.allTime.${f}`)]);
+    expect(row("Stopped before storage")).toEqual([
+      sent("leads.stoppedThisMonth"),
+      `${sent("leads.stoppedAllTime")}, as of Oct 26`,
+    ]);
+  });
+
+  it("the per-site leads rows read each column from its own field", () => {
+    const rows = SDOC.querySelectorAll(".ov-leads-sites tbody tr");
+    expect(rows.length).toBe(SV.leads.perSite.length);
+    rows.forEach((tr, i) => {
+      const cell = (label: string) => text(tr.querySelector(`td[data-label="${label}"]`)!);
+      expect(cell("Submissions")).toBe(sent(`leads.perSite[${i}].submissions`));
+      expect(cell("Accepted")).toBe(sent(`leads.perSite[${i}].accepted`));
+      expect(cell("Notified")).toBe(sent(`leads.perSite[${i}].notified`));
+      expect(cell("Screened")).toBe(sent(`leads.perSite[${i}].screened`));
+      expect(cell("By hand")).toBe(sent(`leads.perSite[${i}].byHand`));
+    });
+  });
+
+  it("the reports sentence, the medians and the per-site waiting read their own fields", () => {
+    expect(text(SDOC.querySelector('p[data-term="Reports sent"]')!)).toBe(
+      `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before they went, and ${sent("reports.sent.aroundGate")} without that yes.`,
+    );
+    const lh = text(SDOC.querySelector('p[data-term="Lighthouse"]')!);
+    SV.reports.lighthouse.forEach((l, i) =>
+      expect(lh).toContain(`${l.label} ${sent(`reports.lighthouse[${i}].median`)}`),
+    );
+    const waiting = SDOC.querySelectorAll('.ov-due td[data-label="Waiting"]').map(text);
+    expect(waiting).toEqual(
+      SV.reports.perSite.map((_, i) => sent(`reports.perSite[${i}].waiting`)),
+    );
+  });
+});
+
+describe("every number on the page sits under a How-we-count label (T6)", () => {
+  /** Each text node holding a digit, below the shell (the How-we-count list itself
+   *  is the explanation, not a count), with the nearest `data-term` above it. */
+  function unlabelled(doc: HTMLElement): string[] {
+    const out: string[] = [];
+    const walk = (n: Node) => {
+      if (n instanceof TextNode) {
+        if (/\d/.test(n.text) && (n.parentNode as HTMLElement).closest("[data-term]") === null)
+          out.push(n.text.trim());
+      } else for (const c of n.childNodes) walk(c);
+    };
+    for (const el of doc.querySelectorAll("h1, section, .ov-how > p")) walk(el);
+    return out;
+  }
+
+  it("holds on the full fixture and the sentinel render", () => {
+    expect(shownNumbers(DOC).length).toBeGreaterThan(20);
+    expect(unlabelled(DOC)).toEqual([]);
+    expect(unlabelled(SDOC)).toEqual([]);
+  });
+
+  it("is an instrument that can fail: a number with no label is caught", () => {
+    const bare = HTML.replace(
+      "<h1>Overview</h1>",
+      "<h1>Overview</h1><section><p>42 things</p></section>",
+    );
+    expect(unlabelled(parse(bare))).toEqual(["42 things"]);
+  });
+});
+
+describe("every link from the overview lands on an anchor that exists (review round 2, C4)", () => {
+  const draft = (id: string, siteId: string) =>
+    report({ id, siteId, approvedToSend: false, sentAt: null, approvedAt: null });
+  const cases: Array<[string, Parameters<typeof snapshot>[0]]> = [
+    ["the page's own fixture", {}],
+    [
+      // Every draft on an Attention site: the Triage page has no approval group.
+      "drafts only on Attention sites",
+      {
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        reports: [draft("p1", "recA")],
+      },
+    ],
+    [
+      // A fleet-wide Broken item (a dead letter for no fleet site) and no Broken site.
+      "a fleet-wide Broken item only",
+      { deadLetters: new Map([["ghost-site", 2]]) },
+    ],
+    [
+      "a draft on a healthy site",
+      {
+        sites: [
+          healthy({
+            id: "recA",
+            name: "Acme",
+            reportRecipientsTo: "client@acme.example",
+            headerImage: { url: "https://x.example/h.png", filename: "h.png", type: "image/png" },
+          }),
+        ],
+        // Nothing blocks its approval: recipients, a header image, scores, and the
+        // health gate overridden with a reason.
+        reports: [
+          report({
+            id: "p1",
+            siteId: "recA",
+            approvedToSend: false,
+            sentAt: null,
+            approvedAt: null,
+            lighthouse: { performance: 90, accessibility: 90, bestPractices: 90, seo: 90 },
+            sendOverride: true,
+            overrideReason: "checked by hand",
+          }),
+        ],
+      },
+    ],
+  ];
+
+  const seen = new Set<string>();
+  it.each(cases)("%s", (_name, over) => {
+    const snap = Object.keys(over ?? {}).length === 0 ? SNAP : snapshot(over);
+    const view = overviewFromSnapshot(snap, NOW);
+    const doc = parse(pageHtml(view));
+    const triageIds = new Set(
+      parse(
+        render(TriagePage, {
+          props: { data: { view: buildCockpitView(cockpitModelFromSnapshot(snap, NOW), NOW) } },
+        }).body,
+      )
+        .querySelectorAll("[id]")
+        .map((e) => e.getAttribute("id")!),
+    );
+    const ownIds = new Set(doc.querySelectorAll("[id]").map((e) => e.getAttribute("id")!));
+    const hrefs = doc.querySelectorAll(".ov-line a").map((a) => a.getAttribute("href")!);
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) {
+      seen.add(href);
+      if (href.startsWith("/triage#")) expect(triageIds, href).toContain(href.slice(8));
+      else if (href.startsWith("#")) expect(ownIds, href).toContain(href.slice(1));
+      else expect(href).toBe("/triage");
+    }
+  });
+  it("the cases above reach every kind of link, both approval targets included", () => {
+    for (const href of ["/triage#broken", "/triage#cardless", "/triage#approval", "#ov-reports"])
+      expect(seen).toContain(href);
   });
 });

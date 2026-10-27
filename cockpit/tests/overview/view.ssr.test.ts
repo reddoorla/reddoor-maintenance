@@ -3,6 +3,7 @@ import {
   overviewFromSnapshot,
   CHECK_PROOF,
   HOW_WE_COUNT,
+  LADDER_LINES,
   NIGHTLY_STEPS,
   NOT_YET,
   UNREADABLE,
@@ -10,6 +11,7 @@ import {
   outcomeText,
   pacificMonthStart,
   stepNumber,
+  urlStatusText,
   windowed,
 } from "../../src/lib/overview/view.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
@@ -49,7 +51,7 @@ describe("section 1: the one-line status", () => {
     );
     expect(v.status.cls).toBe("broken");
     expect(v.status.line).toBe(
-      "2 sites in our care. 1 not live. 1 live at the last check, Oct 26, 11:30pm PT. 1 broken.",
+      "2 sites in our care. 1 not live. 1 live at the last check, Oct 26, 11:30pm PT. 1 site broken.",
     );
     // In plain words, not the triage title ("a sampled page did not answer 2xx or 3xx").
     expect(v.status.broken).toEqual([
@@ -61,7 +63,7 @@ describe("section 1: the one-line status", () => {
         age: "for 2 days",
       },
     ]);
-    expect(v.status.parts.find((p) => p.text === "1 broken.")?.href).toBe("/triage#broken");
+    expect(v.status.parts.find((p) => p.text === "1 site broken.")?.href).toBe("/triage#broken");
   });
 });
 
@@ -82,6 +84,7 @@ describe("section 2: is every site live?", () => {
       text: "Live",
       at: "Oct 26, 11:30pm PT",
       atIso: FRESH,
+      unsampled: false,
     });
     expect(v.live[0]!.domain.text).toBe("60 days left");
   });
@@ -102,7 +105,10 @@ describe("section 2: is every site live?", () => {
       }),
       NOW,
     );
-    expect(v.live[0]!.live).toMatchObject({ ok: false, text: "Address not answering (404)" });
+    expect(v.live[0]!.live).toMatchObject({
+      ok: false,
+      text: "Address not answering (page not found, 404)",
+    });
   });
 
   it("a stale form-test pass reads 'not tested lately', never working", () => {
@@ -226,7 +232,13 @@ describe("section 3: leads", () => {
       ["Rsvp Site", 3, 3, 3, 0, 0],
     ]);
     // The headline names the biggest site and its share: 4 of the 7.
-    expect(v.leads.biggest).toEqual({ siteName: "Acme", submissions: 4, share: 57 });
+    expect(v.leads.biggest).toEqual({
+      siteName: "Acme",
+      submissions: 4,
+      share: 57,
+      formKind: "a contact form",
+      accepted: 2,
+    });
   });
 
   it("with no fleet_daily night, stopped before storage is not yet collected", () => {
@@ -266,7 +278,7 @@ describe("section 4: client reports", () => {
       }),
       NOW,
     );
-    expect(v.reports.perSite.find((r) => r.siteName === "Acme")!.waiting).toBe(1);
+    expect(v.reports.perSite.find((r) => r.siteName === "Acme")!.waiting).toBe("1");
   });
 });
 
@@ -299,10 +311,10 @@ describe("section 5: what runs every night", () => {
     const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26"), failed] }), NOW);
     // Kinds of check that ran, and the most sites one reached; never "checks on each".
     expect(v.nightly.scale).toBe(
-      "3 kinds of check ran on the newest night, reaching up to 2 sites",
+      "3 kinds of check ran on the night of Oct 26, reaching up to 2 sites",
     );
-    expect(v.nightly.reliability).toBe("15 of 16 runs green over the last 2 nights");
-    expect(v.nightly.steps[6]!.sites).toBe("1 site");
+    expect(v.nightly.reliability).toBe("15 of 16 nightly steps green over the last 2 nights");
+    expect(v.nightly.steps[6]!.sites).toBe("1 site that night");
     expect(v.nightly.steps[0]!.sites).toBe("the whole database, every site's records in one copy");
     expect(v.nightly.steps[7]!.sites).toBe("sites with a report due");
   });
@@ -323,7 +335,9 @@ describe("sections 6 and 7: windows over fleet_daily", () => {
   it("one night alone has nothing to subtract", () => {
     const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW);
     expect(v.upkeep.automerged).toBe(NOT_YET);
-    expect(v.upkeep.depsBehind).toBe("5 packages");
+    expect(v.upkeep.depsBehind).toBe(
+      "5, added up across our sites (one package behind on three sites counts three times)",
+    );
   });
 
   it("subtracts the oldest night inside 30 from the newest", () => {
@@ -401,18 +415,27 @@ describe("review round 1: the counts behind every shown number", () => {
     // Acme's drafts cannot be approved yet (no recipients), which puts Acme in
     // Attention too: the feed's approval group, which holds only sites with nothing
     // worse, would count 0 here.
-    expect(v.status.counts).toEqual({ attention: 2, fleetAttention: 0, watch: 1, approval: 3 });
+    expect(v.status.counts).toEqual({
+      broken: 0,
+      fleetBroken: 0,
+      attention: 2,
+      fleetAttention: 0,
+      watch: 1,
+      approval: 3,
+    });
     expect(v.status.parts.map((p) => [p.text, p.href])).toEqual([
       ["3 sites in our care.", undefined],
       ["All live at the last check, Oct 26, 11:30pm PT.", undefined],
       ["2 sites need attention this week.", "/triage#attention"],
       ["1 site to watch.", "/triage#watch"],
-      ["3 reports wait for your yes.", "/triage#approval"],
+      // Every draft is on an Attention site, so the Triage page has no approval
+      // group: the count opens this page's own table (review round 2, C4).
+      ["3 reports wait for your yes.", "#ov-reports"],
     ]);
     expect(v.reports.perSite.map((r) => [r.siteName, r.waiting])).toEqual([
-      ["Acme", 2],
-      ["Bravo", 1],
-      ["Wren", 0],
+      ["Acme", "2"],
+      ["Bravo", "1"],
+      ["Wren", "0"],
     ]);
   });
 
@@ -583,11 +606,11 @@ describe("review round 1: the counts behind every shown number", () => {
   });
 
   it("counts the nights collected (T4)", () => {
-    expect(overviewFromSnapshot(snapshot({ nights: [] }), NOW).nightsCollected).toBe(0);
+    expect(overviewFromSnapshot(snapshot({ nights: [] }), NOW).nightsCollected).toBe("0 nights");
     expect(
       overviewFromSnapshot(snapshot({ nights: [night("2026-10-26"), night("2026-10-24")] }), NOW)
         .nightsCollected,
-    ).toBe(2);
+    ).toBe("2 nights");
   });
 
   it("reliability counts calendar nights and says which were not recorded (O14)", () => {
@@ -596,7 +619,7 @@ describe("review round 1: the counts behind every shown number", () => {
       NOW,
     );
     expect(v.nightly.reliability).toBe(
-      "16 of 16 runs green over the last 3 nights (1 night not recorded)",
+      "16 of 16 nightly steps green over the last 3 nights (1 night not recorded)",
     );
   });
 
@@ -664,7 +687,7 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
       {
         siteId: "recA",
         siteName: "Acme",
-        text: "2 critical or high vulnerabilities: an automatic update should clear it; if it is still here on Oct 29, it comes to us",
+        text: "2 critical or high vulnerabilities: we are giving the automatic update until Oct 29; any still open then come to us",
       },
     ]);
   });
@@ -684,26 +707,26 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
     });
     // The Monday after Oct 26 closes Nov 2 18:00Z; two days on is Nov 4.
     expect(open(transitive, "2026-10-26")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: it sits deeper in the site's packages, so Monday's weekly package refresh should clear it; if it is still here on Nov 4, it comes to us",
+      "2 critical or high vulnerabilities: they sit deeper in the site's packages, so we are giving Monday's weekly package refresh until Nov 4; any still open then come to us",
     );
   });
 
   it("past its wait: ours this week, with the date it ran out", () => {
     expect(open(vulnSite(), "2026-10-20")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: the automatic update did not clear it by Oct 23, so it is ours to fix this week",
+      "2 critical or high vulnerabilities: the automatic update did not clear them by Oct 23, so they are ours to fix this week",
     );
   });
 
   it("the automatic fix gave up: ours by hand", () => {
     expect(open(vulnSite({ securityAutoFixAttempts: 3 }), "2026-10-26")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: the automatic update tried and gave up, so it is ours to fix by hand",
+      "2 critical or high vulnerabilities: the automatic update tried and gave up, so they are ours to fix by hand",
     );
   });
 
   it("with no first sighting to read, nothing waits, and it says so", () => {
     const v = overviewFromSnapshot(snapshot({ sites: [vulnSite()] }), NOW);
     expect(v.upkeep.open[0]!.text).toBe(
-      "2 critical or high vulnerabilities: we could not confirm when it was first seen, so it is ours to look at this week",
+      "2 critical or high vulnerabilities: we could not confirm when they were first seen, so they are ours to look at this week",
     );
   });
 });
@@ -745,7 +768,7 @@ describe("review round 1: boundaries (T6)", () => {
       NOW,
     );
     expect(v.nightly.reliability).toBe(
-      "16 of 16 runs green over the last 30 nights (28 nights not recorded)",
+      "16 of 16 nightly steps green over the last 30 nights (28 nights not recorded)",
     );
   });
 
@@ -796,5 +819,263 @@ describe("review round 1: How we count", () => {
   it("builds its freshness window from PRODUCTION_STALE_DAYS, not a typed 3", () => {
     const live = HOW_WE_COUNT.find((h) => h.term === "Live")!.text;
     expect(live).toContain(`more than ${PRODUCTION_STALE_DAYS} days old`);
+  });
+});
+
+describe("review round 2", () => {
+  const draft = (id: string, siteId: string) =>
+    report({ id, siteId, approvedToSend: false, sentAt: null, approvedAt: null });
+
+  it("with no reports read, each site's next due and waiting read not readable (C1)", () => {
+    const v = overviewFromSnapshot(snapshot({ reports: null }), NOW);
+    expect(v.reports.sent).toBeNull();
+    expect(v.reports.perSite.map((r) => [r.nextDue, r.waiting])).toEqual([
+      [UNREADABLE, UNREADABLE],
+      [UNREADABLE, UNREADABLE],
+    ]);
+  });
+
+  it("past the reader's 31 rows, the nights counted are a floor (C2)", () => {
+    const days = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        night(new Date(Date.UTC(2026, 9, 26) - i * 86_400_000).toISOString().slice(0, 10)),
+      );
+    expect(overviewFromSnapshot(snapshot({ nights: days(30) }), NOW).nightsCollected).toBe(
+      "30 nights",
+    );
+    expect(overviewFromSnapshot(snapshot({ nights: days(31) }), NOW).nightsCollected).toBe(
+      "at least 31 nights",
+    );
+    expect(
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).nightsCollected,
+    ).toBe("1 night");
+  });
+
+  it("an older night's coverage is dated as that night, never the newest (C3, O5)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          night("2026-10-26", { coverage: { value: null, reason: "read failed" } }),
+          night("2026-10-25"),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.nightly.nightOf).toBe("Night of Oct 26");
+    expect(v.nightly.scale).toBe(
+      "3 kinds of check ran on the night of Oct 25, reaching up to 2 sites",
+    );
+    expect(v.nightly.steps[stepNumber("fleet-form-e2e.yml") - 1]!.sites).toBe(
+      "1 site on the night of Oct 25",
+    );
+    // With no night at all, nothing claims a night.
+    expect(overviewFromSnapshot(snapshot({ nights: [] }), NOW).nightly.nightOf).toBe(
+      "Newest night",
+    );
+  });
+
+  it("links the approval count to the Triage group only when it is there (C4)", () => {
+    // Every draft on an Attention site (no recipients): no approval group there.
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], reports: [draft("p1", "recA")] }),
+      NOW,
+    );
+    expect(v.status.parts.find((p) => p.text === "1 report waits for your yes.")?.href).toBe(
+      "#ov-reports",
+    );
+  });
+
+  it("counts a fleet-wide Broken item on its own and names it (C5, T4)", () => {
+    const v = overviewFromSnapshot(snapshot({ deadLetters: new Map([["ghost-site", 2]]) }), NOW);
+    expect(v.status.cls).toBe("broken");
+    expect(v.status.counts).toMatchObject({ broken: 0, fleetBroken: 1 });
+    expect(v.status.parts.map((p) => [p.text, p.href])).toContainEqual([
+      "1 fleet-wide item broken.",
+      "/triage#cardless",
+    ]);
+    expect(v.status.line).not.toContain("site broken");
+    expect(v.status.broken).toEqual([
+      {
+        key: "deadletter:ghost-site",
+        siteName: "(unknown site: ghost-site)",
+        url: "/triage",
+        reasons: "leads are stuck and have not reached the client",
+        age: "flagged today",
+      },
+    ]);
+  });
+
+  it("says this month's screen-outs are kept in UTC days (C6)", () => {
+    const stopped = HOW_WE_COUNT.find((h) => h.term === "Stopped before storage")!.text;
+    expect(stopped).toContain("whole days by UTC time, not Pacific");
+  });
+
+  it("a fresh check that sampled no page is neither live nor unchecked (C7)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", reachableOk: null })] }),
+      NOW,
+    );
+    expect(v.live[0]!.live).toEqual({
+      ok: null,
+      text: "Address answers; no page sampled",
+      at: "Oct 26, 11:30pm PT",
+      atIso: FRESH,
+      unsampled: true,
+    });
+    expect(v.status.line).toBe(
+      "1 site in our care. 1 answers at its address, but no page was sampled. Nothing needs attention.",
+    );
+    expect(v.status.line).not.toContain("not checked lately");
+  });
+
+  it("a night with no run says its night instead (C8)", () => {
+    const older = night("2026-10-25", { run: null });
+    const newest = night("2026-10-26");
+    newest.counts.steps["fleet-db-backup.yml"] = { outcome: "running", runId: 2, conclusion: null };
+    const v = overviewFromSnapshot(snapshot({ nights: [newest, older] }), NOW);
+    expect(v.nightly.steps[stepNumber("fleet-db-backup.yml") - 1]!.lastFinished).toBe(
+      "on the night of Oct 25 (green)",
+    );
+  });
+
+  it("a vulnerability count from a stale audit is not open now (C9)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme", securityVulnsHigh: 2, lastSecurityAuditAt: STALE }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.upkeep.open).toEqual([
+      {
+        siteId: "recA",
+        siteName: "Acme",
+        text: "2 critical or high vulnerabilities at the last security check, Oct 19; not checked lately, so we cannot say what is open now",
+      },
+    ]);
+  });
+
+  it("one vulnerability reads in the singular (minor)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme", securityVulnsHigh: 1, lastSecurityAuditAt: FRESH }),
+        ],
+        digest: { "vuln:recA": { metric: 1, firstFlaggedAt: "2026-10-20" } },
+      }),
+      NOW,
+    );
+    expect(v.upkeep.open[0]!.text).toBe(
+      "1 critical or high vulnerability: the automatic update did not clear it by Oct 23, so it is ours to fix this week",
+    );
+  });
+
+  it("with no fleet_daily row, each step's reach and last finish say not yet collected (T3)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], nights: [] }),
+      NOW,
+    );
+    expect(v.nightly.steps.map((s) => [s.sites, s.lastFinished])).toEqual([
+      ["the whole database, every site's records in one copy", NOT_YET],
+      [NOT_YET, "no site stamped yet"],
+      ["sites on Prismic, with a pull request only where something changed", NOT_YET],
+      [NOT_YET, "no site stamped yet"],
+      [NOT_YET, "Oct 26, 11:30pm PT"],
+      [NOT_YET, "no site stamped yet"],
+      [NOT_YET, "Oct 26, 11:30pm PT"],
+      ["sites with a report due", NOT_YET],
+    ]);
+  });
+
+  it("a failed screen-out read says not readable this month, never 0 (T5)", () => {
+    const v = overviewFromSnapshot(snapshot({ screenOuts: null }), NOW);
+    expect(v.leads.stoppedThisMonth).toBe(UNREADABLE);
+  });
+
+  it("names the biggest site's form and how many of the accepted are its (O3)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        submissions: [
+          ...["r1", "r2", "r3"].map((id) =>
+            makeSubmissionRow({ id, siteId: "recR", formType: "rsvp", status: "read" }),
+          ),
+          makeSubmissionRow({ id: "a1", siteId: "recA", status: "new" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.leads.biggest).toEqual({
+      siteName: "Rsvp Site",
+      submissions: 3,
+      share: 75,
+      formKind: "an RSVP form",
+      accepted: 3,
+    });
+  });
+
+  it("an RSVP site's last real entry is a submission, not a lead (nit)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        submissions: [
+          makeSubmissionRow({
+            id: "r1",
+            siteId: "recR",
+            formType: "rsvp",
+            status: "read",
+            submittedAt: "2026-10-27T13:00:00.000Z",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.live.find((r) => r.siteName === "Rsvp Site")!.lastLead).toBe(
+      "last real submission 5h ago",
+    );
+  });
+
+  it("a Broken item flagged today says so (nit)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })],
+        digest: { "uptime:recB": { metric: 1, firstFlaggedAt: "2026-10-27" } },
+      }),
+      NOW,
+    );
+    expect(v.status.broken[0]!.age).toBe("flagged today");
+  });
+
+  it("dates the Lighthouse medians by the oldest audit behind them (minor)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "a", name: "A", pScore: 90, lastLighthouseAuditAt: FRESH }),
+          healthy({ id: "b", name: "B", pScore: 70, lastLighthouseAuditAt: STALE }),
+          healthy({ id: "c", name: "C", lastLighthouseAuditAt: "2026-09-01T00:00:00.000Z" }),
+        ],
+      }),
+      NOW,
+    );
+    // C has no score, so its older stamp is not behind any median.
+    expect(v.reports.lighthouseAsOf).toBe("Oct 19");
+  });
+
+  it("puts the URL probe's status in plain words (minor)", () => {
+    expect(urlStatusText("error: ENOTFOUND")).toBe("no such address");
+    expect(urlStatusText("503")).toBe("server error 503");
+    expect(urlStatusText("404")).toBe("page not found, 404");
+    expect(urlStatusText("404 netlify-site-not-found")).toBe("our host serves no site there");
+    expect(urlStatusText("error: EWEIRD")).toBe("a network error, code EWEIRD");
+  });
+
+  it("says one night as the one night counted so far (minor)", () => {
+    const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW);
+    expect(v.nightly.reliability).toBe("8 of 8 nightly steps green on the 1 night counted so far");
+  });
+
+  it("the ladder's OK says nothing open, not every check passed (O4)", () => {
+    expect(LADDER_LINES.at(-1)).toBe(
+      'OK: nothing open at the last checks. A cell that reads "not checked lately" says what we could not confirm.',
+    );
   });
 });

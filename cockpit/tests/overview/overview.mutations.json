@@ -91,6 +91,24 @@
     "expect": "red"
   },
   {
+    "id": "4c-fleet-wide-broken-dropped",
+    "why": "(review round 2, C5, T4) A fleet-wide Broken item is missing from section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const fleetBroken = cardlessAt(\"broken\").length;",
+        "replace": "  const fleetBroken = 0;"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    ...cardlessAt(\"broken\").map((i) => ({",
+        "replace": "    ...cardlessAt(\"broken\").filter(() => false).map((i) => ({"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
     "id": "5-no-row-reads-zero",
     "why": "A count falls back to 0 when fleet_daily has no row",
     "edits": [
@@ -103,6 +121,19 @@
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "      : window.length === 0\n        ? NOT_YET",
         "replace": "      : window.length === 0\n        ? \"0 of 0 runs green\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5b-reached-zero-with-no-row",
+    "why": "(review round 2, T3) A step's Reached falls back to \"0 sites\" when fleet_daily has no row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          : sites.length === 0\n            ? NOT_YET",
+        "replace": "          : sites.length === 0\n            ? \"0 sites\""
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -179,6 +210,133 @@
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-typed-fixture-count",
+    "why": "(review round 2, T1) A count is typed into the page with the fixture's own value, so the digit check cannot see it",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{v.leads.allTime.accepted} were accepted as real,",
+        "replace": "10 were accepted as real,"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-wrong-field-binding",
+    "why": "(review round 2, T2) The This-month column shows the all-time screened count",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.thisMonth?.screened}</td",
+        "replace": ">{v.leads.allTime.screened}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-screenouts-unreadable-reads-zero",
+    "why": "(review round 2, T5) A failed screen-out read shows 0 this month",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      s.screenOuts === null\n        ? UNREADABLE",
+        "replace": "      s.screenOuts === null\n        ? \"0\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-approval-links-to-a-missing-group",
+    "why": "(review round 2, C4) The approval count links to a Triage group that is not there",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      href: groups.has(\"approval\") ? toGroup(\"approval\") : \"#ov-reports\",",
+        "replace": "      href: toGroup(\"approval\"),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-stale-audit-reads-open-now",
+    "why": "(review round 2, C9) A vulnerability count from a stale audit reads as open now",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      text: fresh\n",
+        "replace": "      text: true\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-unsampled-reads-unchecked",
+    "why": "(review round 2, C7) A fresh check that sampled no page reads \"not checked lately\"",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (urlFresh && site.urlResolves === \"pass\" && pagesFresh && site.reachableOk === null)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-unread-reports-show-a-schedule",
+    "why": "(review round 2, C1) With no reports read, the per-site table still works out a schedule and 0 waiting",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        if (reports === null)\n          return {",
+        "replace": "        if (false)\n          return {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          .map((type) => ({ type, at: nextDueDate(site, reports, type, now) }))",
+        "replace": "          .map((type) => ({ type, at: nextDueDate(site, reports ?? [], type, now) }))"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            reports.filter((r) => r.siteId === site.id && isPendingApproval(r)).length,",
+        "replace": "            (reports ?? []).filter((r) => r.siteId === site.id && isPendingApproval(r)).length,"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-older-coverage-undated",
+    "why": "(review round 2, C3) An older night's coverage is passed off as the newest night's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      : coverage.night === newest?.night",
+        "replace": "      : true"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-nights-cap-read-as-exact",
+    "why": "(review round 2, C2) A full read of 31 nights says 31, not at least 31",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        : s.nights.length >= OVERVIEW_NIGHTS",
+        "replace": "        : false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
     "expect": "red"
   },
   {

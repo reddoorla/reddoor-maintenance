@@ -32,6 +32,9 @@ describe("readOverviewNights guards every block it reads", () => {
     const [n] = await readOverviewNights(db);
     expect(n!.night).toBe("2026-10-26");
     expect(n!.counts.steps).toEqual({});
+    // Review round 2 (C8): the run block too, which the overview reads for a step's
+    // last finish.
+    expect(n!.counts.run).toBeNull();
     for (const block of ["coverage", "screenouts", "events", "prsMerged", "deps"] as const)
       expect(n!.counts[block]).toEqual({ value: null, reason: "not in this row" });
   });

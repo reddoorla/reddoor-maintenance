@@ -8,6 +8,7 @@
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured } from "./types.js";
+import { OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -58,12 +59,14 @@ export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
  *  costs the snapshot about 1.5 KB each instead of about 7 KB. */
 export type OverviewNight = {
   night: string;
-  counts: Omit<FleetDailyCounts, "deps"> & { deps: Measured<{ behind: number }> };
+  /** `run` is null on a row that does not carry it (review round 2). */
+  counts: Omit<FleetDailyCounts, "deps" | "run"> & {
+    deps: Measured<{ behind: number }>;
+    run: FleetDailyCounts["run"] | null;
+  };
 };
 
-/** How many nights the overview reads: 30 for its windows, and the one before them
- *  that their first delta is taken from. */
-export const OVERVIEW_NIGHTS = 31;
+export { OVERVIEW_NIGHTS };
 
 /** A block an older or partial row does not carry: unmeasured, never a thrown page. */
 const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
@@ -81,6 +84,7 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
       night,
       counts: {
         ...(rest as Omit<FleetDailyCounts, "deps">),
+        run: rest.run ?? null,
         steps: rest.steps ?? {},
         coverage: rest.coverage ?? NOT_IN_ROW,
         screenouts: rest.screenouts ?? NOT_IN_ROW,

@@ -28,7 +28,7 @@
       >{/each}
   </p>
   {#if v.status.broken.length > 0}
-    <ul class="ov-list broken">
+    <ul class="ov-list broken" data-term="Broken, attention, watch">
       {#each v.status.broken as b (b.key)}
         <li>
           <a href={b.url}>{b.siteName}</a>: {b.reasons}{#if b.age}<span class="muted"
@@ -45,7 +45,7 @@
   <table class="ov-table ov-live">
     <thead>
       <tr
-        ><th>Site</th><th data-term="Live">Live</th><th data-term="Domain">Domain</th><th
+        ><th>Site</th><th data-term="Live">Live</th><th data-term="Certificate">Certificate</th><th
           data-term="Deploy">Deploy</th
         ><th data-term="Forms">Forms</th><th data-term="Level"><a href="#ov-ladder">Level</a></th
         ></tr
@@ -55,12 +55,16 @@
       {#each v.live as r (r.siteId)}
         <tr>
           <th scope="row"><a href={r.url}>{r.siteName}</a></th>
-          <td data-label="Live" class={okClass(r.live.ok)}
+          <td data-label="Live" data-term="Live" class={okClass(r.live.ok)}
             >{r.live.text}{#if r.live.at}<span class="muted">, checked {r.live.at}</span>{/if}</td
           >
-          <td data-label="Domain" class={okClass(r.domain.ok)}>{r.domain.text}</td>
-          <td data-label="Deploy" class={okClass(r.deploy.ok)}>{r.deploy.text}</td>
-          <td data-label="Forms" class={okClass(r.forms.ok)}
+          <td data-label="Certificate" data-term="Certificate" class={okClass(r.domain.ok)}
+            >{r.domain.text}</td
+          >
+          <td data-label="Deploy" data-term="Deploy" class={okClass(r.deploy.ok)}
+            >{r.deploy.text}</td
+          >
+          <td data-label="Forms" data-term="Forms" class={okClass(r.forms.ok)}
             >{r.forms.text}<span class="muted">; {r.lastLead}</span></td
           >
           <td data-label="Level"><span class="pill {r.level.tier}">{r.level.text}</span></td>
@@ -85,36 +89,38 @@
         >and the client was notified of {v.leads.allTime.notified}.</span
       >
       {#if v.leads.biggest}<span data-term="Biggest share"
-          >{v.leads.biggest.submissions} of them ({v.leads.biggest.share}%) came from one site, {v
-            .leads.biggest.siteName}; every site's own count is in the table below.</span
+          >Of the {v.leads.allTime.submissions} submissions, {v.leads.biggest.submissions} ({v.leads
+            .biggest.share}%) came from one site, {v.leads.biggest.siteName}, through {v.leads
+            .biggest.formKind}; {v.leads.biggest.accepted} of the {v.leads.allTime.accepted} accepted
+          are from it. Every site's own count is in the table below.</span
         >{/if}
     </p>
     <table class="ov-table ov-leads-totals">
       <thead><tr><th></th><th>This month</th><th>All time</th></tr></thead>
       <tbody>
-        <tr
-          ><th scope="row" data-term="Accepted as real">Accepted as real</th><td
-            data-label="This month">{v.leads.thisMonth?.accepted}</td
+        <tr data-term="Accepted as real"
+          ><th scope="row">Accepted as real</th><td data-label="This month"
+            >{v.leads.thisMonth?.accepted}</td
           ><td data-label="All time">{v.leads.allTime.accepted}</td></tr
         >
-        <tr
-          ><th scope="row" data-term="Client notified">Client notified</th><td
-            data-label="This month">{v.leads.thisMonth?.notified}</td
+        <tr data-term="Client notified"
+          ><th scope="row">Client notified</th><td data-label="This month"
+            >{v.leads.thisMonth?.notified}</td
           ><td data-label="All time">{v.leads.allTime.notified}</td></tr
         >
-        <tr
-          ><th scope="row" data-term="Screened as spam">Screened as spam</th><td
-            data-label="This month">{v.leads.thisMonth?.screened}</td
+        <tr data-term="Screened as spam"
+          ><th scope="row">Screened as spam</th><td data-label="This month"
+            >{v.leads.thisMonth?.screened}</td
           ><td data-label="All time">{v.leads.allTime.screened}</td></tr
         >
-        <tr
-          ><th scope="row" data-term="Marked spam by hand">Marked spam by hand</th><td
-            data-label="This month">{v.leads.thisMonth?.byHand}</td
+        <tr data-term="Marked spam by hand"
+          ><th scope="row">Marked spam by hand</th><td data-label="This month"
+            >{v.leads.thisMonth?.byHand}</td
           ><td data-label="All time">{v.leads.allTime.byHand}</td></tr
         >
-        <tr
-          ><th scope="row" data-term="Stopped before storage">Stopped before storage</th><td
-            data-label="This month">{v.leads.stoppedThisMonth}</td
+        <tr data-term="Stopped before storage"
+          ><th scope="row">Stopped before storage</th><td data-label="This month"
+            >{v.leads.stoppedThisMonth}</td
           ><td data-label="All time"
             >{v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}<span class="muted"
                 >, as of {v.leads.stoppedAsOf}</span
@@ -124,7 +130,7 @@
       </tbody>
     </table>
     <h3 data-term="Per site">Per site</h3>
-    <table class="ov-table ov-leads-sites">
+    <table class="ov-table ov-leads-sites" data-term="Per site">
       <thead>
         <tr
           ><th>Site</th><th>Submissions</th><th>Accepted</th><th>Notified</th><th>Screened</th><th
@@ -150,11 +156,11 @@
 
 <section aria-labelledby="ov-reports">
   <h2 id="ov-reports">Client reports</h2>
-  <p>
+  <p data-term="Checks per report">
     Every maintenance report carries {v.reports.checks.length} checks. Each one is proven by a step of
     the nightly run below.
   </p>
-  <dl class="ov-checks">
+  <dl class="ov-checks" data-term="Checks per report">
     {#each v.reports.checks as c (c.name)}
       <dt>{c.name}</dt>
       <dd>{c.proof}</dd>
@@ -164,7 +170,9 @@
     Lighthouse (Google's audit of each site, scored out of 100), the middle score across our sites
     for each area on its own:
     {#each v.reports.lighthouse as l, i (l.label)}{i > 0 ? " · " : ""}{l.label}
-      {l.median}{/each}.
+      {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted"
+        >, from audits as old as {v.reports.lighthouseAsOf}</span
+      >{/if}.
   </p>
   {#if v.reports.sent === null}
     <p class="muted">The reports could not be read just now. Reload to try again.</p>
@@ -186,8 +194,8 @@
       {#each v.reports.perSite as r (r.siteId)}
         <tr>
           <th scope="row">{r.siteName}</th>
-          <td data-label="Next due">{r.nextDue}</td>
-          <td data-label="Waiting">{r.waiting}</td>
+          <td data-label="Next due" data-term="Next report due">{r.nextDue}</td>
+          <td data-label="Waiting" data-term="Waiting for your yes">{r.waiting}</td>
         </tr>
       {/each}
     </tbody>
@@ -209,7 +217,7 @@
       <li>
         <span class="ov-step-name">{s.label}</span>
         <span class="muted"
-          >Newest night: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.</span
+          >{v.nightly.nightOf}: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.</span
         >
       </li>
     {/each}
@@ -219,17 +227,19 @@
 <section aria-labelledby="ov-upkeep">
   <h2 id="ov-upkeep">Upkeep</h2>
   <ul>
-    <li data-term="Updates merged automatically">
-      Updates merged automatically: {v.upkeep.automerged}.
+    <li data-term="Dependency updates merged">
+      Renovate's dependency updates merged: {v.upkeep.automerged}.
     </li>
-    <li data-term="Vulnerabilities cleared">Vulnerabilities cleared: {v.upkeep.vulnsCleared}.</li>
-    <li data-term="Dependencies behind">
-      Dependencies behind (a major version): {v.upkeep.depsBehind}.
+    <li data-term="Sites cleared of vulnerabilities">
+      Sites cleared of every critical or high vulnerability: {v.upkeep.vulnsCleared}.
+    </li>
+    <li data-term="Major-version upgrades waiting">
+      Major-version upgrades waiting: {v.upkeep.depsBehind}.
     </li>
   </ul>
   <h3 data-term="Open now">Open now</h3>
   {#if v.upkeep.open.length > 0}
-    <ul>
+    <ul data-term="Open now">
       {#each v.upkeep.open as o (o.siteId)}
         <li>{o.siteName}: {o.text}.</li>
       {/each}
@@ -267,8 +277,7 @@
     {#if v.nightsCollected === null}
       The nightly counts could not be read just now.
     {:else}
-      The nightly has written {v.nightsCollected}
-      {v.nightsCollected === 1 ? "night" : "nights"} of counts so far.
+      The nightly has written {v.nightsCollected} of counts so far.
     {/if}
   </p>
   <dl>
