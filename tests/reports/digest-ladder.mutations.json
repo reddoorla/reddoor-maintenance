@@ -193,5 +193,57 @@
     ],
     "test": "tests/reports/digest-ladder.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4-subkey-badge",
+    "why": "Review round 4: a new ask under a standing key gets no NEW badge",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };",
+        "replace": "    if (changes.added.includes(it.key)) return { ...it, status: \"new\" };"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-guard-dropped",
+    "why": "Review round 4: the send log overrides a badge the snapshot set",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    if (it.status !== \"standing\" && it.status !== undefined) return it;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-badge-order",
+    "why": "Review round 4: WORSE wins over NEW",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };\n    if (touchedBy(it, changes.worse)) return { ...it, status: \"worse\" };",
+        "replace": "    if (touchedBy(it, changes.worse)) return { ...it, status: \"worse\" };\n    if (touchedBy(it, changes.added)) return { ...it, status: \"new\" };"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-nextsent-no-fallback",
+    "why": "Review round 4: a skipped night leaves a pre-level log entry with no level",
+    "edits": [
+      {
+        "file": "src/alerts/digest-send.ts",
+        "find": "          : f.level !== undefined\n            ? { level: f.level }\n            : {}),",
+        "replace": "          : {}),"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
   }
 ]

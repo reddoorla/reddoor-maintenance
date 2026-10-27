@@ -5,7 +5,12 @@
  * a rise in level is news.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { runDigest, digestSubject, orderAttention } from "../../src/reports/digest.js";
+import {
+  runDigest,
+  digestSubject,
+  orderAttention,
+  badgeFromSendLog,
+} from "../../src/reports/digest.js";
 import {
   coerceSendLog,
   digestChanges,
@@ -277,6 +282,35 @@ describe("review round 3 (P1-78d)", () => {
   });
 });
 
+describe("the badge from the send log (review round 4)", () => {
+  const standing = item({ key: "preflight:r", status: "standing", askParts: ["a", "b"] });
+
+  it("a new ask under a standing key is NEW", () => {
+    const [it] = badgeFromSendLog([standing], { added: ["preflight:r#b"], worse: [] }, true);
+    expect(it!.status).toBe("new");
+  });
+
+  it("only a standing item is re-badged: the snapshot's NEW stands though the log says worse", () => {
+    const fresh = item({ key: "ci:a", status: "new" });
+    const [it] = badgeFromSendLog([fresh], { added: [], worse: ["ci:a"] }, true);
+    expect(it!.status).toBe("new");
+  });
+
+  it("NEW wins over WORSE when a key is both", () => {
+    const [it] = badgeFromSendLog(
+      [standing],
+      { added: ["preflight:r#b"], worse: ["preflight:r"] },
+      true,
+    );
+    expect(it!.status).toBe("new");
+  });
+
+  it("an unread log changes no badge", () => {
+    const [it] = badgeFromSendLog([standing], { added: ["preflight:r"], worse: [] }, false);
+    expect(it!.status).toBe("standing");
+  });
+});
+
 describe("the send log carries each key's level (review round 1)", () => {
   it("a sent digest records the level each key was mailed at, and a read keeps it", async () => {
     const w = world();
@@ -299,5 +333,11 @@ describe("the send log carries each key's level (review round 1)", () => {
     expect(kept.k).toMatchObject({ level: "broken" });
     const sent = nextSent(prior, [{ key: "k", metric: 1, level: "attention" }], "2026-10-08", true);
     expect(sent.k).toMatchObject({ level: "attention" });
+  });
+
+  it("a skipped night gives a log entry from before levels its current level (review round 4)", () => {
+    const old = { k: { metric: 1 } };
+    const kept = nextSent(old, [{ key: "k", metric: 1, level: "attention" }], "2026-10-08", false);
+    expect(kept.k).toMatchObject({ level: "attention" });
   });
 });

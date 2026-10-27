@@ -280,6 +280,25 @@ function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string
   return input.lastSentOn ? `no change since ${input.lastSentOn}` : "first digest";
 }
 
+/** P1-78d: the badge says what is news in THIS email, against what the last mail
+ *  carried (`changes`, from the send log). Only a standing item is re-badged: a badge
+ *  the snapshot set (NEW after a gap, WORSE) stands. An unread log (none stored, or a
+ *  failed read) says nothing about what was mailed, so every badge stands. A new ask
+ *  under a key (`key#ask`) is news too, as the subject counts it (`touchedBy`). */
+export function badgeFromSendLog(
+  items: readonly AttentionItem[],
+  changes: { added: readonly string[]; worse: readonly string[] },
+  logRead: boolean,
+): AttentionItem[] {
+  return items.map((it): AttentionItem => {
+    if (!logRead) return it;
+    if (it.status !== "standing" && it.status !== undefined) return it;
+    if (touchedBy(it, changes.added)) return { ...it, status: "new" };
+    if (touchedBy(it, changes.worse)) return { ...it, status: "worse" };
+    return it;
+  });
+}
+
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
 function digestDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -902,16 +921,7 @@ export async function runDigest(
     // which also holds the Watch days no mail carried, calls it standing (a Renovate
     // PR mailed for the first time on its 7th day).
     const changes = digestChanges(digestLines, sendLog);
-    const badged = needsAttention.map((it): AttentionItem => {
-      // An unread log (none stored, or a failed read) says nothing about what was
-      // mailed: every key reads added, so the snapshot's own badge stands.
-      if (sendLogRead !== "ok") return it;
-      if (it.status !== "standing" && it.status !== undefined) return it;
-      // touchedBy, as the subject counts: a new ask under a key (`key#ask`) is news too.
-      if (touchedBy(it, changes.added)) return { ...it, status: "new" };
-      if (touchedBy(it, changes.worse)) return { ...it, status: "worse" };
-      return it;
-    });
+    const badged = badgeFromSendLog(needsAttention, changes, sendLogRead === "ok");
     const html = renderDigestHtml({ readyForYourYes, needsAttention: badged, submissions });
     const client = options.resend ?? defaultResendClient();
     const to = [operatorEmail()];
