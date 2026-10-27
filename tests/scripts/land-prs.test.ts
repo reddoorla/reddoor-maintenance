@@ -3135,6 +3135,48 @@ describe("land-prs: test changes", () => {
       ).toEqual([]);
     });
 
+    it("round 3 (#1812): an unclosed ' or \" is a misread, so it does not stop a value opening", () => {
+      for (const opener of [
+        "expect(s.split(/'/)).toEqual([",
+        "expect(render(<p>Don't</p>)).toMatchObject({",
+      ]) {
+        const f = file(
+          T,
+          "modified",
+          ["@@ -1,4 +1,4 @@", `   ${opener}`, "-    x: 1,", "+    x: 2,", "   ]);"].join("\n"),
+        );
+        expect(testChangeFlags([f]), opener).toEqual([
+          { file: T, reasons: ["removed assertion not re-added: x: 1,"] },
+        ]);
+      }
+      const f = file(T, "modified", patch(" keep();", "+fit(names[0], () => {"));
+      expect(testChangeFlags([f])[0]?.reasons).toEqual(["added .only: fit(names[0], () => {"]);
+    });
+
+    it("round 3 (#1812): a renamed runner config also lists what changed in it", () => {
+      expect(
+        testChangeFlags([
+          file(
+            "vitest.config.mts",
+            "renamed",
+            patch('-  include: ["tests/**"],', '+  include: ["tests/a/**"],'),
+            {
+              previous_filename: "vitest.config.ts",
+            },
+          ),
+        ]),
+      ).toEqual([
+        {
+          file: "vitest.config.mts",
+          reasons: [
+            "test runner config renamed from vitest.config.ts",
+            'test runner config changed: -include: ["tests/**"],',
+            'test runner config changed: +include: ["tests/a/**"],',
+          ],
+        },
+      ]);
+    });
+
     it("a stop says when a flagged file is written only outside the section, or only where a reader cannot see it", async () => {
       for (const [body, why] of [
         [

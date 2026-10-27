@@ -778,7 +778,7 @@ const SKIP = new RegExp(
 const ONLY = new RegExp(
   [
     `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*only\\b`,
-    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|[\\w.]+\\s*,|$)`,
+    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|[\\w.[\\]]+\\s*,|$)`,
   ].join("|"),
 );
 // The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
@@ -849,7 +849,9 @@ function codeOf(line) {
       i = end + 1;
     } else out += c;
   }
-  return { code: out.trim(), retry: retry || quote !== "", open: quote !== "" };
+  // Only a template literal runs onto the next line; an unclosed ' or " is a misread
+  // (a regex literal, a JSX apostrophe), not an open string.
+  return { code: out.trim(), retry: retry || quote !== "", open: quote === "`" };
 }
 
 /** Whether `re` finds a call on the line: on its code, and also on the raw line when
@@ -1023,12 +1025,13 @@ export function testChangeFlags(files) {
       continue;
     }
     const config = RUNNER_CONFIG.test(name) || RUNNER_CONFIG.test(before);
-    if (config && (typeof f?.patch !== "string" || f?.status === "renamed")) {
-      // A rename, or a patch GitHub left out, hides what changed.
+    if (config && typeof f?.patch !== "string") {
       out.push({
         file: name,
         reasons: [
-          `test runner config ${f?.status === "renamed" ? `renamed from ${before}` : "changed, and GitHub left out the patch: read the diff"}`,
+          f?.status === "renamed"
+            ? `test runner config renamed from ${before}`
+            : "test runner config changed, and GitHub left out the patch: read the diff",
         ],
       });
       continue;
@@ -1047,9 +1050,11 @@ export function testChangeFlags(files) {
           .filter((t) => codeOf(t).code !== "" && !takeOne(removedLeft, matchKey(t)))
           .map((t) => `+${t}`),
       ];
-      if (changed.length > 0) {
-        out.push({ file: name, reasons: changed.map((t) => `test runner config changed: ${t}`) });
-      }
+      const reasons = [
+        ...(f?.status === "renamed" ? [`test runner config renamed from ${before}`] : []),
+        ...changed.map((t) => `test runner config changed: ${t}`),
+      ];
+      if (reasons.length > 0) out.push({ file: name, reasons });
       continue;
     }
     // A renamed test is flagged for the rename and still scanned: `git mv` plus an edit

@@ -180,5 +180,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1812 r2: a trailing comment on the matcher line would hide the expected value again."
+  },
+  {
+    "id": "M15-any-quote-open",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "open: quote === \"`\" };",
+        "replace": "open: quote !== \"\" };"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1812 r3: a regex quote or a JSX apostrophe on the matcher line would hide the expected value again."
   }
 ]
