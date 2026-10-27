@@ -11,9 +11,11 @@ standard, and what each run costs. The method, the routing table and every resul
 | `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                       |
 | `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`   |
 | `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                        |
+| `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/ledger.csv` and `usage/sessions.csv`                    |
 | `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                   |
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
+| `lib/usage.mjs`                               | The usage ledger's sources (server `modelUsage`, server `assistant` events, transcripts), its CSV, merge and reconciliation                |
 | `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
 | `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                              |
 | `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                  |
@@ -589,3 +591,81 @@ counted as `ttlUnknown` in the `--json` output.
 Haiku's long-prompt card confirms what #2 assumed. Above 100K prompt tokens (input plus cache read
 plus cache write), Haiku 5.5 bills $0.50 / $2.50 input / output, cache reads at 0.1x and writes at
 1.25x / 2x: 5x on every class.
+
+## The usage ledger
+
+`usage-ledger.mjs` keeps a standing ledger of all Claude Code work, one row per session per
+model, plus one per agent where a transcript survives (P1-83,
+[reddoorla/reddoor-workspace#3](https://github.com/reddoorla/reddoor-workspace/issues/3)). The
+data are private: they live in the workspace's `usage/` folder, and nothing from them is ever
+committed here, tests included.
+
+```sh
+node scripts/model-bakeoff/usage-ledger.mjs mcp        --out <workspace>/usage [--root ~/.claude/projects]
+node scripts/model-bakeoff/usage-ledger.mjs transcript --out <workspace>/usage [--session <uuid> | --all] [--id <session id>] [--environment <label>]
+node scripts/model-bakeoff/usage-ledger.mjs stale      --out <workspace>/usage [--root ~/.claude/projects]
+node scripts/model-bakeoff/usage-ledger.mjs check      --out <workspace>/usage
+```
+
+There are three sources, each with its own `source` value in the ledger:
+
+- **`modelUsage`**: a cloud session's server-side `result` events. Each one carries `modelUsage`:
+  tokens by class, thinking tokens, web searches and list-price `costUSD` per model, with
+  subagents and tool-internal calls included (WebSearch runs on Haiku). It is cumulative, but a
+  CLI process that does not restore it starts it again from zero, so a drop in `total_cost_usd`
+  ends a run of the counter (`sessionUsage`). The ledger holds one row per run per model, from
+  that run's last reading, with `run_from`, `run_from_cost_usd` and `run_total_usd` beside it. It
+  never reads `model_usage_since_last_result`, which is the last turn alone. The TTL split of a
+  cache write is often absent or partial; what it does not cover goes to
+  `cache_write_unsplit_tokens`, never into a TTL column. The server keeps these events after a
+  session is archived. Bridge (Remote Control) sessions have result events with no usage in them.
+- **`transcript`**: the in-container JSONL, `<project>/<uuid>.jsonl` plus
+  `<uuid>/subagents/**/agent-*.jsonl` and their `.meta.json`. It is the only source that splits
+  the main thread from each subagent, with the agent's type and effort. It is priced from
+  `PRICES`, deduplicated by `message.id` and split on LF only (both from `lib/ledger.mjs`), which
+  also counts a cache write with no TTL split in the 5-minute column, as it prices it. It dies
+  with a cloud container. On the laptop it covers every local session.
+- **`assistant-events`**: a session's server `assistant` events, grouped by `parent_tool_use_id`.
+  Probe (a) found that the server receives none of a subagent's own messages: an Agent call
+  leaves only its prompt, a `task_started` event and the tool result with the subagent's
+  `resolvedModel`, `totalTokens` and its last message's `usage`. So this source yields the main
+  thread only, and nothing calls it yet.
+
+`mcp` reads the remote-sessions MCP results already in transcripts: every `list_sessions`,
+`get_session` and `list_events` call that this session or its subagents made, including results
+the harness persisted to a file. An agent can make those calls in parallel; the script reads them
+afterwards, so no number is retyped. A session's history is `complete` only when the chain of
+pages read backwards from its newest page (each `before_id` the previous page's `first_id`)
+reaches a page with no `has_more`.
+
+**`get_session`'s `usage.cost_usd` is not the session total, and neither is the newest result.**
+Measured across every readable cloud session on 2026-10-27 (the figures are in the workspace's
+`usage/` and reddoorla/reddoor-workspace#3, not here), `get_session` read lower than the newest
+result in many sessions and higher in some. It reads lower where a process died mid-turn: its
+unreported cost never reached the server, while the next process restored the full count from
+the transcript. It reads higher where the counter restarted from zero, so that the newest result
+holds only the last run.
+
+So `get_session` is a floor. When it exceeds a session's rows, a run is missing from them: one the
+pages read did not reach, or one that left no drop to see, because the restarted counter had
+already passed the old total by its first result. `finalize` books the difference as one
+`get_session-residual` row, model `(unattributed)`. It rebuilds those rows from the stored state
+on every write, so a harvest that read no `get_session` cannot drop one.
+
+Merging a new reading into the stored ledger:
+
+- An older reading changes nothing, and nor does one as new but less full (`complete` beats
+  `newest-page`).
+- A newer reading replaces the runs it covers. It keeps a stored run that ended before its first
+  result when the counter dropped in between: that run is earlier than the pages read.
+- `transcript` rows merge per agent, so a resumed container that lacks an earlier agent's file
+  keeps that agent's rows. Whether a resumed container restores `subagents/` has not been
+  checked.
+- A harvest that lacks a session's `list_sessions` or `get_session` keeps the stored title and
+  figures; a newer listing's title and status replace the stored ones.
+
+`check` reconciles each run's `modelUsage` rows, within half a cent, with that run's
+`total_cost_usd`. `stale` prints the cloud sessions that the newest `list_sessions` under `--root`
+shows as updated since the `get_session` reading stored with them: the ones the next harvest must
+read. Titles are untrusted text and are written to the CSV as they are, so open the file as data,
+not in a spreadsheet that evaluates formulas.
