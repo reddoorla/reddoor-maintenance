@@ -967,9 +967,13 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
 /** True when a POST body carries the probe's `testMode` marker, so the response read is
  *  the form's own action and not a same-site beacon or a pre-submit call that happened
  *  to answer first (#1610 review). Multipart, URL-encoded and JSON bodies all spell the
- *  field name. A body Playwright cannot read stays a candidate rather than be missed. */
-export function carriesProbeMarker(postData: string | null): boolean {
-  return postData === null || postData.includes("testMode");
+ *  field name. A body Playwright cannot read (a multipart one with a file) stays a
+ *  candidate rather than be missed; a POST with no body at all is not one (#1668 review:
+ *  a bodyless keepalive passed a form that sent nothing). */
+export function carriesProbeMarker(postData: string | null, contentType?: string): boolean {
+  return postData === null
+    ? /multipart\/form-data/i.test(contentType ?? "")
+    : postData.includes("testMode");
 }
 
 /** The failure a SvelteKit form action reports inside an HTTP 200: an enhanced
@@ -1035,6 +1039,8 @@ export type NoBannerEvidence = {
   postUnanswered?: boolean;
   /** The POST answered only after the status region showed (#1668). */
   postAfterStatus?: boolean;
+  /** The host a marked POST went to instead of the probed site's (#1668 review). */
+  offHostPost?: string;
 };
 
 /** Compose the failure detail line. PURE — the line must say WHY nothing
@@ -1046,7 +1052,9 @@ export function noBannerDetail(e: NoBannerEvidence): string {
       ? `POST ${e.post.status}${(e.post.status >= 400 || e.bannerShown) && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
       : e.postUnanswered
         ? "the POST was sent but got no answer"
-        : "no same-site POST: the submission never left the page",
+        : e.offHostPost
+          ? `no same-site POST: the marked POST went to ${e.offHostPost}, not the probed site`
+          : "no same-site POST: the submission never left the page",
   ];
   if (e.post && e.postAfterStatus) bits.push("it answered after the status showed");
   if (e.alertText?.trim()) bits.push(`alert: ${e.alertText.trim().slice(0, 80)}`);
@@ -1068,7 +1076,9 @@ export function noBannerDetail(e: NoBannerEvidence): string {
       ? "the status region showed, but the submission failed"
       : e.postUnanswered
         ? "the status region showed, but its POST never answered"
-        : "the status region showed, but no POST was sent";
+        : e.offHostPost
+          ? "the status region showed, but its POST went to another host"
+          : "the status region showed, but no POST was sent";
   return `${head} — ${bits.join("; ")}`;
 }
 
@@ -1475,15 +1485,24 @@ export async function defaultFormRunner(
             method(): string;
             url(): string;
             postData(): string | null;
+            headers(): Record<string, string>;
           }) =>
             req.method() === "POST" &&
             isSameSitePost(req.url(), baseUrl) &&
-            carriesProbeMarker(req.postData());
+            carriesProbeMarker(req.postData(), req.headers()["content-type"]);
           // Sent, as against answered: "no POST was sent" and "it never answered"
           // are different failures (#1668).
           let markerPostSent = false;
+          // A marked POST to another host is not the site's action, but the detail
+          // must not then say nothing was sent (#1668 review).
+          let offHostPost: string | undefined;
           page.on("request", (req) => {
             if (isMarkerPost(req)) markerPostSent = true;
+            else if (
+              req.method() === "POST" &&
+              carriesProbeMarker(req.postData(), req.headers()["content-type"])
+            )
+              offHostPost ??= new URL(req.url()).host;
           });
           const postResponse = page
             .waitForResponse((r) => isMarkerPost(r.request()), {
@@ -1591,6 +1610,7 @@ export async function defaultFormRunner(
               hydrationUnconfirmed,
               ...(bannerLied ? { bannerShown: true } : {}),
               ...(actionResp === null && markerPostSent ? { postUnanswered: true } : {}),
+              ...(actionResp === null && !markerPostSent && offHostPost ? { offHostPost } : {}),
               ...(bannerLied && postAfterStatus ? { postAfterStatus: true } : {}),
             }),
             turnstile: turnstileSeen(),

@@ -112,6 +112,9 @@ describe("defaultFormRunner waits", () => {
     const spy = vi.spyOn(globalThis, "setTimeout");
     try {
       await run();
+      // The runner arms no setTimeout of its own now, so this guards against one
+      // coming back (mutation 1668-M1 turns it red); the wait itself is pinned by
+      // the live-runner fixtures that answer after 2.5 s and 10 s.
       expect(spy.mock.calls.map((c) => c[1])).not.toContain(2000);
     } finally {
       spy.mockRestore();

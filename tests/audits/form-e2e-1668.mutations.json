@@ -58,5 +58,31 @@
     ],
     "test": "tests/audits/form-e2e-live-runner.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "1668-M5-null-body-candidate",
+    "why": "#1668 review: any null body is a candidate again, so a bodyless keepalive is read as the action",
+    "edits": [
+      {
+        "file": "src/audits/form-e2e.ts",
+        "find": "? /multipart\\/form-data/i.test(contentType ?? \"\")",
+        "replace": "? true"
+      }
+    ],
+    "test": ["tests/audits/form-e2e.test.ts", "tests/audits/form-e2e-live-runner.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "1668-M6-off-host-unnamed",
+    "why": "#1668 review: a marked POST to another host is reported as nothing sent",
+    "edits": [
+      {
+        "file": "src/audits/form-e2e.ts",
+        "find": "offHostPost ??= new URL(req.url()).host;",
+        "replace": "void 0;"
+      }
+    ],
+    "test": "tests/audits/form-e2e-live-runner.test.ts",
+    "expect": "red"
   }
 ]
