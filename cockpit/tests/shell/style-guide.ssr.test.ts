@@ -342,11 +342,22 @@ describe("no emoji in the cockpit's code, outside comments", () => {
   // A backstop for strings no fixture renders (review round 1: a warn-only
   // preflight chip). Comments may name the old glyphs; code may not.
   it("no glyph in any .ts or .svelte under cockpit/src, once comments are removed", () => {
+    // Cut each block comment out by its delimiters' offsets, keeping its newlines
+    // so line numbers hold (CodeQL reads a regex over "<!--" as a sanitiser).
+    const cut = (src: string, open: string, close: string): string => {
+      let out = "";
+      let at = 0;
+      for (;;) {
+        const start = src.indexOf(open, at);
+        if (start < 0) return out + src.slice(at);
+        const end = src.indexOf(close, start + open.length);
+        const stop = end < 0 ? src.length : end + close.length;
+        out += src.slice(at, start) + src.slice(start, stop).replace(/[^\n]/g, "");
+        at = stop;
+      }
+    };
     const code = (src: string) =>
-      src
-        .replace(/<!--[\s\S]*?-->/g, "")
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+      cut(cut(src, "<!--", "-->"), "/*", "*/").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
     const hits = [...filesUnder(SRC, ".ts"), ...filesUnder(SRC, ".svelte")].flatMap((p) =>
       code(read(p))
         .split("\n")
