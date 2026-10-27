@@ -69,6 +69,12 @@ export type FormSubmitOutcome =
       hydrationUnconfirmed?: boolean;
       synthesized?: string[];
       resynthesized?: string[];
+      /** The button the probe pressed to answer a cookie-consent gate that covered
+       *  the page (#1736), e.g. "Reject". Absent = no gate appeared. */
+      consentAnswered?: string;
+      /** A cookie-consent gate covered the page and the probe could not answer it:
+       *  it had no Accept or Reject button, or the button refused its click. */
+      consentUnanswered?: true;
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -527,6 +533,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
     const synthesizedNote =
+      (outcome.consentAnswered !== undefined
+        ? ` — answered a cookie-consent dialog with "${outcome.consentAnswered}"`
+        : "") +
       (outcome.synthesized?.length
         ? ` — synthesized required field(s): ${outcome.synthesized.join(", ")}`
         : "") +
@@ -671,6 +680,158 @@ const PAGE_TIMEOUT_MS = 30_000;
  *  this is slack for a page that shows its region before the reply arrives. */
 const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
+
+/** A dialog that asks for cookie consent, by its accessible name or its text. */
+const CONSENT_DIALOG = /cookie|consent/i;
+const COOKIE_TEXT = /cookie/i;
+/** Declining first: the probe is not a visitor, and accepting would load the
+ *  site's analytics and count it as one. Anchored at the start of the button's
+ *  name, so "Strictly necessary ▸" (an accordion) or "Allow notifications" is
+ *  never taken for an answer. */
+const CONSENT_DECLINE =
+  /^\s*(reject|decline|deny|refuse)\b|^\s*(only )?(necessary|essential)( cookies)?( only)?\s*$/i;
+const CONSENT_ACCEPT = /^\s*(accept|agree|allow all|allow cookies|got it|ok)\b/i;
+/** How long the probe gives a consent gate's button to take its click. */
+const CONSENT_CLICK_MS = 5_000;
+
+/** What the consent handler did, read when the outcome is written. */
+export type ConsentGates = {
+  /** The button pressed, once a gate was answered. */
+  answered?: string;
+  /** A gate was seen that no button could answer (yet). Reported only while
+   *  `answered` is unset, so a gate whose buttons arrived late is not blamed. */
+  unanswerable: boolean;
+};
+
+/**
+ * Answer a cookie-consent gate whenever one covers the page (#1736).
+ *
+ * gallerysonder mounts a full-screen `role="dialog"` named "Cookie consent" 3 s
+ * after load, over the form, and every visitor must press Accept or Reject
+ * before anything under it takes a click. The probe never did, so its submit
+ * click waited out 30 s on "<div role=dialog …> intercepts pointer events" for
+ * 14 nights while the form delivered. Playwright runs this handler before any
+ * action it would otherwise block, whenever the gate appears, so a gate on a
+ * timer is covered too. A gate with no button a visitor could press is left up,
+ * and the click still fails: that site is broken for visitors as well.
+ *
+ * An answer can still land inside the real submit click, after the marker
+ * check (gallerysonder's gate arrives that late), and a gate that reloads the
+ * page on its answer then hands the click a fresh, unmarked form. The runner's
+ * marker guard is an init script for that reason: it runs in every document,
+ * a reload's included, so whatever the page submits carries the marker.
+ */
+export async function answerConsentGates(
+  page: import("@playwright/test").Page,
+): Promise<ConsentGates> {
+  const gate = page
+    .getByRole("dialog", { name: CONSENT_DIALOG })
+    .or(page.getByRole("alertdialog", { name: CONSENT_DIALOG }))
+    .or(page.locator('[role="dialog"], [role="alertdialog"]').filter({ hasText: COOKIE_TEXT }));
+  let clickRefused = false;
+  const seen: ConsentGates = {
+    unanswerable: false,
+  };
+  await page.addLocatorHandler(
+    gate,
+    async (dialog) => {
+      // Answered once already: this is the same gate on its way out. Svelte keeps an
+      // outroing element in the DOM, inert, for its fade, so it still matches, and
+      // a second click on it lands on the page beneath (gallerysonder, 2026-10-27).
+      if (seen.answered !== undefined) return;
+      // A button that refused its click once is not tried again: each try costs
+      // CONSENT_CLICK_MS, and Playwright calls the handler on every retry of the
+      // action. A gate seen with no button yet is looked at again (late buttons).
+      if (clickRefused) return;
+      // Never thrown: a handler's throw escapes the action as an unhandled
+      // rejection, which crashed the whole run. The action it interrupted
+      // reports the blocked click itself.
+      try {
+        const decline = dialog.getByRole("button", { name: CONSENT_DECLINE }).first();
+        const button =
+          (await decline.count()) > 0
+            ? decline
+            : dialog.getByRole("button", { name: CONSENT_ACCEPT }).first();
+        if ((await button.count()) === 0) {
+          seen.unanswerable = true;
+          return;
+        }
+        const label = ((await button.textContent().catch(() => null)) ?? "").trim().slice(0, 40);
+        const clicked = await button
+          .click({ timeout: CONSENT_CLICK_MS })
+          .then(() => true)
+          .catch(() => false);
+        if (!clicked) {
+          clickRefused = true;
+          seen.unanswerable = true;
+          return;
+        }
+        seen.answered = label;
+      } catch {
+        seen.unanswerable = true;
+      }
+    },
+    // Playwright would otherwise wait for the gate to hide after every call. The
+    // guard above covers a gate on its way out, and an unanswerable gate then
+    // leaves the action to time out with its own "intercepts" reason.
+    { noWaitAfter: true },
+  );
+  return seen;
+}
+
+/** A capturing `submit` listener that puts the testMode marker (and the
+ *  Turnstile token value) on any form as it is submitted. It runs before the
+ *  site's own submit handler, so the form that handler reads carries the
+ *  marker. Sets `window.__formE2eMarkerGuard`, which injectExpr checks. */
+export function markerGuardExpr(tokenValue: string): string {
+  return `
+    (function () {
+      if (window.__formE2eMarkerGuard) return;
+      window.__formE2eMarkerGuard = true;
+      const add = (form, name, value) => {
+        let el = form.querySelector('input[name="' + name + '"]');
+        if (!el) {
+          el = document.createElement("input");
+          el.type = "hidden";
+          el.name = name;
+          form.appendChild(el);
+        }
+        el.value = value;
+      };
+      window.addEventListener(
+        "submit",
+        (e) => {
+          if (!(e.target instanceof HTMLFormElement)) return;
+          add(e.target, "testMode", "true");
+          add(e.target, "cf-turnstile-response", ${JSON.stringify(tokenValue)});
+        },
+        true,
+      );
+    })();
+  `;
+}
+
+/** A thrown probe's detail: the error's first line, plus the actionability
+ *  reason Playwright puts in its call log ("… intercepts pointer events"),
+ *  which a plain cut at 120 characters dropped (#1736). */
+export function probeErrorDetail(
+  err: unknown,
+  consent?: Pick<ConsentGates, "answered" | "unanswerable">,
+): string {
+  const text = String(err);
+  const head = (text.split("\n")[0] ?? "").slice(0, 120);
+  const blocker = text
+    .match(/[^\n]*intercepts pointer events/)?.[0]
+    ?.trim()
+    .slice(0, 200);
+  return (
+    head +
+    (blocker ? ` — ${blocker}` : "") +
+    (consent?.unanswerable && consent.answered === undefined
+      ? " — a cookie-consent dialog covered the page and the probe could not answer it"
+      : "")
+  );
+}
 
 /** The slice of a Playwright page the route probe needs. Declared structurally so
  *  the discovery loop is unit-testable without launching a browser; the real
@@ -940,10 +1101,30 @@ export async function defaultFormRunner(
       let containerPresent = false;
       const synthesized: string[] = [];
       let resynthesized: string[] = [];
+      // Hoisted with the rest: a click a consent gate blocked throws, and the
+      // catch below names the gate.
+      let consent: ConsentGates = { unanswerable: false };
+      // An unanswered gate is named only on a failure, and only if no answer came
+      // later: a dialog that merely mentions cookies must not mark a pass.
+      const consentNote = (failed: boolean) => ({
+        ...(consent.answered !== undefined ? { consentAnswered: consent.answered } : {}),
+        ...(failed && consent.unanswerable && consent.answered === undefined
+          ? { consentUnanswered: true as const }
+          : {}),
+      });
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
+        consent = await answerConsentGates(page);
+        // The token VALUE the probe injects (see injectExpr below for why).
+        const tokenValue = `testmode-${testSitekey}`;
+        // The marker guard, in every document this page loads (#1736 review): a
+        // capturing submit listener that puts the marker on whatever form is
+        // submitted. injectExpr below installs the same guard only in the
+        // document it runs in, and a reload (a consent answer, a site script)
+        // would take that one away before the click.
+        await page.addInitScript(markerGuardExpr(tokenValue));
         // The tell that the framework recreated the DOM under the probe (Svelte 5
         // logs a svelte.dev/e/hydration_mismatch warning when it does). Recorded
         // for the failure detail — on 2026-08-31 this was the discriminator
@@ -1019,7 +1200,6 @@ export async function defaultFormRunner(
         // against the Node lib (no DOM globals in this project's tsconfig). The
         // token value is a hardcoded constant (never user input), so inlining it
         // via JSON.stringify into the expression string is safe.
-        const tokenValue = `testmode-${testSitekey}`;
         const injectExpr = `
           (function () {
             const f = document.querySelector("form");
@@ -1241,6 +1421,7 @@ export async function defaultFormRunner(
             ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
             ...(synthesized.length > 0 ? { synthesized } : {}),
             ...(resynthesized.length > 0 ? { resynthesized } : {}),
+            ...consentNote(false),
             turnstile: turnstileSeen(),
             formsHealth,
           };
@@ -1284,6 +1465,7 @@ export async function defaultFormRunner(
           ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
+          ...consentNote(true),
           detail: noBannerDetail({
             post,
             alertText,
@@ -1308,7 +1490,8 @@ export async function defaultFormRunner(
         return {
           formPresent: true,
           success: false,
-          detail: String(err).slice(0, 120),
+          detail: probeErrorDetail(err, consent),
+          ...consentNote(true),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
           turnstile: {
