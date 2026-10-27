@@ -40,13 +40,17 @@ export async function readRecentRows(db: Db, limit = 7): Promise<StoredRow[]> {
   }));
 }
 
-/** The newest night's dependency readings (P1-78c), for the deps alarm: one row, never
- *  history, so it is cheap on the cockpit's request path. Null before the first night or
- *  when that night has no deps reading. */
+/** The dependency readings for the deps alarm (P1-78c): the newest row that holds one,
+ *  aged to the newest night. A night whose deps measure failed (`value: null`) carries the
+ *  run, as the writer does (`runningTotal`), rather than dropping every deps item for a
+ *  night and re-dating it the next (review round 2); each site's own `at` still gates
+ *  staleness. A week of rows by primary key, so it stays cheap on the request path. Null
+ *  before the first reading. */
 export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
-  const [row] = await readRecentRows(db, 1);
-  const deps = row?.counts.deps?.value;
-  return row && deps ? { night: row.night, sites: deps.sites } : null;
+  const rows = await readRecentRows(db, 7);
+  const withReading = rows.find((r) => r.counts.deps?.value != null);
+  const deps = withReading?.counts.deps?.value;
+  return deps ? { night: rows[0]!.night, sites: deps.sites } : null;
 }
 
 /** One night's row, or null. */

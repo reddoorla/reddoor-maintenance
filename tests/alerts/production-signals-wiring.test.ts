@@ -31,6 +31,7 @@ import { a11yAudit, A11Y_INSTALL_ENV } from "../../src/audits/a11y.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { writeDigestState } from "../../src/db/digest-state.js";
+import { readLatestDeps } from "../../src/fleet-daily/read.js";
 import { loadCockpitSnapshot } from "../../src/dashboard/snapshot.js";
 import {
   cockpitModelFromSnapshot,
@@ -138,7 +139,7 @@ describe("edges the main suite leaves open", () => {
       NOW,
     );
     expect(d.far.map((i) => i.title)).toEqual([
-      "1 package a major behind for over 90 days: svelte@4",
+      "1 package a major behind for over 90 days: svelte@4 (2 a major behind in all)",
     ]);
     expect(d.behind).toEqual([]);
   });
@@ -230,6 +231,35 @@ describe("the a11y install on a fresh clone", () => {
       if (before === undefined) delete process.env[A11Y_INSTALL_ENV];
       else process.env[A11Y_INSTALL_ENV] = before;
     }
+  });
+});
+
+describe("readLatestDeps carries a night whose deps measure failed (review round 2)", () => {
+  let dir: string;
+  let db: Db;
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "deps-latest-"));
+    db = await openDb({ url: `file:${join(dir, "db.sqlite")}` });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  const put = (night: string, deps: unknown) =>
+    db
+      .insertInto("fleet_daily")
+      .values({ night, counts: JSON.stringify({ deps }), written_at: `${night}T07:00:00.000Z` })
+      .execute();
+
+  it("the newest reading, aged to the newest night", async () => {
+    await put("2026-10-25", { value: { ...reading({ "vite@5": "2026-06-01" }), behind: 1 } });
+    await put("2026-10-26", { value: null, reason: "deps: read failed" });
+    const got = await readLatestDeps(db);
+    expect(got?.night).toBe("2026-10-26");
+    expect(got?.sites.recS?.packages).toEqual(["vite@5"]);
+    expect(collectDepsAlerts([site()], got, BASE, NOW).far).toHaveLength(1);
+  });
+
+  it("no reading in any row is null", async () => {
+    await put("2026-10-26", { value: null, reason: "deps: read failed" });
+    expect(await readLatestDeps(db)).toBeNull();
   });
 });
 

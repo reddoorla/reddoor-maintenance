@@ -475,7 +475,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "  } catch (e) {\n    console.warn(`⚠ fleet_daily dependency readings unavailable: ${(e as Error).message}`);\n    return null;\n  }",
+        "find": "  } catch (e) {\n    console.warn(`\u26a0 fleet_daily dependency readings unavailable: ${(e as Error).message}`);\n    return null;\n  }",
         "replace": "  } finally {\n  }"
       }
     ],
@@ -584,6 +584,32 @@
       }
     ],
     "test": "tests/fleet-daily/write.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-latest-newest-only",
+    "why": "Review round 2: a night whose deps measure failed drops every deps item, so a far item is re-dated the next night",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const withReading = rows.find((r) => r.counts.deps?.value != null);",
+        "replace": "  const withReading = rows[0];"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2-far-hides-others",
+    "why": "Review round 2: a far item hides the site's other packages behind",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "(packages.length > old.length ? ` (${packages.length} a major behind in all)` : \"\")",
+        "replace": "\"\""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
     "expect": "red"
   }
 ]
