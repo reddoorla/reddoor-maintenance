@@ -3,6 +3,7 @@ import type { Collection } from "../lib/score.mjs";
 export const id: string;
 export const title: string;
 export const row: number;
+export const writes: boolean;
 export const PIN: string;
 export const IMPL: string;
 export const HELD_OUT_FILE: string;

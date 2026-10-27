@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
+  formatResult,
   prepare,
   refereeArgsPath,
   resultPath,
@@ -183,6 +184,39 @@ describe("prepare", () => {
       "fake: a task with observe() needs a truth; the gold cannot be the reference",
     );
     expect(existsSync(out)).toBe(false);
+  });
+
+  // A task whose agents write and run code has no sandbox (#1501): the caller must say so.
+  it("refuses a writing task without --unsandboxed, before building anything", async () => {
+    const out = fresh();
+    await expect(prepare({ out, root: src }, fake({ writes: true }))).rejects.toThrow(
+      "fake: its agents write and run code with no sandbox (#1501); pass --unsandboxed to accept that",
+    );
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("records an accepted unsandboxed run in its args, and only for a writing task", async () => {
+    quiet();
+    const out = fresh();
+    await prepare({ out, root: src, unsandboxed: true }, fake({ writes: true }));
+    expect(JSON.parse(readFileSync(join(out, "workflow-args.json"), "utf8")).unsandboxed).toBe(
+      true,
+    );
+    const plain = fresh();
+    await prepare({ out: plain, root: src, unsandboxed: true }, fake());
+    expect(JSON.parse(readFileSync(join(plain, "workflow-args.json"), "utf8")).unsandboxed).toBe(
+      undefined,
+    );
+  });
+
+  it("says in the result that a run was unsandboxed", () => {
+    const r = { reference: "script truth", disagreements: 0, unruled: 0, arms: [], problems: [] };
+    expect(formatResult({ ...r, unsandboxed: true })).toContain("Ran unsandboxed (#1501)");
+    expect(formatResult(r)).not.toContain("unsandboxed");
+  });
+
+  it("marks t4-plan-task as a writing task", () => {
+    expect(t4PlanTask.writes).toBe(true);
   });
 
   it("leaves no run dir when setup throws, so the same --out works again", async () => {
