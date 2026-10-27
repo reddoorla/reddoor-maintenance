@@ -448,7 +448,9 @@ t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` fr
 commit and copies in only the files the plan names, so a change the agent leaves anywhere else (a
 `package.json` script, a config) can fail scope but does not reach a gate. That is a tripwire, not
 a sandbox: the gates execute the agent's code, which can write anywhere the scorer can (another
-agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. Running each agent
+agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. So t4 exports
+`writes: true`, and `prepare` refuses it unless given `--unsandboxed`. The run's args and its
+result then record `unsandboxed: true`, and `score` prints that the transcripts need an audit (#1501). Running each agent
 and each gate in its own namespace would close that; until then, read the plan's files of every
 agent for `node:fs`, `child_process`, `process` and patches to vitest before reporting a run. It runs `pnpm check`, `pnpm lint` and the
 agent's own `vitest run` there, with no secrets in the environment. Every install and gate pnpm

@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 export const id = "t4-plan-task";
 export const title = "T4 site build: implement one planned task (roalson-interests hoverActivate)";
 export const row = 1;
+// Its agents edit a repo and run their own tests: prepare needs --unsandboxed (#1501).
+export const writes = true;
 
 export const PIN = "67d27a5eb8a6091d03350006fff8fe4fe54e6782";
 export const IMPL = "8644d8c2c96a40e39d4d76c097af1f6bb3f5d049";

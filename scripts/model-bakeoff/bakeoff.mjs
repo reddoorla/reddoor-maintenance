@@ -156,6 +156,13 @@ export async function prepare(opts, task) {
       `${task.id}: a task with observe() needs a truth; the gold cannot be the reference`,
     );
   }
+  // A task whose agents write and run code has no sandbox (#1501): its agents' Bash writes and
+  // reads go untracked, and its gates run their code. Building one needs the caller to say so.
+  if (task.writes && !opts.unsandboxed) {
+    throw new Error(
+      `${task.id}: its agents write and run code with no sandbox (#1501); pass --unsandboxed to accept that, and audit the transcripts before reporting`,
+    );
+  }
   const run = resolve(opts.out);
   // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
   // The files collect and score write beside the run too: a stale one would be merged into this
@@ -178,6 +185,7 @@ export async function prepare(opts, task) {
     }
     const arms = opts.arms ? readJson(resolve(opts.arms)) : task.arms;
     const args = extractArgs(task, input, arms);
+    if (task.writes) args.unsandboxed = true;
     mkdirSync(args.work, { recursive: true });
     const ids = [args.gold.id, ...args.arms.map((a) => a.id)];
     if (task.setup) task.setup({ input, work: args.work, ids, root: opts.root && root });
@@ -609,6 +617,7 @@ async function score(opts) {
   const result = {
     task: args.task,
     reference: truth ? "script truth" : "gold run",
+    ...(args.unsandboxed ? { unsandboxed: true } : {}),
     problems,
     disagreements: disagreements.length,
     unruled: unruled.length,
@@ -676,7 +685,7 @@ export function byCollection(byField) {
 
 export function formatResult(r) {
   const lines = [
-    `Reference: ${r.reference}. Distinct disagreements: ${r.disagreements} (${r.unruled} unruled).`,
+    `Reference: ${r.reference}. Distinct disagreements: ${r.disagreements} (${r.unruled} unruled).${r.unsandboxed ? " Ran unsandboxed (#1501): audit the transcripts before reporting." : ""}`,
     "",
     "| Arm | Asked | Ran (transcripts) | Score | Cost per run | Requests | Long-prompt requests |",
     "|---|---|---|---|---|---|---|",
@@ -808,6 +817,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       out: { type: "string" },
       root: { type: "string" },
       arms: { type: "string" },
+      unsandboxed: { type: "boolean" },
       run: { type: "string" },
       transcripts: { type: "string" },
       referee: { type: "boolean" },
@@ -816,7 +826,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const cmd = COMMANDS[positionals[0]];
   if (!cmd) {
     console.error(
-      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir> | prompts --run <dir> [--referee]",
+      "usage: bakeoff.mjs prepare --task <id> --out <dir> [--arms <file>] [--unsandboxed] | split --run <dir> | collect --run <dir> --transcripts <dir> | score --run <dir> | prompts --run <dir> [--referee]",
     );
     process.exit(2);
   }

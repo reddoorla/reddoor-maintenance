@@ -18,6 +18,8 @@ export interface Task {
   goldAddendum: string;
   arms: Arm[];
   gold: Arm;
+  /** Its agents write and run code, unsandboxed (#1501): prepare needs `unsandboxed`. */
+  writes?: boolean;
   /** The agent type every agent of the task runs as; bakeoff-readonly when absent. */
   agentType?: string;
   /** The agents answer in text, ending with a ```json block, not through a schema tool. */
@@ -44,7 +46,7 @@ export function refereeArgsPath(run: string): string;
 export function resultPath(run: string): string;
 export function loadTask(name: string): Promise<Record<string, unknown>>;
 export function prepare(
-  opts: { task?: string; out: string; root?: string; arms?: string },
+  opts: { task?: string; out: string; root?: string; arms?: string; unsandboxed?: boolean },
   task?: Task,
 ): Promise<void>;
 export function manifest(dir: string): Record<string, string>;
