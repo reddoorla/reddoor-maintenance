@@ -25,6 +25,7 @@ vi.mock("@playwright/test", () => {
     on: () => {},
     getByRole: () => gate,
     addLocatorHandler: async () => {},
+    addInitScript: async () => {},
     goto: async () => ({ ok: () => true }),
     locator: (selector: string) => ({
       count: async () => (selector === ".cf-turnstile" ? 0 : 1),

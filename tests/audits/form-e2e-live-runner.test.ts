@@ -161,6 +161,44 @@ const consentGate = (offer: Consent) => `
     }, 300);
   </script>`;
 
+/** A contact form with no required field, and a consent gate that mounts
+ *  `gateAfterMs` after load, later than the probe's trial click: inside the
+ *  real submit click, as gallerysonder's does. With `reload`, answering it
+ *  reloads the page (once per tab), as some consent managers do, so the click
+ *  that follows meets a fresh form with no fills and no marker (#1736 review). */
+const lateGatePage = (gateAfterMs: number, reload: boolean) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body>
+  <form id="contact" method="POST">
+    <input type="text" name="name"><input type="email" name="email">
+    <textarea name="message"></textarea><button type="submit">Send</button>
+  </form>
+  <p role="status" id="ok" hidden>Thanks, we will be in touch.</p>
+  <script>
+    const f = document.getElementById("contact");
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(f));
+      const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
+      if (r.ok) document.getElementById("ok").hidden = false;
+    });
+    if (!sessionStorage.getItem("answered")) setTimeout(() => {
+      const gate = document.createElement("div");
+      gate.setAttribute("role", "dialog");
+      gate.setAttribute("aria-label", "Cookie consent");
+      gate.style.cssText = "position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5)";
+      gate.innerHTML = '<p>We use cookies.</p><button type="button">Accept</button><button type="button">Reject</button>';
+      gate.addEventListener("click", (e) => {
+        if (e.target.tagName !== "BUTTON") return;
+        sessionStorage.setItem("answered", "1");
+        if (${reload ? "true" : "false"}) location.reload();
+        else gate.remove();
+      });
+      document.body.appendChild(gate);
+    }, ${gateAfterMs});
+  </script>
+</body></html>`;
+
 type Hydration = {
   delayMs: number;
   marker: boolean;
@@ -253,6 +291,8 @@ type Fixture = {
   native?: boolean;
   /** A cookie-consent gate mounts over the page 300 ms after load (#1736). */
   consent?: Consent;
+  /** Serve lateGatePage instead: its gate mounts after this many ms. */
+  lateGate?: { afterMs: number; reload: boolean };
 };
 
 let server: Server;
@@ -273,6 +313,10 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       if (fixture.hydration) {
         res.end(hydratingPage(fixture.hydration, fixture.banner));
+        return;
+      }
+      if (fixture.lateGate) {
+        res.end(lateGatePage(fixture.lateGate.afterMs, fixture.lateGate.reload));
         return;
       }
       res.end(
@@ -830,6 +874,26 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
       "a cookie-consent dialog covered the page and the probe could not answer it",
     );
     expect(detail).toMatch(/intercepts pointer events/);
+  }, 90_000);
+
+  it("a gate that mounts after the trial click, inside the real click, is answered and passes", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, lateGate: { afterMs: 1500, reload: false } },
+      { ...FAST, submitTimeoutMs: 8000 },
+    );
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("a late gate that reloads the page on its answer never lets an unmarked form through", async () => {
+    await submit(
+      { health: DECLARED, banner: true, lateGate: { afterMs: 1500, reload: true } },
+      { ...FAST, submitTimeoutMs: 8000 },
+    );
+    // Whatever the click sent after the reload, it carried the marker.
+    for (const p of posts) expect(p.testMode).toBe("true");
+    expect(posts.length).toBeGreaterThan(0);
   }, 90_000);
 
   it("a gate whose buttons refuse the click fails without crashing the run", async () => {
