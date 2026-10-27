@@ -6,6 +6,7 @@ import { NAV_ITEMS } from "../../src/lib/nav.js";
 import { COCKPIT_HOME } from "../../../src/dashboard/home-path.js";
 import { safeReturnTo } from "../../../src/dashboard/auth/oauth-state.js";
 import { collectUrlResolveAlerts } from "../../../src/alerts/digest-collectors.js";
+import { collectDomainAlerts } from "../../../src/alerts/production-signals.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
@@ -84,6 +85,24 @@ describe("the fallbacks that named / name /triage", () => {
       "https://dash.example/",
       new Date("2026-10-27T12:00:00Z"),
     ).filter((i) => i.key === "url-probe-stale");
+    expect(items.map((i) => i.url)).toEqual(["https://dash.example/triage"]);
+  });
+
+  it("a production signal on a site whose name slugs to nothing links the cockpit home", () => {
+    // No /s/<slug> page exists for such a site, so the item falls back to the home.
+    const items = collectDomainAlerts(
+      [
+        makeWebsiteRow({
+          id: "recP",
+          name: "!!!",
+          status: "maintained",
+          certDaysRemaining: 3,
+          domainCheckedAt: "2026-10-27T06:00:00Z",
+        }),
+      ],
+      "https://dash.example/",
+      new Date("2026-10-27T12:00:00Z"),
+    );
     expect(items.map((i) => i.url)).toEqual(["https://dash.example/triage"]);
   });
 });

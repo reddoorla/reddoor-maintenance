@@ -54,7 +54,7 @@
         "replace": "return slug ? `${root}/s/${slug}` : `${root}/`;"
       }
     ],
-    "test": "tests/alerts/prismic-drift-alerts.test.ts",
+    "test": "cockpit/tests/shell/triage-route.ssr.test.ts",
     "expect": "red"
   },
   {
