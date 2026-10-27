@@ -24,6 +24,7 @@ import {
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as figmaInventory from "../../scripts/model-bakeoff/tasks/figma-inventory.mjs";
 import * as pnpmUpdate from "../../scripts/model-bakeoff/tasks/pnpm-update.mjs";
+import * as exploreQuestions from "../../scripts/model-bakeoff/tasks/explore-questions.mjs";
 import * as refuteClaims from "../../scripts/model-bakeoff/tasks/refute-claims.mjs";
 import * as refuteRepo from "../../scripts/model-bakeoff/tasks/refute-repo.mjs";
 import * as seededReview from "../../scripts/model-bakeoff/tasks/seeded-review.mjs";
@@ -32,6 +33,7 @@ import * as t5Census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
 
 // Typecheck is the test here: each task's hooks must fit the harness's Task type.
 const TASKS: Task[] = [
+  exploreQuestions,
   figmaInventory,
   pnpmUpdate,
   refuteClaims,
@@ -85,6 +87,7 @@ describe("prepare", () => {
 
   it("covers every task module", () => {
     expect(TASKS.map((t) => t.id).sort()).toEqual([
+      "explore-questions",
       "figma-inventory",
       "pnpm-update",
       "refute-claims",

@@ -15,6 +15,8 @@ export const ALLOWED_TOOLS = Object.freeze([
   "NotebookEdit",
   "StructuredOutput",
   "ToolSearch",
+  // How a background Agent-tool subagent returns its report: its return path, not a capability.
+  "SubagentHandback",
 ]);
 
 const HEREDOC = /<<-?[ \t]*\\?(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n[ \t]*\2(?=\n|$)/g;
@@ -382,6 +384,9 @@ export function readAgentTranscript(text) {
   const otherTools = [];
   const reads = [];
   let prompt = "";
+  // The agent's last word: the text of its final assistant turn, or the report it handed back. A
+  // task whose agents answer in text (no schema tool, as an Agent-tool subagent) is scored from it.
+  let finalText = "";
   for (const line of lines) {
     let o;
     try {
@@ -404,9 +409,21 @@ export function readAgentTranscript(text) {
         markerError = `the first prompt holds ${count} markers and does not end with exactly one`;
     }
     if (m.role === "assistant" && Array.isArray(m.content)) {
+      const text = m.content
+        .filter((b) => b && b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text)
+        .join("\n");
+      if (text.trim()) finalText = text;
+      // A later tool call means that text was not the agent's last word: an agent cut off after
+      // a draft has no final text, rather than being scored from the draft.
+      else if (m.content.some((b) => b?.type === "tool_use" && b.name !== "SubagentHandback"))
+        finalText = "";
       for (const b of m.content) {
         if (!b || b.type !== "tool_use") continue;
         if (b.name === "StructuredOutput") outputs.push(b);
+        // A background subagent hands its report back through this tool, not as text.
+        if (b.name === "SubagentHandback" && typeof b.input?.message === "string")
+          finalText = b.input.message;
         if (b.name === "Bash" && b.input && typeof b.input.command === "string") {
           bash.push(b.input.command);
         }
@@ -451,6 +468,22 @@ export function readAgentTranscript(text) {
     reads,
     otherTools,
     prompt,
+    finalText,
     forbidden: bash.filter((c) => forbiddenCommand(c)),
   };
+}
+
+/**
+ * The answer of an agent that replies in text: the last fenced ```json block of its final
+ * message, parsed, when it is a JSON object; otherwise null, which scores as no output.
+ */
+export function textStructured(text) {
+  const blocks = [...String(text ?? "").matchAll(/```json[ \t]*\n([\s\S]*?)\n```/g)];
+  if (!blocks.length) return null;
+  try {
+    const v = JSON.parse(blocks[blocks.length - 1][1]);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
 }

@@ -1,0 +1,25 @@
+import type { Arm } from "../lib/arms.mjs";
+import type { Collection } from "../lib/score.mjs";
+export const id: string;
+export const title: string;
+export const row: number;
+export const PIN: string;
+export const PATHS: string[];
+export const agentType: string;
+export const textOutput: boolean;
+export const SCALARS: [string, string][];
+export const LISTS: [string, string][];
+export const secrets: string[];
+export const sources: { from: string; match: RegExp; to: string }[];
+export const collections: Collection[];
+export const schema: Record<string, unknown>;
+export const goldAddendum: string;
+export const arms: Arm[];
+export const gold: Arm;
+export function prompt(dir: string): string;
+export function setup(o: { input: string; work: string; ids: string[]; root?: string }): void;
+export function importsOf(file: string, text: string, repo: string): Set<string>;
+export function truth(dir: string): {
+  scalars: { id: string; value: string }[];
+  lists: { id: string; values: string[] }[];
+};

@@ -18,6 +18,10 @@ export interface Task {
   goldAddendum: string;
   arms: Arm[];
   gold: Arm;
+  /** The agent type every agent of the task runs as; bakeoff-readonly when absent. */
+  agentType?: string;
+  /** The agents answer in text, ending with a ```json block, not through a schema tool. */
+  textOutput?: boolean;
   /** prepare: called before the input is frozen; `root` is set only when --root was given. */
   setup?: (o: { input: string; work: string; ids: string[]; root?: string }) => void;
   /** prepare: the reference, computed from the frozen input. */
@@ -85,8 +89,19 @@ export function verifyRan(
   arm: Arm,
   agent: AgentTranscript & { agentType?: string | null },
   work?: string,
-  opts?: { needOutput?: boolean },
+  opts?: { needOutput?: boolean; agentType?: string },
 ): string[];
+export function typeOf(task: { agentType?: string }): string;
+export function withTextOutputs<T extends { structured: unknown; finalText?: string }>(
+  task: { textOutput?: boolean },
+  agents: Record<string, T>,
+): Record<string, T>;
+export const RULINGS_IN_TEXT: string;
+export function launches(
+  args: Record<string, unknown>,
+  source: string,
+  task: { agentType?: string; textOutput?: boolean },
+): { label: string; model: string; effort: string; subagent_type: string; prompt: string }[];
 export function combineItems(
   task: { assemble: (outputs: Record<string, unknown>, dir: string) => unknown },
   args: RunArgs & { items: { id: string }[] },
