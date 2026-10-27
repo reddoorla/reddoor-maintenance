@@ -212,7 +212,7 @@ describe("red marks Broken only", () => {
  * arrows (← →) and the typographic set (— · … ’) stay; pictographs and the
  * glyphs the cockpit used as icons go.
  */
-const GLYPH = /\p{Extended_Pictographic}|[✓✗↻▸↗▲▼☐️]/u;
+const GLYPH = /\p{Extended_Pictographic}|[✓✗↻▸↗▲▼☐]|️/u;
 
 function glyphs(lines: string[]): string[] {
   return lines.filter((l) => GLYPH.test(l));
