@@ -528,8 +528,13 @@ describe("red marks Broken only", () => {
       "--on-ink",
       "--on-broken",
     ]);
-    const offenders = PAGE_SHEETS.flatMap((p) =>
-      rules(read(p)).flatMap(([sel, body]) =>
+    // Svelte <style> blocks too (round 6: .cockpit-newer in --rule passed).
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const offenders = sheets.flatMap(([p, css]) =>
+      rules(css).flatMap(([sel, body]) =>
         [...body.matchAll(/(?:^|;|\s)color\s*:\s*var\((--[\w-]+)\)/g)]
           .filter((m) => !TEXT.has(m[1]!))
           .map((m) => `${rel(p)}: ${sel} → ${m[1]}`),
@@ -551,7 +556,12 @@ describe("red marks Broken only", () => {
         .map((x) => x.slice(".verdict.broken ".length)),
     );
     const coloured = sheet
-      .filter(([sel, b]) => /(^|\s|\.)(rf-|verdict-)/.test(sel) && /(?:^|;|\s)color\s*:/.test(b))
+      // A colour or a coloured border (round 6: the spinner is drawn by its border).
+      .filter(
+        ([sel, b]) =>
+          /(^|\s|\.)(rf-|verdict-)/.test(sel) &&
+          (/(?:^|;|\s)color\s*:/.test(b) || /border(-[a-z]+)?\s*:[^;]*var\(--/.test(b)),
+      )
       .flatMap(([sel]) => sel.split(","))
       .map((x) => x.trim())
       .filter((x) => !x.startsWith(".verdict"));
@@ -834,6 +844,63 @@ describe("layout and weight the round-2 review pinned", () => {
         .filter(([sel]) => !hoverUnderlines(sel))
         .map(([sel]) => `${rel(p)}: ${sel}`);
     });
+    expect(offenders).toEqual([]);
+  });
+
+  // Round 6: these base rules were unpinned. A control's only boundary must be
+  // the 3:1 control token (--rule is 1.74:1), and the focus ring must stay.
+  it("controls are bounded by the control token, and focus is always visible", () => {
+    const base = rules(read(join(SRC, "lib/base.css")));
+    const controlRule = base.filter(
+      ([sel, b]) => /\bbutton\b/.test(sel) && /\btextarea\b/.test(sel) && /border\s*:/.test(b),
+    );
+    expect(controlRule.length).toBeGreaterThan(0);
+    for (const [, b] of controlRule)
+      expect(b).toMatch(/border:\s*1px solid var\(--control-border\)/);
+    const focus = base.find(([sel]) => sel === ":focus-visible")?.[1] ?? "";
+    expect(focus).toMatch(/outline:\s*2px solid var\(--focus\)/);
+    const sheets = [...PAGE_SHEETS.map((p) => read(p)), ...SVELTE_STYLES.map(([, c]) => c)];
+    for (const css of sheets) {
+      for (const [sel, b] of rules(css)) {
+        if (/:focus/.test(sel)) expect(b, sel).not.toMatch(/outline(-style)?\s*:\s*(none|0)\b/);
+      }
+    }
+  });
+
+  // Round 6: muted text on --band (4.10:1) and a dimmed .meta (about 3:1) passed,
+  // because contrast was tested by token pair, not by the pair a rule lays down.
+  it("a rule's own text on its own fill clears 4.5:1 in both themes", () => {
+    const t = stripComments(read(TOKENS));
+    const light = declarations(blockAfter(t, ":root {"));
+    const dark = { ...light, ...declarations(blockAfter(t, ':root[data-theme="dark"]')) };
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p)).flatMap(([sel, b]) => {
+        const fill = /(?:^|;|\s)background(?:-color)?\s*:\s*var\((--[\w-]+)\)/.exec(b)?.[1];
+        const text = /(?:^|;|\s)color\s*:\s*var\((--[\w-]+)\)/.exec(b)?.[1];
+        if (!fill || !text) return [];
+        return [light, dark]
+          .filter((th) => th[fill] && th[text] && contrast(th[text]!, th[fill]!) < 4.5)
+          .map(() => `${rel(p)}: ${sel} (${text} on ${fill})`);
+      }),
+    );
+    expect([...new Set(offenders)]).toEqual([]);
+    for (const f of ["lib/cockpit/health.css", "routes/s/[slug]/site.css"]) {
+      const chip = rules(read(join(SRC, f))).find(([sel]) => sel === ".chip")?.[1] ?? "";
+      expect(chip, f).not.toMatch(/color:\s*var\(--ink-muted\)/);
+    }
+  });
+
+  it("text is never dimmed: opacity below 1 only on a disabled, hover or active state", () => {
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const offenders = sheets.flatMap(([p, css]) =>
+      rules(css)
+        .filter(([, b]) => /(^|;|\s)opacity\s*:\s*(0?\.\d+|0)\s*;/.test(b))
+        .filter(([sel]) => !/:(disabled|hover|active)/.test(sel))
+        .map(([sel]) => `${rel(p)}: ${sel}`),
+    );
     expect(offenders).toEqual([]);
   });
 
