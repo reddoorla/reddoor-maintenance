@@ -384,7 +384,7 @@ describe("the sentinel render: each number in its labelled cell (T1, T2)", () =>
 
   it("the reports sentence, the medians and the per-site waiting read their own fields", () => {
     expect(text(SDOC.querySelector('p[data-term="Reports sent"]')!)).toBe(
-      `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before they went, and ${sent("reports.sent.aroundGate")} without that yes.`,
+      `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before sending, and ${sent("reports.sent.aroundGate")} without that yes.`,
     );
     const lh = text(SDOC.querySelector('p[data-term="Lighthouse"]')!);
     SV.reports.lighthouse.forEach((l, i) =>

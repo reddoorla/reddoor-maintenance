@@ -178,8 +178,10 @@
     <p class="muted">The reports could not be read just now. Reload to try again.</p>
   {:else}
     <p data-term="Reports sent">
-      {v.reports.sent.real} reports sent to clients: {v.reports.sent.approvedFirst} approved by one of
-      us before they went, and {v.reports.sent.aroundGate} without that yes.
+      {v.reports.sent.real}
+      {v.reports.sent.real === 1 ? "report" : "reports"} sent to clients: {v.reports.sent
+        .approvedFirst} approved by one of us before sending, and {v.reports.sent.aroundGate} without
+      that yes.
     </p>
   {/if}
   <table class="ov-table ov-due">
