@@ -3041,6 +3041,7 @@ describe("land-prs: test changes", () => {
       const flag = (line: string) =>
         testChangeFlags([file(T, "modified", patch(" keep();", `+${line}`))]);
       expect(flag('fit([req("price-signal", "met")]),')).toEqual([]);
+      expect(flag("fit([a, b]),")).toEqual([]);
       expect(flag("  skip: true,")[0]?.reasons).toEqual(["added skip: skip: true,"]);
       expect(flag('it("a", { only: true }, () => {});')[0]?.reasons).toEqual([
         'added skip: it("a", { only: true }, () => {});',
@@ -3139,6 +3140,7 @@ describe("land-prs: test changes", () => {
       for (const opener of [
         "expect(s.split(/'/)).toEqual([",
         "expect(render(<p>Don't</p>)).toMatchObject({",
+        "expect(s.split(/`/)).toEqual([",
       ]) {
         const f = file(
           T,

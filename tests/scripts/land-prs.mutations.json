@@ -186,8 +186,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "open: quote === \"`\" };",
-        "replace": "open: quote !== \"\" };"
+        "find": "open: quote === \"`\" && !afterSlash,",
+        "replace": "open: quote !== \"\","
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",

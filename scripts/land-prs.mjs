@@ -778,7 +778,7 @@ const SKIP = new RegExp(
 const ONLY = new RegExp(
   [
     `\\b(it|test|describe|suite|bench)(\\s*\\.\\s*\\w+){0,8}\\s*\\.\\s*only\\b`,
-    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|[\\w.[\\]]+\\s*,|$)`,
+    `(^|[^\\w.$])f(it|describe)\\s*\\(\\s*(["'\`]|\\w[\\w.]*(\\[[^\\]]*\\])?\\s*,|$)`,
   ].join("|"),
 );
 // The same modifiers by bracket access, `it["skip"](`, tested on the raw line because a
@@ -825,6 +825,7 @@ function codeOf(line) {
   let out = "";
   let quote = "";
   let retry = false;
+  let afterSlash = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (quote) {
@@ -837,6 +838,7 @@ function codeOf(line) {
     }
     if (c === '"' || c === "'" || c === "`") {
       if (line[i - 1] === "/") retry = true;
+      afterSlash = line[i - 1] === "/";
       quote = c;
       out += c;
     } else if (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) {
@@ -851,7 +853,12 @@ function codeOf(line) {
   }
   // Only a template literal runs onto the next line; an unclosed ' or " is a misread
   // (a regex literal, a JSX apostrophe), not an open string.
-  return { code: out.trim(), retry: retry || quote !== "", open: quote === "`" };
+  return {
+    code: out.trim(),
+    retry: retry || quote !== "",
+    // A backtick right after `/` is a regex literal's, not a template literal.
+    open: quote === "`" && !afterSlash,
+  };
 }
 
 /** Whether `re` finds a call on the line: on its code, and also on the raw line when
