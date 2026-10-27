@@ -443,7 +443,9 @@ failure's first line and the paths of the agent's code and of the test as run. E
 is its own disagreement, because the referee has to read that arm's code. The scope gate passes when the files that differ from the pinned commit are a
 non-empty subset of the files the plan names. They are found by `git status` with the scorer's own
 repository of the pin as `--git-dir` and the agent's tree as `--work-tree`, never with the agent's
-`.git`: its config could name an `fsmonitor` to run, and its index could hide a change.
+`.git`: its config could name an `fsmonitor` to run, and its index could hide a change. A file the
+tree's own ignore rules hide still counts unless the pin's rules ignore it too, so a new
+`sub/.gitignore` holding `*` cannot hide itself or a stray file beside it.
 
 Every install, the agents' and the scorer's, copies packages out of the pnpm store
 (`package-import-method=copy`). pnpm's default hardlinks every `node_modules` file to one store
