@@ -198,7 +198,8 @@ describe("daily-reports — the send step, run as GitHub runs it", () => {
     const first = r.out.split("\n").find((l) => l.startsWith("::error::"))!;
     expect(first).toContain("unqueued-approval");
     expect(first).toContain("Acme Co — Testing — 2026-10");
-    expect(first).toMatch(/unapprove it/i);
+    expect(first).toContain("https://github.com/reddoorla/reddoor-maintenance/actions/runs/98765");
+    expect(first).toMatch(/unapprove each/i);
     expect(r.out).not.toContain("send-run-failed");
     expect(r.calls).toContain(
       "gh api repos/reddoorla/reddoor-maintenance/actions/runs/98765/jobs --jq .jobs[].id",

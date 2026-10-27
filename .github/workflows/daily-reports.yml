@@ -267,7 +267,7 @@ jobs:
               marks=$(printf '%s\n' "$joblog" | sed -E 's/^[0-9TZ:.-]+ //' | grep -E '^ *(✗|⚠)' || true)
               stuck=$(printf '%s\n' "$marks" | sed -nE 's/^✗ (.+) — approved but not in the send queue .*/\1/p')
               if [ -n "$stuck" ] && [ "$(printf '%s\n' "$marks" | grep -c .)" -eq "$(printf '%s\n' "$stuck" | grep -c .)" ]; then
-                echo "::error::unqueued-approval: the send clock's run ($REPO run $failed_run) printed no send failure but an approved report outside the send queue: $(printf '%s\n' "$stuck" | awk 'NR > 1 { printf "; " } { printf "%s", $0 }'). It is not draft-ready; a pending higher-tier draft for the site can hold it out. Unapprove it in its site's report history to clear this, then re-draft it to send it. This fallback does not retry: a retry cannot send it, and a report approved since 16:07Z waits for the next send clock, as on any day"
+                echo "::error::unqueued-approval: the newest failed send run (https://github.com/$REPO/actions/runs/$failed_run) printed no send failure but approved report(s) outside the send queue: $(printf '%s\n' "$stuck" | awk 'NR > 1 { printf "; " } { printf "%s", $0 }'). Each is not draft-ready; a pending higher-tier draft for the site can hold one out. Unapprove each in its site's report history to clear this, then re-draft it to send it. This fallback does not retry: a retry cannot send it, and a report approved since 16:07Z waits for the next send clock, as on any day"
                 exit 1
               fi
             fi
