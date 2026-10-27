@@ -1,3 +1,4 @@
+import { load } from "js-yaml";
 import type { ConfigName } from "../../types.js";
 
 /**
@@ -39,11 +40,13 @@ import type { ConfigName } from "../../types.js";
  * it is written — see that function's own doc comment for exactly what
  * guarantee this is (and, as importantly, isn't).
  *
- * Every check below runs against a COMMENT-STRIPPED copy of the file (see
- * `stripComments`). A raw-text `.match()`/`.includes()` takes the FIRST hit
- * anywhere in the file, comments included — a canonical pin, cron, or job
- * body sitting in a `#` comment above the real (non-compliant) line reads as
- * compliant, and worse, `withRenovatePinsFrom` would scrape a sha out of a
+ * Every string check below runs against a COMMENT-STRIPPED copy of the file
+ * (see `stripComments`); `renovateNeverRuns` alone reads the raw file, through
+ * js-yaml, which knows a comment from a value. A raw-text `.match()` or
+ * `.includes()` takes the FIRST hit anywhere in the file, comments included —
+ * a canonical pin, cron, or job body sitting in a `#` comment above the real
+ * (non-compliant) line reads as compliant, and worse, `withRenovatePinsFrom`
+ * would scrape a sha out of a
  * comment like `# old: uses: actions/checkout@1111…1111 # v4` and carry a
  * *commented* pin forward into the healed file — a pin downgrade delivered by
  * the very recipe that exists to prevent pin downgrades.
@@ -62,10 +65,11 @@ function escapeRegExp(s: string): string {
  *
  * Full-line only: a trailing `# vX.Y.Z` after a real `uses:` line is
  * meaningful (it's the human-readable version tag) and must survive — only
- * strip a line whose first non-whitespace character is `#`. This is safe
- * specifically because this workflow's YAML has no block scalars (`|`/`>`),
- * so there is no line in a compliant or non-compliant renovate.yml where a
- * leading `#` is literal string content rather than a comment.
+ * strip a line whose first non-whitespace character is `#`. The template has
+ * no block scalars (`|`/`>`), so a leading `#` there is always a comment. In a
+ * site's block scalar it can be text, and stripping it can hide that text or,
+ * through a check whose `\s*` spans lines, join a key to a value on the line
+ * after it.
  */
 function stripComments(contents: string): string {
   return contents.replace(/^[ \t]*#[^\n]*$/gm, "");
@@ -210,7 +214,245 @@ export function renovateActionGaps(contents: string): string[] {
     gaps.push("permissions: does not grant contents: read");
   }
 
+  const blocked = renovateNeverRuns(contents);
+  if (blocked) {
+    gaps.push(
+      `Renovate can never run: ${blocked} has an if: that is always false, so the cron fires and nothing merges`,
+    );
+  }
+
   return gaps;
+}
+
+/**
+ * Where an always-false `if:` stops every Renovate step, or null when some
+ * renovatebot step can run (#1607 input 2: `if: false` on the job read CLEAN).
+ *
+ * The question is "can Renovate run at all": some `renovatebot/github-action`
+ * step whose job `if:` and own `if:` are not always false, and whose `token:`
+ * is not exactly `${{ steps.<id>.outputs.<x> }}` of steps that are always
+ * skipped (a fallback such as `|| secrets.X` may run). A disabled checkout
+ * does not block it (the action works through the API), and a token from
+ * nowhere is left to the App-auth check above. Any other step that can run
+ * and names Renovate (a `uses:` or `run:` mentioning it) means no verdict: it
+ * may run Renovate some other way, and no shell form makes that a false gap.
+ * The cost is a miss when another live job only names Renovate (the operator,
+ * 2026-10-27, reddoor-workspace
+ * decisions/2026-10-27-1700-1607-runner-rule-at-round-5.md).
+ *
+ * It reads the parsed tree, never lines: the line scanner #1680 tried kept
+ * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
+ * own `sidecar:` job). A false gap opens a PR that overwrites a working file,
+ * so anything not decidable without GitHub's runtime context counts as "may
+ * run", and a file js-yaml cannot parse, or one with a job that calls a
+ * reusable workflow, gets no verdict here.
+ */
+function renovateNeverRuns(contents: string): string | null {
+  // Strings GitHub builds from their source text, not their value: block
+  // scalars, and quoted scalars over several lines. A `${{ }}` in one keeps
+  // its indentation or quotes, so it is a non-empty format() string that
+  // runs, though js-yaml's value for `|-\n  ${{ false }}` is exactly
+  // `${{ false }}`. The node opens before js-yaml skips the space, tag,
+  // anchor and comments in front of it, so those are stripped here.
+  const fromSource = new Set<string>();
+  const opened: number[] = [];
+  let doc: unknown;
+  try {
+    doc = load(contents, {
+      listener(event, state) {
+        if (event === "open") return void opened.push(state.position);
+        const start = opened.pop()!;
+        if (state.kind !== "scalar" || typeof state.result !== "string") return;
+        const source = state.input
+          .slice(start, state.position)
+          .replace(/^(?:\s|[!&]\S*|#[^\n]*)*/, "")
+          .trimEnd();
+        if (/^[|>]/.test(source) || (/^["']/.test(source) && /[\r\n]/.test(source))) {
+          fromSource.add(state.result);
+        }
+      },
+    });
+  } catch {
+    return null;
+  }
+  const jobs = record(record(doc)?.jobs);
+  if (!jobs) return null;
+
+  const off = (owner: unknown) => {
+    const r = record(owner);
+    return r !== null && alwaysFalse(r.if, fromSource);
+  };
+
+  let blockedAt: string | null = null;
+  for (const [name, job] of Object.entries(jobs)) {
+    if (typeof record(job)?.uses === "string") return null;
+    const steps = record(job)?.steps;
+    if (!Array.isArray(steps)) continue;
+    const jobOff = off(job);
+    const renovate: unknown[] = [];
+    const byId = new Map<string, unknown[]>();
+    const seen = new Set<unknown>(); // an aliased step (`- *s`) is one step read many times
+    for (const step of steps) {
+      if (seen.has(step)) continue;
+      seen.add(step);
+      const r = record(step);
+      const uses = typeof r?.uses === "string" ? r.uses.trim().toLowerCase() : "";
+      if (uses.startsWith("renovatebot/github-action@")) renovate.push(step);
+      else if (
+        (uses.includes("renovate") || (typeof r?.run === "string" && /renovate/i.test(r.run))) &&
+        !jobOff &&
+        !off(step)
+      ) {
+        return null;
+      }
+      if (typeof r?.id === "string") {
+        const same = byId.get(r.id);
+        if (same) same.push(step);
+        else byId.set(r.id, [step]);
+      }
+    }
+    if (renovate.length === 0) continue;
+    const mintersOff = new Map<string, boolean>();
+    for (const step of renovate) {
+      const token = record(record(step)?.with)?.token;
+      const source =
+        typeof token === "string"
+          ? /^\$\{\{\s*steps\.([\w-]+)\.outputs\.[\w-]+\s*\}\}$/.exec(token.trim())?.[1]
+          : undefined;
+      const tokenOff = () => {
+        if (source === undefined) return false;
+        if (!mintersOff.has(source)) {
+          const minters = byId.get(source) ?? [];
+          mintersOff.set(source, minters.length > 0 && minters.every(off));
+        }
+        return mintersOff.get(source)!;
+      };
+      const blocker = jobOff
+        ? `job \`${name}\``
+        : off(step)
+          ? `the renovatebot/github-action step in job \`${name}\``
+          : tokenOff()
+            ? `step \`${source}\`, which mints its token, in job \`${name}\``
+            : null;
+      if (!blocker) return null;
+      blockedAt ??= blocker;
+    }
+  }
+  return blockedAt;
+}
+
+function record(v: unknown): Record<string, unknown> | null {
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Whether GitHub skips a job or step with this parsed `if:` value whatever the
+ * run's context. Matched against GitHub's own parser and evaluator on 112
+ * values (#1607, 2026-10-22; `tests/fixtures/renovate-action-if-oracle.json`):
+ *
+ * - absent, null, or a string empty after trimming means `success()`: runs.
+ * - a YAML boolean or number is read as js-yaml's value (`False` is false,
+ *   `0x0` is 0, `.nan` is NaN).
+ * - a string that is exactly one `${{ … }}` is that expression, and one holding
+ *   only a quoted literal is unwrapped to the literal's text (`${{ 'false' }}`
+ *   is `false`). Anything else around a `${{` (padding inside the quotes, a
+ *   block or multi-line quoted scalar, a second template) makes a format()
+ *   string, read as "may run": it is non-empty unless every piece is empty.
+ * - any other string, trimmed, is the expression.
+ */
+function alwaysFalse(value: unknown, fromSource: Set<string>): boolean {
+  if (typeof value === "boolean") return !value;
+  if (typeof value === "number") return !truthy(value);
+  if (typeof value !== "string") return false;
+  let text = value;
+  if (text.includes("${{")) {
+    const whole = /^\$\{\{([\s\S]*)\}\}$/.exec(text);
+    if (!whole || fromSource.has(text)) return false;
+    const inner = whole[1]!;
+    if (inner.includes("${{") || inner.includes("}}")) return false;
+    const literal = /^\s*'((?:[^']|'')*)'\s*$/.exec(inner);
+    text = literal ? literal[1]!.replaceAll("''", "'") : inner;
+  }
+  text = text.trim();
+  if (text === "") return false;
+  const result = evaluate(text);
+  return result !== UNDECIDED && !truthy(result);
+}
+
+type Value = boolean | number | string | null;
+
+const UNDECIDED = Symbol("undecided");
+
+function truthy(v: Value): boolean {
+  return !(v === false || v === null || v === 0 || v === "" || Number.isNaN(v));
+}
+
+/**
+ * An Actions expression made only of literals, `!`, `&&`, `||`, parentheses
+ * and `always()`, evaluated; UNDECIDED for anything else (a context, another
+ * function, a comparison, a syntax GitHub rejects), since those are runtime
+ * values or not this check's to report.
+ */
+function evaluate(expr: string): Value | typeof UNDECIDED {
+  const tokens: Array<{ op: string } | { value: Value }> = [];
+  const re =
+    /(\(|\)|!|&&|\|\|)|'((?:[^']|'')*)'|(0[xX][0-9a-fA-F]+|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)(?![\w.])|(true|false|null)(?![\w.-])|always\(\s*\)/y;
+  for (let at = 0; ;) {
+    while (/\s/.test(expr[at] ?? "")) at++;
+    if (at === expr.length) break;
+    re.lastIndex = at;
+    const m = re.exec(expr);
+    if (!m) return UNDECIDED;
+    at = re.lastIndex;
+    if (m[1]) tokens.push({ op: m[1] });
+    else if (m[2] !== undefined) tokens.push({ value: m[2].replaceAll("''", "'") });
+    else if (m[3]) tokens.push({ value: Number(m[3]) });
+    else if (m[4]) tokens.push({ value: JSON.parse(m[4]) as Value });
+    else tokens.push({ value: true });
+  }
+
+  // or := and ('||' and)* ; and := not ('&&' not)* ; not := '!' not | '(' or ')' | value
+  let i = 0;
+  const take = (op: string) => {
+    const t = tokens[i];
+    if (t && "op" in t && t.op === op) return ++i;
+    return 0;
+  };
+  const or = (): Value => {
+    let left = and();
+    while (take("||")) {
+      const right = and();
+      left = truthy(left) ? left : right;
+    }
+    return left;
+  };
+  const and = (): Value => {
+    let left = not();
+    while (take("&&")) {
+      const right = not();
+      left = truthy(left) ? right : left;
+    }
+    return left;
+  };
+  const not = (): Value => {
+    if (take("!")) return !truthy(not());
+    if (take("(")) {
+      const v = or();
+      if (!take(")")) throw new SyntaxError("unclosed (");
+      return v;
+    }
+    const t = tokens[i++];
+    if (!t || !("value" in t)) throw new SyntaxError("expected a value");
+    return t.value;
+  };
+  try {
+    const v = or();
+    return i === tokens.length ? v : UNDECIDED;
+  } catch {
+    return UNDECIDED;
+  }
 }
 
 /**
