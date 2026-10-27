@@ -94,8 +94,10 @@ function item(
   };
 }
 
-/** Site down: a fresh uptime fail (every sampled route must answer 2xx/3xx). A run that
- *  sampled no route stores null, so it never reads as down. Stamped by the browser audit. */
+/** The plan's "site down" row: a fresh uptime fail (every sampled route must answer 2xx/3xx).
+ *  One dead sitemap page fails it as surely as a dead homepage, and the row stores no URL, so
+ *  the title says what was observed, never "site down". A run that sampled no route stores
+ *  null, so it never fires. Stamped by the browser audit. */
 export function collectUptimeAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -107,14 +109,7 @@ export function collectUptimeAlerts(
         s.reachableOk === "fail" && freshWithin(s.browserCheckedAt, PRODUCTION_STALE_DAYS, now),
     )
     .map((s) =>
-      item(
-        s,
-        baseUrl,
-        "uptime",
-        "uptime",
-        "site down: a sampled page did not load (no 2xx or 3xx)",
-        "critical",
-      ),
+      item(s, baseUrl, "uptime", "uptime", "a sampled page did not answer 2xx or 3xx", "critical"),
     );
 }
 
@@ -313,10 +308,12 @@ export function collectTitleMetaAlerts(
     );
 }
 
-/** Accessibility violations from a complete weekly run: every route scanned, stamped within
- *  8 days. A partial run (scanned < total, or either count unknown) is not measured. A skip
- *  the site declared (an absent fixture, the placeholder Prismic repo) is out of both counts,
- *  so it does not make a run partial (`a11yAudit`'s stored `routes`). */
+/** Accessibility findings from a complete weekly run: every route scanned, stamped within
+ *  8 days. A run with either count unknown, or fewer scanned than total, is not measured. A
+ *  skip the site declared (an absent fixture, the placeholder Prismic repo) is out of both
+ *  counts (`a11yAudit`'s stored `routes`), and those are the only skips the audit makes today.
+ *  The count is every entry of the artifact's list: axe violations, plus client errors,
+ *  missing fixture routes and rules axe could not measure, so the title says "findings". */
 export function collectA11yAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -338,7 +335,7 @@ export function collectA11yAlerts(
         baseUrl,
         "a11y",
         "a11y",
-        `${n} accessibility violation${n === 1 ? "" : "s"}`,
+        `${n} accessibility finding${n === 1 ? "" : "s"}`,
         "warning",
         n,
       );

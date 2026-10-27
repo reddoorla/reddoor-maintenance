@@ -1452,8 +1452,9 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     // ladder reads scanned < total as "not measured", and a site skipping a
     // fixture it never had would otherwise read partial every week and its
     // alarm could never fire (operator, 2026-10-27, decision
-    // 2026-10-27-1021-p1-78c-after-five-rounds (a)). Any other skip still
-    // counts as missing coverage. The summary's "N of M" keeps naming them.
+    // 2026-10-27-1021-p1-78c-after-five-rounds (a)). Those are the only two
+    // reasons the spec writes today; a skip with any new reason would still
+    // count as missing coverage. The summary's "N of M" keeps naming them.
     const declaredSkips = skippedRoutes.filter((r) => DECLARED_SKIP_REASONS.has(r.reason)).length;
     const routes = {
       scanned: axePages.length - skippedRoutes.length,

@@ -59,6 +59,17 @@ describe("site down (uptime, Broken)", () => {
     expect(level(it!)).toBe("broken");
   });
 
+  // Round 6: one dead sitemap page fails uptime while the homepage answers, and the row
+  // stores no URL, so the title says what was seen and never claims the site is down.
+  it("titles what it observed, a sampled page, not 'site down'", () => {
+    const [it] = collectUptimeAlerts(
+      [site({ reachableOk: "fail", browserCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(it!.title).toBe("a sampled page did not answer 2xx or 3xx");
+  });
+
   it("an unreachable route never reads healthy: the cockpit card is Broken", () => {
     const m = buildCockpitModel(
       [site({ reachableOk: "fail", browserCheckedAt: FRESH })],
@@ -287,7 +298,7 @@ describe("accessibility (Attention, weekly)", () => {
   it("violations from a complete run stamped within 8 days are Attention", () => {
     const [it] = collectA11yAlerts([site({ ...complete, a11yCheckedAt: ago(5) })], BASE, NOW);
     expect(level(it!)).toBe("attention");
-    expect(it!.title).toBe("3 accessibility violations");
+    expect(it!.title).toBe("3 accessibility findings");
     expect(
       collectA11yAlerts([site({ ...complete, a11yCheckedAt: ago(7.9) })], BASE, NOW),
     ).toHaveLength(1);

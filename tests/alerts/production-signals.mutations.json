@@ -813,8 +813,8 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "        \"site down: a sampled page did not load (no 2xx or 3xx)\",\n        \"critical\",",
-        "replace": "        \"site down: a sampled page did not load (no 2xx or 3xx)\",\n        \"warning\","
+        "find": "        \"a sampled page did not answer 2xx or 3xx\",\n        \"critical\",",
+        "replace": "        \"a sampled page did not answer 2xx or 3xx\",\n        \"warning\","
       }
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
@@ -896,6 +896,32 @@
       }
     ],
     "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-uptime-title",
+    "why": "Review round 6: one dead sitemap page titled 'site down' while the homepage answers",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "\"a sampled page did not answer 2xx or 3xx\",",
+        "replace": "\"site down\","
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6-a11y-title",
+    "why": "Review round 6: the count includes client errors and unmeasured rules, so 'violations' overstates",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "accessibility finding${",
+        "replace": "accessibility violation${"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
     "expect": "red"
   }
 ]
