@@ -519,10 +519,14 @@ describe("audits/smoke — the site's CI builds before its suite, so the fleet d
     expect(r.status).toBe("pass");
   });
 
-  it("names the end of a failed build's output, where vite puts the error", async () => {
+  it("names vite's build error, not its warnings or its stack", async () => {
     const site = await siteWithBuild();
+    // vite's shape: warnings, then the error, then its stack and fields.
     const stderr =
-      "npm warn config x\n".repeat(30) + "error during build:\nRollupError: boom in +page.ts";
+      "npm warn config x\n".repeat(30) +
+      "error during build:\nRollupError: boom in +page.ts\n" +
+      "    at getRollupError (file:///x/rollup/dist/es/shared/parseAst.js:1:1)\n".repeat(12) +
+      "  code: 'PLUGIN_ERROR'\n}";
     const spawn: SpawnFn = async (_c, a) =>
       a[0] === "build" ? { code: 1, stdout: "", stderr } : { code: 0, stdout: "", stderr: "" };
     const r = await smokeAudit({ site, spawn, now: NOW });

@@ -144,11 +144,16 @@ export function summarizeSmokeFailure(stdout: string, stderr: string): string {
   return err ? err.slice(0, 200) : "no reporter output";
 }
 
-/** The end of a failed build's output: vite prints its warnings first and
- *  `error during build:` last, so the head would quote a warning. */
+/** What a failed build says went wrong. vite prints its warnings first, then
+ *  `error during build:` with the message and only after it the stack, so
+ *  neither the head nor the tail of the output is the error: quote from the
+ *  last `error during build:`, else the tail. */
 export function buildFailureTail(stdout: string, stderr: string): string {
   const out = (stderr.trim() ? stderr : stdout).replace(ANSI, "").trim();
-  return out ? out.slice(-200).replace(/\s+/g, " ").trim() : "no build output";
+  if (!out) return "no build output";
+  const at = out.lastIndexOf("error during build:");
+  const quoted = at >= 0 ? out.slice(at, at + 200) : out.slice(-200);
+  return quoted.replace(/\s+/g, " ").trim();
 }
 
 /**
