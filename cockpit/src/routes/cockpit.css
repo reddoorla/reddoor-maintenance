@@ -82,7 +82,7 @@ details.inbox > summary {
   margin-bottom: 1.25rem;
 }
 .verdict .verdict-line {
-  font-weight: 800;
+  font-weight: var(--weight-bold);
   font-size: 1.4rem;
 }
 .verdict .verdict-meta {
@@ -102,9 +102,19 @@ details.inbox > summary {
   background: var(--broken-fill);
   color: var(--on-broken);
 }
-.verdict.broken .verdict-meta {
+/* Everything on the red band is the on-broken colour at full strength: 0.85
+   opacity took the meta line to 4.04:1, and grey or red on red is gone. */
+.verdict.broken .verdict-meta,
+.verdict.broken .rf-sub,
+.verdict.broken a {
   color: var(--on-broken);
-  opacity: 0.85;
+}
+.verdict.broken .rf-spin {
+  border-color: var(--on-broken);
+  border-top-color: transparent;
+}
+.verdict.broken :focus-visible {
+  outline-color: var(--on-broken);
 }
 /* P1-78b: Attention, interim until P1-78e's tokens: a dark outline, never red. */
 .verdict.attention {
@@ -120,8 +130,7 @@ details.inbox > summary {
   font-weight: var(--weight-bold);
 }
 .verdict.watch .verdict-meta {
-  color: var(--ink);
-  opacity: 0.85;
+  color: var(--ink-muted);
 }
 .verdict.soft {
   background: transparent;
@@ -129,8 +138,7 @@ details.inbox > summary {
   color: var(--ink);
 }
 .verdict.soft .verdict-meta {
-  color: var(--ink);
-  opacity: 0.85;
+  color: var(--ink-muted);
 }
 .verdict .fleet-actions {
   margin: 0.6rem 0 0;

@@ -16,8 +16,9 @@ a {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A heavier underline, not red: red marks Broken only. */
 a:hover {
-  color: var(--broken);
+  text-decoration-thickness: 2px;
 }
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -52,6 +53,12 @@ textarea {
 }
 button {
   cursor: pointer;
+}
+/* font: inherit carried a label's weight into what a person types (600 on /audits). */
+input,
+select,
+textarea {
+  font-weight: var(--weight-text);
 }
 .shell-account {
   float: right;

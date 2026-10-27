@@ -485,6 +485,12 @@ button.trigger-renovate:disabled {
   color: var(--ink);
   font-weight: var(--weight-bold);
 }
+/* On the red fill, a stuck mark and a NEW or WORSE badge keep the on-broken colour
+   (the .stuck and .badge rules above set ink, black on red at 4.05:1). */
+.chip.broken.stuck,
+.chip.broken .badge {
+  color: var(--on-broken);
+}
 .chip.accepted {
   background: transparent;
   border: 1px dashed var(--rule);

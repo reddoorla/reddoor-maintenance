@@ -182,8 +182,7 @@ function rules(css: string): Array<[string, string]> {
 }
 
 describe("red marks Broken only", () => {
-  // The red tokens may appear only on Broken markers, and in base.css for the
-  // guide's focus ring and link hover, which are not state.
+  // The red tokens may appear only on Broken markers (the focus ring is --focus).
   // Only "broken": "critical" is a severity, and a critical item can be Attention
   // (review round 1: a stuck vulnerability's chip was red).
   const BROKEN_SELECTOR = /broken/;
@@ -193,10 +192,37 @@ describe("red marks Broken only", () => {
       rules(read(p))
         .filter(([, body]) => /var\(--broken(-fill)?\)/.test(body))
         .filter(([sel]) => !BROKEN_SELECTOR.test(sel))
-        .filter(([sel]) => !(rel(p) === "lib/base.css" && /^a:hover$/.test(sel)))
         .map(([sel]) => `${rel(p)}: ${sel}`),
     );
     expect(offenders).toEqual([]);
+  });
+
+  // Review round 1: on a red fill, text at 0.85 opacity measured 4.04:1, and a
+  // descendant rule's ink (.badge, .stuck) or grey (.rf-sub) beat the inherited
+  // white. What sits on red is --on-broken, at full strength.
+  it("nothing on a red fill is dimmed", () => {
+    const dimmed = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p))
+        .filter(([sel, body]) => /broken/.test(sel) && /opacity\s*:/.test(body))
+        .map(([sel]) => `${rel(p)}: ${sel}`),
+    );
+    expect(dimmed).toEqual([]);
+  });
+
+  it("what sits on a red fill keeps the on-broken colour", () => {
+    const all = PAGE_SHEETS.flatMap((p) => rules(read(p)));
+    const sets = (selector: string, prop: string) =>
+      all.some(
+        ([sel, body]) =>
+          sel.split(",").some((s) => s.trim() === selector) &&
+          new RegExp(`${prop}\\s*:\\s*var\\(--on-broken\\)`).test(body),
+      );
+    expect(sets(".chip.broken .badge", "color")).toBe(true);
+    expect(sets(".chip.broken.stuck", "color")).toBe(true);
+    expect(sets(".verdict.broken .verdict-meta", "color")).toBe(true);
+    expect(sets(".verdict.broken .rf-sub", "color")).toBe(true);
+    expect(sets(".verdict.broken a", "color")).toBe(true);
+    expect(sets(".verdict.broken :focus-visible", "outline-color")).toBe(true);
   });
 
   it("an Attention or Watch marker is never red", () => {
