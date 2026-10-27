@@ -217,8 +217,27 @@ describe("red marks Broken only", () => {
           sel.split(",").some((s) => s.trim() === selector) &&
           new RegExp(`${prop}\\s*:\\s*var\\(--on-broken\\)`).test(body),
       );
-    expect(sets(".chip.broken .badge", "color")).toBe(true);
-    expect(sets(".chip.broken.stuck", "color")).toBe(true);
+    // A sheet that colours .badge or .chip.stuck must override it on red in the
+    // same sheet: an override elsewhere does not load with that page.
+    for (const p of PAGE_SHEETS) {
+      const own = rules(read(p));
+      const setsInSheet = (selector: string) =>
+        own.some(
+          ([sel, body]) =>
+            sel.split(",").some((x) => x.trim() === selector) &&
+            /color\s*:\s*var\(--on-broken\)/.test(body),
+        );
+      for (const [cls, onRed] of [
+        [".badge", ".chip.broken .badge"],
+        [".chip.stuck", ".chip.broken.stuck"],
+      ] as const) {
+        const colours = own.some(
+          ([sel, body]) =>
+            sel.split(",").some((x) => x.trim() === cls) && /(^|;|\s)color\s*:/.test(body),
+        );
+        if (colours) expect(setsInSheet(onRed), `${rel(p)}: ${onRed}`).toBe(true);
+      }
+    }
     expect(sets(".verdict.broken .verdict-meta", "color")).toBe(true);
     expect(sets(".verdict.broken .rf-sub", "color")).toBe(true);
     expect(sets(".verdict.broken a", "color")).toBe(true);
