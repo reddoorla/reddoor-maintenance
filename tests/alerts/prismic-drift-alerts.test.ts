@@ -311,6 +311,6 @@ describe("collectPrismicDriftAlerts — shape", () => {
 
   it("falls back to the fleet root when a site name has no slug", () => {
     const items = collectPrismicDriftAlerts([site({ name: "!!!" })], DASH, NOW);
-    expect(items[0]!.url).toBe(DASH);
+    expect(items[0]!.url).toBe(`${DASH}/triage`); // P1-78f: the triage page, not the bare root
   });
 });

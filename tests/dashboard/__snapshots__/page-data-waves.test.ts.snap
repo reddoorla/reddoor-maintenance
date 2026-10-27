@@ -15,7 +15,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -385,7 +385,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countUnreplay
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -741,7 +741,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listAllReport
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -1080,7 +1080,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -1441,7 +1441,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -1801,7 +1801,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -2182,7 +2182,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -2548,7 +2548,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -2930,7 +2930,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readLatestDep
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [
@@ -3288,7 +3288,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
       "siteName": "(fleet)",
       "status": "new",
       "title": "Roster url probe is behind on 2 of 2 non-archived rows (2 never checked) — check fleet-lighthouse's "Probe roster urls to Turso" step",
-      "url": "https://dash.example",
+      "url": "https://dash.example/triage",
     },
   ],
   "cards": [

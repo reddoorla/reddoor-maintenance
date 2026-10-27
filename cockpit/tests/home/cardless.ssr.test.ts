@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import Page from "../../src/routes/+page.svelte";
+import Page from "../../src/routes/triage/+page.svelte";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
 import { renderPage } from "../_helpers/parity.js";

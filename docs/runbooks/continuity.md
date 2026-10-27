@@ -114,8 +114,8 @@ A watch reason the operator has explicitly accepted is routed to `acceptedReason
 band rather than raising it (`fleet-cockpit.ts:358`, `:427–429`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:603–715`, rendered as the cockpit's `needs-you` section,
-`cockpit/src/routes/+page.svelte:28–44`).
+(`src/dashboard/fleet-cockpit.ts:603–715`, rendered as the triage page's `needs-you` section,
+`cockpit/src/routes/triage/+page.svelte:28–44`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
 auto-fix is **exhausted** is a hard `broken`, as is any non-vuln attention item. If the feed is

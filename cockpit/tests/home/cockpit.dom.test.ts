@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
-import Page from "../../src/routes/+page.svelte";
+import Page from "../../src/routes/triage/+page.svelte";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { RF_KEY, RF_CONFIRM } from "../../src/lib/cockpit/fleet-refresh.js";
 import { cases, NOW } from "./fixtures.js";

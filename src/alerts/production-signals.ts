@@ -24,6 +24,7 @@ import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import type { DepsSite } from "../fleet-daily/types.js";
 import { searchConsoleFreshDays } from "../fleet/search-console-evidence.js";
 import { searchConsoleOptedOut } from "../fleet/opt-outs.js";
+import { TRIAGE_PATH } from "../dashboard/home-path.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -65,7 +66,7 @@ export function freshWithin(stamp: string | null, days: number, now: Date): bool
 function dashboardUrl(baseUrl: string, siteName: string): string {
   const root = baseUrl.replace(/\/$/, "");
   const slug = siteSlug(siteName);
-  return slug ? `${root}/s/${slug}` : root;
+  return slug ? `${root}/s/${slug}` : `${root}${TRIAGE_PATH}`;
 }
 
 /** Only a maintained site has visitors to protect; a launching site's audits are pre-launch

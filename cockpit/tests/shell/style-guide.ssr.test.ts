@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { canonical, renderPage } from "../_helpers/parity.js";
-import HomePage from "../../src/routes/+page.svelte";
+import HomePage from "../../src/routes/triage/+page.svelte";
 import FleetPage from "../../src/routes/fleet/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
 import SubmissionsPage from "../../src/routes/submissions/+page.svelte";

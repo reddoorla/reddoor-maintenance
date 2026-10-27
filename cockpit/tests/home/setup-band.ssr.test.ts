@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import Home from "../../src/routes/+page.svelte";
+import Home from "../../src/routes/triage/+page.svelte";
 import SitePage from "../../src/routes/s/[slug]/+page.svelte";
 import SitesPage from "../../src/routes/fleet/+page.svelte";
 import { buildCockpitView, buildSitesView } from "../../src/lib/cockpit/view.js";
