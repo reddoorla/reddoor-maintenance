@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,7 +25,12 @@ const LEAVE = ["/proc", "/sys", "/dev/pts"];
 
 // The command line that runs `cmd args` in a box. A box may not hide a writable directory or one
 // of its ancestors, which would hide the very tree the command works in.
-export function boxCommand({ hide, writable }, cmd, args) {
+export function boxCommand(box, cmd, args) {
+  // Real paths: mountinfo lists a bind at its real path, so a writable dir reached through a
+  // symlink would otherwise be remounted read-only with the rest.
+  const real = (p) => (existsSync(p) ? realpathSync(p) : p);
+  const hide = box.hide.map(real);
+  const writable = box.writable.map(real);
   for (const w of writable) {
     for (const h of hide) {
       if (w === h || w.startsWith(`${h}/`))
@@ -55,14 +60,18 @@ function enter({ hide, writable, cmd, args }) {
   }
   for (const w of writable) mount("--bind", w, w);
   if (existsSync("/dev/shm")) mount("-t", "tmpfs", "-o", "size=64m", "tmpfs", "/dev/shm");
+  // A /proc of the box's own pid namespace, so the host's processes and command lines are gone.
+  mount("-t", "proc", "proc", "/proc");
   const keep = new Set([...writable.map((w) => resolve(w)), "/dev/shm"]);
   for (const pt of mountPoints(readFileSync("/proc/self/mountinfo", "utf8"))) {
     if (keep.has(pt) || LEAVE.some((l) => pt === l || pt.startsWith(`${l}/`))) continue;
     try {
       mount("-o", "remount,bind,ro", pt);
     } catch (e) {
-      // The root filesystem must be read-only; a mount the kernel will not remount is left.
+      // The root filesystem must be read-only; a mount the kernel will not remount is left
+      // writable, and said so.
       if (pt === "/") throw e;
+      process.stderr.write(`box: ${pt} stays writable: it could not be remounted read-only\n`);
     }
   }
   const r = spawnSync("setpriv", [...NO_CAPS, cmd, ...args], { stdio: "inherit" });

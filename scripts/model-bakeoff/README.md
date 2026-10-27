@@ -453,15 +453,18 @@ agent's tree, `~`), and its `hoverActivate.ts` runs in the held-out run itself. 
 result then record `unsandboxed: true`, and `score` prints that the transcripts need an audit (#1501). On Linux each gate
 runs in a box (`lib/box.mjs`; Linux only, the operator, 2026-10-26).
 
-- **Namespaces:** its own user, mount, network and pid namespaces, so there is no network.
+- **Namespaces:** its own user, mount, network and pid namespaces, so there is no network, and a
+  fresh `/proc` shows only the box's own processes.
 - **What it can write:** its own tree, its own report dir and a private `TMPDIR`. `/dev/shm`
-  is a fresh tmpfs, and every other mount is read-only.
+  is a fresh tmpfs, and every other mount is read-only except `/proc`, `/sys` and `/dev/pts`,
+  which are left as they are. A mount that will not remount read-only is reported on stderr.
 - **What it cannot see:** the root clone, every agent's repo, the other arms' eval dirs, the
   other tree, the run's answer files and any earlier bake-off run beside this one all read as
   empty.
 - **Capabilities:** the gate starts through `setpriv` with none, so it cannot unmount or
   remount anything.
 - **pnpm:** its pre-run dependency check is off, because an install cannot work in the box.
+- **Timeouts:** a step that runs past its timeout is killed with its whole box.
 
 Each result records `gatesSandboxed`. Where no box can be built (macOS, a runner that restricts
 user namespaces), the gates run unboxed and record `false`. Not covered either way:

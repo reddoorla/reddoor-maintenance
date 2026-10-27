@@ -810,6 +810,7 @@ describe("the gates' box (#1501, Linux only)", () => {
           `touch ${outside}/w 2>/dev/null && echo OUTSIDE-WRITABLE || echo outside-read-only`,
           `touch ${secretDir}/w 2>/dev/null && echo SECRET-WRITABLE || echo secret-read-only`,
           `touch /dev/shm/${mark} /dev/${mark} 2>/dev/null; echo "[dev]"`,
+          `[ "$(ls /proc | grep -cE '^[0-9]+$')" -lt 10 ] && echo own-proc || echo HOST-PROC`,
           dns,
         ].join("; ");
         const box = { hide: [secretDir, secretFile], writable: [keep, tmp], tmp };
@@ -826,6 +827,7 @@ describe("the gates' box (#1501, Linux only)", () => {
           "outside-read-only",
           "secret-read-only",
           "[dev]",
+          "own-proc",
           "no-network",
         ]);
         expect(readFileSync(secretFile, "utf8")).toBe("answer");
@@ -834,38 +836,28 @@ describe("the gates' box (#1501, Linux only)", () => {
         expect(existsSync(`/dev/${mark}`)).toBe(false);
       }));
 
-    // pnpm's pre-run dependency check installs when it finds the install stale, which opens the
-    // store's index read-write: in the box that fails, so the check is off there.
+    // pnpm's pre-run dependency check installs when it finds the install stale (here, a manifest
+    // edited after it, as an agent can edit its own tree), and an install cannot work in the box.
     it(
-      "runs pnpm on a project installed from the store, with the store read-only",
+      "runs pnpm on a project whose install is stale, with the check off",
       () =>
         withTmp("t4-box-pnpm-", (dir) => {
+          const dep = join(dir, "dep");
           const proj = join(dir, "proj");
           const tmp = join(dir, "tmp");
-          mkdirSync(proj);
-          mkdirSync(tmp);
-          const cac = JSON.parse(
-            readFileSync(join(process.cwd(), "node_modules/cac/package.json"), "utf8"),
-          );
+          for (const d of [dep, proj, tmp]) mkdirSync(d);
+          writeFileSync(join(dep, "package.json"), '{"name":"dep","version":"1.0.0"}');
+          const pkg = { name: "p", version: "1.0.0", scripts: { x: "echo ran-x" } };
           writeFileSync(
             join(proj, "package.json"),
-            JSON.stringify({
-              name: "p",
-              version: "1.0.0",
-              dependencies: { cac: cac.version },
-              scripts: { x: "echo ran-x" },
-            }),
+            JSON.stringify({ ...pkg, dependencies: { dep: "file:../dep" } }),
           );
-          expect(task.run(proj, "pnpm", ["install", "--prefer-offline"]).status).toBe(0);
-          // A manifest edited after the install (an agent can edit package.json in its own tree)
-          // makes pnpm's pre-run check want to install again, which cannot work in the box.
-          const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
+          // Into a store of the test's own: no registry, no cache.
+          const store = `--config.store-dir=${join(dir, "store")}`;
+          expect(task.run(proj, "pnpm", ["install", "--offline", store]).status).toBe(0);
           writeFileSync(
             join(proj, "package.json"),
-            JSON.stringify({
-              ...pkg,
-              dependencies: { ...pkg.dependencies, cac: `^${cac.version}` },
-            }),
+            JSON.stringify({ ...pkg, dependencies: { dep: "link:../dep" } }),
           );
           const r = task.run(proj, "pnpm", ["run", "x"], 60_000, {
             hide: [],
@@ -877,5 +869,40 @@ describe("the gates' box (#1501, Linux only)", () => {
         }),
       120_000,
     );
+
+    it(
+      "stops a boxed step at its timeout, with nothing left running",
+      () =>
+        withTmp("t4-box-hang-", (dir) => {
+          const mark = String(4000 + (process.pid % 1000));
+          const t0 = Date.now();
+          const r = task.run(dir, "sh", ["-c", `sleep ${mark}`], 3000, {
+            hide: [],
+            writable: [dir],
+            tmp: dir,
+          });
+          expect(Date.now() - t0).toBeLessThan(15_000);
+          expect(r.error).toBe("ETIMEDOUT");
+          const left = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
+          expect(left.split("\n").filter((l) => l.trim() === `sleep ${mark}`)).toEqual([]);
+        }),
+      30_000,
+    );
+
+    it("keeps a writable directory writable when its path runs through a symlink", () =>
+      withTmp("t4-box-link-", (dir) => {
+        const real = join(dir, "real");
+        mkdirSync(join(real, "keep"), { recursive: true });
+        mkdirSync(join(real, "tmp"));
+        symlinkSync(real, join(dir, "link"));
+        const keep = join(dir, "link", "keep");
+        const tmp = join(dir, "link", "tmp");
+        const r = task.run(dir, "sh", ["-c", `touch ${keep}/w && echo ok`], 30_000, {
+          hide: [],
+          writable: [keep, tmp],
+          tmp,
+        });
+        expect(r.stdout.trim()).toBe("ok");
+      }));
   });
 });

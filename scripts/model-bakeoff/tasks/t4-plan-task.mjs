@@ -298,7 +298,10 @@ export function run(cwd, cmd, args, timeout = 15 * 60 * 1000, box) {
     // Inside the box the store is read-only, so pnpm's pre-run dependency check (an install) is
     // off; the tree was installed before the box was built.
     if (box) Object.assign(env, NO_DEPS_CHECK, { TMPDIR: box.tmp });
-    r = spawnSync(c, a, { cwd, encoding: "utf8", maxBuffer: 1 << 28, timeout, env });
+    // unshare ignores SIGTERM while it waits, so a boxed step's timeout kills it outright; its
+    // --kill-child takes the box's whole pid namespace with it.
+    const killSignal = box ? "SIGKILL" : "SIGTERM";
+    r = spawnSync(c, a, { cwd, encoding: "utf8", maxBuffer: 1 << 28, timeout, killSignal, env });
   } finally {
     rmSync(config, { recursive: true, force: true });
   }
@@ -323,7 +326,8 @@ export function sandboxAvailable() {
     const dir = mkdtempSync(join(tmpdir(), "t4-box-probe-"));
     try {
       const [c, a] = boxCommand({ hide: [], writable: [dir] }, "true", []);
-      boxable = spawnSync(c, a, { stdio: "ignore", timeout: 20_000 }).status === 0;
+      boxable =
+        spawnSync(c, a, { stdio: "ignore", timeout: 20_000, killSignal: "SIGKILL" }).status === 0;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
