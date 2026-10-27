@@ -679,5 +679,166 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r3t-chip-grey",
+    "why": "Round 3 tests lens D: a Broken chip loses its red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken {\n  background: var(--broken-fill);",
+        "replace": ".chip.broken {\n  background: var(--band);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-verdict-grey",
+    "why": "Round 3 tests lens E: the Broken verdict loses its red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken {\n  background: var(--broken-fill);",
+        "replace": ".verdict.broken {\n  background: var(--surface);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-alias-red",
+    "why": "Round 3 tests lens G2: red on an Attention pill through a token alias",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #d71920;\n",
+        "replace": "  --focus: #d71920;\n  --alert: var(--broken-fill);\n"
+      },
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  background: var(--alert);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-local-tint",
+    "why": "Round 3 tests lens A: a local custom property carries darkred",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  --tint: darkred;\n  color: var(--tint);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-not-broken",
+    "why": "Round 3 tests lens F: ':not(.broken)' paints every other badge red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".badge:not(.broken) {\n  background: var(--broken-fill);\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-text-fill",
+    "why": "Round 3 tests lens B: -webkit-text-fill-color darkred",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  -webkit-text-fill-color: darkred;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-accent",
+    "why": "Round 3 tests lens J: accent-color darkred on inputs",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "::placeholder {\n",
+        "replace": "input {\n  accent-color: darkred;\n}\n::placeholder {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-content-glyph",
+    "why": "Round 3 tests lens C: a stylesheet draws a warning sign",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".chip.stuck::before {\n  content: \"⚠ \";\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-style-attr",
+    "why": "Round 3 tests lens M: <style lang=\"css\"> hides a red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "<style>\n",
+        "replace": "<style lang=\"css\">\n  .x {\n    color: darkred;\n  }\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-serif",
+    "why": "Round 3 tests lens H: the serif token is Georgia",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "--font-serif: Besley, serif;",
+        "replace": "--font-serif: Georgia, serif;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-logical-radius",
+    "why": "Round 3 tests lens I: a logical longhand radius",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n",
+        "replace": ".chip.stuck {\n  border-start-start-radius: 12px;\n}\n.chip.broken.stuck,\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-junk-label",
+    "why": "Round 3 tests lens K: junk in storage gives the toggle no label",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "return t === \"light\" || t === \"dark\" ? t : \"system\";",
+        "replace": "return (t as ThemeChoice) || \"system\";"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
   }
 ]
