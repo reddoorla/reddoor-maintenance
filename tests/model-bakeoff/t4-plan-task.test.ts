@@ -209,6 +209,14 @@ describe("cachedEvaluation", () => {
 
 describe("changedFiles", () => {
   const sh = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, ...a]);
+  // A commit starts `git maintenance run --auto`, which git 2.47+ detaches: its
+  // objects/maintenance.lock can vanish while cpSync walks .git, an ENOENT on CI (#1587's run,
+  // and #1802's for the two tests that copied .git without this).
+  const init = (base: string) => {
+    sh(base, "init", "-q");
+    sh(base, "config", "gc.auto", "0");
+    sh(base, "config", "maintenance.auto", "false");
+  };
 
   it("finds every change against the scorer's own repo, whatever the agent's .git says", () => {
     const dir = mkdtempSync(join(tmpdir(), "t4-scope-"));
@@ -218,11 +226,7 @@ describe("changedFiles", () => {
     writeFileSync(join(base, "src", "a.ts"), "a\n");
     writeFileSync(join(base, "src", "gone.ts"), "g\n");
     writeFileSync(join(base, ".gitignore"), "node_modules\n");
-    sh(base, "init", "-q");
-    // A commit starts `git maintenance run --auto`, which git 2.47+ detaches: its
-    // objects/maintenance.lock can vanish while cpSync walks .git, an ENOENT on CI (#1587's run).
-    sh(base, "config", "gc.auto", "0");
-    sh(base, "config", "maintenance.auto", "false");
+    init(base);
     expect(sh(base, "config", "gc.auto").toString().trim()).toBe("0");
     expect(sh(base, "config", "maintenance.auto").toString().trim()).toBe("false");
     sh(base, "add", "-A");
@@ -248,7 +252,7 @@ describe("changedFiles", () => {
       writeFileSync(join(base, ".gitignore"), "node_modules\nbuild/\n");
       writeFileSync(join(base, "lib", ".gitignore"), "gen.txt\n");
       writeFileSync(join(base, "lib", "a.ts"), "a\n");
-      sh(base, "init", "-q");
+      init(base);
       sh(base, "add", "-A");
       sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
       const tree = join(dir, "tree");
@@ -274,7 +278,7 @@ describe("changedFiles", () => {
       writeFileSync(join(base, f), body);
     }
     for (const [l, to] of Object.entries(links)) symlinkSync(to, join(base, l));
-    sh(base, "init", "-q");
+    init(base);
     sh(base, "add", "-A");
     sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
     const tree = join(dir, "tree");
