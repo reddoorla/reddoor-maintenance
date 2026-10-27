@@ -13,6 +13,12 @@
 // Broken and Attention collectors are registered in the cockpit's list AND the digest's
 // `collectAttention` (only the digest writes digest_state, so an item the digest lacks
 // never ages). Watch collectors are the cockpit's only.
+//
+// Two are built but NOT registered yet: the live form test and smoke. Both pass on
+// known-good sites, but every failure on 2026-10-26 was false (Sonder's cookie
+// dialog #1736, Vida's slow fill #1737, smoke's build-only spec #1777); the operator
+// chose to wire each once its probe is fixed (workspace
+// decisions/2026-10-27-0131-p1-78c-form-and-smoke-wiring.md).
 import type { AttentionItem } from "./attention.js";
 import { siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import type { DepsSite } from "../fleet-daily/types.js";

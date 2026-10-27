@@ -24,7 +24,6 @@ import {
   collectA11yAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
-  collectFormTestAlerts,
   collectFunctionHealthAlerts,
   collectLinkAlerts,
   collectRenderAlerts,
@@ -733,15 +732,15 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     // site's failed deploy stays muted, as on the cockpit.
     ...runCollector("deploy", () => collectDeployAlerts(websites, deps.baseUrl)),
     // P1-78c. The Broken and Attention production signals, as on the cockpit, so
-    // each is mailed and the snapshot ages it. The Watch ones (smoke, dependencies
-    // behind, Search Console) are the cockpit's only: no age needed, no mail.
+    // each is mailed and the snapshot ages it. The Watch ones (dependencies behind,
+    // Search Console) are the cockpit's only: no age needed, no mail. The live form
+    // test is built but not registered until its probe is fixed (fleet-cockpit.ts).
     ...runCollector("uptime", () => collectUptimeAlerts(websites, deps.baseUrl, now)),
     ...runCollector("domain", () => collectDomainAlerts(websites, deps.baseUrl, now)),
     ...runCollector("function-health", () =>
       collectFunctionHealthAlerts(websites, deps.baseUrl, now),
     ),
     ...runCollector("render", () => collectRenderAlerts(websites, deps.baseUrl, now)),
-    ...runCollector("form", () => collectFormTestAlerts(websites, deps.baseUrl, now)),
     ...runCollector("links", () => collectLinkAlerts(websites, deps.baseUrl, now)),
     ...runCollector("titles", () => collectTitleMetaAlerts(websites, deps.baseUrl, now)),
     ...runCollector("a11y", () => collectA11yAlerts(websites, deps.baseUrl, now)),

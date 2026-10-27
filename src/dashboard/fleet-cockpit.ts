@@ -36,12 +36,10 @@ import {
   collectA11yAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
-  collectFormTestAlerts,
   collectFunctionHealthAlerts,
   collectLinkAlerts,
   collectRenderAlerts,
   collectSearchConsoleAlerts,
-  collectSmokeAlerts,
   collectTitleMetaAlerts,
   collectUptimeAlerts,
   type LatestDeps,
@@ -782,19 +780,20 @@ function collectFleetAttentionItems(
     // P1-78b. A maintained site's failed production deploy, as a dated Broken item.
     ...collectDeployAlerts(sites, baseUrl),
     // P1-78c. The production signals the nightly audits store (production-signals.ts).
-    // Broken and Attention are also in the digest's collectAttention; Watch (smoke,
-    // dependencies behind, Search Console) is the cockpit's only.
+    // Broken and Attention are also in the digest's collectAttention; Watch
+    // (dependencies behind, Search Console) is the cockpit's only. The live form test
+    // and smoke are built but NOT registered: every failure on 2026-10-26 was false
+    // (#1736, #1737, #1777), and the operator chose to wire each once its probe is
+    // fixed (workspace decisions/2026-10-27-0131-p1-78c-form-and-smoke-wiring.md).
     ...collectUptimeAlerts(sites, baseUrl, now),
     ...collectDomainAlerts(sites, baseUrl, now),
     ...collectFunctionHealthAlerts(sites, baseUrl, now),
     ...collectRenderAlerts(sites, baseUrl, now),
-    ...collectFormTestAlerts(sites, baseUrl, now),
     ...collectLinkAlerts(sites, baseUrl, now),
     ...collectTitleMetaAlerts(sites, baseUrl, now),
     ...collectA11yAlerts(sites, baseUrl, now),
     ...depsItems.far,
     ...depsItems.behind,
-    ...collectSmokeAlerts(sites, baseUrl, now),
     ...collectSearchConsoleAlerts(sites, baseUrl, now),
   ];
 }

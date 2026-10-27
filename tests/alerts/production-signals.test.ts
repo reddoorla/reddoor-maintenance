@@ -457,7 +457,6 @@ const BROKEN_AND_ATTENTION = [
   "function-health:recS",
   "cms:recS",
   "render:recS",
-  "form:recS",
   "links:recS",
   "titles:recS",
   "a11y:recS",
@@ -483,7 +482,6 @@ describe("registration: Broken and Attention in both lists, Watch in the cockpit
     );
     const onCard = keys(m.cards[0]!.items);
     for (const k of BROKEN_AND_ATTENTION) expect(onCard).toContain(k);
-    expect(onCard).toContain("smoke:recS");
     expect(onCard).toContain("search-console:recS");
     expect(m.cards[0]!.tier).toBe("broken");
   });
@@ -527,6 +525,26 @@ describe("registration: Broken and Attention in both lists, Watch in the cockpit
     expect(k).not.toContain("smoke:recS");
     expect(k).not.toContain("deps:recS");
     expect(k).not.toContain("search-console:recS");
+  });
+});
+
+describe("the form test and smoke are built but not wired (the operator, 2026-10-26)", () => {
+  // Every 10-26 failure of both was false (#1736, #1737, #1777): each is registered
+  // by a one-line follow-up once its probe is fixed.
+  it("neither reaches the cockpit nor the digest", async () => {
+    const m = buildCockpitModel([everything], [], {}, BASE, NOW);
+    const onCard = keys(m.cards[0]!.items);
+    expect(onCard).not.toContain("form:recS");
+    expect(onCard).not.toContain("smoke:recS");
+    const items = await collectAttention({
+      baseUrl: BASE,
+      websites: [everything],
+      reports: [],
+      now: NOW,
+      notifyBounces: new Map(),
+      deadLetters: new Map(),
+    });
+    expect(keys(items)).not.toContain("form:recS");
   });
 });
 

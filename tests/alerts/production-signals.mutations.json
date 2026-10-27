@@ -250,5 +250,41 @@
     ],
     "test": "tests/build/fleet-a11y-workflow.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "d-form-wired",
+    "why": "The operator held the form test unwired; it reaches the cockpit",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectUptimeAlerts(sites, baseUrl, now),\n",
+        "replace": "    ...collectUptimeAlerts(sites, baseUrl, now),\n    ...collectFormTestAlerts(sites, baseUrl, now),\n"
+      },
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  collectFunctionHealthAlerts,\n",
+        "replace": "  collectFunctionHealthAlerts,\n  collectFormTestAlerts,\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "d-smoke-wired",
+    "why": "The operator held smoke unwired; it reaches the cockpit",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectUptimeAlerts(sites, baseUrl, now),\n",
+        "replace": "    ...collectUptimeAlerts(sites, baseUrl, now),\n    ...collectSmokeAlerts(sites, baseUrl, now),\n"
+      },
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "  collectFunctionHealthAlerts,\n",
+        "replace": "  collectFunctionHealthAlerts,\n  collectSmokeAlerts,\n"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
   }
 ]
