@@ -1,10 +1,19 @@
+import { LEVEL_RANK, type Level } from "./ladder.js";
+
 export const DIGEST_HEARTBEAT_DAYS = 7;
 
 export const LIGHTHOUSE_WORSE_POINTS = 5;
 
 export const NOISY_MEMORY_DAYS = 28;
 
-export type SentItem = { metric: number; gone?: string; critical?: boolean; tolerance?: number };
+export type SentItem = {
+  metric: number;
+  gone?: string;
+  critical?: boolean;
+  tolerance?: number;
+  /** P1-78d: the ladder level the key was last mailed at, so a rise is news. */
+  level?: Level;
+};
 
 export type DigestSendLog = {
   sentOn: string | null;
@@ -20,6 +29,8 @@ export type DigestLine = {
   asks?: readonly string[];
   tolerance?: number;
   critical?: boolean;
+  /** P1-78d: the item's ladder level (Broken or Attention; Watch is never mailed). */
+  level?: Level;
 };
 
 export type SendDecision =
@@ -38,7 +49,7 @@ export function ageLabel(days: number | undefined): string {
   return days === 1 ? "1 day" : `${days} days`;
 }
 
-type Flat = { metric: number; tolerance: number; critical: boolean };
+type Flat = { metric: number; tolerance: number; critical: boolean; level?: Level };
 
 export function flattenLines(lines: readonly DigestLine[]): Map<string, Flat> {
   const out = new Map<string, Flat>();
@@ -47,6 +58,7 @@ export function flattenLines(lines: readonly DigestLine[]): Map<string, Flat> {
       metric: l.metric,
       tolerance: l.tolerance ?? 0,
       critical: l.critical ?? false,
+      ...(l.level !== undefined ? { level: l.level } : {}),
     });
     for (const a of l.asks ?? []) {
       out.set(`${l.key}#${a}`, { metric: 1, tolerance: 0, critical: false });
@@ -64,6 +76,16 @@ export function digestChanges(lines: readonly DigestLine[], log: DigestSendLog):
     const was = log.sent[k];
     if (was === undefined) added.push(k);
     else if (f.metric > was.metric + f.tolerance) worse.push(k);
+    // P1-78d: a rise in level is news though the key and its count are unchanged.
+    // No key can rise between two mailed levels on today's ladder (Renovate leaves
+    // Watch, which is never mailed, so it arrives as added); this keeps a future
+    // two-level signal, such as a certificate, from rising silently.
+    else if (
+      f.level !== undefined &&
+      was.level !== undefined &&
+      LEVEL_RANK[f.level] < LEVEL_RANK[was.level]
+    )
+      worse.push(k);
   }
   return { added, worse };
 }
@@ -108,6 +130,17 @@ export function nextSent(
       metric: was ? baseline(was, f, sending) : f.metric,
       ...(f.critical ? { critical: true } : {}),
       ...(f.tolerance > 0 ? { tolerance: f.tolerance } : {}),
+      // The level last MAILED: a skipped night keeps it, as the metric keeps its
+      // mailed baseline, so a dip and return to the same level is not news.
+      ...(sending
+        ? f.level !== undefined
+          ? { level: f.level }
+          : {}
+        : was?.level !== undefined
+          ? { level: was.level }
+          : f.level !== undefined
+            ? { level: f.level }
+            : {}),
     };
   }
   for (const [k, was] of Object.entries(prior)) {
@@ -144,6 +177,9 @@ export function coerceSendLog(raw: unknown): DigestSendLog {
         ...(v.critical === true ? { critical: true } : {}),
         ...(typeof v.tolerance === "number" && Number.isFinite(v.tolerance) && v.tolerance > 0
           ? { tolerance: v.tolerance }
+          : {}),
+        ...(v.level === "broken" || v.level === "attention" || v.level === "watch"
+          ? { level: v.level }
           : {}),
       };
     }
