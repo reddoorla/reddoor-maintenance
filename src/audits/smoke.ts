@@ -28,6 +28,12 @@ export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
  *  genuinely wedged run far inside fleet-smoke.yml's 90-minute step backstop. */
 export const SMOKE_TIMEOUT_MS = 15 * 60_000;
 
+/** Wall-clock budget for the site's `pnpm build`, run before the suite (#1777).
+ *  Separate from {@link SMOKE_TIMEOUT_MS} so a slow build cannot eat the suite's
+ *  budget. gallerysonder's `pnpm build` took 12 s on a 4-core container
+ *  (2026-10-27); 10 minutes only stops a wedged one. */
+export const SMOKE_BUILD_TIMEOUT_MS = 10 * 60_000;
+
 /** Summary prefix for a smoke run that produced no verdict at all.
  *
  *  A timeout is NOT a failing suite — it means the measurement never happened. The
@@ -148,7 +154,7 @@ export function summarizeSmokeFailure(stdout: string, stderr: string): string {
  * marker) is neither: the site may well have a suite, so it is a measurement
  * that broke, never "not applicable" (#1605).
  */
-async function smokeScriptState(sitePath: string): Promise<"yes" | "no" | string> {
+async function smokeScriptState(sitePath: string): Promise<"no" | string | { build: boolean }> {
   let raw: string;
   try {
     raw = await readFile(join(sitePath, "package.json"), "utf-8");
@@ -158,7 +164,9 @@ async function smokeScriptState(sitePath: string): Promise<"yes" | "no" | string
   }
   try {
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return typeof pkg.scripts?.["test:smoke"] === "string" ? "yes" : "no";
+    return typeof pkg.scripts?.["test:smoke"] === "string"
+      ? { build: typeof pkg.scripts.build === "string" }
+      : "no";
   } catch (err) {
     return `package.json unparseable — ${String(err)}`;
   }
@@ -211,7 +219,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       notApplicable: true,
     };
   }
-  if (script !== "yes") {
+  if (typeof script === "string") {
     return { audit: "smoke", site: label, status: "skip", summary: `smoke: ${script}` };
   }
 
@@ -277,6 +285,40 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   } catch {
     // ENOENT (no pnpm) or a spawn failure — the `test:smoke` call below reports
     // the real outcome, including its own ENOENT skip.
+  }
+
+  // The site's own CI builds before it runs this suite, and a spec may read that
+  // build: `slice-simulator.spec`'s "the built client" block skips without one
+  // only when `CI` is unset, and Actions sets it here, so on the 7 sites that
+  // carry it the suite failed every night with "CI must build before the smoke
+  // suite" (#1777). Build the same way, so the suite measures what it measures
+  // in the site's CI. A build that fails or wedges is no verdict on the suite,
+  // and no details means the write-back keeps the prior value; the site's own
+  // CI and Netlify are where a broken build is a finding.
+  if (script.build) {
+    let build;
+    try {
+      build = await spawn("pnpm", ["build"], { cwd: site.path, timeoutMs: SMOKE_BUILD_TIMEOUT_MS });
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+        return { audit: "smoke", site: label, status: "skip", summary: "pnpm not available" };
+      }
+      if (!isSpawnTimeout(err)) throw err;
+      build = null;
+    }
+    if (build === null || build.code !== 0) {
+      const why =
+        build === null
+          ? `exceeded its ${Math.round(SMOKE_BUILD_TIMEOUT_MS / 60_000)}m budget`
+          : `failed (exit ${build.code}) — ${summarizeSmokeFailure(build.stdout, build.stderr)}`;
+      return {
+        audit: "smoke",
+        site: label,
+        status: "fail",
+        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm build\` ${why}; the suite needs the build its CI makes, so it did not run; prior stored value preserved`,
+      };
+    }
   }
 
   // A port taken between the pick and the site's `--strictPort` bind is retried
