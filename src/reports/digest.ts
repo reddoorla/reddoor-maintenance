@@ -21,6 +21,7 @@ import {
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { markWaiting } from "../alerts/waiting.js";
+import { LEVEL_RANK, levelOf, withLevels, type Level } from "../alerts/ladder.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import {
   ageLabel,
@@ -106,23 +107,49 @@ function attentionBadge(status?: AttentionStatus): string {
   return "";
 }
 
+/** An item's level: the one `withLevels` set, or its level with no date. */
+function levelOfItem(it: AttentionItem): Level {
+  return it.level ?? levelOf(it, undefined, new Date(0));
+}
+
+/** P1-78d: worst level first (Broken, then Attention), then by severity; one site's
+ *  items stay together, and a site sorts by its worst item. */
+function rankOf(it: AttentionItem): number {
+  return LEVEL_RANK[levelOfItem(it)] * 10 + SEVERITY_ORDER[it.severity];
+}
+
 export function orderAttention(items: readonly AttentionItem[]): AttentionItem[] {
+  const rank = rankOf;
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of items) {
     const bucket = bySite.get(it.siteName);
     if (bucket) bucket.push(it);
     else bySite.set(it.siteName, [it]);
   }
-  return [...bySite.values()].flatMap((siteItems) =>
-    [...siteItems].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]),
-  );
+  // Stable sorts: on a tie a site keeps its place, and an item its place in its site.
+  return [...bySite.values()]
+    .map((siteItems) => [...siteItems].sort((a, b) => rank(a) - rank(b)))
+    .sort((a, b) => rank(a[0]!) - rank(b[0]!))
+    .flat();
 }
 
+/** P1-78d: Broken, then Attention, each its own section. Watch never reaches the
+ *  email (runDigest drops it after the diff). Nothing in either: one all-clear. */
 function attentionSection(items: AttentionItem[]): string {
-  const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
   if (items.length === 0) {
+    const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">All clear — nothing needs attention.</p>`;
   }
+  const at = (l: Level) => items.filter((it) => levelOfItem(it) === l);
+  return [
+    levelSection("Broken — someone outside Reddoor is affected now", at("broken")),
+    levelSection("Attention — fix this week", at("attention")),
+  ].join("");
+}
+
+function levelSection(title: string, items: AttentionItem[]): string {
+  if (items.length === 0) return "";
+  const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">${esc(title)}</h2>`;
 
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of orderAttention(items)) {
@@ -221,9 +248,19 @@ export function digestSubject(input: {
 }
 
 function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string {
-  const ordered = orderAttention(input.needsAttention);
+  // P1-78d: only a Broken or Attention item is ever named; Watch is never news.
+  const ordered = orderAttention(input.needsAttention.filter((it) => levelOfItem(it) !== "watch"));
   const changed = [...input.changes.added, ...input.changes.worse];
-  const critical = ordered.filter((it) => it.severity === "critical" && touchedBy(it, changed));
+  // A changed Broken item is always an "Act:" (someone outside Reddoor is affected now), and
+  // it is named ahead of a critical Attention item (P1-78d review round 3). The candidates are
+  // ranked on their own: `ordered` keeps a site's items together, so a site whose worst item
+  // is an unchanged Broken one would put its Attention item first (review round 4).
+  const critical = ordered
+    .filter(
+      (it) =>
+        (it.severity === "critical" || levelOfItem(it) === "broken") && touchedBy(it, changed),
+    )
+    .sort((a, b) => rankOf(a) - rankOf(b));
   if (critical.length > 0) {
     const first = critical[0]!;
     const ask = first.ask ? `: ${first.ask}` : "";
@@ -241,6 +278,25 @@ function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string
   const worse = ordered.filter((it) => touchedBy(it, input.changes.worse));
   if (worse.length > 0) return `${worse.length} worse — ${worse[0]!.title}`;
   return input.lastSentOn ? `no change since ${input.lastSentOn}` : "first digest";
+}
+
+/** P1-78d: the badge says what is news in THIS email, against what the last mail
+ *  carried (`changes`, from the send log). Only a standing item is re-badged: a badge
+ *  the snapshot set (NEW after a gap, WORSE) stands. An unread log (none stored, or a
+ *  failed read) says nothing about what was mailed, so every badge stands. A new ask
+ *  under a key (`key#ask`) is news too, as the subject counts it (`touchedBy`). */
+export function badgeFromSendLog(
+  items: readonly AttentionItem[],
+  changes: { added: readonly string[]; worse: readonly string[] },
+  logRead: boolean,
+): AttentionItem[] {
+  return items.map((it): AttentionItem => {
+    if (!logRead) return it;
+    if (it.status !== "standing" && it.status !== undefined) return it;
+    if (touchedBy(it, changes.added)) return { ...it, status: "new" };
+    if (touchedBy(it, changes.worse)) return { ...it, status: "worse" };
+    return it;
+  });
 }
 
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
@@ -779,8 +835,17 @@ export async function runDigest(
     // only the site page shows it. Filter the EMAIL list only: `next` (written below)
     // must keep every waiting key so its `firstFlaggedAt` keeps counting, and so the
     // exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
-    const needsAttention = markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0)
-      .filter((it) => it.waiting !== true)
+    // P1-78d: the ladder. Watch items stay in `next` (their ages live there: a Renovate
+    // PR's 7 days count from it) but leave the email, as waiting items do; only Broken
+    // and Attention are mailed, so a night with only Watch items sends nothing.
+    const needsAttention = withLevels(
+      markWaiting(diffed.tagged, next, today, Object.keys(prior).length > 0).filter(
+        (it) => it.waiting !== true,
+      ),
+      next,
+      today,
+    )
+      .filter((it) => it.level !== "watch")
       .map((it) => {
         const since = next[it.key]?.firstFlaggedAt;
         return since ? { ...it, ageDays: daysBetween(since, dayKey) } : it;
@@ -800,6 +865,7 @@ export async function runDigest(
         ...(it.kind === "lighthouse" ? { tolerance: LIGHTHOUSE_WORSE_POINTS } : {}),
         ...(it.severity === "critical" ? { critical: true } : {}),
         ...(it.askParts ? { asks: it.askParts } : {}),
+        ...(it.level !== undefined ? { level: it.level } : {}),
       })),
     ];
 
@@ -850,14 +916,20 @@ export async function runDigest(
         : await fetchSubmissionsDigestCounts(today);
     const submissions = buildSubmissionsDigestSection(counts, sites);
 
-    const html = renderDigestHtml({ readyForYourYes, needsAttention, submissions });
+    // P1-78d: the badge says what is news in THIS email. An item the last mail did
+    // not carry is NEW, one that rose or grew since is WORSE, though the snapshot,
+    // which also holds the Watch days no mail carried, calls it standing (a Renovate
+    // PR mailed for the first time on its 7th day).
+    const changes = digestChanges(digestLines, sendLog);
+    const badged = badgeFromSendLog(needsAttention, changes, sendLogRead === "ok");
+    const html = renderDigestHtml({ readyForYourYes, needsAttention: badged, submissions });
     const client = options.resend ?? defaultResendClient();
     const to = [operatorEmail()];
     const subject = digestSubject({
       date: digestDateKey(today),
       readyForYourYes,
       needsAttention,
-      changes: digestChanges(digestLines, sendLog),
+      changes,
       lastSentOn: sendLog.sentOn,
     });
     let result: Awaited<ReturnType<typeof client.send>>;
