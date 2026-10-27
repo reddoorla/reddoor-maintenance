@@ -114,9 +114,12 @@ function levelOfItem(it: AttentionItem): Level {
 
 /** P1-78d: worst level first (Broken, then Attention), then by severity; one site's
  *  items stay together, and a site sorts by its worst item. */
+function rankOf(it: AttentionItem): number {
+  return LEVEL_RANK[levelOfItem(it)] * 10 + SEVERITY_ORDER[it.severity];
+}
+
 export function orderAttention(items: readonly AttentionItem[]): AttentionItem[] {
-  const rank = (it: AttentionItem): number =>
-    LEVEL_RANK[levelOfItem(it)] * 10 + SEVERITY_ORDER[it.severity];
+  const rank = rankOf;
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of items) {
     const bucket = bySite.get(it.siteName);
@@ -249,10 +252,15 @@ function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string
   const ordered = orderAttention(input.needsAttention.filter((it) => levelOfItem(it) !== "watch"));
   const changed = [...input.changes.added, ...input.changes.worse];
   // A changed Broken item is always an "Act:" (someone outside Reddoor is affected now), and
-  // `ordered` puts it ahead of a critical Attention item (P1-78d review round 3).
-  const critical = ordered.filter(
-    (it) => (it.severity === "critical" || levelOfItem(it) === "broken") && touchedBy(it, changed),
-  );
+  // it is named ahead of a critical Attention item (P1-78d review round 3). The candidates are
+  // ranked on their own: `ordered` keeps a site's items together, so a site whose worst item
+  // is an unchanged Broken one would put its Attention item first (review round 4).
+  const critical = ordered
+    .filter(
+      (it) =>
+        (it.severity === "critical" || levelOfItem(it) === "broken") && touchedBy(it, changed),
+    )
+    .sort((a, b) => rankOf(a) - rankOf(b));
   if (critical.length > 0) {
     const first = critical[0]!;
     const ask = first.ask ? `: ${first.ask}` : "";

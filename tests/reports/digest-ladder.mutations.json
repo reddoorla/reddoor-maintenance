@@ -180,5 +180,18 @@
     ],
     "test": "tests/reports/digest-ladder.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4-act-from-site-order",
+    "why": "Review round 4: the Act: candidates keep the site-grouped order, so a site with an unchanged Broken item names its Attention item before another site's new Broken one",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    .sort((a, b) => rankOf(a) - rankOf(b));\n",
+        "replace": ";\n"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
   }
 ]

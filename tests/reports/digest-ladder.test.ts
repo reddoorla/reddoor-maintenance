@@ -222,6 +222,41 @@ describe("review round 3 (P1-78d)", () => {
     expect(s).toContain("Act: Beta — latest production deploy error (+1 more)");
   });
 
+  it("a new Broken item takes Act: even when an unchanged Broken item sits beside the new Attention one (round 4)", () => {
+    const standingBroken = item({
+      key: "notify-bounce:a",
+      kind: "notify-bounce",
+      siteName: "Acme",
+      title: "3 lead notifications bounced",
+      severity: "critical",
+      level: "broken",
+    });
+    const vuln = item({
+      key: "vuln:a",
+      kind: "vuln",
+      siteName: "Acme",
+      title: "1 critical vuln",
+      severity: "critical",
+      level: "attention",
+    });
+    const deadletter = item({
+      key: "deadletter:b",
+      kind: "deadletter",
+      siteName: "Beta",
+      title: "1 lead dead-lettered",
+      severity: "critical",
+      level: "broken",
+    });
+    const s = digestSubject({
+      date: "2026-10-08",
+      readyForYourYes: [],
+      needsAttention: [standingBroken, vuln, deadletter],
+      changes: { added: ["vuln:a", "deadletter:b"], worse: [] },
+      lastSentOn: "2026-10-01",
+    });
+    expect(s).toContain("Act: Beta — 1 lead dead-lettered (+1 more)");
+  });
+
   it("an item the last mail carried at a lower count is badged WORSE, though the snapshot calls it standing", async () => {
     const w = world();
     const ci = { "Default Branch CI": "failing" };
