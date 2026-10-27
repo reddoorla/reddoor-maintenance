@@ -235,7 +235,7 @@ measured under the type is a result for the type.
 
 A task may export `agentType` (default `bakeoff-readonly`) and `textOutput: true`. `score` then
 holds every agent of the run, referees included, to that type, and an agent with no schema output
-is scored from the last fenced `json` block of its final message (`finalText` in `runs.json`). This
+is scored from the last fenced `json` block of its last word (`finalText` in `runs.json`): the text of its final turn, or the report a background subagent hands back. An agent whose transcript ends on a tool call has no last word and scores as no output. This
 is for measuring a built-in agent as it is, which the workflow cannot launch: `explore-questions`
 (row 10) runs as the built-in `Explore`. `prompts --run <run>` prints, for each agent, the exact
 prompt, model and effort the workflow would give it (the workflow script itself runs, with its

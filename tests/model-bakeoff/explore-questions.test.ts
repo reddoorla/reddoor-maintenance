@@ -125,7 +125,7 @@ describe("an agent that answers in text", () => {
     expect(textStructured(undefined)).toBeNull();
   });
 
-  it("keeps the text of the last assistant message that has any", () => {
+  it("keeps the text of the agent's last turn, and none when a tool call came after it", () => {
     const line = (o: unknown) => JSON.stringify(o);
     const t = readAgentTranscript(
       [
@@ -137,7 +137,8 @@ describe("an agent that answers in text", () => {
         }),
       ].join("\n"),
     );
-    expect(t.finalText).toBe("final");
+    // The transcript ends on a tool call: the agent was cut off after its text, so nothing is final.
+    expect(t.finalText).toBe("");
   });
 
   it("reads a background agent's report from its hand-back, which is not an outside tool", () => {

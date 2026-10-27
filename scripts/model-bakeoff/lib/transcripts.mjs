@@ -384,8 +384,8 @@ export function readAgentTranscript(text) {
   const otherTools = [];
   const reads = [];
   let prompt = "";
-  // The text of the last assistant message that has any, or the last report handed back: a task
-  // whose agents answer in text (no schema tool, as an Agent-tool subagent) is scored from it.
+  // The agent's last word: the text of its final assistant turn, or the report it handed back. A
+  // task whose agents answer in text (no schema tool, as an Agent-tool subagent) is scored from it.
   let finalText = "";
   for (const line of lines) {
     let o;
@@ -414,6 +414,10 @@ export function readAgentTranscript(text) {
         .map((b) => b.text)
         .join("\n");
       if (text.trim()) finalText = text;
+      // A later tool call means that text was not the agent's last word: an agent cut off after
+      // a draft has no final text, rather than being scored from the draft.
+      else if (m.content.some((b) => b?.type === "tool_use" && b.name !== "SubagentHandback"))
+        finalText = "";
       for (const b of m.content) {
         if (!b || b.type !== "tool_use") continue;
         if (b.name === "StructuredOutput") outputs.push(b);

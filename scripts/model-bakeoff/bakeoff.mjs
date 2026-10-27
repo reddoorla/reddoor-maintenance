@@ -478,7 +478,7 @@ async function score(opts) {
   const agents = withTextOutputs(task, transcripts);
   if (Array.isArray(args.items)) {
     for (const arm of [args.gold, ...args.arms]) {
-      const { record, problems: p } = combineItems(task, args, transcripts, arm);
+      const { record, problems: p } = combineItems(task, args, agents, arm);
       problems.push(...p);
       if (p.length) invalid.add(arm.id);
       if (record) agents[arm.id] = record;
@@ -737,7 +737,7 @@ export async function launches(args, source, task) {
 }
 
 export const RULINGS_IN_TEXT =
-  'End your final message with one fenced ```json block, and nothing after it, holding exactly {"rulings": [{"id": "<id>", "armCorrect": true or false, "refCorrect": true or false, "note": "<note>"}, …]}.';
+  'The TASK\'s answer format above is the participants\', not yours. End your final message with one fenced ```json block, and nothing after it, holding exactly {"rulings": [{"id": "<id>", "armCorrect": true or false, "refCorrect": true or false, "note": "<note>"}, …]}.';
 
 // prompts: what to launch by hand, for a task whose agents cannot run in the workflow. `--referee`
 // reads the referee args score wrote instead of the run's workflow args.
