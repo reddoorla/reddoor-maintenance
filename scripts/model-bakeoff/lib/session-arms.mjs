@@ -89,7 +89,7 @@ export function redirectTargets(command) {
     keep(m[2]);
   // tee writes every file it is given: each word after it up to the end of the command.
   for (const m of bare.matchAll(/\btee\b([^;|&<>()\n]*)/g))
-    for (const w of m[1].trim().split(/\s+/)) if (w && !w.startsWith("-") && w !== "Q") keep(w);
+    for (const w of m[1].trim().split(/\s+/)) if (w && !w.startsWith("-")) keep(w);
   return out;
 }
 
