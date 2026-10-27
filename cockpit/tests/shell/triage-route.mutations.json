@@ -1,0 +1,155 @@
+[
+  {
+    "id": "1-nav-drops-triage",
+    "why": "The nav drops Triage",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/nav.ts",
+        "find": "  { href: \"/triage\", label: \"Triage\", match: (p) => p === \"/triage\" || p === \"/\" },\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "cockpit/tests/shell/shell.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "2a-digest-collectors-fallback",
+    "why": "A digest fallback link still points at / (digest-collectors dashboardUrl)",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "return slug ? `${root}/s/${slug}` : `${root}${COCKPIT_HOME}`;",
+        "replace": "return slug ? `${root}/s/${slug}` : `${root}/`;"
+      }
+    ],
+    "test": "tests/alerts/digest-collectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-url-probe-stale-fallback",
+    "why": "A digest fallback link still points at / (the url-probe-stale item)",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "url: `${baseUrl.replace(/\\/$/, \"\")}${COCKPIT_HOME}`,",
+        "replace": "url: `${baseUrl.replace(/\\/$/, \"\")}/`,"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/alerts/url-resolve-alerts.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "2c-production-signals-fallback",
+    "why": "A digest fallback link still points at / (production signals)",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "return slug ? `${root}/s/${slug}` : `${root}${COCKPIT_HOME}`;",
+        "replace": "return slug ? `${root}/s/${slug}` : `${root}/`;"
+      }
+    ],
+    "test": "tests/alerts/prismic-drift-alerts.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2d-ready-section-fallback",
+    "why": "A digest fallback link still points at / (the ready section)",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${COCKPIT_HOME}`,",
+        "replace": "dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}/`,"
+      }
+    ],
+    "test": "tests/reports/digest-run.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-redirect-permanent",
+    "why": "The / redirect is permanent (308) instead of temporary",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.ts",
+        "find": "redirect(307, `${COCKPIT_HOME}${url.search}`);",
+        "replace": "redirect(308, `${COCKPIT_HOME}${url.search}`);"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "3b-redirect-301",
+    "why": "The / redirect is permanent (301) instead of temporary",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.ts",
+        "find": "redirect(307, `${COCKPIT_HOME}${url.search}`);",
+        "replace": "redirect(301, `${COCKPIT_HOME}${url.search}`);"
+      }
+    ],
+    "test": "cockpit/tests/shell/triage-route.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-triage-loops",
+    "why": "/triage redirects to itself (a loop)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/triage/+page.ts",
+        "find": "import type { PageLoad } from \"./$types\";\n",
+        "replace": "import type { PageLoad } from \"./$types\";\nimport { redirect } from \"@sveltejs/kit\";\n"
+      },
+      {
+        "file": "cockpit/src/routes/triage/+page.ts",
+        "find": "  fromSnapshot(\"home\", parent,",
+        "replace": "  redirect(307, \"/triage\") ?? fromSnapshot(\"home\", parent,"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "5-sign-in-default-root",
+    "why": "The sign-in return path still defaults to /",
+    "edits": [
+      {
+        "file": "src/dashboard/auth/oauth-state.ts",
+        "find": "  if (!raw) return COCKPIT_HOME;",
+        "replace": "  if (!raw) return \"/\";"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/dashboard/auth/oauth-state.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "5b-hostile-return-root",
+    "why": "A hostile sign-in return path still falls back to /",
+    "edits": [
+      {
+        "file": "src/dashboard/auth/oauth-state.ts",
+        "find": "  if (!value.startsWith(\"/\")) return COCKPIT_HOME;",
+        "replace": "  if (!value.startsWith(\"/\")) return \"/\";"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/dashboard/auth/oauth-state.test.ts"
+    ],
+    "expect": "red"
+  }
+]
