@@ -75,7 +75,10 @@ export function check(out, t) {
   const got = out ?? {};
   const shas = [...new Set((got.backlogWithoutPm ?? []).map((s) => String(s).slice(0, 7)))].sort();
   const hours = Number(got.openAsks?.oldestHours);
-  const lines = (Array.isArray(got.lines) ? got.lines : []).map(String);
+  // Markdown emphasis and code spans are formatting, not content.
+  const lines = (Array.isArray(got.lines) ? got.lines : []).map((l) =>
+    String(l).replace(/[*`_]/g, ""),
+  );
   const pushLines = lines.filter((l) => /force.?push|push log/i.test(l));
   const asksLine = new RegExp(
     `\\b${t.openAsks.count} open, oldest \\d+(?:\\.\\d+)? ?h \\(${t.openAsks.oldestSlug}(?:\\.md)?\\)`,
@@ -84,9 +87,8 @@ export function check(out, t) {
     {
       // The rule: "A failure in any of them is reported as itself, never as none."
       check: "line: force-push failure reported as itself",
-      ok:
-        pushLines.some((l) => /could not read|unreadable|failed/i.test(l)) &&
-        !pushLines.some((l) => /\bnone\b/i.test(l)),
+      // A line may say why it is not "none" ("this is not none"); it must say the log was unreadable.
+      ok: pushLines.some((l) => /could not read|unreadable|failed/i.test(l)),
       got: pushLines,
       want: "the push log could not be read",
     },

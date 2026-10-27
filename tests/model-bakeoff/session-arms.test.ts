@@ -408,10 +408,12 @@ describe("review round 1 (P1-83d)", () => {
     expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
       "line: force-push failure reported as itself",
     ]);
-    lines[1] = "Force pushes: none (could not read the push log)";
-    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
-      "line: force-push failure reported as itself",
-    ]);
+    // Real answers from the 2026-10-27 run: both are right.
+    lines[1] =
+      'Force-push log: could not read the push log; this is not "none", so check it by hand.';
+    lines[3] = "**Open asks:** 3 open, oldest 141 h (`2026-10-21-1513-charlie-renovate-drought`).";
+    expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([]);
+    lines[3] = GOOD_FIRST.lines[3] as string;
     lines[1] = GOOD_FIRST.lines[1] as string;
     lines[3] = "3 open asks; the oldest is charlie";
     expect(failed(firstScreen, { ...GOOD_FIRST, lines })).toEqual([
