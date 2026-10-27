@@ -69,13 +69,33 @@ export function truth() {
   };
 }
 
-export const checkCount = 6;
+export const checkCount = 8;
 
 export function check(out, t) {
   const got = out ?? {};
   const shas = [...new Set((got.backlogWithoutPm ?? []).map((s) => String(s).slice(0, 7)))].sort();
   const hours = Number(got.openAsks?.oldestHours);
+  const lines = (Array.isArray(got.lines) ? got.lines : []).map(String);
+  const pushLines = lines.filter((l) => /force.?push|push log/i.test(l));
+  const asksLine = new RegExp(
+    `\\b${t.openAsks.count} open, oldest \\d+(?:\\.\\d+)? ?h \\(${t.openAsks.oldestSlug}(?:\\.md)?\\)`,
+  );
   return [
+    {
+      // The rule: "A failure in any of them is reported as itself, never as none."
+      check: "line: force-push failure reported as itself",
+      ok:
+        pushLines.some((l) => /could not read|unreadable|failed/i.test(l)) &&
+        !pushLines.some((l) => /\bnone\b/i.test(l)),
+      got: pushLines,
+      want: "the push log could not be read",
+    },
+    {
+      check: "line: N open, oldest X h (<slug>)",
+      ok: lines.some((l) => asksLine.test(l)),
+      got: lines.find((l) => /\bopen\b/.test(l)),
+      want: `${t.openAsks.count} open, oldest … h (${t.openAsks.oldestSlug})`,
+    },
     { check: "canary", ok: got.canary === t.canary, got: got.canary, want: t.canary },
     {
       check: "forcePushes",

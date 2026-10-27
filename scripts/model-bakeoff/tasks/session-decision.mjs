@@ -3,6 +3,9 @@
 // The facts are synthetic. Traps: times are given in UTC and must read as PT in prose, a
 // reproduced defect is still open so "land as is" may not be the pick, and the Usage line's
 // figures must be copied, not rounded away.
+import { basename } from "node:path";
+import { parseDecision } from "../../decisions.mjs";
+
 export const id = "session-decision";
 export const title = "Decision file and journal entry from frozen facts";
 
@@ -64,14 +67,20 @@ const refsOf = (v) =>
     .filter(Boolean)
     .sort();
 // A time in UTC written for a reader: `16:05Z`, `T16:05Z` or `16:05 UTC`.
+// A PT time for 16:05Z: 9:05am PT, 09:05 a.m. PDT.
+const PT_0905 = /(?<!\d)0?9:05\s*a\.?m\.?\s*P[DS]?T\b/i;
 const Z_TIME = /(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?\s*(?:Z\b|UTC\b)/;
 const BARE_REF = /(^|[^\w/.-])#\d{2,}\b/m;
-// The first option a Pick section names: "(b)", "option c", "pick b".
+// The option a Pick section chooses: the first "(b)", "option c" or a leading "B," that is not
+// negated ("not (a)", "rather than (a)").
 const firstOption = (text) => {
-  const m = String(text).match(/\(([abc])\)|\b(?:option|pick)\s+\(?([abc])\b/i);
-  return m ? (m[1] ?? m[2]).toLowerCase() : null;
+  const t = String(text).replace(
+    /\b(?:not|rather than|over|instead of)\s+(?:option\s+)?\(?[abc]\)?/gi,
+    "",
+  );
+  const m = t.match(/\(([abc])\)|\boption\s+\(?([abc])\b|^\W*([abc])\b[),.:]/im);
+  return m ? (m[1] ?? m[2] ?? m[3]).toLowerCase() : null;
 };
-const digits = (s) => String(s).replace(/[,\s]/g, "");
 
 export function check(out, f) {
   const d = out?.decision ?? {};
@@ -80,7 +89,9 @@ export function check(out, f) {
   const jText = String(j.text ?? "");
   const fm = frontMatter(dText);
   const body = fm?.body ?? "";
-  const firstLine = body.split("\n").find((l) => l.trim()) ?? "";
+  // The repository's own checker, so the scorer and `decisions.mjs check` cannot disagree.
+  const parsed = parseDecision(basename(String(d.filename ?? "decision.md")), dText);
+  const firstLine = parsed.ask ?? "";
   const pickSection = (body.match(/## Pick\n([\s\S]*?)(\n## |$)/) ?? [])[1] ?? "";
   const usageLine =
     jText
@@ -88,10 +99,18 @@ export function check(out, f) {
       .filter((l) => l.trim())
       .at(-1) ?? "";
   const u = f.usage;
+  // The rule's order: cost, input/output tokens, cache read/write, rate limit. The cost may be
+  // rounded to the cent, never to another figure.
+  const um = usageLine
+    .replace(/(\d),(?=\d{3}(?!\d))/g, "$1")
+    .match(
+      /^\s*Usage:\s*\$(\d+(?:\.\d+)?),?\s+(\d+)\s*\/\s*(\d+)\s+tokens,?\s+(\d+)\s*\/\s*(\d+)\s+cache/,
+    );
   const usageOk =
-    /^\s*Usage:/.test(usageLine) &&
-    digits(usageLine).includes(`$${u.cost.slice(0, 4)}`) &&
-    [u.input, u.output, u.cacheRead, u.cacheWrite].every((n) => digits(usageLine).includes(n)) &&
+    !!um &&
+    Math.abs(Number(um[1]) - Number(u.cost)) < 0.005 &&
+    [um[2], um[3], um[4], um[5]].join("/") ===
+      [u.input, u.output, u.cacheRead, u.cacheWrite].join("/") &&
     usageLine.includes(u.rateLimit);
   const asked = f.asked.replace(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}).*/, "$1-$2-$3-$4$5");
   const c = (check, ok, got, want) => ({ check, ok: !!ok, got, want });
@@ -103,15 +122,26 @@ export function check(out, f) {
       `decisions/${asked}-<slug>.md`,
     ),
     c("front matter status open", fm?.fields.status === "open", fm?.fields.status, "open"),
-    c("front matter asked", fm?.fields.asked === f.asked, fm?.fields.asked, f.asked),
+    c(
+      "front matter asked",
+      Date.parse(fm?.fields.asked ?? "") === Date.parse(f.asked),
+      fm?.fields.asked,
+      f.asked,
+    ),
     c("front matter from", fm?.fields.from === f.session, fm?.fields.from, f.session),
     c(
       "front matter refs",
-      JSON.stringify(refsOf(fm?.fields.refs)) === JSON.stringify([...f.refs].sort()),
+      refsOf(fm?.fields.refs).includes(f.refs[0]) &&
+        refsOf(fm?.fields.refs).every((r) => f.refs.includes(r)),
       fm?.fields.refs,
       f.refs,
     ),
-    c("first line is the ask", /\?\s*$/.test(firstLine), firstLine, "one line ending in ?"),
+    c(
+      "decisions.mjs parses it; the ask is a question",
+      parsed.errors.length === 0 && /\?\s*$/.test(firstLine),
+      parsed.errors.length ? parsed.errors : firstLine,
+      "no errors, an ask ending in ?",
+    ),
     c("has ## Answer", /^## Answer\s*$/m.test(body), null, "## Answer"),
     c(
       // CLAUDE.md: a pick may not be "land as is" while a reproduced defect is unfixed.
@@ -122,7 +152,7 @@ export function check(out, f) {
     ),
     c(
       "round 5 time in PT",
-      /\b9:05\s*a\.?m\.?\s*PT\b/i.test(dText),
+      PT_0905.test(dText),
       (dText.match(/\d{1,2}:\d{2}\s*[ap]\.?m\.?\s*\w*/i) ?? [null])[0],
       "9:05am PT",
     ),

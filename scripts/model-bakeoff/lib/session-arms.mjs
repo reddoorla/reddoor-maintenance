@@ -4,7 +4,7 @@
 // with `create_session` and a `model`, so each arm is one child session, and everything about it
 // is read back from the remote-sessions MCP results this session's transcript already holds.
 import { forbiddenCommand, textStructured } from "./transcripts.mjs";
-import { cmpTime, sessionUsage } from "./usage.mjs";
+import { cmpTime, historyComplete, sessionUsage } from "./usage.mjs";
 
 export const MODEL_IDS = Object.freeze({
   sonnet: "claude-sonnet-5-5",
@@ -12,14 +12,15 @@ export const MODEL_IDS = Object.freeze({
   haiku: "claude-haiku-5-5",
 });
 
-export function sessionMarker(task, arm) {
-  return `(BAKEOFF-SESSION: ${task}/${arm})`;
+// `run` tells one run of a task from another under the same transcript root.
+export function sessionMarker(task, arm, run = "") {
+  return `(BAKEOFF-SESSION: ${task}/${arm}${run ? ` run=${run}` : ""})`;
 }
 
-const MARKER = /\(BAKEOFF-SESSION: ([\w-]+)\/([\w-]+)\)\s*$/;
+const MARKER = /\(BAKEOFF-SESSION: ([\w-]+)\/([\w-]+)(?: run=([\w-]+))?\)\s*$/;
 
 /** What every arm is told around its task, so the arms differ only in their model. */
-export function armPrompt(task, arm) {
+export function armPrompt(task, arm, run = "") {
   return [
     "This session is one arm of a measured bake-off (P1-83d): the same task goes to several sessions, and the answer is scored. Work as you normally would in this repository, reading any file you need, with these limits:",
     "- Make no commits, pushes, posts, issue or PR comments, decision files or other writes outside your scratchpad. Attach no repository and start no other session.",
@@ -28,21 +29,35 @@ export function armPrompt(task, arm) {
     "",
     task.prompt(),
     "",
-    sessionMarker(task.id, arm.id),
+    sessionMarker(task.id, arm.id, run),
   ].join("\n");
 }
 
 /** Each child session this run started: `task/arm` → its id and the model it asked for. */
-export function children(calls, taskId) {
+export function children(calls, taskId, run = "") {
   const out = new Map();
   for (const c of calls) {
     if (c.tool !== "create_session" || !c.payload?.id) continue;
     const m = String(c.input?.prompt ?? "").match(MARKER);
-    if (!m || m[1] !== taskId) continue;
+    if (!m || m[1] !== taskId || (m[3] ?? "") !== run) continue;
     const key = `${m[1]}/${m[2]}`;
     if (out.has(key)) throw new Error(`two sessions carry the marker ${key}`);
     out.set(key, { arm: m[2], sessionId: c.payload.id, askedModel: c.input.model ?? null });
   }
+  return out;
+}
+
+// An MCP tool that acts outside the container: posts, sends, creates, changes or deletes.
+const MCP_WRITE =
+  /^mcp__.*__(?:.*_)?(?:add|archive|copy|create|delete|fire|forward|label|merge|move|post|push|register|reply|request|resolve|run|send|set|share|submit|subscribe|trash|unarchive|update|upload|write)(?:_|$)/;
+
+/** The files a Bash command redirects into (`>`, `>>`, `tee`), `/dev/null` and fds aside. */
+export function redirectTargets(command) {
+  const out = [];
+  for (const m of String(command).matchAll(/(?<![<>&\d])\d?>>?(?!&)\s*(["']?)([^\s"';|&<>()]+)\1/g))
+    if (m[2] !== "/dev/null") out.push(m[2]);
+  for (const m of String(command).matchAll(/\btee\s+(?:-a\s+)?(["']?)([^\s"';|&<>()]+)\1/g))
+    out.push(m[2]);
   return out;
 }
 
@@ -57,10 +72,12 @@ const message = (ev) => ev?.assistant?.internal_anthropic_catchall?.message ?? n
  */
 export function childRecord(sessionId, calls) {
   const events = new Map();
+  const pages = [];
   let newest = null;
   for (const c of calls) {
     if (c.payload?.error) continue;
     if (c.tool === "list_events" && c.input?.session_id === sessionId) {
+      pages.push(c);
       for (const ev of c.payload?.data ?? []) {
         const inner = Object.values(ev).find((v) => v && typeof v === "object");
         events.set(inner?.uuid ?? `${ev.created_at}:${events.size}`, ev);
@@ -79,21 +96,26 @@ export function childRecord(sessionId, calls) {
   const models = [...new Set(results.flatMap((ev) => Object.keys(body(ev)?.modelUsage ?? {})))];
   const bash = [];
   const writes = [];
+  const outward = [];
   const servedBy = new Set();
   for (const ev of all) {
     const m = message(ev);
     if (!m || ev.assistant?.internal_anthropic_catchall?.parent_tool_use_id) continue;
-    if (m.model) servedBy.add(m.model);
+    // An API error or an interrupt writes a `<synthetic>` message; no model served it.
+    if (m.model && m.model !== "<synthetic>") servedBy.add(m.model);
     for (const b of m.content ?? []) {
       if (b?.type !== "tool_use") continue;
       if (b.name === "Bash" && b.input?.command) bash.push(b.input.command);
       if (["Write", "Edit", "NotebookEdit"].includes(b.name))
         writes.push(b.input?.file_path ?? b.input?.notebook_path ?? "");
+      if (b.name === "Bash") writes.push(...redirectTargets(b.input?.command ?? ""));
+      if (MCP_WRITE.test(b.name ?? "")) outward.push(b.name);
     }
   }
   const finalText = results.length ? String(body(results.at(-1)).result ?? "") : "";
   return {
     sessionId,
+    complete: historyComplete(pages),
     configuredModel: newest?.configured_model ?? newest?.session_context?.model ?? null,
     lastServedModel: newest?.external_metadata?.last_served_model ?? null,
     mainModels: [...servedBy].sort(),
@@ -104,6 +126,7 @@ export function childRecord(sessionId, calls) {
     bash,
     forbidden: bash.filter((cmd) => forbiddenCommand(cmd)),
     writes,
+    outward,
     finalText,
     output: textStructured(finalText),
   };
@@ -120,11 +143,16 @@ export function verifyChild(arm, rec, { scratch = /^\/tmp\// } = {}) {
     problems.push(`${label}: last served by ${rec.lastServedModel ?? "unknown"}, asked ${want}`);
   if (rec.mainModels.some((m) => m !== want))
     problems.push(`${label}: main thread ran ${rec.mainModels.join(", ")}, asked ${want}`);
+  if (!rec.complete)
+    problems.push(
+      `${label}: its history was not read to the end (list_events from the newest page back to has_more false, with no kinds filter)`,
+    );
   if (!rec.results) problems.push(`${label}: no result event read`);
   if (!rec.output) problems.push(`${label}: no json block in its last result`);
   if (rec.forbidden.length) problems.push(`${label}: ran ${rec.forbidden.join(" ;; ")}`);
   const outside = rec.writes.filter((p) => !scratch.test(p));
   if (outside.length) problems.push(`${label}: wrote ${outside.join(", ")}`);
+  if (rec.outward.length) problems.push(`${label}: called ${rec.outward.join(", ")}`);
   return problems;
 }
 

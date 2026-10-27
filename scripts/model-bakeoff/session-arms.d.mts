@@ -2,6 +2,7 @@ import type { Call, Check, ChildRecord, SessionArm, SessionTask } from "./lib/se
 export function scoreTask(
   task: SessionTask,
   calls: Call[],
+  run?: string,
 ): {
   task: string;
   truth: unknown;

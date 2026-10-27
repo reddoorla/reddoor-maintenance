@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Main-thread arms, one cloud session each (P1-83d; lib/session-arms.mjs says why).
 //
-//   node scripts/model-bakeoff/session-arms.mjs prompts --task <id>
-//   node scripts/model-bakeoff/session-arms.mjs score   --task <id> [--root <dir>] [--json <file>]
+//   node scripts/model-bakeoff/session-arms.mjs prompts --task <id> [--run <tag>]
+//   node scripts/model-bakeoff/session-arms.mjs score   --task <id> [--run <tag>] [--root <dir>] [--json <file>]
 //
 // `prompts` prints each arm's create_session input. Start each with the remote-sessions
 // `create_session` tool, read it back with `list_events` (every page, no `kinds`) and
@@ -25,6 +25,8 @@ import * as cockpit from "./tasks/session-cockpit.mjs";
 import * as decision from "./tasks/session-decision.mjs";
 import * as firstScreen from "./tasks/session-first-screen.mjs";
 
+const WORKSPACE = "https://github.com/reddoorla/reddoor-workspace";
+
 const TASKS = Object.fromEntries([decision, firstScreen, cockpit].map((t) => [t.id, t]));
 
 function loadTask(id) {
@@ -33,8 +35,8 @@ function loadTask(id) {
   return task;
 }
 
-export function scoreTask(task, calls) {
-  const kids = children(calls, task.id);
+export function scoreTask(task, calls, run = "") {
+  const kids = children(calls, task.id, run);
   const truth = task.truth();
   const rows = task.arms.map((arm) => {
     const kid = kids.get(`${task.id}/${arm.id}`);
@@ -55,6 +57,7 @@ function main(argv) {
     args: rest,
     options: {
       task: { type: "string" },
+      run: { type: "string", default: "" },
       root: { type: "string", default: join(homedir(), ".claude", "projects") },
       json: { type: "string" },
     },
@@ -65,13 +68,15 @@ function main(argv) {
       arm: arm.id,
       model: MODEL_IDS[arm.model] ?? arm.model,
       title: `P1-83d bake-off: ${task.id}/${arm.id} (archive me)`,
-      prompt: armPrompt(task, arm),
+      source_url: WORKSPACE,
+      permission_mode: "auto",
+      prompt: armPrompt(task, arm, values.run),
     }));
     console.log(JSON.stringify(out, null, 2));
     return 0;
   }
   if (cmd !== "score") throw new Error("usage: session-arms.mjs prompts|score --task <id>");
-  const result = scoreTask(task, mcpCalls(values.root));
+  const result = scoreTask(task, mcpCalls(values.root), values.run);
   if (values.json) writeFileSync(values.json, JSON.stringify(result, null, 2) + "\n");
   console.log(`| Arm | Score | Cost | Turns | Models | Session |`);
   console.log(`|---|---|---|---|---|---|`);

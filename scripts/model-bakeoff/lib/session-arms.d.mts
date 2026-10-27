@@ -26,6 +26,7 @@ export interface Call {
 }
 export interface ChildRecord {
   sessionId: string;
+  complete: boolean;
   configuredModel: string | null;
   lastServedModel: string | null;
   mainModels: string[];
@@ -36,15 +37,22 @@ export interface ChildRecord {
   bash: string[];
   forbidden: string[];
   writes: string[];
+  outward: string[];
   finalText: string;
   output: Record<string, unknown> | null;
 }
 export const MODEL_IDS: Readonly<Record<string, string>>;
-export function sessionMarker(task: string, arm: string): string;
-export function armPrompt(task: Pick<SessionTask, "id" | "prompt">, arm: SessionArm): string;
+export function sessionMarker(task: string, arm: string, run?: string): string;
+export function redirectTargets(command: string): string[];
+export function armPrompt(
+  task: Pick<SessionTask, "id" | "prompt">,
+  arm: SessionArm,
+  run?: string,
+): string;
 export function children(
   calls: Call[],
   taskId: string,
+  run?: string,
 ): Map<string, { arm: string; sessionId: string; askedModel: string | null }>;
 export function childRecord(sessionId: string, calls: Call[]): ChildRecord;
 export function verifyChild(
