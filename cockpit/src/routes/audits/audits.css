@@ -9,7 +9,6 @@ h2 {
   display: inline-block;
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
-  text-decoration: none;
 }
 .meta {
   color: var(--ink-muted);

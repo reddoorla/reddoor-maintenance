@@ -24,6 +24,10 @@
   color: var(--on-ink);
   border-color: var(--ink);
 }
+/* A linked badge underlines on hover: ink links are marked by their underline. */
+a.metric.deploy:hover {
+  text-decoration: underline;
+}
 .metric.deploy {
   font-size: 0.78rem;
   padding: 0.05rem 0.4rem;

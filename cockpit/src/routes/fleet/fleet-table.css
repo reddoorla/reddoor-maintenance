@@ -59,9 +59,6 @@ table.fleet td {
   border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
-table.fleet th a {
-  text-decoration: none;
-}
 table.fleet td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;

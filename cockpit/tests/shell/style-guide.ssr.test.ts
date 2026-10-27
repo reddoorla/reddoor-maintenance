@@ -818,6 +818,25 @@ describe("layout and weight the round-2 review pinned", () => {
     expect(toggle).toMatch(/border:\s*1px solid var\(--control-border\)/);
   });
 
+  // Round 6: links are ink, marked only by their underline, so a rule that drops
+  // it left the Sites table's sort headers indistinguishable from plain headers.
+  // Only something drawn as a control or badge (with a border) may drop it.
+  it("a link keeps its underline unless it is drawn as a control", () => {
+    const offenders = PAGE_SHEETS.flatMap((p) => {
+      const sheet = rules(read(p));
+      const hoverUnderlines = (sel: string) =>
+        sheet.some(
+          ([h, b]) => h === `a${sel}:hover` && /text-decoration(-line)?\s*:\s*underline/.test(b),
+        );
+      return sheet
+        .filter(([, b]) => /text-decoration(-line)?\s*:\s*none/.test(b))
+        .filter(([, b]) => !/(^|;|\s)border(-[a-z]+)?\s*:\s*(?!0|none)/.test(b))
+        .filter(([sel]) => !hoverUnderlines(sel))
+        .map(([sel]) => `${rel(p)}: ${sel}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
   it("placeholders are the muted ink at full strength", () => {
     const base = stripComments(read(join(SRC, "lib/base.css")));
     const ph = blockAfter(base, "::placeholder {");
