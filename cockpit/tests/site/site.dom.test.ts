@@ -221,7 +221,7 @@ describe("Send anyway… (override)", () => {
         body: JSON.stringify({ reason: "client asked" }),
       },
     });
-    expect($(".override-status").textContent).toBe("Overridden ✓");
+    expect($(".override-status").textContent).toBe("Overridden");
     expect($<HTMLInputElement>("input.override-reason").disabled).toBe(true);
     expect($$("button.approve").map((b) => b.textContent)).toEqual(["Overridden", "Overridden"]);
     expect($<HTMLButtonElement>("button.withdraw").disabled).toBe(true);
@@ -372,7 +372,7 @@ describe("refresh preview and Trigger Renovate", () => {
     expect($("button.rerender").textContent).toBe("Refreshing…");
     await settle();
     expect(lastCall()).toEqual({ url: "/api/reports/rp/rerender", init: { method: "POST" } });
-    expect($("button.rerender").textContent).toBe("Queued ✓ reload in ~2 min");
+    expect($("button.rerender").textContent).toBe("Queued, reload in ~2 min");
     expect($<HTMLButtonElement>("button.rerender").disabled).toBe(true);
   });
 
@@ -395,7 +395,7 @@ describe("refresh preview and Trigger Renovate", () => {
       url: "/api/sites/acme-co/trigger-renovate",
       init: { method: "POST" },
     });
-    expect($("button.trigger-renovate").textContent).toBe("Dispatched ✓");
+    expect($("button.trigger-renovate").textContent).toBe("Dispatched");
     expect($<HTMLButtonElement>("button.trigger-renovate").disabled).toBe(true);
     if (app) unmount(app);
     target.innerHTML = "";
@@ -437,7 +437,7 @@ describe("site details editor", () => {
       headers: { "content-type": "application/json" },
     });
     expect(body()).toEqual({ field: "maintenanceFreq", value: "Yearly" });
-    expect(saved("maintenanceFreq")).toBe(" ✓");
+    expect(saved("maintenanceFreq")).toBe(" saved");
   });
 
   it("a checkbox posts its checked state, never its 'on' value", async () => {
@@ -481,11 +481,11 @@ describe("site details editor", () => {
     fire(i, "blur");
     await settle();
     expect(body()).toEqual({ field: "gitRepo", value: "reddoorla/other" });
-    expect(saved("gitRepo")).toBe(" ✗");
+    expect(saved("gitRepo")).toBe(" failed");
     fire(i, "blur");
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(saved("gitRepo")).toBe(" ✓");
+    expect(saved("gitRepo")).toBe(" saved");
     fire(i, "blur");
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -562,7 +562,7 @@ describe("site details editor", () => {
     s.value = "None";
     fire(s, "change");
     await settle();
-    expect(saved("testingFreq")).toBe(" ✗");
+    expect(saved("testingFreq")).toBe(" failed");
   });
 });
 
@@ -589,7 +589,7 @@ describe("commentary", () => {
         body: JSON.stringify({ text: "new words" }),
       },
     });
-    expect($('.commentary-saved[data-for="rp"]').textContent).toBe(" ✓");
+    expect($('.commentary-saved[data-for="rp"]').textContent).toBe(" saved");
     blur(t);
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -612,12 +612,12 @@ describe("commentary", () => {
     fetchMock.mockResolvedValueOnce(new Response("", { status: 409 }));
     blur(t);
     await settle();
-    expect($('.commentary-saved[data-for="ra"]').textContent).toBe(" ✗");
+    expect($('.commentary-saved[data-for="ra"]').textContent).toBe(" failed");
     fetchMock.mockRejectedValueOnce(new Error("x"));
     blur(t);
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect($('.commentary-saved[data-for="ra"]').textContent).toBe(" ✗");
+    expect($('.commentary-saved[data-for="ra"]').textContent).toBe(" failed");
   });
 });
 
@@ -637,7 +637,7 @@ describe("submission status", () => {
         body: JSON.stringify({ status: "read" }),
       },
     });
-    expect(b.textContent).toBe("✓");
+    expect(b.textContent).toBe("Done");
     expect(b.disabled).toBe(true);
   });
 

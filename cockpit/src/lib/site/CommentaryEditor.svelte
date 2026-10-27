@@ -22,11 +22,11 @@
       body: JSON.stringify({ text: t.value }),
     })
       .then((r) => {
-        mark = r.ok ? " ✓" : " ✗";
+        mark = r.ok ? " saved" : " failed";
         if (r.ok) saved = t.value;
       })
       .catch(() => {
-        mark = " ✗";
+        mark = " failed";
       });
   }
 </script>

@@ -1348,7 +1348,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow(), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ✓");
+    expect(html).toContain("preflight: clear");
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 
@@ -1356,7 +1356,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow({ pointOfContact: null }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ✗");
+    expect(html).toMatch(/preflight: \d+ failing/);
     expect(html).toContain("recipients-missing");
     expect(html).toMatch(/<button class="approve"[^>]*data-send-blocked="1"[^>]*disabled/);
   });
@@ -1373,7 +1373,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const html = renderSiteDashboardHtml(siteRow({ pointOfContact: "tucker@reddoorla.com" }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
-    expect(html).toContain("preflight ⚠");
+    expect(html).toMatch(/preflight: \d+ warnings?/);
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 

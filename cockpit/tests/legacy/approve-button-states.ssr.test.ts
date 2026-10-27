@@ -17,13 +17,15 @@ function styles(): string {
 }
 
 describe("approve button — approved state", () => {
-  it("renders a darker green than the idle button", () => {
+  // P1-78e: the style guide has no green, and state is never colour alone, so the
+  // approved state is an outline in bold where idle is an ink fill (it was a darker
+  // green than idle's green). The pin is the same: a distinct state, not a recolour.
+  it("renders as an outline in bold, distinct from the ink-filled idle button", () => {
     const css = styles();
     expect(css).toContain("button.approve.is-approved");
-    expect(css).toMatch(/button\.approve\.is-approved[^}]*background: #14663c/);
-    // Idle stays the original green — the darker shade must be a distinct state,
-    // not a recolour of the button at rest.
-    expect(css).toMatch(/button\.approve \{[^}]*background: #2c7/);
+    expect(css).toMatch(/button\.approve\.is-approved[^}]*background: transparent/);
+    expect(css).toMatch(/button\.approve\.is-approved[^}]*font-weight: var\(--weight-bold\)/);
+    expect(css).toMatch(/button\.approve \{[^}]*background: var\(--ink\)/);
   });
 
   it("beats the :disabled dimming so 'Approved' is not rendered washed out", () => {

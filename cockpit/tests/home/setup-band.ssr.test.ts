@@ -56,15 +56,13 @@ const laneSummary = (html: string): string | null =>
 function cardGaps(html: string, name: string): string[] {
   const card = html.split('<tr class="fleet-row"').find((c) => c.includes(`>${name}</a>`));
   if (!card) throw new Error(`no row for ${name}`);
-  return [
-    ...card.matchAll(/<li[^>]*>\s*<span aria-hidden="true">☐<\/span> ([^<]*?)\s*<\/li>/g),
-  ].map((m) => m[1]!);
+  return [...card.matchAll(/<li[^>]*>\s*([^<]*?)\s*<\/li>/g)].map((m) => m[1]!);
 }
 
 describe("/ — the Setup lane", () => {
   it("counts every site with a gap, whatever its tier, and lists each one's gaps", () => {
     const html = home([GAPS, CLEAN, BOTH]);
-    expect(laneSummary(html)).toBe("🧰 Setup (2 sites)");
+    expect(laneSummary(html)).toBe("Setup (2 sites)");
     const lane = html.split('<details class="setup-lane">')[1]!.split("</details>")[0]!;
     expect(lane).toContain('href="/s/gappy"');
     expect(lane).toContain('href="/s/both"');
@@ -81,7 +79,7 @@ describe("/ — the Setup lane", () => {
     });
     // The site really is broken (its pill is on Sites since #672 step 3).
     expect(sitesPage([broken, CLEAN])).toContain('class="pill attention"');
-    expect(laneSummary(home([broken, CLEAN]))).toBe("🧰 Setup (1 site)");
+    expect(laneSummary(home([broken, CLEAN]))).toBe("Setup (1 site)");
   });
 
   it("is absent when no site has a gap (the positive control)", () => {

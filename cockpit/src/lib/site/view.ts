@@ -185,20 +185,20 @@ function preflight(findings: PreflightFinding[]): PendingView["preflight"] {
     return {
       cls: "preflight preflight-fail",
       title: fails.map((f) => `${f.check}: ${f.message}`).join("\n"),
-      text: `preflight ✗ ${fails.length}`,
+      text: `preflight: ${fails.length} failing`,
     };
   }
   if (warns.length > 0) {
     return {
       cls: "preflight preflight-warn",
       title: warns.map((f) => `${f.check}: ${f.message}`).join("\n"),
-      text: `preflight ⚠ ${warns.length}`,
+      text: `preflight: ${warns.length} warning${warns.length === 1 ? "" : "s"}`,
     };
   }
   return {
     cls: "preflight preflight-ok",
     title: "recipients, header image and report scores all present",
-    text: "preflight ✓",
+    text: "preflight: clear",
   };
 }
 
@@ -404,7 +404,7 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
     });
   });
   for (const reason of a.acceptedReasons)
-    chips.push({ cls: "chip accepted", title: null, text: `✓ accepted: ${reason}` });
+    chips.push({ cls: "chip accepted", title: null, text: `accepted: ${reason}` });
   if (chips.length === 0) return null;
   const label =
     a.tier === "broken"

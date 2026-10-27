@@ -32,9 +32,7 @@ describe("renderRecentlyLane (via renderCockpitHtml)", () => {
       ]),
     );
     expect(html).toContain('<details class="recently">');
-    expect(html).toContain("🔧 Recently (2)");
-    expect(html).toContain("🔧"); // pr_automerged icon
-    expect(html).toContain("🔄"); // fleet_swept icon
+    expect(html).toContain("Recently (2)");
     // PR row links externally; fleet_swept row has no link
     expect(html).toContain('href="https://github.com/reddoorla/caltex/pull/14"');
     expect(html).toContain("Caltex");
@@ -54,7 +52,6 @@ describe("renderRecentlyLane (via renderCockpitHtml)", () => {
         },
       ]),
     );
-    expect(html).toContain("🛡"); // vuln_cleared icon
     expect(html).toContain('href="/s/caltex"');
   });
 

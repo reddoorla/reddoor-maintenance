@@ -104,7 +104,7 @@ describe("↻ Audit fleet", () => {
     expect(button().disabled).toBe(true);
     await settle();
     expect(fetchMock.mock.calls[0]).toEqual(["/api/fleet/refresh", { method: "POST" }]);
-    expect(button().textContent).toBe("↻ Audit running…");
+    expect(button().textContent).toBe("Audit running…");
     expect(button().disabled).toBe(true);
     expect(JSON.parse(localStorage.getItem(RF_KEY)!)).toEqual({
       since: "2026-06-11T12:00:00Z",
@@ -155,10 +155,10 @@ describe("↻ Audit fleet", () => {
     button().click();
     await settle();
     expect(rowsText()).toEqual([
-      "lighthouse — in progress<1m / ~48m · view run ↗",
-      "✗ security — failure",
-      "✗ smoke — timed out run",
-      "✓ other — success",
+      "lighthouse — in progress<1m / ~48m · view run →",
+      "security — failure",
+      "smoke — timed out run",
+      "other — success",
     ]);
     const links = [...panel().querySelectorAll("a")].map((a) => [
       a.textContent,
@@ -166,7 +166,7 @@ describe("↻ Audit fleet", () => {
       a.getAttribute("target"),
     ]);
     expect(links).toEqual([
-      ["view run ↗", "https://github.com/o/r/actions/runs/1", "_blank"],
+      ["view run →", "https://github.com/o/r/actions/runs/1", "_blank"],
       ["run", "https://github.com/o/r/actions/runs/3", "_blank"],
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -209,7 +209,7 @@ describe("↻ Audit fleet", () => {
     render();
     button().click();
     await settle();
-    expect(rowsText()).toEqual(["✓ security — success", "✓ Done — reloading…"]);
+    expect(rowsText()).toEqual(["security — success", "Done — reloading…"]);
     expect(localStorage.getItem(RF_KEY)).toBeNull();
     await vi.advanceTimersByTimeAsync(1999);
     expect(reload).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe("↻ Audit fleet", () => {
       (b) => b.textContent === "Reload",
     )!;
     expect(reloadBtn).toBeDefined();
-    expect(button().textContent).toBe("↻ Audit fleet");
+    expect(button().textContent).toBe("Audit fleet");
     expect(button().disabled).toBe(false);
     expect(localStorage.getItem(RF_KEY)).toBeNull();
     reloadBtn.click();
@@ -253,7 +253,7 @@ describe("↻ Audit fleet", () => {
     button().click();
     await settle();
     expect(rowsText()).toEqual(["starting…", "Session expired — reload to sign in."]);
-    expect(button().textContent).toBe("↻ Audit fleet");
+    expect(button().textContent).toBe("Audit fleet");
     expect(button().disabled).toBe(false);
     expect(localStorage.getItem(RF_KEY)).toBeNull();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -287,7 +287,7 @@ describe("↻ Audit fleet", () => {
     expect(button().disabled).toBe(true);
     await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
     expect(rowsText()).toEqual(["starting…", "Still running — reload later."]);
-    expect(button().textContent).toBe("↻ Audit fleet");
+    expect(button().textContent).toBe("Audit fleet");
     expect(button().disabled).toBe(false);
     expect(localStorage.getItem(RF_KEY)).toBeNull();
     const calls = fetchMock.mock.calls.length;
@@ -307,7 +307,7 @@ describe("↻ Audit fleet", () => {
     });
     render();
     await settle();
-    expect(button().textContent).toBe("↻ Audit running…");
+    expect(button().textContent).toBe("Audit running…");
     expect(button().disabled).toBe(true);
     expect(fetchMock.mock.calls[0]).toEqual(["/api/fleet/refresh/status?since=S0"]);
     expect(rowsText()).toEqual(["lighthouse — in progress5m / ~48m"]);

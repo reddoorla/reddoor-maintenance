@@ -12,7 +12,7 @@
     label = "Refreshing…";
     try {
       const res = await postAction(url);
-      label = res.ok ? "Queued ✓ reload in ~2 min" : "Failed";
+      label = res.ok ? "Queued, reload in ~2 min" : "Failed";
       if (!res.ok) disabled = false;
     } catch {
       label = "Failed";

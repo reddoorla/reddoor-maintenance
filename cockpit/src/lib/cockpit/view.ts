@@ -32,9 +32,9 @@ import { safeUrl } from "../../../../src/util/html.js";
 const DASH = "—";
 
 export type VerdictView = {
-  /** ok = nothing needs you, warn = broken, attention = fix this week, watch = watch,
+  /** ok = nothing needs you, broken = broken, attention = fix this week, watch = watch,
    *  soft = approvals only. */
-  cls: "ok" | "warn" | "attention" | "watch" | "soft";
+  cls: "ok" | "broken" | "attention" | "watch" | "soft";
   line: string;
   meta: string;
 };
@@ -182,7 +182,7 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
 
   if (broken + attention + watch + approval === 0) {
     const healthyWord = healthy > 0 ? `${healthy} site${healthy === 1 ? "" : "s"} healthy` : null;
-    return make("ok", "✓ All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
+    return make("ok", "All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
   }
   const line = [
     broken > 0 ? `${broken} ${plural(broken, "site", "sites")} broken` : null,
@@ -194,7 +194,7 @@ function verdict(model: CockpitModel, feed: NeedsYouItem[], now: Date): VerdictV
     .join(" · ");
   const healthyTerm = healthy > 0 ? `${healthy} healthy` : null;
   const cls: VerdictView["cls"] =
-    broken > 0 ? "warn" : attention > 0 ? "attention" : watch > 0 ? "watch" : "soft";
+    broken > 0 ? "broken" : attention > 0 ? "attention" : watch > 0 ? "watch" : "soft";
   return make(cls, line, [healthyTerm, preLaunchTerm, archivedTerm, auditedTerm]);
 }
 
@@ -322,7 +322,7 @@ function chips(c: SiteCard): ChipView[] {
     });
   });
   for (const reason of c.acceptedReasons)
-    out.push({ cls: "chip accepted", badge: null, text: `✓ accepted: ${reason}`, title: null });
+    out.push({ cls: "chip accepted", badge: null, text: `accepted: ${reason}`, title: null });
   return out;
 }
 
@@ -357,10 +357,10 @@ function submissionsBadge(c: SiteCard): string | null {
   const signups = c.newSignups ?? 0;
   if (leads === 0 && signups === 0) return null;
   return leads > 0 && signups > 0
-    ? `📥 ${leads} new · +${signups} newsletter`
+    ? `${leads} new · +${signups} newsletter`
     : leads > 0
-      ? `📥 ${leads} new`
-      : `📥 +${signups} newsletter`;
+      ? `${leads} new`
+      : `+${signups} newsletter`;
 }
 
 function cardView(c: SiteCard, now: Date): CardView {
@@ -436,13 +436,13 @@ export const FLEET_FILTERS = [
 // ---- lanes ----
 
 const RECENT_ICON: Record<FleetEventType, string> = {
-  pr_automerged: "🔧",
-  vuln_cleared: "🛡",
-  ci_recovered: "✅",
-  site_launched: "🚀",
-  cert_renewed: "🔒",
-  fleet_swept: "🔄",
-  report_sent_with_override: "✳️",
+  pr_automerged: "",
+  vuln_cleared: "",
+  ci_recovered: "",
+  site_launched: "",
+  cert_renewed: "",
+  fleet_swept: "",
+  report_sent_with_override: "",
 };
 
 function recently(model: CockpitModel, now: Date): RecentRowView[] {
@@ -453,9 +453,9 @@ function recently(model: CockpitModel, now: Date): RecentRowView[] {
     summary: e.summary,
     when: relativeTimeFromNow(e.ts, now),
     link: e.url
-      ? { href: e.url, text: "view ▸" }
+      ? { href: e.url, text: "view →" }
       : e.slug
-        ? { href: `/s/${e.slug}`, text: "open ▸" }
+        ? { href: `/s/${e.slug}`, text: "open →" }
         : null,
   }));
 }
@@ -487,7 +487,7 @@ function inbox(model: CockpitModel, now: Date): InboxView | null {
   const signups = subs.length - leads;
   const count = signups === 0 ? `${leads} new` : `${leads} new · +${signups} newsletter/rsvp`;
   return {
-    summary: `📥 Submissions (${count})${hasSpam ? " · 🛡 Spam (30d)" : ""}`,
+    summary: `Submissions (${count})${hasSpam ? " · Spam (30d)" : ""}`,
     rows: shown.map((sub, i) => ({
       key: `${i}:${sub.submissionId}`,
       siteName: sub.siteName,
@@ -503,7 +503,7 @@ function inbox(model: CockpitModel, now: Date): InboxView | null {
               overflow > 0 ? `+${overflow} more — view all submissions` : "View all submissions →",
           },
     spamLine: hasSpam
-      ? `🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}`
+      ? `Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}`
       : null,
     autoFiltered: autoFiltered > 0 ? autoFiltered : null,
   };

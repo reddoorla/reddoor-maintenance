@@ -40,8 +40,18 @@ textarea {
   font: inherit;
   color: inherit;
 }
-button {
+/* Controls default to the tokens, so one no page styles is never the browser's
+   grey in the dark theme; a page's own rule, loaded after this one, still wins. */
+button,
+input,
+select,
+textarea {
+  background: var(--surface);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
+}
+button {
+  cursor: pointer;
 }
 .shell-account {
   float: right;

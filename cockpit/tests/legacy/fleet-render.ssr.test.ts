@@ -331,8 +331,8 @@ describe("renderCockpitHtml — escaping & safety", () => {
 describe("verdict bar", () => {
   it("shows All clear when nothing needs the operator", () => {
     const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
-    expect(html).toContain("✓ All clear");
-    expect(html).toContain("↻ Audit fleet");
+    expect(html).toContain("All clear");
+    expect(html).toContain("Audit fleet");
     expect(html).not.toContain("needs attention</span>"); // old summary tally gone
   });
 
@@ -364,7 +364,7 @@ describe("verdict bar", () => {
     const html = renderCockpitHtml(m);
     expect(html).toContain('class="verdict soft"');
     expect(html).toContain("1 waiting on you");
-    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain("All clear");
   });
 });
 
@@ -406,7 +406,7 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
     expect(html).toContain("1 to watch");
     expect(html).toContain("1 waiting on your yes");
     expect(html).toContain("1 healthy");
-    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain("All clear");
   });
 
   it("an accepted Best-Practices watch leaves the band but shows a muted accepted chip", () => {
@@ -432,9 +432,9 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
       ]),
     );
     expect(home).toContain('class="verdict ok"');
-    expect(home).toContain("✓ All clear");
+    expect(home).toContain("All clear");
     // …but the condition is still on record as a muted chip, on its Sites row.
-    expect(html).toContain('class="chip accepted">✓ accepted: Best Practices 78');
+    expect(html).toContain('class="chip accepted">accepted: Best Practices 78');
   });
 
   it("the same BP-78 site shows the amber watch verdict when NOT accepted", () => {
@@ -463,8 +463,8 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(home).toContain('class="verdict ok"');
-    expect(home).toContain("✓ All clear");
-    expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
+    expect(home).toContain("All clear");
+    expect(html).toContain('class="chip accepted">accepted: on *.netlify.app (no custom domain)');
   });
 
   it("still mutes the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
@@ -473,7 +473,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(home).toContain('class="verdict ok"');
-    expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
+    expect(html).toContain('class="chip accepted">accepted: on *.netlify.app (no custom domain)');
   });
 
   it("surfaces the canonical accept token on an un-accepted Setup gap, without a Watch", () => {
@@ -483,7 +483,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     expect(html).toContain('class="verdict ok"');
     // The operator can see the EXACT string that would mute this gap.
     expect(html).toMatch(
-      /<ul class="setup-gaps"[^>]*>\s*<li[^>]*>\s*<span aria-hidden="true">☐<\/span> on \*\.netlify\.app \(no custom domain\) · accept: "no custom domain"/,
+      /<ul class="setup-gaps"[^>]*>\s*<li[^>]*>\s*on \*\.netlify\.app \(no custom domain\) · accept: "no custom domain"/,
     );
   });
 
@@ -495,7 +495,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(home).toContain('class="verdict ok"');
-    expect(html).toContain("✓ accepted: Performance 78");
+    expect(html).toContain("accepted: Performance 78");
   });
 
   it("re-alarms (attention, NOT muted) when the accepted category drops below the floor", () => {
@@ -529,7 +529,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     // BP muted, so no watch is left: netlify is a Setup gap (#672 step 2), still
     // open with its accept token surfaced.
     expect(home).toContain('class="verdict ok"');
-    expect(html).toContain("✓ accepted: Best Practices 78");
+    expect(html).toContain("accepted: Best Practices 78");
     expect(html).toContain('accept: "no custom domain"');
   });
 });
@@ -609,7 +609,7 @@ describe("needs-you feed", () => {
     ];
     const html = renderCockpitHtml(model(sites, reports));
     expect(html).toContain('href="/s/acme"');
-    expect(html).toContain("Open ▸");
+    expect(html).toContain("Open →");
     expect(html).toContain("Waiting on your yes");
     expect(html).not.toContain("data-approve-url"); // approve action no longer on the home page
     expect(html).not.toContain(">Approve<");
@@ -643,7 +643,7 @@ describe("inbox lane", () => {
     );
     const html = renderCockpitHtml(m);
     expect(html).toContain('<details class="inbox">');
-    expect(html).toContain("📥 Submissions (1 new)");
+    expect(html).toContain("Submissions (1 new)");
     expect(html).toContain('href="/submissions"');
     // "after the fleet panel": the panel moved to Sites (#672 step 3).
   });
@@ -729,7 +729,7 @@ describe("renderCockpitHtml — inbox lane submissions cap", () => {
     const html = renderCockpitHtml(m);
     const rendered = (html.match(/data-signal="submissions"/g) ?? []).length;
     expect(rendered).toBe(10);
-    expect(html).toContain("📥 Submissions (13 new)"); // true total, not the capped count
+    expect(html).toContain("Submissions (13 new)"); // true total, not the capped count
     expect(html).toContain("+3 more — view all submissions");
     expect(html).toContain('href="/submissions"');
   });
@@ -746,7 +746,7 @@ describe("renderCockpitHtml — inbox lane submissions cap", () => {
     );
     const html = renderCockpitHtml(m);
     expect((html.match(/data-signal="submissions"/g) ?? []).length).toBe(4);
-    expect(html).toContain("📥 Submissions (4 new)");
+    expect(html).toContain("Submissions (4 new)");
     expect(html).not.toMatch(/\+\d+ more/);
     expect(html).toContain("View all submissions →");
   });
@@ -792,7 +792,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).not.toMatch(/class="pill broken"/);
     // The fleet's only non-green site is pre-launch → calm verdict, not broken.
     expect(home).toContain('class="verdict ok"');
-    expect(home).toContain("✓ All clear");
+    expect(home).toContain("All clear");
     expect(home).toContain("1 pre-launch");
     expect(home).not.toMatch(/site[s]? broken/);
   });
@@ -813,7 +813,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
     );
     expect(html).toMatch(/class="pill attention"/);
     expect(html).not.toMatch(/class="pill pre-launch"/);
-    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain("All clear");
   });
 
   it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
@@ -955,14 +955,14 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
     expect(html).toContain('class="verdict watch"');
     expect(html).toContain("1 to watch");
-    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain("All clear");
   });
 
   it("renders the red broken verdict for a sub-floor Lighthouse site", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Down", pScore: 40 })]));
     expect(html).toContain('class="verdict attention"');
     expect(html).toMatch(/1 needs attention/);
-    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain("All clear");
   });
 
   it("keeps a vuln Renovate is still inside its wait for off the verdict (2026-10-05)", () => {
@@ -974,7 +974,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         { "vuln:v": { metric: 1, firstFlaggedAt: "2026-06-10" } },
       ),
     );
-    expect(html).toContain("✓ All clear");
+    expect(html).toContain("All clear");
     expect(html).not.toContain('class="verdict watch"');
   });
 
@@ -989,8 +989,8 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     );
     expect(html).toContain('class="verdict attention"');
     expect(html).toContain("1 needs attention");
-    expect(html).not.toContain("✓ All clear");
-    expect(html).not.toContain('class="verdict warn"');
+    expect(html).not.toContain("All clear");
+    expect(html).not.toContain('class="verdict broken"');
   });
 
   it("escalates an exhausted vuln to the red broken verdict", () => {
@@ -1102,7 +1102,7 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('class="refresh-fleet"');
     expect(html).toContain('data-refresh-url="/api/fleet/refresh"');
-    expect(html).toContain("↻ Audit fleet");
+    expect(html).toContain("Audit fleet");
   });
 
   // "wires localStorage resume so a mid-run reload keeps following": its behaviour is the DOM tests' now (cockpit.dom: resumes a run saved by an earlier page load).
@@ -1162,7 +1162,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     const home = renderCockpitHtml(m);
     const html = renderSitesHtml(m);
     expect(home).toContain("1 archived");
-    expect(html).toContain("🗄 Archived (1)");
+    expect(html).toContain("Archived (1)");
     expect(html).toContain("Old &amp; Legacy"); // escaped site name
     expect(html).toContain('<span class="muted">legacy</span>');
     expect(html).not.toContain('<span class="muted">archived</span>');
@@ -1184,7 +1184,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
         siteRow({ id: "d", name: "Dead Site", status: "archived", statusRaw: "deprecated" }),
       ]),
     );
-    expect(html).toContain("🗄 Archived (2)");
+    expect(html).toContain("Archived (2)");
     expect(html).toContain('<span class="muted">legacy</span>');
     expect(html).toContain('<span class="muted">deprecated</span>');
   });
@@ -1201,7 +1201,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
         record("recM", "Acme", "maintained"),
       ]),
     );
-    expect(html).toContain("🗄 Archived (2)");
+    expect(html).toContain("Archived (2)");
     expect(html).toContain('<span class="muted">archived</span>');
     expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(1);
   });
@@ -1216,7 +1216,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
       mapRow({ id, fields: { Name: name, Status: status } });
     const m = model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]);
     // The Archived lane is on Sites since #672 step 3; the count stays on `/`.
-    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderSitesHtml(m)).not.toContain("Archived");
     expect(renderCockpitHtml(m)).not.toContain("1 archived");
   });
 
@@ -1224,7 +1224,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     const m = model([siteRow({ id: "a", name: "Acme" })]);
     expect(renderCockpitHtml(m)).not.toContain("1 archived");
     // The Archived lane is on Sites since #672 step 3.
-    expect(renderSitesHtml(m)).not.toContain("🗄 Archived");
+    expect(renderSitesHtml(m)).not.toContain("Archived");
     expect(renderSitesHtml(m)).not.toContain('class="archived"');
   });
 

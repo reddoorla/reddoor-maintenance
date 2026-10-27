@@ -40,13 +40,13 @@
       body: JSON.stringify({ field, value: detailValue(el) }),
     })
       .then((r) => {
-        mark = r.ok ? " ✓" : " ✗";
+        mark = r.ok ? " saved" : " failed";
         // Only on success: a failed save stays dirty so the next blur retries it.
         // Selects save on change and keep no baseline.
         if (r.ok && !(el instanceof HTMLSelectElement)) saved = el.value;
       })
       .catch(() => {
-        mark = " ✗";
+        mark = " failed";
       });
   }
 

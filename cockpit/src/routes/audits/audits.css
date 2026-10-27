@@ -12,32 +12,25 @@ h2 {
   text-decoration: none;
 }
 .meta {
-  color: #666;
+  color: var(--ink-muted);
   margin-bottom: 1.25rem;
 }
 .muted {
-  color: #999;
+  color: var(--ink-muted);
 }
 .empty {
-  color: #999;
+  color: var(--ink-muted);
   padding: 1.5rem;
   text-align: center;
-  border: 1px dashed #ccc;
-  border-radius: 6px;
+  border: 1px dashed var(--rule);
 }
 .run-form {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
   padding: 1rem 1.1rem;
-}
-@media (prefers-color-scheme: dark) {
-  .run-form {
-    border-color: #2a2a2a;
-    background: #181818;
-  }
 }
 .run-form label {
   display: flex;
@@ -57,33 +50,25 @@ h2 {
 }
 .run-form input[type="url"],
 .run-form input[type="text"] {
-  font:
-    16px system-ui,
-    -apple-system,
-    sans-serif;
+  font: inherit;
+  font-size: 16px;
   padding: 0.6rem 0.7rem;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   width: 100%;
   box-sizing: border-box;
-}
-@media (prefers-color-scheme: dark) {
-  .run-form input[type="url"],
-  .run-form input[type="text"] {
-    border-color: #444;
-  }
 }
 .run-form button {
   font: inherit;
   font-size: 1rem;
   font-weight: 700;
   padding: 0.7rem 1rem;
-  border: 1px solid #1a1a1a;
-  border-radius: 6px;
-  background: #1a1a1a;
-  color: #fff;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--on-ink);
   cursor: pointer;
   min-height: 44px;
 }
@@ -91,22 +76,10 @@ h2 {
   opacity: 0.6;
   cursor: default;
 }
-@media (prefers-color-scheme: dark) {
-  .run-form button {
-    background: #e8e8e8;
-    color: #111;
-    border-color: #e8e8e8;
-  }
-}
 .run-note {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--ink-muted);
   margin: 0.75rem 0 0;
-}
-@media (prefers-color-scheme: dark) {
-  .run-note {
-    color: #999;
-  }
 }
 .run-status {
   margin-top: 0.75rem;
@@ -117,12 +90,8 @@ h2 {
   margin-left: 0.4rem;
 }
 .run-status.is-error {
-  color: #b00;
-}
-@media (prefers-color-scheme: dark) {
-  .run-status.is-error {
-    color: #ff8a80;
-  }
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .audit-list {
   display: flex;
@@ -130,15 +99,9 @@ h2 {
   gap: 0.6rem;
 }
 .audit-row {
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
   padding: 0.75rem 1rem;
-}
-@media (prefers-color-scheme: dark) {
-  .audit-row {
-    border-color: #2a2a2a;
-    background: #181818;
-  }
 }
 .audit-row-head {
   display: flex;
@@ -151,34 +114,21 @@ h2 {
 }
 .audit-url {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--ink-muted);
   word-break: break-all;
-}
-@media (prefers-color-scheme: dark) {
-  .audit-url {
-    color: #999;
-  }
 }
 .edit-state {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--ink-muted);
   margin-top: 0.2rem;
 }
 .edit-state-warn {
-  color: #b3261e;
-  font-weight: 600;
-}
-@media (prefers-color-scheme: dark) {
-  .edit-state {
-    color: #999;
-  }
-  .edit-state-warn {
-    color: #ff9a9a;
-  }
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .audit-when {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--ink-muted);
   margin-left: auto;
 }
 .audit-row-foot {
@@ -188,42 +138,28 @@ h2 {
 .pill {
   font-size: 0.75rem;
   padding: 0.1rem 0.5rem;
-  border-radius: 999px;
   font-weight: 700;
 }
 .pill.complete {
-  background: #e8f5e9;
-  color: #1b7a2f;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
 }
 .pill.partial {
-  background: #fff4e5;
-  color: #a65a00;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
 .pill.running {
-  background: #e8f0fe;
-  color: #1a4fa0;
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
 }
 .pill.unfinished,
 .pill.failed {
-  background: #fdecea;
-  color: #b3261e;
-}
-@media (prefers-color-scheme: dark) {
-  .pill.complete {
-    background: #10240f;
-    color: #7fce85;
-  }
-  .pill.partial {
-    background: #2a2410;
-    color: #ffd454;
-  }
-  .pill.running {
-    background: #10213a;
-    color: #8ab4f8;
-  }
-  .pill.unfinished,
-  .pill.failed {
-    background: #2a1210;
-    color: #ff9a9a;
-  }
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
 }
