@@ -233,7 +233,7 @@ function writeLine(w: Write): string {
     }
     case "browser": {
       const b = w.counts as BrowserAuditFields;
-      const pf = (ok: boolean) => (ok ? "pass" : "fail");
+      const pf = (ok: boolean | null) => (ok === null ? "not measured" : ok ? "pass" : "fail");
       return `browser: desktop ${pf(b.desktopOk)}, mobile ${pf(b.mobileOk)}, links ${pf(b.linksOk)}, reachable ${pf(b.reachableOk)}, title/meta ${pf(b.titleMetaOk)}, ${b.brokenLinks} broken link(s)`;
     }
     case "netlify-deploy":

@@ -132,12 +132,15 @@ export async function canonicalizeBaseUrl(
 export type BrowserSummary = {
   desktopOk: boolean;
   mobileOk: boolean;
-  linksOk: boolean;
-  /** Every sampled route returned a 2xx/3xx status (point-in-time uptime). */
-  reachableOk: boolean;
+  /** Every checked internal link resolves. null = no link was checked (not measured, P1-78c). */
+  linksOk: boolean | null;
+  /** Every sampled route returned a 2xx/3xx status (point-in-time uptime). null = no route was
+   *  sampled (not measured, P1-78c): stored as a fail, it read as "site down". */
+  reachableOk: boolean | null;
   /** Every sampled route has a non-empty `<title>` + a non-empty meta description, and no two
-   *  routes share a title. Title length never fails it: see titleLengthWarnings. */
-  titleMetaOk: boolean;
+   *  routes share a title. Title length never fails it: see titleLengthWarnings. null = no route
+   *  was sampled (not measured, P1-78c). */
+  titleMetaOk: boolean | null;
   /** The confirmed-failing routes behind a reachableOk=false, as "url → status" strings, so the
    *  operator sees WHICH url failed, not just "fail". Empty when reachableOk is true. */
   unreachableUrls: string[];
@@ -484,6 +487,16 @@ export function sharedTitleSuffix(titles: string[]): string | null {
  * Every fail names its offenders (desktopFailures/mobileFailures/brokenLinkUrls, mirroring
  * unreachableUrls) so a red box is actionable, never a bare "fail".
  */
+/** The browser audit's status: a pass needs every verdict proven. Links checked on no
+ *  page (`linksOk` null, P1-78c) are not proven, so the run is a warn, never a pass. */
+export function browserStatus(
+  summary: Pick<BrowserSummary, "desktopOk" | "mobileOk" | "linksOk" | "templateOk">,
+): AuditResult["status"] {
+  return summary.desktopOk && summary.mobileOk && summary.linksOk === true && summary.templateOk
+    ? "pass"
+    : "warn";
+}
+
 export function summarizeBrowser(
   routes: RouteResult[],
   links: LinkResult[],
@@ -521,17 +534,20 @@ export function summarizeBrowser(
   // linksOk requires links to have ACTUALLY been checked — zero links checked is "not proven",
   // never a pass (e.g. a JS-rendered page whose hrefs weren't in the DOM, or a chromium evaluate
   // that threw → []). Otherwise the box would assert "all links resolve" having checked nothing.
-  const linksOk = links.length > 0 && brokenLinks === 0;
+  // P1-78c: nor is it a fail. It is null, "not measured", so the broken-links alarm never fires
+  // on a site that checked no link (LA Homelessness ×2 on 2026-10-26).
+  const linksOk = links.length === 0 ? null : brokenLinks === 0;
 
-  // reachableOk: every sampled route returned 2xx/3xx. Empty observations → false (fail-safe).
+  // reachableOk: every sampled route returned 2xx/3xx. No route sampled → null, not measured
+  // (P1-78c): stored as a fail it would read as "site down", a Broken alarm.
   // The failing routes are NAMED (url → status) so a fail is actionable, never a bare "fail".
   const unreachableUrls = routes
     .filter((r) => !isOkStatus(r.status))
     .map((r) => `${r.url} → ${r.status ?? "no response"}`);
-  const reachableOk = routes.length > 0 && unreachableUrls.length === 0;
+  const reachableOk = routes.length === 0 ? null : unreachableUrls.length === 0;
 
   // titleMetaOk (chromium-only signals): every route has a non-empty title + a non-empty meta
-  // description, AND no two routes share a title. Empty observations → false (fail-safe).
+  // description, AND no two routes share a title. No route sampled → null, not measured (P1-78c).
   // Each violated sub-check is recorded per-URL; duplicate detection runs on NON-empty titles only
   // (an empty title is already its own finding — two blank routes aren't a "duplicate" insight).
   const titleMetaProblems: string[] = [];
@@ -550,7 +566,7 @@ export function summarizeBrowser(
   for (const [t, urls] of byTitle) {
     if (urls.length > 1) titleMetaProblems.push(`duplicate title "${t}": ${urls.join(" + ")}`);
   }
-  const titleMetaOk = routes.length > 0 && titleMetaProblems.length === 0;
+  const titleMetaOk = routes.length === 0 ? null : titleMetaProblems.length === 0;
 
   const titles = routes.map((r) => (r.title ?? "").trim()).filter((t) => t.length > 0);
   const suffix = sharedTitleSuffix(titles);
@@ -698,10 +714,7 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
       (canonical.offsiteLocation
         ? `; base url redirects OFF-SITE to ${canonical.offsiteLocation} — not followed; update the site's url`
         : "");
-    const status: AuditResult["status"] =
-      summary.desktopOk && summary.mobileOk && summary.linksOk && summary.templateOk
-        ? "pass"
-        : "warn";
+    const status = browserStatus(summary);
     return {
       audit: "browser",
       site: label,
@@ -857,7 +870,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                   ).trim() || null;
                 // Link discovery runs on chromium only (cost). Links coverage therefore depends on
                 // chromium loading this route + the evaluate succeeding; if it yields nothing, the
-                // Links verdict is "not proven" (links.length===0 ⇒ linksOk false), never a pass.
+                // Links verdict is "not proven" (links.length===0 ⇒ linksOk null), never a pass.
                 // String-form evaluate so the browser-context code isn't type-checked against the
                 // Node lib (no DOM globals in this project's tsconfig). Returns absolute hrefs.
                 const hrefs = (await page

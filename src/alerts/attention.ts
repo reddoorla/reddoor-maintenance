@@ -67,7 +67,25 @@ export type AttentionItem = {
     | "url"
     /** P1-78b. A maintained site's latest production deploy failed: new content
      *  never ships. An item (not only a card flag) so it is dated and mailed. */
-    | "deploy";
+    | "deploy"
+    /** P1-78c, the production signals the nightly audits store. Broken: `uptime:`
+     *  (site down), `domain:` (no resolve or no usable TLS), `cert-expiring:` (7 days
+     *  or fewer), `function-health:`, `cms:`, `render:`, `form:`. Attention: `cert:`
+     *  (8 to 30 days), `links:`, `titles:`, `a11y:`, `deps-far:` (a package behind for
+     *  over 90 days). Watch: `deps:`, `smoke:`, `search-console:`. */
+    | "uptime"
+    | "domain"
+    | "cert"
+    | "function-health"
+    | "cms"
+    | "render"
+    | "form"
+    | "links"
+    | "titles"
+    | "a11y"
+    | "deps"
+    | "smoke"
+    | "search-console";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;
