@@ -967,8 +967,8 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
 /** True when a POST body carries the probe's `testMode` marker, so the response read is
  *  the form's own action and not a same-site beacon or a pre-submit call that happened
  *  to answer first (#1610 review). Multipart, URL-encoded and JSON bodies all spell the
- *  field name. A body Playwright cannot read (a multipart one with a file) stays a
- *  candidate rather than be missed; a POST with no body at all is not one (#1668 review:
+ *  field name. A body Playwright cannot read stays a candidate rather than be missed
+ *  when it is multipart (a file upload, or one past Chromium's inline limit); a POST with no body at all is not one (#1668 review:
  *  a bodyless keepalive passed a form that sent nothing). */
 export function carriesProbeMarker(postData: string | null, contentType?: string): boolean {
   return postData === null
@@ -1494,11 +1494,13 @@ export async function defaultFormRunner(
           // are different failures (#1668).
           let markerPostSent = false;
           // A marked POST to another host is not the site's action, but the detail
-          // must not then say nothing was sent (#1668 review).
+          // must not then say nothing was sent (#1668 review). Only after the click:
+          // a recorder's batch before it is not the form's.
           let offHostPost: string | undefined;
           page.on("request", (req) => {
             if (isMarkerPost(req)) markerPostSent = true;
             else if (
+              startedAt > 0 &&
               req.method() === "POST" &&
               carriesProbeMarker(req.postData(), req.headers()["content-type"])
             )

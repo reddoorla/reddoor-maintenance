@@ -566,6 +566,8 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     expect((out as { detail?: string }).detail).toMatch(
       /^the status region showed, but the submission failed — POST 500 \{"error":"ingest failed"\}/,
     );
+    // The POST answered before the region showed, so the detail says nothing of "after".
+    expect((out as { detail?: string }).detail).not.toMatch(/after the status/);
   });
 
   it("scores that run as not passing end to end", async () => {
