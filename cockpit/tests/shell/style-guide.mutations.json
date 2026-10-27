@@ -1,0 +1,137 @@
+[
+  {
+    "id": "1-toggle-ignores-stored",
+    "why": "The toggle ignores the stored choice on reload",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/ThemeToggle.svelte",
+        "find": "    choice = readTheme(storage());\n",
+        "replace": "    choice = readTheme(undefined);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1b-head-ignores-stored",
+    "why": "The head script ignores the stored choice on reload",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "if (t === \"light\" || t === \"dark\")",
+        "replace": "if (false)"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-system-ignored",
+    "why": "Dark mode ignores the system setting when no choice is stored",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) {",
+        "replace": "@media (prefers-color-scheme: dark) {\n  :root[data-theme=\"never\"] {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-emoji-survives",
+    "why": "An emoji survives in a rendered page",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "return make(\"ok\", \"All clear\",",
+        "replace": "return make(\"ok\", \"\\u2713 All clear\","
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-red-attention",
+    "why": "Red is used for an Attention pill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  color: var(--broken);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-theme-after-paint",
+    "why": "The theme is applied after first paint (the script moves to the body)",
+    "edits": [
+      {
+        "file": "cockpit/src/app.html",
+        "find": "    <script>\n      (function () {\n        try {\n          var t = localStorage.getItem(\"cockpit-theme\");\n          if (t === \"light\" || t === \"dark\") document.documentElement.setAttribute(\"data-theme\", t);\n        } catch (e) {}\n      })();\n    </script>\n",
+        "replace": ""
+      },
+      {
+        "file": "cockpit/src/app.html",
+        "find": "  <body>\n",
+        "replace": "  <body>\n    <script>\n      (function () {\n        try {\n          var t = localStorage.getItem(\"cockpit-theme\");\n          if (t === \"light\" || t === \"dark\") document.documentElement.setAttribute(\"data-theme\", t);\n        } catch (e) {}\n      })();\n    </script>\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-media-block-survives",
+    "why": "A prefers-color-scheme block survives in a page stylesheet",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".dot.attention {\n",
+        "replace": "@media (prefers-color-scheme: dark) {\n  .meta {\n    color: var(--ink);\n  }\n}\n.dot.attention {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-inline-hex",
+    "why": "An inline hex survives in the Shell",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/Shell.svelte",
+        "find": "<div class=\"shell-account\">",
+        "replace": "<div class=\"shell-account\" style=\"color:#666\">"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-raw-hex-page-sheet",
+    "why": "A raw hex survives in a page stylesheet",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".pill.attention {\n",
+        "replace": ".pill.attention {\n  border-color: #a65a00;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-toggle-no-store",
+    "why": "The toggle applies the theme but never stores it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/theme.ts",
+        "find": "    else storage?.setItem(THEME_KEY, t);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/theme-toggle.dom.test.ts",
+    "expect": "red"
+  }
+]
