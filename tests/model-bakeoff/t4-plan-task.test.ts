@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
-import { extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import { extractArgs, formatResult } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
   finalScores,
   groupDisagreements,
@@ -159,7 +159,7 @@ describe("cachedEvaluation", () => {
   it("evaluates each agent once, cached in the run", () => {
     const run = mkdtempSync(join(tmpdir(), "t4-"));
     const calls: string[] = [];
-    const ev = (id: string) => task.cachedEvaluation(run, id, () => (calls.push(id), { id }));
+    const ev = (id: string) => task.cachedEvaluation(run, id, "k", () => (calls.push(id), { id }));
     expect(ev("gold")).toEqual({ id: "gold" });
     ev("a");
     ev("gold");
@@ -170,6 +170,39 @@ describe("cachedEvaluation", () => {
       "a",
       "b",
     ]);
+  });
+  // A score run before an agent finished, or after the task's evaluate changed, must not keep
+  // serving the old result (#1500).
+  it("evaluates again when the key changes, and never caches an agent with no output yet", () => {
+    const run = mkdtempSync(join(tmpdir(), "t4-"));
+    let n = 0;
+    const ev = (key: string | null) => task.cachedEvaluation(run, "a", key, () => ++n);
+    expect([ev(null), ev(null)]).toEqual([1, 2]);
+    expect(existsSync(join(run, "evaluated.json"))).toBe(false);
+    expect([ev("k1"), ev("k1"), ev("k2"), ev("k2")]).toEqual([3, 3, 4, 4]);
+  });
+
+  it("evaluates again over an entry cached before the key existed", () => {
+    const run = mkdtempSync(join(tmpdir(), "t4-"));
+    writeFileSync(join(run, "evaluated.json"), JSON.stringify({ a: { gates: [] } }));
+    expect(task.cachedEvaluation(run, "a", "k", () => "fresh")).toBe("fresh");
+  });
+
+  it("keys on the module, the transcript and the output, and gives no key without output", () => {
+    const key = (s: unknown, t = "/t/a.jsonl", m = "m1") =>
+      task.evaluationKey(s, { transcript: t }, m);
+    expect(key(null)).toBeNull();
+    expect(key(undefined)).toBeNull();
+    const base = key({ notes: "x" });
+    expect(key({ notes: "x" })).toBe(base);
+    expect(
+      new Set([
+        base,
+        key({ notes: "y" }),
+        key({ notes: "x" }, "/t/b.jsonl"),
+        key({ notes: "x" }, "/t/a.jsonl", "m2"),
+      ]).size,
+    ).toBe(4);
   });
 });
 
@@ -217,12 +250,31 @@ describe("refereed held-out tests", () => {
       failer: scoreRun(task, truth(), failing),
     };
     const [d] = groupDisagreements(checksByArm);
-    const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false } };
-    const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
+    const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false, note: "n" } };
+    const { per, referenceErrors, referenceDisputes, contradictions } = finalScores(
+      checksByArm,
+      rulings,
+    );
     expect(per.passer!.correct).toBe(32);
     expect(per.failer!.correct).toBe(32);
     expect(referenceErrors).toEqual([]);
     expect(contradictions).toEqual([]);
+    // The ruling against a reference that is right by construction is reported, not lost (#1500).
+    expect(referenceDisputes).toEqual([
+      { check: `tests ${HELD_OUT[0]} / result`, reference: "passed", note: "n" },
+    ]);
+  });
+
+  it("prints a reference dispute under the result table", () => {
+    const text = formatResult({
+      reference: "script truth",
+      disagreements: 1,
+      unruled: 0,
+      arms: [],
+      problems: [],
+      referenceDisputes: [{ check: "tests t / result", reference: "passed", note: "n" }],
+    });
+    expect(text).toContain("- tests t / result: reference passed. n");
   });
 
   it("fails a test that never ran mechanically, without a referee", () => {

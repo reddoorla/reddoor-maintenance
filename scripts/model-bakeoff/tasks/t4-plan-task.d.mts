@@ -41,8 +41,22 @@ export function run(
   args: string[],
   timeout?: number,
 ): { status: number | null; error?: string; stdout: string; stderr: string };
-export function observe(work: string): Record<string, unknown>;
-export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;
+export function observe(
+  work: string,
+  structured?: unknown,
+  agent?: unknown,
+): Record<string, unknown>;
+export function evaluationKey(
+  structured: unknown,
+  agent?: { transcript?: string },
+  moduleSha?: string,
+): string | null;
+export function cachedEvaluation(
+  runDir: string,
+  id: string,
+  key: string | null,
+  compute: () => unknown,
+): unknown;
 export function ownTestsGate(
   ownRun: { status: number | null; error?: string } | null,
   report: unknown,

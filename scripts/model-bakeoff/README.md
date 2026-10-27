@@ -409,15 +409,19 @@ what it reports. `tasks/t4-plan-task.mjs` (workspace#1 row 1) is the worked exam
   agent's own code does when it runs its tests, so an agent can write outside its work dir
   unreported.
 - t4's `observe` runs the gates (below), about two minutes an agent, and caches each result in
-  `<run>/evaluated.json`. Delete that file to evaluate again.
+  `<run>/evaluated.json` under a key: a hash of the task module, the agent's transcript path and
+  its structured output. An agent with no output yet (still running) is evaluated but never
+  cached, and a change to the module or the output evaluates again (#1500).
 - t4 marks only its `gates` collection `mechanical`: an exit code has nothing for a referee to read.
 - An item with `mechanical: true` in `observe`'s output makes that item's field checks mechanical
   too (an agent's own report cannot do this); t4 marks a held-out
   test that never ran (a crash, a missing export), which has no failure for a referee to read.
 - `refFixed: true` on a collection says its reference is right by construction: a ruling can credit
   an arm that differs, but its `refCorrect: false` on a field check refutes nothing, so the arms that matched the
-  reference keep that check and no contradiction is reported. t4's held-out tests are `refFixed`,
-  since passing the plan's own test is never wrong.
+  reference keep that check and no contradiction is reported. `score` still lists each such ruling
+  under `referenceDisputes` in the result, and prints it under the table, so a reader sees that the
+  referee disagreed. t4's held-out tests are `refFixed`, since passing the plan's own test is never
+  wrong.
 
 t4's gates never touch an agent's tree. `score` builds `<run>/eval/<id>/tree` from the pinned
 commit and copies in only the files the plan names, so a change the agent leaves anywhere else (a
