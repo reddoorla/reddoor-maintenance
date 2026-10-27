@@ -607,9 +607,10 @@ node scripts/model-bakeoff/usage-ledger.mjs stale      --out <workspace>/usage [
 node scripts/model-bakeoff/usage-ledger.mjs check      --out <workspace>/usage
 ```
 
-There are three sources, each with its own `source` value in the ledger. They overlap, so never
-add their totals together: a cloud session's `transcript` rows are part of its `modelUsage` rows,
-split by agent. The command's report prints each source's total on its own.
+There are three sources, each with its own `source` value in the ledger. A cloud
+session's total is its `modelUsage` rows plus its `get_session-residual` row. Its `transcript` rows
+are part of that total, split by agent, so never add them to it. The command's report prints each
+source's total on its own.
 
 - **`modelUsage`**: a cloud session's server-side `result` events. Each one carries `modelUsage`:
   tokens by class, thinking tokens, web searches and list-price `costUSD` per model, with

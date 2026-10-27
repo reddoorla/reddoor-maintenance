@@ -83,9 +83,9 @@ function report({ rows, sessions }) {
     const [source, model] = k.split("\u0000");
     console.log(`| ${source} | ${model} | ${usd(v)} |`);
   }
-  // The sources overlap: a cloud session's transcript rows are part of its modelUsage rows.
+  // modelUsage plus its residual is the server's total; transcript rows are a split of it.
   console.log(
-    "\nTotals by source; never add them together, a session's transcript rows are inside its modelUsage rows.",
+    "\nTotals by source. modelUsage plus get_session-residual is the cloud total; transcript rows are inside it, so never add them to it.",
   );
   const bySource = {};
   for (const r of rows) bySource[r.source] = (bySource[r.source] ?? 0) + Number(r.cost_usd);
