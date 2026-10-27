@@ -15,6 +15,8 @@ export const ALLOWED_TOOLS = Object.freeze([
   "NotebookEdit",
   "StructuredOutput",
   "ToolSearch",
+  // How a background Agent-tool subagent returns its report: its return path, not a capability.
+  "SubagentHandback",
 ]);
 
 const HEREDOC = /<<-?[ \t]*\\?(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n[ \t]*\2(?=\n|$)/g;
@@ -382,8 +384,8 @@ export function readAgentTranscript(text) {
   const otherTools = [];
   const reads = [];
   let prompt = "";
-  // The text of the last assistant message that has any: a task whose agents answer in text (no
-  // schema tool, as an Agent-tool subagent) is scored from it.
+  // The text of the last assistant message that has any, or the last report handed back: a task
+  // whose agents answer in text (no schema tool, as an Agent-tool subagent) is scored from it.
   let finalText = "";
   for (const line of lines) {
     let o;
@@ -415,6 +417,9 @@ export function readAgentTranscript(text) {
       for (const b of m.content) {
         if (!b || b.type !== "tool_use") continue;
         if (b.name === "StructuredOutput") outputs.push(b);
+        // A background subagent hands its report back through this tool, not as text.
+        if (b.name === "SubagentHandback" && typeof b.input?.message === "string")
+          finalText = b.input.message;
         if (b.name === "Bash" && b.input && typeof b.input.command === "string") {
           bash.push(b.input.command);
         }

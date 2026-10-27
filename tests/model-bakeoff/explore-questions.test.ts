@@ -140,6 +140,25 @@ describe("an agent that answers in text", () => {
     expect(t.finalText).toBe("final");
   });
 
+  it("reads a background agent's report from its hand-back, which is not an outside tool", () => {
+    const line = (o: unknown) => JSON.stringify(o);
+    const handback = {
+      type: "tool_use",
+      id: "h",
+      name: "SubagentHandback",
+      input: { message: 'done\n```json\n{"scalars":[]}\n```' },
+    };
+    const t = readAgentTranscript(
+      [
+        line({ message: { role: "user", content: "q\n\n(BAKEOFF-ARM: a)" } }),
+        line({ message: { role: "assistant", content: [{ type: "text", text: "thinking" }] } }),
+        line({ message: { role: "assistant", content: [handback] } }),
+      ].join("\n"),
+    );
+    expect(textStructured(t.finalText)).toEqual({ scalars: [] });
+    expect(t.otherTools).toEqual([]);
+  });
+
   it("is given that block as its output only by a textOutput task", () => {
     const agents = {
       a: { structured: null, finalText: '```json\n{"v":1}\n```' },
