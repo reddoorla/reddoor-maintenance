@@ -262,12 +262,26 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     }
   });
 
+  // Review round 3: a versioned package spec still runs Renovate.
+  it("an enabled `npx renovate@<version>` step beside a disabled action step means no verdict", () => {
+    for (const run of [
+      "npx renovate@41.0.0",
+      "npx --yes renovate@latest",
+      "pnpm dlx renovate@39",
+    ]) {
+      expect(cannotRun(`${place("false", "step")}      - run: ${run}\n`), run).toEqual([]);
+    }
+  });
+
   it("an enabled step in another job that runs Renovate means no verdict", () => {
     for (const run of [
       "npx renovate",
       "npx --yes renovate --platform=github",
       "LOG_LEVEL=debug pnpm dlx renovate",
       "docker run --rm renovate/renovate:41",
+      "npx renovate@41.0.0",
+      "npx --yes renovate@latest",
+      "pnpm dlx renovate@39",
     ]) {
       const yml = place("false", "job").replace(
         "jobs:\n",

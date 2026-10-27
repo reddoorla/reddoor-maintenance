@@ -335,7 +335,8 @@ function renovateNeverRuns(contents: string): string | null {
 /**
  * Whether a `run:` script runs Renovate: a command that is `renovate`, called
  * directly or through npx, pnpx, bunx, `pnpm dlx`, `yarn dlx` or `npm exec`
- * (past their flags), or the `renovate/renovate` image. Naming it is not
+ * (past their flags, with or without `@<version>`), or the `renovate/renovate`
+ * image. Naming it is not
  * running it: `echo renovate done`, or `npx --package renovate --
  * renovate-config-validator`.
  */
@@ -366,7 +367,7 @@ function runsRenovate(script: string): boolean {
       else if (w.startsWith("-")) i += 1;
       else break;
     }
-    if (/(?:^|\/)renovate$/.test(words[i] ?? "")) return true;
+    if (/(?:^|\/)renovate(?:@\S*)?$/.test(words[i] ?? "")) return true;
   }
   return false;
 }
