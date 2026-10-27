@@ -244,27 +244,85 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     expect(Date.now() - started).toBeLessThan(3_000);
   });
 
-  // Review round 3: a step only counts as another Renovate runner when it can
-  // run and its command is Renovate. The oracle skips the renovate: job in each.
-  it("a step that only mentions Renovate leaves the disabled job a gap", () => {
+  // Review round 5: the "many steps" test above this one disabled the job, so it
+  // never reached the token index. Here the app-token step is skipped, so each
+  // renovatebot step asks which steps mint its token.
+  it("many renovatebot steps are read in linear time", () => {
+    const extra =
+      "      - uses: renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08\n" +
+      "        with:\n          token: ${{ steps.app-token.outputs.token }}\n";
+    const yml = place("false", "app") + extra.repeat(30_000);
+    const started = Date.now();
+    expect(cannotRun(yml)).toHaveLength(1);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it("many aliases of a long script are read in linear time", () => {
+    const yml = place("false", "job").replace(
+      "jobs:\n",
+      `jobs:\n  other:\n    runs-on: ubuntu-latest\n    steps:\n      - &s\n        run: echo ${"x".repeat(20_000)}\n${"      - *s\n".repeat(4_000)}`,
+    );
+    const started = Date.now();
+    expect(cannotRun(yml)).toHaveLength(1);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  // The operator's answer at the five-round stop (reddoor-workspace
+  // decisions/2026-10-27-1700-1607-runner-rule-at-round-5.md, (a)): any live
+  // step other than the action that names Renovate means no verdict. However a
+  // site's shell runs Renovate, that is never a false gap; the cost is a miss
+  // when another live job only names it.
+  it("a mention inside the disabled job leaves the gap: nothing there runs", () => {
     const base = place("false", "job");
-    for (const yml of [
-      `${base}      - run: echo renovate done\n`,
-      `${base}      - run: npx renovate\n`, // inside the disabled job: it cannot run either
-      `${base}  setup1:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install renovate\n`,
-      `${base}  setup2:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm add -D renovate\n`,
-      `${base}  notify:\n    needs: renovate\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "Renovate finished"\n`,
-      base.replace(
-        "jobs:\n",
-        "jobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx --yes --package renovate -- renovate-config-validator\n",
-      ),
-    ]) {
-      expect(yml).not.toBe(base);
-      expect(cannotRun(yml), yml.slice(-90)).toHaveLength(1);
+    for (const run of ["echo renovate done", "npx renovate", "timeout 50m npx renovate"]) {
+      expect(cannotRun(`${base}      - run: ${run}\n`), run).toHaveLength(1);
     }
   });
 
-  // Review round 3: a versioned package spec still runs Renovate.
+  it("a live step elsewhere that names Renovate means no verdict", () => {
+    for (const step of [
+      ...[
+        "npx renovate",
+        "npx renovate@41.0.0",
+        "docker run --rm renovate/renovate:41",
+        "docker run --rm ghcr.io/renovatebot/renovate:39",
+        "yarn renovate",
+        "npm run renovate",
+        `bash -c "renovate"`,
+        "sudo -E renovate",
+        // Round 5's false gaps under the old command parser.
+        "timeout 50m npx renovate",
+        "if true; then npx renovate; fi",
+        "pnpm --filter tools exec renovate",
+        "npm x renovate",
+        "node node_modules/renovate/dist/renovate.js",
+        // Misses by design: these name Renovate without running it.
+        `echo "Renovate finished"`,
+        "npx --yes --package renovate -- renovate-config-validator",
+        "npm install renovate",
+      ].map((run) => `run: ${run}`),
+      "uses: suzuki-shunsuke/github-action-renovate-config-validator@c22827f47f4f4a5364bdba19e1fe36907ef1318e",
+    ]) {
+      const yml = place("false", "job").replace(
+        "jobs:\n",
+        `jobs:\n  other:\n    runs-on: ubuntu-latest\n    steps:\n      - ${step}\n`,
+      );
+      expect(cannotRun(yml), step).toEqual([]);
+    }
+  });
+
+  it("a step elsewhere that names Renovate but can never run does not hide the gap", () => {
+    for (const other of [
+      "  other:\n    if: false\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx renovate\n",
+      "  other:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx renovate\n        if: false\n",
+    ]) {
+      expect(
+        cannotRun(place("false", "job").replace("jobs:\n", `jobs:\n${other}`)),
+        other,
+      ).toHaveLength(1);
+    }
+  });
+
   it("an enabled `npx renovate@<version>` step beside a disabled action step means no verdict", () => {
     for (const run of [
       "npx renovate@41.0.0",
@@ -272,38 +330,6 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
       "pnpm dlx renovate@39",
     ]) {
       expect(cannotRun(`${place("false", "step")}      - run: ${run}\n`), run).toEqual([]);
-    }
-  });
-
-  it("an enabled step in another job that runs Renovate means no verdict", () => {
-    for (const run of [
-      "npx renovate",
-      "npx --yes renovate --platform=github",
-      "LOG_LEVEL=debug pnpm dlx renovate",
-      "docker run --rm renovate/renovate:41",
-      "npx renovate@41.0.0",
-      "npx --yes renovate@latest",
-      "pnpm dlx renovate@39",
-      // Review round 4: each runs Renovate in bash.
-      "docker run --rm ghcr.io/renovatebot/renovate:39",
-      "yarn renovate",
-      "pnpm renovate",
-      "npm run renovate",
-      "env LOG_LEVEL=debug renovate",
-      "exec renovate",
-      "sudo renovate",
-      "time renovate",
-      `bash -c "renovate"`,
-      "npx 'renovate'",
-      `npx "renovate@39"`,
-      "corepack pnpm dlx renovate",
-      "sudo -E renovate",
-    ]) {
-      const yml = place("false", "job").replace(
-        "jobs:\n",
-        `jobs:\n  other:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${run}\n`,
-      );
-      expect(cannotRun(yml), run).toEqual([]);
     }
   });
 

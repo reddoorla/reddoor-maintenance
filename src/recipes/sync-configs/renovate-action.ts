@@ -42,10 +42,11 @@ import type { ConfigName } from "../../types.js";
  *
  * Every string check below runs against a COMMENT-STRIPPED copy of the file
  * (see `stripComments`); `renovateNeverRuns` alone reads the raw file, through
- * js-yaml, which knows a comment from a value. A raw-text `.match()`/`.includes()` takes the FIRST hit
- * anywhere in the file, comments included — a canonical pin, cron, or job
- * body sitting in a `#` comment above the real (non-compliant) line reads as
- * compliant, and worse, `withRenovatePinsFrom` would scrape a sha out of a
+ * js-yaml, which knows a comment from a value. A raw-text `.match()` or
+ * `.includes()` takes the FIRST hit anywhere in the file, comments included —
+ * a canonical pin, cron, or job body sitting in a `#` comment above the real
+ * (non-compliant) line reads as compliant, and worse, `withRenovatePinsFrom`
+ * would scrape a sha out of a
  * comment like `# old: uses: actions/checkout@1111…1111 # v4` and carry a
  * *commented* pin forward into the healed file — a pin downgrade delivered by
  * the very recipe that exists to prevent pin downgrades.
@@ -65,8 +66,10 @@ function escapeRegExp(s: string): string {
  * Full-line only: a trailing `# vX.Y.Z` after a real `uses:` line is
  * meaningful (it's the human-readable version tag) and must survive — only
  * strip a line whose first non-whitespace character is `#`. The template has
- * no block scalars (`|`/`>`), so a leading `#` there is always a comment; a
- * site's block scalar holding one could only hide a string, never invent one.
+ * no block scalars (`|`/`>`), so a leading `#` there is always a comment. In a
+ * site's block scalar it can be text, and stripping it can hide that text or,
+ * through a check whose `\s*` spans lines, join a key to a value on the line
+ * after it.
  */
 function stripComments(contents: string): string {
   return contents.replace(/^[ \t]*#[^\n]*$/gm, "");
@@ -230,9 +233,12 @@ export function renovateActionGaps(contents: string): string[] {
  * is not exactly `${{ steps.<id>.outputs.<x> }}` of steps that are always
  * skipped (a fallback such as `|| secrets.X` may run). A disabled checkout
  * does not block it (the action works through the API), and a token from
- * nowhere is left to the App-auth check above. A step that can run and runs
- * Renovate some other way (a `uses:` naming renovate, or a `run:` whose
- * command is Renovate, see `runsRenovate`) means no verdict.
+ * nowhere is left to the App-auth check above. Any other step that can run
+ * and names Renovate (a `uses:` or `run:` mentioning it) means no verdict: it
+ * may run Renovate some other way, and no shell form makes that a false gap.
+ * The cost is a miss when another live job only names Renovate (the operator,
+ * 2026-10-27, reddoor-workspace
+ * decisions/2026-10-27-1700-1607-runner-rule-at-round-5.md).
  *
  * It reads the parsed tree, never lines: the line scanner #1680 tried kept
  * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
@@ -285,12 +291,15 @@ function renovateNeverRuns(contents: string): string | null {
     const jobOff = off(job);
     const renovate: unknown[] = [];
     const byId = new Map<string, unknown[]>();
+    const seen = new Set<unknown>(); // an aliased step (`- *s`) is one step read many times
     for (const step of steps) {
+      if (seen.has(step)) continue;
+      seen.add(step);
       const r = record(step);
       const uses = typeof r?.uses === "string" ? r.uses.trim().toLowerCase() : "";
       if (uses.startsWith("renovatebot/github-action@")) renovate.push(step);
       else if (
-        (uses.includes("renovate") || (typeof r?.run === "string" && runsRenovate(r.run))) &&
+        (uses.includes("renovate") || (typeof r?.run === "string" && /renovate/i.test(r.run))) &&
         !jobOff &&
         !off(step)
       ) {
@@ -330,65 +339,6 @@ function renovateNeverRuns(contents: string): string | null {
     }
   }
   return blockedAt;
-}
-
-/** Words that run the command after them: `env LOG_LEVEL=debug renovate`. */
-const COMMAND_PREFIXES = new Set(["env", "exec", "sudo", "time", "nohup", "command", "corepack"]);
-
-/**
- * Whether a `run:` script runs Renovate: a command that is `renovate` (with
- * or without `@<version>`, quoted or not), called directly, after a prefix
- * such as `env` or `sudo` or `bash -c`, through npx, pnpx or bunx, or through
- * pnpm, yarn or npm (`dlx`, `exec`, `run`, or pnpm and yarn running a bin by
- * name), past their flags. Naming the command is not running it (`echo
- * renovate done`, `npx --package renovate -- renovate-config-validator`), but
- * naming the `renovate/renovate` or `ghcr.io/renovatebot/renovate` image
- * anywhere counts, which errs toward a miss.
- */
-function runsRenovate(script: string): boolean {
-  if (/\brenovate(?:bot)?\/renovate\b/.test(script)) return true;
-  for (const segment of script.split(/[\n;&|()]+/)) {
-    const words = segment
-      .trim()
-      .split(/\s+/)
-      .map((w) => w.replace(/^["']+|["']+$/g, ""));
-    let i = 0;
-    for (;;) {
-      const w = words[i] ?? "";
-      if (/^[A-Za-z_]\w*=/.test(w) || COMMAND_PREFIXES.has(w)) {
-        i += 1;
-        while ((words[i] ?? "").startsWith("-")) i += 1; // `sudo -E`, `env -i`
-      } else if ((w === "bash" || w === "sh") && words[i + 1] === "-c") i += 2;
-      else break;
-    }
-    let runner = false;
-    const tool = words[i] ?? "";
-    if (["npx", "pnpx", "bunx"].includes(tool)) {
-      runner = true;
-      i += 1;
-    } else if (["pnpm", "yarn", "npm"].includes(tool)) {
-      if (["dlx", "exec", "run", "run-script"].includes(words[i + 1] ?? "")) {
-        runner = true;
-        i += 2;
-      } else if (tool !== "npm") {
-        // `pnpm renovate` and `yarn renovate` run the bin by name.
-        runner = true;
-        i += 1;
-      }
-    }
-    while (runner && i < words.length) {
-      const w = words[i]!;
-      if (w === "--") {
-        i += 1;
-        break;
-      }
-      if (w === "-p" || w === "--package") i += 2;
-      else if (w.startsWith("-")) i += 1;
-      else break;
-    }
-    if (/(?:^|\/)renovate(?:@\S*)?$/.test(words[i] ?? "")) return true;
-  }
-  return false;
 }
 
 function record(v: unknown): Record<string, unknown> | null {
