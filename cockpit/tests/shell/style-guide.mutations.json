@@ -159,5 +159,57 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r1-meta-dimmed",
+    "why": "Review round 1: the Broken verdict's meta line dimmed to 0.85 (4.04:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}",
+        "replace": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}\n.verdict.broken .verdict-meta {\n  opacity: 0.85;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-badge-ink-on-red",
+    "why": "Review round 1: a NEW badge on a red chip is ink, black on red at 4.05:1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.broken.stuck,\n.chip.broken .badge {",
+        "replace": ".chip.broken.stuck {"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-red-hover",
+    "why": "Review round 1: every link hovers red, so red is not Broken only",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "a:hover {\n  text-decoration-thickness: 2px;\n}",
+        "replace": "a:hover {\n  color: var(--broken);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r1-focus-red-on-red",
+    "why": "Review round 1: the focus ring on the red band is red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken :focus-visible {\n  outline-color: var(--on-broken);\n}",
+        "replace": ".verdict.broken :focus-visible {\n  outline-color: var(--focus);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
