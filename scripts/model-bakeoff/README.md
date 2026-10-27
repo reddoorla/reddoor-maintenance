@@ -43,7 +43,7 @@ These are workspace#1's nine steps, with where each one happens.
    the model's documented default, written out: Haiku 5.5 and Opus 5.5 default to `medium`.
 5. **Score deterministically**, with the normalisation below.
 6. **Referee every disagreement.** `score` groups the distinct arm-versus-reference
-   disagreements and writes `referee-args.json`, numbered as the next referee round. Run the
+   disagreements and writes `<run>.referee-args.json`, numbered as the next referee round. Run the
    workflow with it, `collect` again, and `score` again. Rulings from every round are kept. A
    ruling can credit an arm, and can refute the reference. An arm that agreed with a refuted
    reference loses that check. A value the arm left out is never credited.
@@ -77,9 +77,12 @@ and never inside it: the arms are told `<run>/input` and `<run>/work/<id>`, so a
 or a Grep over the run does not reach the truth file (#1492). `score` reads it there, and refuses
 a run prepared before the move, whose `truth.json` is still inside it. Copy or move the two
 together. A file outside the run is still readable by an arm that goes looking; for a task that
-lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. The run
-directory holds one other route to the answer: once `collect` has run, `runs.json` holds the
-gold's output, which an arm launched after it (the per-arm `only` flow) can read (#1540).
+lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. For the
+same reason `collect` writes the agents it read to `<run>.runs.json` and `score` writes the
+referee's args to `<run>.referee-args.json`, both beside the run: the first holds the gold's
+output and the second every disagreement's REFERENCE value, which an arm launched after a
+`collect` (the per-arm `only` flow) could otherwise read (#1540). Both steps refuse a run whose
+`runs.json` is still inside it; move it beside the run first.
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
 `scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
@@ -90,7 +93,7 @@ node scripts/model-bakeoff/bakeoff.mjs collect --run <run> --transcripts <transc
 node scripts/model-bakeoff/bakeoff.mjs score --run <run>
 ```
 
-If `score` reports unruled disagreements, run the workflow again with `<run>/referee-args.json`,
+If `score` reports unruled disagreements, run the workflow again with `<run>.referee-args.json`,
 then `collect` (with that run's transcript directory) and `score` again.
 
 `collect` refuses, and writes nothing, when:
@@ -246,7 +249,7 @@ the task.
 `args.only` (a list of arm ids, `gold` included) runs a subset of the arms. A workflow runs at
 most `min(16, CPUs - 2)` agents at once, two in a 4-CPU cloud container, so a large item run is
 launched as one workflow per arm with `only`, and `collect` is run once per transcript
-directory: it merges into the run's `runs.json`.
+directory: it merges into the run's `<run>.runs.json`.
 
 A task may also export `secrets` (strings, such as its answer key's file name): `score` reports
 any agent whose Bash commands or Read, Grep or Glob inputs name one. It sees names only: a glob

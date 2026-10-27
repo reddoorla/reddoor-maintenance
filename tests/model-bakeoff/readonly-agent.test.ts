@@ -1,6 +1,6 @@
 import { afterAll, describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
   REFEREE,
   collectFile,
   extractArgs,
+  runsPath,
   verifyRan,
 } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import * as census from "../../scripts/model-bakeoff/tasks/t5-census.mjs";
@@ -183,9 +184,29 @@ describe("collect keeps each agent's type for score", () => {
     execFileSync(process.execPath, [CLI, "collect", "--run", run, "--transcripts", transcripts], {
       encoding: "utf8",
     });
-    const runs = JSON.parse(readFileSync(join(run, "runs.json"), "utf8"));
+    // Beside the run, never inside it, where a later arm could read the gold's output (#1540).
+    expect(existsSync(join(run, "runs.json"))).toBe(false);
+    const runs = JSON.parse(readFileSync(runsPath(run), "utf8"));
     expect(Object.keys(runs).sort()).toEqual(["a", "gold"]);
     expect(runs.gold.agentType).toBe(TYPE);
     expect(runs.a.agentType).toBe("workflow-subagent");
+  });
+
+  it("refuses to merge into a runs.json still inside the run (#1540)", () => {
+    mkdirSync(transcripts, { recursive: true });
+    writeFileSync(join(run, "workflow-args.json"), JSON.stringify(args));
+    writeFileSync(join(run, "runs.json"), "{}\n");
+    write("gold", "\n\n(BAKEOFF-ARM: gold)", JSON.stringify({ agentType: TYPE }));
+    let err = "";
+    try {
+      execFileSync(process.execPath, [CLI, "collect", "--run", run, "--transcripts", transcripts], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      err = String((e as { stderr: string }).stderr);
+    }
+    expect(err).toContain(`${join(run, "runs.json")} is inside the run`);
+    rmSync(join(run, "runs.json"));
   });
 });
