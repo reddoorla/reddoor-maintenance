@@ -1328,6 +1328,21 @@ describe("mutate, against a real repo", () => {
       expect(readdirSync(join(f.dir, "node_modules", ".vite-temp"))).toEqual([]);
     });
 
+    it("refuses a repo that tracks files under node_modules, leaving nothing behind", async () => {
+      const f = fixture();
+      writeFileSync(join(f.dir, "node_modules", "tracked.txt"), "x\n");
+      sh(f.dir, "git", ["add", "-f", "node_modules/tracked.txt"]);
+      sh(f.dir, "git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "nm"]);
+      const tmp = mkdtempSync(join(tmpdir(), "mutate-tmp-"));
+      temps.push(tmp);
+      const p = sidecar(f.side, [toValue("kill", "fail")]);
+      await expect(mutate(opts(p), { cwd: f.dir, tmpdir: tmp, ...quiet })).rejects.toThrow(
+        /tracks files under node_modules\/.*rerun with --in-place/,
+      );
+      expect(worktrees(f.dir)).toBe(1);
+      expect(readdirSync(tmp)).toEqual([]);
+    });
+
     it("--json prints JSON when it stops with an error before any result", () => {
       const f = fixture("litter");
       const p = sidecar(f.side, [

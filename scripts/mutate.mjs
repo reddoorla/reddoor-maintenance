@@ -648,7 +648,7 @@ export async function mutate(o, deps = {}) {
         // A checkout of HEAD that already holds node_modules/ tracks files there.
         if (existsSync(join(wt, "node_modules")))
           throw new Refusal(
-            "the repo tracks files under node_modules/, which the worktree cannot link",
+            "the repo tracks files under node_modules/, which the worktree cannot link; rerun with --in-place",
           );
         mkdirSync(join(wt, "node_modules"));
         for (const e of readdirSync(join(root, "node_modules"))) {
