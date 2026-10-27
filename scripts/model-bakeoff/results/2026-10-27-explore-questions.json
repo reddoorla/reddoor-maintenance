@@ -1,0 +1,407 @@
+{
+  "date": "2026-10-27",
+  "task": "explore-questions",
+  "row": 10,
+  "pin": "3226c703bff9bd64aaf4db2d27f7d796b6f3af58",
+  "result": {
+    "task": "explore-questions",
+    "reference": "script truth",
+    "problems": [],
+    "disagreements": 1,
+    "unruled": 0,
+    "referenceErrors": [],
+    "arms": [
+      {
+        "id": "gold",
+        "asked": "opus @ high",
+        "ran": "claude-opus-5-5 @ high",
+        "score": "26/26",
+        "cost": 0.6105026000000001,
+        "requests": 12,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-low-1",
+        "asked": "haiku @ low",
+        "ran": "claude-haiku-5-5 @ low",
+        "score": "26/26",
+        "cost": 0.013445284999999998,
+        "requests": 5,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-low-2",
+        "asked": "haiku @ low",
+        "ran": "claude-haiku-5-5 @ low",
+        "score": "26/26",
+        "cost": 0.01174172,
+        "requests": 4,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-low-3",
+        "asked": "haiku @ low",
+        "ran": "claude-haiku-5-5 @ low",
+        "score": "26/26",
+        "cost": 0.011954605000000002,
+        "requests": 5,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-medium-1",
+        "asked": "haiku @ medium",
+        "ran": "claude-haiku-5-5 @ medium",
+        "score": "26/26",
+        "cost": 0.014829735,
+        "requests": 6,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-medium-2",
+        "asked": "haiku @ medium",
+        "ran": "claude-haiku-5-5 @ medium",
+        "score": "26/26",
+        "cost": 0.013502074999999999,
+        "requests": 5,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "haiku-medium-3",
+        "asked": "haiku @ medium",
+        "ran": "claude-haiku-5-5 @ medium",
+        "score": "26/26",
+        "cost": 0.012773915,
+        "requests": 5,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "sonnet-medium-1",
+        "asked": "sonnet @ medium",
+        "ran": "claude-sonnet-5-5 @ medium",
+        "score": "26/26",
+        "cost": 0.16852129999999998,
+        "requests": 3,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "sonnet-medium-2",
+        "asked": "sonnet @ medium",
+        "ran": "claude-sonnet-5-5 @ medium",
+        "score": "26/26",
+        "cost": 0.1652951,
+        "requests": 3,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "15/15"
+        },
+        "errors": []
+      },
+      {
+        "id": "sonnet-medium-3",
+        "asked": "sonnet @ medium",
+        "ran": "claude-sonnet-5-5 @ medium",
+        "score": "25/26",
+        "cost": 0.162268,
+        "requests": 3,
+        "unfinished": 0,
+        "longPrompt": 0,
+        "byCollection": {
+          "scalars": "11/11",
+          "lists": "14/15"
+        },
+        "errors": [
+          {
+            "check": "lists src-dirs / values",
+            "got": "[\"alerts\",\"audits\",\"blux\",\"cli\",\"client\",\"configs\",\"dashboard\",\"db\",\"fleet\",\"fleet-daily\",\"forms\",\"github\",\"images\",\"inventory\",\"prismic\",\"prospect\",\"recipes\",\"reports\",\"types\",\"util\"]",
+            "expected": "[\"alerts\",\"audits\",\"blux\",\"cli\",\"client\",\"configs\",\"dashboard\",\"db\",\"fleet\",\"fleet-daily\",\"forms\",\"github\",\"images\",\"inventory\",\"prismic\",\"prospect\",\"recipes\",\"reports\",\"util\"]"
+          }
+        ]
+      }
+    ]
+  },
+  "truth": {
+    "scalars": [
+      {
+        "id": "def-credentials",
+        "value": "src/util/credentials.ts"
+      },
+      {
+        "id": "def-format-cost",
+        "value": "scripts/model-bakeoff/lib/ledger.mjs"
+      },
+      {
+        "id": "referee-chunk",
+        "value": "90"
+      },
+      {
+        "id": "scheduled-workflows",
+        "value": "7"
+      },
+      {
+        "id": "pnpm-version",
+        "value": "11.11.0"
+      }
+    ],
+    "lists": [
+      {
+        "id": "fresh-out",
+        "values": [
+          "scripts/model-bakeoff/bakeoff.mjs",
+          "scripts/model-bakeoff/tasks/pnpm-update.mjs"
+        ]
+      },
+      {
+        "id": "credentials-importers",
+        "values": ["src/cli/bin.ts", "src/db/client.ts", "src/reports/ga/config.ts"]
+      },
+      {
+        "id": "credentials-exports",
+        "values": ["defaultCredentialsPath", "loadCredentialsIntoEnv", "parseEnvFile"]
+      },
+      {
+        "id": "turso-secret",
+        "values": [
+          ".github/workflows/daily-reports.yml",
+          ".github/workflows/fleet-config-drift.yml",
+          ".github/workflows/fleet-daily.yml",
+          ".github/workflows/fleet-db-backup.yml",
+          ".github/workflows/fleet-form-e2e.yml",
+          ".github/workflows/fleet-lighthouse.yml",
+          ".github/workflows/fleet-prismic-drift.yml",
+          ".github/workflows/fleet-prismic-sync.yml",
+          ".github/workflows/fleet-security.yml",
+          ".github/workflows/fleet-smoke.yml",
+          ".github/workflows/forms-deadletter-replay.yml",
+          ".github/workflows/report-rerender.yml"
+        ]
+      },
+      {
+        "id": "ledger-tests",
+        "values": ["tests/model-bakeoff/ledger.test.ts"]
+      },
+      {
+        "id": "src-dirs",
+        "values": [
+          "alerts",
+          "audits",
+          "blux",
+          "cli",
+          "client",
+          "configs",
+          "dashboard",
+          "db",
+          "fleet",
+          "fleet-daily",
+          "forms",
+          "github",
+          "images",
+          "inventory",
+          "prismic",
+          "prospect",
+          "recipes",
+          "reports",
+          "util"
+        ]
+      },
+      {
+        "id": "observe-tasks",
+        "values": [
+          "scripts/model-bakeoff/tasks/pnpm-update.mjs",
+          "scripts/model-bakeoff/tasks/t4-plan-task.mjs"
+        ]
+      }
+    ]
+  },
+  "agents": {
+    "haiku-low-1": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "cost": 0.013445284999999998,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 5,
+      "writes": [],
+      "forbidden": []
+    },
+    "sonnet-medium-1": {
+      "agentType": "Explore",
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 3,
+      "cost": 0.16852129999999998,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 3,
+      "writes": [],
+      "forbidden": []
+    },
+    "haiku-low-3": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 5,
+      "cost": 0.011954605000000002,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 5,
+      "writes": [],
+      "forbidden": []
+    },
+    "haiku-medium-1": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 6,
+      "cost": 0.014829735,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 6,
+      "writes": [],
+      "forbidden": []
+    },
+    "haiku-low-2": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["low"],
+      "requests": 4,
+      "cost": 0.01174172,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 4,
+      "writes": [],
+      "forbidden": []
+    },
+    "sonnet-medium-3": {
+      "agentType": "Explore",
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 3,
+      "cost": 0.162268,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 3,
+      "writes": [],
+      "forbidden": []
+    },
+    "haiku-medium-2": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 5,
+      "cost": 0.013502074999999999,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 5,
+      "writes": [],
+      "forbidden": []
+    },
+    "sonnet-medium-2": {
+      "agentType": "Explore",
+      "models": ["claude-sonnet-5-5"],
+      "efforts": ["medium"],
+      "requests": 3,
+      "cost": 0.1652951,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 3,
+      "writes": [],
+      "forbidden": []
+    },
+    "gold": {
+      "agentType": "Explore",
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 12,
+      "cost": 0.6105026000000001,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 11,
+      "writes": [],
+      "forbidden": []
+    },
+    "haiku-medium-3": {
+      "agentType": "Explore",
+      "models": ["claude-haiku-5-5"],
+      "efforts": ["medium"],
+      "requests": 5,
+      "cost": 0.012773915,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 5,
+      "writes": [],
+      "forbidden": []
+    },
+    "referee:r1-1": {
+      "agentType": "Explore",
+      "models": ["claude-opus-5-5"],
+      "efforts": ["high"],
+      "requests": 2,
+      "cost": 0.14322580000000001,
+      "unfinished": 0,
+      "tools": [],
+      "bash": 1,
+      "writes": [],
+      "forbidden": []
+    }
+  },
+  "rulings": [
+    {
+      "id": "lists src-dirs / values :: \u2026types\u2026",
+      "armCorrect": false,
+      "refCorrect": true,
+      "note": "src/types is not a directory; only the file src/types.ts exists."
+    }
+  ]
+}
