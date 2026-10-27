@@ -54,6 +54,7 @@ export const SESSION_COLUMNS = Object.freeze([
   "get_session_cache_read_tokens",
   "get_session_cache_write_tokens",
   "read_updated_at",
+  "complete_through",
 ]);
 
 const NUMERIC = new Set([
@@ -90,16 +91,6 @@ const base = (session, source) => ({
 /** The payload of a result event, which list_events wraps in `internal_anthropic_catchall`. */
 const resultBody = (ev) => ev?.result?.internal_anthropic_catchall ?? ev?.result ?? null;
 
-/** The newest result event on a list_events page, by created_at; null when there is none. */
-export function lastResult(events) {
-  let best = null;
-  for (const ev of events ?? []) {
-    if (!ev?.result) continue;
-    if (!best || ev.created_at > best.created_at) best = ev;
-  }
-  return best;
-}
-
 /** Timestamps compared as instants, so `…:29Z` sorts before `…:29.5Z`; ties fall back to text. */
 export function cmpTime(a, b) {
   const [x, y] = [Date.parse(a ?? ""), Date.parse(b ?? "")];
@@ -127,14 +118,19 @@ const totalOf = (ev) => {
 export function sessionUsage(events) {
   const results = (events ?? [])
     .filter((ev) => ev?.result)
-    .sort((a, b) => cmpTime(a.created_at, b.created_at));
+    .sort(
+      (a, b) =>
+        cmpTime(a.created_at, b.created_at) ||
+        String(a.result.uuid ?? "").localeCompare(String(b.result.uuid ?? "")),
+    );
   if (!results.length) return null;
   const runs = [];
   let run = null;
   let lastTotal;
   for (const ev of results) {
     const t = totalOf(ev);
-    if (run && t !== undefined && lastTotal !== undefined && t < lastTotal) run = null;
+    // A drop of less than half a cent is float noise, not a restart.
+    if (run && t !== undefined && lastTotal !== undefined && t < lastTotal - 0.005) run = null;
     if (!run) {
       run = { from: ev.created_at, fromTotal: undefined, end: ev };
       runs.push(run);
@@ -377,11 +373,10 @@ export function readSessionTranscripts(dir, cliSessionId) {
  * (its uuid is `CLAUDE_CODE_SESSION_ID`), the cloud ID from `CLAUDE_CODE_REMOTE_SESSION_ID`,
  * `cse_X` becoming `session_X`; otherwise the transcript's uuid.
  */
-export function transcriptId(uuid, env, { id, all } = {}) {
+export function transcriptId(uuid, env, { id } = {}) {
   if (id) return id;
   const remote = env.CLAUDE_CODE_REMOTE_SESSION_ID;
-  if (!all && remote && uuid === env.CLAUDE_CODE_SESSION_ID)
-    return remote.replace(/^cse_/, "session_");
+  if (remote && uuid === env.CLAUDE_CODE_SESSION_ID) return remote.replace(/^cse_/, "session_");
   return uuid;
 }
 
@@ -545,7 +540,7 @@ export function mergeResults(stored, incoming) {
       ? -1
       : a.session_id > b.session_id
         ? 1
-        : cmpTime(a.created_at, b.created_at),
+        : cmpTime(a.created_at, b.created_at) || String(a.uuid).localeCompare(String(b.uuid)),
   );
 }
 
@@ -590,7 +585,7 @@ const COVERAGE = { "": 0, "not-read": 0, "no-result": 1, "no-server-usage": 2, m
 /**
  * One harvest's sessions table. A session's fields come, one by one, from whichever of its
  * listing and its get_session reading is newer (`updated_at`); its usage figures from
- * get_session; `pages_read` and `history` from its list_events pages.
+ * get_session; `coverage`, `history` and `complete_through` from its list_events pages.
  */
 export function harvestSessions(calls) {
   const listed = new Map(listedSessions(calls).map((s) => [s.id, s]));
@@ -630,6 +625,12 @@ export function harvestSessions(calls) {
       status: newerOf("session_status"),
       coverage: read.length ? "no-result" : "",
       history: !read.length ? "" : historyComplete(read) ? "complete" : "newest-page",
+      complete_through:
+        read.length && historyComplete(read)
+          ? read
+              .flatMap((c) => c.payload.data ?? [])
+              .reduce((m, e) => (cmpTime(e.created_at, m) > 0 ? e.created_at : m), "")
+          : "",
       get_session_cost_usd: usage?.cost_usd ?? "",
       get_session_input_tokens: usage?.input_tokens ?? "",
       get_session_output_tokens: usage?.output_tokens ?? "",
@@ -642,19 +643,30 @@ export function harvestSessions(calls) {
 }
 
 const META = ["created_at", "updated_at", "title", "origin", "environment", "status"];
+const READ = [
+  "get_session_cost_usd",
+  "get_session_input_tokens",
+  "get_session_output_tokens",
+  "get_session_cache_read_tokens",
+  "get_session_cache_write_tokens",
+  "read_updated_at",
+];
 
 /**
- * Merge sessions tables, one row per session. Listing fields come from the newer `updated_at`,
- * get_session figures from the newer `read_updated_at`; an empty incoming field never blanks a
- * stored one. `history: complete` and the fullest `coverage` stick: once a harvest read a
- * session to its start, that stays true of the results stored.
+ * Merge sessions tables, one row per session. The listing fields are one group, taken whole from
+ * the reading with the newer `updated_at`; the get_session figures another, taken whole from the
+ * newer `read_updated_at`. A reading that lacks a group (no title, or no get_session cost) offers
+ * nothing for it, so it can neither blank a field nor move that group's clock; then the result is
+ * the same in any order of readings. `coverage` keeps the fullest seen, and `complete_through` the
+ * newest complete read.
  */
 export function mergeSessions(stored, incoming) {
   const by = new Map(stored.map((s) => [s.session_id, s]));
-  const pick = (a, b, takeB) => {
-    const has = (v) => v !== undefined && v !== "";
-    if (has(a) && has(b)) return takeB ? b : a;
-    return has(b) ? b : (a ?? "");
+  const has = (v) => v !== undefined && v !== "";
+  const group = (a, b, keys, offered, clock) => {
+    const take = offered(b) && (!offered(a) || cmpTime(b[clock], a[clock]) > 0);
+    const [win, lose] = take ? [b, a] : [a, b];
+    return Object.fromEntries(keys.map((k) => [k, has(win[k]) ? win[k] : (lose[k] ?? "")]));
   };
   for (const s of incoming) {
     const old = by.get(s.session_id);
@@ -662,24 +674,24 @@ export function mergeSessions(stored, incoming) {
       by.set(s.session_id, { ...s });
       continue;
     }
-    const metaB = cmpTime(s.updated_at, old.updated_at) >= 0;
-    const readB = cmpTime(s.read_updated_at, old.read_updated_at) >= 0;
-    const merged = { ...old };
-    for (const k of new Set([...Object.keys(old), ...Object.keys(s)])) {
-      if (k === "history")
-        merged[k] =
-          old.history === "complete" || s.history === "complete"
-            ? "complete"
-            : pick(old[k], s[k], true);
-      else if (k === "coverage")
-        merged[k] =
-          (COVERAGE[s.coverage] ?? 0) > (COVERAGE[old.coverage] ?? 0) ? s.coverage : old.coverage;
-      else if (META.includes(k)) merged[k] = pick(old[k], s[k], metaB);
-      else merged[k] = pick(old[k], s[k], readB);
-    }
-    by.set(s.session_id, merged);
+    by.set(s.session_id, {
+      ...old,
+      ...s,
+      ...group(old, s, META, (x) => has(x.title), "updated_at"),
+      ...group(old, s, READ, (x) => has(x.get_session_cost_usd), "read_updated_at"),
+      coverage:
+        (COVERAGE[s.coverage] ?? 0) > (COVERAGE[old.coverage] ?? 0)
+          ? s.coverage
+          : (old.coverage ?? ""),
+      complete_through:
+        cmpTime(s.complete_through, old.complete_through) > 0
+          ? s.complete_through
+          : (old.complete_through ?? ""),
+    });
   }
-  return [...by.values()].sort((a, b) => cmpTime(a.created_at, b.created_at));
+  return [...by.values()].sort(
+    (a, b) => cmpTime(a.created_at, b.created_at) || (a.session_id < b.session_id ? -1 : 1),
+  );
 }
 
 /**
@@ -726,6 +738,12 @@ export function finalize(rows, sessions, results) {
     const mine = bySession.get(s.session_id) ?? [];
     const su = sessionUsage((stored.get(s.session_id) ?? []).map(asEvent));
     const next = { ...s, coverage: s.coverage || "not-read" };
+    if (s.history || s.complete_through)
+      // Complete while no stored result is newer than the newest complete read.
+      next.history =
+        s.complete_through && (!su || cmpTime(s.complete_through, su.as_of) >= 0)
+          ? "complete"
+          : "newest-page";
     if (su) {
       next.coverage = mine.length ? "modelUsage" : "no-server-usage";
       next.as_of = su.as_of;

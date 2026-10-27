@@ -9,7 +9,6 @@ import {
   harvestSessions,
   historyComplete,
   ingest,
-  lastResult,
   listedSessions,
   mcpCalls,
   mergeRows,
@@ -178,6 +177,19 @@ describe("sessionUsage", () => {
     expect(s.runs.map((r) => r.end.created_at)).toEqual([T(3)]);
   });
 
+  it("does not take a drop of less than half a cent for a restart", () => {
+    const s = sessionUsage([rev(T(1), 10.000000000000002, {}), rev(T(2), 10, {})])!;
+    expect([s.segments, s.total]).toEqual([1, 10]);
+  });
+
+  it("orders results with the same time by uuid, whatever order they were read in", () => {
+    const [x, y, z] = [rev(T(1), 10, {}, "x"), rev(T(2), 3, {}, "y"), rev(T(2), 12, {}, "z")];
+    const a = sessionUsage([x, y, z])!;
+    const b = sessionUsage([z, x, y])!;
+    expect([a.segments, a.total]).toEqual([b.segments, b.total]);
+    expect(a.runs.map((r) => r.end.created_at)).toEqual(b.runs.map((r) => r.end.created_at));
+  });
+
   it("orders timestamps as instants, not text", () => {
     const s = sessionUsage([
       rev("2026-01-02T01:00:29.5Z", 2, {}),
@@ -313,6 +325,19 @@ describe("ingest: any order of harvests", () => {
       for (const order of orders(harvests))
         expect(total(order.reduce((st, h) => harvest(h, st), empty))).toBe(want);
     });
+});
+
+describe("ingest: history", () => {
+  it("stays complete only while no stored result is newer than the complete read", () => {
+    const whole = harvest([
+      listEvents("s1", [rev(T(1), 1, {}), rev(T(2), 2, {}), rev(T(3), 10, {})]),
+    ]);
+    expect(whole.sessions[0]).toMatchObject({ history: "complete" });
+    const again = harvest([listEvents("s1", [rev(T(3), 10, {})], { has_more: true })], whole);
+    expect(again.sessions[0]).toMatchObject({ history: "complete" });
+    const gap = harvest([listEvents("s1", [rev(T(9), 12, {})], { has_more: true })], whole);
+    expect(gap.sessions[0]).toMatchObject({ history: "newest-page" });
+  });
 });
 
 describe("historyComplete", () => {
@@ -453,8 +478,8 @@ describe("mergeSessions", () => {
       get_session_cost_usd: "",
       read_updated_at: "",
     };
-    expect(mergeSessions([full], [bare])[0]).toEqual(full);
-    // A newer reading with a field empty still keeps the stored value of that field.
+    expect(mergeSessions([full], [bare])[0]).toMatchObject(full);
+    // A newer reading that lacks a group keeps that group whole, its clock included.
     const newerBare = {
       session_id: "s1",
       updated_at: T(10),
@@ -465,7 +490,7 @@ describe("mergeSessions", () => {
     expect(mergeSessions([full], [newerBare])[0]).toMatchObject({
       title: "T",
       get_session_cost_usd: 20,
-      updated_at: T(10),
+      updated_at: T(9),
     });
   });
 
@@ -501,12 +526,49 @@ describe("mergeSessions", () => {
     expect(mergeSessions([full], [staleReading])[0]).toMatchObject({ get_session_cost_usd: 20 });
   });
 
-  it("keeps a complete history and the fullest coverage once seen", () => {
-    const later = { session_id: "s1", history: "newest-page", coverage: "" };
-    expect(mergeSessions([full], [later])[0]).toMatchObject({
-      history: "complete",
-      coverage: "no-result",
+  it("gives the same answer for three readings in any order", () => {
+    const A = {
+      session_id: "s1",
+      updated_at: T(5),
+      title: "X",
+      read_updated_at: T(5),
+      get_session_cost_usd: 10,
+    };
+    const B = {
+      session_id: "s1",
+      updated_at: T(3),
+      title: "Y",
+      read_updated_at: T(3),
+      get_session_cost_usd: 5,
+    };
+    const C = {
+      session_id: "s1",
+      updated_at: T(7),
+      title: "",
+      read_updated_at: T(7),
+      get_session_cost_usd: "",
+    };
+    const orders = [
+      [A, B, C],
+      [A, C, B],
+      [B, A, C],
+      [B, C, A],
+      [C, A, B],
+      [C, B, A],
+    ];
+    const outs = orders.map((o) => {
+      const [first, ...rest] = o;
+      return rest.reduce(
+        (st: LedgerRow[], x) => mergeSessions(st, [x as LedgerRow]),
+        [first as LedgerRow],
+      )[0];
     });
+    for (const out of outs) expect(out).toMatchObject({ title: "X", get_session_cost_usd: 10 });
+  });
+
+  it("keeps the fullest coverage once seen", () => {
+    const later = { session_id: "s1", coverage: "" };
+    expect(mergeSessions([full], [later])[0]).toMatchObject({ coverage: "no-result" });
   });
 });
 
@@ -515,21 +577,10 @@ describe("transcriptId", () => {
   it("names this container's own session by its cloud ID, and any other by its uuid", () => {
     expect(transcriptId("aaaa", env)).toBe("session_XYZ");
     expect(transcriptId("bbbb", env)).toBe("bbbb");
-    expect(transcriptId("aaaa", env, { all: true })).toBe("aaaa");
+    expect(transcriptId("aaaa", env, { all: true })).toBe("session_XYZ");
+    expect(transcriptId("bbbb", env, { all: true })).toBe("bbbb");
     expect(transcriptId("bbbb", env, { id: "given" })).toBe("given");
     expect(transcriptId("aaaa", {})).toBe("aaaa");
-  });
-});
-
-describe("lastResult", () => {
-  it("picks the newest result event by created_at, whatever the page order", () => {
-    const events = [
-      resultEvent("2026-01-02T06:00:00Z", { m: mu(3) }),
-      { created_at: "2026-01-02T07:00:00Z", assistant: {} },
-      resultEvent("2026-01-02T04:00:00Z", { m: mu(1) }),
-    ];
-    expect(lastResult(events)?.created_at).toBe("2026-01-02T06:00:00Z");
-    expect(lastResult([{ created_at: "x", user: {} }])).toBeNull();
   });
 });
 
@@ -619,6 +670,30 @@ describe("transcriptRows", () => {
     expect(rows[0]!.cost_basis).toMatch(/^list-computed/);
   });
 
+  it("dates each row by its newest message and counts thinking and web searches", () => {
+    const line = (id: string, ts: string, extra: object) =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: ts,
+        message: {
+          id,
+          model: "claude-opus-5-5",
+          role: "assistant",
+          stop_reason: "end_turn",
+          content: [],
+          usage: { input_tokens: 1, output_tokens: 10, ...extra },
+        },
+      });
+    const rows = transcriptRows(S, {
+      main: [
+        line("a", T(3), { output_tokens_details: { thinking_tokens: 4 } }),
+        line("b", T(1), { server_tool_use: { web_search_requests: 2 } }),
+      ].join("\n"),
+      agents: [],
+    });
+    expect(rows[0]).toMatchObject({ as_of: T(3), thinking_tokens: 4, web_search_requests: 2 });
+  });
+
   it("keeps the last line per message.id instead of summing repeats", () => {
     const rows = transcriptRows(S, {
       main: [
@@ -666,6 +741,10 @@ describe("CSV", () => {
       { a: "x y", b: "" },
     ];
     expect(parseCsv(toCsv(rows, ["a", "b"]))).toEqual(rows);
+  });
+
+  it("reads a file saved with a byte-order mark", () => {
+    expect(parseCsv("\ufeffa,b\n1,2\n")).toEqual([{ a: "1", b: "2" }]);
   });
 
   it("writes the ledger columns in a fixed order", () => {
@@ -884,6 +963,11 @@ describe("reconcile", () => {
   it("names a run whose rows are half a cent or more off its total", () => {
     const out = reconcile([r(1, T(1), 1.01)], session);
     expect(out.mismatches.map((m) => [m.session_id, m.run])).toEqual([["s", T(1)]]);
+  });
+
+  it("names a run with no total", () => {
+    const out = reconcile([r(1, T(1), "")], session);
+    expect(out.mismatches.map((m) => m.run)).toEqual([T(1)]);
   });
 
   it("names a session read with usage and no rows", () => {

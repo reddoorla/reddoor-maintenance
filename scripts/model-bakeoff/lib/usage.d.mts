@@ -35,7 +35,6 @@ export interface Store {
 }
 export const COLUMNS: readonly string[];
 export const SESSION_COLUMNS: readonly string[];
-export function lastResult(events: unknown[]): { created_at: string; result: unknown } | null;
 export function cmpTime(a: string | undefined, b: string | undefined): number;
 export function sessionUsage(
   events: unknown[],

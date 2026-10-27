@@ -11,7 +11,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                       |
 | `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`   |
 | `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                        |
-| `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/ledger.csv` and `usage/sessions.csv`                    |
+| `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/` (`results.jsonl`, `sessions.csv`, `ledger.csv`)       |
 | `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                   |
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
@@ -607,7 +607,9 @@ node scripts/model-bakeoff/usage-ledger.mjs stale      --out <workspace>/usage [
 node scripts/model-bakeoff/usage-ledger.mjs check      --out <workspace>/usage
 ```
 
-There are three sources, each with its own `source` value in the ledger:
+There are three sources, each with its own `source` value in the ledger. They overlap, so never
+add their totals together: a cloud session's `transcript` rows are part of its `modelUsage` rows,
+split by agent. The command's report prints each source's total on its own.
 
 - **`modelUsage`**: a cloud session's server-side `result` events. Each one carries `modelUsage`:
   tokens by class, thinking tokens, web searches and list-price `costUSD` per model, with
@@ -660,7 +662,7 @@ Around that:
 
 - `sessions.csv` takes listing fields (title, status, `updated_at`) from the newer listing or
   `get_session`, and `get_session` figures from the newer `get_session` reading. An empty field
-  never blanks a stored one. `history: complete` and the fullest `coverage` stick once seen.
+  never blanks a stored one. A session's `history` is `complete` while no stored result is newer than its newest complete read (`complete_through`), and the fullest `coverage` sticks. A reading that lacks a group of fields (no title, or no `get_session` cost) leaves that group, and its clock, as stored, so readings give the same table in any order.
 - `transcript` rows merge per agent, so a resumed container that lacks an earlier agent's file
   keeps that agent's rows. Within an agent, the reading whose last message is newer wins, or on a
   tie the one with more requests; a row's `as_of` is its newest message, so re-reading an

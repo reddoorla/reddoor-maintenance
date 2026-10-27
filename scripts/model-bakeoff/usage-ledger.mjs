@@ -1,7 +1,15 @@
 #!/usr/bin/env node
-// The per-model usage ledger (P1-83). Writes `ledger.csv` and `sessions.csv` in the workspace's
-// private `usage/` folder; see this directory's README for the commands and when each runs.
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+// The per-model usage ledger (P1-83). Writes `results.jsonl` (the stored result events),
+// `sessions.csv` and `ledger.csv` in the workspace's private `usage/` folder; see this
+// directory's README for the commands and when each runs.
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,8 +35,22 @@ const readJsonl = (p) =>
     ? readFileSync(p, "utf8")
         .split("\n")
         .filter(Boolean)
-        .map((l) => JSON.parse(l))
+        .map((l, i) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            throw new Error(
+              `${p}:${i + 1} is not JSON; restore the file from git before harvesting.`,
+            );
+          }
+        })
     : [];
+
+/** Write through a temporary file and a rename, so a crash never leaves half a file. */
+function writeAtomic(path, text) {
+  writeFileSync(`${path}.tmp`, text);
+  renameSync(`${path}.tmp`, path);
+}
 
 /** One harvest into `<out>`: results.jsonl, sessions.csv and ledger.csv, rebuilt together. */
 function store(out, harvest) {
@@ -42,9 +64,9 @@ function store(out, harvest) {
     { results: readJsonl(paths.results), sessions: read(paths.sessions), rows: read(paths.rows) },
     harvest,
   );
-  writeFileSync(paths.results, done.results.map((r) => JSON.stringify(r)).join("\n") + "\n");
-  writeFileSync(paths.sessions, toCsv(done.sessions, SESSION_COLUMNS));
-  writeFileSync(paths.rows, toCsv(done.rows, COLUMNS));
+  writeAtomic(paths.results, done.results.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  writeAtomic(paths.sessions, toCsv(done.sessions, SESSION_COLUMNS));
+  writeAtomic(paths.rows, toCsv(done.rows, COLUMNS));
   return done;
 }
 
@@ -61,9 +83,15 @@ function report({ rows, sessions }) {
     const [source, model] = k.split("\u0000");
     console.log(`| ${source} | ${model} | ${usd(v)} |`);
   }
+  // The sources overlap: a cloud session's transcript rows are part of its modelUsage rows.
+  console.log(
+    "\nTotals by source; never add them together, a session's transcript rows are inside its modelUsage rows.",
+  );
+  const bySource = {};
+  for (const r of rows) bySource[r.source] = (bySource[r.source] ?? 0) + Number(r.cost_usd);
+  for (const [source, v] of Object.entries(bySource)) console.log(`  ${source}: ${usd(v)}`);
   const cov = {};
-  for (const s of sessions)
-    cov[s.coverage || "(transcript only)"] = (cov[s.coverage || "(transcript only)"] ?? 0) + 1;
+  for (const s of sessions) cov[s.coverage] = (cov[s.coverage] ?? 0) + 1;
   console.log(`\nSessions by coverage: ${JSON.stringify(cov)}`);
   const r = reconcile(rows, sessions);
   console.log(
@@ -101,9 +129,14 @@ if (
       id: { type: "string" },
       environment: { type: "string" },
       all: { type: "boolean" },
+      help: { type: "boolean" },
     },
   });
   const [cmd] = positionals;
+  if (values.help) {
+    console.log(HELP);
+    process.exit(0);
+  }
   if (!cmd || !values.out) {
     console.log(HELP);
     process.exit(cmd ? 2 : 0);
