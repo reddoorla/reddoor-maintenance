@@ -26,6 +26,8 @@ const contactPage = (opts: {
   vanish: boolean;
   breakAfterMarker: boolean;
   autoSubmit: boolean;
+  clientError: boolean;
+  offHost: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -84,13 +86,27 @@ const contactPage = (opts: {
           return d;
         },
       }[${JSON.stringify(opts.encoding)}];
+      // #1668: a client-side error (Turnstile issued no token) is written into
+      // the status region, and nothing is posted.
+      if (${opts.clientError ? "true" : "false"}) {
+        const s = document.getElementById("ok");
+        s.textContent = "Please complete the captcha.";
+        s.hidden = false;
+        // A same-site keepalive with no body, which is not the form's action.
+        if (${opts.beacon ? "true" : "false"}) await fetch("/beacon", { method: "POST" });
+        return;
+      }
       if (${opts.statusFirst ? "true" : "false"}) {
         const s = document.getElementById("ok");
         s.textContent = "Sending…";
         s.hidden = false;
       }
       if (${opts.beacon ? "true" : "false"}) await fetch("/beacon", { method: "POST", body: "ping" });
-      const r = await fetch("/contact", { method: "POST", body: encode() });
+      // #1668 review: the action posts to another host than the one probed.
+      const action = ${opts.offHost ? "true" : "false"}
+        ? location.origin.replace("127.0.0.1", "localhost") + "/contact"
+        : "/contact";
+      const r = await fetch(action, { method: "POST", body: encode() }).catch(() => ({ ok: false, clone: () => ({ json: async () => ({}) }) }));
       const failed = !r.ok || (await r.clone().json().catch(() => ({}))).type === "failure";
       if (!failed && ${opts.banner ? "true" : "false"}) {
         const s = document.getElementById("ok");
@@ -336,6 +352,10 @@ type Fixture = {
   failAfterFirstLoad?: boolean;
   /** The page submits the form itself when the message is typed (#1737 review). */
   autoSubmit?: boolean;
+  /** The submit handler writes an error into role="status" and posts nothing (#1668). */
+  clientError?: boolean;
+  /** The action POST goes to localhost while the probe loads 127.0.0.1 (#1668 review). */
+  offHost?: boolean;
 };
 
 let server: Server;
@@ -385,6 +405,8 @@ beforeAll(async () => {
           vanish: fixture.vanish === "always" || (fixture.vanish === "once" && contactLoads === 1),
           breakAfterMarker: fixture.breakAfterMarker ?? false,
           autoSubmit: fixture.autoSubmit ?? false,
+          clientError: fixture.clientError ?? false,
+          offHost: fixture.offHost ?? false,
         }),
       );
       return;
@@ -544,6 +566,8 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     expect((out as { detail?: string }).detail).toMatch(
       /^the status region showed, but the submission failed — POST 500 \{"error":"ingest failed"\}/,
     );
+    // The POST answered before the region showed, so the detail says nothing of "after".
+    expect((out as { detail?: string }).detail).not.toMatch(/after the status/);
   });
 
   it("scores that run as not passing end to end", async () => {
@@ -655,9 +679,10 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     expect(out).toMatchObject({ formPresent: true, success: false });
   });
 
-  it("a POST still pending when the settle ends passes, without waiting for it", async () => {
-    // The region shows at once and the POST takes 10 s: the 2 s settle ends the wait,
-    // not the 30 s submit timeout.
+  it("a POST still pending 10 s after the region showed is waited for, and passes once it answers", async () => {
+    // #1668 changed this test's meaning: it pinned a 2 s settle that ended the wait
+    // and passed on the region alone. The verdict is now the POST's answer, so the
+    // run takes the POST's 10 s, under the 30 s submit cap.
     const started = Date.now();
     const out = await submit({
       health: DECLARED,
@@ -666,8 +691,9 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
       postDelayMs: 10_000,
     });
     expect(out).toMatchObject({ formPresent: true, success: true });
-    expect(Date.now() - started).toBeLessThan(6_000);
-  }, 20_000);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(10_000);
+    expect(Date.now() - started).toBeLessThan(20_000);
+  }, 30_000);
 
   it("a same-site beacon that 404s first does not fail a form whose action succeeded", async () => {
     const out = await submit({ health: DECLARED, banner: true, beaconStatus: 404 });
@@ -695,6 +721,79 @@ describe("form-e2e live runner — the verdict is the POST, not the banner (#161
     });
     expect(out).toMatchObject({ formPresent: true, success: true });
   });
+});
+
+describe("form-e2e live runner — a pass needs the marker POST to have answered (#1668)", () => {
+  it("the region shown first: a 500 at 2.5 s fails, and says it came after the status showed", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 2_500,
+      postStatus: 500,
+      statusOnError: true,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but the submission failed — POST 500 .*; it answered after the status showed/,
+    );
+  }, 20_000);
+
+  it("an error in the status region with no POST fails, and says no POST was sent", async () => {
+    const out = await submit({ health: DECLARED, banner: true, clientError: true }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but no POST was sent — no same-site POST: the submission never left the page/,
+    );
+  }, 20_000);
+
+  it("a bodyless same-site keepalive is not taken for the action: an error with no POST still fails", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, clientError: true, beaconStatus: 200 },
+      FAST_FAIL,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but no POST was sent — /,
+    );
+  }, 20_000);
+
+  it("a marked POST to another host fails, and the detail names that host", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, statusFirst: true, offHost: true },
+      FAST_FAIL,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but its POST went to another host — no same-site POST: the marked POST went to localhost:\d+, not the probed site/,
+    );
+  }, 20_000);
+
+  it("the region shown first: a 200 at 2.5 s passes once it answers", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      statusFirst: true,
+      postDelayMs: 2_500,
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true });
+  }, 20_000);
+
+  it("a marker POST that never answers within the cap fails, and says it got no answer", async () => {
+    const started = Date.now();
+    const out = await submit(
+      { health: DECLARED, banner: true, statusFirst: true, postDelayMs: 10_000 },
+      FAST_FAIL,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect((out as { detail?: string }).detail).toMatch(
+      /^the status region showed, but its POST never answered — the POST was sent but got no answer/,
+    );
+    // Capped by submitTimeoutMs (3 s here), not the 10 s the POST takes; the clock
+    // includes the launch and the fills, so the bound leaves room on a loaded runner.
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 20_000);
 });
 
 describe("form-e2e live runner — the instrument can fail, and the interlock holds", () => {

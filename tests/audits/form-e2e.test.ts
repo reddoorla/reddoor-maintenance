@@ -740,6 +740,27 @@ describe("audits/form-e2e noBannerDetail", () => {
     expect(d).toMatch(/fails validation/);
   });
 
+  // #1668: the status region showed, and the POST is what failed or never came.
+  it("names a late failure, a POST that never answered, no POST, and an off-host POST", () => {
+    const shown = { ...clean, bannerShown: true };
+    expect(
+      noBannerDetail({ ...shown, post: { status: 500, bodyBit: "x" }, postAfterStatus: true }),
+    ).toBe(
+      "the status region showed, but the submission failed — POST 500 x; it answered after the status showed",
+    );
+    expect(noBannerDetail({ ...shown, postUnanswered: true })).toBe(
+      "the status region showed, but its POST never answered — the POST was sent but got no answer",
+    );
+    expect(noBannerDetail(shown)).toBe(
+      "the status region showed, but no POST was sent — no same-site POST: the submission never left the page",
+    );
+    expect(noBannerDetail({ ...shown, offHostPost: "forms.example.com" })).toBe(
+      "the status region showed, but its POST went to another host — no same-site POST: the marked POST went to forms.example.com, not the probed site",
+    );
+    // A POST that answered before the region showed carries no "after" bit.
+    expect(noBannerDetail({ ...shown, post: { status: 500 } })).not.toContain("after");
+  });
+
   it("notes a refill that happened but still did not save the run", () => {
     const d = noBannerDetail({ ...clean, refilled: true });
     expect(d).toMatch(/re-filled/);
@@ -909,8 +930,13 @@ describe("audits/form-e2e carriesProbeMarker", () => {
     ).toBe(true);
   });
 
-  it("keeps a body Playwright cannot read (null) as a candidate", () => {
-    expect(carriesProbeMarker(null)).toBe(true);
+  // #1668 review changed this test: it pinned any null body as a candidate, and a
+  // bodyless same-site keepalive then passed a form that posted nothing. Only a
+  // multipart body (a file upload, which Playwright cannot read) stays one.
+  it("keeps a multipart body Playwright cannot read (null) as a candidate, and no other null", () => {
+    expect(carriesProbeMarker(null, "multipart/form-data; boundary=----b")).toBe(true);
+    expect(carriesProbeMarker(null)).toBe(false);
+    expect(carriesProbeMarker(null, "text/plain;charset=UTF-8")).toBe(false);
   });
 
   it("is false for a beacon or pre-submit body without the marker, and for an empty one", () => {
