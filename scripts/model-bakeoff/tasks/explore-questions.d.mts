@@ -9,6 +9,7 @@ export const agentType: string;
 export const textOutput: boolean;
 export const SCALARS: [string, string][];
 export const LISTS: [string, string][];
+export const secrets: string[];
 export const sources: { from: string; match: RegExp; to: string }[];
 export const collections: Collection[];
 export const schema: Record<string, unknown>;

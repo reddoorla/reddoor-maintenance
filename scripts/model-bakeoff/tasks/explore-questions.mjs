@@ -100,6 +100,8 @@ export const schema = {
 };
 
 export const sources = [];
+// The truth sits beside the run, where an Explore agent's search could reach it.
+export const secrets = [".truth.json"];
 
 export function prompt(dir) {
   const repo = `${dir}/repo`;
