@@ -72,6 +72,9 @@ export type FormSubmitOutcome =
       /** The button the probe pressed to answer a cookie-consent gate that covered
        *  the page (#1736), e.g. "Reject". Absent = no gate appeared. */
       consentAnswered?: string;
+      /** A cookie-consent gate covered the page and the probe could not answer it:
+       *  it had no Accept or Reject button, or the button refused its click. */
+      consentUnanswered?: true;
       /** What the site's REAL Turnstile widget did while the probe was on the
        *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
        *  fake token VALUE it injects — so the real widget renders with the real
@@ -722,7 +725,8 @@ export async function answerConsentGates(page: import("@playwright/test").Page):
       // Answered once already: this is the same gate on its way out. Svelte keeps an
       // outroing element in the DOM, inert, for its fade, so it still matches, and
       // a second click on it lands on the page beneath (gallerysonder, 2026-10-27).
-      if (seen.answered !== undefined) return;
+      // Tried and refused: trying again only spends the action's timeout.
+      if (seen.answered !== undefined || seen.unanswerable) return;
       if ((await button.count()) === 0) {
         seen.unanswerable = true;
         return;
@@ -740,11 +744,10 @@ export async function answerConsentGates(page: import("@playwright/test").Page):
         return;
       }
       seen.answered = label;
-      await dialog.waitFor({ state: "hidden", timeout: CONSENT_CLICK_MS }).catch(() => {});
     },
-    // The handler waits for the gate itself, above, and only after an answer; an
-    // unanswerable gate then leaves the action to time out with its "intercepts"
-    // reason instead of the handler's.
+    // Playwright would otherwise wait for the gate to hide after every call. The
+    // guard above covers a gate on its way out, and an unanswerable gate then
+    // leaves the action to time out with its own "intercepts" reason.
     { noWaitAfter: true },
   );
   return seen;
@@ -1040,8 +1043,10 @@ export async function defaultFormRunner(
       // Hoisted with the rest: a click a consent gate blocked throws, and the
       // catch below names the gate.
       let consent: { answered?: string; unanswerable: boolean } = { unanswerable: false };
-      const consentNote = () =>
-        consent.answered !== undefined ? { consentAnswered: consent.answered } : {};
+      const consentNote = () => ({
+        ...(consent.answered !== undefined ? { consentAnswered: consent.answered } : {}),
+        ...(consent.unanswerable ? { consentUnanswered: true as const } : {}),
+      });
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();

@@ -124,7 +124,7 @@ const contactPage = (opts: {
 </body></html>`;
 
 /** Which answers the cookie-consent gate offers (#1736). */
-type Consent = "both" | "acceptOnly" | "none";
+type Consent = "both" | "acceptOnly" | "none" | "covered";
 
 /** gallerysonder's gate, reduced: a full-screen `role="dialog"` named "Cookie
  *  consent" that mounts on a timer (3 s there) over the whole page, so it
@@ -142,7 +142,11 @@ const consentGate = (offer: Consent) => `
       gate.innerHTML = '<p>We use cookies to improve your experience.</p>' +
         (${JSON.stringify(offer)} === "none" ? "" :
           '<button type="button" data-answer="accept">Accept</button>' +
-          (${JSON.stringify(offer)} === "both" ? '<button type="button" data-answer="reject">Reject</button>' : ""));
+          (${JSON.stringify(offer)} === "both" || ${JSON.stringify(offer)} === "covered"
+            ? '<button type="button" data-answer="reject">Reject</button>' : "") +
+          // "covered": a sheet over the gate's own buttons, so neither takes a click.
+          (${JSON.stringify(offer)} === "covered"
+            ? '<div style="position:absolute;inset:0;z-index:1"></div>' : ""));
       gate.addEventListener("click", (e) => {
         const answer = e.target.dataset?.answer;
         if (!answer) return;
@@ -804,6 +808,8 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
   it("answers the gate with Reject, so no analytics load, and the submission passes", async () => {
     const out = await submit({ health: DECLARED, banner: true, consent: "both" }, FAST_FAIL);
     expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    // Answered once: the gate fading out, inert, is not a second gate to answer.
+    expect(out).not.toHaveProperty("consentUnanswered");
     expect(posts).toHaveLength(1);
     expect(posts[0]?.cookieConsent).toBe("reject");
     expect(posts[0]?.testMode).toBe("true");
@@ -824,6 +830,15 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
       "a cookie-consent dialog covered the page and the probe could not answer it",
     );
     expect(detail).toMatch(/intercepts pointer events/);
+  }, 90_000);
+
+  it("a gate whose buttons refuse the click fails without crashing the run", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "covered" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: false, consentUnanswered: true });
+    expect(posts).toHaveLength(0);
+    expect((out as { detail?: string }).detail).toContain(
+      "a cookie-consent dialog covered the page and the probe could not answer it",
+    );
   }, 90_000);
 });
 
