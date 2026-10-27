@@ -195,6 +195,53 @@ describe("a rise in level is news", () => {
   });
 });
 
+describe("review round 3 (P1-78d)", () => {
+  it("a new Broken item takes the subject's Act: over a new critical Attention item", () => {
+    const vuln = item({
+      key: "vuln:a",
+      kind: "vuln",
+      siteName: "Acme",
+      title: "1 critical/high vuln",
+      severity: "critical",
+      level: "attention",
+    });
+    const deploy = item({
+      key: "deploy:b",
+      kind: "deploy",
+      siteName: "Beta",
+      title: "latest production deploy error",
+      level: "broken",
+    });
+    const s = digestSubject({
+      date: "2026-10-08",
+      readyForYourYes: [],
+      needsAttention: [vuln, deploy],
+      changes: { added: ["vuln:a", "deploy:b"], worse: [] },
+      lastSentOn: "2026-10-01",
+    });
+    expect(s).toContain("Act: Beta — latest production deploy error (+1 more)");
+  });
+
+  it("an item the last mail carried at a lower count is badged WORSE, though the snapshot calls it standing", async () => {
+    const w = world();
+    const ci = { "Default Branch CI": "failing" };
+    await run(w, [site(day(0), ci)], day(0));
+    // The last mail carried the key below today's count (a rise during skipped nights).
+    const log = await w.sendLog.read();
+    await w.sendLog.write({
+      ...log,
+      sent: { ...log.sent, "ci:rec_acme": { metric: 0, level: "attention" } },
+    });
+    const beta = { ...site(day(1), { "Deploy status": "error" }), id: "rec_beta" };
+    (beta.fields as Record<string, unknown>).Name = "Beta";
+    await run(w, [site(day(1), ci), beta], day(1));
+    expect(w.captured).toHaveLength(2);
+    const text = w.captured[1]!.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("WORSE Default-branch CI failing");
+    expect(text).toContain("NEW latest production deploy error");
+  });
+});
+
 describe("the send log carries each key's level (review round 1)", () => {
   it("a sent digest records the level each key was mailed at, and a read keeps it", async () => {
     const w = world();

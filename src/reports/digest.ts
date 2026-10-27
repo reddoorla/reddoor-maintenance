@@ -248,7 +248,11 @@ function digestSubjectSuffix(input: Parameters<typeof digestSubject>[0]): string
   // P1-78d: only a Broken or Attention item is ever named; Watch is never news.
   const ordered = orderAttention(input.needsAttention.filter((it) => levelOfItem(it) !== "watch"));
   const changed = [...input.changes.added, ...input.changes.worse];
-  const critical = ordered.filter((it) => it.severity === "critical" && touchedBy(it, changed));
+  // A changed Broken item is always an "Act:" (someone outside Reddoor is affected now), and
+  // `ordered` puts it ahead of a critical Attention item (P1-78d review round 3).
+  const critical = ordered.filter(
+    (it) => (it.severity === "critical" || levelOfItem(it) === "broken") && touchedBy(it, changed),
+  );
   if (critical.length > 0) {
     const first = critical[0]!;
     const ask = first.ask ? `: ${first.ask}` : "";
@@ -895,8 +899,9 @@ export async function runDigest(
       // mailed: every key reads added, so the snapshot's own badge stands.
       if (sendLogRead !== "ok") return it;
       if (it.status !== "standing" && it.status !== undefined) return it;
-      if (changes.added.includes(it.key)) return { ...it, status: "new" };
-      if (changes.worse.includes(it.key)) return { ...it, status: "worse" };
+      // touchedBy, as the subject counts: a new ask under a key (`key#ask`) is news too.
+      if (touchedBy(it, changes.added)) return { ...it, status: "new" };
+      if (touchedBy(it, changes.worse)) return { ...it, status: "worse" };
       return it;
     });
     const html = renderDigestHtml({ readyForYourYes, needsAttention: badged, submissions });

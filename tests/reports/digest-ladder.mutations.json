@@ -31,8 +31,8 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "    levelSection(\"Broken \u2014 someone outside Reddoor is affected now\", at(\"broken\")),\n    levelSection(\"Attention \u2014 fix this week\", at(\"attention\")),",
-        "replace": "    levelSection(\"Attention \u2014 fix this week\", at(\"attention\")),\n    levelSection(\"Broken \u2014 someone outside Reddoor is affected now\", at(\"broken\")),"
+        "find": "    levelSection(\"Broken — someone outside Reddoor is affected now\", at(\"broken\")),\n    levelSection(\"Attention — fix this week\", at(\"attention\")),",
+        "replace": "    levelSection(\"Attention — fix this week\", at(\"attention\")),\n    levelSection(\"Broken — someone outside Reddoor is affected now\", at(\"broken\")),"
       }
     ],
     "test": "tests/reports/digest-ladder.test.ts",
@@ -149,6 +149,32 @@
       {
         "file": "src/reports/digest.ts",
         "find": "      if (changes.added.includes(it.key)) return { ...it, status: \"new\" };",
+        "replace": ""
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-act-severity-only",
+    "why": "Review round 3: Act: picks by severity alone, so a new Broken item loses the subject to a critical Attention one",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "(it.severity === \"critical\" || levelOfItem(it) === \"broken\") && touchedBy(it, changed)",
+        "replace": "it.severity === \"critical\" && touchedBy(it, changed)"
+      }
+    ],
+    "test": "tests/reports/digest-ladder.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-worse-badge-dropped",
+    "why": "Review round 3: a key the last mail carried at a lower count gets no WORSE badge when the snapshot calls it standing",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "      if (touchedBy(it, changes.worse)) return { ...it, status: \"worse\" };\n",
         "replace": ""
       }
     ],
