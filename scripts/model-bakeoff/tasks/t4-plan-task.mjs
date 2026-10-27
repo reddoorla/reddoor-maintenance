@@ -335,7 +335,8 @@ export function setup({ input, work, ids, root }) {
 }
 
 // Every path in `tree` that differs from the scorer's own pristine repository `base`: modified,
-// deleted or untracked (ignored files aside, by the tree's .gitignore, whose own edit shows).
+// deleted or untracked. A path the tree's ignore rules hide counts too unless base's own rules
+// ignore it, so a new `sub/.gitignore` holding `*` cannot hide itself and a stray file (#1499).
 export function changedFiles(base, tree) {
   const out = git(
     base,
@@ -345,16 +346,36 @@ export function changedFiles(base, tree) {
     "--porcelain=v1",
     "-z",
     "--untracked-files=all",
+    "--ignored=matching",
     "--no-renames",
   );
-  return [
-    ...new Set(
-      out
-        .split("\0")
-        .filter(Boolean)
-        .map((e) => e.slice(3)),
-    ),
-  ].sort();
+  const entries = out.split("\0").filter(Boolean);
+  const ignored = entries.filter((e) => e.startsWith("!! ")).map((e) => e.slice(3));
+  const changed = entries.filter((e) => !e.startsWith("!! ")).map((e) => e.slice(3));
+  return [...new Set([...changed, ...notIgnoredBy(base, ignored)])].sort();
+}
+
+// The paths that base's own .gitignore files do not ignore. check-ignore needs no file to exist.
+function notIgnoredBy(base, paths) {
+  if (paths.length === 0) return [];
+  let out;
+  try {
+    out = execFileSync("git", [...SAFE, "-C", base, "check-ignore", "--stdin", "-z", "-v", "-n"], {
+      encoding: "utf8",
+      env: GIT_ENV,
+      input: paths.join("\0") + "\0",
+      maxBuffer: 1 << 28,
+    });
+  } catch (e) {
+    // Exit 1 means none of the paths is ignored; its output still lists every one.
+    if (e?.status !== 1) throw e;
+    out = e.stdout;
+  }
+  const f = out.split("\0");
+  const result = [];
+  // -v -n -z: source, line, pattern, path for each path; an empty source matched no rule.
+  for (let i = 0; i + 3 < f.length; i += 4) if (f[i] === "") result.push(f[i + 3]);
+  return result;
 }
 
 // An agent's tree can still flood git's 256 MiB buffer (ENOBUFS): that is the agent's output and

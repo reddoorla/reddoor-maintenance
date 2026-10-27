@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
@@ -206,6 +206,28 @@ describe("changedFiles", () => {
     expect(task.changedFiles(base, tree)).toEqual(["package.json", "src/gone.ts", "src/new.ts"]);
     expect(existsSync(ran)).toBe(false);
   });
+
+  it("finds a new .gitignore that hides itself and a stray file, and what base ignores stays out (#1499)", () =>
+    withTmp("t4-scope-ignore-", (dir) => {
+      const base = join(dir, "base");
+      mkdirSync(join(base, "lib"), { recursive: true });
+      writeFileSync(join(base, ".gitignore"), "node_modules\nbuild/\n");
+      writeFileSync(join(base, "lib", ".gitignore"), "gen.txt\n");
+      writeFileSync(join(base, "lib", "a.ts"), "a\n");
+      sh(base, "init", "-q");
+      sh(base, "add", "-A");
+      sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+      const tree = join(dir, "tree");
+      cpSync(base, tree, { recursive: true });
+      mkdirSync(join(tree, "sub"));
+      writeFileSync(join(tree, "sub", ".gitignore"), "*\n");
+      writeFileSync(join(tree, "sub", "stray.ts"), "s\n");
+      for (const f of ["node_modules/q/i.js", "build/o.js", "lib/gen.txt"]) {
+        mkdirSync(dirname(join(tree, f)), { recursive: true });
+        writeFileSync(join(tree, f), "x\n");
+      }
+      expect(task.changedFiles(base, tree)).toEqual(["sub/.gitignore", "sub/stray.ts"]);
+    }));
 });
 
 describe("refereed held-out tests", () => {
