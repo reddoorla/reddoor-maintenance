@@ -174,7 +174,7 @@ describe("collectUrlResolveAlerts — a stale stamp is itself caught", () => {
       kind: "url",
       severity: "warning",
       metric: 3,
-      url: `${BASE}/triage`, // P1-78f: the cockpit home, not the bare root
+      url: `${BASE}/triage`, // P1-78f: the triage page, not the bare root
     });
     expect(items[0]!.title).toMatch(/3 of 3/);
     expect(items[0]!.title).toContain("1 never checked");

@@ -73,7 +73,7 @@ describe("the fallbacks that named / name /triage", () => {
     expect(safeReturnTo("/audits")).toBe("/audits");
   });
 
-  it("the digest's fleet-wide url-probe item links the cockpit home, not the bare root", () => {
+  it("the digest's fleet-wide url-probe item links the triage page, not the bare root", () => {
     // A row never probed rolls into the one fleet-wide url-probe-stale item.
     const items = collectUrlResolveAlerts(
       [makeWebsiteRow({ id: "recA", name: "Acme", status: "maintained", urlCheckedAt: null })],
@@ -83,7 +83,7 @@ describe("the fallbacks that named / name /triage", () => {
     expect(items.map((i) => i.url)).toEqual(["https://dash.example/triage"]);
   });
 
-  it("a production signal on a site whose name slugs to nothing links the cockpit home", () => {
+  it("a production signal on a site whose name slugs to nothing links the triage page", () => {
     // No /s/<slug> page exists for such a site, so the item falls back to the home.
     const items = collectDomainAlerts(
       [

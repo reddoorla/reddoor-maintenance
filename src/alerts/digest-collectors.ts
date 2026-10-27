@@ -14,7 +14,7 @@ import type { NotifyBounceCounts } from "../db/submissions.js";
 import { TRIAGE_PATH } from "../dashboard/home-path.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
- *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the cockpit's home
+ *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the triage
  *  page (TRIAGE_PATH, `/triage`), exactly like the ready-section does. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
   const root = baseUrl.replace(/\/$/, "");
