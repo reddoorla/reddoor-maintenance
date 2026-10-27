@@ -659,6 +659,7 @@ node scripts/model-bakeoff/usage-ledger.mjs mcp        --out <workspace>/usage [
 node scripts/model-bakeoff/usage-ledger.mjs transcript --out <workspace>/usage [--session <uuid> | --all] [--id <session id>] [--environment <label>]
 node scripts/model-bakeoff/usage-ledger.mjs stale      --out <workspace>/usage [--root ~/.claude/projects]
 node scripts/model-bakeoff/usage-ledger.mjs check      --out <workspace>/usage
+node scripts/model-bakeoff/usage-ledger.mjs report     --out <workspace>/usage [--since <ISO>] [--until <ISO>]
 ```
 
 There are three sources, each with its own `source` value in the ledger. A cloud
@@ -732,3 +733,29 @@ Around that:
 shows as updated since the `get_session` reading stored with them: the ones the next harvest must
 read. Titles are untrusted text and are written to the CSV as they are, so open the file as data,
 not in a spreadsheet that evaluates formulas.
+
+`report` is the weekly summary (P1-83c). It reads the stored `ledger.csv` and `sessions.csv`,
+keeps the rows whose `as_of` falls in `[--since, --until)` (by default the 7 days before now), and
+prints, after one summary line with its times in Pacific:
+
+- **Cloud spend by model**: the `modelUsage` and `get_session-residual` rows, never the
+  `transcript` rows inside them.
+- **The top 5 sessions by spend**: the sum of their runs in the window, with the title from
+  `sessions.csv` and the hours from its `created_at` to the newest row's `as_of`.
+- **Main thread against subagents** by model, from `transcript` rows, and Opus's share of the
+  subagent spend. Those rows include laptop sessions, which hold no cloud usage, so this split
+  covers a different set of sessions from the cloud figures.
+- **Opus cost by token class** on the cloud rows, priced from `PRICES`. Most `modelUsage` rows
+  carry cache writes with no TTL split, and pricing those at the 5-minute rate, as `ledger.mjs`
+  does, read 1% to 10% short of the rows' own `cost_usd` in aggregate on 10-27, and more on some rows. So a row's unsplit write is
+  priced as what its `cost_usd` leaves after the other classes, held between the 5-minute and the
+  1-hour rate, and the report prints the classes' total beside the rows' server cost. An Opus
+  model with no price card is named and left out.
+
+A run's row counts whole in the week of its `as_of`, even when the run began earlier. A session
+still running when one week closes and read again in the next has its whole run counted in the
+second week, though the first week's line already counted it: never add the weekly lines up. For the
+same reason a top session's hours can pass 168. A `get_session-residual` row with no `as_of` (a
+session with no stored result) is dated by its session's `cost_read_at`, else its `read_updated_at`.
+`--since` and `--until` need a zone (`Z` or an offset), or a bare date, which reads as UTC; a
+date that does not exist, or a `--since` not before `--until` (default now), is refused.
