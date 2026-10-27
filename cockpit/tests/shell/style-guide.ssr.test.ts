@@ -49,13 +49,30 @@ const RAW_COLOUR =
   /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|:\s*(?:[^;]*\s)?(?:red|green|blue|orange|yellow|purple|pink|gray|grey|black|white|silver|maroon|navy|teal|olive|lime|aqua|fuchsia|crimson|tomato|gold|Canvas|CanvasText|ButtonFace|ButtonText)\b/i;
 
 /** Each Svelte component's own <style> block, as [path, css]. */
+// Every <style> block, attributes and all (round 3: <style lang="css"> hid one).
 const SVELTE_STYLES: Array<[string, string]> = filesUnder(SRC, ".svelte").flatMap((p) => {
   const src = readFileSync(p, "utf8");
-  const open = src.indexOf("<style>");
-  return open < 0
-    ? []
-    : [[p, src.slice(open + 7, src.indexOf("</style>", open))] as [string, string]];
+  const out: Array<[string, string]> = [];
+  for (let at = src.indexOf("<style"); at >= 0; at = src.indexOf("<style", at + 1)) {
+    const open = src.indexOf(">", at);
+    const close = src.indexOf("</style>", open);
+    if (open < 0 || close < 0) break;
+    out.push([p, src.slice(open + 1, close)]);
+  }
+  return out;
 });
+
+/** The tokens whose value is red, in either theme: what "paints red" means. */
+const RED_HEX = /^#(d71920|ff6b70|c01c21|aa1419)$/i;
+const RED_TOKENS: string[] = (() => {
+  const t = readFileSync(new URL("../../src/lib/tokens.css", import.meta.url).pathname, "utf8");
+  const names = [...t.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)]
+    .filter((m) => RED_HEX.test(m[2]!.trim()))
+    .map((m) => m[1]!);
+  return [...new Set(names)];
+})();
+/** A selector names Broken when one of its own classes is "broken" (not inside :not()). */
+const namesBroken = (selector: string) => /\.broken\b/.test(selector.replace(/:not\([^)]*\)/g, ""));
 
 describe("one token sheet", () => {
   it("finds the stylesheets it checks", () => {
@@ -91,10 +108,11 @@ describe("one token sheet", () => {
   // Round 2: a list of names misses darkred and oklch(). A colour property may
   // take only a token or a CSS-wide keyword, in page sheets and Svelte <style> blocks.
   it("every colour a stylesheet declares is a token", () => {
+    // Round 3: any property that can carry a colour, longhands and prefixes included.
     const COLOUR_PROP =
-      /^(color|background|background-color|border(-(top|right|bottom|left))?(-color)?|outline(-color)?|text-decoration(-color)?|box-shadow|fill|stroke|caret-color|column-rule(-color)?)$/;
+      /(^|-)(color|background|border(?!-(radius|collapse|spacing|width|style))|outline(?!-(offset|width|style))|shadow|fill|stroke|text-decoration|column-rule)(-|$)/;
     const ALLOWED =
-      /^(transparent|currentcolor|inherit|initial|unset|none|0|solid|dashed|dotted|double|inset|underline|auto|[\d.]+(px|rem|em|%)?|-[\d.]+(px|rem|em)?)$/i;
+      /^(transparent|currentcolor|inherit|initial|unset|none|0|solid|dashed|dotted|double|inset|underline|auto|no-repeat|center|cover|[\d.]+(px|rem|em|%)?|-[\d.]+(px|rem|em)?)$/i;
     const sheets: Array<[string, string]> = [
       ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
       ...SVELTE_STYLES,
@@ -114,10 +132,38 @@ describe("one token sheet", () => {
     expect(hits).toEqual([]);
   });
 
+  // Round 3: "--tint: darkred; color: var(--tint)" got past every colour check.
+  // A colour is a token, and only tokens.css defines one.
+  it("no stylesheet but the token sheet defines a custom property", () => {
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const hits = sheets.flatMap(([p, css]) =>
+      [...stripComments(css).matchAll(/(^|[;{\s])(--[\w-]+)\s*:/g)].map(
+        (m) => `${rel(p)}: ${m[2]}`,
+      ),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("no token is an alias for another, so a red cannot hide behind a new name", () => {
+    const t = stripComments(read(TOKENS));
+    expect([...t.matchAll(/(--[\w-]+)\s*:\s*var\(/g)].map((m) => m[1])).toEqual([]);
+    expect([...RED_TOKENS].sort()).toEqual(["--broken", "--broken-fill", "--focus"]);
+  });
+
+  it("the serif token is Besley, the sans token Pragmatica", () => {
+    const t = stripComments(read(TOKENS));
+    expect(t).toMatch(/--font-serif:\s*Besley,/);
+    expect(t).toMatch(/--font-sans:\s*pragmatica,/);
+  });
+
   it("the control radius is the guide's 4px, and no longhand radius sneaks a curve in", () => {
     expect(stripComments(read(TOKENS))).toMatch(/--radius-control:\s*4px;/);
     const sheets = [...PAGE_SHEETS.map((p) => read(p)), ...SVELTE_STYLES.map(([, c]) => c)];
-    expect(sheets.some((c) => /border-(top|bottom)-(left|right)-radius/.test(c))).toBe(false);
+    // Physical and logical longhands alike (round 3: border-start-start-radius).
+    expect(sheets.some((c) => /border-[\w-]+-radius\s*:/.test(c))).toBe(false);
   });
 
   it("numerals stay tabular: nothing turns them back", () => {
@@ -279,14 +325,16 @@ describe("red marks Broken only", () => {
   // The red tokens may appear only on Broken markers (the focus ring is --focus).
   // Only "broken": "critical" is a severity, and a critical item can be Attention
   // (review round 1: a stuck vulnerability's chip was red).
-  const BROKEN_SELECTOR = /broken/;
+  const paintsRed = (body: string) =>
+    RED_TOKENS.filter((t) => t !== "--focus").some((t) => body.includes(`var(${t})`));
 
   it("every rule that paints red is a Broken marker", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
-        .filter(([, body]) => /var\(--broken(-fill)?\)/.test(body))
-        // Each selector of a group (round 2: ".chip.broken, .badge" painted badges red).
-        .filter(([sel]) => sel.split(",").some((x) => !BROKEN_SELECTOR.test(x)))
+        .filter(([, body]) => paintsRed(body))
+        // Each selector of a group (round 2: ".chip.broken, .badge" painted badges red),
+        // and a class of its own (round 3: ":not(.broken)" matched /broken/).
+        .filter(([sel]) => sel.split(",").some((x) => !namesBroken(x)))
         .map(([sel]) => `${rel(p)}: ${sel}`),
     );
     expect(offenders).toEqual([]);
@@ -359,6 +407,22 @@ describe("red marks Broken only", () => {
       /var\(--(broken|broken-fill|focus)\)/.test(css),
     ).map(([p]) => rel(p));
     expect(hits).toEqual([]);
+  });
+
+  // Round 3: nothing required Broken to BE red; a grey Broken chip passed.
+  it("every Broken marker is filled red", () => {
+    const filled = (file: string, selector: string) =>
+      rules(read(join(SRC, file))).some(
+        ([sel, b]) =>
+          sel.split(",").some((x) => x.trim() === selector) &&
+          /background:\s*var\(--broken-fill\)/.test(b),
+      );
+    expect(filled("lib/cockpit/health.css", ".chip.broken")).toBe(true);
+    expect(filled("routes/s/[slug]/site.css", ".chip.broken")).toBe(true);
+    expect(filled("lib/cockpit/health.css", ".pill.broken")).toBe(true);
+    expect(filled("routes/s/[slug]/site.css", ".pill.broken")).toBe(true);
+    expect(filled("routes/cockpit.css", ".verdict.broken")).toBe(true);
+    expect(filled("routes/cockpit.css", ".dot.broken")).toBe(true);
   });
 
   it("the red focus ring appears only on a focus selector", () => {
@@ -441,6 +505,24 @@ describe("no emoji in the cockpit's code, outside comments", () => {
       code(read(p))
         .split("\n")
         .flatMap((line, i) => (GLYPH.test(line) ? [`${rel(p)}:${i + 1}: ${line.trim()}`] : [])),
+    );
+    expect(hits).toEqual([]);
+  });
+});
+
+describe("no glyph drawn by a stylesheet", () => {
+  // Round 3: ".chip.stuck::before { content: '⚠ ' }" reached every stuck chip,
+  // and the page scans drop <style>. CSS escapes (\\26A0) count too.
+  it("no content: in a page sheet or a Svelte <style> carries a glyph", () => {
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const ESCAPED = /\\(2[1-7][0-9a-f]{2}|1f[0-9a-f]{3}|fe0f)/i;
+    const hits = sheets.flatMap(([p, css]) =>
+      [...stripComments(css).matchAll(/content\s*:\s*([^;]+);/g)]
+        .filter((m) => GLYPH.test(m[1]!) || ESCAPED.test(m[1]!))
+        .map((m) => `${rel(p)}: ${m[1]!.trim()}`),
     );
     expect(hits).toEqual([]);
   });

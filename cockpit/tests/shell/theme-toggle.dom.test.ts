@@ -83,6 +83,13 @@ describe("theme toggle", () => {
     }
   });
 
+  // Round 3: junk in storage gave the button no label at all.
+  it("reads a stored value it does not know as system", () => {
+    localStorage.setItem(THEME_KEY, "purple");
+    start();
+    expect(button().textContent).toBe("Theme: system");
+  });
+
   it("starts on system when reading the stored choice throws", () => {
     const refuse = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
       throw new Error("SecurityError");
