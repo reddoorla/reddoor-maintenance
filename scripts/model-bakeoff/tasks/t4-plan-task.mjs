@@ -1,15 +1,21 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { boxCommand } from "../lib/box.mjs";
 
 // Row 1 of reddoor-workspace#1: implement one planned task on a T4 site build. roalson-interests
 // keeps no written plans (no docs/superpowers/plans/ at any commit), so the plan is the spec in
@@ -18,6 +24,8 @@ import { basename, dirname, join } from "node:path";
 export const id = "t4-plan-task";
 export const title = "T4 site build: implement one planned task (roalson-interests hoverActivate)";
 export const row = 1;
+// Its agents edit a repo and run their own tests: prepare needs --unsandboxed (#1501).
+export const writes = true;
 
 export const PIN = "67d27a5eb8a6091d03350006fff8fe4fe54e6782";
 export const IMPL = "8644d8c2c96a40e39d4d76c097af1f6bb3f5d049";
@@ -281,33 +289,97 @@ const git = (cwd, ...a) =>
   });
 // A step that times out or floods its buffer is the agent's code (an infinite loop in a test) and
 // fails that gate; only a missing binary is the harness's, and stops the score.
-export function run(cwd, cmd, args, timeout = 15 * 60 * 1000) {
-  const r = spawnSync(cmd, args, {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 1 << 28,
-    timeout,
-    env: { ...ENV, CI: "1" },
-  });
+export function run(cwd, cmd, args, timeout = 15 * 60 * 1000, box) {
+  const config = mkdtempSync(join(tmpdir(), "t4-pnpm-config-"));
+  const env = { ...ENV, ...pnpmConfigEnv(config), CI: "1" };
+  let r;
+  try {
+    const [c, a] = box ? boxCommand(box, cmd, args) : [cmd, args];
+    // Inside the box the store is read-only, so pnpm's pre-run dependency check (an install) is
+    // off; the tree was installed before the box was built.
+    if (box) Object.assign(env, NO_DEPS_CHECK, { TMPDIR: box.tmp });
+    // unshare ignores SIGTERM while it waits, so a boxed step's timeout kills it outright; its
+    // --kill-child takes the box's whole pid namespace with it.
+    const killSignal = box ? "SIGKILL" : "SIGTERM";
+    r = spawnSync(c, a, { cwd, encoding: "utf8", maxBuffer: 1 << 28, timeout, killSignal, env });
+  } finally {
+    rmSync(config, { recursive: true, force: true });
+  }
   if (r.error?.code === "ENOENT") throw new Error(`${cmd} not found (in ${cwd})`);
   return { status: r.status, error: r.error?.code, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 // Copies, not hardlinks: pnpm links every install to one store inode, so an agent writing inside
 // its node_modules would change every other agent's tree, the store and the eval trees.
-const install = (cwd) =>
+// The gates run the agent's code, so on Linux each runs in a box (lib/box.mjs, #1501; Linux only,
+// the operator, 2026-10-26). Where no box can be built (macOS, a runner that restricts user
+// namespaces), the gates run unboxed and the result says so.
+const NO_DEPS_CHECK = {
+  pnpm_config_verify_deps_before_run: "false",
+  npm_config_verify_deps_before_run: "false",
+};
+
+// Whether a whole box can be built here, probed once by running `true` in one: a host that makes
+// the namespace but refuses its mounts would otherwise fail every gate as the agent's failure.
+let boxable;
+export function sandboxAvailable() {
+  if (boxable === undefined) {
+    const dir = mkdtempSync(join(tmpdir(), "t4-box-probe-"));
+    try {
+      const [c, a] = boxCommand({ hide: [], writable: [dir] }, "true", []);
+      boxable =
+        spawnSync(c, a, { stdio: "ignore", timeout: 20_000, killSignal: "SIGKILL" }).status === 0;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  return boxable;
+}
+
+// The store is named explicitly, as setup found it before any agent ran, because the caller's
+// config (which may move it) is no longer read.
+export const install = (cwd, store) =>
   run(cwd, "pnpm", [
     "install",
     "--frozen-lockfile",
     "--offline",
     "--ignore-scripts",
     "--config.package-import-method=copy",
+    ...(store ? [`--config.store-dir=${store}`] : []),
   ]);
 
-function snapshot(root, sha, to) {
+// pnpm reads the caller's config (~/.npmrc and $XDG_CONFIG_HOME/pnpm/rc for pnpm 10,
+// $XDG_CONFIG_HOME/pnpm/config.yaml for pnpm 11), which an agent can write with Bash: a global
+// pnpmfile there runs on every install, even --offline --ignore-scripts, and a script shell runs
+// every gate; other keys reach the agent's code as npm_config_* (#1498). Every install and gate
+// reads an empty config directory that run() makes for that one step and removes after it, so
+// one arm's code cannot plant config for the next arm's install either.
+export function pnpmConfigEnv(dir) {
+  return {
+    XDG_CONFIG_HOME: dir,
+    npm_config_userconfig: "/dev/null",
+    npm_config_globalconfig: "/dev/null",
+  };
+}
+
+// git archive applies the filter drivers of the repository it runs in, and agents can write the
+// --root clone's .git/config and info/attributes (#1498). So `sha` is fetched into a bare
+// repository of the scorer's own, which has neither, and archived from there.
+export function snapshot(root, sha, to) {
   mkdirSync(to, { recursive: true });
-  execFileSync("sh", ["-c", `git -C "$0" archive "$1" | tar -x -C "$2"`, root, sha, to], {
-    env: GIT_ENV,
-  });
+  const own = mkdtempSync(join(tmpdir(), "t4-pin-"));
+  try {
+    git(own, "init", "-q", "--bare");
+    git(own, "fetch", "-q", "--no-tags", "--depth=1", root, sha);
+    execFileSync(
+      "sh",
+      ["-c", `git "$@" | tar -x -C "$0"`, to, ...SAFE, "-C", own, "archive", sha],
+      {
+        env: GIT_ENV,
+      },
+    );
+  } finally {
+    rmSync(own, { recursive: true, force: true });
+  }
 }
 
 function commitAll(repo) {
@@ -324,18 +396,23 @@ export function setup({ input, work, ids, root }) {
   git(root, "cat-file", "-e", `${IMPL}^{commit}`);
   mkdirSync(input, { recursive: true });
   writeFileSync(join(input, "plan.md"), PLAN);
+  let store;
   for (const id of ids) {
     const repo = join(work, id, "repo");
     snapshot(root, PIN, repo);
     commitAll(repo);
-    const i = install(repo);
+    // Asked in the pin's own tree, before any agent ran, so its packageManager picks the pnpm and
+    // the store version; the caller's config, read here only, may move the store.
+    store ??= execFileSync("pnpm", ["store", "path"], { cwd: repo, encoding: "utf8" }).trim();
+    const i = install(repo, store);
     if (i.status !== 0) throw new Error(`pnpm install failed in ${repo}:\n${i.stderr}`);
   }
-  writeFileSync(join(dirname(input), "t4.json"), JSON.stringify({ root }, null, 1) + "\n");
+  writeFileSync(join(dirname(input), "t4.json"), JSON.stringify({ root, store }, null, 1) + "\n");
 }
 
 // Every path in `tree` that differs from the scorer's own pristine repository `base`: modified,
-// deleted or untracked (ignored files aside, by the tree's .gitignore, whose own edit shows).
+// deleted or untracked. A path the tree's ignore rules hide counts too unless base's own rules
+// ignore it, so a new `sub/.gitignore` holding `*` cannot hide itself and a stray file (#1499).
 export function changedFiles(base, tree) {
   const out = git(
     base,
@@ -345,16 +422,41 @@ export function changedFiles(base, tree) {
     "--porcelain=v1",
     "-z",
     "--untracked-files=all",
+    "--ignored=matching",
     "--no-renames",
   );
-  return [
-    ...new Set(
-      out
-        .split("\0")
-        .filter(Boolean)
-        .map((e) => e.slice(3)),
-    ),
-  ].sort();
+  const entries = out.split("\0").filter(Boolean);
+  const ignored = entries.filter((e) => e.startsWith("!! ")).map((e) => e.slice(3));
+  const changed = entries.filter((e) => !e.startsWith("!! ")).map((e) => e.slice(3));
+  return [...new Set([...changed, ...notIgnoredBy(base, ignored)])].sort();
+}
+
+// The paths that base's own .gitignore files do not ignore. check-ignore needs no file to exist.
+function notIgnoredBy(base, paths) {
+  if (paths.length === 0) return [];
+  let out;
+  try {
+    out = execFileSync("git", [...SAFE, "-C", base, "check-ignore", "--stdin", "-z", "-v", "-n"], {
+      encoding: "utf8",
+      env: GIT_ENV,
+      input: paths.join("\0") + "\0",
+      maxBuffer: 1 << 28,
+    });
+  } catch (e) {
+    // Exit 1 means none of the paths is ignored; its output still lists every one.
+    if (e?.status === 1) out = e.stdout;
+    else if (e?.code === "ENOBUFS") throw e;
+    // Anything else (a path beyond a symlink base tracks is fatal) fails closed: every path
+    // counts, so scope fails and the score goes on.
+    else return paths;
+  }
+  const f = out.split("\0");
+  const result = [];
+  // -v -n -z: source, line, pattern, path for each path. An empty source matched no rule, and a
+  // `!` pattern is base re-including the path, so neither is base ignoring it.
+  for (let i = 0; i + 3 < f.length; i += 4)
+    if (f[i] === "" || f[i + 2].startsWith("!")) result.push(f[i + 3]);
+  return result;
 }
 
 // An agent's tree can still flood git's 256 MiB buffer (ENOBUFS): that is the agent's output and
@@ -383,40 +485,83 @@ export function copyPlanFiles(repo, to, files = ALLOWED) {
   }
 }
 
+// What a box hides from one arm's gates: the root clone, every agent's repo, the other arms' eval
+// dirs, the run's answer and record files (truth, runs, referee args, result, the cache), and
+// every earlier bake-off run beside this one with its answer files.
+export function hiddenFrom(runDir, armId, root) {
+  const evals = join(runDir, "eval");
+  const others = readdirSync(evals)
+    .filter((d) => d !== armId)
+    .map((d) => join(evals, d));
+  const beside = ["truth", "runs", "referee-args", "result"].map((k) => `${runDir}.${k}.json`);
+  const inside = ["t4.json", "evaluated.json"].map((f) => join(runDir, f));
+  // Earlier runs beside this one hold their own held-out tests and answer files.
+  const parent = dirname(runDir);
+  const runs = readdirSync(parent)
+    .map((n) => join(parent, n))
+    .filter((p) => p !== runDir)
+    .filter((p) =>
+      lstatSync(p).isDirectory()
+        ? existsSync(join(p, "workflow-args.json"))
+        : /\.(truth|runs|referee-args|result)\.json$/.test(p),
+    );
+  return [
+    ...new Set([root, join(runDir, "work"), ...others, ...beside, ...inside, ...runs]),
+  ].filter((p) => existsSync(p));
+}
+
 // The pinned tree with only the plan's files taken from the agent, installed.
-function planTree(root, repo, to) {
+function planTree(root, repo, to, store) {
   snapshot(root, PIN, to);
   copyPlanFiles(repo, to);
   // Its package.json and lockfile are the pin's, so a failed install is the harness's fault.
-  const inst = install(to);
+  const inst = install(to, store);
   if (inst.status !== 0)
     throw new Error(`pnpm install failed in ${to}:\n${inst.stdout}${inst.stderr}`);
   return to;
 }
 
 // score calls observe() for every agent. The gates take minutes an agent, so each result is cached
-// in <run>/evaluated.json; delete that file to evaluate again.
-export function observe(work) {
+// in <run>/evaluated.json under a key: an agent with no output yet (still running) is evaluated
+// but never cached, and a change to this module or to the agent's output evaluates again (#1500).
+export function observe(work, structured, agent) {
   const runDir = dirname(dirname(work));
   const id = basename(work);
-  return cachedEvaluation(runDir, id, () => evaluate({ run: runDir, work: dirname(work), id }));
+  return cachedEvaluation(runDir, id, evaluationKey(structured, agent), () =>
+    evaluate({ run: runDir, work: dirname(work), id }),
+  );
 }
 
-export function cachedEvaluation(runDir, id, compute) {
+const MODULE_SHA = createHash("sha256")
+  .update(readFileSync(fileURLToPath(import.meta.url)))
+  .digest("hex");
+
+// Null when the agent has returned nothing: its tree may still be changing. An agent that ended
+// for good without output is then evaluated on every score, which costs time, not a wrong result.
+export function evaluationKey(structured, agent, moduleSha = MODULE_SHA) {
+  if (structured == null) return null;
+  return createHash("sha256")
+    .update(JSON.stringify([moduleSha, agent?.transcript ?? null, structured]))
+    .digest("hex");
+}
+
+export function cachedEvaluation(runDir, id, key, compute) {
   const file = join(runDir, "evaluated.json");
   const cache = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
-  if (!cache[id]) {
-    cache[id] = compute();
+  if (key !== null && cache[id]?.key === key) return cache[id].value;
+  const value = compute();
+  if (key !== null) {
+    cache[id] = { key, value };
     writeFileSync(file, JSON.stringify(cache, null, 1) + "\n");
   }
-  return cache[id];
+  return value;
 }
 
 // score: the gates run on the pinned tree with only the plan's files taken from the agent, so a
 // change anywhere else (package.json scripts, a config) can fail scope but never pass a gate. The
 // plan's tests replace the agent's own test file only after typecheck, lint and its suite ran.
 export function evaluate({ run: runDir, work, id: armId }) {
-  const { root } = JSON.parse(readFileSync(join(runDir, "t4.json"), "utf8"));
+  const { root, store } = JSON.parse(readFileSync(join(runDir, "t4.json"), "utf8"));
   const repo = join(work, armId, "repo");
   const ev = join(runDir, "eval", armId);
   rmSync(ev, { recursive: true, force: true });
@@ -428,36 +573,55 @@ export function evaluate({ run: runDir, work, id: armId }) {
   // Both trees are built before any of the agent's code runs, so what its own tests do in `tree`
   // (rewrite vitest-setup.ts, say) cannot reach the held-out run in `held`. This is a tripwire
   // against accidents, not a sandbox: the agent's hoverActivate.ts itself runs in `held`.
-  const tree = planTree(root, repo, join(ev, "tree"));
-  const held = planTree(root, repo, join(ev, "held"));
-  writeFileSync(join(held, HELD_OUT_FILE), git(root, "show", `${IMPL}:${HELD_OUT_FILE}`));
-  const check = run(tree, "pnpm", ["check"]);
-  const lint = run(tree, "pnpm", ["lint"]);
-  const suite = run(tree, "pnpm", ["exec", "vitest", "run"]);
-  const own = join(ev, "own-tests.json");
+  const tree = planTree(root, repo, join(ev, "tree"), store);
+  const held = planTree(root, repo, join(ev, "held"), store);
+  // cat-file without --filters applies no driver from the root clone's config.
+  writeFileSync(
+    join(held, HELD_OUT_FILE),
+    git(root, "cat-file", "blob", `${IMPL}:${HELD_OUT_FILE}`),
+  );
+  // Each gate may write only its own tree and the dir its report goes to; the other tree, the
+  // other arms, the agents' repos, the root clone and the run's answer files are hidden.
+  // A report dir and a tmp dir for each tree, so neither tree's code can write the other's report.
+  const outFor = (dir) => join(ev, `reports-${basename(dir)}`);
+  const boxed = sandboxAvailable();
+  const hidden = boxed ? hiddenFrom(runDir, armId, root) : [];
+  const boxFor = (dir, other) => {
+    mkdirSync(outFor(dir));
+    if (!boxed) return undefined;
+    const tmp = join(ev, `tmp-${basename(dir)}`);
+    mkdirSync(tmp);
+    return { hide: [...hidden, other, outFor(other)], writable: [dir, outFor(dir), tmp], tmp };
+  };
+  const inTree = boxFor(tree, held);
+  const inHeld = boxFor(held, tree);
+  const MIN = 15 * 60 * 1000;
+  const check = run(tree, "pnpm", ["check"], MIN, inTree);
+  const lint = run(tree, "pnpm", ["lint"], MIN, inTree);
+  const suite = run(tree, "pnpm", ["exec", "vitest", "run"], MIN, inTree);
+  const own = join(outFor(tree), "own-tests.json");
   let ownRun = null;
   if (existsSync(join(tree, HELD_OUT_FILE))) {
-    ownRun = run(tree, "pnpm", [
-      "exec",
-      "vitest",
-      "run",
-      HELD_OUT_FILE,
-      "--reporter=json",
-      `--outputFile=${own}`,
-    ]);
+    ownRun = run(
+      tree,
+      "pnpm",
+      ["exec", "vitest", "run", HELD_OUT_FILE, "--reporter=json", `--outputFile=${own}`],
+      MIN,
+      inTree,
+    );
   }
   const ownReport = readReport(own);
-  const out = join(ev, "held-out.json");
-  const heldRun = run(held, "pnpm", [
-    "exec",
-    "vitest",
-    "run",
-    HELD_OUT_FILE,
-    "--reporter=json",
-    `--outputFile=${out}`,
-  ]);
+  const out = join(outFor(held), "held-out.json");
+  const heldRun = run(
+    held,
+    "pnpm",
+    ["exec", "vitest", "run", HELD_OUT_FILE, "--reporter=json", `--outputFile=${out}`],
+    MIN,
+    inHeld,
+  );
   const report = readReport(out);
   return scoreRuns({
+    boxed,
     changed,
     scope,
     check,
@@ -475,7 +639,7 @@ export function evaluate({ run: runDir, work, id: armId }) {
 export function scoreRuns(o) {
   const { changed, scope, check, lint, suite, ownRun, ownReport, heldRun, report, held } = o;
   const ok = (r) => r.status === 0;
-  const detail = { changed, outside: scope.outside };
+  const detail = { changed, outside: scope.outside, gatesSandboxed: o.boxed === true };
   detail.typecheck = check.stdout.slice(-1500);
   detail.lint = (lint.stdout + lint.stderr).slice(-1500);
   detail.suite = suite.stdout.slice(-1500);

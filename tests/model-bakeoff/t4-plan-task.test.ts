@@ -10,15 +10,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
-import { extractArgs } from "../../scripts/model-bakeoff/bakeoff.mjs";
+import { extractArgs, formatResult } from "../../scripts/model-bakeoff/bakeoff.mjs";
 import {
   finalScores,
   groupDisagreements,
   scoreRun,
 } from "../../scripts/model-bakeoff/lib/score.mjs";
 import * as task from "../../scripts/model-bakeoff/tasks/t4-plan-task.mjs";
+import { boxCommand, mountPoints } from "../../scripts/model-bakeoff/lib/box.mjs";
+
+const T4 = new URL("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs", import.meta.url).href;
 
 const { ALLOWED, HELD_OUT, heldOutResults, scopeCheck, truth } = task;
 
@@ -159,7 +162,7 @@ describe("cachedEvaluation", () => {
   it("evaluates each agent once, cached in the run", () => {
     const run = mkdtempSync(join(tmpdir(), "t4-"));
     const calls: string[] = [];
-    const ev = (id: string) => task.cachedEvaluation(run, id, () => (calls.push(id), { id }));
+    const ev = (id: string) => task.cachedEvaluation(run, id, "k", () => (calls.push(id), { id }));
     expect(ev("gold")).toEqual({ id: "gold" });
     ev("a");
     ev("gold");
@@ -171,10 +174,51 @@ describe("cachedEvaluation", () => {
       "b",
     ]);
   });
+  // A score run before an agent finished, or after the task's evaluate changed, must not keep
+  // serving the old result (#1500).
+  it("evaluates again when the key changes, and never caches an agent with no output yet", () => {
+    const run = mkdtempSync(join(tmpdir(), "t4-"));
+    let n = 0;
+    const ev = (key: string | null) => task.cachedEvaluation(run, "a", key, () => ++n);
+    expect([ev(null), ev(null)]).toEqual([1, 2]);
+    expect(existsSync(join(run, "evaluated.json"))).toBe(false);
+    expect([ev("k1"), ev("k1"), ev("k2"), ev("k2")]).toEqual([3, 3, 4, 4]);
+  });
+
+  it("evaluates again over an entry cached before the key existed", () => {
+    const run = mkdtempSync(join(tmpdir(), "t4-"));
+    writeFileSync(join(run, "evaluated.json"), JSON.stringify({ a: { gates: [] } }));
+    expect(task.cachedEvaluation(run, "a", "k", () => "fresh")).toBe("fresh");
+  });
+
+  it("keys on the module, the transcript and the output, and gives no key without output", () => {
+    const key = (s: unknown, t = "/t/a.jsonl", m = "m1") =>
+      task.evaluationKey(s, { transcript: t }, m);
+    expect(key(null)).toBeNull();
+    expect(key(undefined)).toBeNull();
+    const base = key({ notes: "x" });
+    expect(key({ notes: "x" })).toBe(base);
+    expect(
+      new Set([
+        base,
+        key({ notes: "y" }),
+        key({ notes: "x" }, "/t/b.jsonl"),
+        key({ notes: "x" }, "/t/a.jsonl", "m2"),
+      ]).size,
+    ).toBe(4);
+  });
 });
 
 describe("changedFiles", () => {
   const sh = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, ...a]);
+  // A commit starts `git maintenance run --auto`, which git 2.47+ detaches: its
+  // objects/maintenance.lock can vanish while cpSync walks .git, an ENOENT on CI (#1587's run,
+  // and #1802's for the two tests that copied .git without this).
+  const init = (base: string) => {
+    sh(base, "init", "-q");
+    sh(base, "config", "gc.auto", "0");
+    sh(base, "config", "maintenance.auto", "false");
+  };
 
   it("finds every change against the scorer's own repo, whatever the agent's .git says", () => {
     const dir = mkdtempSync(join(tmpdir(), "t4-scope-"));
@@ -184,11 +228,7 @@ describe("changedFiles", () => {
     writeFileSync(join(base, "src", "a.ts"), "a\n");
     writeFileSync(join(base, "src", "gone.ts"), "g\n");
     writeFileSync(join(base, ".gitignore"), "node_modules\n");
-    sh(base, "init", "-q");
-    // A commit starts `git maintenance run --auto`, which git 2.47+ detaches: its
-    // objects/maintenance.lock can vanish while cpSync walks .git, an ENOENT on CI (#1587's run).
-    sh(base, "config", "gc.auto", "0");
-    sh(base, "config", "maintenance.auto", "false");
+    init(base);
     expect(sh(base, "config", "gc.auto").toString().trim()).toBe("0");
     expect(sh(base, "config", "maintenance.auto").toString().trim()).toBe("false");
     sh(base, "add", "-A");
@@ -206,6 +246,69 @@ describe("changedFiles", () => {
     expect(task.changedFiles(base, tree)).toEqual(["package.json", "src/gone.ts", "src/new.ts"]);
     expect(existsSync(ran)).toBe(false);
   });
+
+  it("finds a new .gitignore that hides itself and a stray file, and what base ignores stays out (#1499)", () =>
+    withTmp("t4-scope-ignore-", (dir) => {
+      const base = join(dir, "base");
+      mkdirSync(join(base, "lib"), { recursive: true });
+      writeFileSync(join(base, ".gitignore"), "node_modules\nbuild/\n");
+      writeFileSync(join(base, "lib", ".gitignore"), "gen.txt\n");
+      writeFileSync(join(base, "lib", "a.ts"), "a\n");
+      init(base);
+      sh(base, "add", "-A");
+      sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+      const tree = join(dir, "tree");
+      cpSync(base, tree, { recursive: true });
+      mkdirSync(join(tree, "sub"));
+      writeFileSync(join(tree, "sub", ".gitignore"), "*\n");
+      writeFileSync(join(tree, "sub", "stray.ts"), "s\n");
+      for (const f of ["node_modules/q/i.js", "build/o.js", "lib/gen.txt"]) {
+        mkdirSync(dirname(join(tree, f)), { recursive: true });
+        writeFileSync(join(tree, f), "x\n");
+      }
+      expect(task.changedFiles(base, tree)).toEqual(["sub/.gitignore", "sub/stray.ts"]);
+    }));
+
+  const pinRepo = (
+    dir: string,
+    files: Record<string, string>,
+    links: Record<string, string> = {},
+  ) => {
+    const base = join(dir, "base");
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(base, f)), { recursive: true });
+      writeFileSync(join(base, f), body);
+    }
+    for (const [l, to] of Object.entries(links)) symlinkSync(to, join(base, l));
+    init(base);
+    sh(base, "add", "-A");
+    sh(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin");
+    const tree = join(dir, "tree");
+    cpSync(base, tree, { recursive: true, verbatimSymlinks: true });
+    return { base, tree };
+  };
+
+  it("finds a path base re-includes with ! that a new .gitignore hides (#1781 review)", () =>
+    withTmp("t4-scope-negate-", (dir) => {
+      const { base, tree } = pinRepo(dir, {
+        ".gitignore": "!.claude/\n.claude/*\n!.claude/settings.json\n",
+        "a.ts": "a\n",
+      });
+      mkdirSync(join(tree, ".claude"));
+      writeFileSync(join(tree, ".claude", "settings.json"), "{}\n");
+      writeFileSync(join(tree, ".claude", ".gitignore"), "settings.json\n");
+      expect(task.changedFiles(base, tree)).toEqual([".claude/settings.json"]);
+    }));
+
+  it("counts every hidden path, without stopping the score, when check-ignore fails (#1781 review)", () =>
+    withTmp("t4-scope-link-", (dir) => {
+      const { base, tree } = pinRepo(dir, { "real/x.ts": "x\n" }, { link: "real" });
+      rmSync(join(tree, "link"));
+      mkdirSync(join(tree, "link"));
+      writeFileSync(join(tree, "link", ".gitignore"), "*\n");
+      writeFileSync(join(tree, "link", "s.ts"), "s\n");
+      expect(task.changedFiles(base, tree)).toEqual(["link", "link/.gitignore", "link/s.ts"]);
+    }));
 });
 
 describe("refereed held-out tests", () => {
@@ -217,12 +320,31 @@ describe("refereed held-out tests", () => {
       failer: scoreRun(task, truth(), failing),
     };
     const [d] = groupDisagreements(checksByArm);
-    const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false } };
-    const { per, referenceErrors, contradictions } = finalScores(checksByArm, rulings);
+    const rulings = { [d!.id]: { id: d!.id, armCorrect: true, refCorrect: false, note: "n" } };
+    const { per, referenceErrors, referenceDisputes, contradictions } = finalScores(
+      checksByArm,
+      rulings,
+    );
     expect(per.passer!.correct).toBe(32);
     expect(per.failer!.correct).toBe(32);
     expect(referenceErrors).toEqual([]);
     expect(contradictions).toEqual([]);
+    // The ruling against a reference that is right by construction is reported, not lost (#1500).
+    expect(referenceDisputes).toEqual([
+      { check: `tests ${HELD_OUT[0]} / result`, reference: "passed", note: "n" },
+    ]);
+  });
+
+  it("prints a reference dispute under the result table", () => {
+    const text = formatResult({
+      reference: "script truth",
+      disagreements: 1,
+      unruled: 0,
+      arms: [],
+      problems: [],
+      referenceDisputes: [{ check: "tests t / result", reference: "passed", note: "n" }],
+    });
+    expect(text).toContain("- tests t / result: reference passed. n");
   });
 
   it("fails a test that never ran mechanically, without a referee", () => {
@@ -499,5 +621,318 @@ describe("the evidence key (#1502)", () => {
     };
     expect(key("haiku-1")).toBe("failed: boom [haiku-1]");
     expect(key("opus-low-1")).toBe("failed: boom [opus-low-1]");
+  });
+});
+
+describe("the scorer's pnpm (#1498)", () => {
+  // An agent can write the caller's pnpm config with Bash. Neither the hook nor the shell they name
+  // may run inside the scorer: not on its install, and not on a gate's `pnpm <script>`.
+  it("reads no hook or script-shell from the caller's pnpm config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "t4-pnpmrc-"));
+    {
+      const ran = (what: string) => join(dir, `${what}-ran`);
+      writeFileSync(
+        join(dir, "hook.cjs"),
+        `require("fs").writeFileSync(${JSON.stringify(ran("hook"))}, "")\n`,
+      );
+      writeFileSync(join(dir, "shell.sh"), `#!/bin/sh\ntouch ${ran("shell")}\n`, { mode: 0o755 });
+      const rc = `global-pnpmfile=${join(dir, "hook.cjs")}\nscript-shell=${join(dir, "shell.sh")}\n`;
+      const home = join(dir, "home");
+      mkdirSync(join(home, ".config", "pnpm"), { recursive: true });
+      writeFileSync(join(home, ".npmrc"), rc);
+      writeFileSync(join(home, ".config", "pnpm", "rc"), rc);
+      // pnpm 11 reads its global settings from config.yaml, pnpm 10 from the rc files.
+      writeFileSync(
+        join(home, ".config", "pnpm", "config.yaml"),
+        `globalPnpmfile: ${join(dir, "hook.cjs")}\nscriptShell: ${join(dir, "shell.sh")}\n`,
+      );
+      const proj = join(dir, "proj");
+      mkdirSync(proj);
+      writeFileSync(
+        join(proj, "package.json"),
+        '{"name":"p","version":"1.0.0","scripts":{"x":"true"}}\n',
+      );
+      // The lockfile is made with no rc at all, as the pin's is.
+      execFileSync("pnpm", ["install", "--offline"], {
+        cwd: proj,
+        env: { ...process.env, HOME: join(dir, "clean"), XDG_CONFIG_HOME: join(dir, "clean") },
+      });
+      const saved = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME };
+      process.env.HOME = home;
+      process.env.XDG_CONFIG_HOME = join(home, ".config");
+      vi.resetModules();
+      try {
+        const fresh = await import("../../scripts/model-bakeoff/tasks/t4-plan-task.mjs");
+        expect(fresh.install(proj).status).toBe(0);
+        expect(fresh.run(proj, "pnpm", ["run", "x"]).status).toBe(0);
+        expect(existsSync(ran("hook"))).toBe(false);
+        expect(existsSync(ran("shell"))).toBe(false);
+      } finally {
+        process.env.HOME = saved.HOME;
+        if (saved.XDG === undefined) delete process.env.XDG_CONFIG_HOME;
+        else process.env.XDG_CONFIG_HOME = saved.XDG;
+        vi.resetModules();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    // Three pnpm processes.
+  }, 30_000);
+
+  it("gives each step a config directory of its own, which one step's code cannot leave behind", () =>
+    withTmp("t4-pnpm-step-", (dir) => {
+      const plant = `mkdir -p "$XDG_CONFIG_HOME/pnpm" && echo planted > "$XDG_CONFIG_HOME/pnpm/config.yaml" && echo "$XDG_CONFIG_HOME"`;
+      const first = task.run(dir, "sh", ["-c", plant]).stdout.trim();
+      expect(existsSync(first)).toBe(false);
+      const second = task.run(dir, "sh", [
+        "-c",
+        'echo "$XDG_CONFIG_HOME"; ls -A "$XDG_CONFIG_HOME"',
+      ]);
+      expect(second.stdout.trim()).not.toContain(first);
+      expect(second.stdout.trim().split("\n")).toHaveLength(1);
+    }));
+});
+
+describe("the scorer's snapshot of the pin (#1498)", () => {
+  it("runs no filter driver from the --root clone's own config or info/attributes", () =>
+    withTmp("t4-root-filter-", (dir) => {
+      const root = join(dir, "root");
+      mkdirSync(root);
+      const sh = (...a: string[]) =>
+        execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...a], {
+          encoding: "utf8",
+        }).trim();
+      sh("init", "-q");
+      writeFileSync(join(root, "a.ts"), "a\n");
+      sh("add", "-A");
+      sh("commit", "-qm", "pin");
+      const pin = sh("rev-parse", "HEAD");
+      const ran = join(dir, "filter-ran");
+      sh("config", "filter.evil.smudge", `touch ${ran}; cat`);
+      mkdirSync(join(root, ".git", "info"), { recursive: true });
+      writeFileSync(join(root, ".git", "info", "attributes"), "* filter=evil\n");
+      const to = join(dir, "out");
+      task.snapshot(root, pin, to);
+      expect(readFileSync(join(to, "a.ts"), "utf8")).toBe("a\n");
+      expect(existsSync(ran)).toBe(false);
+    }));
+});
+
+describe("the gates' box (#1501, Linux only)", () => {
+  it("refuses a box that would hide a writable directory or its ancestor", () => {
+    expect(() =>
+      boxCommand({ hide: ["/r/eval"], writable: ["/r/eval/a/tree"] }, "true", []),
+    ).toThrow(/would hide \/r\/eval, which holds its writable \/r\/eval\/a\/tree/);
+    expect(() => boxCommand({ hide: ["/r/x"], writable: ["/r/x"] }, "true", [])).toThrow(
+      /would hide/,
+    );
+    const [cmd, args] = boxCommand({ hide: ["/r/eval/b"], writable: ["/r/eval/a"] }, "true", []);
+    expect(cmd).toBe("unshare");
+    // Every path is an argument in a JSON spec, never shell text.
+    expect(JSON.parse(args.at(-1)!)).toEqual({
+      hide: ["/r/eval/b"],
+      writable: ["/r/eval/a"],
+      cmd: "true",
+      args: [],
+    });
+  });
+
+  it("reads mount points with their escapes decoded", () => {
+    const text = "22 1 0:21 / / rw - ext4 /dev/vda rw\n23 22 0:5 / /a\\040b rw - tmpfs t rw\n";
+    expect(mountPoints(text)).toEqual(["/", "/a b"]);
+  });
+
+  it("hides the root clone, the agents' repos, the other arms, earlier runs and answer files", () =>
+    withTmp("t4-hide-", (dir) => {
+      const runDir = join(dir, "run");
+      for (const d of ["eval/a", "eval/b", "eval/c", "work/a/repo", "input"])
+        mkdirSync(join(runDir, d), { recursive: true });
+      for (const f of ["t4.json", "evaluated.json", "workflow-args.json"])
+        writeFileSync(join(runDir, f), "{}");
+      for (const k of ["truth", "runs", "result"]) writeFileSync(`${runDir}.${k}.json`, "{}");
+      // An earlier run beside this one, and a directory that is not a run.
+      mkdirSync(join(dir, "old", "eval", "x", "held"), { recursive: true });
+      writeFileSync(join(dir, "old", "workflow-args.json"), "{}");
+      writeFileSync(join(dir, "old.truth.json"), "{}");
+      mkdirSync(join(dir, "notes"));
+      const root = join(dir, "root");
+      mkdirSync(root);
+      expect(task.hiddenFrom(runDir, "a", root).sort()).toEqual(
+        [
+          root,
+          join(runDir, "work"),
+          join(runDir, "eval", "b"),
+          join(runDir, "eval", "c"),
+          `${runDir}.truth.json`,
+          `${runDir}.runs.json`,
+          `${runDir}.result.json`,
+          join(runDir, "t4.json"),
+          join(runDir, "evaluated.json"),
+          join(dir, "old"),
+          join(dir, "old.truth.json"),
+        ].sort(),
+      );
+    }));
+
+  it("records whether the gates ran boxed", () => {
+    const r = (status: number) => ({ status, stdout: "", stderr: "" });
+    const runs = {
+      changed: ["a"],
+      scope: { pass: true, outside: [] },
+      check: r(0),
+      lint: r(0),
+      suite: r(0),
+      ownRun: r(0),
+      ownReport: null,
+      heldRun: r(0),
+      report: null,
+      held: "/h",
+    };
+    expect(task.scoreRuns({ ...runs, boxed: true }).detail.gatesSandboxed).toBe(true);
+    expect(task.scoreRuns({ ...runs, boxed: false }).detail.gatesSandboxed).toBe(false);
+  });
+
+  // Where unshare cannot build a box (macOS, a runner that restricts user namespaces), the gates
+  // run unboxed and record it, so there is no box here to test (the operator, 2026-10-26).
+  describe.runIf(task.sandboxAvailable())("where a box can be built", () => {
+    const dns = `node -e "require('dns').lookup('registry.npmjs.org',e=>console.log(e?'no-network':'NETWORK'))"`;
+
+    it("hides, confines and cuts the network, and the command cannot undo it", () =>
+      withTmp("t4-box-", (dir) => {
+        const keep = join(dir, "keep");
+        const tmp = join(dir, "tmp");
+        const secretDir = join(dir, "secret");
+        const secretFile = join(dir, "truth.json");
+        const outside = join(dir, "outside");
+        for (const d of [keep, tmp, secretDir, outside]) mkdirSync(d);
+        writeFileSync(join(secretDir, "key"), "answer");
+        writeFileSync(secretFile, "answer");
+        const mark = `t4-box-${process.pid}-${Date.now()}`;
+        const probe = [
+          `cat ${secretDir}/key ${secretFile} 2>/dev/null; echo "[read]"`,
+          `umount ${secretDir} 2>/dev/null; umount ${secretFile} 2>/dev/null; cat ${secretDir}/key ${secretFile} 2>/dev/null; echo "[after umount]"`,
+          `mount -o remount,rw / 2>/dev/null && echo REMOUNTED || echo no-remount`,
+          `touch ${keep}/w && echo kept-writable`,
+          `touch "$TMPDIR/w" && [ "$TMPDIR" = ${tmp} ] && echo tmp-is-${"$"}{TMPDIR##*/}`,
+          `touch ${outside}/w 2>/dev/null && echo OUTSIDE-WRITABLE || echo outside-read-only`,
+          `touch ${secretDir}/w 2>/dev/null && echo SECRET-WRITABLE || echo secret-read-only`,
+          `touch /dev/shm/${mark} /dev/${mark} 2>/dev/null; echo "[dev]"`,
+          `[ "$(ls /proc | grep -cE '^[0-9]+$')" -lt 10 ] && echo own-proc || echo HOST-PROC`,
+          dns,
+        ].join("; ");
+        const box = { hide: [secretDir, secretFile], writable: [keep, tmp], tmp };
+        const r = task.run(dir, "sh", ["-c", probe], 60_000, box);
+        // The control: outside the box the same lookup resolves, or "no-network" proves nothing.
+        const control = task.run(dir, "sh", ["-c", dns]).stdout.trim();
+        expect(control).toBe("NETWORK");
+        expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+          "[read]",
+          "[after umount]",
+          "no-remount",
+          "kept-writable",
+          "tmp-is-tmp",
+          "outside-read-only",
+          "secret-read-only",
+          "[dev]",
+          "own-proc",
+          "no-network",
+        ]);
+        expect(readFileSync(secretFile, "utf8")).toBe("answer");
+        // A box's /dev/shm is its own, and /dev is read-only: neither reaches the host.
+        expect(existsSync(`/dev/shm/${mark}`)).toBe(false);
+        expect(existsSync(`/dev/${mark}`)).toBe(false);
+      }));
+
+    // pnpm's pre-run dependency check installs when it finds the install stale (here, a manifest
+    // edited after it, as an agent can edit its own tree), and an install cannot work in the box.
+    it(
+      "runs pnpm on a project whose install is stale, with the check off",
+      () =>
+        withTmp("t4-box-pnpm-", (dir) => {
+          const dep = join(dir, "dep");
+          const proj = join(dir, "proj");
+          const tmp = join(dir, "tmp");
+          for (const d of [dep, proj, tmp]) mkdirSync(d);
+          writeFileSync(join(dep, "package.json"), '{"name":"dep","version":"1.0.0"}');
+          const pkg = { name: "p", version: "1.0.0", scripts: { x: "echo ran-x" } };
+          writeFileSync(
+            join(proj, "package.json"),
+            JSON.stringify({ ...pkg, dependencies: { dep: "file:../dep" } }),
+          );
+          // pnpm 10 leaves the check off by default, so only pnpm 11 (the repo's packageManager)
+          // can show the box turning it off; `vitest` run directly can find an older pnpm first.
+          const version = execFileSync("pnpm", ["--version"], { cwd: proj, encoding: "utf8" });
+          expect(Number(version.split(".")[0]), `pnpm ${version.trim()}`).toBeGreaterThanOrEqual(
+            11,
+          );
+          // Into a store of the test's own: no registry, no cache.
+          const store = `--config.store-dir=${join(dir, "store")}`;
+          expect(task.run(proj, "pnpm", ["install", "--offline", store]).status).toBe(0);
+          writeFileSync(
+            join(proj, "package.json"),
+            JSON.stringify({ ...pkg, dependencies: { dep: "link:../dep" } }),
+          );
+          const r = task.run(proj, "pnpm", ["run", "x"], 60_000, {
+            hide: [],
+            writable: [proj, tmp],
+            tmp,
+          });
+          expect(r.stdout + r.stderr).toContain("ran-x");
+          expect(r.status).toBe(0);
+        }),
+      120_000,
+    );
+
+    it(
+      "stops a boxed step at its timeout, with nothing left running",
+      () =>
+        withTmp("t4-box-hang-", (dir) => {
+          const mark = String(4000 + (process.pid % 1000));
+          // In a child of its own: run() blocks the event loop, so a timeout that failed to kill
+          // the box would hang vitest instead of failing this test.
+          try {
+            const t0 = Date.now();
+            const out = execFileSync(
+              process.execPath,
+              [
+                "--input-type=module",
+                "-e",
+                `import { run } from ${JSON.stringify(T4)};
+                 const box = { hide: [], writable: [${JSON.stringify(dir)}], tmp: ${JSON.stringify(dir)} };
+                 process.stdout.write(JSON.stringify(run(${JSON.stringify(dir)}, "sh", ["-c", "sleep ${mark}"], 3000, box)));`,
+              ],
+              { encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" },
+            );
+            const r = JSON.parse(out);
+            expect(Date.now() - t0).toBeLessThan(15_000);
+            expect(r.error).toBe("ETIMEDOUT");
+            const left = execFileSync("ps", ["-eo", "args"], { encoding: "utf8" });
+            expect(left.split("\n").filter((l) => l.trim() === `sleep ${mark}`)).toEqual([]);
+          } finally {
+            // A box that outlived its step (a broken kill) is not left running after the test.
+            try {
+              execFileSync("pkill", ["-KILL", "-f", `sleep ${mark}`]);
+            } catch {
+              // pkill exits 1 when nothing matches, as it should.
+            }
+          }
+        }),
+      30_000,
+    );
+
+    it("keeps a writable directory writable when its path runs through a symlink", () =>
+      withTmp("t4-box-link-", (dir) => {
+        const real = join(dir, "real");
+        mkdirSync(join(real, "keep"), { recursive: true });
+        mkdirSync(join(real, "tmp"));
+        symlinkSync(real, join(dir, "link"));
+        const keep = join(dir, "link", "keep");
+        const tmp = join(dir, "link", "tmp");
+        const r = task.run(dir, "sh", ["-c", `touch ${keep}/w && echo ok`], 30_000, {
+          hide: [],
+          writable: [keep, tmp],
+          tmp,
+        });
+        expect(r.stdout.trim()).toBe("ok");
+      }));
   });
 });
