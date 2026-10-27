@@ -244,6 +244,48 @@ describe("renovateActionGaps: a Renovate job that can never run (#1607 input 2)"
     expect(Date.now() - started).toBeLessThan(3_000);
   });
 
+  // Review round 3: a step only counts as another Renovate runner when it can
+  // run and its command is Renovate. The oracle skips the renovate: job in each.
+  it("a step that only mentions Renovate leaves the disabled job a gap", () => {
+    const base = place("false", "job");
+    for (const yml of [
+      `${base}      - run: echo renovate done\n`,
+      `${base}      - run: npx renovate\n`, // inside the disabled job: it cannot run either
+      `${base}  notify:\n    needs: renovate\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "Renovate finished"\n`,
+      base.replace(
+        "jobs:\n",
+        "jobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npx --yes --package renovate -- renovate-config-validator\n",
+      ),
+    ]) {
+      expect(yml).not.toBe(base);
+      expect(cannotRun(yml), yml.slice(-90)).toHaveLength(1);
+    }
+  });
+
+  it("an enabled step in another job that runs Renovate means no verdict", () => {
+    for (const run of [
+      "npx renovate",
+      "npx --yes renovate --platform=github",
+      "LOG_LEVEL=debug pnpm dlx renovate",
+      "docker run --rm renovate/renovate:41",
+    ]) {
+      const yml = place("false", "job").replace(
+        "jobs:\n",
+        `jobs:\n  other:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${run}\n`,
+      );
+      expect(cannotRun(yml), run).toEqual([]);
+    }
+  });
+
+  it("a RENOVATE_TOKEN env fallback means the skipped token step is not fatal", () => {
+    const yml = place("false", "app").replace(
+      "          RENOVATE_REPOSITORIES:",
+      "          RENOVATE_TOKEN: ${{ secrets.RENOVATE_PAT }}\n          RENOVATE_REPOSITORIES:",
+    );
+    expect(yml).toContain("RENOVATE_TOKEN: ${{");
+    expect(cannotRun(yml)).toEqual([]);
+  });
+
   it("0X0 and .nan are always false (the oracle skips both)", () => {
     for (const v of ["0X0", "${{ 0X0 }}", ".nan", "!!float .nan"]) {
       expect(cannotRun(place(v, "job")), v).toHaveLength(1);

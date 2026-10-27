@@ -230,9 +230,10 @@ export function renovateActionGaps(contents: string): string[] {
  * is not exactly `${{ steps.<id>.outputs.<x> }}` of steps that are always
  * skipped (a fallback such as `|| secrets.X` may run). A disabled checkout
  * does not block it (the action works through the API), and a token from
- * nowhere is left to the App-auth check above. A step that runs Renovate some
- * other way (`run: npx renovate`, a docker image, a local action) means no
- * verdict.
+ * nowhere is left to the App-auth check above, as is a `RENOVATE_TOKEN` env,
+ * which the action falls back to. A step that can run and runs Renovate some
+ * other way (a `uses:` naming renovate, or a `run:` whose command is Renovate,
+ * see `runsRenovate`) means no verdict.
  *
  * It reads the parsed tree, never lines: the line scanner #1680 tried kept
  * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
@@ -282,14 +283,20 @@ function renovateNeverRuns(contents: string): string | null {
     if (typeof record(job)?.uses === "string") return null;
     const steps = record(job)?.steps;
     if (!Array.isArray(steps)) continue;
+    const jobOff = off(job);
     const renovate: unknown[] = [];
     const byId = new Map<string, unknown[]>();
     for (const step of steps) {
       const r = record(step);
       const uses = typeof r?.uses === "string" ? r.uses.trim().toLowerCase() : "";
       if (uses.startsWith("renovatebot/github-action@")) renovate.push(step);
-      else if (uses.includes("renovate")) return null;
-      if (typeof r?.run === "string" && /renovate/i.test(r.run)) return null;
+      else if (
+        (uses.includes("renovate") || (typeof r?.run === "string" && runsRenovate(r.run))) &&
+        !jobOff &&
+        !off(step)
+      ) {
+        return null;
+      }
       if (typeof r?.id === "string") {
         const same = byId.get(r.id);
         if (same) same.push(step);
@@ -297,7 +304,6 @@ function renovateNeverRuns(contents: string): string | null {
       }
     }
     if (renovate.length === 0) continue;
-    const jobOff = off(job);
     const mintersOff = new Map<string, boolean>();
     for (const step of renovate) {
       const token = record(record(step)?.with)?.token;
@@ -306,7 +312,7 @@ function renovateNeverRuns(contents: string): string | null {
           ? /^\$\{\{\s*steps\.([\w-]+)\.outputs\.[\w-]+\s*\}\}$/.exec(token.trim())?.[1]
           : undefined;
       const tokenOff = () => {
-        if (source === undefined) return false;
+        if (source === undefined || [step, job, doc].some(hasTokenEnv)) return false;
         if (!mintersOff.has(source)) {
           const minters = byId.get(source) ?? [];
           mintersOff.set(source, minters.length > 0 && minters.every(off));
@@ -325,6 +331,47 @@ function renovateNeverRuns(contents: string): string | null {
     }
   }
   return blockedAt;
+}
+
+const hasTokenEnv = (owner: unknown) => record(record(owner)?.env)?.RENOVATE_TOKEN !== undefined;
+
+/**
+ * Whether a `run:` script runs Renovate: a command that is `renovate`, called
+ * directly or through npx, pnpx, bunx, `pnpm dlx`, `yarn dlx` or `npm exec`
+ * (past their flags), or the `renovate/renovate` image. Naming it is not
+ * running it: `echo renovate done`, or `npx --package renovate --
+ * renovate-config-validator`.
+ */
+function runsRenovate(script: string): boolean {
+  if (/\brenovate\/renovate\b/.test(script)) return true;
+  for (const segment of script.split(/[\n;&|()]+/)) {
+    const words = segment.trim().split(/\s+/);
+    let i = 0;
+    while (/^[A-Za-z_]\w*=/.test(words[i] ?? "")) i++;
+    let runner = false;
+    if (["npx", "pnpx", "bunx"].includes(words[i] ?? "")) {
+      runner = true;
+      i += 1;
+    } else if (
+      ["pnpm", "yarn", "npm"].includes(words[i] ?? "") &&
+      ["dlx", "exec"].includes(words[i + 1] ?? "")
+    ) {
+      runner = true;
+      i += 2;
+    }
+    while (runner && i < words.length) {
+      const w = words[i]!;
+      if (w === "--") {
+        i += 1;
+        break;
+      }
+      if (w === "-p" || w === "--package") i += 2;
+      else if (w.startsWith("-")) i += 1;
+      else break;
+    }
+    if (/(?:^|\/)renovate$/.test(words[i] ?? "")) return true;
+  }
+  return false;
 }
 
 function record(v: unknown): Record<string, unknown> | null {
