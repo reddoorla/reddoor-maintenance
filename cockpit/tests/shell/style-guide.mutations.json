@@ -1053,5 +1053,83 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r6t-spin-override-gone",
+    "why": "Round 6 tests lens 1: the spinner's red-band override is deleted",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".verdict.broken .rf-spin {\n  border-color: var(--on-broken);\n  border-top-color: transparent;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-control-rule-border",
+    "why": "Round 6 tests lens 2: controls bounded by the hairline (1.74:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": "  background: var(--surface);\n  border: 1px solid var(--control-border);\n  border-radius: var(--radius-control);",
+        "replace": "  background: var(--surface);\n  border: 1px solid var(--rule);\n  border-radius: var(--radius-control);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-chip-muted",
+    "why": "Round 6 tests lens 3a: chip text muted on --band (4.10:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip {\n  font-size: 0.8rem;\n  padding: 0.1rem 0.5rem;\n  background: var(--band);\n}",
+        "replace": ".chip {\n  font-size: 0.8rem;\n  padding: 0.1rem 0.5rem;\n  background: var(--band);\n  color: var(--ink-muted);\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-meta-dimmed",
+    "why": "Round 6 tests lens 3b: .meta dimmed to about 3:1",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".meta {\n",
+        "replace": ".meta {\n  opacity: 0.75;\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-focus-off",
+    "why": "Round 6 tests lens 4: the global focus ring is turned off",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ":focus-visible {\n  outline: 2px solid var(--focus);\n  outline-offset: 2px;\n}",
+        "replace": ":focus-visible {\n  outline: none;\n}"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r6t-svelte-rule-text",
+    "why": "Round 6 tests lens 5: the layout notice's text in the hairline token",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "    color: var(--ink);",
+        "replace": "    color: var(--rule);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
