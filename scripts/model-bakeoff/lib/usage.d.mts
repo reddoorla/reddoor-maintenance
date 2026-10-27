@@ -106,5 +106,36 @@ export function reconcile(
   mismatches: { session_id: string; run: string; rows: number; total: number }[];
 };
 export function staleSessions(listed: Record<string, unknown>[], stored: LedgerRow[]): string[];
+export interface WeeklyReport {
+  since: string;
+  until: string;
+  cloud: {
+    total: number;
+    byModel: { model: string; cost_usd: number; share: number }[];
+    opusShare: number;
+  };
+  top: { session_id: string; title: string; hours: number | null; cost_usd: number }[];
+  agents: {
+    byModel: { model: string; main: number; subagent: number }[];
+    subagentTotal: number;
+    opusSubagent: number;
+    opusSubagentShare: number;
+  };
+  opusTokens: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+    total: number;
+    /** The rows' own cost_usd, beside which `total` is a split. */
+    serverCost: number;
+    unpriced: string[];
+  };
+}
+export function weeklyReport(
+  store: Pick<Store, "rows" | "sessions">,
+  opts?: { since?: string; until?: string },
+): WeeklyReport;
+export function formatReport(r: WeeklyReport): string;
 export function toCsv(rows: LedgerRow[], columns: readonly string[]): string;
 export function parseCsv(text: string): LedgerRow[];

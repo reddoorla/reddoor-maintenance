@@ -12,6 +12,7 @@ standard, and what each run costs. The method, the routing table and every resul
 | `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`               |
 | `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                                    |
 | `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/` (`results.jsonl`, `messages.jsonl`, `sessions.csv`, `ledger.csv`) |
+| `session-arms.mjs`                            | Main-thread arms (P1-83d): `prompts` prints each arm's `create_session` input, `score` reads the children back and scores them                         |
 | `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                               |
 | `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                                |
 | `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                                    |
@@ -349,6 +350,59 @@ one scored. An arm that returned no output fails every check mechanically, witho
 round. The 2026-10-19 t5-census run had
 no extra items, so each run had 228 checks: 188 fields, 38 `(present)` and 2 `(well-formed)`.
 
+## Main-thread arms (P1-83d)
+
+Every arm above is a subagent. A subagent with `model: sonnet` is not a Sonnet session: it has
+another system prompt, no session-level `CLAUDE.md`, and none of a main thread's long cached
+context, which is what a main session pays to re-read on every turn. `create_session` with a
+`model` is the one way here to vary the main model, so `session-arms.mjs` runs each arm as a
+child cloud session started from the workspace.
+
+```sh
+node scripts/model-bakeoff/session-arms.mjs prompts --task session-cockpit
+node scripts/model-bakeoff/session-arms.mjs score   --task session-cockpit [--json <file>]
+```
+
+1. `prompts` prints, per arm, the model, a title and the prompt. Start each with
+   `create_session` (`model`, `source_url` the workspace, `permission_mode: auto`), passing the
+   prompt byte for byte: it ends with `(BAKEOFF-SESSION: <task>/<arm>)`, which is how `score`
+   finds the child.
+2. Once a child is idle, read it with `get_session` and `list_events` (no `kinds`, `limit: 100`,
+   every page back to `has_more: false`), then archive it.
+3. `score` reads those results out of this session's own transcripts (`mcpCalls`, as
+   `usage-ledger.mjs mcp` does; `--root` defaults to `~/.claude/projects`), so no figure is
+   retyped. Per child it takes the last result's text and its last fenced `json` block, the
+   models, and the cost: each run of the `modelUsage` counter's last reading. That is the
+   ledger's `modelUsage` figure without its `get_session` residual, so it reads a fraction of a
+   percent under `get_session`'s `cost_usd` (0.08 to 0.25% on the 2026-10-27 run).
+4. It reports a child when:
+   - its history was not read to the end from unfiltered pages, or was read before its last change, or while it was still working;
+   - its `configured_model`, `last_served_model` or any main-thread `message.model` is not the one asked (`<synthetic>` aside);
+   - any of its turns, its subagents' included, ran a command the Bash check flags, wrote (Write, Edit, or a Bash `>`, `>>`, `>|`, `&>` or `tee` outside quotes, resolved, not under `/tmp`), or called an outward tool: an MCP tool whose action does not read (`get_`, `list_`, `…_read` and the like), or `Artifact`, `ArtifactData`, `ArtifactComments`, `SendMessage`, `SendUserFile`, `PushNotification`, `CronCreate` or `Workflow` with any action but a read. `sed -i`, `cp`, `rm` and an interpreter's own writes are not seen: it is a tripwire, like the Bash check.
+
+`--run <tag>` adds the tag to every marker, so a second run of a task under the same root is
+scored apart from the first.
+
+`create_session` takes no `effort`, so every child runs at the environment's default effort; a
+child's subagents follow the workspace's `CLAUDE_CODE_SUBAGENT_MODEL`. Its cost includes them.
+
+The three tasks are routine whole-session work, with synthetic frozen inputs and a truth computed
+by script. A child starts in the workspace, so `CLAUDE.md`, `pm-pass.md` and `decisions/README.md`
+are there for it to read; that is part of what is measured.
+
+- `session-first-screen`: the PM pass's four "First screen" lines (8 checks: the six fields, and the
+  backlog and open-asks lines, whose form pm-pass prescribes; how a line words the canary or the
+  unreadable log is judgment, and their status is scored as fields). Traps: an
+  unreadable force-push log, an unfiltered backlog log with a `Revert "pm: …"`, one answered ask.
+- `session-cockpit`: the cockpit section of step 2 (6 checks): top of stack, the attention,
+  Watch and Setup lines. Traps: a NEW site in Watch, an undated reason ending `ready`.
+- `session-decision`: a decision file and journal entry from given facts (12 checks): the file
+  name, the front matter, `decisions.mjs`'s own parse, `## Answer`, times in PT, `owner/repo#N`
+  references, the measured number and the `Usage:` line. Which option it picks, and how well it
+  reads, are judgment: three review rounds of phrasing rules for the pick each failed a right
+  answer or passed a wrong one. A blind Opus referee scores those against a rubric written before
+  it runs, twice with the outputs in reversed order, and a disagreement between the passes is a tie.
+
 ## Adding a task type
 
 Add `tasks/<id>.mjs` exporting:
@@ -605,6 +659,7 @@ node scripts/model-bakeoff/usage-ledger.mjs mcp        --out <workspace>/usage [
 node scripts/model-bakeoff/usage-ledger.mjs transcript --out <workspace>/usage [--session <uuid> | --all] [--id <session id>] [--environment <label>]
 node scripts/model-bakeoff/usage-ledger.mjs stale      --out <workspace>/usage [--root ~/.claude/projects]
 node scripts/model-bakeoff/usage-ledger.mjs check      --out <workspace>/usage
+node scripts/model-bakeoff/usage-ledger.mjs report     --out <workspace>/usage [--since <ISO>] [--until <ISO>]
 ```
 
 There are three sources, each with its own `source` value in the ledger. A cloud
@@ -678,3 +733,29 @@ Around that:
 shows as updated since the `get_session` reading stored with them: the ones the next harvest must
 read. Titles are untrusted text and are written to the CSV as they are, so open the file as data,
 not in a spreadsheet that evaluates formulas.
+
+`report` is the weekly summary (P1-83c). It reads the stored `ledger.csv` and `sessions.csv`,
+keeps the rows whose `as_of` falls in `[--since, --until)` (by default the 7 days before now), and
+prints, after one summary line with its times in Pacific:
+
+- **Cloud spend by model**: the `modelUsage` and `get_session-residual` rows, never the
+  `transcript` rows inside them.
+- **The top 5 sessions by spend**: the sum of their runs in the window, with the title from
+  `sessions.csv` and the hours from its `created_at` to the newest row's `as_of`.
+- **Main thread against subagents** by model, from `transcript` rows, and Opus's share of the
+  subagent spend. Those rows include laptop sessions, which hold no cloud usage, so this split
+  covers a different set of sessions from the cloud figures.
+- **Opus cost by token class** on the cloud rows, priced from `PRICES`. Most `modelUsage` rows
+  carry cache writes with no TTL split, and pricing those at the 5-minute rate, as `ledger.mjs`
+  does, read 1% to 10% short of the rows' own `cost_usd` in aggregate on 10-27, and more on some rows. So a row's unsplit write is
+  priced as what its `cost_usd` leaves after the other classes, held between the 5-minute and the
+  1-hour rate, and the report prints the classes' total beside the rows' server cost. An Opus
+  model with no price card is named and left out.
+
+A run's row counts whole in the week of its `as_of`, even when the run began earlier. A session
+still running when one week closes and read again in the next has its whole run counted in the
+second week, though the first week's line already counted it: never add the weekly lines up. For the
+same reason a top session's hours can pass 168. A `get_session-residual` row with no `as_of` (a
+session with no stored result) is dated by its session's `cost_read_at`, else its `read_updated_at`.
+`--since` and `--until` need a zone (`Z` or an offset), or a bare date, which reads as UTC; a
+date that does not exist, or a `--since` not before `--until` (default now), is refused.

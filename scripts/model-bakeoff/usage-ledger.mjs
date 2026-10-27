@@ -17,6 +17,7 @@ import { parseArgs } from "node:util";
 import {
   COLUMNS,
   SESSION_COLUMNS,
+  formatReport,
   ingest,
   listedSessions,
   mcpCalls,
@@ -27,6 +28,7 @@ import {
   toCsv,
   transcriptId,
   transcriptMessages,
+  weeklyReport,
 } from "./lib/usage.mjs";
 
 const read = (p) => (existsSync(p) ? parseCsv(readFileSync(p, "utf8")) : []);
@@ -122,7 +124,11 @@ const HELP = `usage-ledger.mjs <command> --out <workspace>/usage [options]
               anthropic_cloud when that variable is set, else laptop).
   stale       Print the cloud sessions the newest list_sessions under --root shows as updated
               after their stored reading: the ones the next mcp harvest must re-read.
-  check       Reconcile each stored run's modelUsage rows with its result total, within half a cent.`;
+  check       Reconcile each stored run's modelUsage rows with its result total, within half a cent.
+  report      The weekly summary of the stored ledger for rows whose as_of is in [--since, --until)
+              (ISO times; default the 7 days before now): cloud spend by model, the top 5 sessions,
+              main thread against subagents, and Opus cost by token class. Its first line is the
+              one the Monday PM pass copies.`;
 
 if (
   process.argv[1] &&
@@ -136,6 +142,8 @@ if (
       session: { type: "string" },
       id: { type: "string" },
       environment: { type: "string" },
+      since: { type: "string" },
+      until: { type: "string" },
       all: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -153,7 +161,7 @@ if (
   const root = resolve(
     values.root ?? join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects"),
   );
-  if (cmd !== "check" && !existsSync(root)) {
+  if (cmd !== "check" && cmd !== "report" && !existsSync(root)) {
     console.error(`No transcript root at ${root}.`);
     process.exit(2);
   }
@@ -215,6 +223,34 @@ if (
         ? 1
         : 0,
     );
+  } else if (cmd === "report") {
+    // A time needs its zone: without one, Date.parse reads it as the machine's local time.
+    const ISO = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
+    // Date.parse rolls 2026-02-30 over to March; a real date reads back as itself.
+    const real = (t) =>
+      Number.isFinite(Date.parse(t)) &&
+      new Date(Date.parse(t.slice(0, 10))).toISOString().slice(0, 10) === t.slice(0, 10);
+    for (const k of ["since", "until"])
+      if (values[k] !== undefined && (!ISO.test(values[k]) || !real(values[k]))) {
+        console.error(
+          `--${k} ${values[k]} is not a real date, or an ISO time with a zone, like 2026-01-08 or 2026-01-08T00:00Z.`,
+        );
+        process.exit(2);
+      }
+    const until = values.until ?? new Date().toISOString();
+    if (values.since && Date.parse(values.since) >= Date.parse(until)) {
+      console.error(`--since ${values.since} is not before --until ${until}.`);
+      process.exit(2);
+    }
+    if (!existsSync(join(out, "ledger.csv"))) {
+      console.error(`No ledger at ${join(out, "ledger.csv")}.`);
+      process.exit(2);
+    }
+    const r = weeklyReport(
+      { rows: read(join(out, "ledger.csv")), sessions: read(join(out, "sessions.csv")) },
+      { since: values.since, until },
+    );
+    console.log(formatReport(r));
   } else {
     console.log(HELP);
     process.exit(2);
