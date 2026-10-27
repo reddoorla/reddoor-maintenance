@@ -44,13 +44,18 @@ export function modelUsageRows(
   ev: unknown,
   run?: { from: string; fromTotal?: number },
 ): LedgerRow[];
-export function transcriptRows(session: SessionRef, t: Transcripts, as_of?: string): LedgerRow[];
+export function transcriptRows(
+  session: SessionRef,
+  t: Transcripts,
+  as_of?: string,
+  seen?: Set<string>,
+): LedgerRow[];
 export function assistantEventRows(session: SessionRef, events: unknown[]): LedgerRow[];
 export function readSessionTranscripts(dir: string, cliSessionId: string): Transcripts;
 export function transcriptId(
   uuid: string,
   env: Record<string, string | undefined>,
-  opts?: { id?: string; all?: boolean },
+  opts?: { id?: string },
 ): string;
 export function ccrPayload(text: string): unknown;
 export function mcpCalls(root: string): McpCall[];

@@ -156,8 +156,8 @@ if (
     const stored = store(out, { calls });
     process.exit(report(stored).mismatches.length ? 1 : 0);
   } else if (cmd === "transcript") {
-    if (values.all && values.id) {
-      console.error("--id names one session; it cannot be given with --all.");
+    if (values.all && (values.id || values.session)) {
+      console.error("--id and --session name one session; neither can be given with --all.");
       process.exit(2);
     }
     const remote = process.env.CLAUDE_CODE_REMOTE_SESSION_ID;
@@ -179,11 +179,15 @@ if (
       process.exit(2);
     }
     const rows = [];
-    for (const { dir, uuid } of targets) {
-      const t = readSessionTranscripts(dir, uuid);
+    // One message.id counts once across every file read, as in ledger.mjs, with the fullest
+    // copy of a session read first.
+    const seen = new Set();
+    const copies = targets.map(({ dir, uuid }) => ({ uuid, t: readSessionTranscripts(dir, uuid) }));
+    copies.sort((a, b) => b.t.main.length - a.t.main.length);
+    for (const { uuid, t } of copies) {
       const first = t.main.slice(0, 4096).match(/"timestamp":"([^"]+)"/)?.[1] ?? "";
       const id = transcriptId(uuid, process.env, values);
-      rows.push(...transcriptRows({ id, created_at: first, environment }, t));
+      rows.push(...transcriptRows({ id, created_at: first, environment }, t, "", seen));
     }
     const stored = store(out, { local: rows });
     console.log(

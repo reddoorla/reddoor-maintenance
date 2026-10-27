@@ -6,6 +6,7 @@ import {
   COLUMNS,
   SESSION_COLUMNS,
   assistantEventRows,
+  ccrPayload,
   harvestSessions,
   historyComplete,
   ingest,
@@ -340,6 +341,47 @@ describe("ingest: history", () => {
   });
 });
 
+describe("ingest: a harvest that read no events", () => {
+  const listing = {
+    tool: "list_sessions",
+    input: {},
+    payload: { data: [{ id: "s1", updated_at: T(9), title: "t" }] },
+    file: "f",
+    at: "",
+  };
+  const page = listEvents("s1", [rev(T(6), 4, { a: mu(4) })], { has_more: true });
+
+  it("keeps the stored history, in either order", () => {
+    for (const order of [
+      [[page], [listing]],
+      [[listing], [page]],
+    ]) {
+      const st = order.reduce((acc, h) => harvest(h, acc), empty);
+      expect(st.sessions[0]).toMatchObject({ history: "newest-page" });
+      expect(st.rows.map((r) => r.history)).toEqual(["newest-page"]);
+    }
+  });
+
+  it("labels rows by the finalized history when an older complete read arrives late", () => {
+    const newer = harvest([listEvents("s1", [rev(T(7), 5, { a: mu(5) })], { has_more: true })]);
+    const olderWhole = listEvents("s1", [rev(T(1), 1, { a: mu(1) }), rev(T(3), 3, { a: mu(3) })]);
+    const after = harvest([olderWhole], newer);
+    expect(after.sessions[0]!.history).toBe("newest-page");
+    expect(new Set(after.rows.map((r) => r.history))).toEqual(new Set(["newest-page"]));
+  });
+
+  it("gives server rows their session's finalized history", () => {
+    const whole = listEvents("s1", [rev(T(6), 4, { a: mu(4) })]);
+    const first = harvest([whole, getSession("s1", 30)]);
+    const later = harvest(
+      [listEvents("s1", [rev(T(7), 5, { a: mu(5) })], { has_more: true })],
+      first,
+    );
+    expect(later.sessions[0]!.history).toBe("newest-page");
+    expect(new Set(later.rows.map((r) => r.history))).toEqual(new Set(["newest-page"]));
+  });
+});
+
 describe("historyComplete", () => {
   it("follows the backwards chain from the newest cursorless page", () => {
     const head = listEvents("s1", [rev(T(4), 4, {})], { has_more: true, first_id: "p1" });
@@ -351,6 +393,15 @@ describe("historyComplete", () => {
       [listEvents("s1", [], {}, { before_id: "p1" }), true],
     ];
     for (const [extra, want] of cases) expect(historyComplete([head, extra] as never)).toBe(want);
+  });
+
+  it("dates a complete read by the chain's newest result, not by other pages", () => {
+    const head = listEvents("s1", [rev(T(1), 1, {}), rev(T(3), 3, {})]);
+    const after = listEvents("s1", [rev(T(6), 6, {})], { has_more: true }, { after_id: "x" });
+    expect(harvestSessions([head, after] as never)[0]).toMatchObject({
+      history: "complete",
+      complete_through: T(3),
+    });
   });
 
   it("ignores an older poll that looked whole, in either order of files", () => {
@@ -577,8 +628,6 @@ describe("transcriptId", () => {
   it("names this container's own session by its cloud ID, and any other by its uuid", () => {
     expect(transcriptId("aaaa", env)).toBe("session_XYZ");
     expect(transcriptId("bbbb", env)).toBe("bbbb");
-    expect(transcriptId("aaaa", env, { all: true })).toBe("session_XYZ");
-    expect(transcriptId("bbbb", env, { all: true })).toBe("bbbb");
     expect(transcriptId("bbbb", env, { id: "given" })).toBe("given");
     expect(transcriptId("aaaa", {})).toBe("aaaa");
   });
@@ -716,6 +765,35 @@ describe("transcriptRows", () => {
       agents: [],
     });
     expect(rows[0]!.requests).toBe(2);
+  });
+
+  it("counts a message once across sessions when they share a seen set", () => {
+    const seen = new Set<string>();
+    const a = transcriptRows(S, { main: tline("m1", "claude-opus-5-5", 1), agents: [] }, "", seen);
+    const b = transcriptRows(
+      { ...S, id: "other" },
+      {
+        main: [tline("m1", "claude-opus-5-5", 1), tline("m2", "claude-opus-5-5", 1)].join("\n"),
+        agents: [],
+      },
+      "",
+      seen,
+    );
+    expect([a, b].map((rows) => rows.reduce((n, r) => n + Number(r.requests), 0))).toEqual([1, 1]);
+  });
+
+  it("keeps a sidechain line with no agent file, under agent sidechain", () => {
+    const rows = transcriptRows(S, {
+      main: [
+        tline("a", "claude-opus-5-5", 1),
+        tline("b", "claude-haiku-5-5", 1, { isSidechain: true }),
+      ].join("\n"),
+      agents: [],
+    });
+    expect(rows.map((r) => [r.agent_id, r.model]).sort()).toEqual([
+      ["main", "claude-opus-5-5"],
+      ["sidechain", "claude-haiku-5-5"],
+    ]);
   });
 
   it("leaves sidechain lines in the main file to their agent's own file", () => {
@@ -941,6 +1019,13 @@ describe("mcpCalls and backfill", () => {
     });
     const b = sessions.find((s) => s.session_id === "session_B")!;
     expect(b.coverage).toBe("no-server-usage");
+  });
+});
+
+describe("ccrPayload", () => {
+  it("reports a persisted-output pointer it cannot follow, rather than returning nothing", () => {
+    expect(() => ccrPayload("Output has been saved to somewhere unreadable.")).toThrow(/pointer/);
+    expect(ccrPayload("no payload here")).toBeNull();
   });
 });
 

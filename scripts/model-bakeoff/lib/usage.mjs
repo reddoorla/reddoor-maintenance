@@ -233,7 +233,7 @@ const agentRow = (session, source, agent_id, agent_type, effort, model, as_of) =
 });
 
 /** Records from transcript lines, deduplicated by message.id as `ledger.mjs` does (#1435). */
-function records(text, { skipSidechain = false } = {}) {
+function records(text, { skipSidechain = false, sidechainOnly = false } = {}) {
   const lines = [];
   const extra = new Map();
   for (const line of splitLines(text)) {
@@ -244,7 +244,8 @@ function records(text, { skipSidechain = false } = {}) {
     } catch {
       continue;
     }
-    if (skipSidechain && (o.isSidechain || o.parent_tool_use_id)) continue;
+    const side = Boolean(o.isSidechain || o.parent_tool_use_id);
+    if ((skipSidechain && side) || (sidechainOnly && !side)) continue;
     const u = o?.message?.usage;
     if (o?.message?.id && u) {
       // The same rule as usageRecords: a stream-start line never replaces a finished one.
@@ -273,10 +274,23 @@ function groupInto(rows, key, make, r) {
  * A row's `as_of` is its newest message's timestamp, so re-reading an unchanged transcript
  * changes nothing.
  */
-export function transcriptRows(session, { main, agents }, as_of = "") {
+export function transcriptRows(session, { main, agents }, as_of = "", seen = new Set()) {
   const rows = new Map();
-  const seen = new Set();
+  // A sidechain line in the main file is counted from its agent's own file when there is one;
+  // otherwise it is kept, under agent `sidechain`, rather than lost.
+  const inAgents = new Set((agents ?? []).flatMap((a) => records(a.text ?? "").map((r) => r.id)));
+  for (const r of records(main ?? "", { sidechainOnly: true })) {
+    if (seen.has(r.id) || inAgents.has(r.id)) continue;
+    seen.add(r.id);
+    groupInto(
+      rows,
+      `sidechain\u0000${r.model}\u0000${r.effort}`,
+      () => agentRow(session, "transcript", "sidechain", "(unknown)", r.effort, r.model, as_of),
+      r,
+    );
+  }
   for (const r of records(main ?? "", { skipSidechain: true })) {
+    if (seen.has(r.id)) continue;
     seen.add(r.id);
     groupInto(
       rows,
@@ -394,7 +408,9 @@ function textOf(content) {
 export function ccrPayload(text) {
   const pointer = text.includes('{"ccr"')
     ? null
-    : text.match(/saved to:? (\/\S+?\.(?:txt|json))\b/);
+    : text.match(/saved to:? ((?:\/|[A-Za-z]:\\).+?\.(?:txt|json))(?=[.\s]|$)/);
+  if (!pointer && !text.includes('{"ccr"') && /saved to/.test(text))
+    throw new Error("a persisted-output pointer this script cannot read");
   if (pointer) {
     let saved = readFileSync(pointer[1], "utf8");
     if (saved.startsWith("[")) saved = textOf(JSON.parse(saved));
@@ -490,21 +506,26 @@ export function listedSessions(calls) {
  * `after_id` page's has_more is about newer events, a kinds filter without "result" says nothing
  * about results, and an older poll's complete-looking page says nothing about what came after it.
  */
-export function historyComplete(pages) {
+function historyChain(pages) {
   const ok = pages.filter((p) => {
     const kinds = p.input.kinds;
     return (!Array.isArray(kinds) || kinds.includes("result")) && !p.input.after_id;
   });
   const heads = ok.filter((p) => !p.input.before_id);
-  if (!heads.length) return false;
+  if (!heads.length) return null;
   let page = heads.reduce((a, b) => (cmpTime(b.at, a.at) >= 0 ? b : a));
+  const chain = [page];
   for (let hops = 0; hops <= ok.length; hops++) {
-    if (page.payload.has_more !== true) return true;
+    if (page.payload.has_more !== true) return chain;
     const next = ok.find((p) => p.input.before_id && p.input.before_id === page.payload.first_id);
-    if (!next) return false;
-    page = next;
+    if (!next) return null;
+    chain.push((page = next));
   }
-  return false;
+  return null;
+}
+
+export function historyComplete(pages) {
+  return historyChain(pages) !== null;
 }
 
 /**
@@ -625,12 +646,10 @@ export function harvestSessions(calls) {
       status: newerOf("session_status"),
       coverage: read.length ? "no-result" : "",
       history: !read.length ? "" : historyComplete(read) ? "complete" : "newest-page",
-      complete_through:
-        read.length && historyComplete(read)
-          ? read
-              .flatMap((c) => c.payload.data ?? [])
-              .reduce((m, e) => (cmpTime(e.created_at, m) > 0 ? e.created_at : m), "")
-          : "",
+      // The newest result on the chain that reached the start; other pages prove nothing.
+      complete_through: (historyChain(read) ?? [])
+        .flatMap((c) => (c.payload.data ?? []).filter((e) => e?.result))
+        .reduce((m, e) => (cmpTime(e.created_at, m) > 0 ? e.created_at : m), ""),
       get_session_cost_usd: usage?.cost_usd ?? "",
       get_session_input_tokens: usage?.input_tokens ?? "",
       get_session_output_tokens: usage?.output_tokens ?? "",
@@ -683,6 +702,8 @@ export function mergeSessions(stored, incoming) {
         (COVERAGE[s.coverage] ?? 0) > (COVERAGE[old.coverage] ?? 0)
           ? s.coverage
           : (old.coverage ?? ""),
+      // A harvest that read none of the session's events says nothing about its history.
+      history: has(s.history) ? s.history : (old.history ?? ""),
       complete_through:
         cmpTime(s.complete_through, old.complete_through) > 0
           ? s.complete_through
@@ -771,6 +792,11 @@ export function finalize(rows, sessions, results) {
     }
     return next;
   });
+  // A server row's history is its session's, as finalized here.
+  const history = new Map(table.map((s) => [s.session_id, s.history ?? ""]));
+  for (const r of out)
+    if (r.source === "modelUsage" || r.source === "get_session-residual")
+      r.history = history.get(r.session_id) ?? "";
   return { rows: out, sessions: table };
 }
 

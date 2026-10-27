@@ -626,8 +626,10 @@ source's total on its own.
   `<uuid>/subagents/**/agent-*.jsonl` and their `.meta.json`. It is the only source that splits
   the main thread from each subagent, with the agent's type and effort. It is priced from
   `PRICES`, deduplicated by `message.id` and split on LF only (both from `lib/ledger.mjs`), which
-  also counts a cache write with no TTL split in the 5-minute column, as it prices it. It dies
-  with a cloud container. On the laptop it covers every local session.
+  also counts a cache write with no TTL split in the 5-minute column, as it prices it. With `--all`, a `message.id` counts once across every
+  session's files, as in `ledger.mjs`, and a sidechain line in a main file with no agent file of its
+  own is kept under agent `sidechain`. It dies with a cloud container. On the laptop it covers
+  every local session.
 - **`assistant-events`**: a session's server `assistant` events, grouped by `parent_tool_use_id`.
   Probe (a) found that the server receives none of a subagent's own messages: an Agent call
   leaves only its prompt, a `task_started` event and the tool result with the subagent's
