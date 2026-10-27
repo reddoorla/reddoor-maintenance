@@ -553,7 +553,21 @@ describe("the scorer's pnpm (#1498)", () => {
         rmSync(dir, { recursive: true, force: true });
       }
     }
-  });
+    // Three pnpm processes.
+  }, 30_000);
+
+  it("gives each step a config directory of its own, which one step's code cannot leave behind", () =>
+    withTmp("t4-pnpm-step-", (dir) => {
+      const plant = `mkdir -p "$XDG_CONFIG_HOME/pnpm" && echo planted > "$XDG_CONFIG_HOME/pnpm/config.yaml" && echo "$XDG_CONFIG_HOME"`;
+      const first = task.run(dir, "sh", ["-c", plant]).stdout.trim();
+      expect(existsSync(first)).toBe(false);
+      const second = task.run(dir, "sh", [
+        "-c",
+        'echo "$XDG_CONFIG_HOME"; ls -A "$XDG_CONFIG_HOME"',
+      ]);
+      expect(second.stdout.trim()).not.toContain(first);
+      expect(second.stdout.trim().split("\n")).toHaveLength(1);
+    }));
 });
 
 describe("the scorer's snapshot of the pin (#1498)", () => {

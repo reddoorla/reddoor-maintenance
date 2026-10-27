@@ -284,13 +284,19 @@ const git = (cwd, ...a) =>
 // A step that times out or floods its buffer is the agent's code (an infinite loop in a test) and
 // fails that gate; only a missing binary is the harness's, and stops the score.
 export function run(cwd, cmd, args, timeout = 15 * 60 * 1000) {
-  const r = spawnSync(cmd, args, {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 1 << 28,
-    timeout,
-    env: { ...ENV, ...pnpmConfigEnv(), CI: "1" },
-  });
+  const config = mkdtempSync(join(tmpdir(), "t4-pnpm-config-"));
+  let r;
+  try {
+    r = spawnSync(cmd, args, {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 1 << 28,
+      timeout,
+      env: { ...ENV, ...pnpmConfigEnv(config), CI: "1" },
+    });
+  } finally {
+    rmSync(config, { recursive: true, force: true });
+  }
   if (r.error?.code === "ENOENT") throw new Error(`${cmd} not found (in ${cwd})`);
   return { status: r.status, error: r.error?.code, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -311,13 +317,12 @@ export const install = (cwd, store) =>
 // pnpm reads the caller's config (~/.npmrc and $XDG_CONFIG_HOME/pnpm/rc for pnpm 10,
 // $XDG_CONFIG_HOME/pnpm/config.yaml for pnpm 11), which an agent can write with Bash: a global
 // pnpmfile there runs on every install, even --offline --ignore-scripts, and a script shell runs
-// every gate; other keys reach the agent's code as npm_config_* (#1498).
-// Every pnpm the scorer starts reads an empty config directory of its own instead.
-let configHome;
-export function pnpmConfigEnv() {
-  configHome ??= mkdtempSync(join(tmpdir(), "t4-pnpm-config-"));
+// every gate; other keys reach the agent's code as npm_config_* (#1498). Every install and gate
+// reads an empty config directory that run() makes for that one step and removes after it, so
+// one arm's code cannot plant config for the next arm's install either.
+export function pnpmConfigEnv(dir) {
   return {
-    XDG_CONFIG_HOME: configHome,
+    XDG_CONFIG_HOME: dir,
     npm_config_userconfig: "/dev/null",
     npm_config_globalconfig: "/dev/null",
   };
@@ -356,13 +361,16 @@ export function setup({ input, work, ids, root }) {
   if (!root || !existsSync(join(root, ".git")))
     throw new Error("t4-plan-task needs --root <a roalson-interests clone>");
   git(root, "cat-file", "-e", `${IMPL}^{commit}`);
-  const store = execFileSync("pnpm", ["store", "path"], { cwd: root, encoding: "utf8" }).trim();
   mkdirSync(input, { recursive: true });
   writeFileSync(join(input, "plan.md"), PLAN);
+  let store;
   for (const id of ids) {
     const repo = join(work, id, "repo");
     snapshot(root, PIN, repo);
     commitAll(repo);
+    // Asked in the pin's own tree, before any agent ran, so its packageManager picks the pnpm and
+    // the store version; the caller's config, read here only, may move the store.
+    store ??= execFileSync("pnpm", ["store", "path"], { cwd: repo, encoding: "utf8" }).trim();
     const i = install(repo, store);
     if (i.status !== 0) throw new Error(`pnpm install failed in ${repo}:\n${i.stderr}`);
   }

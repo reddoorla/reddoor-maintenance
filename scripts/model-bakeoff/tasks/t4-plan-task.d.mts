@@ -45,7 +45,7 @@ export function install(
   cwd: string,
   store?: string,
 ): { status: number | null; error?: string; stdout: string; stderr: string };
-export function pnpmConfigEnv(): Record<string, string>;
+export function pnpmConfigEnv(dir: string): Record<string, string>;
 export function snapshot(root: string, sha: string, to: string): void;
 export function observe(work: string): Record<string, unknown>;
 export function cachedEvaluation(runDir: string, id: string, compute: () => unknown): unknown;
