@@ -1,0 +1,453 @@
+{
+  "source": "reddoorla/reddoor-maintenance#1607, comment of 2026-10-22 3:18pm UTC: verdicts of @actions/workflow-parser@0.3.61 + @actions/expressions@0.3.61. runs: no = Actions skips it, yes = it runs, INV = GitHub rejects the workflow file.",
+  "cases": [
+    {
+      "v": "\n          \"false\"",
+      "runs": "no"
+    },
+    {
+      "v": "\n          'false'",
+      "runs": "no"
+    },
+    {
+      "v": "\n      \"false\"",
+      "runs": "no"
+    },
+    {
+      "v": "\n      'false'",
+      "runs": "no"
+    },
+    {
+      "v": "!!bool false",
+      "runs": "no"
+    },
+    {
+      "v": "!!str false",
+      "runs": "no"
+    },
+    {
+      "v": "\"${{ 0 }}\"",
+      "runs": "no"
+    },
+    {
+      "v": "\"'' \"",
+      "runs": "no"
+    },
+    {
+      "v": "\"''\"",
+      "runs": "no"
+    },
+    {
+      "v": "\"0\"",
+      "runs": "no"
+    },
+    {
+      "v": "\"false\"",
+      "runs": "no"
+    },
+    {
+      "v": "\"false\" # c",
+      "runs": "no"
+    },
+    {
+      "v": "\"null \"",
+      "runs": "no"
+    },
+    {
+      "v": "\"null\"",
+      "runs": "no"
+    },
+    {
+      "v": "${{ !true }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ '0' }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ 'false' }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ -0 }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ 0 }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ 0.0 }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ false }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ false }} # c",
+      "runs": "no"
+    },
+    {
+      "v": "${{ null }}",
+      "runs": "no"
+    },
+    {
+      "v": "${{ null}}",
+      "runs": "no"
+    },
+    {
+      "v": "${{false}}",
+      "runs": "no"
+    },
+    {
+      "v": "' false '",
+      "runs": "no"
+    },
+    {
+      "v": "' null'",
+      "runs": "no"
+    },
+    {
+      "v": "'${{ null }}'",
+      "runs": "no"
+    },
+    {
+      "v": "'''''",
+      "runs": "no"
+    },
+    {
+      "v": "'0'",
+      "runs": "no"
+    },
+    {
+      "v": "'false'",
+      "runs": "no"
+    },
+    {
+      "v": "'null'",
+      "runs": "no"
+    },
+    {
+      "v": "-0",
+      "runs": "no"
+    },
+    {
+      "v": "0",
+      "runs": "no"
+    },
+    {
+      "v": "0.0",
+      "runs": "no"
+    },
+    {
+      "v": "0x0",
+      "runs": "no"
+    },
+    {
+      "v": ">\n          null",
+      "runs": "no"
+    },
+    {
+      "v": ">\n      null",
+      "runs": "no"
+    },
+    {
+      "v": "FALSE",
+      "runs": "no"
+    },
+    {
+      "v": "False",
+      "runs": "no"
+    },
+    {
+      "v": "false",
+      "runs": "no"
+    },
+    {
+      "v": "false # c",
+      "runs": "no"
+    },
+    {
+      "v": "|\n          ''",
+      "runs": "no"
+    },
+    {
+      "v": "|\n          false",
+      "runs": "no"
+    },
+    {
+      "v": "|\n      ''",
+      "runs": "no"
+    },
+    {
+      "v": "|\n      false",
+      "runs": "no"
+    },
+    {
+      "v": "\n          false\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": "\n      false\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": "\" ${{ false }}\"",
+      "runs": "yes"
+    },
+    {
+      "v": "\"\"",
+      "runs": "yes"
+    },
+    {
+      "v": "\"${{ '' }}\"",
+      "runs": "yes"
+    },
+    {
+      "v": "\"${{ false }} \"",
+      "runs": "yes"
+    },
+    {
+      "v": "\"\\t\"",
+      "runs": "yes"
+    },
+    {
+      "v": "${{ '' }}",
+      "runs": "yes"
+    },
+    {
+      "v": "${{ false }}\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": "${{ false }}\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": "${{ false }}${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "'  ${{ null }}'",
+      "runs": "yes"
+    },
+    {
+      "v": "'${{ false }} '",
+      "runs": "yes"
+    },
+    {
+      "v": "''",
+      "runs": "yes"
+    },
+    {
+      "v": "'' # c",
+      "runs": "yes"
+    },
+    {
+      "v": "'''false'''",
+      "runs": "yes"
+    },
+    {
+      "v": "0\n          || always()",
+      "runs": "yes"
+    },
+    {
+      "v": "0\n      || always()",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n          ${{ null }}",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n          'null'",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n          false\n\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n      ${{ null }}",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n      'null'",
+      "runs": "yes"
+    },
+    {
+      "v": ">\n      false\n\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": ">-",
+      "runs": "yes"
+    },
+    {
+      "v": ">-\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": ">-\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "NULL",
+      "runs": "yes"
+    },
+    {
+      "v": "Null",
+      "runs": "yes"
+    },
+    {
+      "v": "false\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": "false\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": "null",
+      "runs": "yes"
+    },
+    {
+      "v": "null\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": "null\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n          ${{ 0 }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n          'false'",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n          false\n          || true",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n      ${{ 0 }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n      'false'",
+      "runs": "yes"
+    },
+    {
+      "v": "|\n      false\n      || true",
+      "runs": "yes"
+    },
+    {
+      "v": "|+\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|+\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|-\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|-\n          'false'",
+      "runs": "yes"
+    },
+    {
+      "v": "|-\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|-\n      'false'",
+      "runs": "yes"
+    },
+    {
+      "v": "|2\n          ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "|2\n      ${{ false }}",
+      "runs": "yes"
+    },
+    {
+      "v": "~",
+      "runs": "yes"
+    },
+    {
+      "v": "\"\\\"\\\"\"",
+      "runs": "INV"
+    },
+    {
+      "v": "${{ FALSE }}",
+      "runs": "INV"
+    },
+    {
+      "v": "${{ False }}",
+      "runs": "INV"
+    },
+    {
+      "v": "${{ NULL }}",
+      "runs": "INV"
+    },
+    {
+      "v": "'\"\"'",
+      "runs": "INV"
+    },
+    {
+      "v": ">\n          \"null\"",
+      "runs": "INV"
+    },
+    {
+      "v": ">\n      \"null\"",
+      "runs": "INV"
+    },
+    {
+      "v": "false\n          && x",
+      "runs": "INV"
+    },
+    {
+      "v": "false\n      && x",
+      "runs": "INV"
+    },
+    {
+      "v": "no",
+      "runs": "INV"
+    },
+    {
+      "v": "off",
+      "runs": "INV"
+    },
+    {
+      "v": "|\n          \"0\"",
+      "runs": "INV"
+    },
+    {
+      "v": "|\n      \"0\"",
+      "runs": "INV"
+    }
+  ]
+}
