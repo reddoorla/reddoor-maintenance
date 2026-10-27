@@ -97,9 +97,11 @@
   padding: 0.1rem 0.5rem;
   background: var(--band);
 }
+/* Red and bold: a Broken chip is never told from its neighbours by colour alone. */
 .chip.broken {
   background: var(--broken-fill);
   color: var(--on-broken);
+  font-weight: var(--weight-bold);
 }
 .chip.stuck {
   border: 1px solid var(--rule);

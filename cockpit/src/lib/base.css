@@ -62,13 +62,23 @@ select,
 textarea {
   font-weight: var(--weight-text);
 }
+/* Beside the nav where there is room; on a phone, its own row above it, so the
+   nav is never squeezed into a column (review round 2, at 390px). */
 .shell-account {
-  float: right;
   display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
   align-items: center;
   gap: var(--space-3);
   font-size: 0.8rem;
   color: var(--ink-muted);
+}
+@media (min-width: 40rem) {
+  .shell-account {
+    float: right;
+    margin-bottom: 0;
+  }
 }
 .theme-toggle {
   padding: 0.2rem 0.6rem;

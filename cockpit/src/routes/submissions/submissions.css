@@ -35,6 +35,7 @@ body {
 .filters select,
 .filters input {
   font: inherit;
+  font-weight: var(--weight-text);
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);

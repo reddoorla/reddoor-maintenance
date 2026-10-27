@@ -41,6 +41,7 @@ body {
 .filters input,
 .filters button {
   font: inherit;
+  font-weight: var(--weight-text);
   padding: 0.3rem 0.5rem;
 }
 .fleet-table-wrap {

@@ -88,6 +88,43 @@ describe("one token sheet", () => {
     expect(hits).toEqual([]);
   });
 
+  // Round 2: a list of names misses darkred and oklch(). A colour property may
+  // take only a token or a CSS-wide keyword, in page sheets and Svelte <style> blocks.
+  it("every colour a stylesheet declares is a token", () => {
+    const COLOUR_PROP =
+      /^(color|background|background-color|border(-(top|right|bottom|left))?(-color)?|outline(-color)?|text-decoration(-color)?|box-shadow|fill|stroke|caret-color|column-rule(-color)?)$/;
+    const ALLOWED =
+      /^(transparent|currentcolor|inherit|initial|unset|none|0|solid|dashed|dotted|double|inset|underline|auto|[\d.]+(px|rem|em|%)?|-[\d.]+(px|rem|em)?)$/i;
+    const sheets: Array<[string, string]> = [
+      ...PAGE_SHEETS.map((p) => [p, read(p)] as [string, string]),
+      ...SVELTE_STYLES,
+    ];
+    const hits = sheets.flatMap(([p, css]) =>
+      [...stripComments(css).matchAll(/([a-z-]+)\s*:\s*([^;{}]+);/g)]
+        .filter((m) => COLOUR_PROP.test(m[1]!))
+        .filter((m) => {
+          const rest = m[2]!
+            .replace(/var\([^)]*\)/g, " ")
+            .split(/[\s,]+/)
+            .filter(Boolean);
+          return rest.some((w) => !ALLOWED.test(w));
+        })
+        .map((m) => `${rel(p)}: ${m[1]}: ${m[2]!.trim()}`),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("the control radius is the guide's 4px, and no longhand radius sneaks a curve in", () => {
+    expect(stripComments(read(TOKENS))).toMatch(/--radius-control:\s*4px;/);
+    const sheets = [...PAGE_SHEETS.map((p) => read(p)), ...SVELTE_STYLES.map(([, c]) => c)];
+    expect(sheets.some((c) => /border-(top|bottom)-(left|right)-radius/.test(c))).toBe(false);
+  });
+
+  it("numerals stay tabular: nothing turns them back", () => {
+    const sheets = [...PAGE_SHEETS.map((p) => read(p)), ...SVELTE_STYLES.map(([, c]) => c)];
+    expect(sheets.some((c) => /font-variant-numeric\s*:\s*normal/.test(c))).toBe(false);
+  });
+
   it("the raw-colour pattern catches a named colour (positive control)", () => {
     expect(RAW_COLOUR.test("  color: red;")).toBe(true);
     expect(RAW_COLOUR.test("  border: 1px solid Canvas;")).toBe(true);
@@ -115,7 +152,12 @@ describe("one token sheet", () => {
       read(p)
         .split("\n")
         .flatMap((line, i) =>
-          /style="[^"]*(#[0-9a-fA-F]{3,8}\b|rgba?\()/.test(line) ? [`${rel(p)}:${i + 1}`] : [],
+          // An attribute or a style: directive that sets any colour (round 2:
+          // style:color={"#666"} and style="color: red" slipped by).
+          /style="[^"]*(color|background|border|outline|fill|stroke)/i.test(line) ||
+          /style:(color|background|border|outline|fill|stroke)/i.test(line)
+            ? [`${rel(p)}:${i + 1}`]
+            : [],
         ),
     );
     expect(hits).toEqual([]);
@@ -218,6 +260,9 @@ describe("contrast, measured on the page ground (paper in light), in both themes
       expect(contrast(t["--on-broken"]!, t["--broken-fill"]!)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(t["--on-ink"]!, t["--ink"]!)).toBeGreaterThanOrEqual(4.5);
     });
+    it(`${theme}: ink on --band (the plain chip) clears 4.5:1`, () => {
+      expect(contrast(t["--ink"]!, t["--band"]!)).toBeGreaterThanOrEqual(4.5);
+    });
     it(`${theme}: a control's only boundary clears 3:1`, () => {
       expect(contrast(t["--control-border"]!, t["--ground"]!)).toBeGreaterThanOrEqual(3);
     });
@@ -240,7 +285,8 @@ describe("red marks Broken only", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
         .filter(([, body]) => /var\(--broken(-fill)?\)/.test(body))
-        .filter(([sel]) => !BROKEN_SELECTOR.test(sel))
+        // Each selector of a group (round 2: ".chip.broken, .badge" painted badges red).
+        .filter(([sel]) => sel.split(",").some((x) => !BROKEN_SELECTOR.test(x)))
         .map(([sel]) => `${rel(p)}: ${sel}`),
     );
     expect(offenders).toEqual([]);
@@ -249,6 +295,21 @@ describe("red marks Broken only", () => {
   // Review round 1: on a red fill, text at 0.85 opacity measured 4.04:1, and a
   // descendant rule's ink (.badge, .stuck) or grey (.rf-sub) beat the inherited
   // white. What sits on red is --on-broken, at full strength.
+  // Round 2: ".chip.broken > .badge { color: var(--ink) }" names broken, and
+  // brought back black on red. A Broken rule's text is white or red, never ink.
+  it("a rule naming broken sets its text colour only to the on-broken or broken token", () => {
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p))
+        .filter(([sel]) => /broken/.test(sel))
+        .flatMap(([sel, body]) =>
+          [...body.matchAll(/(?:^|;|\s)color\s*:\s*([^;]+);/g)]
+            .filter((m) => !/^var\(--(on-broken|broken)\)$/.test(m[1]!.trim()))
+            .map((m) => `${rel(p)}: ${sel} → ${m[1]!.trim()}`),
+        ),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it("nothing on a red fill is dimmed", () => {
     const dimmed = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
@@ -293,6 +354,13 @@ describe("red marks Broken only", () => {
     expect(sets(".verdict.broken :focus-visible", "outline-color")).toBe(true);
   });
 
+  it("no Svelte <style> block paints red", () => {
+    const hits = SVELTE_STYLES.filter(([, css]) =>
+      /var\(--(broken|broken-fill|focus)\)/.test(css),
+    ).map(([p]) => rel(p));
+    expect(hits).toEqual([]);
+  });
+
   it("the red focus ring appears only on a focus selector", () => {
     const offenders = PAGE_SHEETS.flatMap((p) =>
       rules(read(p))
@@ -332,7 +400,9 @@ describe("red marks Broken only", () => {
  * arrows (← →) and the typographic set (— · … ’) stay; pictographs and the
  * glyphs the cockpit used as icons go.
  */
-const GLYPH = /\p{Extended_Pictographic}|[✓✗↻▸↗▲▼☐]|️/u;
+// The brief's ranges (U+2190–21FF arrows, U+2500–27BF shapes and dingbats), less
+// the four plain arrows the guide allows; plus pictographs and U+FE0F.
+const GLYPH = /\p{Extended_Pictographic}|[\u2194-\u21FF\u2500-\u27BF]|\uFE0F/u;
 
 function glyphs(lines: string[]): string[] {
   return lines.filter((l) => GLYPH.test(l));
@@ -357,7 +427,9 @@ describe("no emoji in the cockpit's code, outside comments", () => {
       }
     };
     const code = (src: string) =>
-      cut(cut(src, "<!--", "-->"), "/*", "*/").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+      // A line comment starts a line or follows code's punctuation; "//" inside a
+      // string (round 2: `preflight // ⚠`) is left for the scan.
+      cut(cut(src, "<!--", "-->"), "/*", "*/").replace(/(^\s*|[;{}),]\s+)\/\/.*$/gm, "$1");
     const hits = [...filesUnder(SRC, ".ts"), ...filesUnder(SRC, ".svelte")].flatMap((p) =>
       code(read(p))
         .split("\n")
@@ -439,7 +511,12 @@ describe("the stored theme is applied before first paint", () => {
         },
       },
       document: {
-        documentElement: { setAttribute: (_: string, v: string) => (theme = v) },
+        documentElement: {
+          // The attribute must be data-theme: the tokens key on it (round 2: a
+          // renamed attribute applied nothing on reload, and the test passed).
+          setAttribute: (name: string, v: string) =>
+            (theme = name === "data-theme" ? v : `wrong:${name}`),
+        },
       },
     });
     return theme;
@@ -466,6 +543,47 @@ describe("the stored theme is applied before first paint", () => {
   });
 });
 
+describe("layout and weight the round-2 review pinned", () => {
+  // Round 2: ".run-form textarea { font: inherit }" outranked the base rule and
+  // carried the label's 600 into what a person types.
+  it("a control rule that inherits its font sets the text weight back", () => {
+    const offenders = PAGE_SHEETS.flatMap((p) =>
+      rules(read(p))
+        .filter(([sel]) => /\b(input|textarea|select)\b/.test(sel))
+        // base.css's element-only reset is followed by its own weight rule, checked below.
+        .filter(([sel]) => /[.[#]/.test(sel))
+        .filter(([, b]) => /font\s*:\s*inherit/.test(b) && !/font-weight\s*:/.test(b))
+        .map(([sel]) => `${rel(p)}: ${sel}`),
+    );
+    expect(offenders).toEqual([]);
+    const base = rules(read(join(SRC, "lib/base.css")));
+    expect(
+      base.some(
+        ([sel, b]) =>
+          /\binput\b/.test(sel) &&
+          /\btextarea\b/.test(sel) &&
+          /font-weight:\s*var\(--weight-text\)/.test(b),
+      ),
+    ).toBe(true);
+  });
+
+  // Round 2: the toggle widened the floated account block, which squeezed the nav
+  // into a column at 390px. It floats only where there is room.
+  it("the account block floats only at a min-width breakpoint", () => {
+    const base = stripComments(read(join(SRC, "lib/base.css")));
+    const outside = base.replace(/@media[^{]+\{([\s\S]*?\})\s*\}/g, "");
+    expect(blockAfter(outside, ".shell-account {")).not.toMatch(/float\s*:/);
+    expect(base).toMatch(/@media \(min-width: [^)]+\) \{\s*\.shell-account \{\s*float: right;/);
+  });
+
+  it("a Broken chip is bold as well as red, in each sheet that styles it", () => {
+    for (const f of ["lib/cockpit/health.css", "routes/s/[slug]/site.css"]) {
+      const body = rules(read(join(SRC, f))).find(([sel]) => sel === ".chip.broken")?.[1] ?? "";
+      expect(body, f).toMatch(/font-weight:\s*var\(--weight-bold\)/);
+    }
+  });
+});
+
 describe("type", () => {
   const html = read(join(SRC, "app.html"));
   it("loads Pragmatica from the Adobe kit and Besley from Google Fonts", () => {
@@ -487,6 +605,35 @@ describe("type", () => {
     expect(body).toMatch(/font-family:\s*var\(--font-sans\)/);
     expect(body).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(stripComments(read(TOKENS))).toMatch(/--font-sans:\s*pragmatica/);
+  });
+});
+
+describe("a Broken item renders a red chip on the pages", () => {
+  // Round 2: no snapshot held a red chip, so dropping chipClass at a call site
+  // survived. The fixtures now carry a real Broken item (an uptime fail).
+  it("/s/:slug: the Broken item is a red chip and the critical vulnerability is not", () => {
+    const [, i] = SITE_CASES.find(([n]) => n.startsWith("alarm: attention items"))!;
+    const view = buildSiteView(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm);
+    const html = renderPage(SitePage, { data: { view } });
+    expect(html).toMatch(/<span class="chip broken">(?:\s|<!--[^>]*-->)*Site down/);
+    expect(html).toMatch(/<span class="chip">(?:\s|<!--[^>]*-->)*Critical vuln/);
+  });
+
+  it("/fleet: the Broken card's uptime item is a red chip", () => {
+    const hits = cases().filter(([, model]) =>
+      /<span class="chip broken">(?:\s|<!--[^>]*-->)*Site down/.test(
+        renderPage(FleetPage, {
+          data: {
+            model: buildFleetTableModel(
+              model.cards.map((c) => c.site),
+              parseFleetTableQuery(new URLSearchParams()),
+            ),
+            sites: buildSitesView(model, NOW),
+          },
+        }),
+      ),
+    );
+    expect(hits.length).toBeGreaterThan(0);
   });
 });
 

@@ -44,6 +44,7 @@ h2 {
    page is being usable from a phone. */
 .run-form textarea {
   font: inherit;
+  font-weight: var(--weight-text);
   font-size: 16px;
   width: 100%;
   box-sizing: border-box;
@@ -51,6 +52,7 @@ h2 {
 .run-form input[type="url"],
 .run-form input[type="text"] {
   font: inherit;
+  font-weight: var(--weight-text);
   font-size: 16px;
   padding: 0.6rem 0.7rem;
   border: 1px solid var(--control-border);

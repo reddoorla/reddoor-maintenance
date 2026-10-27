@@ -366,11 +366,12 @@ function submissionsBadge(c: SiteCard): string | null {
   const leads = c.newLeads ?? c.newSubmissions ?? 0;
   const signups = c.newSignups ?? 0;
   if (leads === 0 && signups === 0) return null;
+  // "Inbox:" names the chip now its icon is gone; "4 new" alone read as 4 new problems.
   return leads > 0 && signups > 0
-    ? `${leads} new · +${signups} newsletter`
+    ? `Inbox: ${leads} new · +${signups} newsletter`
     : leads > 0
-      ? `${leads} new`
-      : `+${signups} newsletter`;
+      ? `Inbox: ${leads} new`
+      : `Inbox: +${signups} newsletter`;
 }
 
 function cardView(c: SiteCard, now: Date): CardView {
