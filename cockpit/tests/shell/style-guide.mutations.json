@@ -949,5 +949,83 @@
     ],
     "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r5t-nav-no-fill",
+    "why": "Round 5 tests lens A: the current nav item loses its ink fill, white on paper",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/base.css",
+        "find": ".shell-nav a[aria-current=\"page\"] {\n  background: var(--ink);\n",
+        "replace": ".shell-nav a[aria-current=\"page\"] {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-filter-no-fill",
+    "why": "Round 5 tests lens B: the pressed filter loses its ink fill",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".signal-filters button[aria-pressed=\"true\"] {\n  background: var(--ink);\n",
+        "replace": ".signal-filters button[aria-pressed=\"true\"] {\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-refresh-transparent",
+    "why": "Round 5 tests lens C: the Audit fleet button goes transparent, white on paper",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": "  border-radius: var(--radius-control);\n  background: var(--ink);\n  color: var(--on-ink);\n  cursor: pointer;",
+        "replace": "  border-radius: var(--radius-control);\n  background: transparent;\n  color: var(--on-ink);\n  cursor: pointer;"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-rule-as-text",
+    "why": "Round 5 tests lens D: the hairline token as text (1.74:1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/health.css",
+        "find": ".chip.accepted {\n  background: transparent;\n  border: 1px dashed var(--rule);\n  color: var(--ink-muted);",
+        "replace": ".chip.accepted {\n  background: transparent;\n  border: 1px dashed var(--rule);\n  color: var(--rule);"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-rf-status-muted",
+    "why": "Round 5 tests lens E: the refresh status in muted ink on the red band",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/cockpit.css",
+        "find": ".rf-status {\n",
+        "replace": ".rf-status {\n  color: var(--ink-muted);\n"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r5t-dark-only-token",
+    "why": "Round 5 tests lens F: a red token in the dark theme only",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/tokens.css",
+        "find": "  --focus: #ff6b70;\n  color-scheme: dark;\n}\n\n/*",
+        "replace": "  --focus: #ff6b70;\n  --alert: #e0242b;\n  color-scheme: dark;\n}\n\n/*"
+      }
+    ],
+    "test": "cockpit/tests/shell/style-guide.ssr.test.ts",
+    "expect": "red"
   }
 ]
