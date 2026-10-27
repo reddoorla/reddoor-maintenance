@@ -526,9 +526,14 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
  *
  *  Then the gate's own verdict: `FLEET_WRITE_GATE verdict=red|green`, one
  *  `FLEET_WRITE_GATE_REASON` line per reason it is red and one
- *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. Every fleet workflow
- *  reds on `verdict=red`, and on the line being absent. */
-export function formatFleetWriteSummary(result: FleetWriteResult): string {
+ *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. Every fleet nightly
+ *  reds on `verdict=red`, and on the line being absent. `gate: false` leaves the
+ *  gate's lines out, for a caller whose workflow step reads no verdict
+ *  (github-signals, #1650). */
+export function formatFleetWriteSummary(
+  result: FleetWriteResult,
+  { gate: printGate = true }: { gate?: boolean } = {},
+): string {
   const wrote = result.written.length;
   const failed = result.failed.length;
   const na = result.notApplicable ?? [];
@@ -563,6 +568,7 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
     out += ` mirror_missed=${result.mirrorMissed ?? 0}`;
   }
   out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;
+  if (!printGate) return out;
   const gate = fleetWriteGate(result);
   out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
   for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${r}`;
