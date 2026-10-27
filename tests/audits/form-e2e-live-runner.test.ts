@@ -23,6 +23,9 @@ const contactPage = (opts: {
   encoding: Encoding;
   native: boolean;
   consent: Consent | undefined;
+  vanish: boolean;
+  breakAfterMarker: boolean;
+  autoSubmit: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -118,6 +121,27 @@ const contactPage = (opts: {
     }
     if (${opts.dropMarkerAlways ? "true" : "false"}) {
       new MutationObserver(dropMarker).observe(f, { childList: true });
+    }
+    // #1737: the form the probe found at domcontentloaded is gone by fill time.
+    if (${opts.vanish ? "true" : "false"}) setTimeout(() => f.remove(), 200);
+    // #1737's shape: the probe's own checks throw once its marker is on the form.
+    if (${opts.breakAfterMarker ? "true" : "false"}) {
+      new MutationObserver(() => {
+        if (!f.querySelector('[name="testMode"]')) return;
+        Document.prototype.querySelector = () => {
+          throw new Error("page script broke querySelector");
+        };
+      }).observe(f, { childList: true });
+    }
+    // A site script that submits the form itself once the message is typed,
+    // before the probe ever adds its marker (#1737 review).
+    if (${opts.autoSubmit ? "true" : "false"}) {
+      let sent = false;
+      f.querySelector('[name="message"]').addEventListener("input", () => {
+        if (sent) return;
+        sent = true;
+        f.dispatchEvent(new Event("submit", { cancelable: true }));
+      });
     }
   </script>
   ${opts.consent === undefined ? "" : consentGate(opts.consent)}
@@ -303,6 +327,15 @@ type Fixture = {
   consent?: Consent;
   /** Serve lateGatePage instead: its gate mounts after this many ms. */
   lateGate?: { afterMs: number; reload: boolean };
+  /** The form is removed 200 ms after load: on the first load of /contact
+   *  only, or on every load (#1737). */
+  vanish?: "once" | "always";
+  /** The page breaks document.querySelector once the marker lands (#1737). */
+  breakAfterMarker?: boolean;
+  /** /contact answers 503 from its second load on (#1737 review). */
+  failAfterFirstLoad?: boolean;
+  /** The page submits the form itself when the message is typed (#1737 review). */
+  autoSubmit?: boolean;
 };
 
 let server: Server;
@@ -310,6 +343,7 @@ let base: string;
 let fixture: Fixture;
 let posts: Posted[];
 let healthReads = 0;
+let contactLoads = 0;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
@@ -320,6 +354,12 @@ beforeAll(async () => {
       return;
     }
     if (req.method === "GET" && req.url === "/contact") {
+      contactLoads++;
+      if (fixture.failAfterFirstLoad && contactLoads > 1) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       if (fixture.hydration) {
         res.end(hydratingPage(fixture.hydration, fixture.banner));
@@ -342,6 +382,9 @@ beforeAll(async () => {
           encoding: fixture.encoding ?? "json",
           native: fixture.native ?? false,
           consent: fixture.consent,
+          vanish: fixture.vanish === "always" || (fixture.vanish === "once" && contactLoads === 1),
+          breakAfterMarker: fixture.breakAfterMarker ?? false,
+          autoSubmit: fixture.autoSubmit ?? false,
         }),
       );
       return;
@@ -426,6 +469,7 @@ const FAST_FAIL: RunnerOpts = { ...FAST, submitTimeoutMs: 3000 };
 async function submit(f: Fixture, opts: RunnerOpts = FAST) {
   fixture = f;
   posts = [];
+  contactLoads = 0;
   runner = await defaultFormRunner(opts);
   return runner.submit({ baseUrl: base, testMode: true, testSitekey: "1x00000000000000000000AA" });
 }
@@ -928,6 +972,92 @@ describe("form-e2e live runner — a cookie-consent gate over the form (#1736)",
     expect((out as { detail?: string }).detail).toContain(
       "a cookie-consent dialog covered the page and the probe could not answer it",
     );
+  }, 90_000);
+});
+
+describe("form-e2e live runner — a refusal to click is retried once on a fresh load (#1737)", () => {
+  /** Vida's stall was four fills each waiting out Playwright's 30 s default;
+   *  half a second each finds the same nothing. */
+  const NO_FIELD: RunnerOpts = { ...FAST_FAIL, fillTimeoutMs: 500 };
+
+  it("a form gone by fill time on the first load only passes on the fresh load, and says so", async () => {
+    const out = await submit({ health: DECLARED, banner: true, vanish: "once" }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(contactLoads).toBe(2);
+    const retried = (out as { retried?: string }).retried ?? "";
+    expect(retried).toContain("fills landed 0/4");
+    expect(retried).toMatch(/page http:\/\/127\.0\.0\.1:\d+\/contact with 0 <form>/);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("a form gone on both loads still fails, sends nothing, and names what both saw", async () => {
+    const out = await submit({ health: DECLARED, banner: true, vanish: "always" }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(contactLoads).toBe(2);
+    expect(posts).toHaveLength(0);
+    const detail = (out as { detail?: string }).detail ?? "";
+    expect(detail).toContain("testMode marker missing");
+    expect(detail).toContain("on a fresh load too, the first: fills landed 0/4");
+    expect(detail.match(/with 0 <form>/g)).toHaveLength(2);
+  }, 90_000);
+
+  it("a fresh load that finds no form at all is a failure, not n/a", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, vanish: "always", failAfterFirstLoad: true },
+      NO_FIELD,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    expect((out as { detail?: string }).detail).toContain(
+      "on a fresh load no contact form was found at all; the first: fills landed 0/4",
+    );
+  }, 90_000);
+
+  it("never retries after the page made a same-site POST, so nothing is sent twice", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, autoSubmit: true, dropMarkerAlways: true },
+      NO_FIELD,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    // The site's own submission, which the probe cannot stop, and no second one.
+    expect(posts).toHaveLength(1);
+    expect(contactLoads).toBe(1);
+    expect((out as { detail?: string }).detail).toContain(
+      "the page made a same-site POST, so no retry",
+    );
+  }, 90_000);
+
+  it("names the checks that threw, which a refusal used to swallow", async () => {
+    const out = await submit({ health: DECLARED, banner: true, breakAfterMarker: true }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    const detail = (out as { detail?: string }).detail ?? "";
+    expect(detail).toContain(
+      "wipe check threw: Error: page.evaluate: Error: page script broke querySelector",
+    );
+    expect(detail).toContain(
+      "marker check threw: Error: page.evaluate: Error: page script broke querySelector",
+    );
+  }, 90_000);
+
+  it("the audit's summary names the retry on a pass", async () => {
+    fixture = { health: DECLARED, banner: true, vanish: "once" };
+    posts = [];
+    contactLoads = 0;
+    const r = await formE2eAudit({
+      site: { path: "", name: "fixture", deployedUrl: base },
+      formRunner: await defaultFormRunner(NO_FIELD),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toContain("the first load refused to click, nothing sent (fills landed 0/4");
+  }, 90_000);
+
+  it("control: a form that stays put is not retried", async () => {
+    const out = await submit({ health: DECLARED, banner: true });
+    expect(out).toMatchObject({ success: true });
+    expect(out).not.toHaveProperty("retried");
+    expect(contactLoads).toBe(1);
   }, 90_000);
 });
 

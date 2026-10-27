@@ -69,6 +69,10 @@ export type FormSubmitOutcome =
       hydrationUnconfirmed?: boolean;
       synthesized?: string[];
       resynthesized?: string[];
+      /** Set when the first attempt refused to click (the testMode marker was
+       *  missing, nothing was sent) and this outcome is a fresh page's (#1737):
+       *  what the first attempt saw. */
+      retried?: string;
       /** The button the probe pressed to answer a cookie-consent gate that covered
        *  the page (#1736), e.g. "Reject". Absent = no gate appeared. */
       consentAnswered?: string;
@@ -533,6 +537,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
     const synthesizedNote =
+      (outcome.retried !== undefined
+        ? ` — the first load refused to click, nothing sent (${outcome.retried}); this is a fresh load's result`
+        : "") +
       (outcome.consentAnswered !== undefined
         ? ` — answered a cookie-consent dialog with "${outcome.consentAnswered}"`
         : "") +
@@ -680,6 +687,11 @@ const PAGE_TIMEOUT_MS = 30_000;
  *  this is slack for a page that shows its region before the reply arrives. */
 const POST_SETTLE_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 10_000;
+
+/** An error's first line, for a detail that has to stay one line. */
+function firstLine(e: unknown): string {
+  return (String(e).split("\n")[0] ?? "").slice(0, 120);
+}
 
 /** A dialog that asks for cookie consent, by its accessible name or its text. */
 const CONSENT_DIALOG = /cookie|consent/i;
@@ -1072,6 +1084,9 @@ export async function defaultFormRunner(
      *  banner (default PAGE_TIMEOUT_MS), so a fixture that must fail does not
      *  wait out 30 s to do it. */
     submitTimeoutMs?: number;
+    /** Test-only: the cap on each field fill. Default: Playwright's own (30 s),
+     *  which is how four fills that found no field took #1737's two minutes. */
+    fillTimeoutMs?: number;
   } = {},
 ): Promise<FormRunner> {
   const { chromium } = await import("@playwright/test");
@@ -1079,6 +1094,7 @@ export async function defaultFormRunner(
   const settleMs = opts.settleMs ?? FILL_SETTLE_MS;
   const postSettleMs = opts.postSettleMs ?? POST_SETTLE_MS;
   const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
+  const fillTimeoutMs = opts.fillTimeoutMs;
   return {
     async submit({ baseUrl, testSitekey }) {
       // Per-site safety preflight — refuse before a browser even launches.
@@ -1101,6 +1117,9 @@ export async function defaultFormRunner(
       let containerPresent = false;
       const synthesized: string[] = [];
       let resynthesized: string[] = [];
+      /** What the first attempt saw when it refused to click (#1737). */
+      let firstRefusal: string | undefined;
+      const retried = () => (firstRefusal === undefined ? {} : { retried: firstRefusal });
       // Hoisted with the rest: a click a consent gate blocked throws, and the
       // catch below names the gate.
       let consent: ConsentGates = { unanswerable: false };
@@ -1114,93 +1133,137 @@ export async function defaultFormRunner(
       });
       const browser = await chromium.launch();
       try {
-        const ctx = await browser.newContext();
-        const page = await ctx.newPage();
-        consent = await answerConsentGates(page);
-        // The token VALUE the probe injects (see injectExpr below for why).
-        const tokenValue = `testmode-${testSitekey}`;
-        // The marker guard, in every document this page loads (#1736 review): a
-        // capturing submit listener that puts the marker on whatever form is
-        // submitted. injectExpr below installs the same guard only in the
-        // document it runs in, and a reload (a consent answer, a site script)
-        // would take that one away before the click.
-        await page.addInitScript(markerGuardExpr(tokenValue));
-        // The tell that the framework recreated the DOM under the probe (Svelte 5
-        // logs a svelte.dev/e/hydration_mismatch warning when it does). Recorded
-        // for the failure detail — on 2026-08-31 this was the discriminator
-        // between reddoor's failing probe and its passing ones.
-        let hydrationMismatch = false;
-        // The site's REAL Turnstile widget renders here — the probe never swaps
-        // the sitekey (see the note on TurnstileObservation), so this is the one
-        // place in the fleet that sees a production widget on its production
-        // hostname. Attached at page creation, BEFORE any navigation: api.js
-        // throws during load, so a listener added later misses it entirely.
-        // Both channels, because Cloudflare surfaces the rejection as an uncaught
-        // error AND (separately) as a console error next to the 400 from
-        // challenges.cloudflare.com; either alone is enough, and the flag is
-        // monotonic so a double report is harmless.
-        const noteTurnstile = (text: string) => {
-          if (TURNSTILE_HOSTNAME_REJECTED.test(text)) turnstileHostnameRejected = true;
-          if (TURNSTILE_INIT_FAILED.test(text)) turnstileInitFailed = true;
-          if (TURNSTILE_WIDGET_ERROR.test(text)) turnstileWidgetError = true;
-        };
-        page.on("pageerror", (err) => noteTurnstile(String(err?.message ?? err)));
-        page.on("console", (msg) => {
-          if (msg.text().includes("hydration_mismatch")) hydrationMismatch = true;
-          // EVERY level, not just errors: the starter reports a failed widget load
-          // at console.warn, and narrowing this to errors is how a widget that
-          // never initialised earned a "pass" in the first draft. The regexes are
-          // the guard, not the log level.
-          noteTurnstile(msg.text());
-        });
-        // Did Cloudflare's script actually arrive? A 2xx here is what turns the
-        // server-rendered mount point into a real widget; without it `window
-        // .turnstile` never exists and no token is ever minted, while the div sits
-        // in the DOM looking exactly like a healthy site.
-        page.on("response", (res) => {
-          if (TURNSTILE_API_JS.test(res.url()) && res.status() >= 200 && res.status() < 300) {
-            turnstileScriptLoaded = true;
+        // At most two attempts, and the second only after the first refused to
+        // click and saw no same-site POST (#1737): such a refusal sent nothing,
+        // so a fresh page cannot double-submit. Anything that clicked returns
+        // from the first. What the verdict reads is reset, so attempt 2 is
+        // judged on what attempt 2 saw.
+        for (let attempt = 1; ; attempt++) {
+          synthesized.length = 0;
+          resynthesized.length = 0;
+          containerPresent = false;
+          turnstileHostnameRejected = false;
+          turnstileScriptLoaded = false;
+          turnstileInitFailed = false;
+          turnstileWidgetError = false;
+          const ctx = await browser.newContext();
+          const page = await ctx.newPage();
+          consent = await answerConsentGates(page);
+          // The token VALUE the probe injects (see injectExpr below for why).
+          const tokenValue = `testmode-${testSitekey}`;
+          // The marker guard, in every document this page loads (#1736 review): a
+          // capturing submit listener that puts the marker on whatever form is
+          // submitted. injectExpr below installs the same guard only in the
+          // document it runs in, and a reload (a consent answer, a site script)
+          // would take that one away before the click.
+          await page.addInitScript(markerGuardExpr(tokenValue));
+          // The tell that the framework recreated the DOM under the probe (Svelte 5
+          // logs a svelte.dev/e/hydration_mismatch warning when it does). Recorded
+          // for the failure detail — on 2026-08-31 this was the discriminator
+          // between reddoor's failing probe and its passing ones.
+          let hydrationMismatch = false;
+          let firstPageError: string | undefined;
+          // Any same-site POST this page made, the probe's own included: a refusal
+          // after one may have sent something, so it is never retried (#1737 review).
+          let postedSameSite = false;
+          page.on("request", (req) => {
+            if (req.method() === "POST" && isSameSitePost(req.url(), baseUrl))
+              postedSameSite = true;
+          });
+          // The site's REAL Turnstile widget renders here — the probe never swaps
+          // the sitekey (see the note on TurnstileObservation), so this is the one
+          // place in the fleet that sees a production widget on its production
+          // hostname. Attached at page creation, BEFORE any navigation: api.js
+          // throws during load, so a listener added later misses it entirely.
+          // Both channels, because Cloudflare surfaces the rejection as an uncaught
+          // error AND (separately) as a console error next to the 400 from
+          // challenges.cloudflare.com; either alone is enough, and the flag is
+          // monotonic so a double report is harmless.
+          const noteTurnstile = (text: string) => {
+            if (TURNSTILE_HOSTNAME_REJECTED.test(text)) turnstileHostnameRejected = true;
+            if (TURNSTILE_INIT_FAILED.test(text)) turnstileInitFailed = true;
+            if (TURNSTILE_WIDGET_ERROR.test(text)) turnstileWidgetError = true;
+          };
+          page.on("pageerror", (err) => {
+            firstPageError ??= String(err?.message ?? err).slice(0, 120);
+            noteTurnstile(String(err?.message ?? err));
+          });
+          page.on("console", (msg) => {
+            if (msg.text().includes("hydration_mismatch")) hydrationMismatch = true;
+            // EVERY level, not just errors: the starter reports a failed widget load
+            // at console.warn, and narrowing this to errors is how a widget that
+            // never initialised earned a "pass" in the first draft. The regexes are
+            // the guard, not the log level.
+            noteTurnstile(msg.text());
+          });
+          // Did Cloudflare's script actually arrive? A 2xx here is what turns the
+          // server-rendered mount point into a real widget; without it `window
+          // .turnstile` never exists and no token is ever minted, while the div sits
+          // in the DOM looking exactly like a healthy site.
+          page.on("response", (res) => {
+            if (TURNSTILE_API_JS.test(res.url()) && res.status() >= 200 && res.status() < 300) {
+              turnstileScriptLoaded = true;
+            }
+          });
+          // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
+          // findFormPath leaves the page on the route it selected, so the fills below
+          // act on the form it found.
+          const found = await findFormPath(page as unknown as FormProbePage, baseUrl);
+          if (!found) {
+            // The fresh load found no form where the first found one: that is not
+            // "no contact form" (n/a), it is the same failure seen twice (review).
+            if (attempt > 1)
+              return {
+                formPresent: true,
+                success: false,
+                detail:
+                  "testMode marker missing from the form at submit — did not click, so no unmarked probe was sent" +
+                  ` (on a fresh load no contact form was found at all; the first: ${firstRefusal})`,
+                turnstile: {
+                  containerPresent,
+                  scriptLoaded: turnstileScriptLoaded,
+                  hostnameRejected: turnstileHostnameRejected,
+                  initFailed: turnstileInitFailed,
+                  widgetError: turnstileWidgetError,
+                },
+                formsHealth,
+              };
+            return { formPresent: false, formsHealth };
           }
-        });
-        // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
-        // findFormPath leaves the page on the route it selected, so the fills below
-        // act on the form it found.
-        const found = await findFormPath(page as unknown as FormProbePage, baseUrl);
-        if (!found) return { formPresent: false, formsHealth };
 
-        // Sampled on the route findFormPath SETTLED on, so a `.cf-turnstile` seen
-        // on `/contact` is never attributed to a `/` probe or vice versa. The
-        // container is server-rendered by the starter's TurnstileWidget (its
-        // `{#if turnstileSiteKey}` runs during SSR), so it is present at
-        // domcontentloaded and needs no wait — unlike the iframe, which invisible
-        // mode never leaves behind and which is therefore NOT a health signal.
-        containerPresent = await page
-          .locator(".cf-turnstile")
-          .count()
-          .then((n) => n > 0)
-          .catch(() => false);
-        // Read at the END of the run, not here: api.js is async and the response
-        // may land after this point, whereas the container is server-rendered and
-        // must be sampled on the settled route.
-        const turnstileSeen = (): TurnstileObservation => ({
-          containerPresent,
-          scriptLoaded: turnstileScriptLoaded,
-          hostnameRejected: turnstileHostnameRejected,
-          initFailed: turnstileInitFailed,
-          widgetError: turnstileWidgetError,
-        });
+          // Sampled on the route findFormPath SETTLED on, so a `.cf-turnstile` seen
+          // on `/contact` is never attributed to a `/` probe or vice versa. The
+          // container is server-rendered by the starter's TurnstileWidget (its
+          // `{#if turnstileSiteKey}` runs during SSR), so it is present at
+          // domcontentloaded and needs no wait — unlike the iframe, which invisible
+          // mode never leaves behind and which is therefore NOT a health signal.
+          containerPresent = await page
+            .locator(".cf-turnstile")
+            .count()
+            .then((n) => n > 0)
+            .catch(() => false);
+          // Read at the END of the run, not here: api.js is async and the response
+          // may land after this point, whereas the container is server-rendered and
+          // must be sampled on the settled route.
+          const turnstileSeen = (): TurnstileObservation => ({
+            containerPresent,
+            scriptLoaded: turnstileScriptLoaded,
+            hostnameRejected: turnstileHostnameRejected,
+            initFailed: turnstileInitFailed,
+            widgetError: turnstileWidgetError,
+          });
 
-        // Inject the testMode marker + a Turnstile token into the submitted form.
-        // The site declared forwarding (preflight above), so the marker routes the
-        // submission away from every real sink via central ingest's testMode
-        // short-circuit; that branch also skips Turnstile enforcement, making the
-        // token's value inconsequential — the CF public test sitekey documents the
-        // zero-secret path past the client widget. String-form evaluate
-        // (mirrors browser.ts) so the browser-context code isn't type-checked
-        // against the Node lib (no DOM globals in this project's tsconfig). The
-        // token value is a hardcoded constant (never user input), so inlining it
-        // via JSON.stringify into the expression string is safe.
-        const injectExpr = `
+          // Inject the testMode marker + a Turnstile token into the submitted form.
+          // The site declared forwarding (preflight above), so the marker routes the
+          // submission away from every real sink via central ingest's testMode
+          // short-circuit; that branch also skips Turnstile enforcement, making the
+          // token's value inconsequential — the CF public test sitekey documents the
+          // zero-secret path past the client widget. String-form evaluate
+          // (mirrors browser.ts) so the browser-context code isn't type-checked
+          // against the Node lib (no DOM globals in this project's tsconfig). The
+          // token value is a hardcoded constant (never user input), so inlining it
+          // via JSON.stringify into the expression string is safe.
+          const injectExpr = `
           (function () {
             const f = document.querySelector("form");
             if (!f) return;
@@ -1235,66 +1298,79 @@ export async function defaultFormRunner(
             }
           })();
         `;
-        // Fills are per-field best-effort (a site may lack a phone field), but
-        // WHICH fills landed is tracked so the pre-click verification below knows
-        // exactly what to expect. The whole sequence is re-runnable on purpose.
-        const fills = [
-          { selector: '[name="name"]', value: "Reddoor Monitor" },
-          { selector: '[name="email"]', value: "monitor+e2e@reddoorla.com" },
-          { selector: '[name="phone"]', value: "5555550123" },
-          {
-            selector: '[name="message"]',
-            value: SYNTHETIC_TEXT,
-          },
-        ];
-        const filled: { selector: string; value: string }[] = [];
-        const fillAll = async () => {
-          for (const f of fills) {
-            const landed = await page
-              .fill(f.selector, f.value)
-              .then(() => true)
-              .catch(() => false);
-            if (landed && !filled.some((s) => s.selector === f.selector)) filled.push(f);
-          }
-          const more = (await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[];
-          for (const name of more) if (!synthesized.includes(name)) synthesized.push(name);
-          await page.evaluate(injectExpr);
-        };
-        // Nothing is filled or injected until the page has hydrated (#1148). The
-        // hidden inputs injectExpr appends are nodes the server never rendered, so
-        // Svelte 5 claiming the tree after they land is a hydration mismatch: it
-        // re-mounts the form and wipes the fills, and the check below then reported
-        // the probe's own wipe as `refilled` — 5 of 5 runs on Mantis (2026-10-04).
-        // `hydrationTimeoutMs: 0` skips the wait; the fixture test uses it as the
-        // control that shows the wipe is still detectable.
-        const hydration =
-          hydrationTimeoutMs > 0
-            ? await waitForHydration(page, { timeoutMs: hydrationTimeoutMs })
-            : "settled";
-        await fillAll();
+          // Fills are per-field best-effort (a site may lack a phone field), but
+          // WHICH fills landed is tracked so the pre-click verification below knows
+          // exactly what to expect. The whole sequence is re-runnable on purpose.
+          const fills = [
+            { selector: '[name="name"]', value: "Reddoor Monitor" },
+            { selector: '[name="email"]', value: "monitor+e2e@reddoorla.com" },
+            { selector: '[name="phone"]', value: "5555550123" },
+            {
+              selector: '[name="message"]',
+              value: SYNTHETIC_TEXT,
+            },
+          ];
+          const filled: { selector: string; value: string }[] = [];
+          const fillAll = async () => {
+            for (const f of fills) {
+              const landed = await page
+                .fill(
+                  f.selector,
+                  f.value,
+                  fillTimeoutMs === undefined ? {} : { timeout: fillTimeoutMs },
+                )
+                .then(() => true)
+                .catch(() => false);
+              if (landed && !filled.some((s) => s.selector === f.selector)) filled.push(f);
+            }
+            const more = (await page
+              .evaluate(SYNTHESIZE_REQUIRED_EXPR)
+              .catch(() => [])) as string[];
+            for (const name of more) if (!synthesized.includes(name)) synthesized.push(name);
+            await page.evaluate(injectExpr);
+          };
+          // Nothing is filled or injected until the page has hydrated (#1148). The
+          // hidden inputs injectExpr appends are nodes the server never rendered, so
+          // Svelte 5 claiming the tree after they land is a hydration mismatch: it
+          // re-mounts the form and wipes the fills, and the check below then reported
+          // the probe's own wipe as `refilled` — 5 of 5 runs on Mantis (2026-10-04).
+          // `hydrationTimeoutMs: 0` skips the wait; the fixture test uses it as the
+          // control that shows the wipe is still detectable.
+          const hydration =
+            hydrationTimeoutMs > 0
+              ? await waitForHydration(page, { timeoutMs: hydrationTimeoutMs })
+              : "settled";
+          const fillStartedAt = Date.now();
+          await fillAll();
+          const fillMs = Date.now() - fillStartedAt;
 
-        // Beat the bot-timing screen, then submit and wait for the success banner
-        // (role="status") the starter renders on a successful action.
-        await page.waitForTimeout(settleMs);
+          // Beat the bot-timing screen, then submit and wait for the success banner
+          // (role="status") the starter renders on a successful action.
+          await page.waitForTimeout(settleMs);
 
-        // Verify the fills survived the settle, and refill once if not. A client
-        // re-render during the settle discards everything fillAll did — seen live
-        // on 2026-08-31, when a hydration mismatch on reddoor's /contact recreated
-        // the form: the click then hit empty `required` fields, native validation
-        // blocked the submit, and the night's warn line ("no success banner —
-        // POST 200") pointed at a Turnstile telemetry POST instead. The race is
-        // widest on slow runners (hydration lands late), which is exactly where
-        // the nightly runs.
-        // `cf-turnstile-response` is deliberately NOT verified: the Turnstile
-        // widget inserts its OWN input with that name while it renders (an
-        // erroring widget included), and a first-match lookup then reads the
-        // widget's value — the 2026-08-31 live check false-positived "wiped" on
-        // every run because of it. `testMode` only ever exists because this
-        // probe added it, so it is the sound canary for a re-render wipe.
-        const expected = [...filled, { selector: 'input[name="testMode"]', value: "true" }];
-        const wipedCount = (await page
-          .evaluate(
-            `
+          // Verify the fills survived the settle, and refill once if not. A client
+          // re-render during the settle discards everything fillAll did — seen live
+          // on 2026-08-31, when a hydration mismatch on reddoor's /contact recreated
+          // the form: the click then hit empty `required` fields, native validation
+          // blocked the submit, and the night's warn line ("no success banner —
+          // POST 200") pointed at a Turnstile telemetry POST instead. The race is
+          // widest on slow runners (hydration lands late), which is exactly where
+          // the nightly runs.
+          // `cf-turnstile-response` is deliberately NOT verified: the Turnstile
+          // widget inserts its OWN input with that name while it renders (an
+          // erroring widget included), and a first-match lookup then reads the
+          // widget's value — the 2026-08-31 live check false-positived "wiped" on
+          // every run because of it. `testMode` only ever exists because this
+          // probe added it, so it is the sound canary for a re-render wipe.
+          const expected = [...filled, { selector: 'input[name="testMode"]', value: "true" }];
+          // The two checks below swallow a throw on purpose (0 wiped, marker absent),
+          // and #1737's three refusals could not say whether they had. Kept for the
+          // refusal's detail.
+          let wipeCheckError: string | undefined;
+          let markerCheckError: string | undefined;
+          const wipedCount = (await page
+            .evaluate(
+              `
           (function () {
             const expected = ${JSON.stringify(expected)};
             let wiped = 0;
@@ -1305,138 +1381,168 @@ export async function defaultFormRunner(
             return wiped;
           })();
         `,
-          )
-          .catch(() => 0)) as number;
-        resynthesized =
-          wipedCount > 0
-            ? []
-            : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
-        for (const name of resynthesized) if (!synthesized.includes(name)) synthesized.push(name);
-        const refilled = wipedCount > 0;
-        const hydrationUnconfirmed = refilled && hydration !== "marker";
-        if (wipedCount > 0) await fillAll();
-        else if (resynthesized.length > 0) await page.evaluate(injectExpr);
-        // The last thing before the click: the marker must be on the form. A page
-        // that re-renders on a change event drops the hidden input this probe
-        // added, and an unmarked submission is a real lead to the client. Refuse
-        // to click rather than send one.
-        const markerPresent = (await page
-          .evaluate(
-            `(function () {
+            )
+            .catch((e: unknown) => {
+              wipeCheckError = firstLine(e);
+              return 0;
+            })) as number;
+          resynthesized =
+            wipedCount > 0
+              ? []
+              : ((await page.evaluate(SYNTHESIZE_REQUIRED_EXPR).catch(() => [])) as string[]);
+          for (const name of resynthesized) if (!synthesized.includes(name)) synthesized.push(name);
+          const refilled = wipedCount > 0;
+          const hydrationUnconfirmed = refilled && hydration !== "marker";
+          if (wipedCount > 0) await fillAll();
+          else if (resynthesized.length > 0) await page.evaluate(injectExpr);
+          // The last thing before the click: the marker must be on the form. A page
+          // that re-renders on a change event drops the hidden input this probe
+          // added, and an unmarked submission is a real lead to the client. Refuse
+          // to click rather than send one.
+          const markerPresent = (await page
+            .evaluate(
+              `(function () {
               const el = document.querySelector('form [name="testMode"]');
               return !!el && el.value === "true";
             })();`,
-          )
-          .catch(() => false)) as boolean;
-        if (!markerPresent)
-          return {
-            formPresent: true,
-            success: false,
-            ...(refilled ? { refilled } : {}),
-            ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
-            ...(synthesized.length > 0 ? { synthesized } : {}),
-            ...(resynthesized.length > 0 ? { resynthesized } : {}),
-            detail:
-              "testMode marker missing from the form at submit — did not click, so no unmarked probe was sent",
-            turnstile: turnstileSeen(),
-            formsHealth,
-          };
-        // Capture the action POST so a failure names the real server response
-        // (espada 2026-07-10: three "no success banner" warns were undiagnosable
-        // without it — the POST status/alert text is the evidence). SAME-SITE
-        // only: an any-POST predicate matched Google Analytics' beacon and
-        // Turnstile telemetry first, so the 2026-08-31 warn lines ("POST 204",
-        // "POST 200") named third parties while the action POST never fired —
-        // and BUDGET_THIN could time a beacon instead of the action.
-        // Stamped as a side-effect rather than awaited here on purpose: awaiting
-        // the POST before the banner would serialize two 30s timeouts in the
-        // no-POST case and double the worst-case run. `startedAt` is assigned at
-        // the click below — a same-site POST before the click is unlikely but
-        // free to happen, and `Date.now() - 0` would be the epoch — an absurd
-        // "elapsed" that would trip BUDGET_THIN, the exact false warn this
-        // measurement exists to kill. Un-clicked → leave it undefined; the
-        // audit treats absent timing as "no claim to make".
-        let startedAt = 0;
-        let postElapsedMs: number | undefined;
-        const postResponse = page
-          .waitForResponse(
-            (r) =>
-              r.request().method() === "POST" &&
-              isSameSitePost(r.url(), baseUrl) &&
-              carriesProbeMarker(r.request().postData()),
-            {
-              timeout: submitTimeoutMs,
-            },
-          )
-          .then((r) => {
-            if (startedAt > 0) postElapsedMs = Date.now() - startedAt;
-            return r;
-          })
-          .catch(() => null);
-        // Both standard submit controls: reddoor-website uses `<input type="submit">`
-        // (its first enrolled run timed out matching button-only and false-failed).
-        // Timed from the click so `elapsedMs` measures what a visitor waits for —
-        // the site action plus its central ingest call — and not the page load,
-        // the fills, or the deliberate FILL_SETTLE_MS pause.
-        startedAt = Date.now();
-        await page
-          .locator('button[type="submit"], input[type="submit"]')
-          .first()
-          .click({ timeout: submitTimeoutMs });
-        const ok = await page
-          .locator('[role="status"]')
-          .first()
-          .waitFor({ state: "visible", timeout: submitTimeoutMs })
-          .then(() => true)
-          .catch(() => false);
-        const elapsedMs = Date.now() - startedAt;
-        // The banner alone is not the verdict (#1610): a site can render its error
-        // text into the same `role="status"` region as its thanks, and a POST that
-        // came back 500 then read as a pass. Once the region shows, give the
-        // action POST a moment to answer, and a 4xx/5xx is a failure.
-        let settleTimer: ReturnType<typeof setTimeout> | undefined;
-        const settledPost = ok
-          ? await Promise.race([
-              postResponse,
-              new Promise<null>((r) => {
-                settleTimer = setTimeout(() => r(null), postSettleMs);
-              }),
-            ])
-          : null;
-        clearTimeout(settleTimer);
-        // A SvelteKit action's failure arrives as a 200 whose JSON says so.
-        const bodyFailure =
-          settledPost !== null && settledPost.status() < 400
-            ? actionFailureStatus(await settledPost.text().catch(() => ""))
+            )
+            .catch((e: unknown) => {
+              markerCheckError = firstLine(e);
+              return false;
+            })) as boolean;
+          if (!markerPresent) {
+            const where = (await page
+              .evaluate(
+                `(function () { return { url: location.href, forms: document.forms.length }; })();`,
+              )
+              .catch((e: unknown) => ({ error: firstLine(e) }))) as
+              { url: string; forms: number } | { error: string };
+            const evidence = [
+              `fills landed ${filled.length}/${fills.length} in ${(fillMs / 1000).toFixed(1)} s`,
+              "error" in where
+                ? `page unreadable: ${where.error}`
+                : `page ${where.url} with ${where.forms} <form>`,
+              ...(wipeCheckError ? [`wipe check threw: ${wipeCheckError}`] : []),
+              ...(markerCheckError ? [`marker check threw: ${markerCheckError}`] : []),
+              ...(firstPageError ? [`first page error: ${firstPageError}`] : []),
+              ...(postedSameSite ? ["the page made a same-site POST, so no retry"] : []),
+            ].join("; ");
+            if (attempt === 1 && !postedSameSite) {
+              firstRefusal = evidence;
+              await ctx.close().catch(() => {});
+              continue;
+            }
+            return {
+              formPresent: true,
+              success: false,
+              ...(refilled ? { refilled } : {}),
+              ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
+              ...(synthesized.length > 0 ? { synthesized } : {}),
+              ...(resynthesized.length > 0 ? { resynthesized } : {}),
+              detail:
+                "testMode marker missing from the form at submit — did not click, so no unmarked probe was sent" +
+                ` (${evidence}${firstRefusal === undefined ? "" : `; on a fresh load too, the first: ${firstRefusal}`})`,
+              turnstile: turnstileSeen(),
+              formsHealth,
+            };
+          }
+          // Capture the action POST so a failure names the real server response
+          // (espada 2026-07-10: three "no success banner" warns were undiagnosable
+          // without it — the POST status/alert text is the evidence). SAME-SITE
+          // only: an any-POST predicate matched Google Analytics' beacon and
+          // Turnstile telemetry first, so the 2026-08-31 warn lines ("POST 204",
+          // "POST 200") named third parties while the action POST never fired —
+          // and BUDGET_THIN could time a beacon instead of the action.
+          // Stamped as a side-effect rather than awaited here on purpose: awaiting
+          // the POST before the banner would serialize two 30s timeouts in the
+          // no-POST case and double the worst-case run. `startedAt` is assigned at
+          // the click below — a same-site POST before the click is unlikely but
+          // free to happen, and `Date.now() - 0` would be the epoch — an absurd
+          // "elapsed" that would trip BUDGET_THIN, the exact false warn this
+          // measurement exists to kill. Un-clicked → leave it undefined; the
+          // audit treats absent timing as "no claim to make".
+          let startedAt = 0;
+          let postElapsedMs: number | undefined;
+          const postResponse = page
+            .waitForResponse(
+              (r) =>
+                r.request().method() === "POST" &&
+                isSameSitePost(r.url(), baseUrl) &&
+                carriesProbeMarker(r.request().postData()),
+              {
+                timeout: submitTimeoutMs,
+              },
+            )
+            .then((r) => {
+              if (startedAt > 0) postElapsedMs = Date.now() - startedAt;
+              return r;
+            })
+            .catch(() => null);
+          // Both standard submit controls: reddoor-website uses `<input type="submit">`
+          // (its first enrolled run timed out matching button-only and false-failed).
+          // Timed from the click so `elapsedMs` measures what a visitor waits for —
+          // the site action plus its central ingest call — and not the page load,
+          // the fills, or the deliberate FILL_SETTLE_MS pause.
+          startedAt = Date.now();
+          await page
+            .locator('button[type="submit"], input[type="submit"]')
+            .first()
+            .click({ timeout: submitTimeoutMs });
+          const ok = await page
+            .locator('[role="status"]')
+            .first()
+            .waitFor({ state: "visible", timeout: submitTimeoutMs })
+            .then(() => true)
+            .catch(() => false);
+          const elapsedMs = Date.now() - startedAt;
+          // The banner alone is not the verdict (#1610): a site can render its error
+          // text into the same `role="status"` region as its thanks, and a POST that
+          // came back 500 then read as a pass. Once the region shows, give the
+          // action POST a moment to answer, and a 4xx/5xx is a failure.
+          let settleTimer: ReturnType<typeof setTimeout> | undefined;
+          const settledPost = ok
+            ? await Promise.race([
+                postResponse,
+                new Promise<null>((r) => {
+                  settleTimer = setTimeout(() => r(null), postSettleMs);
+                }),
+              ])
             : null;
-        const bannerLied =
-          settledPost !== null && (settledPost.status() >= 400 || bodyFailure !== null);
-        if (ok && !bannerLied)
-          return {
-            formPresent: true,
-            success: true,
-            elapsedMs,
-            ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
-            ...(refilled ? { refilled } : {}),
-            ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
-            ...(synthesized.length > 0 ? { synthesized } : {}),
-            ...(resynthesized.length > 0 ? { resynthesized } : {}),
-            ...consentNote(false),
-            turnstile: turnstileSeen(),
-            formsHealth,
-          };
-        const actionResp = await postResponse;
-        const alertText = await page
-          .locator('[role="alert"]')
-          .first()
-          .textContent({ timeout: 1000 })
-          .catch(() => null);
-        // What is the form's state NOW? Empty required fields mean native
-        // validation blocked the submit client-side — the one answer "POST
-        // status alone" can never give.
-        const formState = (await page
-          .evaluate(
-            `
+          clearTimeout(settleTimer);
+          // A SvelteKit action's failure arrives as a 200 whose JSON says so.
+          const bodyFailure =
+            settledPost !== null && settledPost.status() < 400
+              ? actionFailureStatus(await settledPost.text().catch(() => ""))
+              : null;
+          const bannerLied =
+            settledPost !== null && (settledPost.status() >= 400 || bodyFailure !== null);
+          if (ok && !bannerLied)
+            return {
+              formPresent: true,
+              success: true,
+              elapsedMs,
+              ...retried(),
+              ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
+              ...(refilled ? { refilled } : {}),
+              ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
+              ...(synthesized.length > 0 ? { synthesized } : {}),
+              ...(resynthesized.length > 0 ? { resynthesized } : {}),
+              ...consentNote(false),
+              turnstile: turnstileSeen(),
+              formsHealth,
+            };
+          const actionResp = await postResponse;
+          const alertText = await page
+            .locator('[role="alert"]')
+            .first()
+            .textContent({ timeout: 1000 })
+            .catch(() => null);
+          // What is the form's state NOW? Empty required fields mean native
+          // validation blocked the submit client-side — the one answer "POST
+          // status alone" can never give.
+          const formState = (await page
+            .evaluate(
+              `
           (function () {
             const f = document.querySelector("form");
             if (!f) return { formPresent: false, checkValidity: null, emptyRequired: [] };
@@ -1448,36 +1554,38 @@ export async function defaultFormRunner(
             return { formPresent: true, checkValidity: f.checkValidity(), emptyRequired };
           })();
         `,
-          )
-          .catch(() => null)) as NoBannerFormState | null;
-        const post = actionResp
-          ? {
-              status: actionResp.status(),
-              ...(actionResp.status() >= 400 || bodyFailure !== null
-                ? { bodyBit: (await actionResp.text().catch(() => "")).slice(0, 80) }
-                : {}),
-            }
-          : null;
-        return {
-          formPresent: true,
-          success: false,
-          ...(refilled ? { refilled } : {}),
-          ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
-          ...(synthesized.length > 0 ? { synthesized } : {}),
-          ...(resynthesized.length > 0 ? { resynthesized } : {}),
-          ...consentNote(true),
-          detail: noBannerDetail({
-            post,
-            alertText,
-            formState,
-            hydrationMismatch,
-            refilled,
-            hydrationUnconfirmed,
-            ...(bannerLied ? { bannerShown: true } : {}),
-          }),
-          turnstile: turnstileSeen(),
-          formsHealth,
-        };
+            )
+            .catch(() => null)) as NoBannerFormState | null;
+          const post = actionResp
+            ? {
+                status: actionResp.status(),
+                ...(actionResp.status() >= 400 || bodyFailure !== null
+                  ? { bodyBit: (await actionResp.text().catch(() => "")).slice(0, 80) }
+                  : {}),
+              }
+            : null;
+          return {
+            formPresent: true,
+            success: false,
+            ...(refilled ? { refilled } : {}),
+            ...(hydrationUnconfirmed ? { hydrationUnconfirmed } : {}),
+            ...(synthesized.length > 0 ? { synthesized } : {}),
+            ...(resynthesized.length > 0 ? { resynthesized } : {}),
+            ...consentNote(true),
+            ...retried(),
+            detail: noBannerDetail({
+              post,
+              alertText,
+              formState,
+              hydrationMismatch,
+              refilled,
+              hydrationUnconfirmed,
+              ...(bannerLied ? { bannerShown: true } : {}),
+            }),
+            turnstile: turnstileSeen(),
+            formsHealth,
+          };
+        }
       } catch (err) {
         // A thrown probe still carries whatever the widget did — every signal is
         // hoisted above the try and monotonic, so evidence gathered before the
@@ -1491,6 +1599,7 @@ export async function defaultFormRunner(
           formPresent: true,
           success: false,
           detail: probeErrorDetail(err, consent),
+          ...retried(),
           ...consentNote(true),
           ...(synthesized.length > 0 ? { synthesized } : {}),
           ...(resynthesized.length > 0 ? { resynthesized } : {}),
