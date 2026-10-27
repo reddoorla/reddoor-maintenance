@@ -57,14 +57,26 @@ export function runsPath(run) {
 export function refereeArgsPath(run) {
   return `${resolve(run)}.referee-args.json`;
 }
+// score's result lists each arm's errors with the reference's value beside them.
+export function resultPath(run) {
+  return `${resolve(run)}.result.json`;
+}
 
-// A run collected before the move keeps runs.json inside it; neither step reads or merges past it.
+// The files a run kept inside it before the move. Neither collect nor score reads, merges or
+// writes past one, which would leave the old copy for a later arm to read.
+const MOVED = {
+  "runs.json": runsPath,
+  "referee-args.json": refereeArgsPath,
+  "result.json": resultPath,
+};
 function refuseInsideRuns(run) {
-  const old = join(run, "runs.json");
-  if (existsSync(old))
-    throw new Error(
-      `${old} is inside the run, where its arms could read it (#1540). Move it to ${runsPath(run)} first.`,
-    );
+  for (const [name, to] of Object.entries(MOVED)) {
+    const old = join(run, name);
+    if (existsSync(old))
+      throw new Error(
+        `${old} is inside the run, where its arms could read it (#1540). Move it to ${to(run)} (or delete it) first.`,
+      );
+  }
 }
 
 export async function loadTask(name) {
@@ -146,7 +158,9 @@ export async function prepare(opts, task) {
   }
   const run = resolve(opts.out);
   // lstat, not existsSync: a dangling symlink at --out is there too, and is not prepare's to use.
-  for (const p of [run, truthPath(run)]) {
+  // The files collect and score write beside the run too: a stale one would be merged into this
+  // run (#1540).
+  for (const p of [run, truthPath(run), runsPath(run), refereeArgsPath(run), resultPath(run)]) {
     if (lstatSync(p, { throwIfNoEntry: false })) throw new Error(`${p} exists; pick a fresh --out`);
   }
   const input = join(run, "input");
@@ -613,7 +627,7 @@ async function score(opts) {
       },
     );
   }
-  writeJson(join(run, "result.json"), result);
+  writeJson(resultPath(run), result);
   console.log(formatResult(result));
   if (result.summary && typeof task.formatSummary === "function") {
     console.log(task.formatSummary(result.summary));

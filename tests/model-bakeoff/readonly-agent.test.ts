@@ -205,8 +205,9 @@ describe("collect keeps each agent's type for score", () => {
       });
     } catch (e) {
       err = String((e as { stderr: string }).stderr);
+    } finally {
+      rmSync(join(run, "runs.json"));
     }
     expect(err).toContain(`${join(run, "runs.json")} is inside the run`);
-    rmSync(join(run, "runs.json"));
   });
 });

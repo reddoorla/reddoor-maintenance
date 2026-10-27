@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -31,6 +32,7 @@ import {
   mergeAgents,
   secretReads,
   refereeArgsPath,
+  resultPath,
   runsPath,
   truthPath,
   type Collected,
@@ -806,7 +808,7 @@ describe("score on an item run", () => {
     } catch {
       // A saturated or incomplete run exits 1; the result file is what is checked.
     }
-    return JSON.parse(readFileSync(join(run, "result.json"), "utf8"));
+    return JSON.parse(readFileSync(resultPath(run), "utf8"));
   };
 
   it("scores a clean run without inventing a problem, and finds a changed input", () => {
@@ -905,7 +907,25 @@ describe("score on an item run", () => {
     expect(r.unruled).toBe(1);
     const args = JSON.parse(readFileSync(refereeArgsPath(run), "utf8"));
     expect(args.chunks[0][0].REFERENCE).toBe("confirmed");
-    expect(readdirSync(run).filter((f) => /runs|referee/.test(f))).toEqual([]);
+    expect(readdirSync(run).filter((f) => /runs|referee|result/.test(f))).toEqual([]);
+    expect(existsSync(resultPath(run))).toBe(true);
+  });
+
+  it("refuses to score a run that still holds referee-args.json or result.json inside it (#1540)", () => {
+    for (const name of ["referee-args.json", "result.json"]) {
+      const run = build();
+      writeFileSync(join(run, name), "{}\n");
+      let err = "";
+      try {
+        execFileSync(process.execPath, [CLI, "score", "--run", run], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+      } catch (e) {
+        err = String((e as { stderr: string }).stderr);
+      }
+      expect(err).toContain(`${join(run, name)} is inside the run`);
+    }
   });
 
   it("refuses to score a run whose runs.json is still inside it (#1540)", () => {
@@ -921,7 +941,7 @@ describe("score on an item run", () => {
       err = String((e as { stderr: string }).stderr);
     }
     expect(err).toContain(
-      `${join(run, "runs.json")} is inside the run, where its arms could read it (#1540). Move it to ${runsPath(run)} first.`,
+      `${join(run, "runs.json")} is inside the run, where its arms could read it (#1540). Move it to ${runsPath(run)} (or delete it) first.`,
     );
   });
 

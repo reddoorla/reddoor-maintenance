@@ -78,11 +78,13 @@ or a Grep over the run does not reach the truth file (#1492). `score` reads it t
 a run prepared before the move, whose `truth.json` is still inside it. Copy or move the two
 together. A file outside the run is still readable by an arm that goes looking; for a task that
 lists it in `secrets` (below; refute-repo does), `score` reports a read that names it. For the
-same reason `collect` writes the agents it read to `<run>.runs.json` and `score` writes the
-referee's args to `<run>.referee-args.json`, both beside the run: the first holds the gold's
-output and the second every disagreement's REFERENCE value, which an arm launched after a
-`collect` (the per-arm `only` flow) could otherwise read (#1540). Both steps refuse a run whose
-`runs.json` is still inside it; move it beside the run first.
+same reason `collect` writes the agents it read to `<run>.runs.json`, and `score` writes the
+referee's args to `<run>.referee-args.json` and its result to `<run>.result.json`, all beside the
+run: they hold the gold's output, every disagreement's REFERENCE value, and each arm's errors with
+the expected value, which an arm launched after a `collect` or an interim `score` (the per-arm
+`only` flow) could otherwise read (#1540). Both steps refuse a run that still holds `runs.json`,
+`referee-args.json` or `result.json` inside it; move or delete it first. `prepare` refuses an
+`--out` that any of these sibling files already sits beside.
 
 Then run the workflow with `<run>/workflow-args.json` as its `args`. The Workflow tool takes
 `scriptPath: ".claude/workflows/model-bakeoff.workflow.js"`, and its launch message names the
@@ -105,7 +107,7 @@ then `collect` (with that run's transcript directory) and `score` again.
 - a prompt holds a marker but not exactly one, at its end (a prompt with no marker is skipped);
 - a referee marker is not `r<round>-<chunk>`.
 
-`score` exits non-zero on any of these problems, and `<run>/result.json` holds the full result:
+`score` exits non-zero on any of these problems, and `<run>.result.json` holds the full result:
 
 - `args.dir` is not `<run>/input`, or the input changed;
 - the reference lists one item twice (the first entry is used), or has an item with no key (it

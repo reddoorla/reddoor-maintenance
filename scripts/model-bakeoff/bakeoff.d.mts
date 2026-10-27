@@ -37,6 +37,7 @@ export interface Task {
 export function truthPath(run: string): string;
 export function runsPath(run: string): string;
 export function refereeArgsPath(run: string): string;
+export function resultPath(run: string): string;
 export function loadTask(name: string): Promise<Record<string, unknown>>;
 export function prepare(
   opts: { task?: string; out: string; root?: string; arms?: string },
