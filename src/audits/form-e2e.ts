@@ -1185,7 +1185,7 @@ export async function defaultFormRunner(
             if (TURNSTILE_WIDGET_ERROR.test(text)) turnstileWidgetError = true;
           };
           page.on("pageerror", (err) => {
-            firstPageError ??= String(err?.message ?? err).slice(0, 120);
+            firstPageError ??= firstLine(err?.message ?? err);
             noteTurnstile(String(err?.message ?? err));
           });
           page.on("console", (msg) => {
@@ -1216,9 +1216,11 @@ export async function defaultFormRunner(
               return {
                 formPresent: true,
                 success: false,
+                ...retried(),
+                ...consentNote(true),
                 detail:
-                  "testMode marker missing from the form at submit — did not click, so no unmarked probe was sent" +
-                  ` (on a fresh load no contact form was found at all; the first: ${firstRefusal})`,
+                  "the first load refused to click (testMode marker missing), so nothing was sent;" +
+                  ` on a fresh load no contact form was found at all; the first: ${firstRefusal}`,
                 turnstile: {
                   containerPresent,
                   scriptLoaded: turnstileScriptLoaded,
@@ -1425,7 +1427,9 @@ export async function defaultFormRunner(
               ...(wipeCheckError ? [`wipe check threw: ${wipeCheckError}`] : []),
               ...(markerCheckError ? [`marker check threw: ${markerCheckError}`] : []),
               ...(firstPageError ? [`first page error: ${firstPageError}`] : []),
-              ...(postedSameSite ? ["the page made a same-site POST, so no retry"] : []),
+              ...(postedSameSite && attempt === 1
+                ? ["the page made a same-site POST, so no retry"]
+                : []),
             ].join("; ");
             if (attempt === 1 && !postedSameSite) {
               firstRefusal = evidence;
