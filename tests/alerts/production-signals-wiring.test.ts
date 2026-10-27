@@ -22,7 +22,7 @@ import {
   freshWithin,
   type LatestDeps,
 } from "../../src/alerts/production-signals.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import { buildCockpitModel, buildSiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
 import { runDigest } from "../../src/reports/digest.js";
 import { auditFields } from "../../src/fleet/site-fields.js";
 import { browserStatus } from "../../src/audits/browser.js";
@@ -231,6 +231,121 @@ describe("the a11y install on a fresh clone", () => {
       if (before === undefined) delete process.env[A11Y_INSTALL_ENV];
       else process.env[A11Y_INSTALL_ENV] = before;
     }
+  });
+});
+
+describe("review round 2 (P1-78c, tests lens)", () => {
+  const prior = { "vuln:other": { metric: 1, firstFlaggedAt: "2026-10-01" } };
+  const sc = site({
+    searchConsoleOutcome: "soft-fail",
+    searchConsoleCheckedAt: FRESH,
+    maintenanceFreq: "Monthly",
+  });
+
+  it("a Search Console soft-fail is standing and undated, on the card and the site page", () => {
+    const m = buildCockpitModel([sc], [], prior, BASE, NOW);
+    const onCard = m.cards[0]!.items.find((i) => i.key === "search-console:recS")!;
+    expect(onCard.status).toBe("standing");
+    expect(onCard.firstFlaggedAt).toBeUndefined();
+    const page = buildSiteAlarmContext(sc, [], BASE, NOW, new Map(), new Map(), prior);
+    const onPage = page.items.find((i) => i.key === "search-console:recS")!;
+    expect(onPage.firstFlaggedAt).toBeUndefined();
+  });
+
+  it("pm-cockpit never counts a Search Console soft-fail new", () => {
+    const out = formatPmCockpit(
+      buildPmCockpit(
+        {
+          websites: [sc],
+          reports: [],
+          prior,
+          baseUrl: BASE,
+          newSubmissions: [],
+          spamTotals: null,
+          recentEvents: [],
+          autoFilteredCount: 0,
+          notifyBounces: new Map(),
+          deadLetters: new Map(),
+          deadLetterOldest: new Map(),
+        },
+        NOW,
+        "2026-10-26T00:00:00Z",
+      ),
+    );
+    expect(out).toContain("the Search Console lookup is failing (undated)");
+    expect(out).toContain("new=0");
+  });
+
+  it("a browser run with a desktop or a mobile fail is a warn", () => {
+    const ok = { desktopOk: true, mobileOk: true, linksOk: true, templateOk: true };
+    expect(browserStatus({ ...ok, desktopOk: false })).toBe("warn");
+    expect(browserStatus({ ...ok, mobileOk: false })).toBe("warn");
+    expect(browserStatus({ ...ok, templateOk: false })).toBe("warn");
+  });
+
+  it("a certificate stamp in the future is not aged backwards", () => {
+    const [it] = collectDomainAlerts(
+      [site({ certDaysRemaining: 6, domainCheckedAt: "2026-10-28T12:00:00.000Z" })],
+      BASE,
+      NOW,
+    );
+    expect(it!.key).toBe("cert-expiring:recS");
+    expect(it!.title).toBe("TLS certificate expires in 6 days");
+  });
+
+  it("cockpitFromInputs threads every input it is given", () => {
+    const inputs = {
+      websites: [site({ name: "Sonder" })],
+      reports: [],
+      prior,
+      baseUrl: "https://elsewhere.test",
+      newSubmissions: [
+        {
+          id: "sub1",
+          siteId: "recS",
+          formType: "contact",
+          status: "new",
+          submittedAt: "2026-10-26T10:00:00.000Z",
+        } as never,
+      ],
+      spamTotals: { honeypot: 3, tooFast: 2, markedSpam: 1 },
+      recentEvents: [
+        {
+          id: "ev1",
+          ts: "2026-10-26T09:00:00.000Z",
+          type: "pr_automerged",
+          siteId: "recS",
+          siteName: "Sonder",
+          summary: "Renovate merged a PR",
+          data: null,
+        } as never,
+      ],
+      autoFilteredCount: 4,
+      notifyBounces: new Map([["recS", { total: 3, permanent: 2 }]]),
+      deadLetters: new Map(),
+      deadLetterOldest: new Map(),
+      deps: reading({ "svelte@4": "2026-06-01" }),
+    };
+    const expected = buildCockpitModel(
+      inputs.websites,
+      inputs.reports,
+      inputs.prior,
+      inputs.baseUrl,
+      NOW,
+      inputs.newSubmissions,
+      inputs.spamTotals,
+      inputs.recentEvents,
+      inputs.autoFilteredCount,
+      inputs.notifyBounces,
+      inputs.deadLetters,
+      inputs.deadLetterOldest,
+      inputs.deps,
+    );
+    expect(cockpitFromInputs(inputs, NOW)).toEqual(expected);
+    // and the fixture is not all defaults: the bounce alarm and the base url show
+    const keys = expected.cards.flatMap((c) => c.items.map((i) => i.key));
+    expect(keys).toContain("notify-bounce:recS");
+    expect(JSON.stringify(expected)).toContain("https://elsewhere.test");
   });
 });
 

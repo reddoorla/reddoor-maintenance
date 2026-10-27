@@ -611,5 +611,83 @@
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r2t-sc-not-cockpit-only",
+    "why": "Review round 2: a Search Console soft-fail reads NEW every load",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "export const COCKPIT_ONLY_PREFIXES = [\"deps:\", \"search-console:\", \"smoke:\"] as const;",
+        "replace": "export const COCKPIT_ONLY_PREFIXES = [\"deps:\", \"smoke:\"] as const;"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-site-page-dated",
+    "why": "Review round 2: the site page dates a cockpit-only item first flagged today",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    .map(undated)\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-browser-desktop",
+    "why": "Review round 2: a desktop render fail reads pass",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return summary.desktopOk && summary.mobileOk &&",
+        "replace": "return summary.mobileOk &&"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-browser-mobile",
+    "why": "Review round 2: a mobile render fail reads pass",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return summary.desktopOk && summary.mobileOk &&",
+        "replace": "return summary.desktopOk &&"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-cfi-bounces",
+    "why": "Review round 2: cockpitFromInputs drops the notify bounces",
+    "edits": [
+      {
+        "file": "scripts/pm-cockpit.mts",
+        "find": "    inputs.autoFilteredCount,\n    inputs.notifyBounces,",
+        "replace": "    inputs.autoFilteredCount,\n    new Map(),"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r2t-cert-future",
+    "why": "Review round 2: a future certificate stamp ages the days backwards",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "Math.max(0, Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY))",
+        "replace": "Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY)"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
   }
 ]
