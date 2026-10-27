@@ -77,6 +77,11 @@ follows three rules. Why each exists: the workspace's `directives/sessions.md`.
   worker commits to running against its own tests. Run each, record whether a
   test went red, and put the table in the PR body. A test no mutation turns
   red is not yet evidence (the workspace `CLAUDE.md`, "Prove the instrument").
+  If the task is unreasonable or infeasible, or any test looks incorrect, say
+  so with AskUserQuestion. Do not hard-code test cases, or edit, skip or weaken
+  an existing assertion, to make a test pass; change one only where the brief's
+  Done-when changes the behaviour it pins, and say which under Test changes
+  (the operator, 2026-10-27).
 
 ## Before a fleet sweep, ask which repos can receive a push
 
