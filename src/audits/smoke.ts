@@ -25,7 +25,7 @@ export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
  *
  *  15 minutes is ~3x the measured suite, leaving room for a site to grow a quarter's
  *  worth of specs before anyone has to think about this again, while still killing a
- *  genuinely wedged run far inside fleet-smoke.yml's 90-minute step backstop. */
+ *  genuinely wedged run far inside fleet-smoke.yml's 120-minute step backstop. */
 export const SMOKE_TIMEOUT_MS = 15 * 60_000;
 
 /** Wall-clock budget for the site's `pnpm build`, run before the suite (#1777).
@@ -142,6 +142,13 @@ export function summarizeSmokeFailure(stdout: string, stderr: string): string {
   if (distilled) return distilled.slice(0, 300);
   const err = stderr.replace(ANSI, "").trim();
   return err ? err.slice(0, 200) : "no reporter output";
+}
+
+/** The end of a failed build's output: vite prints its warnings first and
+ *  `error during build:` last, so the head would quote a warning. */
+export function buildFailureTail(stdout: string, stderr: string): string {
+  const out = (stderr.trim() ? stderr : stdout).replace(ANSI, "").trim();
+  return out ? out.slice(-200).replace(/\s+/g, " ").trim() : "no build output";
 }
 
 /**
@@ -295,7 +302,12 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   // in the site's CI. A build that fails or wedges is no verdict on the suite,
   // and no details means the write-back keeps the prior value; the site's own
   // CI and Netlify are where a broken build is a finding.
-  if (script.build) {
+  //
+  // Only when `CI` is set, which is the spec's own condition: without it the
+  // block skips itself, so a build buys nothing, and a local `reddoor-maint
+  // audit` runs a11y beside smoke on the same checkout, whose build (with its
+  // fixtures flag) would race this one into one `.svelte-kit/output` (review).
+  if (script.build && process.env.CI) {
     let build;
     try {
       build = await spawn("pnpm", ["build"], { cwd: site.path, timeoutMs: SMOKE_BUILD_TIMEOUT_MS });
@@ -311,7 +323,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       const why =
         build === null
           ? `exceeded its ${Math.round(SMOKE_BUILD_TIMEOUT_MS / 60_000)}m budget`
-          : `failed (exit ${build.code}) — ${summarizeSmokeFailure(build.stdout, build.stderr)}`;
+          : `failed (exit ${build.code}) — ${buildFailureTail(build.stdout, build.stderr)}`;
       return {
         audit: "smoke",
         site: label,

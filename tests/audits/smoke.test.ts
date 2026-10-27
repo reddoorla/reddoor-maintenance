@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -458,6 +458,16 @@ describe("formatUnmeasuredSmokeSummary", () => {
 });
 
 describe("audits/smoke — the site's CI builds before its suite, so the fleet does too (#1777)", () => {
+  // The audit builds only under CI, as fleet-smoke runs (the spec's own condition).
+  const priorCI = process.env.CI;
+  beforeEach(() => {
+    process.env.CI = "true";
+  });
+  afterEach(() => {
+    if (priorCI === undefined) delete process.env.CI;
+    else process.env.CI = priorCI;
+  });
+
   /** A site whose package.json carries `build` beside `test:smoke`, as every
    *  SvelteKit site in the fleet does. Its smoke suite may hold specs that read
    *  the production build (`slice-simulator.spec`'s "the built client" block
@@ -494,6 +504,39 @@ describe("audits/smoke — the site's CI builds before its suite, so the fleet d
     ]);
     expect(calls[1]?.timeoutMs).toBe(SMOKE_BUILD_TIMEOUT_MS);
     expect(r.status).toBe("pass");
+  });
+
+  it("does not build without CI, where the spec skips itself and a11y may be building", async () => {
+    delete process.env.CI;
+    const site = await siteWithBuild();
+    const calls: Array<readonly string[]> = [];
+    const spawn: SpawnFn = async (_c, a) => {
+      calls.push(a);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(calls.some((a) => a[0] === "build")).toBe(false);
+    expect(r.status).toBe("pass");
+  });
+
+  it("names the end of a failed build's output, where vite puts the error", async () => {
+    const site = await siteWithBuild();
+    const stderr =
+      "npm warn config x\n".repeat(30) + "error during build:\nRollupError: boom in +page.ts";
+    const spawn: SpawnFn = async (_c, a) =>
+      a[0] === "build" ? { code: 1, stdout: "", stderr } : { code: 0, stdout: "", stderr: "" };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.summary).toContain("error during build: RollupError: boom in +page.ts");
+  });
+
+  it("a build that cannot spawn pnpm is a skip, not a crash", async () => {
+    const site = await siteWithBuild();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "build") throw Object.assign(new Error("spawn pnpm ENOENT"), { code: "ENOENT" });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r).toMatchObject({ status: "skip", summary: "pnpm not available" });
   });
 
   it("does not build a site with no build script", async () => {
