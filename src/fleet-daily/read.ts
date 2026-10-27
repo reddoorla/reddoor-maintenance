@@ -3,7 +3,7 @@
  * on a request path, so the all-time counts here may scan their tables (the
  * EXPLAIN gate covers `src/db/`, the request path's modules). The overview reads
  * the row this writes, not these queries. The one exception is `readLatestDeps`,
- * which the cockpit calls: one row by primary key, newest first.
+ * which the cockpit calls: a week of rows by primary key, newest first.
  */
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";

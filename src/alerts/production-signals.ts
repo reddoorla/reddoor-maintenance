@@ -369,7 +369,9 @@ export function collectDepsAlerts(
           // The others behind are named too, so clearing the old one is not mistaken for
           // clearing the site (review round 2).
           `${old.length} package${old.length === 1 ? "" : "s"} a major behind for over ${DEPS_FAR_DAYS} days: ${old.join(", ")}` +
-            (packages.length > old.length ? ` (${packages.length} a major behind in all)` : ""),
+            (packages.length > old.length
+              ? `; ${packages.length} packages a major behind in all`
+              : ""),
           "warning",
           old.length,
         ),

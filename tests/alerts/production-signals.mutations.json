@@ -605,7 +605,7 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "(packages.length > old.length ? ` (${packages.length} a major behind in all)` : \"\")",
+        "find": "(packages.length > old.length ? `; ${packages.length} packages a major behind in all` : \"\")",
         "replace": "\"\""
       }
     ],
@@ -685,6 +685,32 @@
         "file": "src/alerts/production-signals.ts",
         "find": "Math.max(0, Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY))",
         "replace": "Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY)"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-oldest-reading",
+    "why": "Review round 3: the oldest reading of the week is served, so every deps alarm goes stale fleet-wide",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const withReading = rows.find((r) => r.counts.deps?.value != null);",
+        "replace": "  const withReading = [...rows].reverse().find((r) => r.counts.deps?.value != null);"
+      }
+    ],
+    "test": "tests/alerts/production-signals-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3t-empty-list-item",
+    "why": "Review round 3: a site with no package behind gets a '0 packages' Watch item",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "    if (packages.length === 0) continue;\n",
+        "replace": ""
       }
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",
