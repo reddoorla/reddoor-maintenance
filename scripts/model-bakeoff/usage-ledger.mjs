@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The per-model usage ledger (P1-83). Writes `results.jsonl` (the stored result events),
-// `sessions.csv` and `ledger.csv` in the workspace's private `usage/` folder; see this
-// directory's README for the commands and when each runs.
+// `messages.jsonl` (the stored transcript messages), `sessions.csv` and `ledger.csv` in the
+// workspace's private `usage/` folder; see this directory's README for the commands.
 import {
   existsSync,
   mkdirSync,
@@ -26,7 +26,7 @@ import {
   staleSessions,
   toCsv,
   transcriptId,
-  transcriptRows,
+  transcriptMessages,
 } from "./lib/usage.mjs";
 
 const read = (p) => (existsSync(p) ? parseCsv(readFileSync(p, "utf8")) : []);
@@ -57,14 +57,22 @@ function store(out, harvest) {
   mkdirSync(out, { recursive: true });
   const paths = {
     results: join(out, "results.jsonl"),
+    messages: join(out, "messages.jsonl"),
     sessions: join(out, "sessions.csv"),
     rows: join(out, "ledger.csv"),
   };
   const done = ingest(
-    { results: readJsonl(paths.results), sessions: read(paths.sessions), rows: read(paths.rows) },
+    {
+      results: readJsonl(paths.results),
+      messages: readJsonl(paths.messages),
+      sessions: read(paths.sessions),
+      rows: read(paths.rows),
+    },
     harvest,
   );
   writeAtomic(paths.results, done.results.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  if (done.messages.length)
+    writeAtomic(paths.messages, done.messages.map((m) => JSON.stringify(m)).join("\n") + "\n");
   writeAtomic(paths.sessions, toCsv(done.sessions, SESSION_COLUMNS));
   writeAtomic(paths.rows, toCsv(done.rows, COLUMNS));
   return done;
@@ -178,20 +186,19 @@ if (
       console.error(`No transcript found under ${root}.`);
       process.exit(2);
     }
-    const rows = [];
-    // One message.id counts once across every file read, as in ledger.mjs, with the fullest
-    // copy of a session read first.
-    const seen = new Set();
+    // Each session's fullest copy is read first, so a new message found in several files is owned
+    // by the fullest; a message already stored keeps its owner (mergeMessages).
     const copies = targets.map(({ dir, uuid }) => ({ uuid, t: readSessionTranscripts(dir, uuid) }));
     copies.sort((a, b) => b.t.main.length - a.t.main.length);
+    const messages = [];
     for (const { uuid, t } of copies) {
       const first = t.main.slice(0, 4096).match(/"timestamp":"([^"]+)"/)?.[1] ?? "";
       const id = transcriptId(uuid, process.env, values);
-      rows.push(...transcriptRows({ id, created_at: first, environment }, t, "", seen));
+      messages.push(...transcriptMessages({ id, created_at: first, environment }, t));
     }
-    const stored = store(out, { local: rows });
+    const stored = store(out, { messages });
     console.log(
-      `${targets.length} session(s), ${rows.length} rows merged into ${join(out, "ledger.csv")}.`,
+      `${targets.length} session(s), ${messages.length} messages merged into ${join(out, "messages.jsonl")}.`,
     );
     report(stored);
   } else if (cmd === "stale") {

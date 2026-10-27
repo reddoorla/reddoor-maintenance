@@ -28,8 +28,24 @@ export interface Run {
   fromTotal: number | undefined;
   end: { created_at: string; result: unknown };
 }
+export interface TranscriptMessage {
+  message_id: string;
+  session_id: string;
+  session_created_at: string;
+  environment: string;
+  agent_id: string;
+  agent_type: string;
+  effort: string;
+  model: string;
+  timestamp: string;
+  unfinished: boolean;
+  usage: Record<string, number | boolean>;
+  thinking: number;
+  webSearch: number;
+}
 export interface Store {
   results: ResultRecord[];
+  messages: TranscriptMessage[];
   rows: LedgerRow[];
   sessions: LedgerRow[];
 }
@@ -50,6 +66,12 @@ export function transcriptRows(
   as_of?: string,
   seen?: Set<string>,
 ): LedgerRow[];
+export function transcriptMessages(session: SessionRef, t: Transcripts): TranscriptMessage[];
+export function mergeMessages(
+  stored: TranscriptMessage[],
+  incoming: TranscriptMessage[],
+): TranscriptMessage[];
+export function messageRows(messages: TranscriptMessage[]): LedgerRow[];
 export function assistantEventRows(session: SessionRef, events: unknown[]): LedgerRow[];
 export function readSessionTranscripts(dir: string, cliSessionId: string): Transcripts;
 export function transcriptId(
@@ -74,7 +96,7 @@ export function finalize(
 ): { rows: LedgerRow[]; sessions: LedgerRow[] };
 export function ingest(
   store: Partial<Store>,
-  harvest?: { calls?: McpCall[]; local?: LedgerRow[] },
+  harvest?: { calls?: McpCall[]; messages?: TranscriptMessage[]; local?: LedgerRow[] },
 ): Store;
 export function reconcile(
   rows: LedgerRow[],

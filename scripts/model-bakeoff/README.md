@@ -6,20 +6,20 @@ standard, and what each run costs. The method, the routing table and every resul
 30-day spend ledger that motivated it is
 [reddoorla/reddoor-workspace#2](https://github.com/reddoorla/reddoor-workspace/issues/2).
 
-| File                                          | What it does                                                                                                                               |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                       |
-| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`   |
-| `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                        |
-| `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/` (`results.jsonl`, `sessions.csv`, `ledger.csv`)       |
-| `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                   |
-| `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                    |
-| `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                        |
-| `lib/usage.mjs`                               | The usage ledger's sources (server `modelUsage`, server `assistant` events, transcripts), its CSV, merge and reconciliation                |
-| `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands |
-| `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                              |
-| `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                  |
-| `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                            |
+| File                                          | What it does                                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bakeoff.mjs`                                 | `prepare` freezes a task's inputs, `collect` reads the run's transcripts, `score` scores and reports                                                   |
+| `.claude/workflows/model-bakeoff.workflow.js` | Runs the gold and every arm on one prompt and schema (`mode: "extract"`), or the referee (`mode: "referee"`), each as `bakeoff-readonly`               |
+| `ledger.mjs`                                  | Token and cost ledger over Claude Code transcripts, by `message.model` and `effort`                                                                    |
+| `usage-ledger.mjs`                            | The standing per-model usage ledger (P1-83): writes the workspace's private `usage/` (`results.jsonl`, `messages.jsonl`, `sessions.csv`, `ledger.csv`) |
+| `lib/arms.mjs`                                | Arm validation and the agents' rules; the workflow carries a copy identical apart from `export` (tested)                                               |
+| `lib/score.mjs`                               | Deterministic normalisation and scoring, disagreement grouping, rulings                                                                                |
+| `lib/ledger.mjs`                              | Dedup by `message.id`, LF-only line splitting, the price list, the long-prompt card                                                                    |
+| `lib/usage.mjs`                               | The usage ledger's sources (server `modelUsage`, server `assistant` events, transcripts), its CSV, merge and reconciliation                            |
+| `lib/transcripts.mjs`                         | Reads one subagent transcript: its marker, what ran, its structured output, its writes, tools outside the allowlist and forbidden commands             |
+| `tasks/*.mjs`                                 | One file per task type; `t4-plan-task` edits a repository and is scored on the tree it leaves                                                          |
+| `tasks/seeded-review/`                        | `key.json` (the seeded defects and controls), `build.mjs` (rebuilds `cases/` from git), `cases/` (frozen diffs and files)                              |
+| `results/*.json`                              | One file per measured run, copied by hand from `<run>`: scores, what ran, cost per arm, rulings                                                        |
 
 ## The recipe
 
@@ -666,11 +666,12 @@ Around that:
 - `sessions.csv` takes listing fields (title, status, `updated_at`) from the newer listing or
   `get_session`, and `get_session` figures from the newer `get_session` reading. An empty field
   never blanks a stored one. A session's `history` is `complete` while no stored result is newer than its newest complete read (`complete_through`), and the fullest `coverage` sticks. A reading that lacks a group of fields (no title, or no `get_session` cost) leaves that group, and its clock, as stored, so readings give the same table in any order.
-- `transcript` rows merge per agent, so a resumed container that lacks an earlier agent's file
-  keeps that agent's rows. Within an agent, the reading whose last message is newer wins, or on a
-  tie the one with more requests; a row's `as_of` is its newest message, so re-reading an
-  unchanged transcript changes nothing. Whether a resumed container restores `subagents/` has not
-  been checked.
+- `usage/messages.jsonl` does for transcripts what `results.jsonl` does for the server: it holds
+  every transcript message read (`message.id`, its session, agent, model, effort and usage), and a
+  harvest adds to it as a union by `message.id`. A stored message keeps its session and agent, so
+  a message copied into another session's file (a fork or a resume) is counted once in any order
+  of harvests; only a finished copy replaces a stream-start one. Every `transcript` row is rebuilt
+  from it, so a resumed container that lacks an earlier agent's file keeps that agent's rows.
 
 `check` reconciles each run's `modelUsage` rows, within half a cent, with that run's
 `total_cost_usd`. `stale` prints the cloud sessions that the newest `list_sessions` under `--root`

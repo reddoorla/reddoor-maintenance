@@ -54,6 +54,7 @@ export const SESSION_COLUMNS = Object.freeze([
   "get_session_cache_read_tokens",
   "get_session_cache_write_tokens",
   "read_updated_at",
+  "cost_read_at",
   "complete_through",
 ]);
 
@@ -95,6 +96,10 @@ const resultBody = (ev) => ev?.result?.internal_anthropic_catchall ?? ev?.result
 export function cmpTime(a, b) {
   const [x, y] = [Date.parse(a ?? ""), Date.parse(b ?? "")];
   if (Number.isFinite(x) && Number.isFinite(y) && x !== y) return x < y ? -1 : 1;
+  // Within one millisecond, compare the fractional seconds as digits, padded alike.
+  const frac = (t) => ((t ?? "").match(/\.(\d+)/)?.[1] ?? "").padEnd(12, "0");
+  if (Number.isFinite(x) && Number.isFinite(y))
+    return frac(a) < frac(b) ? -1 : frac(a) > frac(b) ? 1 : 0;
   return (a ?? "") < (b ?? "") ? -1 : (a ?? "") > (b ?? "") ? 1 : 0;
 }
 
@@ -268,52 +273,102 @@ function groupInto(rows, key, make, r) {
 }
 
 /**
- * Rows per agent and model from one session's transcripts: `main` is the session's own JSONL,
+ * One session's transcript messages, each owned by one agent: `main` is the session's own JSONL,
  * `agents` each subagent's JSONL with its `.meta.json`. A subagent's lines that the main file
- * also carries (`isSidechain`) are counted from the agent's own file, never on the main thread.
- * A row's `as_of` is its newest message's timestamp, so re-reading an unchanged transcript
- * changes nothing.
+ * also carries (`isSidechain`) are owned by the agent's own file; one with no agent file is kept
+ * under agent `sidechain` rather than lost. They are what `usage/messages.jsonl` stores.
  */
-export function transcriptRows(session, { main, agents }, as_of = "", seen = new Set()) {
-  const rows = new Map();
-  // A sidechain line in the main file is counted from its agent's own file when there is one;
-  // otherwise it is kept, under agent `sidechain`, rather than lost.
+export function transcriptMessages(session, { main, agents }) {
+  const out = [];
+  const seen = new Set();
+  const add = (r, agent_id, agent_type, effort) => {
+    if (seen.has(r.id)) return;
+    seen.add(r.id);
+    out.push({
+      message_id: r.id,
+      session_id: session.id,
+      session_created_at: session.created_at ?? "",
+      environment: session.environment ?? "",
+      agent_id,
+      agent_type,
+      effort,
+      model: r.model,
+      timestamp: r.timestamp ?? "",
+      unfinished: r.unfinished,
+      usage: r.usage,
+      thinking: r.thinking ?? 0,
+      webSearch: r.webSearch ?? 0,
+    });
+  };
   const inAgents = new Set((agents ?? []).flatMap((a) => records(a.text ?? "").map((r) => r.id)));
-  for (const r of records(main ?? "", { sidechainOnly: true })) {
-    if (seen.has(r.id) || inAgents.has(r.id)) continue;
-    seen.add(r.id);
-    groupInto(
-      rows,
-      `sidechain\u0000${r.model}\u0000${r.effort}`,
-      () => agentRow(session, "transcript", "sidechain", "(unknown)", r.effort, r.model, as_of),
-      r,
-    );
-  }
-  for (const r of records(main ?? "", { skipSidechain: true })) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    groupInto(
-      rows,
-      `main\u0000${r.model}\u0000${r.effort}`,
-      () => agentRow(session, "transcript", "main", "main", r.effort, r.model, as_of),
-      r,
-    );
-  }
+  for (const r of records(main ?? "", { sidechainOnly: true }))
+    if (!inAgents.has(r.id)) add(r, "sidechain", "(unknown)", r.effort);
+  for (const r of records(main ?? "", { skipSidechain: true })) add(r, "main", "main", r.effort);
   for (const a of agents ?? []) {
     const type = a.meta?.agentType ?? "(unknown)";
-    for (const r of records(a.text ?? "")) {
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      const effort = r.effort === "(unset)" ? (a.meta?.effort ?? "(unset)") : r.effort;
-      groupInto(
-        rows,
-        `${a.id}\u0000${r.model}\u0000${effort}`,
-        () => agentRow(session, "transcript", a.id, type, effort, r.model, as_of),
-        r,
+    for (const r of records(a.text ?? ""))
+      add(r, a.id, type, r.effort === "(unset)" ? (a.meta?.effort ?? "(unset)") : r.effort);
+  }
+  return out;
+}
+
+/**
+ * The union of stored and incoming transcript messages, one per `message.id`. A stored message
+ * keeps its owner, so a message copied into another session's file (a fork, a resume) is never
+ * counted twice, in any order of harvests; only a finished copy replaces an unfinished one.
+ */
+export function mergeMessages(stored, incoming) {
+  const by = new Map();
+  for (const m of [...stored, ...incoming]) {
+    const old = by.get(m.message_id);
+    if (!old || (old.unfinished && !m.unfinished))
+      by.set(
+        m.message_id,
+        old
+          ? {
+              ...m,
+              session_id: old.session_id,
+              session_created_at: old.session_created_at,
+              environment: old.environment,
+              agent_id: old.agent_id,
+              agent_type: old.agent_type,
+            }
+          : m,
       );
-    }
+  }
+  return [...by.values()].sort(
+    (a, b) => cmpTime(a.timestamp, b.timestamp) || (a.message_id < b.message_id ? -1 : 1),
+  );
+}
+
+/** Rows per session, agent, model and effort from transcript messages. */
+export function messageRows(messages) {
+  const rows = new Map();
+  for (const m of messages) {
+    const session = {
+      id: m.session_id,
+      created_at: m.session_created_at,
+      environment: m.environment,
+    };
+    groupInto(
+      rows,
+      [m.session_id, m.agent_id, m.model, m.effort].join("\u0000"),
+      () => agentRow(session, "transcript", m.agent_id, m.agent_type, m.effort, m.model, ""),
+      { ...m, id: m.message_id },
+    );
   }
   return [...rows.values()];
+}
+
+/**
+ * Rows per agent and model from one session's transcripts (`transcriptMessages`, then
+ * `messageRows`). A row's `as_of` is its newest message's timestamp. `seen` lets one call count
+ * a message once across several sessions.
+ */
+export function transcriptRows(session, t, as_of = "", seen = new Set()) {
+  const mine = transcriptMessages(session, t).filter((m) => !seen.has(m.message_id));
+  for (const m of mine) seen.add(m.message_id);
+  return messageRows(mine).map((r) => (as_of && !r.as_of ? { ...r, as_of } : r));
 }
 
 /**
@@ -406,16 +461,30 @@ function textOf(content) {
 
 /** The `{"ccr": …}` object in a tool result, scanning past the untrusted-data envelope. */
 export function ccrPayload(text) {
-  const pointer = text.includes('{"ccr"')
-    ? null
-    : text.match(/saved to:? ((?:\/|[A-Za-z]:\\).+?\.(?:txt|json))(?=[.\s]|$)/);
-  if (!pointer && !text.includes('{"ccr"') && /saved to/.test(text))
-    throw new Error("a persisted-output pointer this script cannot read");
-  if (pointer) {
+  const pointer = text.match(/saved to:? ((?:\/|[A-Za-z]:\\).+?\.(?:txt|json))(?=[.\s]|$)/);
+  const fromFile = () => {
     let saved = readFileSync(pointer[1], "utf8");
     if (saved.startsWith("[")) saved = textOf(JSON.parse(saved));
-    text = saved;
+    return scanCcr(saved);
+  };
+  // An inline payload is read first: it may itself quote a "saved to" line from another
+  // session's tool output. The pointer is followed when there is no inline payload, or when the
+  // inline one is cut short, as a preview beside a pointer can be.
+  if (!text.includes('{"ccr"')) {
+    if (pointer && existsSync(pointer[1])) return fromFile();
+    if (/saved to/.test(text))
+      throw new Error("a persisted-output pointer this script cannot read");
+    return null;
   }
+  try {
+    return scanCcr(text);
+  } catch (e) {
+    if (pointer && existsSync(pointer[1])) return fromFile();
+    throw e;
+  }
+}
+
+function scanCcr(text) {
   const start = text.indexOf('{"ccr"');
   if (start < 0) return null;
   let depth = 0;
@@ -656,6 +725,8 @@ export function harvestSessions(calls) {
       get_session_cache_read_tokens: usage?.cache_read_tokens ?? "",
       get_session_cache_write_tokens: usage?.cache_write_tokens ?? "",
       read_updated_at: g.updated_at ?? "",
+      cost_read_at:
+        usage?.cost_usd !== undefined && usage?.cost_usd !== null ? (g.updated_at ?? "") : "",
     });
   }
   return out;
@@ -668,7 +739,7 @@ const READ = [
   "get_session_output_tokens",
   "get_session_cache_read_tokens",
   "get_session_cache_write_tokens",
-  "read_updated_at",
+  "cost_read_at",
 ];
 
 /**
@@ -697,7 +768,12 @@ export function mergeSessions(stored, incoming) {
       ...old,
       ...s,
       ...group(old, s, META, (x) => has(x.title), "updated_at"),
-      ...group(old, s, READ, (x) => has(x.get_session_cost_usd), "read_updated_at"),
+      ...group(old, s, READ, (x) => has(x.get_session_cost_usd), "cost_read_at"),
+      // The newest get_session reading of any kind, which `stale` compares with the listing.
+      read_updated_at:
+        cmpTime(s.read_updated_at, old.read_updated_at) > 0
+          ? s.read_updated_at
+          : (old.read_updated_at ?? ""),
       coverage:
         (COVERAGE[s.coverage] ?? 0) > (COVERAGE[old.coverage] ?? 0)
           ? s.coverage
@@ -726,7 +802,12 @@ export function mergeRows(stored, incoming) {
       ? `${r.session_id}\u0000transcript\u0000${r.agent_id}`
       : `${r.session_id}\u0000${r.source}`;
   const local = (rows) =>
-    rows.filter((r) => r.source !== "modelUsage" && r.source !== "get_session-residual");
+    rows.filter(
+      (r) =>
+        r.source !== "modelUsage" &&
+        r.source !== "get_session-residual" &&
+        r.source !== "transcript",
+    );
   const groups = groupBy(local(stored), family);
   const size = (rows) => rows.reduce((n, r) => n + Number(r.requests || 0), 0);
   const last = (rows) => rows.reduce((m, r) => (cmpTime(r.as_of, m) > 0 ? r.as_of : m), "");
@@ -762,7 +843,8 @@ export function finalize(rows, sessions, results) {
     if (s.history || s.complete_through)
       // Complete while no stored result is newer than the newest complete read.
       next.history =
-        s.complete_through && (!su || cmpTime(s.complete_through, su.as_of) >= 0)
+        (s.complete_through && (!su || cmpTime(s.complete_through, su.as_of) >= 0)) ||
+        (!su && s.history === "complete")
           ? "complete"
           : "newest-page";
     if (su) {
@@ -801,14 +883,19 @@ export function finalize(rows, sessions, results) {
 }
 
 /**
- * One harvest into the stored state. `calls` are its remote-sessions MCP results, `local` its
- * transcript rows. Results are unioned, sessions merged, local rows merged per agent, and every
- * server row and residual rebuilt from what is stored.
+ * One harvest into the stored state. `calls` are its remote-sessions MCP results, `messages` its
+ * transcript messages. Results and messages are unioned, sessions merged, and every server row,
+ * transcript row and residual rebuilt from what is stored.
  */
-export function ingest(store, { calls = [], local = [] } = {}) {
+export function ingest(store, { calls = [], messages = [], local = [] } = {}) {
   const results = mergeResults(store.results ?? [], resultRecords(calls));
+  const stored = mergeMessages(store.messages ?? [], messages);
   const sessions = mergeSessions(store.sessions ?? [], harvestSessions(calls));
-  const rows = [...serverRows(results, sessions), ...mergeRows(store.rows ?? [], local)];
+  const rows = [
+    ...serverRows(results, sessions),
+    ...messageRows(stored),
+    ...mergeRows(store.rows ?? [], local),
+  ];
   const done = finalize(rows, sessions, results);
   const SOURCE = { modelUsage: 0, "get_session-residual": 1, transcript: 2, "assistant-events": 3 };
   const order = (r) =>
@@ -822,7 +909,7 @@ export function ingest(store, { calls = [], local = [] } = {}) {
       r.effort,
     ].join("\u0000");
   done.rows.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
-  return { results, rows: done.rows, sessions: done.sessions };
+  return { results, messages: stored, rows: done.rows, sessions: done.sessions };
 }
 
 /**

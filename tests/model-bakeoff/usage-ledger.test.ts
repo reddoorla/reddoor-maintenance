@@ -7,6 +7,7 @@ import {
   SESSION_COLUMNS,
   assistantEventRows,
   ccrPayload,
+  cmpTime,
   harvestSessions,
   historyComplete,
   ingest,
@@ -21,6 +22,7 @@ import {
   staleSessions,
   toCsv,
   transcriptId,
+  transcriptMessages,
   transcriptRows,
 } from "../../scripts/model-bakeoff/lib/usage.mjs";
 import type { LedgerRow } from "../../scripts/model-bakeoff/lib/usage.mjs";
@@ -382,6 +384,20 @@ describe("ingest: a harvest that read no events", () => {
   });
 });
 
+describe("ingest: a complete history with no results", () => {
+  it("stays complete", () => {
+    const empty1 = listEvents("s1", [{ created_at: T(1), user: {} }]);
+    expect(harvest([empty1]).sessions[0]).toMatchObject({ history: "complete" });
+  });
+});
+
+describe("cmpTime", () => {
+  it("orders fractional seconds within one millisecond", () => {
+    expect(cmpTime("2026-01-01T00:00:29.5Z", "2026-01-01T00:00:29.500001Z")).toBe(-1);
+    expect(cmpTime("2026-01-01T00:00:29Z", "2026-01-01T00:00:29.000Z")).toBe(0);
+  });
+});
+
 describe("historyComplete", () => {
   it("follows the backwards chain from the newest cursorless page", () => {
     const head = listEvents("s1", [rev(T(4), 4, {})], { has_more: true, first_id: "p1" });
@@ -517,6 +533,7 @@ describe("mergeSessions", () => {
     history: "complete",
     get_session_cost_usd: 20,
     read_updated_at: T(9),
+    cost_read_at: T(9),
   };
 
   it("keeps stored fields a later harvest left empty", () => {
@@ -566,6 +583,7 @@ describe("mergeSessions", () => {
     const reading = {
       session_id: "s1",
       read_updated_at: T(10),
+      cost_read_at: T(10),
       get_session_cost_usd: 25,
       updated_at: "",
     };
@@ -573,7 +591,12 @@ describe("mergeSessions", () => {
       get_session_cost_usd: 25,
       title: "T",
     });
-    const staleReading = { ...reading, read_updated_at: T(1), get_session_cost_usd: 5 };
+    const staleReading = {
+      ...reading,
+      read_updated_at: T(1),
+      cost_read_at: T(1),
+      get_session_cost_usd: 5,
+    };
     expect(mergeSessions([full], [staleReading])[0]).toMatchObject({ get_session_cost_usd: 20 });
   });
 
@@ -583,6 +606,7 @@ describe("mergeSessions", () => {
       updated_at: T(5),
       title: "X",
       read_updated_at: T(5),
+      cost_read_at: T(5),
       get_session_cost_usd: 10,
     };
     const B = {
@@ -590,6 +614,7 @@ describe("mergeSessions", () => {
       updated_at: T(3),
       title: "Y",
       read_updated_at: T(3),
+      cost_read_at: T(3),
       get_session_cost_usd: 5,
     };
     const C = {
@@ -615,6 +640,20 @@ describe("mergeSessions", () => {
       )[0];
     });
     for (const out of outs) expect(out).toMatchObject({ title: "X", get_session_cost_usd: 10 });
+  });
+
+  it("moves read_updated_at on a reading with no cost, and keeps the stored cost", () => {
+    const noCost = {
+      session_id: "s1",
+      read_updated_at: T(12),
+      cost_read_at: "",
+      get_session_cost_usd: "",
+    };
+    expect(mergeSessions([full], [noCost])[0]).toMatchObject({
+      read_updated_at: T(12),
+      get_session_cost_usd: 20,
+      cost_read_at: T(9),
+    });
   });
 
   it("keeps the fullest coverage once seen", () => {
@@ -836,36 +875,117 @@ describe("CSV", () => {
   });
 });
 
-describe("mergeRows", () => {
-  const row = (agent_id: string, model: string, as_of: string, cost: number, requests = 1) => ({
-    session_id: "s1",
-    source: "transcript",
-    model,
-    agent_id,
-    as_of,
-    requests,
-    cost_usd: cost,
+describe("transcript messages", () => {
+  // Opus messages with 1M input tokens each: $4 apiece at list price.
+  const m = (id: string) =>
+    JSON.stringify({
+      type: "assistant",
+      timestamp: T(1),
+      message: {
+        id,
+        model: "claude-opus-5-5",
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [],
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+      },
+    });
+  type Agent = { id: string; meta: Record<string, string>; text: string };
+  const file = (...ids: string[]) => ({ main: ids.map(m).join("\n"), agents: [] as Agent[] });
+  const sess = (id: string) => ({ ...S, id });
+  type MStore = { results: object[]; messages: object[]; rows: LedgerRow[]; sessions: LedgerRow[] };
+  const none: MStore = { results: [], messages: [], rows: [], sessions: [] };
+  const run = (files: [string, ReturnType<typeof file>][], st: MStore = none): MStore => {
+    const messages = files.flatMap(([id, t]) => transcriptMessages(sess(id), t));
+    const out = ingest(st as never, { messages: messages as never });
+    return JSON.parse(JSON.stringify(out));
+  };
+  const cost = (st: MStore) =>
+    Math.round(
+      st.rows.filter((r) => r.source === "transcript").reduce((n, r) => n + Number(r.cost_usd), 0),
+    );
+
+  it("counts a message copied into another session once, across harvests in any order", () => {
+    // A fork: bbbb carries aaaa's first two messages. The truth is five messages, $20.
+    const a1 = file("m1", "m2");
+    const a2 = file("m1", "m2", "m4", "m5");
+    const b = file("m1", "m2", "m3");
+    const harvests: [string, ReturnType<typeof file>][][] = [
+      [
+        ["bbbb", b],
+        ["aaaa", a1],
+      ],
+      [
+        ["aaaa", a2],
+        ["bbbb", b],
+      ],
+      [["aaaa", a2]],
+    ];
+    for (const order of [
+      [0, 1, 2],
+      [2, 1, 0],
+      [1, 0, 2],
+      [2, 0, 1],
+    ])
+      expect(cost(order.reduce((st, i) => run(harvests[i]!, st), none))).toBe(20);
   });
 
-  it("merges transcript rows per agent, so an agent missing from a later reading keeps its rows", () => {
-    const old = [row("main", "opus", T(1), 4), row("agent-a", "haiku", T(1), 1)];
-    const merged = mergeRows(old, [row("main", "opus", T(2), 6)]);
-    expect(merged.map((r) => [r.agent_id, r.cost_usd])).toEqual([
-      ["main", 6],
-      ["agent-a", 1],
+  it("keeps an earlier agent's messages when a later reading lacks its file", () => {
+    const first = run([
+      ["aaaa", { main: m("m1"), agents: [{ id: "agent-x", meta: {}, text: m("m2") }] }],
+    ]);
+    const later = run([["aaaa", file("m1", "m3")]], first);
+    expect(later.rows.map((r) => [r.agent_id, r.cost_usd]).sort()).toEqual([
+      ["agent-x", 4],
+      ["main", 8],
     ]);
   });
 
-  it("keeps the agent's reading with the newer last message, or on a tie the larger one", () => {
-    const old = [row("main", "opus", T(2), 6, 3)];
-    expect(mergeRows(old, [row("main", "opus", T(1), 9, 9)]).map((r) => r.cost_usd)).toEqual([6]);
-    expect(mergeRows(old, [row("main", "opus", T(2), 2, 1)]).map((r) => r.cost_usd)).toEqual([6]);
-    expect(mergeRows(old, [row("main", "opus", T(2), 8, 4)]).map((r) => r.cost_usd)).toEqual([8]);
+  it("keeps a message with the session that first stored it", () => {
+    const first = run([["aaaa", file("m1")]]);
+    const later = run([["bbbb", file("m1", "m2")]], first);
+    expect(
+      later.rows.filter((r) => r.source === "transcript").map((r) => [r.session_id, r.cost_usd]),
+    ).toEqual([
+      ["aaaa", 4],
+      ["bbbb", 4],
+    ]);
   });
 
-  it("drops stored server rows: those are rebuilt from the stored results", () => {
-    const server = { ...row("(all)", "opus", T(1), 5), source: "modelUsage" };
-    expect(mergeRows([server], [])).toEqual([]);
+  it("lets a finished copy replace an unfinished one, keeping the owner", () => {
+    const start = JSON.stringify({
+      type: "assistant",
+      timestamp: T(1),
+      message: {
+        id: "m1",
+        model: "claude-opus-5-5",
+        role: "assistant",
+        stop_reason: null,
+        content: [],
+        usage: { input_tokens: 1, output_tokens: 8 },
+      },
+    });
+    const first = run([["aaaa", { main: start, agents: [] }]]);
+    const later = run([["bbbb", file("m1")]], first);
+    expect(
+      later.rows
+        .filter((r) => r.source === "transcript")
+        .map((r) => [r.session_id, r.unfinished_requests]),
+    ).toEqual([["aaaa", 0]]);
+  });
+});
+
+describe("mergeRows", () => {
+  it("drops stored server and transcript rows: those are rebuilt from the stored records", () => {
+    const row = (source: string) => ({
+      session_id: "s1",
+      source,
+      agent_id: "(all)",
+      as_of: T(1),
+      cost_usd: 5,
+    });
+    expect(mergeRows([row("modelUsage"), row("transcript")], [])).toEqual([]);
+    expect(mergeRows([row("assistant-events")], []).length).toBe(1);
   });
 });
 
@@ -1023,6 +1143,17 @@ describe("mcpCalls and backfill", () => {
 });
 
 describe("ccrPayload", () => {
+  it("reads an inline payload before a quoted pointer, and the pointer when inline is cut short", () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-ptr-"));
+    const f = join(dir, "x.txt");
+    writeFileSync(f, JSON.stringify({ ccr: { data: [], from: "file" } }));
+    const inline = `${JSON.stringify({ ccr: { data: [{ text: `Output has been saved to ${f}. Done.` }], from: "inline" } })}`;
+    expect(ccrPayload(inline)).toMatchObject({ from: "inline" });
+    expect(ccrPayload(`Output saved to: ${f}\nPreview: {"ccr":{"data":[{"a":`)).toMatchObject({
+      from: "file",
+    });
+  });
+
   it("reports a persisted-output pointer it cannot follow, rather than returning nothing", () => {
     expect(() => ccrPayload("Output has been saved to somewhere unreadable.")).toThrow(/pointer/);
     expect(ccrPayload("no payload here")).toBeNull();
