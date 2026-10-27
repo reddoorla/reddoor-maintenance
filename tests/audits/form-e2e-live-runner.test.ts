@@ -22,6 +22,10 @@ const contactPage = (opts: {
   beacon: boolean;
   encoding: Encoding;
   native: boolean;
+  consent: Consent | undefined;
+  vanish: boolean;
+  breakAfterMarker: boolean;
+  autoSubmit: boolean;
 }) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
 <body>
@@ -65,6 +69,7 @@ const contactPage = (opts: {
       const body = {
         ...state,
         testMode: f.querySelector('[name="testMode"]')?.value ?? null,
+        cookieConsent: window.__consent ?? null,
         honeypot: f.querySelector('[name="bot-field"]').value,
       };
       const entries = () => Object.entries(body).map(([k, v]) => [k, String(v)]);
@@ -117,6 +122,114 @@ const contactPage = (opts: {
     if (${opts.dropMarkerAlways ? "true" : "false"}) {
       new MutationObserver(dropMarker).observe(f, { childList: true });
     }
+    // #1737: the form the probe found at domcontentloaded is gone by fill time.
+    if (${opts.vanish ? "true" : "false"}) setTimeout(() => f.remove(), 200);
+    // #1737's shape: the probe's own checks throw once its marker is on the form.
+    if (${opts.breakAfterMarker ? "true" : "false"}) {
+      new MutationObserver(() => {
+        if (!f.querySelector('[name="testMode"]')) return;
+        Document.prototype.querySelector = () => {
+          throw new Error("page script broke querySelector");
+        };
+      }).observe(f, { childList: true });
+    }
+    // A site script that submits the form itself once the message is typed,
+    // before the probe ever adds its marker (#1737 review).
+    if (${opts.autoSubmit ? "true" : "false"}) {
+      let sent = false;
+      f.querySelector('[name="message"]').addEventListener("input", () => {
+        if (sent) return;
+        sent = true;
+        f.dispatchEvent(new Event("submit", { cancelable: true }));
+      });
+    }
+  </script>
+  ${opts.consent === undefined ? "" : consentGate(opts.consent)}
+</body></html>`;
+
+/** Which answers the cookie-consent gate offers (#1736). */
+type Consent = "both" | "acceptOnly" | "none" | "covered" | "lateButtons" | "accordion";
+
+/** gallerysonder's gate, reduced: a full-screen `role="dialog"` named "Cookie
+ *  consent" that mounts on a timer (3 s there) over the whole page, so it
+ *  intercepts the submit click until the visitor answers it, then fades out
+ *  inert for 600 ms, still in the DOM. The answer is
+ *  posted with the form, so a test can see which button the probe chose. */
+const consentGate = (offer: Consent) => `
+  <script>
+    setTimeout(() => {
+      const gate = document.createElement("div");
+      gate.setAttribute("role", "dialog");
+      gate.setAttribute("aria-modal", "true");
+      gate.setAttribute("aria-label", "Cookie consent");
+      gate.style.cssText = "position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5)";
+      gate.innerHTML = '<p>We use cookies to improve your experience.</p>' +
+        // An accordion toggle whose name mentions "necessary", before the real answer.
+        (${JSON.stringify(offer)} === "accordion"
+          ? '<button type="button">Strictly necessary cookies ▸</button><button type="button" data-answer="reject">Reject all</button>' : "") +
+        (["none", "accordion", "lateButtons"].includes(${JSON.stringify(offer)}) ? "" :
+          '<button type="button" data-answer="accept">Accept</button>' +
+          (${JSON.stringify(offer)} === "both" || ${JSON.stringify(offer)} === "covered"
+            ? '<button type="button" data-answer="reject">Reject</button>' : "") +
+          // "covered": a sheet over the gate's own buttons, so neither takes a click.
+          (${JSON.stringify(offer)} === "covered"
+            ? '<div style="position:absolute;inset:0;z-index:1"></div>' : ""));
+      gate.addEventListener("click", (e) => {
+        const answer = e.target.dataset?.answer;
+        if (!answer) return;
+        window.__consent = answer;
+        // Svelte's outro: the gate stays in the DOM for its fade, inert, so a
+        // second answer cannot land on it (gallerysonder's transition:fade).
+        gate.inert = true;
+        gate.style.opacity = "0.5";
+        setTimeout(() => gate.remove(), 600);
+      });
+      document.body.appendChild(gate);
+      // The shell first, its buttons 300 ms later, as some consent managers mount.
+      if (${JSON.stringify(offer)} === "lateButtons") setTimeout(() => {
+        gate.insertAdjacentHTML("beforeend", '<button type="button" data-answer="reject">Reject</button>');
+      }, 300);
+    }, 300);
+  </script>`;
+
+/** A contact form with no required field, and a consent gate that mounts
+ *  `gateAfterMs` after load, while the probe's submit click is already
+ *  waiting on the button, as gallerysonder's does. With `reload`, answering it
+ *  reloads the page (once per tab), as some consent managers do, so the click
+ *  that follows meets a fresh form with no fills and no marker (#1736 review). */
+const lateGatePage = (gateAfterMs: number, reload: boolean) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body>
+  <form id="contact" method="POST">
+    <input type="text" name="name"><input type="email" name="email"><input type="tel" name="phone">
+    <textarea name="message"></textarea><button type="submit" disabled>Send</button>
+  </form>
+  <p role="status" id="ok" hidden>Thanks, we will be in touch.</p>
+  <script>
+    const f = document.getElementById("contact");
+    // Enabled 500 ms after the gate mounts, so the probe's click is already
+    // waiting on it when the gate lands, as gallerysonder's 3 s gate meets it.
+    setTimeout(() => (f.querySelector("button").disabled = false), ${gateAfterMs} + 500);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(f));
+      const r = await fetch("/contact", { method: "POST", body: JSON.stringify(body) });
+      if (r.ok) document.getElementById("ok").hidden = false;
+    });
+    if (!sessionStorage.getItem("answered")) setTimeout(() => {
+      const gate = document.createElement("div");
+      gate.setAttribute("role", "dialog");
+      gate.setAttribute("aria-label", "Cookie consent");
+      gate.style.cssText = "position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5)";
+      gate.innerHTML = '<p>We use cookies.</p><button type="button">Accept</button><button type="button">Reject</button>';
+      gate.addEventListener("click", (e) => {
+        if (e.target.tagName !== "BUTTON") return;
+        sessionStorage.setItem("answered", "1");
+        if (${reload ? "true" : "false"}) location.reload();
+        else gate.remove();
+      });
+      document.body.appendChild(gate);
+    }, ${gateAfterMs});
   </script>
 </body></html>`;
 
@@ -210,6 +323,19 @@ type Fixture = {
   /** No script handles the submit: the browser posts the form, the action answers
    *  303 to /thanks, and /thanks shows the status region. */
   native?: boolean;
+  /** A cookie-consent gate mounts over the page 300 ms after load (#1736). */
+  consent?: Consent;
+  /** Serve lateGatePage instead: its gate mounts after this many ms. */
+  lateGate?: { afterMs: number; reload: boolean };
+  /** The form is removed 200 ms after load: on the first load of /contact
+   *  only, or on every load (#1737). */
+  vanish?: "once" | "always";
+  /** The page breaks document.querySelector once the marker lands (#1737). */
+  breakAfterMarker?: boolean;
+  /** /contact answers 503 from its second load on (#1737 review). */
+  failAfterFirstLoad?: boolean;
+  /** The page submits the form itself when the message is typed (#1737 review). */
+  autoSubmit?: boolean;
 };
 
 let server: Server;
@@ -217,6 +343,7 @@ let base: string;
 let fixture: Fixture;
 let posts: Posted[];
 let healthReads = 0;
+let contactLoads = 0;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
@@ -227,9 +354,19 @@ beforeAll(async () => {
       return;
     }
     if (req.method === "GET" && req.url === "/contact") {
+      contactLoads++;
+      if (fixture.failAfterFirstLoad && contactLoads > 1) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       if (fixture.hydration) {
         res.end(hydratingPage(fixture.hydration, fixture.banner));
+        return;
+      }
+      if (fixture.lateGate) {
+        res.end(lateGatePage(fixture.lateGate.afterMs, fixture.lateGate.reload));
         return;
       }
       res.end(
@@ -244,6 +381,10 @@ beforeAll(async () => {
           beacon: fixture.beaconStatus !== undefined,
           encoding: fixture.encoding ?? "json",
           native: fixture.native ?? false,
+          consent: fixture.consent,
+          vanish: fixture.vanish === "always" || (fixture.vanish === "once" && contactLoads === 1),
+          breakAfterMarker: fixture.breakAfterMarker ?? false,
+          autoSubmit: fixture.autoSubmit ?? false,
         }),
       );
       return;
@@ -328,6 +469,7 @@ const FAST_FAIL: RunnerOpts = { ...FAST, submitTimeoutMs: 3000 };
 async function submit(f: Fixture, opts: RunnerOpts = FAST) {
   fixture = f;
   posts = [];
+  contactLoads = 0;
   runner = await defaultFormRunner(opts);
   return runner.submit({ baseUrl: base, testMode: true, testSitekey: "1x00000000000000000000AA" });
 }
@@ -758,6 +900,165 @@ describe("SYNTHESIZE_REQUIRED_EXPR — only fields it can actually fill", () => 
     expect(values.zip).toBe("");
     expect(values.guests).toBe("");
   }, 30_000);
+});
+
+describe("form-e2e live runner — a cookie-consent gate over the form (#1736)", () => {
+  it("answers the gate with Reject, so no analytics load, and the submission passes", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "both" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    // Answered once: the gate fading out, inert, is not a second gate to answer.
+    expect(out).not.toHaveProperty("consentUnanswered");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.cookieConsent).toBe("reject");
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("answers Accept when that is the only way past the gate", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "acceptOnly" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Accept" });
+    expect(posts[0]?.cookieConsent).toBe("accept");
+  }, 90_000);
+
+  it("a gate no visitor can answer still fails, and the detail names what blocked the click", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "none" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    const detail = (out as { detail?: string }).detail ?? "";
+    expect(detail).toContain(
+      "a cookie-consent dialog covered the page and the probe could not answer it",
+    );
+    expect(detail).toMatch(/intercepts pointer events/);
+  }, 90_000);
+
+  it("a gate that lands while the submit click waits is answered, and the click passes", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, lateGate: { afterMs: 1500, reload: false } },
+      { ...FAST, submitTimeoutMs: 8000 },
+    );
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("a late gate that reloads the page on its answer never lets an unmarked form through", async () => {
+    await submit(
+      { health: DECLARED, banner: true, lateGate: { afterMs: 1500, reload: true } },
+      { ...FAST, submitTimeoutMs: 8000 },
+    );
+    // Whatever the click sent after the reload, it carried the marker.
+    for (const p of posts) expect(p.testMode).toBe("true");
+    expect(posts.length).toBeGreaterThan(0);
+  }, 90_000);
+
+  it("a gate whose buttons arrive after its shell is still answered", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "lateButtons" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject" });
+    expect(posts[0]?.cookieConsent).toBe("reject");
+  }, 90_000);
+
+  it("presses Reject all, not an accordion toggle whose name mentions necessary cookies", async () => {
+    const out = await submit({ health: DECLARED, banner: true, consent: "accordion" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: true, consentAnswered: "Reject all" });
+  }, 90_000);
+
+  it("a gate whose buttons refuse the click fails without crashing the run", async () => {
+    const t0 = Date.now();
+    const out = await submit({ health: DECLARED, banner: true, consent: "covered" }, FAST_FAIL);
+    expect(out).toMatchObject({ formPresent: true, success: false, consentUnanswered: true });
+    // One 5 s try at the refused button, not one per retry of the click: 9 s
+    // measured, 44 s when every retry tried again.
+    expect(Date.now() - t0).toBeLessThan(25_000);
+    expect(posts).toHaveLength(0);
+    expect((out as { detail?: string }).detail).toContain(
+      "a cookie-consent dialog covered the page and the probe could not answer it",
+    );
+  }, 90_000);
+});
+
+describe("form-e2e live runner — a refusal to click is retried once on a fresh load (#1737)", () => {
+  /** Vida's stall was four fills each waiting out Playwright's 30 s default;
+   *  half a second each finds the same nothing. */
+  const NO_FIELD: RunnerOpts = { ...FAST_FAIL, fillTimeoutMs: 500 };
+
+  it("a form gone by fill time on the first load only passes on the fresh load, and says so", async () => {
+    const out = await submit({ health: DECLARED, banner: true, vanish: "once" }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: true });
+    expect(contactLoads).toBe(2);
+    const retried = (out as { retried?: string }).retried ?? "";
+    expect(retried).toContain("fills landed 0/4");
+    expect(retried).toMatch(/page http:\/\/127\.0\.0\.1:\d+\/contact with 0 <form>/);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.testMode).toBe("true");
+  }, 90_000);
+
+  it("a form gone on both loads still fails, sends nothing, and names what both saw", async () => {
+    const out = await submit({ health: DECLARED, banner: true, vanish: "always" }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(contactLoads).toBe(2);
+    expect(posts).toHaveLength(0);
+    const detail = (out as { detail?: string }).detail ?? "";
+    expect(detail).toContain("testMode marker missing");
+    expect(detail).toContain("on a fresh load too, the first: fills landed 0/4");
+    expect(detail.match(/with 0 <form>/g)).toHaveLength(2);
+  }, 90_000);
+
+  it("a fresh load that finds no form at all is a failure, not n/a", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, vanish: "always", failAfterFirstLoad: true },
+      NO_FIELD,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    expect((out as { detail?: string }).detail).toContain(
+      "on a fresh load no contact form was found at all; the first: fills landed 0/4",
+    );
+  }, 90_000);
+
+  it("never retries after the page made a same-site POST, so nothing is sent twice", async () => {
+    const out = await submit(
+      { health: DECLARED, banner: true, autoSubmit: true, dropMarkerAlways: true },
+      NO_FIELD,
+    );
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    // The site's own submission, which the probe cannot stop, and no second one.
+    expect(posts).toHaveLength(1);
+    expect(contactLoads).toBe(1);
+    expect((out as { detail?: string }).detail).toContain(
+      "the page made a same-site POST, so no retry",
+    );
+  }, 90_000);
+
+  it("names the checks that threw, which a refusal used to swallow", async () => {
+    const out = await submit({ health: DECLARED, banner: true, breakAfterMarker: true }, NO_FIELD);
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+    const detail = (out as { detail?: string }).detail ?? "";
+    expect(detail).toContain(
+      "wipe check threw: Error: page.evaluate: Error: page script broke querySelector",
+    );
+    expect(detail).toContain(
+      "marker check threw: Error: page.evaluate: Error: page script broke querySelector",
+    );
+  }, 90_000);
+
+  it("the audit's summary names the retry on a pass", async () => {
+    fixture = { health: DECLARED, banner: true, vanish: "once" };
+    posts = [];
+    contactLoads = 0;
+    const r = await formE2eAudit({
+      site: { path: "", name: "fixture", deployedUrl: base },
+      formRunner: await defaultFormRunner(NO_FIELD),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toContain("the first load refused to click, nothing sent (fills landed 0/4");
+  }, 90_000);
+
+  it("control: a form that stays put is not retried", async () => {
+    const out = await submit({ health: DECLARED, banner: true });
+    expect(out).toMatchObject({ success: true });
+    expect(out).not.toHaveProperty("retried");
+    expect(contactLoads).toBe(1);
+  }, 90_000);
 });
 
 describe("form-e2e live runner — a probe that throws still says what it synthesized", () => {
