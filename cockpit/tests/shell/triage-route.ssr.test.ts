@@ -10,9 +10,9 @@ import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
 /**
  * P1-78f: the triage start page moves to /triage (workspace
- * briefs/2026-10-26-p1-78f-triage-route.md). Until the overview takes / (P1-78g),
- * / answers with a temporary redirect, the nav reads Triage · Sites · Inbox ·
- * Audits, and every fallback that named / names /triage.
+ * briefs/2026-10-26-p1-78f-triage-route.md), and the digest's fallbacks name it.
+ * P1-78g (briefs/2026-10-26-p1-78g-overview.md): the overview takes /, the nav
+ * reads Overview · Triage · Sites · Inbox · Audits, and sign-in lands on / again.
  */
 
 async function thrownBy(run: () => unknown): Promise<unknown> {
@@ -24,21 +24,26 @@ async function thrownBy(run: () => unknown): Promise<unknown> {
   return undefined;
 }
 
-describe("the start page lives at /triage", () => {
-  it("/ redirects to /triage temporarily (307), carrying the query", async () => {
+describe("the triage page lives at /triage; the overview at /", () => {
+  it("/ renders the overview and never redirects (P1-78g)", async () => {
+    // A store failure reaches the overview's own load: it answers with that error,
+    // which it could not do if it bounced the request to /triage first.
     const thrown = await thrownBy(() =>
-      (rootLoad as (e: unknown) => unknown)({ url: new URL("https://dash.example/?since=7") }),
+      (rootLoad as (e: unknown) => unknown)({
+        url: new URL("https://dash.example/?since=7"),
+        params: {},
+        parent: async () => ({
+          snapshot: null,
+          failure: { status: 500, message: "Turso env missing" },
+          clockOffsetMs: 0,
+        }),
+      }),
     );
-    expect(isRedirect(thrown)).toBe(true);
-    const r = thrown as { status: number; location: string };
-    // Never permanent: a browser must not learn that / means /triage.
-    expect(r.status).toBe(307);
-    expect(r.location).toBe("/triage?since=7");
+    expect(isRedirect(thrown)).toBe(false);
+    expect(isHttpError(thrown) && thrown.status).toBe(500);
   });
 
   it("/triage renders its own page and never redirects (no loop)", async () => {
-    // A store failure reaches the page's own load: it answers with that error,
-    // which it could not do if it bounced the request elsewhere first.
     const thrown = await thrownBy(() =>
       (triageLoad as (e: unknown) => unknown)({
         url: new URL("https://dash.example/triage"),
@@ -56,8 +61,9 @@ describe("the start page lives at /triage", () => {
 });
 
 describe("the nav", () => {
-  it("reads Triage · Sites · Inbox · Audits, with Triage at /triage", () => {
+  it("reads Overview · Triage · Sites · Inbox · Audits, with Triage at /triage", () => {
     expect(NAV_ITEMS.map((n) => [n.label, n.href])).toEqual([
+      ["Overview", "/"],
       ["Triage", "/triage"],
       ["Sites", "/fleet"],
       ["Inbox", "/submissions"],
@@ -66,10 +72,10 @@ describe("the nav", () => {
   });
 });
 
-describe("the fallbacks that named / name /triage", () => {
-  it("the sign-in return default", () => {
-    expect(safeReturnTo(null)).toBe("/triage");
-    expect(safeReturnTo("https://evil.example")).toBe("/triage");
+describe("the fallbacks", () => {
+  it("the sign-in return default is the overview again (P1-78g)", () => {
+    expect(safeReturnTo(null)).toBe("/");
+    expect(safeReturnTo("https://evil.example")).toBe("/");
     expect(safeReturnTo("/audits")).toBe("/audits");
   });
 

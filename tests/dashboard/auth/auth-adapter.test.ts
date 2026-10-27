@@ -261,7 +261,7 @@ describe("GET /auth/callback", () => {
       ),
       ctx,
     );
-    expect(res.headers.get("location")).toBe("/triage"); // P1-78f: the sign-in default
+    expect(res.headers.get("location")).toBe("/"); // P1-78g: the sign-in default is the overview again
   });
 });
 
@@ -310,7 +310,7 @@ describe("GET /auth/basic", () => {
       }),
       ctx,
     );
-    expect(res.headers.get("location")).toBe("/triage"); // P1-78f: the sign-in default
+    expect(res.headers.get("location")).toBe("/"); // P1-78g: the sign-in default is the overview again
   });
 
   it("404s when no shared password is configured, rather than advertising a prompt", async () => {

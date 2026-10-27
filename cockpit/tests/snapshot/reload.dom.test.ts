@@ -33,6 +33,7 @@ function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
     screenOuts: [],
     audits: [],
     deps: null,
+    nights: null,
     ...over,
   };
 }

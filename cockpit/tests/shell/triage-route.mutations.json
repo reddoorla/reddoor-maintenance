@@ -5,7 +5,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/nav.ts",
-        "find": "  { href: \"/triage\", label: \"Triage\", match: (p) => p === \"/triage\" || p === \"/\" },\n",
+        "find": "  { href: \"/triage\", label: \"Triage\", match: (p) => p === \"/triage\" },\n",
         "replace": ""
       }
     ],
@@ -71,35 +71,6 @@
     "expect": "red"
   },
   {
-    "id": "3-redirect-permanent",
-    "why": "The / redirect is permanent (308) instead of temporary",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.ts",
-        "find": "redirect(307, `${TRIAGE_PATH}${url.search}`);",
-        "replace": "redirect(308, `${TRIAGE_PATH}${url.search}`);"
-      }
-    ],
-    "test": [
-      "cockpit/tests/shell/triage-route.ssr.test.ts",
-      "tests/cockpit/snapshot-navigation.test.ts"
-    ],
-    "expect": "red"
-  },
-  {
-    "id": "3b-redirect-301",
-    "why": "The / redirect is permanent (301) instead of temporary",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.ts",
-        "find": "redirect(307, `${TRIAGE_PATH}${url.search}`);",
-        "replace": "redirect(301, `${TRIAGE_PATH}${url.search}`);"
-      }
-    ],
-    "test": "cockpit/tests/shell/triage-route.ssr.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "4-triage-loops",
     "why": "/triage redirects to itself (a loop)",
     "edits": [
@@ -117,38 +88,6 @@
     "test": [
       "cockpit/tests/shell/triage-route.ssr.test.ts",
       "tests/cockpit/snapshot-navigation.test.ts"
-    ],
-    "expect": "red"
-  },
-  {
-    "id": "5-sign-in-default-root",
-    "why": "The sign-in return path still defaults to /",
-    "edits": [
-      {
-        "file": "src/dashboard/auth/oauth-state.ts",
-        "find": "  if (!raw) return SIGN_IN_HOME;",
-        "replace": "  if (!raw) return \"/\";"
-      }
-    ],
-    "test": [
-      "cockpit/tests/shell/triage-route.ssr.test.ts",
-      "tests/dashboard/auth/oauth-state.test.ts"
-    ],
-    "expect": "red"
-  },
-  {
-    "id": "5b-hostile-return-root",
-    "why": "A hostile sign-in return path still falls back to /",
-    "edits": [
-      {
-        "file": "src/dashboard/auth/oauth-state.ts",
-        "find": "  if (!value.startsWith(\"/\")) return SIGN_IN_HOME;",
-        "replace": "  if (!value.startsWith(\"/\")) return \"/\";"
-      }
-    ],
-    "test": [
-      "cockpit/tests/shell/triage-route.ssr.test.ts",
-      "tests/dashboard/auth/oauth-state.test.ts"
     ],
     "expect": "red"
   }

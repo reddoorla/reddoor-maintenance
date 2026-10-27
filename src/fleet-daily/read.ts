@@ -53,6 +53,34 @@ export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
   return deps ? { night: rows[0]!.night, sites: deps.sites } : null;
 }
 
+/** P1-78g: one night as the overview reads it: the row without its per-site package
+ *  lists (the deps alarm reads those through `readLatestDeps`), so a month of nights
+ *  costs the snapshot about 1.5 KB each instead of about 7 KB. */
+export type OverviewNight = {
+  night: string;
+  counts: Omit<FleetDailyCounts, "deps"> & { deps: Measured<{ behind: number }> };
+};
+
+/** How many nights the overview reads: 30 for its windows, and the one before them
+ *  that their first delta is taken from. */
+export const OVERVIEW_NIGHTS = 31;
+
+/** The overview's nights, newest first: `OVERVIEW_NIGHTS` rows by primary key, so it
+ *  stays cheap on the request path, as `readLatestDeps` does. */
+export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
+  const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
+  return rows.map(({ night, counts }) => {
+    const { deps, ...rest } = counts;
+    return {
+      night,
+      counts: {
+        ...rest,
+        deps: deps.value === null ? deps : { value: { behind: deps.value.behind } },
+      },
+    };
+  });
+}
+
 /** One night's row, or null. */
 export async function readRow(db: Db, night: string): Promise<StoredRow | null> {
   const r = await db

@@ -203,27 +203,48 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await follow(page, "/submissions", "Submissions");
     await follow(page, "/audits", "Prospect audits");
     await follow(page, "/triage", "fleet cockpit");
+    await follow(page, "/", "Overview");
 
     expect(data).toEqual([]);
     expect(documents).toEqual([`${origin}/triage`]);
   });
 
-  // P1-78f: / sends a browser to the start page with a temporary redirect.
-  it("/ lands on /triage through a 307", async () => {
+  // P1-78g: / is the overview now, answered in place: no redirect.
+  it("/ renders the overview with no redirect", async () => {
     const page = await signedIn();
     const hops: Array<[string, number]> = [];
     page.on("response", (r) => {
       if (r.request().resourceType() === "document")
         hops.push([new URL(r.url()).pathname, r.status()]);
     });
-    const res = await page.goto(`${origin}/`);
-    expect(res?.status()).toBe(200);
-    expect(new URL(page.url()).pathname).toBe("/triage");
-    expect(hops).toEqual([
-      ["/", 307],
-      ["/triage", 200],
-    ]);
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+    expect(new URL(page.url()).pathname).toBe("/");
+    expect(hops).toEqual([["/", 200]]);
   });
+
+  // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with
+  // nothing scrolling sideways.
+  it.each(["light", "dark"] as const)(
+    "the overview fits a 390px-wide screen in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      const fit = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        width: window.innerWidth,
+        dark: getComputedStyle(document.body).backgroundColor,
+      }));
+      expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      // The theme took: dark ground is not light ground.
+      const [r] = fit.dark.match(/\d+/g)!.map(Number);
+      if (scheme === "dark") expect(r!).toBeLessThan(80);
+      else expect(r!).toBeGreaterThan(180);
+    },
+  );
 
   it("a page's stylesheets leave with it", async () => {
     const page = await signedIn();

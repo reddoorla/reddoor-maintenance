@@ -21,6 +21,7 @@ import type { FleetTableModel } from "./fleet-table.js";
 import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
 import { buildSiteAlarm, type SiteAlarmInputs } from "./site-alarm-verdict.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
+import type { OverviewNight } from "../fleet-daily/read.js";
 import type { SiteDashboardData, SubmissionsPageLoad } from "./page-data.js";
 
 /**
@@ -85,6 +86,9 @@ export type CockpitSnapshot = {
   audits: ProspectAuditListItem[] | null;
   /** P1-78c. The latest `fleet_daily` dependency readings; null when absent or failed. */
   deps: LatestDeps | null;
+  /** P1-78g. The overview's `fleet_daily` nights, newest first, without their package
+   *  lists; null when the read failed. Empty before the first night is written. */
+  nights: OverviewNight[] | null;
 };
 
 /** A read the page cannot do without failed when the snapshot was taken. The page

@@ -5,10 +5,8 @@ export const NAV_ITEMS: ReadonlyArray<{
   label: string;
   match: (path: string) => boolean;
 }> = [
-  // P1-78f: Overview (`/`) joins first when it lands (P1-78g); until then `/`
-  // redirects to Triage, so the nav does not offer a page that is not there.
-  // P1-78g: drop `|| p === "/"` here, or Triage lights up on the overview.
-  { href: "/triage", label: "Triage", match: (p) => p === "/triage" || p === "/" },
+  { href: "/", label: "Overview", match: (p) => p === "/" },
+  { href: "/triage", label: "Triage", match: (p) => p === "/triage" },
   { href: "/fleet", label: "Sites", match: (p) => p === "/fleet" || p.startsWith("/s/") },
   { href: "/submissions", label: "Inbox", match: (p) => p === "/submissions" },
   { href: "/audits", label: "Audits", match: (p) => p === "/audits" },

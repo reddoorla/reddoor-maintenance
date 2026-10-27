@@ -25,7 +25,8 @@ describe("the shell", () => {
     const navs = root.querySelectorAll("nav");
     expect(navs).toHaveLength(1);
     expect(navs[0]!.querySelectorAll("a").map((a) => [a.text, a.getAttribute("href")])).toEqual([
-      // P1-78f: the start page moved to /triage; Overview joins at / in P1-78g.
+      // P1-78g: the overview takes /; triage stays at /triage (P1-78f).
+      ["Overview", "/"],
       ["Triage", "/triage"],
       ["Sites", "/fleet"],
       ["Inbox", "/submissions"],
@@ -35,8 +36,8 @@ describe("the shell", () => {
   });
 
   it.each([
-    // P1-78f: "/" redirects to /triage, so it lights Triage too.
-    ["/", "Triage"],
+    // P1-78g: "/" is the overview, and lights only Overview.
+    ["/", "Overview"],
     ["/triage", "Triage"],
     ["/fleet", "Sites"],
     ["/s/acme-co", "Sites"],

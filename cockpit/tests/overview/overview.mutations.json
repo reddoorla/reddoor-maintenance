@@ -1,0 +1,145 @@
+[
+  {
+    "id": "1-test-sends-counted",
+    "why": "The test-send reports are counted as real sends",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const real = sentRows.filter((r) => !isTestSend(r));",
+        "replace": "const real = sentRows;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-spam-counters-summed",
+    "why": "The two spam counters are summed in a headline",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        : String(latestScreen.value.honeypot + latestScreen.value.tooFast),",
+        "replace": "        : String(latestScreen.value.honeypot + latestScreen.value.tooFast + (subs === null ? 0 : tally(subs).screened)),"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-rsvp-left-out",
+    "why": "The RSVP site is left out of the per-site leads table",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    perSite: [...bySite]\n",
+        "replace": "    perSite: [...bySite].filter(([, rows]) => rows.some((r) => r.formType !== \"rsvp\"))\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-broken-missing",
+    "why": "A Broken site is missing from section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      .filter((i) => i.group === \"broken\")\n",
+        "replace": "      .filter((i) => i.group === \"broken\" && i.reasons.length === 0)\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-no-row-reads-zero",
+    "why": "A count falls back to 0 when fleet_daily has no row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (newest === undefined) return null;",
+        "replace": "  if (newest === undefined) return { value: 0, nights: 0 };"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      window.length === 0\n        ? NOT_YET",
+        "replace": "      window.length === 0\n        ? \"0 of 0 runs green\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-stale-form-stamp-working",
+    "why": "Section 2 reads a stale form-test stamp as forms working",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now))\n    return { ok: null, text: \"Not tested lately\" };\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-hard-coded-time",
+    "why": "A shown time is hard-coded instead of derived from the cron",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    startsAt: pacificTimeOfCron(NIGHTLY_CRON, now),",
+        "replace": "    startsAt: \"11:07pm PT\","
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-live-reads-url-only",
+    "why": "Section 2's Live reads only url_resolves and misses a fresh uptime_reachable fail",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    pagesFresh && site.reachableOk === \"fail\" ? \"a page not answering\" : null,\n",
+        "replace": "    null,\n"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (urlFresh && site.urlResolves === \"pass\" && pagesFresh && site.reachableOk === \"pass\")",
+        "replace": "  if (urlFresh && site.urlResolves === \"pass\")"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-sign-in-lands-on-triage",
+    "why": "Sign-in with no return path still lands on /triage",
+    "edits": [
+      {
+        "file": "src/dashboard/home-path.ts",
+        "find": "export const SIGN_IN_HOME: string = \"/\";",
+        "replace": "export const SIGN_IN_HOME: string = TRIAGE_PATH;"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/dashboard/auth/oauth-state.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "10-phone-overflows",
+    "why": "(ours, proving the instrument) The phone layout is dropped, so the six-column table scrolls sideways at 390px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (max-width: 640px) {",
+        "replace": "@media (max-width: 1px) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]
