@@ -1,3 +1,4 @@
+import { load } from "js-yaml";
 import type { ConfigName } from "../../types.js";
 
 /**
@@ -210,7 +211,193 @@ export function renovateActionGaps(contents: string): string[] {
     gaps.push("permissions: does not grant contents: read");
   }
 
+  const blocked = renovateNeverRuns(contents);
+  if (blocked) {
+    gaps.push(
+      `Renovate can never run: ${blocked} has an if: that is always false, so the cron fires and nothing merges`,
+    );
+  }
+
   return gaps;
+}
+
+/**
+ * Where an always-false `if:` stops every Renovate step, or null when some
+ * renovatebot step can run (#1607 input 2: `if: false` on the job read CLEAN).
+ *
+ * The question is "can Renovate run at all": some `renovatebot/github-action`
+ * step whose job `if:` and own `if:` are not always false, in a job where at
+ * least one `create-github-app-token` step is not always false either. A
+ * disabled checkout does not block it (the action works through the API), and
+ * a job with no app-token step is left to the App-auth check above.
+ *
+ * It reads the parsed tree, never lines: the line scanner #1680 tried kept
+ * finding false gaps (a two-line `if:`, an `if` key inside `env:`, a site's
+ * own `sidecar:` job). A false gap opens a PR that overwrites a working file,
+ * so anything not decidable without GitHub's runtime context counts as "may
+ * run", and a file js-yaml cannot parse gets no verdict here.
+ */
+function renovateNeverRuns(contents: string): string | null {
+  // Strings that came from a `|` or `>` block scalar. GitHub keeps such a
+  // template's indentation, so `|-\n  ${{ false }}` is a non-empty format()
+  // string that runs, though js-yaml's value is exactly `${{ false }}`.
+  const blockScalars = new Set<string>();
+  const opened: number[] = [];
+  let doc: unknown;
+  try {
+    doc = load(contents, {
+      listener(event, state) {
+        if (event === "open") return void opened.push(state.position);
+        const start = opened.pop()!;
+        if (state.kind !== "scalar" || typeof state.result !== "string") return;
+        if (/^(?:\s|[!&]\S*)*[|>]/.test(state.input.slice(start, state.position))) {
+          blockScalars.add(state.result);
+        }
+      },
+    });
+  } catch {
+    return null;
+  }
+  const jobs = record(record(doc)?.jobs);
+  if (!jobs) return null;
+
+  const usesAction = (step: unknown, slug: string) => {
+    const uses = record(step)?.uses;
+    return typeof uses === "string" && uses.trim().startsWith(`${slug}@`);
+  };
+  const off = (owner: unknown) => {
+    const r = record(owner);
+    return r !== null && alwaysFalse(r.if, blockScalars);
+  };
+
+  let blockedAt: string | null = null;
+  for (const [name, job] of Object.entries(jobs)) {
+    const steps = record(job)?.steps;
+    if (!Array.isArray(steps)) continue;
+    const renovate = steps.filter((s) => usesAction(s, "renovatebot/github-action"));
+    if (renovate.length === 0) continue;
+    const appTokens = steps.filter((s) => usesAction(s, "actions/create-github-app-token"));
+    if (off(job)) blockedAt ??= `job \`${name}\``;
+    else if (appTokens.length > 0 && appTokens.every(off)) {
+      blockedAt ??= `every actions/create-github-app-token step in job \`${name}\``;
+    } else if (renovate.every(off)) {
+      blockedAt ??= `every renovatebot/github-action step in job \`${name}\``;
+    } else return null;
+  }
+  return blockedAt;
+}
+
+function record(v: unknown): Record<string, unknown> | null {
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Whether GitHub skips a job or step with this parsed `if:` value whatever the
+ * run's context. Matched against GitHub's own parser and evaluator on 112
+ * values (#1607, 2026-10-22; `tests/fixtures/renovate-action-if-oracle.json`):
+ *
+ * - absent, null, or a string empty after trimming means `success()`: runs.
+ * - a YAML boolean or number is its text (`False` is false, `0x0` is 0).
+ * - a string that is exactly one `${{ … }}` is that expression, and one holding
+ *   only a quoted literal is unwrapped to the literal's text (`${{ 'false' }}`
+ *   is `false`). Anything else around a `${{` (padding inside the quotes, a
+ *   block scalar, a second template) makes a non-empty format() string: runs.
+ * - any other string, trimmed, is the expression.
+ */
+function alwaysFalse(value: unknown, blockScalars: Set<string>): boolean {
+  if (typeof value === "boolean") return !value;
+  if (typeof value === "number") return value === 0;
+  if (typeof value !== "string") return false;
+  let text = value;
+  if (text.includes("${{")) {
+    const whole = /^\$\{\{([\s\S]*)\}\}$/.exec(text);
+    if (!whole || blockScalars.has(text)) return false;
+    const inner = whole[1]!;
+    if (inner.includes("${{") || inner.includes("}}")) return false;
+    const literal = /^\s*'((?:[^']|'')*)'\s*$/.exec(inner);
+    text = literal ? literal[1]!.replaceAll("''", "'") : inner;
+    if (text.includes("${{")) return false;
+  }
+  text = text.trim();
+  if (text === "") return false;
+  const result = evaluate(text);
+  return result !== UNDECIDED && !truthy(result);
+}
+
+type Value = boolean | number | string | null;
+
+const UNDECIDED = Symbol("undecided");
+
+function truthy(v: Value): boolean {
+  return !(v === false || v === null || v === 0 || v === "" || Number.isNaN(v));
+}
+
+/**
+ * An Actions expression made only of literals, `!`, `&&`, `||`, parentheses
+ * and `always()`, evaluated; UNDECIDED for anything else (a context, another
+ * function, a comparison, a syntax GitHub rejects), since those are runtime
+ * values or not this check's to report.
+ */
+function evaluate(expr: string): Value | typeof UNDECIDED {
+  const tokens: Array<{ op: string } | { value: Value }> = [];
+  const re =
+    /(\(|\)|!|&&|\|\|)|'((?:[^']|'')*)'|(0x[0-9a-fA-F]+|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?![\w.])|(true|false|null)(?![\w.-])|always\(\s*\)/y;
+  for (let at = 0; ;) {
+    while (/\s/.test(expr[at] ?? "")) at++;
+    if (at === expr.length) break;
+    re.lastIndex = at;
+    const m = re.exec(expr);
+    if (!m) return UNDECIDED;
+    at = re.lastIndex;
+    if (m[1]) tokens.push({ op: m[1] });
+    else if (m[2] !== undefined) tokens.push({ value: m[2].replaceAll("''", "'") });
+    else if (m[3]) tokens.push({ value: Number(m[3]) });
+    else if (m[4]) tokens.push({ value: JSON.parse(m[4]) as Value });
+    else tokens.push({ value: true });
+  }
+
+  // or := and ('||' and)* ; and := not ('&&' not)* ; not := '!' not | '(' or ')' | value
+  let i = 0;
+  const take = (op: string) => {
+    const t = tokens[i];
+    if (t && "op" in t && t.op === op) return ++i;
+    return 0;
+  };
+  const or = (): Value => {
+    let left = and();
+    while (take("||")) {
+      const right = and();
+      left = truthy(left) ? left : right;
+    }
+    return left;
+  };
+  const and = (): Value => {
+    let left = not();
+    while (take("&&")) {
+      const right = not();
+      left = truthy(left) ? right : left;
+    }
+    return left;
+  };
+  const not = (): Value => {
+    if (take("!")) return !truthy(not());
+    if (take("(")) {
+      const v = or();
+      if (!take(")")) throw new SyntaxError("unclosed (");
+      return v;
+    }
+    const t = tokens[i++];
+    if (!t || !("value" in t)) throw new SyntaxError("expected a value");
+    return t.value;
+  };
+  try {
+    const v = or();
+    return i === tokens.length ? v : UNDECIDED;
+  } catch {
+    return UNDECIDED;
+  }
 }
 
 /**

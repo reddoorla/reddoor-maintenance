@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, cp } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,6 +179,27 @@ describe("sync-configs --dry machine lines", () => {
       "SYNC_CONFIGS_DRIFT drifted=0 clean=1 skipped=0 total=1",
     ]);
   });
+
+  // #1607 input 2: `if: false` on the renovate: job read CLEAN with cron, pins
+  // and App auth intact. The cron change is the control that always drifted.
+  for (const [label, from, to] of [
+    ["an always-false if: on the renovate: job", "  renovate:\n", "  renovate:\n    if: false\n"],
+    ["a changed cron (control)", "- cron: 0 */12 * * *", "- cron: 0 0 * * *"],
+  ] as const) {
+    it(`reports renovate.yml drift for ${label}`, async () => {
+      const dir = await copyFixtureToTmp(clean);
+      const file = join(dir, ".github/workflows/renovate.yml");
+      const before = await readFile(file, "utf-8");
+      expect(before).toContain(from);
+      await writeFile(file, before.replace(from, to), "utf-8");
+      execFileSync("git", ["commit", "-qam", label], { cwd: dir });
+      const name = dir.split("/").at(-1)!;
+      expect(machine(run(["sync-configs", "--dry"], dir))).toEqual([
+        `DRIFT ${name} .github/workflows/renovate.yml`,
+        "SYNC_CONFIGS_DRIFT drifted=1 clean=0 skipped=0 total=1",
+      ]);
+    });
+  }
 
   it("still works on a directory that is not a git repository", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sync-dry-nogit-"));

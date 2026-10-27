@@ -13,6 +13,7 @@
 
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -219,6 +220,56 @@ await check("audit --only analytics runs to a verdict with central-only deps blo
           JSON.stringify(r),
       );
     }
+  }
+});
+
+// `sync-configs` reads a site's renovate.yml with js-yaml (#1607 input 2), and
+// tsup leaves every dependency external, dev ones included: had js-yaml stayed
+// a devDependency, the build would pass here and the command would crash in a
+// consumer's install. Run it the consumer's way, with every devDependency
+// unresolvable, on a site whose Renovate job is `if: false`. The self-test
+// first proves the blocker refuses a devDependency that resolves without it.
+const devDepBlocker = pathToFileURL(resolve(here, "register-dev-dep-blocker.mjs")).href;
+
+await check("dev-dep blocker is active (negative self-test)", () => {
+  const probe = ["--input-type=module", "-e", 'await import("happy-dom")'];
+  execFileSync(process.execPath, probe, { stdio: "ignore" });
+  let threw = false;
+  try {
+    execFileSync(process.execPath, ["--import", devDepBlocker, ...probe], { stdio: "ignore" });
+  } catch {
+    threw = true;
+  }
+  if (!threw) throw new Error('the dev-dep blocker did not refuse `import "happy-dom"`');
+});
+
+await check("sync-configs --dry flags a disabled Renovate job with devDependencies blocked", () => {
+  const site = mkdtempSync(join(tmpdir(), "smoke-renovate-"));
+  cpSync(resolve(repoRoot, "tests/fixtures/sync-clean"), site, { recursive: true });
+  const file = join(site, ".github/workflows/renovate.yml");
+  writeFileSync(
+    file,
+    readFileSync(file, "utf-8").replace("  renovate:\n", "  renovate:\n    if: false\n"),
+  );
+  const git = (...args) => execFileSync("git", args, { cwd: site, stdio: "ignore" });
+  git("init", "-q");
+  git("add", "-A");
+  git("-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid", "commit", "-qm", "site");
+  let out;
+  try {
+    out = execFileSync(
+      process.execPath,
+      ["--import", devDepBlocker, distBin, "sync-configs", "--dry"],
+      { cwd: site, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  } catch (e) {
+    throw new Error(`sync-configs --dry failed in a consumer install: ${e.stderr ?? e.message}`, {
+      cause: e,
+    });
+  }
+  const want = `DRIFT ${site.split("/").at(-1)} .github/workflows/renovate.yml`;
+  if (!out.split("\n").includes(want)) {
+    throw new Error(`expected "${want}" for an if: false Renovate job; got:\n${out}`);
   }
 });
 

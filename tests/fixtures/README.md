@@ -12,4 +12,6 @@ Five minimal SvelteKit-shaped trees used across audit and recipe tests.
 | `prettierignored-generated/` | `pristine-starter/` plus an unformatted, generator-written `prismicio-types.d.ts` that its `.prettierignore` lists. Used to assert the lint audit honours the site's ignore file. |
 | `kit3-starter/` | reddoor-starter on SvelteKit 3: `eslint.config.js`, `sveltekit.config.js` and `vite.config.ts` are byte copies of reddoor-starter at `718db58` (reddoor-starter#187). Used to hold the kit 3 `sync-configs` templates to the starter; `REDDOOR_STARTER_DIR=<checkout>` makes `kit3.test.ts` also compare the copies with a live checkout. |
 
+`renovate-action-if-oracle.json` holds GitHub's verdicts on 112 `if:` values, from reddoorla/reddoor-maintenance#1607 (workflow-parser and expressions 0.3.61). `tests/recipes/renovate-action-disabled-job.test.ts` places each as the `if:` of the Renovate job and its steps.
+
 Fixtures are checked in. Tests copy them to a tempdir before running mutating recipes; audits read them in place.
