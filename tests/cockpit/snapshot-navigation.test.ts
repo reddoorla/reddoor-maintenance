@@ -7,6 +7,8 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
+import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
+import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
 /**
  * The cockpit navigates without a server round trip (home base
@@ -66,6 +68,9 @@ function newestSource(): number {
   return newest;
 }
 
+/** One word of 52 letters: nothing to wrap at, wider than a 390px screen. */
+const LONG_NAME = "Extraordinarilylongnamedbeachfrontvacationrentalsinc";
+
 async function seed(url: string): Promise<void> {
   const db = await openDb({ url });
   for (const [id, name, slug] of [
@@ -77,6 +82,51 @@ async function seed(url: string): Promise<void> {
       .values({ id, slug, name, url: `https://${slug}.example.com`, status: "maintained" } as never)
       .execute();
   }
+  // P1-78g review round 1 (T5): a Broken site with a long, unbreakable name, so the
+  // overview's six-column tables would overflow a 390px screen if they did not stack.
+  // Its page answers "fail", freshly, so it is Broken and named in section 1.
+  const now = new Date().toISOString();
+  await db
+    .insertInto("sites")
+    .values({
+      id: "recL",
+      slug: "longname",
+      name: LONG_NAME,
+      url: "https://longname.example.com",
+      status: "maintained",
+    } as never)
+    .execute();
+  await db
+    .insertInto("site_health")
+    .values({
+      site_id: "recL",
+      uptime_reachable: "fail",
+      browser_checked_at: now,
+      url_resolves: "pass",
+      url_checked_at: now,
+      cert_days_remaining: 12,
+      domain_checked_at: now,
+      deploy_status: "building",
+      deploy_checked_at: now,
+    } as never)
+    .execute();
+  // Leads on it, so the per-site leads table carries its name too: an hour old, so
+  // Pat's lead below stays the newest on /submissions.
+  const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  for (const [i, status] of ["new", "read", "spam_auto", "spam"].entries())
+    await db
+      .insertInto("submissions")
+      .values({
+        id: `subL${i}`,
+        site_id: "recL",
+        form_type: "contact",
+        name: "Lee",
+        email: `lee${i}@example.com`,
+        status,
+        notify_status: "sent",
+        submitted_at: anHourAgo,
+      } as never)
+      .execute();
   await db
     .insertInto("submissions")
     .values({
@@ -91,6 +141,38 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
+  // Review round 5 (R5-8): two fleet_daily nights, the newest the one expected by now,
+  // so fleet_daily reaches `/` through the real loader and the overview's windowed
+  // counts and reliability are figures, not "not yet collected". These are their
+  // short forms; the longer ones (a stopped nightly, nights not recorded) are pinned
+  // in the SSR tests, not laid out here. The newest night is taken at seed time, so a
+  // run that crosses 6am Pacific between seeding and the check would read one night
+  // behind.
+  const newest = expectedNight(new Date());
+  const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  for (const [night, merged] of [
+    [before, 600],
+    [newest, 612],
+  ] as const)
+    await db
+      .insertInto("fleet_daily")
+      .values({
+        night,
+        counts: JSON.stringify({
+          steps: Object.fromEntries(
+            NIGHTLIES.map((n: { file: string }) => [
+              n.file,
+              { outcome: "completed", runId: 1, conclusion: "success" },
+            ]),
+          ),
+          prsMerged: { value: merged },
+          events: { value: { pr_automerged: merged / 6, vuln_cleared: 3 } },
+        }),
+        written_at: new Date().toISOString(),
+      })
+      .execute();
   await db.destroy();
 }
 
@@ -152,11 +234,11 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function signedIn(): Promise<Page> {
+async function signedIn(user = "op"): Promise<Page> {
   // The gate redirects rather than challenging, so the header goes on every request.
   const context = await browser.newContext({
     extraHTTPHeaders: {
-      authorization: `Basic ${Buffer.from(`op:${PASSWORD}`).toString("base64")}`,
+      authorization: `Basic ${Buffer.from(`${user}:${PASSWORD}`).toString("base64")}`,
     },
   });
   contexts.push(context);
@@ -203,26 +285,116 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await follow(page, "/submissions", "Submissions");
     await follow(page, "/audits", "Prospect audits");
     await follow(page, "/triage", "fleet cockpit");
+    await follow(page, "/", "Overview");
 
     expect(data).toEqual([]);
     expect(documents).toEqual([`${origin}/triage`]);
   });
 
-  // P1-78f: / sends a browser to the start page with a temporary redirect.
-  it("/ lands on /triage through a 307", async () => {
+  // P1-78g: / is the overview now, answered in place: no redirect.
+  it("/ renders the overview with no redirect", async () => {
     const page = await signedIn();
     const hops: Array<[string, number]> = [];
     page.on("response", (r) => {
       if (r.request().resourceType() === "document")
         hops.push([new URL(r.url()).pathname, r.status()]);
     });
-    const res = await page.goto(`${origin}/`);
-    expect(res?.status()).toBe(200);
-    expect(new URL(page.url()).pathname).toBe("/triage");
-    expect(hops).toEqual([
-      ["/", 307],
-      ["/triage", 200],
-    ]);
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+    expect(new URL(page.url()).pathname).toBe("/");
+    expect(hops).toEqual([["/", 200]]);
+    // fleet_daily reached the page through the real loader (review round 5, R5-8).
+    await expect
+      .poll(() => page.locator("body").textContent())
+      .toContain(
+        `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
+      );
+  });
+
+  // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with
+  // nothing scrolling sideways. Review round 1 (T5): the seed's long-named Broken
+  // site makes the unstacked tables overflow, and every element is checked, not only
+  // the page, so the phone layout's loss turns this red (mutation 10).
+  it.each(["light", "dark"] as const)(
+    "the overview fits a 390px-wide screen in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      // The content the check needs is on the page: the long name, in section 1 and both tables.
+      expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
+      expect(await page.locator(".ov-live tbody th", { hasText: LONG_NAME }).count()).toBe(1);
+      expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
+        1,
+      );
+      await page.locator(".ov-how summary").click();
+      const fit = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        width: window.innerWidth,
+        dark: getComputedStyle(document.body).backgroundColor,
+        // Every element that lays out a box: one whose content is wider than itself
+        // pushes something sideways. Only the two boxes hidden on purpose (the visually
+        // hidden heading and the phone's table heads), and all inside them, are left
+        // out, by name: skipping every box under an `overflow: hidden` ancestor let
+        // clipped content count as fitting (review round 4, T1).
+        wide: [...document.body.querySelectorAll("*")]
+          .filter((e) => {
+            if (e.closest(".visually-hidden, .ov-table thead") !== null) return false;
+            const d = getComputedStyle(e).display;
+            return d !== "inline" && d !== "contents" && e.clientWidth > 0;
+          })
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map(
+            (e) => `${e.tagName.toLowerCase()}.${e.className}: ${e.scrollWidth} > ${e.clientWidth}`,
+          ),
+      }));
+      expect(fit.wide).toEqual([]);
+      expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      // And what the tables show ends inside the screen: a cell cut off by a
+      // clipping box still reads as overflowing here (review round 4, T1).
+      const cells = await page.evaluate(() =>
+        [...document.querySelectorAll(".ov-table th, .ov-table td")]
+          .filter((e) => e.closest("thead") === null)
+          .map((e) => ({ e, r: e.getBoundingClientRect() }))
+          .filter(({ r }) => r.width > 0 && r.height > 0)
+          .map(({ e, r }) => ({
+            cell: (e.textContent ?? "").trim().slice(0, 30),
+            right: r.right,
+            width: window.innerWidth,
+          })),
+      );
+      expect(cells.length).toBeGreaterThan(10);
+      expect(cells.filter((c) => c.right > c.width + 0.5)).toEqual([]);
+      // The theme took: dark ground is not light ground.
+      const [r] = fit.dark.match(/\d+/g)!.map(Number);
+      if (scheme === "dark") expect(r!).toBeLessThan(80);
+      else expect(r!).toBeGreaterThan(180);
+    },
+  );
+
+  // P1-78g's Done-when, review round 1 (T7): everyone signed in sees the same page.
+  // The shared password ignores the user name, so two names are two people at the gate.
+  // That also makes this identical by construction: it proves the live server renders
+  // `/` for a signed-in visitor, not that names cannot change it. The evidence for
+  // that, with a control, is cockpit/tests/overview/page.ssr.test.ts "everyone signed
+  // in sees the same page (T7)" (review round 3, T2).
+  it("two people signed in get the same overview", async () => {
+    const overview = async (user: string) => {
+      const page = await signedIn(user);
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      const html = await page.evaluate(() =>
+        [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
+      );
+      // Relative times may tick between the two loads; everything else must match.
+      return html.replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>");
+    };
+    const erik = await overview("erik");
+    const tim = await overview("tim");
+    expect(erik).toContain(LONG_NAME);
+    expect(tim).toBe(erik);
   });
 
   it("a page's stylesheets leave with it", async () => {

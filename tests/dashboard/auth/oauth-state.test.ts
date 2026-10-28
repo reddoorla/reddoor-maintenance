@@ -42,7 +42,7 @@ describe("mintOAuthState / verifyOAuthState", () => {
       JSON.stringify({ state: "s", verifier: "v", returnTo: "//evil.com", exp: 9_999_999_999 }),
       SECRET,
     );
-    expect(verifyOAuthState(hostile, SECRET, NOW)?.returnTo).toBe("/triage");
+    expect(verifyOAuthState(hostile, SECRET, NOW)?.returnTo).toBe("/");
   });
 
   it("rejects payloads of the wrong shape", () => {
@@ -51,7 +51,7 @@ describe("mintOAuthState / verifyOAuthState", () => {
   });
 });
 
-// P1-78f: every refusal falls back to the cockpit home, /triage until P1-78g (it was "/").
+// P1-78g: every refusal falls back to the cockpit home, the overview at "/" (P1-78f had /triage).
 describe("safeReturnTo", () => {
   it("keeps ordinary same-origin paths", () => {
     expect(safeReturnTo("/audits")).toBe("/audits");
@@ -59,32 +59,32 @@ describe("safeReturnTo", () => {
   });
 
   it("rejects absolute URLs", () => {
-    expect(safeReturnTo("https://evil.com")).toBe("/triage");
-    expect(safeReturnTo("http://evil.com/x")).toBe("/triage");
+    expect(safeReturnTo("https://evil.com")).toBe("/");
+    expect(safeReturnTo("http://evil.com/x")).toBe("/");
   });
 
   it("rejects protocol-relative and backslash forms that a startsWith('/') check would pass", () => {
-    expect(safeReturnTo("//evil.com")).toBe("/triage");
-    expect(safeReturnTo("/\\evil.com")).toBe("/triage");
+    expect(safeReturnTo("//evil.com")).toBe("/");
+    expect(safeReturnTo("/\\evil.com")).toBe("/");
   });
 
   it("rejects control characters, which would be header injection in Location", () => {
-    expect(safeReturnTo("/audits\r\nSet-Cookie: x=1")).toBe("/triage");
-    expect(safeReturnTo(`/audits${NUL}`)).toBe("/triage");
-    expect(safeReturnTo(`/audits${DEL}`)).toBe("/triage");
+    expect(safeReturnTo("/audits\r\nSet-Cookie: x=1")).toBe("/");
+    expect(safeReturnTo(`/audits${NUL}`)).toBe("/");
+    expect(safeReturnTo(`/audits${DEL}`)).toBe("/");
   });
 
   it("refuses /auth/* so a successful sign-in cannot land back on the login page", () => {
-    expect(safeReturnTo("/auth/login")).toBe("/triage");
-    expect(safeReturnTo("/auth")).toBe("/triage");
-    expect(safeReturnTo("/auth?x=1")).toBe("/triage");
+    expect(safeReturnTo("/auth/login")).toBe("/");
+    expect(safeReturnTo("/auth")).toBe("/");
+    expect(safeReturnTo("/auth?x=1")).toBe("/");
   });
 
-  it("falls back to the cockpit home (/triage, P1-78f) for empty and missing values", () => {
-    expect(safeReturnTo("")).toBe("/triage");
-    expect(safeReturnTo(null)).toBe("/triage");
-    expect(safeReturnTo(undefined)).toBe("/triage");
-    expect(safeReturnTo("   ")).toBe("/triage");
+  it("falls back to the cockpit home (/, the overview; P1-78g) for empty and missing values", () => {
+    expect(safeReturnTo("")).toBe("/");
+    expect(safeReturnTo(null)).toBe("/");
+    expect(safeReturnTo(undefined)).toBe("/");
+    expect(safeReturnTo("   ")).toBe("/");
   });
 });
 

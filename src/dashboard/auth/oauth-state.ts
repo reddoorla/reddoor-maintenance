@@ -85,7 +85,7 @@ function hasControlChar(value: string): boolean {
 
 /**
  * Reduce a caller-supplied `returnTo` to a safe same-origin path, falling back
- * to `SIGN_IN_HOME` (`/triage` until P1-78g sets it back to `/`; P1-78f).
+ * to `SIGN_IN_HOME` (`/`, the overview; P1-78g).
  *
  * Without this the login endpoint is an open redirect: `?returnTo=https://evil`
  * would send an operator off-origin at the exact moment they have just proven

@@ -33,8 +33,9 @@
 {#if v.feedCount > 0}
   <section class="needs-you">
     <h2>Needs you ({v.feedCount})</h2>
+    <!-- P1-78g: each group has an id, the overview's counts link to it (#broken, …). -->
     {#each v.feed as g (g.group)}
-      <div class="feed-group">
+      <div class="feed-group" id={g.group}>
         <div class="feed-group-label">{g.label}</div>
         {#each g.rows as row, i (i)}
           <div class="feed-row" data-group={row.group}>
@@ -71,7 +72,7 @@
 {#if v.cardless.length > 0}
   <!-- Open when it holds an alarm: the verdict counts these rows. -->
   <details class="cardless" open={v.cardless.some((c) => c.level !== "watch")}>
-    <summary>Not on any site card ({v.cardless.length})</summary>
+    <summary id="cardless">Not on any site card ({v.cardless.length})</summary>
     {#each v.cardless as item, i (i)}
       <div class="approve-row" data-level={item.level}>
         <span class="pill {item.level}">{item.levelLabel}</span>

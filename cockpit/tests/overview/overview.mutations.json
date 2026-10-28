@@ -1,0 +1,966 @@
+[
+  {
+    "id": "1-test-sends-counted",
+    "why": "The test-send reports are counted as real sends",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const real = sentRows.filter((r) => !isTestSend(r));",
+        "replace": "const real = sentRows;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-spam-counters-summed",
+    "why": "The two spam counters are summed in a headline",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          : String(latestScreen.value.honeypot + latestScreen.value.tooFast),",
+        "replace": "          : String(latestScreen.value.honeypot + latestScreen.value.tooFast + (subs === null ? 0 : tally(subs, status).screened)),"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-spam-counters-summed-on-the-page",
+    "why": "The two spam counters are summed in a headline, by the page rather than the model",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}",
+        "replace": ">{Number(v.leads.stoppedAllTime) + v.leads.allTime.screened}{#if v.leads.stoppedAsOf}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-rsvp-left-out",
+    "why": "The RSVP site is left out of the per-site leads table",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const perSite = [...bySite]\n",
+        "replace": "  const perSite = [...bySite].filter(([, rows]) => rows.some((r) => r.formType !== \"rsvp\"))\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3b-rsvp-left-out-on-the-page",
+    "why": "The RSVP site is left out of the per-site leads table, by the page",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each v.leads.perSite as s (s.siteId)}",
+        "replace": "{#each v.leads.perSite.filter((s) => !s.siteName.includes(\"Rsvp\")) as s (s.siteId)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-broken-missing",
+    "why": "A Broken site is missing from section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      .filter((i) => i.group === \"broken\")\n",
+        "replace": "      .filter((i) => i.group === \"broken\" && i.reasons.length === 0)\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4b-broken-missing-on-the-page",
+    "why": "A Broken site is missing from section 1, because the page drops a lone one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if v.status.broken.length > 0}",
+        "replace": "{#if v.status.broken.length > 1}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4c-fleet-wide-broken-dropped",
+    "why": "(review round 2, C5, T4) A fleet-wide Broken item is missing from section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const fleetBroken = cardlessAt(\"broken\").length;",
+        "replace": "  const fleetBroken = 0;"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    ...cardlessAt(\"broken\").map((i) => ({",
+        "replace": "    ...cardlessAt(\"broken\").filter(() => false).map((i) => ({"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-no-row-reads-zero",
+    "why": "A count falls back to 0 when fleet_daily has no row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (newest === undefined) return NOT_YET;\n  const lag",
+        "replace": "  if (newest === undefined) return \"0 over the last 0 nights\";\n  const lag"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      : newest === undefined\n        ? NOT_YET",
+        "replace": "      : newest === undefined\n        ? \"0 of 0 runs green\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5b-reached-zero-with-no-row",
+    "why": "(review round 2, T3) A step's Reached falls back to \"0 sites\" when fleet_daily has no row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          : sites.length === 0\n            ? NOT_YET",
+        "replace": "          : sites.length === 0\n            ? \"0 sites\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-stale-form-stamp-working",
+    "why": "Section 2 reads a stale form-test stamp as forms working",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now))\n    return { ok: null, text: \"Not tested lately\" };\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-hard-coded-time",
+    "why": "A shown time is hard-coded instead of derived from the cron",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    startsAt: pacificTimeOfCron(NIGHTLY_CRON, now),",
+        "replace": "    startsAt: \"11:07pm PT\","
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-live-reads-url-only",
+    "why": "Section 2's Live reads only url_resolves and misses a fresh uptime_reachable fail",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    pagesFresh && site.reachableOk === \"fail\" ? \"a page not answering\" : null,\n",
+        "replace": "    null,\n"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (urlFresh && site.urlResolves === \"pass\" && pagesFresh && site.reachableOk === \"pass\")",
+        "replace": "  if (urlFresh && site.urlResolves === \"pass\")"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-sign-in-lands-on-triage",
+    "why": "Sign-in with no return path still lands on /triage",
+    "edits": [
+      {
+        "file": "src/dashboard/home-path.ts",
+        "find": "export const SIGN_IN_HOME: string = \"/\";",
+        "replace": "export const SIGN_IN_HOME: string = TRIAGE_PATH;"
+      }
+    ],
+    "test": [
+      "cockpit/tests/shell/triage-route.ssr.test.ts",
+      "tests/dashboard/auth/oauth-state.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "11-typed-count",
+    "why": "(review round 1, T2) A count is typed into the page instead of read from the view",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.allTime.submissions}\n        {v.leads.allTime.submissions === 1",
+        "replace": ">705\n        {v.leads.allTime.submissions === 1"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-typed-fixture-count",
+    "why": "(review round 2, T1) A count is typed into the page with the fixture's own value, so the digit check cannot see it",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.allTime.accepted}\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}",
+        "replace": ">10\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-wrong-field-binding",
+    "why": "(review round 2, T2) The This-month column shows the all-time screened count",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{v.leads.thisMonth?.screened}</td",
+        "replace": ">{v.leads.allTime.screened}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-screenouts-unreadable-reads-zero",
+    "why": "(review round 2, T5) A failed screen-out read shows 0 this month",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      s.screenOuts === null\n        ? UNREADABLE",
+        "replace": "      s.screenOuts === null\n        ? \"0\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-approval-links-to-a-missing-group",
+    "why": "(review round 2, C4) The approval count links to a Triage group that is not there",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      href: approvalThere ? toGroup(\"approval\") : \"#ov-reports\",",
+        "replace": "      href: toGroup(\"approval\"),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-stale-audit-reads-open-now",
+    "why": "(review round 2, C9) A vulnerability count from a stale audit reads as open now",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      text: fresh\n",
+        "replace": "      text: true\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-unsampled-reads-unchecked",
+    "why": "(review round 2, C7) A fresh check that sampled no page reads \"not checked lately\"",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (urlFresh && site.urlResolves === \"pass\" && pagesFresh && site.reachableOk === null)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-unread-reports-show-a-schedule",
+    "why": "(review round 2, C1) With no reports read, the per-site table still works out a schedule and 0 waiting",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        if (reports === null)\n          return {",
+        "replace": "        if (false)\n          return {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          .map((type) => ({ type, at: nextDueDate(site, reports, type, now) }))",
+        "replace": "          .map((type) => ({ type, at: nextDueDate(site, reports ?? [], type, now) }))"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            reports.filter((r) => r.siteId === site.id && isPendingApproval(r)).length,",
+        "replace": "            (reports ?? []).filter((r) => r.siteId === site.id && isPendingApproval(r)).length,"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-older-coverage-undated",
+    "why": "(review round 2, C3) An older night's coverage is passed off as the newest night's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      : coverage.night === newest?.night",
+        "replace": "      : true"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-nights-cap-read-as-exact",
+    "why": "(review round 2, C2) A full read of 31 nights says 31, not at least 31",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        : s.nights.length >= OVERVIEW_NIGHTS",
+        "replace": "        : false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A-upkeep-swap",
+    "why": "(review round 3, T1) The page binds the sites cleared into the dependency updates line",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.automerged}.",
+        "replace": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.vulnsCleared}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B-scale-reliability",
+    "why": "(review round 3, T1) The page shows reliability as the scale",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Scale: {v.nightly.scale}.",
+        "replace": "Scale: {v.nightly.reliability}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C-prs-automerged",
+    "why": "(review round 3, T1) The page shows the dependency updates as the changes merged",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "reports): {v.prsMerged}.",
+        "replace": "reports): {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "D-deploy-domain",
+    "why": "(review round 3, T1) The Deploy cell shows the certificate's text",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{r.deploy.text}</td",
+        "replace": ">{r.domain.text}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "L-lastfinished-outcome",
+    "why": "(review round 3, T1) A step's Last finished shows its outcome",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Last finished: {s.lastFinished}.",
+        "replace": "Last finished: {s.outcome}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "O-open-vulns-dropped",
+    "why": "(review round 3, T1) The page shows no open vulnerability",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if v.upkeep.open.length > 0}",
+        "replace": "{#if false}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-depsbehind-automerged",
+    "why": "(review round 3, T1) The page shows the dependency updates as the upgrades waiting",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Major-version upgrades waiting: {v.upkeep.depsBehind}.",
+        "replace": "Major-version upgrades waiting: {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "Q-steps-sites-outcome",
+    "why": "(review round 3, T1) A step's Reached shows its outcome",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Reached: {s.sites}.",
+        "replace": "Reached: {s.outcome}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-windows-from-newest-row",
+    "why": "(review round 3, C1) Windows and reliability are measured from the newest row, ignoring the nights missing up to now",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  return new Date(today - (p.hour! < 6 ? 2 : 1) * DAY_MS).toISOString().slice(0, 10);",
+        "replace": "  return \"0000-00-00\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-approval-over-every-site",
+    "why": "(review round 3, C3) The waiting count takes drafts on sites the per-site table does not list",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const approval = model.pending.filter((p) => inCareNames.has(p.siteName)).length;",
+        "replace": "  const approval = model.pending.length;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-form-fail-as-verdict",
+    "why": "(review round 3, O1) A failed form test is shown as a plain verdict",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (site.formE2eOk === \"fail\") return { ok: null, text: FORM_TEST_FAILED };",
+        "replace": "  if (site.formE2eOk === \"fail\") return { ok: false, text: \"Test failed\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-phone-overflows",
+    "why": "(ours, proving the instrument) The phone layout is dropped, so the six-column table scrolls sideways at 390px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (max-width: 640px) {",
+        "replace": "@media (max-width: 1px) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-phone-clips",
+    "why": "(review round 4, T1) A section clips sideways and the phone layout is dropped, so the tables are cut off at 390px rather than stacked",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (max-width: 640px) {",
+        "replace": "section { overflow-x: hidden; }\n@media (max-width: 1px) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-reliability-counts-unfinished",
+    "why": "(review round 4, T2) Reliability counts a running or skipped step as one that finished",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
+        "replace": "  const results = window.flatMap((n) => Object.values(n.counts.steps));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "26-reached-min",
+    "why": "(review round 4, T3) A step's Reached takes the fewest sites one of its checks stamped, not the most",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            : `${count(Math.max(...sites), \"site\", \"sites\")}${coverageNight}`),",
+        "replace": "            : `${count(Math.min(...sites), \"site\", \"sites\")}${coverageNight}`),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "27-bad-cell-not-bold",
+    "why": "(review round 4, T4) A failed cell is given the ok class, so it is not bold",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"bad\" : \"unknown\");",
+        "replace": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"ok\" : \"unknown\");"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-status-band-fixed",
+    "why": "(review round 4, T4) The status band is always the OK one, whatever the level",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<section class=\"ov-status {v.status.cls}\"",
+        "replace": "<section class=\"ov-status ok\""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-cert-zero-expired",
+    "why": "(review round 4, T5) A certificate with 0 days left reads expired",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (d < 0) return { ok: false, text: \"Certificate expired\" };",
+        "replace": "  if (d <= 0) return { ok: false, text: \"Certificate expired\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "30-share-floor",
+    "why": "(review round 4, T6) The biggest share is rounded down, not to the nearest",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "share: Math.round((100 * top.submissions) / total),",
+        "replace": "share: Math.floor((100 * top.submissions) / total),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "31-cert-cell-unaged",
+    "why": "(review round 4, C1) The Certificate cell shows the stored days, not counted down from the check as the ladder does",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt!, now);",
+        "replace": "  const d = site.certDaysRemaining;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-dead-domain-unknown",
+    "why": "(review round 4, C1) A fresh domain check with no certificate days reads not checked, while the ladder calls it Broken",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (d === null) return { ok: false, text: \"Domain does not answer, or no working certificate\" };",
+        "replace": "  if (d === null) return { ok: null, text: \"Not checked lately\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-open-count-before-freshness",
+    "why": "(review round 4, C2) Open now drops a site whose audit is stale or missing when its count is 0, so the page says none is open",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    .filter((x) => !x.fresh || x.n > 0)",
+        "replace": "    .filter((x) => x.n > 0)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-success-reads-green",
+    "why": "(review round 4, O1) A step that ran to the end is called green, beside a failed test or an open vulnerability",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  success: \"ran to the end\",",
+        "replace": "  success: \"green\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "35-expired-cert-runs-out",
+    "why": "(review round 5, R5-1) An expired certificate reads 'runs out within 7 days' in section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (d !== null && d < 0) return \"its security certificate has expired\";",
+        "replace": "    if (false) return \"its security certificate has expired\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-domain-half-said",
+    "why": "(review round 5, R5-2) A domain with no usable certificate reads only 'the domain does not answer', beside All live",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  domain: \"the domain does not answer, or has no working security certificate\",",
+        "replace": "  domain: \"the domain does not answer\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "37-unread-reports-nothing-needs",
+    "why": "(review round 5, R5-3) A failed reports read leaves 'Nothing needs attention.'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!reportsRead)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-stale-deploy-undated",
+    "why": "(review round 5, R5-4) A failed deploy read too long ago is said in section 1 as if current",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    it.kind === \"deploy\" &&\n    site &&\n    !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "    false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-stepless-night-zero-of-zero",
+    "why": "(review round 5, R5-5) A night with no step results reads '0 of 0 nightly steps ran to the end'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "              results.length === 0",
+        "replace": "              false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-expected-night-fixed-hours",
+    "why": "(review round 5, R5-6) The expected night subtracts fixed hours, an hour off on the days the clock changes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const p = pacificParts(now.getTime());\n  const today = Date.UTC(p.year!, p.month! - 1, p.day!);\n  return new Date(today - (p.hour! < 6 ? 2 : 1) * DAY_MS).toISOString().slice(0, 10);",
+        "replace": "  return new Date(now.getTime() - 30 * 3600_000).toLocaleDateString(\"en-CA\", { timeZone: \"America/Los_Angeles\" });"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-typed-number-in-words",
+    "why": "(review round 5, R5-7) A number typed into the page's words, beside a binding",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}.</span>",
+        "replace": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}, 30 nights a month.</span>"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-unread-nights-as-empty",
+    "why": "(review round 5, R5-8) A failed fleet_daily read becomes [] ('not yet collected') instead of null ('not readable')",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "read<CockpitSnapshot[\"nights\"]>(\"fleet-daily\", () => readOverviewNights(db), null),",
+        "replace": "read<CockpitSnapshot[\"nights\"]>(\"fleet-daily\", () => readOverviewNights(db), []),"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-reader-returns-none",
+    "why": "(review round 5, R5-8) The overview's reader returns no nights",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const rows = await readRecentRows(db, OVERVIEW_NIGHTS);",
+        "replace": "  const rows = (await readRecentRows(db, OVERVIEW_NIGHTS)).slice(0, 0);"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-reader-oldest-first",
+    "why": "(review round 5, R5-8) The overview's reader returns the nights oldest first",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  return rows.map(({ night, counts }) => {",
+        "replace": "  return [...rows].reverse().map(({ night, counts }) => {"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-stepless-night-counted",
+    "why": "(review round 6, R6-1) A night with no step results counts as a measured night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const recorded = nights.filter((n) => Object.values(n.counts.steps).some((r) => r != null));",
+        "replace": "  const recorded = nights;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-age-reads-as-duration",
+    "why": "(review round 6, R6-2) The flag's age reads as a duration of the reason ('for 26 days')",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "`first flagged ${count(days, \"day\", \"days\")} ago`",
+        "replace": "`for ${count(days, \"day\", \"days\")}`"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "47-deploy-clause-semicolon",
+    "why": "(review round 6, R6-2) The stale-deploy reason carries its own semicolon",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    return `the latest deploy had failed when last checked (${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : \"date not recorded\"}, no check since)`;",
+        "replace": "    return `the latest deploy had failed at the last check, ${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : \"date not recorded\"}; not checked since`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-expired-from-stored-days",
+    "why": "(review round 6, R5-1's gap) Section 1 reads expiry from the stored days, not aged by the days since the check",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt, now);",
+        "replace": "    const d = site.certDaysRemaining;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-unread-reports-only-when-calm",
+    "why": "(review round 6, R5-3's gap) A failed reports read is said only when nothing else is listed",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!reportsRead)",
+        "replace": "  if (!reportsRead && levels.length === 0)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-deploy-words-own-gate",
+    "why": "(review round 6, R5-4's gap) Section 1's stale-deploy words use a looser gate than the cell",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    site &&\n    !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "    site &&\n    !freshWithin(site.deployCheckedAt, 7, now)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-unread-leads-as-none",
+    "why": "(review round 6) A failed submissions read reads 'no real lead yet'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            ? `last lead ${UNREADABLE}`",
+        "replace": "            ? \"no real lead yet\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-lagged-one-night",
+    "why": "(review round 6) A one-night window after a stop reads 'over the 1 night to'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`",
+        "replace": "      ? `${w.value} over the 1 night to the night of ${nightLabel(newest.night)}${since}`"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-lag-from-newest-row",
+    "why": "(review round 7) The lag is taken from the newest row, stepless or not",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const lag = newestRecorded === undefined ? 0 : nightsSince(newestRecorded.night, now);",
+        "replace": "  const lag = newest === undefined ? 0 : nightsSince(newest.night, now);"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-none-since-newest-row",
+    "why": "(review round 7) 'None since' names the newest row, though it recorded no step",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      ? `, none since the night of ${nightLabel(newestRecorded.night)}`",
+        "replace": "      ? `, none since the night of ${nightLabel(newest!.night)}`"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-window-of-rows",
+    "why": "(review round 7) The window counts stepless rows as recorded nights",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const window = recorded.filter(",
+        "replace": "  const window = nights.filter("
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-lone-stale-row-not-yet",
+    "why": "(review round 7) An old row with no step results reads 'not yet collected'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            nightsSince(newest.night, now) > 0",
+        "replace": "            false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-running-night-unsaid",
+    "why": "(review round 7) A night whose steps were all still running is counted as measured, unsaid",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    ...(stillRunning > 0 && results.length > 0",
+        "replace": "    ...(false && results.length > 0"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-age-without-first",
+    "why": "(review round 7) The site's age reads 'flagged N days ago' again, as a reason's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  return days === 0 ? \"first flagged today\" : `first flagged ${count(days, \"day\", \"days\")} ago`;",
+        "replace": "  return days === 0 ? \"flagged today\" : `flagged ${count(days, \"day\", \"days\")} ago`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-age-after-reasons",
+    "why": "(review round 7) The age is said after the last reason, as if it were that reason's",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "          <a href={b.url}>{b.siteName}</a>{#if b.age}{\" \"}<span class=\"muted\">({b.age})</span>{/if}: {b.reasons}",
+        "replace": "          <a href={b.url}>{b.siteName}</a>: {b.reasons}{#if b.age}, <span class=\"muted\">{b.age}</span>{/if}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  }
+]

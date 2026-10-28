@@ -8,6 +8,7 @@
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured } from "./types.js";
+import { OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -51,6 +52,60 @@ export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
   const withReading = rows.find((r) => r.counts.deps?.value != null);
   const deps = withReading?.counts.deps?.value;
   return deps ? { night: rows[0]!.night, sites: deps.sites } : null;
+}
+
+/** P1-78g: one night as the overview reads it: the row without its per-site package
+ *  lists (the deps alarm reads those through `readLatestDeps`), so a month of nights
+ *  costs the snapshot about 1.5 KB each instead of about 7 KB. */
+export type OverviewNight = {
+  night: string;
+  /** `run` is null on a row that does not carry it (review round 2). */
+  counts: Omit<FleetDailyCounts, "deps" | "run"> & {
+    /** `sitesRead`: how many sites' package lists that night's count adds up. */
+    deps: Measured<{ behind: number; sitesRead: number }>;
+    run: FleetDailyCounts["run"] | null;
+  };
+};
+
+export { OVERVIEW_NIGHTS };
+
+/** A block an older or partial row does not carry: unmeasured, never a thrown page. */
+const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
+
+/** The overview's nights, newest first: `OVERVIEW_NIGHTS` rows by primary key, so it
+ *  stays cheap on the request path, as `readLatestDeps` does. Every block the overview
+ *  reads is guarded the way `readLatestDeps` guards `deps`: a row written before a
+ *  block existed (or hand-written) reads it as unmeasured, so `/`, the sign-in
+ *  landing, never fails on one (review round 1). */
+export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
+  const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
+  return rows.map(({ night, counts }) => {
+    const { deps, ...rest } = counts as Partial<FleetDailyCounts>;
+    return {
+      night,
+      counts: {
+        ...(rest as Omit<FleetDailyCounts, "deps">),
+        run: rest.run ?? null,
+        steps: rest.steps ?? {},
+        coverage: rest.coverage ?? NOT_IN_ROW,
+        screenouts: rest.screenouts ?? NOT_IN_ROW,
+        events: rest.events ?? NOT_IN_ROW,
+        prsMerged: rest.prsMerged ?? NOT_IN_ROW,
+        deps:
+          deps?.value != null
+            ? {
+                value: {
+                  behind: deps.value.behind,
+                  // A site whose list was not read that night is not in the sum.
+                  sitesRead: Object.values(deps.value.sites ?? {}).filter(
+                    (x) => x.packages !== null,
+                  ).length,
+                },
+              }
+            : (deps ?? NOT_IN_ROW),
+      },
+    };
+  });
 }
 
 /** One night's row, or null. */

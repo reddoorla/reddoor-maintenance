@@ -1,0 +1,116 @@
+/* P1-78g: the overview at `/`. Theme tokens only (tokens.css); red is for Broken. */
+body {
+  max-width: 1100px;
+}
+/* A long word (a site's name) breaks rather than run off a narrow screen. Not
+   "anywhere": that would also shrink the tables' widest words, and hide whether the
+   phone layout below is doing its job. */
+section,
+.ov-how {
+  margin: 0 0 2rem;
+  overflow-wrap: break-word;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.muted {
+  color: var(--ink-muted);
+}
+.ov-status {
+  border-left: 4px solid var(--rule);
+  padding: 0.5rem 0 0.5rem 1rem;
+}
+.ov-status.broken {
+  border-left-color: var(--broken-fill);
+}
+.ov-status.attention,
+.ov-status.watch {
+  border-left-color: var(--ink);
+}
+.ov-line {
+  font-size: 1.25rem;
+  margin: 0;
+}
+.ov-list.broken {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  color: var(--broken);
+}
+.ov-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.ov-table th,
+.ov-table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+/* A failed cell is bold ink, not red: red is for a Broken level only, and a
+   failed check is not always Broken (the form test waits for its proof). */
+.ov-table td.bad {
+  font-weight: var(--weight-bold);
+}
+.ov-table td.unknown {
+  color: var(--ink-muted);
+}
+.ov-checks dt,
+.ov-how dt {
+  font-weight: var(--weight-bold);
+  margin-top: 0.5rem;
+}
+.ov-checks dd,
+.ov-how dd {
+  margin: 0;
+}
+.ov-steps li {
+  margin-bottom: 0.4rem;
+}
+.ov-step-name {
+  display: block;
+}
+.ov-how summary {
+  cursor: pointer;
+  font-weight: var(--weight-bold);
+}
+/* A phone (390px): each table row becomes a small block, label beside value, so
+   nothing scrolls sideways. */
+@media (max-width: 640px) {
+  .ov-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .ov-table,
+  .ov-table tbody,
+  .ov-table tr,
+  .ov-table th,
+  .ov-table td {
+    display: block;
+    width: auto;
+  }
+  .ov-table tr {
+    border-bottom: 1px solid var(--rule);
+    padding: 0.4rem 0;
+  }
+  /* Stacked, a long site name may break anywhere rather than push the page wide. */
+  .ov-table th,
+  .ov-table td {
+    border-bottom: 0;
+    padding: 0.1rem 0;
+    overflow-wrap: anywhere;
+  }
+  .ov-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--ink-muted);
+  }
+}

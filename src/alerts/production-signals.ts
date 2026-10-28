@@ -121,6 +121,16 @@ export function certUrgency(days: number): number {
   return CERT_ATTENTION_DAYS + 1 - days;
 }
 
+/** The certificate's days left now: the audit counted them when it ran, and a stamp up to
+ *  3 days old has used some, so the whole days since the check come off. Null when the
+ *  check stored no days (the domain did not resolve, or had no usable TLS). Shared with
+ *  the overview's Certificate cell, so the cell and the ladder do one sum (P1-78g). */
+export function certDaysNow(stored: number | null, checkedAt: string, now: Date): number | null {
+  return stored === null
+    ? null
+    : stored - Math.max(0, Math.floor((now.getTime() - Date.parse(checkedAt)) / MS_PER_DAY));
+}
+
 /** The domain audit's certificate verdict. A fresh run that stored no certificate days did
  *  not resolve or found no usable TLS: the domain is dead. Otherwise the days left decide:
  *  7 or fewer (or expired) is Broken, 8 to 30 is Attention. */
@@ -132,13 +142,7 @@ export function collectDomainAlerts(
   const items: AttentionItem[] = [];
   for (const s of maintained(sites)) {
     if (!freshWithin(s.domainCheckedAt, PRODUCTION_STALE_DAYS, now)) continue;
-    const stored = s.certDaysRemaining;
-    // The audit counted the days when it ran; a stamp up to 3 days old has used some.
-    const days =
-      stored === null
-        ? null
-        : stored -
-          Math.max(0, Math.floor((now.getTime() - Date.parse(s.domainCheckedAt!)) / MS_PER_DAY));
+    const days = certDaysNow(s.certDaysRemaining, s.domainCheckedAt!, now);
     if (days === null) {
       items.push(
         item(
