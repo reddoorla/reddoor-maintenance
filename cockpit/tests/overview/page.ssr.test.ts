@@ -265,7 +265,9 @@ describe("the overview's stylesheet (T5)", () => {
   it("tells the trend series apart by more than colour (P1-78h review round 2, T3)", () => {
     const rule = (sel: string) =>
       [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
-    expect(rule(".ov-line-mark.second")).toMatch(/stroke-dasharray:\s*\d/);
+    expect(rule(".ov-line-mark.second")).toMatch(/stroke-dasharray:\s*[1-9]/);
+    // The hover targets lie over every mark, so they must stay see-through (round 3).
+    expect(rule(".ov-hit")).toMatch(/fill:\s*transparent/);
     expect(rule(".ov-dot.broken")).toMatch(/fill:\s*var\(--broken\)/);
     expect(rule(".ov-line-mark.broken")).toMatch(/stroke:\s*var\(--broken\)/);
     expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
@@ -887,6 +889,11 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       // The zero axis where columns stand, and the ticks in the view's words.
       expect(attrs("line.ov-axis", ["y1", "y2"])).toEqual([[String(g.zero), String(g.zero)]]);
       const c = TVIEW.trends.charts![i]!;
+      // Round 3 (T2): the halfway label sits at its own height, not on the top one.
+      if (c.mid !== null)
+        expect(svg.querySelectorAll("text.ov-tick")[1]!.getAttribute("y")).toBe(
+          String(g.midY! + 4),
+        );
       expect(svg.querySelectorAll("text.ov-tick").map(text)).toEqual([
         String(c.high),
         ...(c.mid === null ? [] : [String(c.mid)]),

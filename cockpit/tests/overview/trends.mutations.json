@@ -362,5 +362,96 @@
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "23-window-ends-at-expected-night",
+    "why": "Before 6am PT the window drops the night just counted (review round 3, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const end = newest > expected ? newest : expected;",
+        "replace": "  const end = expected;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-hover-says-one-reason",
+    "why": "A hover title gives the first series' reason for both (review round 3, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.points[i]!.value === null && s.points[i]!.note === p.note)",
+        "replace": "s.points[i]!.value === null && true)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-mid-label-on-the-top-tick",
+    "why": "The halfway label is printed over the top one (review round 3, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "y={g.midY + 4}",
+        "replace": "y={g.top + 4}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-collecting-hides-a-stop",
+    "why": "The collecting line does not say the nightly stopped (review round 3, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "newest < expected ? newest : null);",
+        "replace": "null);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-null-column-throws-section-5",
+    "why": "Section 5's scale throws on a hand-written null column (review round 3, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    .map((m) => m?.value)",
+        "replace": "    .map((m) => m!.value)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-second-line-solid",
+    "why": "Attention's line is drawn solid, told from Broken by colour alone (review round 3, T4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  stroke-dasharray: 4 3;",
+        "replace": "  stroke-dasharray: 0;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-axis-steps-1-2-5",
+    "why": "The axis rounds to 1, 2, 5, so a 3 reads off 0-5 with no halfway tick (review round 3, O3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    for (const m of [2, 4, 6, 10]) if (m * step >= n) return m * step;",
+        "replace": "    for (const m of [2, 5, 10]) if (m * step >= n) return m * step;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]

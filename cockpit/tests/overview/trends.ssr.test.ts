@@ -554,6 +554,27 @@ describe("review round 2", () => {
 });
 
 describe("review round 3", () => {
+  it("before 6am PT the newest night still ends the window (T1)", () => {
+    // Oct 27, 2am PT: the expected night is still Oct 25, but Oct 26's row is in.
+    const early = new Date("2026-10-27T09:00:00.000Z");
+    const v = trendsFromDaily(run("2026-10-26", 14), early);
+    expect(v.status).toBe("The 14 nights from Oct 13 to Oct 26");
+    expect(v.charts![0]!.series[0]!.points.at(-1)!.value).not.toBeNull();
+  });
+
+  it("a hover title names each series' own reason (T3)", () => {
+    // Oct 21 has no row; on Oct 22 the open count could not be read, so the cleared
+    // column has no night before and the line is unread: two different reasons.
+    const nights = run("2026-10-26", 15, (date) =>
+      date === "2026-10-22" ? { signals: { value: null, reason: "boom" } } : {},
+    ).filter((n) => n.night !== "2026-10-21");
+    const c = chart(trendsFromDaily(nights, NOW), /^Vulnerabilities/);
+    const g = trendGeometry(c);
+    expect(g.slots[c.nights.indexOf("Oct 22")]!.title).toBe(
+      "Oct 22: Sites cleared: no count the night before, so nothing to subtract; Sites with an alert open: could not be read that night",
+    );
+  });
+
   it("a hand-written null coverage column does not throw the overview (C2)", () => {
     const nights = run("2026-10-26", 2, (_, i) =>
       i === 0
