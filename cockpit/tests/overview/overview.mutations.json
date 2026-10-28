@@ -514,8 +514,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  const results = stepped.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
-        "replace": "  const results = stepped.flatMap((n) => Object.values(n.counts.steps));"
+        "find": "  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
+        "replace": "  const results = window.flatMap((n) => Object.values(n.counts.steps));"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -774,8 +774,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  const stepped = window.filter((n) => Object.values(n.counts.steps).some((r) => r != null));",
-        "replace": "  const stepped = window;"
+        "find": "  const recorded = nights.filter((n) => Object.values(n.counts.steps).some((r) => r != null));",
+        "replace": "  const recorded = nights;"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -787,7 +787,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "`flagged ${count(days, \"day\", \"days\")} ago`",
+        "find": "`first flagged ${count(days, \"day\", \"days\")} ago`",
         "replace": "`for ${count(days, \"day\", \"days\")}`"
       }
     ],
