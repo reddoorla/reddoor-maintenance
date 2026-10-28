@@ -1,0 +1,158 @@
+[
+  {
+    "id": "1-thirteen-nights-draw",
+    "why": "A chart draws with 13 nights (brief h, mutation 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (nights.length < TREND_NIGHTS)\n",
+        "replace": "  if (nights.length < TREND_NIGHTS - 1)\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-missing-night-as-zero",
+    "why": "A missing night is drawn as zero (brief h, mutation 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const noCount: TrendPoint = point({ value: null, note: NO_COUNT });",
+        "replace": "  const noCount: TrendPoint = point({ value: 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-missing-night-as-zero-in-the-geometry",
+    "why": "The geometry draws a night with no value at zero (brief h, mutation 2, where the page draws)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p.value === null) close();",
+        "replace": "      if (p.value === null) run.push({ x: xAt(i), y: yAt(0), value: 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2c-missing-night-as-zero-in-the-table",
+    "why": "The page's table shows a night with no value as 0",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{q.value === null ? q.note : q.value}</td",
+        "replace": ">{q.value ?? 0}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-null-count-as-zero",
+    "why": "A null count (could not be read) is drawn as zero (brief h, mutation 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      return v === null ? unread : point({ value: v });",
+        "replace": "      return point({ value: v ?? 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3b-null-level-as-zero",
+    "why": "An unread sites block reads as no site at that level",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    c.sites.value === null ? null : (c.sites.value.tiers[t] ?? 0);",
+        "replace": "    c.sites.value === null ? 0 : (c.sites.value.tiers[t] ?? 0);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3c-unread-check-summed-as-zero",
+    "why": "Checks run sums the counts it could read and drops an unread one as zero",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
+        "replace": "    return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-two-versions-joined",
+    "why": "Nights of two ladder versions are joined into one level line (brief h, mutation 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (levels && c.ladderVersion !== ladder) return point({ value: null, note: EARLIER }, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4b-line-joined-across-a-gap",
+    "why": "The geometry carries a line across a night with no value",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p.value === null) close();",
+        "replace": "      if (p.value === null) return;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-current-ladder-from-newest-row",
+    "why": "The current ladder is read off the newest row even when it records none (found in the 390px screenshot)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const ladder = sorted.find((n) => typeof n.counts.ladderVersion === \"number\")?.counts",
+        "replace": "  const ladder = sorted.find(() => true)?.counts"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-delta-across-a-gap",
+    "why": "A night's rise is taken over the newest earlier row, across a missing night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p === undefined) return point({ value: null, note: NO_BASE });",
+        "replace": "      if (p === undefined) return point({ value: v });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-sites-block-unguarded",
+    "why": "readOverviewNights stops guarding the sites block the trends read",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "        sites: rest.sites ?? NOT_IN_ROW,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  }
+]
