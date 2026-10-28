@@ -10,6 +10,7 @@ import {
   reverifyLinks,
   excuseChallengedEngineChecks,
   extractTitleMeta,
+  extractLocale,
   type RouteResult,
   type LinkResult,
   type BrowserRunner,
@@ -33,6 +34,10 @@ function route(
     entryStatus?: number | null;
     /** Unsubstituted SvelteKit placeholders the served HTML leaked (empty/omitted = clean). */
     leakedTemplateTokens?: string[];
+    /** The served `<html lang>` (omitted = not captured). */
+    lang?: string | null;
+    /** The served `<link rel="alternate" hreflang>` hrefs (omitted = not captured). */
+    alternates?: string[];
   } = {},
 ): RouteResult {
   const entry = over.entryStatus !== undefined ? { status: over.entryStatus } : {};
@@ -54,6 +59,8 @@ function route(
     ...(over.leakedTemplateTokens !== undefined
       ? { leakedTemplateTokens: over.leakedTemplateTokens }
       : {}),
+    ...(over.lang !== undefined ? { lang: over.lang } : {}),
+    ...(over.alternates !== undefined ? { alternates: over.alternates } : {}),
   };
 }
 
@@ -593,6 +600,288 @@ describe("extractTitleMeta", () => {
       metaDescription: null,
     });
     expect(extractTitleMeta("plain text")).toEqual({ title: null, metaDescription: null });
+  });
+});
+
+// #1872: Vida's "/" and "/es" share the title "Vida Legacy Foundation" (the organisation's proper
+// name) as reciprocal hreflang alternates with <html lang> en and es. A translation is not a
+// duplicate; a same-language copy still is.
+describe("summarizeBrowser → duplicate titles across hreflang alternates (#1872)", () => {
+  const EN = "https://a.com/";
+  const ES = "https://a.com/es";
+  const page = (url: string, lang: string | null, alternates: string[] | undefined) =>
+    route(url, true, true, [], {
+      title: "Vida Legacy Foundation",
+      metaDescription: `Meta for ${url}`,
+      lang,
+      ...(alternates !== undefined ? { alternates } : {}),
+    });
+
+  it("passes the same title on reciprocal hreflang alternates in different languages", () => {
+    const s = summarizeBrowser([page(EN, "en", [EN, ES]), page(ES, "es", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(s.titleMetaProblems).toEqual([]);
+    expect(s.titleMetaOk).toBe(true);
+  });
+
+  it("still fails the same title on two same-language routes, even when reciprocal (positive control)", () => {
+    const s = summarizeBrowser([page(EN, "en", [EN, ES]), page(ES, "en", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(s.titleMetaOk).toBe(false);
+    expect(s.titleMetaProblems).toEqual([
+      `duplicate title "Vida Legacy Foundation": ${EN} + ${ES}`,
+    ]);
+  });
+
+  it("still fails the same title with no hreflang, even across different languages", () => {
+    const s = summarizeBrowser([page(EN, "en", []), page(ES, "es", undefined)], [], { "/": 2 });
+    expect(s.titleMetaOk).toBe(false);
+    expect(s.titleMetaProblems).toEqual([
+      `duplicate title "Vida Legacy Foundation": ${EN} + ${ES}`,
+    ]);
+  });
+
+  it("still fails a one-way hreflang: each route must list the other", () => {
+    const s = summarizeBrowser([page(EN, "en", [EN, ES]), page(ES, "es", [ES])], [], { "/": 2 });
+    expect(s.titleMetaOk).toBe(false);
+    const t = summarizeBrowser([page(EN, "en", [EN]), page(ES, "es", [ES, EN])], [], { "/": 2 });
+    expect(t.titleMetaOk).toBe(false);
+  });
+
+  it("still fails when either route's lang is missing, though the hreflang is reciprocal", () => {
+    for (const [a, b] of [
+      [null, null],
+      ["", ""],
+      ["en", null],
+      [null, "es"],
+    ] as const) {
+      const s = summarizeBrowser([page(EN, a, [EN, ES]), page(ES, b, [ES, EN])], [], { "/": 2 });
+      expect(s.titleMetaOk).toBe(false);
+    }
+  });
+
+  it("compares languages case-insensitively, so EN and en are one language", () => {
+    const s = summarizeBrowser([page(EN, "EN", [EN, ES]), page(ES, "en", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(s.titleMetaOk).toBe(false);
+  });
+
+  it("reads en_US (underscore) as English, so it is not a translation of en", () => {
+    const s = summarizeBrowser([page(EN, "en_US", [EN, ES]), page(ES, "en", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(s.titleMetaOk).toBe(false);
+  });
+
+  it("compares the primary language subtag, so en-US and en-GB are one language", () => {
+    const s = summarizeBrowser([page(EN, "en-US", [EN, ES]), page(ES, "en-GB", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(s.titleMetaOk).toBe(false);
+    const t = summarizeBrowser([page(EN, "EN-us", [EN, ES]), page(ES, "es-MX", [ES, EN])], [], {
+      "/": 2,
+    });
+    expect(t.titleMetaOk).toBe(true);
+  });
+
+  it("matches an alternate href to a route url across a trailing slash or a fragment", () => {
+    const s = summarizeBrowser(
+      [page(EN, "en", ["https://a.com/es/"]), page(ES, "es", ["https://a.com/#top"])],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleMetaOk).toBe(true);
+  });
+
+  it("still reports a same-language copy that shares a title with a translated pair", () => {
+    const COPY = "https://a.com/home";
+    const s = summarizeBrowser(
+      [page(EN, "en", [EN, ES]), page(ES, "es", [ES, EN]), page(COPY, "en", [])],
+      [],
+      { "/": 3 },
+    );
+    expect(s.titleMetaOk).toBe(false);
+    expect(s.titleMetaProblems).toEqual([
+      `duplicate title "Vida Legacy Foundation": ${EN} + ${ES} + ${COPY}`,
+    ]);
+  });
+});
+
+describe("reverifyRoutes — locale of a challenged route (#1872)", () => {
+  const challenged = (url: string): RouteResult => ({
+    ...route(url, false, true, [], { status: 403, title: "a.com", metaDescription: null }),
+    lang: "en",
+    alternates: [],
+  });
+
+  it("takes the served HTML's lang + alternates when the plain fetch clears the route", async () => {
+    const { routes } = await reverifyRoutes([challenged("https://a.com/es")], {
+      fetchPage: async () => ({
+        status: 200,
+        title: "Vida Legacy Foundation",
+        metaDescription: "es",
+        lang: "es",
+        alternates: ["https://a.com/es", "https://a.com/"],
+      }),
+    });
+    expect(routes[0]).toMatchObject({
+      lang: "es",
+      alternates: ["https://a.com/es", "https://a.com/"],
+    });
+  });
+
+  it("drops the challenge page's locale when the fail is confirmed", async () => {
+    const { routes } = await reverifyRoutes(
+      [challenged("https://a.com/es")],
+      {
+        fetchPage: async () => ({
+          status: 404,
+          title: null,
+          metaDescription: null,
+          lang: "es",
+          alternates: ["https://a.com/"],
+        }),
+      },
+      async () => {},
+    );
+    expect(routes[0]).toMatchObject({ lang: null, alternates: [] });
+  });
+});
+
+describe("reverifyRoutes — locale of a route whose title the browser missed (#1872)", () => {
+  it("fills a missing locale from the served HTML, as it fills the missing title", async () => {
+    const blind = (url: string): RouteResult => ({
+      ...route(url, true, true, [], { title: null }),
+      lang: null,
+      alternates: [],
+    });
+    const served: Record<string, PageFetch> = {
+      "https://a.com/": {
+        status: 200,
+        title: "Org",
+        metaDescription: "en",
+        lang: "en",
+        alternates: ["https://a.com/", "https://a.com/es"],
+      },
+      "https://a.com/es": {
+        status: 200,
+        title: "Org",
+        metaDescription: "es",
+        lang: "es",
+        alternates: ["https://a.com/es", "https://a.com/"],
+      },
+    };
+    const { routes } = await reverifyRoutes([blind("https://a.com/"), blind("https://a.com/es")], {
+      fetchPage: async (url) => served[url]!,
+    });
+    expect(routes[1]).toMatchObject({ title: "Org", lang: "es" });
+    expect(summarizeBrowser(routes, [], { "/": 2 }).titleMetaOk).toBe(true);
+  });
+
+  it("keeps a locale the browser did capture", async () => {
+    const r: RouteResult = {
+      ...route("https://a.com/es", true, true, [], { metaDescription: null }),
+      lang: "es",
+      alternates: ["https://a.com/"],
+    };
+    const { routes } = await reverifyRoutes([r], {
+      fetchPage: async () => ({
+        status: 200,
+        title: "x",
+        metaDescription: "d",
+        lang: "fr",
+        alternates: ["https://a.com/fr"],
+      }),
+    });
+    expect(routes[0]).toMatchObject({ lang: "es", alternates: ["https://a.com/"] });
+  });
+});
+
+describe("defaultVerifyDeps.fetchPage — served locale (#1872)", () => {
+  it("parses lang + hreflang from the served HTML, resolving hrefs against the final url", async () => {
+    const html = `<html lang="es"><head><title>Org</title>
+      <meta name="description" content="d"><link rel="alternate" hreflang="en" href="/"></head></html>`;
+    const res = new Response(html, { status: 200, headers: { "content-type": "text/html" } });
+    Object.defineProperty(res, "url", { value: "https://www.a.com/es" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => res),
+    );
+    try {
+      expect(await defaultVerifyDeps().fetchPage("https://a.com/es")).toEqual({
+        status: 200,
+        title: "Org",
+        metaDescription: "d",
+        lang: "es",
+        alternates: ["https://www.a.com/"],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("extractLocale", () => {
+  it("reads <html lang> and the hreflang alternates, resolving relative hrefs against the page", () => {
+    const html = `<!doctype html><html class="x" lang="es"><head>
+      <link rel="alternate" hreflang="es" href="https://vidalegacy.org/es"/>
+      <link href="/" hreflang="en" rel="alternate">
+      <link rel="alternate" type="application/rss+xml" href="/feed.xml">
+      <link rel="canonical" hreflang="en" href="https://vidalegacy.org/canon">
+      </head></html>`;
+    expect(extractLocale(html, "https://vidalegacy.org/es")).toEqual({
+      lang: "es",
+      alternates: ["https://vidalegacy.org/es", "https://vidalegacy.org/"],
+    });
+  });
+
+  it("does not take a lang attribute from an element other than <html>", () => {
+    expect(extractLocale(`<html><body><p lang="fr">x</p></body></html>`, "https://a.com/")).toEqual(
+      {
+        lang: null,
+        alternates: [],
+      },
+    );
+    expect(extractLocale(`<html lang="">`, "https://a.com/").lang).toBeNull();
+    // The document's own <html> tag comes first; a later one (markup in a script string) is not it.
+    expect(
+      extractLocale(`<html lang="en"><script>s = '<html lang="fr">';</script>`, "https://a.com/")
+        .lang,
+    ).toBe("en");
+  });
+
+  it("reads unquoted attributes, as a minifier writes them", () => {
+    expect(
+      extractLocale(`<html lang=es><link rel=alternate hreflang=en href=/>`, "https://a.com/es"),
+    ).toEqual({ lang: "es", alternates: ["https://a.com/"] });
+  });
+
+  it("ignores commented-out tags, data-* look-alikes and non-alternate rels", () => {
+    const html = `<!-- <html lang="fr"> <link rel="alternate" hreflang="fr" href="/fr"> -->
+      <html-x lang="de"><html lang="en">
+      <link data-rel="alternate" rel="stylesheet" hreflang="es" href="/es.css">
+      <link rel="alternates" hreflang="it" href="/it">
+      <link rel="alternate" hreflang="es" data-href="/x" href="/es?a=1&amp;b=2">`;
+    expect(extractLocale(html, "https://a.com/")).toEqual({
+      lang: "en",
+      alternates: ["https://a.com/es?a=1&b=2"],
+    });
+  });
+
+  it("reads nothing after an unterminated comment, and skips custom elements named link-*", () => {
+    const html = `<html lang="en"><link-card rel="alternate" hreflang="fr" href="/fr">
+      <link rel="alternate" hreflang="es" href="/es"><!-- <link rel="alternate" hreflang="de" href="/de">`;
+    expect(extractLocale(html, "https://a.com/")).toEqual({
+      lang: "en",
+      alternates: ["https://a.com/es"],
+    });
+  });
+
+  it("returns no lang and no alternates for a page that has neither", () => {
+    expect(extractLocale("plain text", "https://a.com/")).toEqual({ lang: null, alternates: [] });
   });
 });
 
