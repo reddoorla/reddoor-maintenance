@@ -21,12 +21,13 @@ import {
 import { daysFlagged, levelOf } from "../../../../src/alerts/ladder.js";
 import {
   CERT_ATTENTION_DAYS,
+  CERT_BROKEN_DAYS,
+  certDaysNow,
   freshWithin,
   PRODUCTION_STALE_DAYS,
 } from "../../../../src/alerts/production-signals.js";
 import { collectVulnAlerts, urlProbeFresh } from "../../../../src/alerts/digest-collectors.js";
 import { diffAttention } from "../../../../src/alerts/digest-state.js";
-import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import {
   NIGHTLY_CRON,
   SEND_CRON,
@@ -82,6 +83,24 @@ export function isTestSend(r: Pick<ReportRow, "approvedBy">): boolean {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 const count = (n: number, one: string, many: string): string => `${n} ${plural(n, one, many)}`;
+
+/** How long ago, in words: "5 hours ago", "1 week ago". Its own, not the fleet card's
+ *  "5h ago", so a client-adjacent page never shows a unit as a letter (review round 4,
+ *  O11); null for a missing or unparseable stamp. */
+export function agoInWords(iso: string | null, now: Date): string | null {
+  const t = iso === null ? Number.NaN : Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const minutes = Math.max(0, Math.floor((now.getTime() - t) / 60_000));
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (minutes < 1) return "just now";
+  if (hours < 1) return `${count(minutes, "minute", "minutes")} ago`;
+  if (days < 1) return `${count(hours, "hour", "hours")} ago`;
+  if (days < 7) return `${count(days, "day", "days")} ago`;
+  if (days < 30) return `${count(Math.floor(days / 7), "week", "weeks")} ago`;
+  if (days < 365) return `${count(Math.floor(days / 30), "month", "months")} ago`;
+  return `${count(Math.floor(days / 365), "year", "years")} ago`;
+}
 
 const PACIFIC_STAMP = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Los_Angeles",
@@ -225,7 +244,7 @@ function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView
     if (down === 0 && unknown === 0 && unsampled === 0)
       parts.push({ text: `${inCare === 1 ? "It was live" : "All live"}${asOf}.`, term: "Live" });
     else {
-      if (down > 0) parts.push({ text: `${down} not live.`, term: "Live" });
+      if (down > 0) parts.push({ text: `${down} not live at the last check.`, term: "Live" });
       if (unknown > 0) parts.push({ text: `${unknown} not checked lately.`, term: "Live" });
       if (unsampled > 0)
         parts.push({
@@ -404,10 +423,15 @@ export function urlStatusText(status: string): string {
   return status;
 }
 
+/** The certificate's days left, by the ladder's own sum (`certDaysNow`, which
+ *  `collectDomainAlerts` uses): counted down from the check, and a fresh check that
+ *  stored no days is a domain that does not answer, which the ladder calls Broken
+ *  (review round 4, C1). */
 export function domainCell(site: WebsiteRow, now: Date): Cell {
-  const d = site.certDaysRemaining;
-  if (!freshWithin(site.domainCheckedAt, PRODUCTION_STALE_DAYS, now) || d === null)
+  if (!freshWithin(site.domainCheckedAt, PRODUCTION_STALE_DAYS, now))
     return { ok: null, text: "Not checked lately" };
+  const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt!, now);
+  if (d === null) return { ok: false, text: "Domain does not answer" };
   if (d < 0) return { ok: false, text: "Certificate expired" };
   return { ok: d > CERT_ATTENTION_DAYS, text: `${count(d, "day", "days")} left` };
 }
@@ -420,7 +444,10 @@ export function deployCell(site: WebsiteRow, now: Date): Cell {
   if (site.deployStatus === null) return { ok: null, text: "No deploy recorded" };
   if (isFailedDeployStatus(site.deployStatus)) return { ok: false, text: "Latest deploy failed" };
   if (isReadyDeployStatus(site.deployStatus))
-    return { ok: true, text: `Published ${relativeTimeFromNow(site.lastDeployAt, now)}` };
+    return {
+      ok: true,
+      text: `Published ${agoInWords(site.lastDeployAt, now) ?? "(date not recorded)"}`,
+    };
   return { ok: null, text: "A deploy was in progress" };
 }
 
@@ -472,7 +499,7 @@ function liveRows(
             : last === undefined
               ? "no real lead yet"
               : // An RSVP or a signup is a real submission, not a lead.
-                `last real ${isLeadFormType(last.formType) ? "lead" : "submission"} ${relativeTimeFromNow(last.submittedAt, now)}`,
+                `last real ${isLeadFormType(last.formType) ? "lead" : "submission"} ${agoInWords(last.submittedAt, now)}`,
         level: { tier: c.tier, text: TIER_TEXT[c.tier] },
       };
     });
@@ -655,7 +682,7 @@ export const CHECK_PROOF: Record<string, (n: (file: string) => number) => string
   "Domain, DNS & SSL": (n) =>
     `Step ${n(LIGHTHOUSE_STEP)} resolves the domain and reads the security certificate's days left.`,
   "Google Indexed": (n) =>
-    `Step ${n("daily-reports.yml")} asks Google Search Console when it drafts the report.`,
+    `Step ${n("daily-reports.yml")} asks Google Search Console (Google's report on which pages it has indexed) when it drafts the report.`,
   "Security Updates": (n) =>
     `Step ${n("fleet-security.yml")} lists known vulnerabilities. Automatic updates open the fixes, and one that waits too long comes to us.`,
   "Uptime Checked": (n) =>
@@ -891,7 +918,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   {
     file: "fleet-lighthouse.yml",
     label:
-      "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers, the deploy, server functions, and the URL probe (does the address answer)",
+      "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers (each site opened in a real browser), the deploy, server functions, and the URL probe (does the address answer)",
     coverage: [
       "lighthouse_at",
       "domain_checked_at",
@@ -941,13 +968,14 @@ export type NightlyView = {
   steps: StepView[];
   /** "11 kinds of check ran on the night of Oct 26, reaching up to 17 sites". */
   scale: string;
-  /** "N of M nightly steps green over the last K nights". */
+  /** "N of M nightly steps ran to the end over the last K nights". */
   reliability: string;
 };
 
 /** GitHub's conclusions, in plain words. */
 const CONCLUSION_TEXT: Record<string, string> = {
-  success: "green",
+  // Only that the job ran to the end: what it found is in the tables (round 4, O1).
+  success: "ran to the end",
   failure: "failed",
   cancelled: "cancelled",
   timed_out: "ran out of time",
@@ -970,7 +998,7 @@ export function outcomeText(r: StepResult | null | undefined): string {
  *  Pacific time) as the page says it: "Oct 26". */
 export const nightLabel = (night: string): string => pacificDay(new Date(`${night}T12:00:00Z`));
 
-const isGreen = (r: StepResult | null | undefined): boolean =>
+const ranToEnd = (r: StepResult | null | undefined): boolean =>
   r?.outcome === "completed" && r.conclusion === "success";
 const finished = (r: StepResult | null | undefined): boolean =>
   r?.outcome === "completed" || r?.outcome === "failed";
@@ -1058,7 +1086,7 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
         ? NOT_YET
         : window.length === 0
           ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newest.night)}`
-          : `${results.filter(isGreen).length} of ${count(results.length, "nightly step", "nightly steps")} green ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
+          : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
   };
 }
 
@@ -1087,10 +1115,11 @@ function openText(item: AttentionItem | undefined, waiting: boolean, n: number, 
         ? transitiveVulnEscalatesAt(since)
         : directVulnEscalatesAt(since);
   // A claim about our wait, never a promise that the update will clear it.
+  const then = `if ${n === 1 ? "it is" : "they are"} still open then, ${n === 1 ? "it comes" : "they come"} to us`;
   if (waiting && at !== null)
     return item.transitiveOnly === true
-      ? `${n === 1 ? "it sits" : "they sit"} deeper in the site's packages, so we are giving Monday's weekly package refresh until ${pacificDay(at)}; any still open then come to us`
-      : `we are giving the automatic update until ${pacificDay(at)}; any still open then come to us`;
+      ? `${n === 1 ? "it sits" : "they sit"} deeper in the site's packages, so ${n === 1 ? "it waits" : "they wait"} for Monday's weekly package refresh and ${count(LOCKFILE_SETTLE_DAYS, "day", "days")} after it, until ${pacificDay(at)}; ${then}`
+      : `we are waiting until ${pacificDay(at)} for an automatic update to fix ${n === 1 ? "it" : "them"}; ${then}`;
   // Not held, yet inside its wait: the digest's first sighting could not be read, and
   // missing data never mutes (markWaiting), so it is ours to look at.
   if (at === null || now.getTime() < at.getTime())
@@ -1115,23 +1144,41 @@ function heldVuln(site: WebsiteRow, s: CockpitSnapshot, now: Date): AttentionIte
     : undefined;
 }
 
+/** A site whose security check is stale or missing: what it last read, if anything. */
+function staleText(site: WebsiteRow, n: number): string {
+  const at = site.lastSecurityAuditAt;
+  const when = at !== null && Number.isFinite(Date.parse(at)) ? pacificDay(new Date(at)) : null;
+  if (when === null || (site.securityVulnsCritical === null && site.securityVulnsHigh === null))
+    return "has no security check on record, so we cannot say what is open now";
+  const had =
+    n === 0
+      ? "no critical or high vulnerability"
+      : count(n, "critical or high vulnerability", "critical or high vulnerabilities");
+  return `had ${had} at the last security check, ${when}; not checked lately, so we cannot say what is open now`;
+}
+
 function upkeepView(model: CockpitModel, s: CockpitSnapshot, now: Date): UpkeepView {
   const open = model.cards
     .filter((c) => c.site.status === "maintained")
     .map((c) => {
-      // A count from an audit older than the freshness window is not "open now".
-      const fresh = freshWithin(c.site.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now);
+      // Freshness first (review round 4, C2): a count from an audit older than the
+      // freshness window, or none at all, is not "none open", whatever it reads.
+      const critical = c.site.securityVulnsCritical;
+      const high = c.site.securityVulnsHigh;
+      const fresh =
+        freshWithin(c.site.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now) &&
+        (critical !== null || high !== null);
       const onCard = c.items.find((i) => i.kind === "vuln");
       const held = onCard === undefined ? heldVuln(c.site, s, now) : undefined;
       return {
         card: c,
         fresh,
-        n: (c.site.securityVulnsCritical ?? 0) + (c.site.securityVulnsHigh ?? 0),
+        n: (critical ?? 0) + (high ?? 0),
         item: onCard ?? held,
         waiting: onCard === undefined && held !== undefined,
       };
     })
-    .filter((x) => x.n > 0)
+    .filter((x) => !x.fresh || x.n > 0)
     .sort((a, b) => a.card.site.name.localeCompare(b.card.site.name));
   const deps = newestMeasured(s.nights, (c) => c.deps);
   return {
@@ -1143,7 +1190,7 @@ function upkeepView(model: CockpitModel, s: CockpitSnapshot, now: Date): UpkeepV
       // Read after the site's name: "Delta has 2 critical or high vulnerabilities; …".
       text: fresh
         ? `has ${count(n, "critical or high vulnerability", "critical or high vulnerabilities")}; ${openText(item, waiting, n, now)}`
-        : `had ${count(n, "critical or high vulnerability", "critical or high vulnerabilities")} at the last security check${card.site.lastSecurityAuditAt ? `, ${pacificDay(new Date(card.site.lastSecurityAuditAt))}` : ""}; not checked lately, so we cannot say what is open now`,
+        : staleText(card.site, n),
     })),
     depsBehind:
       s.nights === null
@@ -1213,7 +1260,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Broken, attention, watch",
-    text: "How many sites sit at each level of the ladder (in Upkeep below), by each site's worst open item; each count opens its group there. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long it has been flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
+    text: "How many sites sit at each level of the ladder (explained in Upkeep below), by each site's worst open item; each count opens that group on the Triage page. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long it has been flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
   },
   {
     term: "Waiting for your yes",
@@ -1225,7 +1272,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Certificate",
-    text: `Days left on the site's security certificate (the padlock), from the nightly domain check; not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention. Certificates renew on their own around then, so the count should climb back within days. If it keeps falling, renewal has failed.`,
+    text: `Days left on the site's security certificate (the padlock), from the nightly domain check: the days it counted, less the whole days since it ran. Not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention; ${CERT_BROKEN_DAYS} or fewer is Broken. Certificates renew on their own around then, so the count should climb back within days. At Attention we confirm it renews; we act only if it does not. If it keeps falling, renewal has failed. "Domain does not answer" means a fresh check found no address or no working certificate: Broken.`,
   },
   {
     term: "Deploy",
@@ -1249,7 +1296,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Accepted as real",
-    text: "Leads and signups kept as real: new, read or archived.",
+    text: "Leads, signups and RSVPs kept as real: new, read or archived. Only contact, inquiry and reservation forms bring leads; a newsletter signup or an RSVP is not one.",
   },
   { term: "Client notified", text: "Of those, how many the client was emailed about." },
   { term: "Screened as spam", text: "Caught automatically after it arrived." },
@@ -1284,15 +1331,15 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Steps",
-    text: "Each step's result on the night named, when it last finished, and how many sites it reached. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
+    text: "Each step's result on the night named, when it last finished, and how many sites it reached. A step that runs to the end can still find problems; what it found is in the tables above. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
   },
   {
     term: "Scale",
     text: "How many kinds of check ran on the night named (each stamps the sites it reached), and the most sites any one of them reached.",
   },
   {
-    term: "Runs green",
-    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many came back green. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count is said. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
+    term: "Runs completed",
+    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the tables above. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count is said. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
   },
   {
     term: "Dependency updates merged",

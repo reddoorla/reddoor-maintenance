@@ -53,7 +53,7 @@ describe("section 1: the one-line status", () => {
     );
     expect(v.status.cls).toBe("broken");
     expect(v.status.line).toBe(
-      "2 sites in our care. 1 not live. 1 live at the last check, Oct 26, 11:30pm PT. 1 site broken.",
+      "2 sites in our care. 1 not live at the last check. 1 live at the last check, Oct 26, 11:30pm PT. 1 site broken.",
     );
     // In plain words, not the triage title ("a sampled page did not answer 2xx or 3xx").
     expect(v.status.broken).toEqual([
@@ -97,7 +97,7 @@ describe("section 2: is every site live?", () => {
       NOW,
     );
     expect(v.live[0]!.live).toMatchObject({ ok: false, text: "A page not answering" });
-    expect(v.status.line).toContain("1 not live.");
+    expect(v.status.line).toContain("1 not live at the last check.");
   });
 
   it("Live names an address that does not resolve", () => {
@@ -141,7 +141,7 @@ describe("section 2: is every site live?", () => {
       }),
       NOW,
     );
-    expect(v.live.find((r) => r.siteName === "Acme")!.lastLead).toBe("last real lead 5h ago");
+    expect(v.live.find((r) => r.siteName === "Acme")!.lastLead).toBe("last real lead 5 hours ago");
   });
 });
 
@@ -315,7 +315,9 @@ describe("section 5: what runs every night", () => {
     expect(v.nightly.scale).toBe(
       "3 kinds of check ran on the night of Oct 26, reaching up to 2 sites",
     );
-    expect(v.nightly.reliability).toBe("15 of 16 nightly steps green over the last 2 nights");
+    expect(v.nightly.reliability).toBe(
+      "15 of 16 nightly steps ran to the end over the last 2 nights",
+    );
     expect(v.nightly.steps[6]!.sites).toBe("1 site that night");
     expect(v.nightly.steps[0]!.sites).toBe("the whole database, every site's records in one copy");
     expect(v.nightly.steps[7]!.sites).toBe("sites with a report due");
@@ -464,7 +466,7 @@ describe("review round 1: the counts behind every shown number", () => {
         snapshot({ sites: [healthy({ id: "recA", name: "Acme", ...over })] }),
         NOW,
       ).live[0]!.deploy;
-    expect(at({})).toEqual({ ok: true, text: "Published 2d ago" });
+    expect(at({})).toEqual({ ok: true, text: "Published 2 days ago" });
     expect(at({ deployCheckedAt: STALE })).toEqual({ ok: null, text: "Not checked lately" });
     expect(at({ deployStatus: "error" })).toEqual({ ok: false, text: "Latest deploy failed" });
     // No raw Netlify status in the cell.
@@ -583,19 +585,19 @@ describe("review round 1: the counts behind every shown number", () => {
     );
     const step = (file: string) => v.nightly.steps[stepNumber(file) - 1]!;
     expect(step("fleet-security.yml")).toMatchObject({
-      outcome: "green",
+      outcome: "ran to the end",
       lastFinished: "Oct 26, 11:40pm PT",
     });
     // GitHub's own words never show raw.
     expect(step("fleet-smoke.yml").outcome).toBe("ran out of time");
     // A step that stamps no site: the run it last finished in, and how.
     expect(step("fleet-db-backup.yml").lastFinished).toBe(
-      "in the run that started Oct 25, 11:07pm PT (green)",
+      "in the run that started Oct 26, 11:07pm PT (ran to the end)",
     );
     // Still running on the newest night, so the night before is its last finish.
     expect(step("fleet-prismic-sync.yml")).toMatchObject({
       outcome: "still running when the night was written",
-      lastFinished: "in the run that started Oct 24, 11:07pm PT (green)",
+      lastFinished: "in the run that started Oct 25, 11:07pm PT (ran to the end)",
     });
     // A stamping step no site has stamped.
     expect(step("fleet-smoke.yml").lastFinished).toBe("no site stamped yet");
@@ -626,7 +628,7 @@ describe("review round 1: the counts behind every shown number", () => {
       NOW,
     );
     expect(v.nightly.reliability).toBe(
-      "16 of 16 nightly steps green over the last 3 nights (1 night not recorded)",
+      "16 of 16 nightly steps ran to the end over the last 3 nights (1 night not recorded)",
     );
   });
 
@@ -694,7 +696,7 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
       {
         siteId: "recA",
         siteName: "Acme",
-        text: "has 2 critical or high vulnerabilities; we are giving the automatic update until Oct 29; any still open then come to us",
+        text: "has 2 critical or high vulnerabilities; we are waiting until Oct 29 for an automatic update to fix them; if they are still open then, they come to us",
       },
     ]);
   });
@@ -714,7 +716,7 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
     });
     // The Monday after Oct 26 closes Nov 2 18:00Z; two days on is Nov 4.
     expect(open(transitive, "2026-10-26")[0]!.text).toBe(
-      "has 2 critical or high vulnerabilities; they sit deeper in the site's packages, so we are giving Monday's weekly package refresh until Nov 4; any still open then come to us",
+      "has 2 critical or high vulnerabilities; they sit deeper in the site's packages, so they wait for Monday's weekly package refresh and 2 days after it, until Nov 4; if they are still open then, they come to us",
     );
   });
 
@@ -775,7 +777,7 @@ describe("review round 1: boundaries (T6)", () => {
       NOW,
     );
     expect(v.nightly.reliability).toBe(
-      "16 of 16 nightly steps green over the last 30 nights (28 nights not recorded)",
+      "16 of 16 nightly steps ran to the end over the last 30 nights (28 nights not recorded)",
     );
   });
 
@@ -941,7 +943,7 @@ describe("review round 2", () => {
     newest.counts.steps["fleet-db-backup.yml"] = { outcome: "running", runId: 2, conclusion: null };
     const v = overviewFromSnapshot(snapshot({ nights: [newest, older] }), NOW);
     expect(v.nightly.steps[stepNumber("fleet-db-backup.yml") - 1]!.lastFinished).toBe(
-      "on the night of Oct 25 (green)",
+      "on the night of Oct 25 (ran to the end)",
     );
   });
 
@@ -987,7 +989,7 @@ describe("review round 2", () => {
       ["the whole database, every site's records in one copy", NOT_YET],
       [NOT_YET, "no site stamped yet"],
       ["sites on Prismic, with a pull request only where something changed", NOT_YET],
-      [NOT_YET, "no site stamped yet"],
+      [NOT_YET, "Oct 26, 11:30pm PT"],
       [NOT_YET, "Oct 26, 11:30pm PT"],
       [NOT_YET, "no site stamped yet"],
       [NOT_YET, "Oct 26, 11:30pm PT"],
@@ -1037,7 +1039,7 @@ describe("review round 2", () => {
       NOW,
     );
     expect(v.live.find((r) => r.siteName === "Rsvp Site")!.lastLead).toBe(
-      "last real submission 5h ago",
+      "last real submission 5 hours ago",
     );
   });
 
@@ -1077,7 +1079,9 @@ describe("review round 2", () => {
 
   it("says one night as the one night counted so far (minor)", () => {
     const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW);
-    expect(v.nightly.reliability).toBe("8 of 8 nightly steps green on the 1 night counted so far");
+    expect(v.nightly.reliability).toBe(
+      "8 of 8 nightly steps ran to the end on the 1 night counted so far",
+    );
   });
 
   it("the ladder's OK says nothing open, not every check passed (O4)", () => {
@@ -1124,7 +1128,7 @@ describe("review round 3", () => {
       "62 over the 6 nights to the night of Oct 14; no count in the 12 nights since",
     );
     expect(v.nightly.reliability).toBe(
-      "16 of 16 nightly steps green over the last 19 nights (17 nights not recorded, none since the night of Oct 14)",
+      "16 of 16 nightly steps ran to the end over the last 19 nights (17 nights not recorded, none since the night of Oct 14)",
     );
     expect(v.nightly.nightOf).toBe("Night of Oct 14");
     expect(v.upkeep.depsBehind).toContain("read on the night of Oct 14");
@@ -1132,7 +1136,7 @@ describe("review round 3", () => {
     // the last 30 nights" with nothing said about the 12 since.
     const month = overviewFromSnapshot(snapshot({ nights: days("2026-10-14", 30) }), NOW);
     expect(month.nightly.reliability).toBe(
-      "144 of 144 nightly steps green over the last 30 nights (12 nights not recorded, none since the night of Oct 14)",
+      "144 of 144 nightly steps ran to the end over the last 30 nights (12 nights not recorded, none since the night of Oct 14)",
     );
     // A single stale night says when counting started, and the nights since.
     const one = overviewFromSnapshot(snapshot({ nights: [night("2026-10-14")] }), NOW);
@@ -1153,7 +1157,7 @@ describe("review round 3", () => {
     );
     expect(current.prsMerged).toBe("62 over the last 6 nights");
     expect(current.nightly.reliability).toBe(
-      "16 of 16 nightly steps green over the last 7 nights (5 nights not recorded)",
+      "16 of 16 nightly steps ran to the end over the last 7 nights (5 nights not recorded)",
     );
   });
 
@@ -1221,5 +1225,215 @@ describe("review round 3", () => {
     const labels = NIGHTLY_STEPS.map((s) => s.label).filter((l) => l.startsWith("Prismic"));
     expect(labels).toHaveLength(2);
     for (const l of labels) expect(l).toMatch(/^Prismic \(the CMS/);
+  });
+});
+
+describe("review round 4", () => {
+  const sites = (...xs: WebsiteRow[]) => overviewFromSnapshot(snapshot({ sites: xs }), NOW);
+
+  it("a fresh domain check with no certificate days is Broken in the cell too (C1a)", () => {
+    const v = sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: null }));
+    // The ladder names it Broken (collectDomainAlerts); the cell agrees, in plain words.
+    expect(v.status.broken.map((b) => [b.siteName, b.reasons])).toEqual([
+      ["Acme", "the domain does not answer"],
+    ]);
+    expect(v.live[0]!.domain).toEqual({ ok: false, text: "Domain does not answer" });
+    // A stale check with no days is still unknown, never Broken.
+    expect(
+      sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: null, domainCheckedAt: STALE }))
+        .live[0]!.domain,
+    ).toEqual({ ok: null, text: "Not checked lately" });
+  });
+
+  it("the cell counts the days down from the check, as the ladder does (C1b)", () => {
+    // 9 days stored 2.5 days ago: 2 whole days used, so 7 now, which is Broken.
+    const v = sites(
+      healthy({
+        id: "recB",
+        name: "Bravo",
+        certDaysRemaining: 9,
+        domainCheckedAt: "2026-10-25T06:00:00.000Z",
+      }),
+    );
+    expect(v.live[0]!.domain).toEqual({ ok: false, text: "7 days left" });
+    expect(v.live[0]!.level.tier).toBe("broken");
+    expect(HOW_WE_COUNT.find((h) => h.term === "Certificate")!.text).toContain(
+      "less the whole days since",
+    );
+  });
+
+  it("0 days left is not yet expired; below 0 is (T5)", () => {
+    const cell = (d: number, at = FRESH) =>
+      sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: d, domainCheckedAt: at }))
+        .live[0]!.domain;
+    expect(cell(0)).toEqual({ ok: false, text: "0 days left" });
+    expect(cell(-1)).toEqual({ ok: false, text: "Certificate expired" });
+    // Aged to 0: 2 stored, 2.5 days ago.
+    expect(cell(2, "2026-10-25T06:00:00.000Z")).toEqual({ ok: false, text: "0 days left" });
+    expect(cell(1, "2026-10-25T06:00:00.000Z")).toEqual({
+      ok: false,
+      text: "Certificate expired",
+    });
+  });
+
+  it("Open now checks freshness first: a site with no fresh audit is listed, whatever its count (C2)", () => {
+    const v = sites(
+      healthy({
+        id: "recA",
+        name: "Acme",
+        lastSecurityAuditAt: null,
+        securityVulnsCritical: null,
+        securityVulnsHigh: null,
+      }),
+      healthy({ id: "recB", name: "Bravo", lastSecurityAuditAt: STALE }),
+      healthy({ id: "recD", name: "Delta" }),
+    );
+    expect(v.upkeep.open).toEqual([
+      {
+        siteId: "recA",
+        siteName: "Acme",
+        text: "has no security check on record, so we cannot say what is open now",
+      },
+      {
+        siteId: "recB",
+        siteName: "Bravo",
+        text: "had no critical or high vulnerability at the last security check, Oct 19; not checked lately, so we cannot say what is open now",
+      },
+    ]);
+    // Every site freshly audited with none open: the list is empty, and the page's
+    // "none open" sentence may stand.
+    expect(sites(healthy({ id: "recD", name: "Delta" })).upkeep.open).toEqual([]);
+  });
+
+  it("a ready deploy with no date says the date was not recorded (C3, O8)", () => {
+    expect(
+      sites(healthy({ id: "recA", name: "Acme", lastDeployAt: null })).live[0]!.deploy,
+    ).toEqual({ ok: true, text: "Published (date not recorded)" });
+  });
+
+  it("reliability counts only the steps that finished (T2)", () => {
+    const n = night("2026-10-26");
+    n.counts.steps["fleet-prismic-sync.yml"] = { outcome: "running", runId: 1, conclusion: null };
+    n.counts.steps["fleet-smoke.yml"] = { outcome: "skipped", runId: null, conclusion: null };
+    n.counts.steps["fleet-form-e2e.yml"] = {
+      outcome: "completed",
+      runId: 1,
+      conclusion: "failure",
+    };
+    n.counts.steps["daily-reports.yml"] = {
+      outcome: "failed",
+      runId: null,
+      conclusion: "dispatch-failed",
+      error: "x",
+    };
+    const v = overviewFromSnapshot(snapshot({ nights: [n] }), NOW);
+    // 8 steps: 4 ran to the end, 1 failed, 1 could not start, 1 running, 1 skipped.
+    expect(v.nightly.reliability).toBe(
+      "4 of 6 nightly steps ran to the end on the 1 night counted so far",
+    );
+  });
+
+  it("a step's Reached is the most sites any of its checks stamped (T3)", () => {
+    const n = night("2026-10-26", {
+      coverage: { value: { lighthouse_at: { value: 17 }, browser_checked_at: { value: 15 } } },
+    });
+    const v = overviewFromSnapshot(snapshot({ nights: [n] }), NOW);
+    expect(v.nightly.steps[stepNumber("fleet-lighthouse.yml") - 1]!.sites).toBe(
+      "17 sites that night",
+    );
+  });
+
+  it("the biggest share rounds to the nearest whole percent (T6)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        submissions: [
+          makeSubmissionRow({ id: "r1", siteId: "recR", formType: "rsvp", status: "read" }),
+          makeSubmissionRow({ id: "r2", siteId: "recR", formType: "rsvp", status: "read" }),
+          makeSubmissionRow({ id: "a1", siteId: "recA", status: "new" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.leads.biggest!.share).toBe(67);
+  });
+
+  it("a step that succeeded ran to the end, and says no more than that (O1)", () => {
+    const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW);
+    expect(v.nightly.steps.map((s) => s.outcome)).toEqual(Array(8).fill("ran to the end"));
+    expect(v.nightly.reliability).toBe(
+      "8 of 8 nightly steps ran to the end on the 1 night counted so far",
+    );
+    const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
+    const caveat =
+      "A step that runs to the end can still find problems; what it found is in the tables above.";
+    expect(line("Steps")).toContain(caveat);
+    expect(line("Runs completed")).toContain(caveat);
+    expect(HOW_WE_COUNT.map((h) => h.term)).not.toContain("Runs green");
+    expect(JSON.stringify(v)).not.toMatch(/green/);
+  });
+
+  it("an open vulnerability's wait reads right for one and for several (O2, O3)", () => {
+    const open = (over: Partial<WebsiteRow>) =>
+      overviewFromSnapshot(
+        snapshot({
+          sites: [healthy({ id: "recA", name: "Acme", lastSecurityAuditAt: FRESH, ...over })],
+          digest: { "vuln:recA": { metric: 1, firstFlaggedAt: "2026-10-26" } },
+        }),
+        NOW,
+      ).upkeep.open[0]!.text;
+    expect(open({ securityVulnsHigh: 1 })).toBe(
+      "has 1 critical or high vulnerability; we are waiting until Oct 29 for an automatic update to fix it; if it is still open then, it comes to us",
+    );
+    const deep = [
+      {
+        module: "x",
+        severity: "high" as const,
+        title: "t",
+        cves: [],
+        url: null,
+        relationship: "transitive" as const,
+      },
+    ];
+    expect(open({ securityVulnsHigh: 1, securityAdvisories: deep })).toBe(
+      "has 1 critical or high vulnerability; it sits deeper in the site's packages, so it waits for Monday's weekly package refresh and 2 days after it, until Nov 4; if it is still open then, it comes to us",
+    );
+  });
+
+  it("the copy says what each count is, in plain words (O4-O7, O9-O11)", () => {
+    const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
+    expect(line("Certificate")).toContain(
+      "At Attention we confirm it renews; we act only if it does not.",
+    );
+    expect(line("Accepted as real")).toBe(
+      "Leads, signups and RSVPs kept as real: new, read or archived. Only contact, inquiry and reservation forms bring leads; a newsletter signup or an RSVP is not one.",
+    );
+    expect(line("Broken, attention, watch")).toContain(
+      "each count opens that group on the Triage page.",
+    );
+    const down = sites(
+      healthy({ id: "recA", name: "Acme" }),
+      healthy({ id: "recB", name: "Bravo", reachableOk: "fail" }),
+    );
+    expect(down.status.line).toContain("1 not live at the last check.");
+    expect(NIGHTLY_STEPS[stepNumber("fleet-lighthouse.yml") - 1]!.label).toContain(
+      "browsers (each site opened in a real browser)",
+    );
+    expect(CHECK_PROOF["Google Indexed"]!(stepNumber)).toContain(
+      "Google Search Console (Google's report on which pages it has indexed)",
+    );
+    // Relative times in words, never "1w ago".
+    const lead = (submittedAt: string) =>
+      overviewFromSnapshot(
+        snapshot({
+          submissions: [
+            makeSubmissionRow({ id: "a1", siteId: "recA", status: "new", submittedAt }),
+          ],
+        }),
+        NOW,
+      ).live[0]!.lastLead;
+    expect(lead("2026-10-20T12:00:00.000Z")).toBe("last real lead 1 week ago");
+    expect(lead("2026-10-27T13:00:00.000Z")).toBe("last real lead 5 hours ago");
+    expect(lead("2026-09-27T12:00:00.000Z")).toBe("last real lead 1 month ago");
+    expect(lead("2026-10-27T17:59:30.000Z")).toBe("last real lead just now");
   });
 });

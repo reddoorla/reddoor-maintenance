@@ -494,5 +494,148 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "24-phone-clips",
+    "why": "(review round 4, T1) A section clips sideways and the phone layout is dropped, so the tables are cut off at 390px rather than stacked",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (max-width: 640px) {",
+        "replace": "section { overflow-x: hidden; }\n@media (max-width: 1px) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-reliability-counts-unfinished",
+    "why": "(review round 4, T2) Reliability counts a running or skipped step as one that finished",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
+        "replace": "  const results = window.flatMap((n) => Object.values(n.counts.steps));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "26-reached-min",
+    "why": "(review round 4, T3) A step's Reached takes the fewest sites one of its checks stamped, not the most",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            : `${count(Math.max(...sites), \"site\", \"sites\")}${coverageNight}`),",
+        "replace": "            : `${count(Math.min(...sites), \"site\", \"sites\")}${coverageNight}`),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "27-bad-cell-not-bold",
+    "why": "(review round 4, T4) A failed cell is given the ok class, so it is not bold",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"bad\" : \"unknown\");",
+        "replace": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"ok\" : \"unknown\");"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-status-band-fixed",
+    "why": "(review round 4, T4) The status band is always the OK one, whatever the level",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<section class=\"ov-status {v.status.cls}\"",
+        "replace": "<section class=\"ov-status ok\""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-cert-zero-expired",
+    "why": "(review round 4, T5) A certificate with 0 days left reads expired",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (d < 0) return { ok: false, text: \"Certificate expired\" };",
+        "replace": "  if (d <= 0) return { ok: false, text: \"Certificate expired\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "30-share-floor",
+    "why": "(review round 4, T6) The biggest share is rounded down, not to the nearest",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "share: Math.round((100 * top.submissions) / total),",
+        "replace": "share: Math.floor((100 * top.submissions) / total),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "31-cert-cell-unaged",
+    "why": "(review round 4, C1) The Certificate cell shows the stored days, not counted down from the check as the ladder does",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt!, now);",
+        "replace": "  const d = site.certDaysRemaining;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-dead-domain-unknown",
+    "why": "(review round 4, C1) A fresh domain check with no certificate days reads not checked, while the ladder calls it Broken",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (d === null) return { ok: false, text: \"Domain does not answer\" };",
+        "replace": "  if (d === null) return { ok: null, text: \"Not checked lately\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-open-count-before-freshness",
+    "why": "(review round 4, C2) Open now drops a site whose audit is stale or missing when its count is 0, so the page says none is open",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    .filter((x) => !x.fresh || x.n > 0)",
+        "replace": "    .filter((x) => x.n > 0)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-success-reads-green",
+    "why": "(review round 4, O1) A step that ran to the end is called green, beside a failed test or an open vulnerability",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  success: \"ran to the end\",",
+        "replace": "  success: \"green\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]

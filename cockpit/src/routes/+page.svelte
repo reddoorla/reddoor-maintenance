@@ -218,7 +218,7 @@
         .sendsAt}.</span
     >
     <span data-term="Scale">Scale: {v.nightly.scale}.</span>
-    <span data-term="Runs green">Reliability: {v.nightly.reliability}.</span>
+    <span data-term="Runs completed">Reliability: {v.nightly.reliability}.</span>
   </p>
   <ol class="ov-steps" data-term="Steps">
     {#each v.nightly.steps as s (s.label)}
@@ -253,6 +253,8 @@
       {/each}
     </ul>
   {:else}
+    <!-- Only when every site in our care has a fresh security check and none is open:
+         a stale or missing check is listed above (review round 4, C2). -->
     <p>No critical or high vulnerability is open.</p>
   {/if}
   <h3 id="ov-ladder">The ladder</h3>
@@ -267,11 +269,12 @@
   <h2 id="ov-ship">How changes ship</h2>
   <p>
     A change is tested first, then reviewed by fresh AI agents, usually over about three rounds, and
-    landed one small change (a PR) at a time. A person merges every published release.
+    landed one small change at a time, each as a pull request (PR). A person merges every published
+    release.
   </p>
   <p>
-    On a client site, a change goes from its own branch to staging, then to the live site when you
-    promote staging.
+    On a client site, a change goes from its own branch to staging, then to the live site when one
+    of us promotes staging.
   </p>
   <p data-term="PRs merged">
     Changes merged into the maintenance stack (the code that runs these checks and sends the

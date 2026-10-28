@@ -475,7 +475,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       `The nightly starts at ${sent("nightly.startsAt")}. Approved reports send at ${sent("nightly.sendsAt")}.`,
     );
     expect(span("Scale")).toBe(`Scale: ${sent("nightly.scale")}.`);
-    expect(span("Runs green")).toBe(`Reliability: ${sent("nightly.reliability")}.`);
+    expect(span("Runs completed")).toBe(`Reliability: ${sent("nightly.reliability")}.`);
     const steps = SDOC.querySelectorAll(".ov-steps li");
     expect(steps.length).toBe(SV.nightly.steps.length);
     steps.forEach((li, i) => {
@@ -655,5 +655,51 @@ describe("every link from the overview lands on an anchor that exists (review ro
   it("the cases above reach every kind of link, both approval targets included", () => {
     for (const href of ["/triage#broken", "/triage#cardless", "/triage#approval", "#ov-reports"])
       expect(seen).toContain(href);
+  });
+});
+
+describe("review round 4: emphasis, the none-open sentence, and the shipping copy", () => {
+  it("a failed cell is bold, and the status band is the Broken one (T4)", () => {
+    const bravo = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
+      text(tr).startsWith("Bravo"),
+    )!;
+    expect(bravo.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("bad");
+    const acme = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
+      text(tr).startsWith("Acme"),
+    )!;
+    expect(acme.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("ok");
+    expect(DOC.querySelector("section.ov-status")!.classList.contains("broken")).toBe(true);
+    // Control: a quiet page's band is not.
+    const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+    expect(quiet.querySelector("section.ov-status")!.classList.contains("ok")).toBe(true);
+  });
+
+  it("says none is open only when every site has a fresh security check (C2)", () => {
+    const NONE = "No critical or high vulnerability is open.";
+    expect(pageText(parse(pageHtml(overviewFromSnapshot(snapshot(), NOW))))).toContain(NONE);
+    const never = snapshot({
+      sites: [
+        healthy({ id: "recA", name: "Acme" }),
+        healthy({
+          id: "recR",
+          name: "Rsvp Site",
+          lastSecurityAuditAt: null,
+          securityVulnsCritical: null,
+          securityVulnsHigh: null,
+        }),
+      ],
+    });
+    const words = pageText(parse(pageHtml(overviewFromSnapshot(never, NOW))));
+    expect(words).not.toContain(NONE);
+    expect(words).toContain(
+      "Rsvp Site has no security check on record, so we cannot say what is open now.",
+    );
+  });
+
+  it("glosses a pull request, and says who promotes staging (O9, O10)", () => {
+    const ship = text(DOC.querySelector('section[aria-labelledby="ov-ship"]')!);
+    expect(ship).toContain("each as a pull request (PR)");
+    expect(ship).toContain("when one of us promotes staging");
+    expect(ship).not.toContain("when you promote");
   });
 });

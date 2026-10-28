@@ -294,16 +294,14 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         scroll: document.documentElement.scrollWidth,
         width: window.innerWidth,
         dark: getComputedStyle(document.body).backgroundColor,
-        // Every element that lays out a box and lets its content show: one whose
-        // content is wider than itself pushes something sideways. A box that clips
-        // on purpose (the visually hidden heading and table heads), and all inside
-        // it, is left out.
+        // Every element that lays out a box: one whose content is wider than itself
+        // pushes something sideways. Only the two boxes hidden on purpose (the visually
+        // hidden heading and the phone's table heads), and all inside them, are left
+        // out, by name: skipping every box under an `overflow: hidden` ancestor let
+        // clipped content count as fitting (review round 4, T1).
         wide: [...document.body.querySelectorAll("*")]
           .filter((e) => {
-            for (let a: Element | null = e; a !== null; a = a.parentElement) {
-              const o = getComputedStyle(a).overflowX;
-              if (o === "hidden" || o === "clip") return false;
-            }
+            if (e.closest(".visually-hidden, .ov-table thead") !== null) return false;
             const d = getComputedStyle(e).display;
             return d !== "inline" && d !== "contents" && e.clientWidth > 0;
           })
@@ -314,6 +312,21 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       }));
       expect(fit.wide).toEqual([]);
       expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      // And what the tables show ends inside the screen: a cell cut off by a
+      // clipping box still reads as overflowing here (review round 4, T1).
+      const cells = await page.evaluate(() =>
+        [...document.querySelectorAll(".ov-table th, .ov-table td")]
+          .filter((e) => e.closest("thead") === null)
+          .map((e) => ({ e, r: e.getBoundingClientRect() }))
+          .filter(({ r }) => r.width > 0 && r.height > 0)
+          .map(({ e, r }) => ({
+            cell: (e.textContent ?? "").trim().slice(0, 30),
+            right: r.right,
+            width: window.innerWidth,
+          })),
+      );
+      expect(cells.length).toBeGreaterThan(10);
+      expect(cells.filter((c) => c.right > c.width + 0.5)).toEqual([]);
       // The theme took: dark ground is not light ground.
       const [r] = fit.dark.match(/\d+/g)!.map(Number);
       if (scheme === "dark") expect(r!).toBeLessThan(80);
@@ -336,7 +349,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
       // Relative times may tick between the two loads; everything else must match.
-      return html.replace(/\b(just now|\d+[mhd] ago)/g, "<ago>");
+      return html.replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>");
     };
     const erik = await overview("erik");
     const tim = await overview("tim");

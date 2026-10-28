@@ -26,6 +26,11 @@ export function healthy(over: Partial<WebsiteRow> = {}): WebsiteRow {
     formE2eOk: "pass",
     formE2eCheckedAt: FRESH,
     deployCheckedAt: FRESH,
+    // Freshly audited with none open, so "Open now" lists only what a test puts there
+    // (review round 4, C2: a site with no fresh audit is listed).
+    lastSecurityAuditAt: FRESH,
+    securityVulnsCritical: 0,
+    securityVulnsHigh: 0,
     ...over,
   });
 }
@@ -70,6 +75,10 @@ export function report(over: Partial<ReportRow> = {}): ReportRow {
 }
 
 export function night(date: string, over: Partial<OverviewNight["counts"]> = {}): OverviewNight {
+  // The night of `date` starts that evening, Pacific time: the 06:07Z run the next
+  // day (by `nightOf`, src/fleet-daily/core.ts), never `date`'s own 06:07Z, which
+  // belongs to the night before (review round 4, fixture note).
+  const runAt = `${new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)}T06:07:00Z`;
   return {
     night: date,
     counts: {
@@ -79,8 +88,8 @@ export function night(date: string, over: Partial<OverviewNight["counts"]> = {})
         id: 1,
         attempt: 1,
         event: "workflow_dispatch",
-        createdAt: `${date}T06:07:00Z`,
-        startedAt: `${date}T06:07:00Z`,
+        createdAt: runAt,
+        startedAt: runAt,
         conclusion: "success",
       },
       steps: Object.fromEntries(
