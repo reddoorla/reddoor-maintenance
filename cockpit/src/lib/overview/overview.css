@@ -114,3 +114,90 @@ section,
     color: var(--ink-muted);
   }
 }
+/* P1-78h: section 8's small charts. Ink for every series, red for Broken only; a
+   second line is dashed so the two never read by colour alone. */
+.ov-trends {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1.5rem;
+}
+.ov-trend {
+  margin: 0;
+  min-width: 0;
+}
+.ov-trend figcaption {
+  font-weight: var(--weight-bold);
+}
+.ov-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ov-key {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0.25rem 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.ov-key-mark {
+  width: 16px;
+  height: 10px;
+  margin-right: 0.35rem;
+}
+.ov-tick {
+  fill: var(--ink-muted);
+  font-size: 10px;
+}
+.ov-grid,
+.ov-axis {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.ov-earlier {
+  fill: var(--band);
+}
+.ov-break {
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.ov-bar {
+  fill: var(--ink-muted);
+}
+.ov-line-mark {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.ov-line-mark.second {
+  stroke-dasharray: 4 3;
+}
+.ov-dot {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.ov-line-mark.broken {
+  stroke: var(--broken);
+}
+.ov-dot.broken {
+  fill: var(--broken);
+}
+.ov-hit {
+  fill: transparent;
+}
+.ov-hit:hover {
+  fill: var(--band);
+  fill-opacity: 0.5;
+}
+.ov-trend-note {
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+.ov-trend-table summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}

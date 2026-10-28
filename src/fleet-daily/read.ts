@@ -72,6 +72,13 @@ export { OVERVIEW_NIGHTS };
 /** A block an older or partial row does not carry: unmeasured, never a thrown page. */
 const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
 
+/** A block as the reader hands it on: one that is not an object holding `value`
+ *  (missing, or hand-written as `{}`) is unmeasured, never passed through to throw
+ *  on the page (P1-78h review round 2). */
+function measured<T extends { value: unknown }>(b: T | null | undefined): T | typeof NOT_IN_ROW {
+  return b !== null && typeof b === "object" && "value" in b ? b : NOT_IN_ROW;
+}
+
 /** The overview's nights, newest first: `OVERVIEW_NIGHTS` rows by primary key, so it
  *  stays cheap on the request path, as `readLatestDeps` does. Every block the overview
  *  reads is guarded the way `readLatestDeps` guards `deps`: a row written before a
@@ -87,10 +94,14 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         ...(rest as Omit<FleetDailyCounts, "deps">),
         run: rest.run ?? null,
         steps: rest.steps ?? {},
-        coverage: rest.coverage ?? NOT_IN_ROW,
-        screenouts: rest.screenouts ?? NOT_IN_ROW,
-        events: rest.events ?? NOT_IN_ROW,
-        prsMerged: rest.prsMerged ?? NOT_IN_ROW,
+        coverage: measured(rest.coverage),
+        // The blocks section 8's trends read (P1-78h).
+        sites: measured(rest.sites),
+        signals: measured(rest.signals),
+        leads: measured(rest.leads),
+        screenouts: measured(rest.screenouts),
+        events: measured(rest.events),
+        prsMerged: measured(rest.prsMerged),
         deps:
           deps?.value != null
             ? {
@@ -98,11 +109,11 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
                   behind: deps.value.behind,
                   // A site whose list was not read that night is not in the sum.
                   sitesRead: Object.values(deps.value.sites ?? {}).filter(
-                    (x) => x.packages !== null,
+                    (x) => x?.packages != null,
                   ).length,
                 },
               }
-            : (deps ?? NOT_IN_ROW),
+            : measured(deps),
       },
     };
   });

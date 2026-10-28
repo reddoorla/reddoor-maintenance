@@ -8,6 +8,7 @@ import OverviewPage from "../../src/routes/+page.svelte";
 import TriagePage from "../../src/routes/triage/+page.svelte";
 import {
   overviewFromSnapshot,
+  trendGeometry,
   HOW_WE_COUNT,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
@@ -85,7 +86,7 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the seven sections, each under its h2", () => {
+  it("has the eight sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
       "Is every site live?",
@@ -94,6 +95,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "What runs every night",
       "Upkeep",
       "How changes ship",
+      "Trends",
     ]);
   });
 
@@ -258,6 +260,17 @@ describe("the overview's stylesheet (T5)", () => {
     // Control: the same check catches one.
     expect(LITERAL.test(".x { color: #d71920; }")).toBe(true);
     expect(LITERAL.test(".x { border-left-color: darkred; }")).toBe(true);
+  });
+
+  it("tells the trend series apart by more than colour (P1-78h review round 2, T3)", () => {
+    const rule = (sel: string) =>
+      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(rule(".ov-line-mark.second")).toMatch(/stroke-dasharray:\s*[1-9]/);
+    // The hover targets lie over every mark, so they must stay see-through (round 3).
+    expect(rule(".ov-hit")).toMatch(/fill:\s*transparent/);
+    expect(rule(".ov-dot.broken")).toMatch(/fill:\s*var\(--broken\)/);
+    expect(rule(".ov-line-mark.broken")).toMatch(/stroke:\s*var\(--broken\)/);
+    expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
   });
 
   it("paints red only on a .broken selector", () => {
@@ -759,5 +772,192 @@ describe("no count is typed into the page, over the sentinel render (review roun
     ).toEqual([String(n), "100"]);
     // And in an attribute.
     expect(stray(html.replace("<h1", '<h1 title="30 nights a month"'))).toEqual(["30"]);
+  });
+});
+
+describe("P1-78h: section 8 while collecting (review round 1, T4)", () => {
+  it("says how many nights it has and draws no chart", () => {
+    const sec = DOC.querySelector('section[aria-labelledby="ov-trends"]')!;
+    expect(text(sec.querySelector("p")!)).toBe(`${VIEW.trends.status}.`);
+    expect(VIEW.trends.status).toMatch(/^Collecting: 1 of 14 nights/);
+    expect(sec.querySelectorAll("figure, svg")).toHaveLength(0);
+  });
+});
+
+describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
+  // Sixteen nights to Oct 26: Oct 20 has no row, and the two oldest were counted on
+  // an earlier ladder, so the level chart has a break and a gap.
+  const nights = Array.from({ length: 17 }, (_, i) => {
+    const date = new Date(Date.parse("2026-10-26T00:00:00Z") - i * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return night(date, {
+      ladderVersion: i >= 15 ? 1 : 2,
+      sites: {
+        value: {
+          cards: 3,
+          tiers: { broken: i % 2, attention: 2, healthy: 1 },
+          preLaunch: 0,
+          setup: 0,
+        },
+      },
+      leads: {
+        value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: 300 - 2 * i },
+      },
+    });
+  }).filter((n) => n.night !== "2026-10-20");
+  const TSNAP = { ...SNAP, nights };
+  const TVIEW = overviewFromSnapshot(TSNAP, NOW);
+  const TDOC = parse(pageHtml(TVIEW));
+  const section = TDOC.querySelector('section[aria-labelledby="ov-trends"]')!;
+
+  it("draws four charts, each an image with a name and a description", () => {
+    expect(TVIEW.trends.charts).toHaveLength(4);
+    const figs = section.querySelectorAll("figure.ov-trend");
+    expect(figs.map((f) => text(f.querySelector("figcaption")!))).toEqual(
+      TVIEW.trends.charts!.map((c) => c.title),
+    );
+    for (const [i, f] of figs.entries()) {
+      const svg = f.querySelector("svg.ov-chart")!;
+      expect(svg.getAttribute("role")).toBe("img");
+      expect(svg.getAttribute("aria-labelledby")).toBe(`ov-trend-${i} ov-trend-${i}-desc`);
+      expect(text(svg.querySelector("desc")!)).toBe(TVIEW.trends.charts![i]!.summary);
+    }
+  });
+
+  it("the Broken line is drawn in pieces around the gap and the break, in the Broken style", () => {
+    const fig = section.querySelectorAll("figure.ov-trend")[0]!;
+    const broken = fig.querySelectorAll("svg.ov-chart path.ov-line-mark.broken");
+    // Oct 13 to Oct 19, and Oct 21 to Oct 26: never one line across the gap.
+    expect(broken).toHaveLength(2);
+    expect(fig.querySelectorAll("svg.ov-chart rect.ov-earlier")).toHaveLength(1);
+    expect(text(fig.querySelector(".ov-trend-note")!)).toBe(TVIEW.trends.charts![0]!.note);
+  });
+
+  it("each chart's table gives every night, with why a night has no point", () => {
+    for (const [i, f] of section.querySelectorAll("figure.ov-trend").entries()) {
+      const c = TVIEW.trends.charts![i]!;
+      const rows = f.querySelectorAll(".ov-trend-table tbody tr");
+      expect(rows.map((r) => r.querySelectorAll("th, td").map(text).join(" "))).toEqual(
+        c.nights.map(
+          (label, k) =>
+            `${label} ${c.series.map((s) => s.points[k]!.value ?? s.points[k]!.note).join(" ")}`,
+        ),
+      );
+    }
+    const gap = section.querySelectorAll(".ov-trend-table tbody tr")[10]!;
+    expect(gap.querySelectorAll("th, td").map(text)).toEqual([
+      "Oct 20",
+      "no count that night",
+      "no count that night",
+    ]);
+  });
+
+  it("draws exactly the marks the geometry gives, in its order (review round 1, T2)", () => {
+    for (const [i, f] of section.querySelectorAll("figure.ov-trend").entries()) {
+      const g = trendGeometry(TVIEW.trends.charts![i]!);
+      const svg = f.querySelector("svg.ov-chart")!;
+      const attrs = (sel: string, names: string[]) =>
+        svg.querySelectorAll(sel).map((e) => names.map((n) => e.getAttribute(n)));
+      expect(attrs("path.ov-bar", ["d"])).toEqual(g.bars.map((b) => [b.d]));
+      expect(attrs("path.ov-line-mark", ["d", "class"])).toEqual(
+        g.lines.map((l) => [
+          l.d,
+          `ov-line-mark ${l.broken ? "broken" : ""} ${l.series > 0 ? "second" : ""}`,
+        ]),
+      );
+      expect(attrs("circle.ov-dot", ["cx", "cy", "class"])).toEqual(
+        g.dots.map((d) => [
+          String(d.x),
+          String(d.y),
+          `ov-dot ${d.broken ? "broken" : ""} ${d.series > 0 ? "second" : ""}`,
+        ]),
+      );
+      // Review round 2 (T1): every coordinate of the break, so it cannot be moved off
+      // the plot or drawn with no length.
+      expect(attrs("rect.ov-earlier", ["x", "y", "width", "height"])).toEqual(
+        g.earlier.map((e) => [
+          String(e.x),
+          String(g.top),
+          String(e.width),
+          String(g.baseline - g.top),
+        ]),
+      );
+      expect(attrs("line.ov-break", ["x1", "x2", "y1", "y2"])).toEqual(
+        g.breaks.map((x) => [String(x), String(x), String(g.top), String(g.baseline)]),
+      );
+      // The zero axis where columns stand, and the ticks in the view's words.
+      expect(attrs("line.ov-axis", ["y1", "y2"])).toEqual([[String(g.zero), String(g.zero)]]);
+      const c = TVIEW.trends.charts![i]!;
+      // Round 3 (T2): the halfway label sits at its own height, not on the top one.
+      if (c.mid !== null)
+        expect(svg.querySelectorAll("text.ov-tick")[1]!.getAttribute("y")).toBe(
+          String(g.midY! + 4),
+        );
+      expect(svg.querySelectorAll("text.ov-tick").map(text)).toEqual([
+        String(c.high),
+        ...(c.mid === null ? [] : [String(c.mid)]),
+        String(c.low),
+        c.nights[0],
+        c.nights.at(-1),
+      ]);
+      // Review round 2 (T2): a chart of two series names each in its key, with the
+      // mark it is drawn with.
+      const key = f.querySelectorAll(".ov-key li");
+      expect(key.map(text)).toEqual(c.series.length > 1 ? c.series.map((s) => s.name) : []);
+      for (const [k, li] of key.entries()) {
+        const s = c.series[k]!;
+        const mark = li.querySelector("svg.ov-key-mark > *")!;
+        expect(mark.tagName.toLowerCase()).toBe(s.bars ? "rect" : "line");
+        expect(mark.getAttribute("class")).toBe(
+          s.bars ? "ov-bar" : `ov-line-mark ${s.broken ? "broken" : ""} ${k > 0 ? "second" : ""}`,
+        );
+      }
+    }
+    // Both two-series charts carry a key.
+    expect(section.querySelectorAll(".ov-key")).toHaveLength(2);
+    expect(TVIEW.trends.charts!.some((c) => c.mid !== null)).toBe(true);
+    // The fixture reaches every kind of mark.
+    const all = TVIEW.trends.charts!.map((c) => trendGeometry(c));
+    for (const k of ["bars", "lines", "dots", "earlier", "breaks"] as const)
+      expect(
+        all.some((g) => g[k].length > 0),
+        k,
+      ).toBe(true);
+    expect(TVIEW.trends.charts![0]!.series).toHaveLength(2);
+  });
+
+  it("every hover target names its night", () => {
+    const fig = section.querySelectorAll("figure.ov-trend")[0]!;
+    const titles = fig.querySelectorAll("rect.ov-hit title").map(text);
+    expect(titles).toHaveLength(17);
+    expect(titles).toContain("Oct 20: no count that night");
+  });
+
+  it("every number in the section came from the view, and has its How-we-count line", () => {
+    const allowed = new Set([...(JSON.stringify({ TVIEW, HOW_WE_COUNT }).match(/\d+/g) ?? [])]);
+    expect(shownNumbers(TDOC).filter((d) => !allowed.has(d))).toEqual([]);
+    const terms = new Set(TDOC.querySelectorAll(".ov-how dt").map(text));
+    for (const e of TDOC.querySelectorAll("[data-term]"))
+      expect(terms).toContain(e.getAttribute("data-term"));
+  });
+
+  it("over the sentinel render: each leaf is on the page, and no digit is typed in", () => {
+    const ST = sentinelize(TVIEW);
+    const html = pageHtml(ST.view);
+    const doc = parse(html);
+    const words = pageText(doc);
+    const shown = new Set(shownNumbers(doc));
+    let checked = 0;
+    for (const [path, v] of ST.at) {
+      if (!path.startsWith("trends.") || path.endsWith(".term")) continue;
+      checked++;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    expect(checked).toBeGreaterThan(150);
+    const allowed = new Set(ST.at.values());
+    const n = ST.view.reports.checks.length;
+    expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
   });
 });

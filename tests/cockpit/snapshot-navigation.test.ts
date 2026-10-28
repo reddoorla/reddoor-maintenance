@@ -173,6 +173,35 @@ async function seed(url: string): Promise<void> {
         written_at: new Date().toISOString(),
       })
       .execute();
+  // P1-78h: fourteen older nights, so section 8 draws its charts in the 390px check.
+  // They carry only the blocks the trends read and no step results, so the nightly's
+  // reliability above still counts its two recorded nights. Each is on the current
+  // ladder but the oldest, so the level chart has a break; one night is missing.
+  for (let i = 2; i <= 16; i++) {
+    if (i === 9) continue;
+    const night = new Date(Date.parse(`${newest}T00:00:00Z`) - i * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    await db
+      .insertInto("fleet_daily")
+      .values({
+        night,
+        counts: JSON.stringify({
+          ladderVersion: i === 16 ? 1 : 2,
+          sites: {
+            value: { cards: 3, tiers: { broken: i % 3, attention: 1 }, preLaunch: 0, setup: 0 },
+          },
+          signals: { value: { vuln: i % 2 } },
+          coverage: { value: { security_audit_at: { value: 17 }, lighthouse_at: { value: 17 } } },
+          leads: {
+            value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: 400 - 3 * i },
+          },
+          events: { value: { vuln_cleared: 3 - Math.floor(i / 6) } },
+        }),
+        written_at: new Date().toISOString(),
+      })
+      .execute();
+  }
   await db.destroy();
 }
 
@@ -329,6 +358,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );
+      // P1-78h: section 8 draws its four charts, so they are laid out here too.
+      expect(await page.locator("figure.ov-trend svg.ov-chart").count()).toBe(4);
+      await page.locator(".ov-trend-table summary").first().click();
       await page.locator(".ov-how summary").click();
       const fit = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth,
@@ -367,6 +399,59 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       );
       expect(cells.length).toBeGreaterThan(10);
       expect(cells.filter((c) => c.right > c.width + 0.5)).toEqual([]);
+      // P1-78h: each chart is as wide as its figure, and its ticks are legible:
+      // at least 10px tall on screen.
+      const charts = await page.evaluate(() =>
+        [...document.querySelectorAll("figure.ov-trend")].map((f) => ({
+          chart: f.querySelector("svg.ov-chart")!.getBoundingClientRect().width,
+          figure: f.getBoundingClientRect().width,
+          tick: Math.min(
+            ...[...f.querySelectorAll("text.ov-tick")].map((t) => t.getBoundingClientRect().height),
+          ),
+        })),
+      );
+      for (const c of charts) {
+        expect(c.chart).toBeCloseTo(c.figure, 0);
+        expect(c.tick).toBeGreaterThanOrEqual(10);
+      }
+      // Review round 1 (T3): every mark that carries a value or the break stands out
+      // from the page's ground by at least 3:1, in this theme.
+      const contrast = await page.evaluate(() => {
+        const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+        const lum = (c: string) => {
+          const [r, g, b] = rgb(c).map((v) => {
+            const s = v / 255;
+            return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+        };
+        const ratio = (a: string, b: string) => {
+          const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+          return (x! + 0.05) / (y! + 0.05);
+        };
+        const ground = getComputedStyle(document.body).backgroundColor;
+        const of = (sel: string, prop: "stroke" | "fill") => {
+          const e = document.querySelector(sel);
+          return e === null ? null : ratio(getComputedStyle(e)[prop], ground);
+        };
+        return {
+          line: of("path.ov-line-mark:not(.broken)", "stroke"),
+          broken: of("path.ov-line-mark.broken", "stroke"),
+          bar: of("path.ov-bar", "fill"),
+          dot: of("circle.ov-dot:not(.broken)", "fill"),
+          // Review round 2 (T3): the first dot drawn is Attention's, so Broken's own.
+          brokenDot: of("circle.ov-dot.broken", "fill"),
+          rule: of("line.ov-break", "stroke"),
+        };
+      });
+      for (const [mark, r] of Object.entries(contrast)) {
+        expect(r, mark).not.toBeNull();
+        expect(r!, mark).toBeGreaterThanOrEqual(3);
+      }
+      await page.screenshot({
+        path: join(tmpdir(), `overview-trends-390-${scheme}.png`),
+        fullPage: true,
+      });
       // The theme took: dark ground is not light ground.
       const [r] = fit.dark.match(/\d+/g)!.map(Number);
       if (scheme === "dark") expect(r!).toBeLessThan(80);

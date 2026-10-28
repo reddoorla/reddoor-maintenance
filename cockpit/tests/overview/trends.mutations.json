@@ -1,0 +1,574 @@
+[
+  {
+    "id": "1-thirteen-nights-draw",
+    "why": "A chart draws with 13 nights (brief h, mutation 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (shown < TREND_NIGHTS)\n",
+        "replace": "  if (shown < TREND_NIGHTS - 1)\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-missing-night-as-zero",
+    "why": "A missing night is drawn as zero (brief h, mutation 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const noCount: TrendPoint = point({ value: null, note: NO_COUNT });",
+        "replace": "  const noCount: TrendPoint = point({ value: 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2b-missing-night-as-zero-in-the-geometry",
+    "why": "The geometry draws a night with no value at zero (brief h, mutation 2, where the page draws)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p.value === null) close();",
+        "replace": "      if (p.value === null) run.push({ x: xAt(i), y: yAt(0), value: 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2c-missing-night-as-zero-in-the-table",
+    "why": "The page's table shows a night with no value as 0",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{q.value === null ? q.note : q.value}</td",
+        "replace": ">{q.value ?? 0}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-null-count-as-zero",
+    "why": "A null count (could not be read) is drawn as zero (brief h, mutation 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      return v === null ? unread : point({ value: v });",
+        "replace": "      return point({ value: v ?? 0 });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3b-null-level-as-zero",
+    "why": "An unread sites block reads as no site at that level",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "keyOf(keyed(c.sites.value)?.[\"tiers\"], t)",
+        "replace": "(c.sites.value === null ? 0 : keyOf(keyed(c.sites.value)?.[\"tiers\"], t))"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3c-unread-check-summed-as-zero",
+    "why": "Checks run sums the counts it could read and drops an unread one as zero",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
+        "replace": "    return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-two-versions-joined",
+    "why": "Nights of two ladder versions are joined into one level line (brief h, mutation 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (levels && c.ladderVersion !== ladder) return point({ value: null, note: EARLIER }, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4b-line-joined-across-a-gap",
+    "why": "The geometry carries a line across a night with no value",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p.value === null) close();",
+        "replace": "      if (p.value === null) return;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4c-run-never-reset",
+    "why": "A closed run is not cleared, so the next run joins it across the gap (review round 1, T1's surviving mutant)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      run = [];\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-current-ladder-from-newest-row",
+    "why": "The current ladder is read off the newest row even when it records none (found in the 390px screenshot)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const ladder = sorted.find((n) => typeof n.counts.ladderVersion === \"number\")?.counts",
+        "replace": "  const ladder = sorted.find(() => true)?.counts"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-delta-across-a-gap",
+    "why": "A night with no row the night before reads its running total as its rise",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (p === undefined) return point({ value: null, note: NO_BASE });",
+        "replace": "      if (p === undefined) return point({ value: v });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-sites-block-unguarded",
+    "why": "readOverviewNights stops guarding the sites block the trends read",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "        sites: measured(rest.sites),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-fall-drawn",
+    "why": "A fall in a running total is drawn as a negative night (review round 1, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      return point(v < base ? { value: null, note: fell } : { value: v - base });",
+        "replace": "      return point({ value: v - base });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-zero-column-invisible",
+    "why": "A night of 0 draws no visible column, the same as a gap (review round 1, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        const top = r1(Math.min(yAt(p.value), zero - MIN_COLUMN));",
+        "replace": "        const top = r1(yAt(p.value));"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-lone-night-lost",
+    "why": "A night alone between gaps draws nothing (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (run.length === 1) dots.push({ series: si, broken: s.broken, x: run[0]!.x, y: run[0]!.y });",
+        "replace": "      if (run.length === 1) run = [];"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-malformed-count-trusted",
+    "why": "A malformed count is taken as stored (review round 1, C3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : null;",
+        "replace": "  v as number | null;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-page-drops-columns",
+    "why": "The page draws no columns (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each g.bars as b, bi (bi)}",
+        "replace": "{#each [] as b, bi (bi)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-page-drops-a-level-line",
+    "why": "The page draws only the Broken line (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each g.lines as l, li (li)}",
+        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-page-flattens-the-break",
+    "why": "The page draws the earlier-ladder band with no height (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                height={g.baseline - g.top}\n",
+        "replace": "                height={0}\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-break-rule-faint",
+    "why": "The break rule is drawn in the band's own faint shade (review round 1, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-break {\n  stroke: var(--ink-muted);",
+        "replace": ".ov-break {\n  stroke: var(--band);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-empty-block-passed-through",
+    "why": "A block hand-written as {} is passed through to throw on the page (review round 2, C1)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  return b !== null && typeof b === \"object\" && \"value\" in b ? b : NOT_IN_ROW;",
+        "replace": "  return b ?? NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-threshold-counts-rows",
+    "why": "Charts draw on 14 rows when fewer than 14 fall in the window (review round 2, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (shown < TREND_NIGHTS)\n    return collecting(shown, shown < nights.length,",
+        "replace": "  if (nights.length < TREND_NIGHTS)\n    return collecting(nights.length, false,"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-band-below-the-plot",
+    "why": "The earlier-ladder band hangs below the plot (review round 2, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                y={g.top}\n                width={e.width}",
+        "replace": "                y={g.baseline}\n                width={e.width}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-break-rule-no-length",
+    "why": "The break rule is drawn with no length (review round 2, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "y1={g.top} y2={g.baseline} />",
+        "replace": "y1={g.top} y2={g.top} />"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-key-dropped",
+    "why": "The two-series charts lose their key (review round 2, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.series.length > 1}",
+        "replace": "{#if c.series.length > 5}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-summary-gap-miscounted",
+    "why": "The summary counts a night as a gap when any series has no point (review round 2, T5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const gaps = days.filter((_, i) => s.every((x) => x.points[i]!.value === null)).length;",
+        "replace": "    const gaps = days.filter((_, i) => s.some((x) => x.points[i]!.value === null)).length;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-halfway-tick-dropped",
+    "why": "The page draws no halfway tick (review round 2, O-m2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.mid !== null && g.midY !== null}",
+        "replace": "{#if false}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-window-ends-at-expected-night",
+    "why": "Before 6am PT the window drops the night just counted (review round 3, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const end = newest > expected ? newest : expected;",
+        "replace": "  const end = expected;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-hover-says-one-reason",
+    "why": "A hover title gives the first series' reason for both (review round 3, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.points[i]!.value === null && s.points[i]!.note === p.note)",
+        "replace": "s.points[i]!.value === null && true)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-mid-label-on-the-top-tick",
+    "why": "The halfway label is printed over the top one (review round 3, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "y={g.midY + 4}",
+        "replace": "y={g.top + 4}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-collecting-hides-a-stop",
+    "why": "The collecting line does not say the nightly stopped (review round 3, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "newest < expected ? newest : null);",
+        "replace": "null);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-null-column-throws-section-5",
+    "why": "Section 5's scale throws on a hand-written null column (review round 3, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    .map((m) => m?.value)",
+        "replace": "    .map((m) => m!.value)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-second-line-solid",
+    "why": "Attention's line is drawn solid, told from Broken by colour alone (review round 3, T4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  stroke-dasharray: 4 3;",
+        "replace": "  stroke-dasharray: 0;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-axis-steps-1-2-5",
+    "why": "The axis rounds to 1, 2, 5, so a 3 reads off 0-5 with no halfway tick (review round 3, O3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    for (const m of [2, 4, 6, 10]) if (m * step >= n) return m * step;",
+        "replace": "    for (const m of [2, 5, 10]) if (m * step >= n) return m * step;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-version-0-unversioned",
+    "why": "A night on ladder version 0 reads as one that recorded no version (review round 4, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (levels && typeof c.ladderVersion !== \"number\")",
+        "replace": "if (levels && !c.ladderVersion)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-version-0-never-current",
+    "why": "The current ladder is never read off a night on version 0 (review round 4, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "sorted.find((n) => typeof n.counts.ladderVersion === \"number\")",
+        "replace": "sorted.find((n) => !!n.counts.ladderVersion)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-negative-count-read",
+    "why": "A count below 0 is drawn (review round 4, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Number.isFinite(v) && v >= 0 ? v : null",
+        "replace": "Number.isFinite(v) ? v : null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-malformed-block-as-empty",
+    "why": "A block that is not an object reads as an empty one, every key 0 (review round 4, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (o === null) return null;\n  return key in o",
+        "replace": "  if (o === null) return 0;\n  return key in o"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-malformed-coverage-as-none",
+    "why": "A coverage block that is not an object reads as no checks run (review round 4, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (columns === null) return null;",
+        "replace": "    if (columns === null) return 0;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-break-rule-on-the-plot-edge",
+    "why": "A break rule is drawn on the plot's left edge (review round 4, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": ".filter((x) => x > plotLeft && x < r1(plotRight))",
+        "replace": ".filter((x) => x >= plotLeft && x <= r1(plotRight))"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-array-block-as-empty",
+    "why": "A block hand-written as an array reads as an empty object, every key 0 (review round 5, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": " && !Array.isArray(v) ?",
+        "replace": " ?"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-infinite-count-read",
+    "why": "An infinite count is drawn (review round 5, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Number.isFinite(v) && v >= 0",
+        "replace": "!Number.isNaN(v) && v >= 0"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-no-checks-unread",
+    "why": "A coverage block holding no check reads as unread, not as 0 (review round 5, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "all.some((v) => v === null) ? null",
+        "replace": "all.length === 0 || all.some((v) => v === null) ? null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  }
+]

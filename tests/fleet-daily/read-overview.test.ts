@@ -39,6 +39,33 @@ describe("readOverviewNights guards every block it reads", () => {
       expect(n!.counts[block]).toEqual({ value: null, reason: "not in this row" });
   });
 
+  it("the blocks the trends read are guarded too (P1-78h)", async () => {
+    await put("2026-10-26", {});
+    const [n] = await readOverviewNights(db);
+    for (const block of ["sites", "signals", "leads"] as const)
+      expect(n!.counts[block]).toEqual({ value: null, reason: "not in this row" });
+  });
+
+  it("a block with no value (hand-written as {}) reads as unmeasured too (P1-78h round 2)", async () => {
+    const blocks = [
+      "coverage",
+      "sites",
+      "signals",
+      "leads",
+      "screenouts",
+      "events",
+      "prsMerged",
+      "deps",
+    ];
+    await put("2026-10-26", Object.fromEntries(blocks.map((b) => [b, {}])));
+    const [n] = await readOverviewNights(db);
+    for (const block of blocks)
+      expect(n!.counts[block as "sites"], block).toEqual({
+        value: null,
+        reason: "not in this row",
+      });
+  });
+
   it("strips the package lists and keeps a failed deps reading's reason", async () => {
     await put("2026-10-25", {
       deps: {
