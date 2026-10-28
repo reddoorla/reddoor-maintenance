@@ -1345,9 +1345,20 @@ function roundUp(n: number): number {
 }
 
 /** A count as stored, or null: a field missing or malformed in a hand-written or
- *  older row reads as unread, never as a number (review round 1). */
+ *  older row reads as unread, never as a number (review round 1), and so does a
+ *  count below 0, which no night can have (review round 4). */
 const finite = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+/** A block's value as a keyed object, or null: a malformed block reads as unread,
+ *  never as an empty one whose every key is 0 (review round 4). */
+const keyed = (v: unknown): Record<string, unknown> | null =>
+  typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+/** A key of a well-formed block: absent is 0, present must be a count. */
+const keyOf = (block: unknown, key: string): number | null => {
+  const o = keyed(block);
+  if (o === null) return null;
+  return key in o ? finite(o[key]) : 0;
+};
 
 type Reading = { value: number } | { value: null; note: string };
 const point = (r: Reading, earlier = false): TrendPoint => ({
@@ -1366,7 +1377,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
   if (nights === null) return { status: UNREADABLE, charts: null };
   /** The collecting line; it says when the nightly has stopped, as the charts' does. */
   const collecting = (n: number, older: boolean, since: string | null): TrendsView => ({
-    status: `Collecting: ${n} of ${TREND_NIGHTS} nights${older ? ` in the last ${WINDOW_NIGHTS}` : ""}; the charts start once all ${TREND_NIGHTS} are in${since === null ? "" : `; none counted since ${nightLabel(since)}`}`,
+    status: `Collecting: ${n} of ${TREND_NIGHTS} nights${older ? ` in the last ${WINDOW_NIGHTS}` : ""}; the charts start once all ${TREND_NIGHTS} are in${since === null ? "" : `; none counted since the night of ${nightLabel(since)}`}`,
     charts: null,
   });
   if (nights.length === 0) return collecting(0, false, null);
@@ -1416,19 +1427,17 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
       return point(v < base ? { value: null, note: fell } : { value: v - base });
     });
 
-  const tier = (t: Tier) => (c: Counts) =>
-    c.sites.value === null ? null : (c.sites.value.tiers?.[t] ?? (c.sites.value.tiers ? 0 : null));
+  const tier = (t: Tier) => (c: Counts) => keyOf(keyed(c.sites.value)?.["tiers"], t);
   // Every check's sites that night; unread if any one check's count is.
   const checks = (c: Counts): number | null => {
-    if (c.coverage.value === null) return null;
-    const all = Object.values(c.coverage.value).map((m) => finite(m?.value));
+    const columns = keyed(c.coverage.value);
+    if (columns === null) return null;
+    const all = Object.values(columns).map((m) => finite(keyed(m)?.["value"]));
     return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
   };
-  const sentOn = (c: Counts) => (c.leads.value === null ? null : c.leads.value.notified);
-  const cleared = (c: Counts) =>
-    c.events.value === null ? null : (c.events.value["vuln_cleared"] ?? 0);
-  const vulnOpen = (c: Counts) =>
-    c.signals.value === null ? null : (c.signals.value["vuln"] ?? 0);
+  const sentOn = (c: Counts) => keyed(c.leads.value)?.["notified"];
+  const cleared = (c: Counts) => keyOf(c.events.value, "vuln_cleared");
+  const vulnOpen = (c: Counts) => keyOf(c.signals.value, "vuln");
 
   const series = (name: string, points: TrendPoint[], bars = false, broken = false) => ({
     name,
@@ -1482,7 +1491,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
   const lag = nightsBetween(newest, end);
   const missing = days.filter((d) => !byNight.has(d)).length;
   return {
-    status: `The ${span} nights from ${nightLabel(days[0]!)} to ${nightLabel(end)}${missing > 0 ? `, ${missing} with no count` : ""}${lag > 0 ? `; none counted since ${nightLabel(newest)}` : ""}`,
+    status: `The ${span} nights from ${nightLabel(days[0]!)} to ${nightLabel(end)}${missing > 0 ? `, ${missing} with no count` : ""}${lag > 0 ? `; none counted since the night of ${nightLabel(newest)}` : ""}`,
     charts: [
       // Each chart's note is the one place its marks are defined (review round 3: a
       // definition kept both here and in How we count drifted apart twice).
@@ -1495,12 +1504,12 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
         "Each line is the number of sites at that level that night, by each site's worst open item.",
       ),
       make(
-        "Site checks run, each night",
-        [series("Site checks", own(checks), true)],
+        "Checks run, every kind, each night",
+        [series("Checks run", own(checks), true)],
         "Each column adds up, for each kind of check, the sites it checked that night: five checks on seven sites count 35.",
       ),
       make(
-        "Submissions the client was emailed about, each night",
+        "Submissions the client was emailed about, RSVPs included, each night",
         [
           series(
             "Client notified",
@@ -1519,7 +1528,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
           series("Sites cleared", rise(cleared, "lower than the night before, so not drawn"), true),
           series("Sites with an alert open", own(vulnOpen)),
         ],
-        "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out one waiting for an automatic update and takes in sites still launching, so it need not match Open now. The columns are sites cleared that night: from one or more critical or high vulnerabilities to none.",
+        "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out a site whose alert is waiting on an automatic update and takes in sites still launching, so it need not match Open now. The columns are sites cleared that night: from one or more critical or high vulnerabilities to none.",
       ),
     ],
   };

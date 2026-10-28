@@ -59,8 +59,8 @@ describe("the 14-night threshold", () => {
     const v = trendsFromDaily(run("2026-10-26", TREND_NIGHTS), NOW);
     expect(v.charts?.map((c) => c.title)).toEqual([
       "Broken and Attention sites, each night",
-      "Site checks run, each night",
-      "Submissions the client was emailed about, each night",
+      "Checks run, every kind, each night",
+      "Submissions the client was emailed about, RSVPs included, each night",
       "Vulnerabilities: sites with an alert open, and sites cleared",
     ]);
     expect(v.charts![0]!.series[0]!.points).toHaveLength(14);
@@ -111,7 +111,7 @@ describe("a missing night is a gap, not a zero", () => {
   });
 
   it("no bar stands on the gap", () => {
-    const checks = chart(v, /^Site checks/);
+    const checks = chart(v, /^Checks run/);
     const g = trendGeometry(checks);
     const at = checks.nights.indexOf("Oct 20");
     expect(g.bars.map((b) => b.x)).not.toContain(g.slots[at]!.x);
@@ -164,7 +164,7 @@ describe("a count that could not be read is a gap, not a zero", () => {
           }
         : {},
     );
-    const c = chart(trendsFromDaily(nights2, NOW), /^Site checks/);
+    const c = chart(trendsFromDaily(nights2, NOW), /^Checks run/);
     expect(on(c).value).toBeNull();
   });
 });
@@ -230,12 +230,12 @@ describe("the level charts start at the current ladder version", () => {
   });
 
   it("charts that do not read the ladder draw every night", () => {
-    const checks = chart(v, /^Site checks/);
+    const checks = chart(v, /^Checks run/);
     expect(checks.note).toBe(
       "Each column adds up, for each kind of check, the sites it checked that night: five checks on seven sites count 35.",
     );
     expect(chart(v, /^Vulnerabilities/).note).toBe(
-      "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out one waiting for an automatic update and takes in sites still launching, so it need not match Open now. The columns are sites cleared that night: from one or more critical or high vulnerabilities to none.",
+      "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out a site whose alert is waiting on an automatic update and takes in sites still launching, so it need not match Open now. The columns are sites cleared that night: from one or more critical or high vulnerabilities to none.",
     );
     expect(values(checks).every((x) => x !== null)).toBe(true);
   });
@@ -284,7 +284,7 @@ describe("what each chart counts", () => {
   });
 
   it("checks run adds up every check's sites that night", () => {
-    expect(values(chart(v, /^Site checks/)).every((x) => x === 49)).toBe(true);
+    expect(values(chart(v, /^Checks run/)).every((x) => x === 49)).toBe(true);
   });
 
   it("leads delivered is the night's rise in leads the client was notified of", () => {
@@ -326,7 +326,7 @@ describe("the window", () => {
       ["Oct 26", null],
     ]);
     expect(v.status).toBe(
-      "The 18 nights from Oct 9 to Oct 26, 4 with no count; none counted since Oct 22",
+      "The 18 nights from Oct 9 to Oct 26, 4 with no count; none counted since the night of Oct 22",
     );
   });
 
@@ -374,8 +374,8 @@ describe("the axis and the geometry", () => {
   });
 
   it("a one-series chart's hover target names its series too (round 3)", () => {
-    expect(trendGeometry(chart(v, /^Site checks/)).slots.at(-1)!.title).toBe(
-      "Oct 26: Site checks: 5",
+    expect(trendGeometry(chart(v, /^Checks run/)).slots.at(-1)!.title).toBe(
+      "Oct 26: Checks run: 5",
     );
   });
 
@@ -494,7 +494,7 @@ describe("review round 2", () => {
     const v = trendsFromDaily(run("2026-10-03", 14), NOW);
     expect(v).toEqual({
       status:
-        "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since Oct 3",
+        "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since the night of Oct 3",
       charts: null,
     });
   });
@@ -502,7 +502,7 @@ describe("review round 2", () => {
   it("the collecting line says when the nightly stopped (round 3, C1)", () => {
     // Twenty rows to Oct 3: the night expected by now is Oct 26.
     expect(trendsFromDaily(run("2026-10-03", 20), NOW).status).toBe(
-      "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since Oct 3",
+      "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since the night of Oct 3",
     );
     // Up to date: nothing said.
     expect(trendsFromDaily(run("2026-10-26", 3), NOW).status).toBe(
@@ -585,5 +585,77 @@ describe("review round 3", () => {
     expect(v.nightly.scale).toBe(
       "1 kind of check ran on the night of Oct 26, reaching up to 17 sites",
     );
+  });
+});
+
+describe("review round 4", () => {
+  it("ladder version 0, the old tiers, is an earlier version like any other (T1)", () => {
+    // Five nights on version 0 (the old tiers, in fleet_daily since P1-78a), then
+    // fourteen on version 2: a truthiness test on the version would lose the break.
+    const nights = run("2026-10-26", 19, (_, i) => ({
+      ...tiers(2, 3),
+      ladderVersion: i < 14 ? 2 : 0,
+    }));
+    const broken = chart(trendsFromDaily(nights, NOW), /^Broken/);
+    const pts = broken.series[0]!.points;
+    expect(
+      pts.slice(0, 5).every((p) => p.earlier && p.note === "sorted into levels by earlier rules"),
+    ).toBe(true);
+    expect(pts.slice(5).every((p) => !p.earlier && p.value === 2)).toBe(true);
+    expect(broken.note).toContain("On the shaded nights");
+    const g = trendGeometry(broken);
+    expect(g.earlier).toHaveLength(1);
+    // One rule, where the band meets the current version; none on the plot's left edge.
+    expect(g.breaks).toEqual([g.slots[5]!.left]);
+  });
+
+  it("the current version is read off a night on version 0 too (T1)", () => {
+    const nights = run("2026-10-26", 14, () => ({ ...tiers(1, 1), ladderVersion: 0 }));
+    const broken = chart(trendsFromDaily(nights, NOW), /^Broken/);
+    expect(values(broken)).toEqual(Array(14).fill(1));
+  });
+
+  it("a block that is not an object reads as unread, never as 0 (C1)", () => {
+    const bad = {
+      events: { value: 7 },
+      signals: { value: 7 },
+      sites: { value: { cards: 5, tiers: "x", preLaunch: 0, setup: 0 } },
+      coverage: { value: 5 },
+    } as never;
+    const nights = run("2026-10-26", 14, (_, i) =>
+      i === 3 ? bad : { ...tiers(2, 3), events: { value: { vuln_cleared: 2 } } },
+    );
+    const v = trendsFromDaily(nights, NOW);
+    const at = 10; // the night of `bad`, oldest first
+    for (const [title, s] of [
+      [/^Broken/, 0],
+      [/^Broken/, 1],
+      [/^Checks run/, 0],
+      [/^Vulnerabilities/, 0],
+      [/^Vulnerabilities/, 1],
+    ] as const)
+      expect(chart(v, title).series[s]!.points[at]!.note, `${title} ${s}`).toBe(
+        "could not be read that night",
+      );
+    // The night after it has no base: no false column of sites cleared.
+    expect(chart(v, /^Vulnerabilities/).series[0]!.points[at + 1]!.value).toBeNull();
+    expect(chart(v, /^Vulnerabilities/).series[0]!.points[at + 1]!.note).toBe(
+      "the night before could not be read, so nothing to subtract",
+    );
+  });
+
+  it("a negative count reads as unread, never as a 0 column or a line off the chart (C2)", () => {
+    const nights = run("2026-10-26", 14, (_, i) =>
+      i === 0
+        ? { ...tiers(-3, 1), coverage: { value: { lighthouse_at: { value: -5 } } } }
+        : tiers(2, 3),
+    );
+    const v = trendsFromDaily(nights, NOW);
+    expect(chart(v, /^Broken/).series[0]!.points.at(-1)!.note).toBe("could not be read that night");
+    expect(chart(v, /^Checks run/).series[0]!.points.at(-1)!.note).toBe(
+      "could not be read that night",
+    );
+    const g = trendGeometry(chart(v, /^Broken/));
+    for (const l of g.lines) for (const p of l.points) expect(p.y).toBeLessThanOrEqual(g.height);
   });
 });
