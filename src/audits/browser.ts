@@ -221,24 +221,30 @@ export function extractTitleMeta(html: string): {
   return { title, metaDescription };
 }
 
+/** One attribute's value from a start tag: double-, single- or un-quoted (minifiers drop the
+ *  quotes), or null when absent. The name must follow whitespace, so `data-rel` is not `rel`. */
+function tagAttr(tag: string, name: string): string | null {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
+  return m ? (m[1] ?? m[2] ?? m[3] ?? "") : null;
+}
+
 /** Pull `<html lang>` + the `<link rel="alternate" hreflang>` hrefs out of raw HTML (SSR truth,
  *  what search engines read for hreflang), hrefs resolved against `pageUrl`. Only the `<html>`
- *  tag's lang counts: a `lang` on an inner element says nothing about the page. PURE; exported
- *  for tests. Feeds the duplicate-title check's translation exemption (#1872). */
+ *  tag's lang counts: a `lang` on an inner element says nothing about the page. Comments are
+ *  dropped first, so a commented-out tag counts for nothing. PURE; exported for tests. Feeds the
+ *  duplicate-title check's translation exemption (#1872). */
 export function extractLocale(
   html: string,
   pageUrl: string,
 ): { lang: string | null; alternates: string[] } {
-  const htmlTag = /<html\b[^>]*>/i.exec(html)?.[0] ?? "";
-  const langAttr = /\slang\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(htmlTag);
-  const lang = (langAttr?.[2] ?? langAttr?.[3] ?? langAttr?.[4] ?? "").trim() || null;
+  const live = html.replace(/<!--[\s\S]*?-->/g, "");
+  const htmlTag = /<html(?=[\s>])[^>]*>/i.exec(live)?.[0] ?? "";
+  const lang = (tagAttr(htmlTag, "lang") ?? "").trim() || null;
   const alternates: string[] = [];
-  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
-    const rel = /\brel\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
-    if (!(rel?.[2] ?? rel?.[3] ?? "").toLowerCase().split(/\s+/).includes("alternate")) continue;
-    if (!/\bhreflang\s*=/i.test(tag)) continue;
-    const href = /\bhref\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
-    const raw = decodeEntities(href?.[2] ?? href?.[3] ?? "").trim();
+  for (const tag of live.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = (tagAttr(tag, "rel") ?? "").toLowerCase().split(/\s+/);
+    if (!rel.includes("alternate") || tagAttr(tag, "hreflang") === null) continue;
+    const raw = decodeEntities(tagAttr(tag, "href") ?? "").trim();
     if (!raw) continue;
     try {
       alternates.push(new URL(raw, pageUrl).href);
@@ -267,7 +273,7 @@ function hreflangKey(url: string): string {
  *  two unrelated pages that happen to be in different languages (#1872). */
 function areTranslations(a: RouteResult, b: RouteResult): boolean {
   const primary = (lang: string | null | undefined) =>
-    (lang ?? "").trim().toLowerCase().split("-")[0] ?? "";
+    (lang ?? "").trim().toLowerCase().split(/[-_]/)[0] ?? "";
   const la = primary(a.lang);
   const lb = primary(b.lang);
   if (!la || !lb || la === lb) return false;
@@ -394,6 +400,10 @@ export async function reverifyRoutes(
       metaDescription: (r.metaDescription ?? "").trim()
         ? r.metaDescription
         : fetched.metaDescription,
+      // The same missing capture usually lost the locale too (#1872): fill it the same way.
+      lang: (r.lang ?? "").trim() ? (r.lang ?? null) : (fetched.lang ?? null),
+      alternates:
+        r.alternates && r.alternates.length > 0 ? r.alternates : (fetched.alternates ?? []),
     };
   }
   return { routes: out, reverified };
