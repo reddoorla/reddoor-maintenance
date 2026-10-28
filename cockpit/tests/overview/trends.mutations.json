@@ -131,7 +131,7 @@
   },
   {
     "id": "6-delta-across-a-gap",
-    "why": "A night's rise is taken over the newest earlier row, across a missing night",
+    "why": "A night with no row the night before reads its running total as its rise",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
