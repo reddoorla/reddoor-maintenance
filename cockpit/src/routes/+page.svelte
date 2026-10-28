@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/overview/view.js";
-  import { HOW_WE_COUNT, LADDER_LINES } from "../lib/overview/view.js";
+  import { HOW_WE_COUNT, LADDER_LINES, trendGeometry } from "../lib/overview/view.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -277,6 +277,118 @@
   <p data-term="PRs merged">
     PRs merged into the maintenance stack (the code that runs these checks and sends the reports): {v.prsMerged}.
   </p>
+</section>
+
+<section aria-labelledby="ov-trends" data-term="Trends">
+  <h2 id="ov-trends">Trends</h2>
+  <p>{v.trends.status}.</p>
+  {#if v.trends.charts}
+    <div class="ov-trends">
+      {#each v.trends.charts as c, ci (c.title)}
+        {@const g = trendGeometry(c)}
+        <figure class="ov-trend">
+          <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
+          {#if c.series.length > 1}
+            <ul class="ov-key">
+              {#each c.series as s, si (s.name)}
+                <li>
+                  <svg class="ov-key-mark" viewBox="0 0 16 10" aria-hidden="true"
+                    >{#if s.bars}<rect
+                        x="3"
+                        y="1"
+                        width="10"
+                        height="9"
+                        rx="2"
+                        class="ov-bar"
+                      />{:else}<line
+                        x1="0"
+                        y1="5"
+                        x2="16"
+                        y2="5"
+                        class="ov-line-mark {s.broken ? 'broken' : ''} {si > 0 ? 'second' : ''}"
+                      />{/if}</svg
+                  >{s.name}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          <svg
+            class="ov-chart"
+            viewBox="0 0 {g.width} {g.height}"
+            role="img"
+            aria-labelledby="ov-trend-{ci} ov-trend-{ci}-desc"
+          >
+            <desc id="ov-trend-{ci}-desc">{c.summary}</desc>
+            {#each g.earlier as e, ei (ei)}
+              <rect
+                class="ov-earlier"
+                x={e.x}
+                y={g.top}
+                width={e.width}
+                height={g.baseline - g.top}
+              />
+            {/each}
+            <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.top} y2={g.top} />
+            <line class="ov-axis" x1={g.plotLeft} x2={g.plotRight} y1={g.zero} y2={g.zero} />
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end">{c.high}</text>
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.baseline + 4} text-anchor="end"
+              >{c.low}</text
+            >
+            <text class="ov-tick" x={g.plotLeft} y={g.height - 4}>{c.nights[0]}</text>
+            <text class="ov-tick" x={g.plotRight} y={g.height - 4} text-anchor="end"
+              >{c.nights.at(-1)}</text
+            >
+            {#each g.bars as b, bi (bi)}
+              <path class="ov-bar" d={b.d} />
+            {/each}
+            {#each g.lines as l, li (li)}
+              <path
+                class="ov-line-mark {l.broken ? 'broken' : ''} {l.series > 0 ? 'second' : ''}"
+                d={l.d}
+              />
+            {/each}
+            {#each g.dots as d, di (di)}
+              <circle
+                class="ov-dot {d.broken ? 'broken' : ''} {d.series > 0 ? 'second' : ''}"
+                cx={d.x}
+                cy={d.y}
+                r="4"
+              />
+            {/each}
+            {#each g.slots as t, ti (ti)}
+              <rect class="ov-hit" x={t.left} y={g.top} width={t.width} height={g.baseline - g.top}
+                ><title>{t.title}</title></rect
+              >
+            {/each}
+          </svg>
+          {#if c.earlierNote}<p class="muted ov-trend-note">{c.earlierNote}</p>{/if}
+          <details class="ov-trend-table">
+            <summary>As a table</summary>
+            <table class="ov-table">
+              <thead
+                ><tr
+                  ><th>Night</th>{#each c.series as s (s.name)}<th>{s.name}</th>{/each}</tr
+                ></thead
+              >
+              <tbody>
+                {#each c.nights as night, pi (pi)}
+                  <tr>
+                    <th scope="row">{night}</th>
+                    {#each c.series as s (s.name)}
+                      {@const q = s.points[pi]!}
+                      <td data-label={s.name} class={q.value === null ? "unknown" : ""}
+                        >{q.value === null ? q.note : q.value}</td
+                      >
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </details>
+        </figure>
+      {/each}
+    </div>
+  {/if}
 </section>
 
 <details class="ov-how">

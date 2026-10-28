@@ -1276,6 +1276,305 @@ function upkeepView(model: CockpitModel, s: CockpitSnapshot, now: Date): UpkeepV
   };
 }
 
+// ---- section 8: trends ----
+
+/** How many `fleet_daily` nights the charts wait for; until then the section says
+ *  how many it has collected. */
+export const TREND_NIGHTS = 14;
+
+/** One night on a chart: its value, or null and why. Never 0 for a night with no count. */
+export type TrendPoint = {
+  value: number | null;
+  note: string | null;
+  /** Counted on an earlier ladder version: shaded as a break, never drawn. */
+  earlier: boolean;
+};
+
+export type TrendSeries = {
+  name: string;
+  /** Columns rather than a line: a night's own count, not a level carried over. */
+  bars: boolean;
+  /** Drawn in the Broken colour, the one series red is for. */
+  broken: boolean;
+  points: TrendPoint[];
+};
+
+export type TrendChart = {
+  title: string;
+  /** Its line in How we count. */
+  term: string;
+  /** Each night of the window, oldest first, as the page says it: "Oct 26". */
+  nights: string[];
+  series: TrendSeries[];
+  /** The axis, low to high: 0 (or below, for a fall) to a round number. */
+  low: number;
+  high: number;
+  /** For screen readers, and anyone not reading the marks. */
+  summary: string;
+  /** Said under a level chart with nights from an earlier ladder; null otherwise. */
+  earlierNote: string | null;
+};
+
+export type TrendsView = {
+  /** "Collecting: 3 of 14 nights", or the span the charts cover. */
+  status: string;
+  charts: TrendChart[] | null;
+};
+
+const NO_COUNT = "no count that night";
+const UNREAD_NIGHT = "could not be read that night";
+const NO_BASE = "no count the night before, so nothing to subtract";
+const UNREAD_BASE = "the night before could not be read, so nothing to subtract";
+const EARLIER = "counted on an earlier version of the ladder";
+const NO_VERSION = "no ladder version recorded that night";
+
+const shiftNight = (night: string, days: number): string =>
+  new Date(Date.parse(`${night}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+
+/** The smallest of 1, 2, 5, 10, 20, 50, … at or above `n`. */
+function roundUp(n: number): number {
+  for (let step = 1; ; step *= 10) for (const m of [1, 2, 5]) if (m * step >= n) return m * step;
+}
+
+type Reading = { value: number } | { value: null; note: string };
+const point = (r: Reading, earlier = false): TrendPoint => ({
+  value: r.value,
+  note: r.value === null ? r.note : null,
+  earlier,
+});
+
+/** Section 8 from the `fleet_daily` nights (newest first, as the reader returns them).
+ *  Every night of the window is a slot: a night with no row, or a count that could
+ *  not be read, is a gap with its reason, never 0. A running total's night is its
+ *  rise over the calendar night before, so a gap also gaps the night after it. The
+ *  level chart reads only nights counted on the newest night's ladder version; the
+ *  others are marked as a break, never joined to its lines. */
+export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): TrendsView {
+  if (nights === null) return { status: UNREADABLE, charts: null };
+  if (nights.length < TREND_NIGHTS)
+    return { status: `Collecting: ${nights.length} of ${TREND_NIGHTS} nights`, charts: null };
+  const sorted = [...nights].sort((a, b) => b.night.localeCompare(a.night));
+  const byNight = new Map(sorted.map((n) => [n.night, n.counts]));
+  const newest = sorted[0]!.night;
+  const expected = expectedNight(now);
+  // To the night expected by now, so a nightly that stops shows as gaps at the end.
+  const end = newest > expected ? newest : expected;
+  const span = Math.min(WINDOW_NIGHTS, nightsBetween(sorted.at(-1)!.night, end) + 1);
+  const days = Array.from({ length: span }, (_, i) => shiftNight(end, i - span + 1));
+  // The newest night that records its ladder version names the current one.
+  const ladder = sorted.find((n) => typeof n.counts.ladderVersion === "number")?.counts
+    .ladderVersion;
+
+  const unread: TrendPoint = point({ value: null, note: UNREAD_NIGHT });
+  const noCount: TrendPoint = point({ value: null, note: NO_COUNT });
+  /** A count read off one night's own row; `levels` reads only the current ladder. */
+  const own = (read: (c: Counts) => number | null, levels = false) =>
+    days.map((d) => {
+      const c = byNight.get(d);
+      if (c === undefined) return noCount;
+      if (levels && typeof c.ladderVersion !== "number")
+        return point({ value: null, note: NO_VERSION });
+      if (levels && c.ladderVersion !== ladder) return point({ value: null, note: EARLIER }, true);
+      const v = read(c);
+      return v === null ? unread : point({ value: v });
+    });
+  /** A running total's rise over the calendar night before. */
+  const rise = (read: (c: Counts) => number | null) =>
+    days.map((d) => {
+      const c = byNight.get(d);
+      if (c === undefined) return noCount;
+      const v = read(c);
+      if (v === null) return unread;
+      const p = byNight.get(shiftNight(d, -1));
+      if (p === undefined) return point({ value: null, note: NO_BASE });
+      const base = read(p);
+      return point(base === null ? { value: null, note: UNREAD_BASE } : { value: v - base });
+    });
+
+  const tier = (t: Tier) => (c: Counts) =>
+    c.sites.value === null ? null : (c.sites.value.tiers[t] ?? 0);
+  // Every check's sites that night; unread if any one check's count is.
+  const checks = (c: Counts): number | null => {
+    if (c.coverage.value === null) return null;
+    const all = Object.values(c.coverage.value).map((m) => m.value);
+    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
+  };
+  const notified = (c: Counts) => (c.leads.value === null ? null : c.leads.value.notified);
+  const vulnOpen = (c: Counts) =>
+    c.signals.value === null ? null : (c.signals.value["vuln"] ?? 0);
+
+  const series = (name: string, points: TrendPoint[], bars = false, broken = false) => ({
+    name,
+    bars,
+    broken,
+    points,
+  });
+  const labels = days.map(nightLabel);
+  const make = (title: string, s: TrendSeries[]): TrendChart => {
+    const vals = s
+      .flatMap((x) => x.points.map((p) => p.value))
+      .filter((v): v is number => v !== null);
+    const said = s.map((x) => {
+      const at = x.points.map((p) => p.value !== null).lastIndexOf(true);
+      return at === -1
+        ? `${x.name}: no night drawn`
+        : `${x.name}: ${x.points[at]!.value} on the newest night drawn, ${labels[at]}`;
+    });
+    const gaps = days.filter((_, i) => s.every((x) => x.points[i]!.value === null)).length;
+    return {
+      title,
+      term: "Trends",
+      nights: labels,
+      series: s,
+      low: Math.min(0, ...vals),
+      high: roundUp(Math.max(1, ...vals)),
+      summary: `${said.join(". ")}. ${gaps === 0 ? "Every night is drawn" : `${count(gaps, "night has", "nights have")} no point; the table gives why`}.`,
+      earlierNote: s.some((x) => x.points.some((p) => p.earlier))
+        ? "The shaded nights were counted on an earlier version of the ladder, so their levels mean something else and are not drawn."
+        : null,
+    };
+  };
+
+  const lag = nightsBetween(newest, end);
+  return {
+    status: `The ${span} nights from ${nightLabel(days[0]!)} to ${nightLabel(end)}${lag > 0 ? `; none counted since ${nightLabel(newest)}` : ""}`,
+    charts: [
+      make("Broken and Attention sites, each night", [
+        series("Broken", own(tier("broken"), true), false, true),
+        series("Attention", own(tier("attention"), true)),
+      ]),
+      make("Checks run, each night", [series("Checks run", own(checks), true)]),
+      make("Leads delivered, each night", [series("Leads delivered", rise(notified), true)]),
+      make("Vulnerabilities: sites with an alert open, and sites cleared", [
+        series("Sites cleared", rise(eventTotal("vuln_cleared")), true),
+        series("Sites with an alert open", own(vulnOpen)),
+      ]),
+    ],
+  };
+}
+
+/** Where a chart's marks go, in its own viewBox units: pure, so the page only draws. */
+export type TrendGeometry = {
+  width: number;
+  height: number;
+  /** The y of the axis's low and high ends. */
+  baseline: number;
+  top: number;
+  /** The y of 0, where columns stand. */
+  zero: number;
+  plotLeft: number;
+  plotRight: number;
+  /** Each unbroken run of a line series: a gap or an earlier night ends it. */
+  lines: Array<{
+    series: number;
+    broken: boolean;
+    d: string;
+    points: Array<{ x: number; y: number; value: number }>;
+  }>;
+  /** A night alone between gaps, and each line's newest point: a dot. */
+  dots: Array<{ series: number; broken: boolean; x: number; y: number }>;
+  bars: Array<{ series: number; x: number; d: string }>;
+  /** Shaded bands over the nights of an earlier ladder version: the break. */
+  earlier: Array<{ x: number; width: number }>;
+  /** One per night: its slot and what its hover target says. */
+  slots: Array<{ left: number; width: number; x: number; title: string }>;
+};
+
+const r1 = (n: number): number => Math.round(n * 10) / 10;
+
+/** A column from the zero line to `y`: rounded at the data end, square at the base. */
+function column(left: number, w: number, zero: number, y: number): string {
+  const h = Math.abs(zero - y);
+  if (h === 0) return `M${left},${zero}h${r1(w)}`;
+  const r = Math.min(4, w / 2, h);
+  const k = y < zero ? r : -r;
+  const right = r1(left + w);
+  return `M${left},${zero}V${r1(y + k)}Q${left},${y} ${r1(left + r)},${y}H${r1(right - r)}Q${right},${y} ${right},${r1(y + k)}V${zero}Z`;
+}
+
+export function trendGeometry(chart: TrendChart, width = 320, height = 132): TrendGeometry {
+  const plotLeft = 30;
+  const plotRight = width - 6;
+  const top = 8;
+  const baseline = height - 22;
+  const first = chart.series[0]!.points;
+  const n = first.length;
+  const slot = (plotRight - plotLeft) / n;
+  const xAt = (i: number) => r1(plotLeft + (i + 0.5) * slot);
+  const range = chart.high - chart.low || 1;
+  const yAt = (v: number) => r1(baseline - ((v - chart.low) / range) * (baseline - top));
+  const zero = yAt(0);
+  const lines: TrendGeometry["lines"] = [];
+  const dots: TrendGeometry["dots"] = [];
+  const bars: TrendGeometry["bars"] = [];
+  const barW = r1(Math.max(1, Math.min(24, slot - 2)));
+  chart.series.forEach((s, si) => {
+    if (s.bars) {
+      s.points.forEach((p, i) => {
+        if (p.value !== null)
+          bars.push({
+            series: si,
+            x: xAt(i),
+            d: column(r1(xAt(i) - barW / 2), barW, zero, yAt(p.value)),
+          });
+      });
+      return;
+    }
+    let run: Array<{ x: number; y: number; value: number }> = [];
+    const close = () => {
+      if (run.length === 1) dots.push({ series: si, broken: s.broken, x: run[0]!.x, y: run[0]!.y });
+      else if (run.length > 1) {
+        const d = run.map((p, k) => `${k === 0 ? "M" : "L"}${p.x},${p.y}`).join("");
+        lines.push({ series: si, broken: s.broken, d, points: run });
+        const end = run.at(-1)!;
+        dots.push({ series: si, broken: s.broken, x: end.x, y: end.y });
+      }
+      run = [];
+    };
+    s.points.forEach((p, i) => {
+      if (p.value === null) close();
+      else run.push({ x: xAt(i), y: yAt(p.value), value: p.value });
+    });
+    close();
+  });
+  const leftOf = (i: number) => r1(plotLeft + i * slot);
+  const earlier: TrendGeometry["earlier"] = [];
+  for (let i = 0; i < n; i++) {
+    if (!first[i]!.earlier) continue;
+    let j = i;
+    while (j + 1 < n && first[j + 1]!.earlier) j++;
+    earlier.push({ x: leftOf(i), width: leftOf(j + 1) - leftOf(i) });
+    i = j;
+  }
+  const say = (q: TrendPoint) => (q.value === null ? q.note! : String(q.value));
+  const slots = first.map((p, i) => ({
+    left: leftOf(i),
+    width: leftOf(i + 1) - leftOf(i),
+    x: xAt(i),
+    // One reason said once when no series has a value that night.
+    title: `${chart.nights[i]}: ${
+      chart.series.length === 1 ||
+      chart.series.every((s) => s.points[i]!.value === null && s.points[i]!.note === p.note)
+        ? say(p)
+        : chart.series.map((s) => `${s.name} ${say(s.points[i]!)}`).join("; ")
+    }`,
+  }));
+  return {
+    width,
+    height,
+    baseline,
+    top,
+    zero,
+    plotLeft,
+    plotRight,
+    lines,
+    dots,
+    bars,
+    earlier,
+    slots,
+  };
+}
+
 // ---- the page ----
 
 export type OverviewView = {
@@ -1287,6 +1586,8 @@ export type OverviewView = {
   upkeep: UpkeepView;
   /** Section 7: PRs merged in the stack's own repo. */
   prsMerged: string;
+  /** Section 8: the charts from `fleet_daily`, or how many nights are collected. */
+  trends: TrendsView;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 31
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -1306,6 +1607,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     nightly: nightlyView(s, now),
     upkeep: upkeepView(model, s, now),
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
+    trends: trendsFromDaily(s.nights, now),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
@@ -1435,6 +1737,10 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "PRs merged",
     text: "PRs (pull requests: proposed code changes) merged into the maintenance stack (the code that runs these checks and sends the reports), counted each night.",
+  },
+  {
+    term: "Trends",
+    text: `Drawn from the nightly counts once there are ${TREND_NIGHTS} nights of them; until then the section says how many it has. Each chart covers up to the last ${WINDOW_NIGHTS} calendar nights, to the night expected by now. A night with no count, or a count that could not be read, is a gap, never a zero, and the table under each chart says why. Broken and Attention are the sites at each level that night. The ladder has changed as signals were added (the old levels, then the ladder, then the production signals), and a night counted on an earlier version is shaded and not drawn, since its levels meant something else; a night that does not record its version is a gap. Checks run adds up, for each kind of check, the sites it stamped that night. Leads delivered is the night's rise in leads the client was emailed about. Sites cleared is the night's rise in sites going from one or more critical or high vulnerabilities to none; sites with an alert open are those whose vulnerability alert was on the Triage page that night (one waiting for an automatic update is not). The nightly does not count vulnerabilities found, so the chart shows those open instead. A night's rise needs the night before it too, so the night after a gap is a gap as well.`,
   },
   {
     term: "Nights counted",

@@ -85,7 +85,7 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the seven sections, each under its h2", () => {
+  it("has the eight sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
       "Is every site live?",
@@ -94,6 +94,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "What runs every night",
       "Upkeep",
       "How changes ship",
+      "Trends",
     ]);
   });
 
@@ -759,5 +760,109 @@ describe("no count is typed into the page, over the sentinel render (review roun
     ).toEqual([String(n), "100"]);
     // And in an attribute.
     expect(stray(html.replace("<h1", '<h1 title="30 nights a month"'))).toEqual(["30"]);
+  });
+});
+
+describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
+  // Sixteen nights to Oct 26: Oct 20 has no row, and the two oldest were counted on
+  // an earlier ladder, so the level chart has a break and a gap.
+  const nights = Array.from({ length: 17 }, (_, i) => {
+    const date = new Date(Date.parse("2026-10-26T00:00:00Z") - i * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return night(date, {
+      ladderVersion: i >= 15 ? 1 : 2,
+      sites: {
+        value: {
+          cards: 3,
+          tiers: { broken: i % 2, attention: 2, healthy: 1 },
+          preLaunch: 0,
+          setup: 0,
+        },
+      },
+      leads: {
+        value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: 300 - 2 * i },
+      },
+    });
+  }).filter((n) => n.night !== "2026-10-20");
+  const TSNAP = { ...SNAP, nights };
+  const TVIEW = overviewFromSnapshot(TSNAP, NOW);
+  const TDOC = parse(pageHtml(TVIEW));
+  const section = TDOC.querySelector('section[aria-labelledby="ov-trends"]')!;
+
+  it("draws four charts, each an image with a name and a description", () => {
+    expect(TVIEW.trends.charts).toHaveLength(4);
+    const figs = section.querySelectorAll("figure.ov-trend");
+    expect(figs.map((f) => text(f.querySelector("figcaption")!))).toEqual(
+      TVIEW.trends.charts!.map((c) => c.title),
+    );
+    for (const [i, f] of figs.entries()) {
+      const svg = f.querySelector("svg.ov-chart")!;
+      expect(svg.getAttribute("role")).toBe("img");
+      expect(svg.getAttribute("aria-labelledby")).toBe(`ov-trend-${i} ov-trend-${i}-desc`);
+      expect(text(svg.querySelector("desc")!)).toBe(TVIEW.trends.charts![i]!.summary);
+    }
+  });
+
+  it("the Broken line is drawn in pieces around the gap and the break, in the Broken style", () => {
+    const fig = section.querySelectorAll("figure.ov-trend")[0]!;
+    const broken = fig.querySelectorAll("svg.ov-chart path.ov-line-mark.broken");
+    // Oct 13 to Oct 19, and Oct 21 to Oct 26: never one line across the gap.
+    expect(broken).toHaveLength(2);
+    expect(fig.querySelectorAll("svg.ov-chart rect.ov-earlier")).toHaveLength(1);
+    expect(text(fig.querySelector(".ov-trend-note")!)).toBe(TVIEW.trends.charts![0]!.earlierNote);
+  });
+
+  it("each chart's table gives every night, with why a night has no point", () => {
+    for (const [i, f] of section.querySelectorAll("figure.ov-trend").entries()) {
+      const c = TVIEW.trends.charts![i]!;
+      const rows = f.querySelectorAll(".ov-trend-table tbody tr");
+      expect(rows.map((r) => r.querySelectorAll("th, td").map(text).join(" "))).toEqual(
+        c.nights.map(
+          (label, k) =>
+            `${label} ${c.series.map((s) => s.points[k]!.value ?? s.points[k]!.note).join(" ")}`,
+        ),
+      );
+    }
+    const gap = section.querySelectorAll(".ov-trend-table tbody tr")[10]!;
+    expect(gap.querySelectorAll("th, td").map(text)).toEqual([
+      "Oct 20",
+      "no count that night",
+      "no count that night",
+    ]);
+  });
+
+  it("every hover target names its night", () => {
+    const fig = section.querySelectorAll("figure.ov-trend")[0]!;
+    const titles = fig.querySelectorAll("rect.ov-hit title").map(text);
+    expect(titles).toHaveLength(17);
+    expect(titles).toContain("Oct 20: no count that night");
+  });
+
+  it("every number in the section came from the view, and has its How-we-count line", () => {
+    const allowed = new Set([...(JSON.stringify({ TVIEW, HOW_WE_COUNT }).match(/\d+/g) ?? [])]);
+    expect(shownNumbers(TDOC).filter((d) => !allowed.has(d))).toEqual([]);
+    const terms = new Set(TDOC.querySelectorAll(".ov-how dt").map(text));
+    for (const e of TDOC.querySelectorAll("[data-term]"))
+      expect(terms).toContain(e.getAttribute("data-term"));
+  });
+
+  it("over the sentinel render: each leaf is on the page, and no digit is typed in", () => {
+    const ST = sentinelize(TVIEW);
+    const html = pageHtml(ST.view);
+    const doc = parse(html);
+    const words = pageText(doc);
+    const shown = new Set(shownNumbers(doc));
+    let checked = 0;
+    for (const [path, v] of ST.at) {
+      if (!path.startsWith("trends.") || path.endsWith(".term")) continue;
+      checked++;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    expect(checked).toBeGreaterThan(150);
+    const allowed = new Set(ST.at.values());
+    const n = ST.view.reports.checks.length;
+    expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
   });
 });

@@ -88,6 +88,10 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         run: rest.run ?? null,
         steps: rest.steps ?? {},
         coverage: rest.coverage ?? NOT_IN_ROW,
+        // The blocks section 8's trends read (P1-78h).
+        sites: rest.sites ?? NOT_IN_ROW,
+        signals: rest.signals ?? NOT_IN_ROW,
+        leads: rest.leads ?? NOT_IN_ROW,
         screenouts: rest.screenouts ?? NOT_IN_ROW,
         events: rest.events ?? NOT_IN_ROW,
         prsMerged: rest.prsMerged ?? NOT_IN_ROW,
