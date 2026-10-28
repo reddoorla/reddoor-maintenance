@@ -262,6 +262,15 @@ describe("the overview's stylesheet (T5)", () => {
     expect(LITERAL.test(".x { border-left-color: darkred; }")).toBe(true);
   });
 
+  it("tells the trend series apart by more than colour (P1-78h review round 2, T3)", () => {
+    const rule = (sel: string) =>
+      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(rule(".ov-line-mark.second")).toMatch(/stroke-dasharray:\s*\d/);
+    expect(rule(".ov-dot.broken")).toMatch(/fill:\s*var\(--broken\)/);
+    expect(rule(".ov-line-mark.broken")).toMatch(/stroke:\s*var\(--broken\)/);
+    expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
+  });
+
   it("paints red only on a .broken selector", () => {
     const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)];
     const red = rules.filter(([, , body]) => /var\(--(broken|broken-fill)\)/.test(body!));
@@ -855,16 +864,52 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
           `ov-line-mark ${l.broken ? "broken" : ""} ${l.series > 0 ? "second" : ""}`,
         ]),
       );
-      expect(attrs("circle.ov-dot", ["cx", "cy"])).toEqual(
-        g.dots.map((d) => [String(d.x), String(d.y)]),
+      expect(attrs("circle.ov-dot", ["cx", "cy", "class"])).toEqual(
+        g.dots.map((d) => [
+          String(d.x),
+          String(d.y),
+          `ov-dot ${d.broken ? "broken" : ""} ${d.series > 0 ? "second" : ""}`,
+        ]),
       );
-      expect(attrs("rect.ov-earlier", ["x", "width", "height"])).toEqual(
-        g.earlier.map((e) => [String(e.x), String(e.width), String(g.baseline - g.top)]),
+      // Review round 2 (T1): every coordinate of the break, so it cannot be moved off
+      // the plot or drawn with no length.
+      expect(attrs("rect.ov-earlier", ["x", "y", "width", "height"])).toEqual(
+        g.earlier.map((e) => [
+          String(e.x),
+          String(g.top),
+          String(e.width),
+          String(g.baseline - g.top),
+        ]),
       );
-      expect(attrs("line.ov-break", ["x1", "x2"])).toEqual(
-        g.breaks.map((x) => [String(x), String(x)]),
+      expect(attrs("line.ov-break", ["x1", "x2", "y1", "y2"])).toEqual(
+        g.breaks.map((x) => [String(x), String(x), String(g.top), String(g.baseline)]),
       );
+      // The zero axis where columns stand, and the ticks in the view's words.
+      expect(attrs("line.ov-axis", ["y1", "y2"])).toEqual([[String(g.zero), String(g.zero)]]);
+      const c = TVIEW.trends.charts![i]!;
+      expect(svg.querySelectorAll("text.ov-tick").map(text)).toEqual([
+        String(c.high),
+        ...(c.mid === null ? [] : [String(c.mid)]),
+        String(c.low),
+        c.nights[0],
+        c.nights.at(-1),
+      ]);
+      // Review round 2 (T2): a chart of two series names each in its key, with the
+      // mark it is drawn with.
+      const key = f.querySelectorAll(".ov-key li");
+      expect(key.map(text)).toEqual(c.series.length > 1 ? c.series.map((s) => s.name) : []);
+      for (const [k, li] of key.entries()) {
+        const s = c.series[k]!;
+        const mark = li.querySelector("svg.ov-key-mark > *")!;
+        expect(mark.tagName.toLowerCase()).toBe(s.bars ? "rect" : "line");
+        expect(mark.getAttribute("class")).toBe(
+          s.bars ? "ov-bar" : `ov-line-mark ${s.broken ? "broken" : ""} ${k > 0 ? "second" : ""}`,
+        );
+      }
     }
+    // Both two-series charts carry a key.
+    expect(section.querySelectorAll(".ov-key")).toHaveLength(2);
+    expect(TVIEW.trends.charts!.some((c) => c.mid !== null)).toBe(true);
     // The fixture reaches every kind of mark.
     const all = TVIEW.trends.charts!.map((c) => trendGeometry(c));
     for (const k of ["bars", "lines", "dots", "earlier", "breaks"] as const)

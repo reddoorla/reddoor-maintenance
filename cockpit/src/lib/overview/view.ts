@@ -1309,6 +1309,9 @@ export type TrendChart = {
   /** The axis: 0 to a round number at or above the highest value. */
   low: number;
   high: number;
+  /** A tick halfway up when that is a whole number, so a small level reads off the axis
+   *  on a phone, where there is no hover (review round 2); null otherwise. */
+  mid: number | null;
   /** For screen readers, and anyone not reading the marks. */
   summary: string;
   /** Said under the chart: the earlier-ladder break, or what the chart stands in for. */
@@ -1357,11 +1360,11 @@ const point = (r: Reading, earlier = false): TrendPoint => ({
  *  others are marked as a break, never joined to its lines. */
 export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): TrendsView {
   if (nights === null) return { status: UNREADABLE, charts: null };
-  if (nights.length < TREND_NIGHTS)
-    return {
-      status: `Collecting: ${nights.length} of ${TREND_NIGHTS} nights; the charts start once all ${TREND_NIGHTS} are in`,
-      charts: null,
-    };
+  const collecting = (n: number, older: boolean): TrendsView => ({
+    status: `Collecting: ${n} of ${TREND_NIGHTS} nights${older ? ` in the last ${WINDOW_NIGHTS}` : ""}; the charts start once all ${TREND_NIGHTS} are in`,
+    charts: null,
+  });
+  if (nights.length === 0) return collecting(0, false);
   const sorted = [...nights].sort((a, b) => b.night.localeCompare(a.night));
   const byNight = new Map(sorted.map((n) => [n.night, n.counts]));
   const newest = sorted[0]!.night;
@@ -1370,6 +1373,10 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
   const end = newest > expected ? newest : expected;
   const span = Math.min(WINDOW_NIGHTS, nightsBetween(sorted.at(-1)!.night, end) + 1);
   const days = Array.from({ length: span }, (_, i) => shiftNight(end, i - span + 1));
+  // The nights the charts would show, not every row: a nightly stopped for weeks has
+  // rows older than the window, and they draw nothing (review round 2).
+  const shown = days.filter((d) => byNight.has(d)).length;
+  if (shown < TREND_NIGHTS) return collecting(shown, shown < nights.length);
   // The newest night that records its ladder version names the current one.
   const ladder = sorted.find((n) => typeof n.counts.ladderVersion === "number")?.counts
     .ladderVersion;
@@ -1439,17 +1446,28 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     });
     const gaps = days.filter((_, i) => s.every((x) => x.points[i]!.value === null)).length;
     const earlier = s.some((x) => x.points.some((p) => p.earlier));
+    const unversioned = s.some((x) => x.points.some((p) => p.note === NO_VERSION));
+    const high = roundUp(Math.max(1, ...vals));
     return {
       title,
       term: "Trends",
       nights: labels,
       series: s,
       low: 0,
-      high: roundUp(Math.max(1, ...vals)),
+      high,
+      mid: high >= 2 && high % 2 === 0 ? high / 2 : null,
       summary: `${said.join(". ")}. ${gaps === 0 ? "Every night is drawn" : `${count(gaps, "night has", "nights have")} no point; the table gives why`}.`,
-      note: earlier
-        ? "On the shaded nights, sites were sorted into levels by earlier rules, so those nights are left out rather than compared."
-        : note,
+      note:
+        [
+          earlier
+            ? "On the shaded nights, sites were sorted into levels by earlier rules, so those nights are left out rather than compared."
+            : note,
+          unversioned
+            ? "A blank night either has no count or did not record its rules; the table says which."
+            : null,
+        ]
+          .filter((x) => x !== null)
+          .join(" ") || null,
     };
   };
 
@@ -1463,12 +1481,12 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
         series("Attention", own(tier("attention"), true)),
       ]),
       make("Site checks run, each night", [series("Site checks", own(checks), true)]),
-      make("Submissions sent on to clients, each night", [
+      make("Submissions the client was emailed about, each night", [
         series(
-          "Sent on",
+          "Client notified",
           rise(
             sentOn,
-            "fewer than the night before: one sent on was later marked spam, so not drawn",
+            "fewer than the night before: one the client was emailed about was later marked spam, or its email bounced, so not drawn",
           ),
           true,
         ),
@@ -1479,7 +1497,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
           series("Sites cleared", rise(cleared, "lower than the night before, so not drawn"), true),
           series("Sites with an alert open", own(vulnOpen)),
         ],
-        "The nightly does not count new vulnerabilities found, so the line shows sites with a vulnerability alert still open; the columns are sites cleared that night.",
+        "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out one waiting for an automatic update, so it can be fewer than Open now. The columns are sites cleared that night.",
       ),
     ],
   };
@@ -1494,6 +1512,8 @@ export type TrendGeometry = {
   top: number;
   /** The y of 0, where columns stand. */
   zero: number;
+  /** The y of the chart's halfway tick, or null when it has none. */
+  midY: number | null;
   plotLeft: number;
   plotRight: number;
   /** Each unbroken run of a line series: a gap or an earlier night ends it. */
@@ -1600,7 +1620,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
       chart.series.length === 1 ||
       chart.series.every((s) => s.points[i]!.value === null && s.points[i]!.note === p.note)
         ? say(p)
-        : chart.series.map((s) => `${s.name} ${say(s.points[i]!)}`).join("; ")
+        : chart.series.map((s) => `${s.name}: ${say(s.points[i]!)}`).join("; ")
     }`,
   }));
   return {
@@ -1609,6 +1629,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
     baseline,
     top,
     zero,
+    midY: chart.mid === null ? null : yAt(chart.mid),
     plotLeft,
     plotRight,
     lines,
@@ -1785,7 +1806,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Trends",
-    text: `Drawn from the nightly counts once there are ${TREND_NIGHTS} nights of them; until then the section says how many it has. Each chart covers up to the last ${WINDOW_NIGHTS} calendar nights, to the night expected by now. A night with no count, or a count that could not be read, is a gap, never a zero, and the table under each chart says why; a column at the axis is a real 0. Broken and Attention are the sites at each level that night. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so a night sorted by earlier rules is shaded and left out rather than compared, and a night that did not record its rules is a gap. Site checks run adds up, for each kind of check, the sites it checked that night: five checks on seven sites count 35. Sent on is the night's rise in submissions (leads, signups and RSVPs together) the client was emailed about; a night with fewer than the night before, because one sent on was later marked spam, is a gap. Sites cleared is the night's rise in sites going from one or more critical or high vulnerabilities to none. The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night (one waiting for an automatic update is not). A night's rise needs the night before it too, so the night after a gap is a gap as well.`,
+    text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${WINDOW_NIGHTS} nights have them; until then the section says how many it has. Each chart covers up to the last ${WINDOW_NIGHTS} calendar nights, to the night expected by now. A night with no count, or a count that could not be read, is a gap, never a zero, and the table under each chart says why; a column at the axis is a real 0. Broken and Attention are the sites at each level that night. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so a night sorted by earlier rules is shaded and left out rather than compared, and a night that did not record its rules is a gap. Site checks run adds up, for each kind of check, the sites it checked that night: five checks on seven sites count 35. Client notified is the night's change in submissions (leads, signups and RSVPs together) the client was emailed about, so a night when an earlier one was marked spam or its email bounced shows one fewer; a night with fewer than the night before is a gap. Sites cleared is the night's rise in sites going from one or more critical or high vulnerabilities to none. The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night (one waiting for an automatic update is not, so it can read fewer than Open now; like the Triage page, it includes sites still launching). A night's rise needs the night before it too, so the night after a gap is a gap as well.`,
   },
   {
     term: "Nights counted",

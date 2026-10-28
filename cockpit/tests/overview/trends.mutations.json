@@ -271,5 +271,96 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "16-empty-block-passed-through",
+    "why": "A block hand-written as {} is passed through to throw on the page (review round 2, C1)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  return b !== null && typeof b === \"object\" && \"value\" in b ? b : NOT_IN_ROW;",
+        "replace": "  return b ?? NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-threshold-counts-rows",
+    "why": "Charts draw on 14 rows when fewer than 14 fall in the window (review round 2, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (shown < TREND_NIGHTS) return collecting(shown, shown < nights.length);",
+        "replace": "  if (nights.length < TREND_NIGHTS) return collecting(nights.length, false);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-band-below-the-plot",
+    "why": "The earlier-ladder band hangs below the plot (review round 2, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                y={g.top}\n                width={e.width}",
+        "replace": "                y={g.baseline}\n                width={e.width}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-break-rule-no-length",
+    "why": "The break rule is drawn with no length (review round 2, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "y1={g.top} y2={g.baseline} />",
+        "replace": "y1={g.top} y2={g.top} />"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-key-dropped",
+    "why": "The two-series charts lose their key (review round 2, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.series.length > 1}",
+        "replace": "{#if c.series.length > 5}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-summary-gap-miscounted",
+    "why": "The summary counts a night as a gap when any series has no point (review round 2, T5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const gaps = days.filter((_, i) => s.every((x) => x.points[i]!.value === null)).length;",
+        "replace": "    const gaps = days.filter((_, i) => s.some((x) => x.points[i]!.value === null)).length;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-halfway-tick-dropped",
+    "why": "The page draws no halfway tick (review round 2, O-m2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.mid !== null && g.midY !== null}",
+        "replace": "{#if false}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

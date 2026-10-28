@@ -438,7 +438,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           line: of("path.ov-line-mark:not(.broken)", "stroke"),
           broken: of("path.ov-line-mark.broken", "stroke"),
           bar: of("path.ov-bar", "fill"),
-          dot: of("circle.ov-dot", "fill"),
+          dot: of("circle.ov-dot:not(.broken)", "fill"),
+          // Review round 2 (T3): the first dot drawn is Attention's, so Broken's own.
+          brokenDot: of("circle.ov-dot.broken", "fill"),
           rule: of("line.ov-break", "stroke"),
         };
       });

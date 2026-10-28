@@ -59,7 +59,7 @@ describe("the 14-night threshold", () => {
     expect(v.charts?.map((c) => c.title)).toEqual([
       "Broken and Attention sites, each night",
       "Site checks run, each night",
-      "Submissions sent on to clients, each night",
+      "Submissions the client was emailed about, each night",
       "Vulnerabilities: sites with an alert open, and sites cleared",
     ]);
     expect(v.charts![0]!.series[0]!.points).toHaveLength(14);
@@ -209,6 +209,9 @@ describe("the level charts start at the current ladder version", () => {
       i < 2 ? { ...tiers(1, 1), ladderVersion: undefined as unknown as number } : tiers(2, 3),
     );
     const c = chart(trendsFromDaily(mixed, NOW), /^Broken/);
+    expect(c.note).toBe(
+      "A blank night either has no count or did not record its rules; the table says which.",
+    );
     const pts = c.series[0]!.points;
     expect(pts.slice(0, 14).every((p) => p.value === 2 && !p.earlier)).toBe(true);
     expect(pts.slice(14)).toEqual([
@@ -223,14 +226,13 @@ describe("the level charts start at the current ladder version", () => {
         earlier: false,
       },
     ]);
-    expect(c.note).toBeNull();
   });
 
   it("charts that do not read the ladder draw every night", () => {
     const checks = chart(v, /^Site checks/);
     expect(checks.note).toBeNull();
     expect(chart(v, /^Vulnerabilities/).note).toBe(
-      "The nightly does not count new vulnerabilities found, so the line shows sites with a vulnerability alert still open; the columns are sites cleared that night.",
+      "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out one waiting for an automatic update, so it can be fewer than Open now. The columns are sites cleared that night.",
     );
     expect(values(checks).every((x) => x !== null)).toBe(true);
   });
@@ -365,7 +367,7 @@ describe("the axis and the geometry", () => {
   it("every night has a hover target naming it and each value", () => {
     const g = trendGeometry(broken);
     expect(g.slots).toHaveLength(14);
-    expect(g.slots.at(-1)!.title).toBe("Oct 26: Broken 0; Attention 0");
+    expect(g.slots.at(-1)!.title).toBe("Oct 26: Broken: 0; Attention: 0");
   });
 
   it("a one-series chart's hover target gives the value alone", () => {
@@ -374,7 +376,7 @@ describe("the axis and the geometry", () => {
 
   it("the vulnerabilities chart names both in each hover target", () => {
     const g = trendGeometry(chart(v, /^Vulnerabilities/));
-    expect(g.slots.at(-1)!.title).toBe("Oct 26: Sites cleared 0; Sites with an alert open 0");
+    expect(g.slots.at(-1)!.title).toBe("Oct 26: Sites cleared: 0; Sites with an alert open: 0");
   });
 });
 
@@ -447,7 +449,7 @@ describe("review round 1", () => {
     const c = chart(trendsFromDaily(nights, NOW), /^Submissions/);
     expect(c.series[0]!.points.at(-1)).toEqual({
       value: null,
-      note: "fewer than the night before: one sent on was later marked spam, so not drawn",
+      note: "fewer than the night before: one the client was emailed about was later marked spam, or its email bounced, so not drawn",
       earlier: false,
     });
     expect(c.low).toBe(0);
@@ -478,5 +480,56 @@ describe("review round 1", () => {
     expect(chart(v, /^Broken/).summary).toBe(
       "Broken: from 0 to 3 over the 14 nights drawn, 0 on Oct 26. Attention: 2 on each of the 14 nights drawn, 2 on Oct 26. Every night is drawn.",
     );
+  });
+});
+
+describe("review round 2", () => {
+  it("the threshold counts nights inside the window, not every row (C2)", () => {
+    // Fourteen rows ending Oct 3: only Sep 27 to Oct 3 fall in the 30 nights to Oct 26.
+    const v = trendsFromDaily(run("2026-10-03", 14), NOW);
+    expect(v).toEqual({
+      status: "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in",
+      charts: null,
+    });
+  });
+
+  it("no rows at all is collecting, not a throw", () => {
+    expect(trendsFromDaily([], NOW).status).toBe(
+      "Collecting: 0 of 14 nights; the charts start once all 14 are in",
+    );
+  });
+
+  it("a halfway tick when it is a whole number (O-m2)", () => {
+    const at = (b: number) =>
+      chart(
+        trendsFromDaily(
+          run("2026-10-26", 14, () => tiers(b, 0)),
+          NOW,
+        ),
+        /^Broken/,
+      );
+    expect([at(0).high, at(0).mid]).toEqual([1, null]);
+    expect([at(2).high, at(2).mid]).toEqual([2, 1]);
+    expect([at(3).high, at(3).mid]).toEqual([5, null]);
+    expect([at(9).high, at(9).mid]).toEqual([10, 5]);
+    const g = trendGeometry(at(2));
+    expect(g.midY).toBe((g.top + g.baseline) / 2);
+  });
+
+  it("a night is a gap in the summary only when every series has no point (T5)", () => {
+    // Events unread on Oct 22: the cleared columns gap there and on Oct 23; the open
+    // line is drawn every night, so no night is without a point.
+    const nights = run("2026-10-26", 14, (date) =>
+      date === "2026-10-22" ? { events: { value: null, reason: "boom" } } : {},
+    );
+    const c = chart(trendsFromDaily(nights, NOW), /^Vulnerabilities/);
+    expect(c.series[0]!.points.filter((p) => p.value === null)).toHaveLength(3);
+    expect(c.summary.endsWith("Every night is drawn.")).toBe(true);
+  });
+
+  it("a night whose events hold no clearing cleared none (T6-F)", () => {
+    const nights = run("2026-10-26", 14, () => ({ events: { value: { pr_automerged: 4 } } }));
+    const c = chart(trendsFromDaily(nights, NOW), /^Vulnerabilities/);
+    expect(c.series[0]!.points.slice(1).every((p) => p.value === 0)).toBe(true);
   });
 });
