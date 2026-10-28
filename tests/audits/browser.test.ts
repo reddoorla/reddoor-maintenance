@@ -846,6 +846,11 @@ describe("extractLocale", () => {
       },
     );
     expect(extractLocale(`<html lang="">`, "https://a.com/").lang).toBeNull();
+    // The document's own <html> tag comes first; a later one (markup in a script string) is not it.
+    expect(
+      extractLocale(`<html lang="en"><script>s = '<html lang="fr">';</script>`, "https://a.com/")
+        .lang,
+    ).toBe("en");
   });
 
   it("reads unquoted attributes, as a minifier writes them", () => {
@@ -863,6 +868,15 @@ describe("extractLocale", () => {
     expect(extractLocale(html, "https://a.com/")).toEqual({
       lang: "en",
       alternates: ["https://a.com/es?a=1&b=2"],
+    });
+  });
+
+  it("reads nothing after an unterminated comment, and skips custom elements named link-*", () => {
+    const html = `<html lang="en"><link-card rel="alternate" hreflang="fr" href="/fr">
+      <link rel="alternate" hreflang="es" href="/es"><!-- <link rel="alternate" hreflang="de" href="/de">`;
+    expect(extractLocale(html, "https://a.com/")).toEqual({
+      lang: "en",
+      alternates: ["https://a.com/es"],
     });
   });
 

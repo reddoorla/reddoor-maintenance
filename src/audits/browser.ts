@@ -230,18 +230,26 @@ function tagAttr(tag: string, name: string): string | null {
 
 /** Pull `<html lang>` + the `<link rel="alternate" hreflang>` hrefs out of raw HTML (SSR truth,
  *  what search engines read for hreflang), hrefs resolved against `pageUrl`. Only the `<html>`
- *  tag's lang counts: a `lang` on an inner element says nothing about the page. Comments are
- *  dropped first, so a commented-out tag counts for nothing. PURE; exported for tests. Feeds the
+ *  tag's lang counts: a `lang` on an inner element says nothing about the page. A tag inside a
+ *  comment counts for nothing. PURE; exported for tests. Feeds the
  *  duplicate-title check's translation exemption (#1872). */
 export function extractLocale(
   html: string,
   pageUrl: string,
 ): { lang: string | null; alternates: string[] } {
-  const live = html.replace(/<!--[\s\S]*?-->/g, "");
-  const htmlTag = /<html(?=[\s>])[^>]*>/i.exec(live)?.[0] ?? "";
-  const lang = (tagAttr(htmlTag, "lang") ?? "").trim() || null;
+  // One left-to-right scan: a comment (to its `-->`, or to the end when unterminated, as a
+  // browser reads it) is matched and skipped, so a tag inside it never counts. Nothing is
+  // stripped or rewritten; the html is only read.
+  let htmlTag: string | null = null;
+  const linkTags: string[] = [];
+  for (const m of html.matchAll(/<!--[\s\S]*?(?:-->|$)|<(html|link)(?=[\s/>])[^>]*>/gi)) {
+    const name = m[1]?.toLowerCase();
+    if (name === "html") htmlTag ??= m[0];
+    else if (name === "link") linkTags.push(m[0]);
+  }
+  const lang = (tagAttr(htmlTag ?? "", "lang") ?? "").trim() || null;
   const alternates: string[] = [];
-  for (const tag of live.match(/<link\b[^>]*>/gi) ?? []) {
+  for (const tag of linkTags) {
     const rel = (tagAttr(tag, "rel") ?? "").toLowerCase().split(/\s+/);
     if (!rel.includes("alternate") || tagAttr(tag, "hreflang") === null) continue;
     const raw = decodeEntities(tagAttr(tag, "href") ?? "").trim();
