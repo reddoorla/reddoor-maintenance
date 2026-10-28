@@ -414,6 +414,38 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         expect(c.chart).toBeCloseTo(c.figure, 0);
         expect(c.tick).toBeGreaterThanOrEqual(10);
       }
+      // Review round 1 (T3): every mark that carries a value or the break stands out
+      // from the page's ground by at least 3:1, in this theme.
+      const contrast = await page.evaluate(() => {
+        const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+        const lum = (c: string) => {
+          const [r, g, b] = rgb(c).map((v) => {
+            const s = v / 255;
+            return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+        };
+        const ratio = (a: string, b: string) => {
+          const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+          return (x! + 0.05) / (y! + 0.05);
+        };
+        const ground = getComputedStyle(document.body).backgroundColor;
+        const of = (sel: string, prop: "stroke" | "fill") => {
+          const e = document.querySelector(sel);
+          return e === null ? null : ratio(getComputedStyle(e)[prop], ground);
+        };
+        return {
+          line: of("path.ov-line-mark:not(.broken)", "stroke"),
+          broken: of("path.ov-line-mark.broken", "stroke"),
+          bar: of("path.ov-bar", "fill"),
+          dot: of("circle.ov-dot", "fill"),
+          rule: of("line.ov-break", "stroke"),
+        };
+      });
+      for (const [mark, r] of Object.entries(contrast)) {
+        expect(r, mark).not.toBeNull();
+        expect(r!, mark).toBeGreaterThanOrEqual(3);
+      }
       await page.screenshot({
         path: join(tmpdir(), `overview-trends-390-${scheme}.png`),
         fullPage: true,

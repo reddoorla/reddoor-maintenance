@@ -159,6 +159,11 @@ section,
 .ov-earlier {
   fill: var(--band);
 }
+.ov-break {
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
 .ov-bar {
   fill: var(--ink-muted);
 }
@@ -166,8 +171,6 @@ section,
   fill: none;
   stroke: var(--ink);
   stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
 }
 .ov-line-mark.second {
   stroke-dasharray: 4 3;

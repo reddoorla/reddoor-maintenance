@@ -8,6 +8,7 @@ import OverviewPage from "../../src/routes/+page.svelte";
 import TriagePage from "../../src/routes/triage/+page.svelte";
 import {
   overviewFromSnapshot,
+  trendGeometry,
   HOW_WE_COUNT,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
@@ -763,6 +764,15 @@ describe("no count is typed into the page, over the sentinel render (review roun
   });
 });
 
+describe("P1-78h: section 8 while collecting (review round 1, T4)", () => {
+  it("says how many nights it has and draws no chart", () => {
+    const sec = DOC.querySelector('section[aria-labelledby="ov-trends"]')!;
+    expect(text(sec.querySelector("p")!)).toBe(`${VIEW.trends.status}.`);
+    expect(VIEW.trends.status).toMatch(/^Collecting: 1 of 14 nights/);
+    expect(sec.querySelectorAll("figure, svg")).toHaveLength(0);
+  });
+});
+
 describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
   // Sixteen nights to Oct 26: Oct 20 has no row, and the two oldest were counted on
   // an earlier ladder, so the level chart has a break and a gap.
@@ -810,7 +820,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     // Oct 13 to Oct 19, and Oct 21 to Oct 26: never one line across the gap.
     expect(broken).toHaveLength(2);
     expect(fig.querySelectorAll("svg.ov-chart rect.ov-earlier")).toHaveLength(1);
-    expect(text(fig.querySelector(".ov-trend-note")!)).toBe(TVIEW.trends.charts![0]!.earlierNote);
+    expect(text(fig.querySelector(".ov-trend-note")!)).toBe(TVIEW.trends.charts![0]!.note);
   });
 
   it("each chart's table gives every night, with why a night has no point", () => {
@@ -830,6 +840,39 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       "no count that night",
       "no count that night",
     ]);
+  });
+
+  it("draws exactly the marks the geometry gives, in its order (review round 1, T2)", () => {
+    for (const [i, f] of section.querySelectorAll("figure.ov-trend").entries()) {
+      const g = trendGeometry(TVIEW.trends.charts![i]!);
+      const svg = f.querySelector("svg.ov-chart")!;
+      const attrs = (sel: string, names: string[]) =>
+        svg.querySelectorAll(sel).map((e) => names.map((n) => e.getAttribute(n)));
+      expect(attrs("path.ov-bar", ["d"])).toEqual(g.bars.map((b) => [b.d]));
+      expect(attrs("path.ov-line-mark", ["d", "class"])).toEqual(
+        g.lines.map((l) => [
+          l.d,
+          `ov-line-mark ${l.broken ? "broken" : ""} ${l.series > 0 ? "second" : ""}`,
+        ]),
+      );
+      expect(attrs("circle.ov-dot", ["cx", "cy"])).toEqual(
+        g.dots.map((d) => [String(d.x), String(d.y)]),
+      );
+      expect(attrs("rect.ov-earlier", ["x", "width", "height"])).toEqual(
+        g.earlier.map((e) => [String(e.x), String(e.width), String(g.baseline - g.top)]),
+      );
+      expect(attrs("line.ov-break", ["x1", "x2"])).toEqual(
+        g.breaks.map((x) => [String(x), String(x)]),
+      );
+    }
+    // The fixture reaches every kind of mark.
+    const all = TVIEW.trends.charts!.map((c) => trendGeometry(c));
+    for (const k of ["bars", "lines", "dots", "earlier", "breaks"] as const)
+      expect(
+        all.some((g) => g[k].length > 0),
+        k,
+      ).toBe(true);
+    expect(TVIEW.trends.charts![0]!.series).toHaveLength(2);
   });
 
   it("every hover target names its night", () => {

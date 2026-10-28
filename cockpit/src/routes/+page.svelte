@@ -328,6 +328,9 @@
                 height={g.baseline - g.top}
               />
             {/each}
+            {#each g.breaks as x, bi (bi)}
+              <line class="ov-break" x1={x} x2={x} y1={g.top} y2={g.baseline} />
+            {/each}
             <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.top} y2={g.top} />
             <line class="ov-axis" x1={g.plotLeft} x2={g.plotRight} y1={g.zero} y2={g.zero} />
             <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end">{c.high}</text>
@@ -345,6 +348,8 @@
               <path
                 class="ov-line-mark {l.broken ? 'broken' : ''} {l.series > 0 ? 'second' : ''}"
                 d={l.d}
+                stroke-linejoin="round"
+                stroke-linecap="round"
               />
             {/each}
             {#each g.dots as d, di (di)}
@@ -361,7 +366,7 @@
               >
             {/each}
           </svg>
-          {#if c.earlierNote}<p class="muted ov-trend-note">{c.earlierNote}</p>{/if}
+          {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>
             <table class="ov-table">
