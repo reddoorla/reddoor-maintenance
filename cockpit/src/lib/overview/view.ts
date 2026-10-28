@@ -1504,7 +1504,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
         "Each line is the number of sites at that level that night, by each site's worst open item.",
       ),
       make(
-        "Checks run, every kind, each night",
+        "Checks run on sites, each night",
         [series("Checks run", own(checks), true)],
         "Each column adds up, for each kind of check, the sites it checked that night: five checks on seven sites count 35.",
       ),
@@ -1520,7 +1520,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
             true,
           ),
         ],
-        "Each column is the night's change in the all-time count of submissions (leads, signups and RSVPs together) the client was emailed about, the count Leads above calls Client notified. A submission later marked spam, or whose email bounced, takes one off the night that happened; a night that falls is left blank.",
+        "Each column is the night's change in the all-time count of submissions (leads, signups and RSVPs together) the client was emailed about, the count Leads above calls Client notified. A submission later marked spam, or whose email bounced, takes one off the night that happened, and one restored from spam adds one back; a night that falls is left blank.",
       ),
       make(
         "Vulnerabilities: sites with an alert open, and sites cleared",

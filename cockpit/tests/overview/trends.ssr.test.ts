@@ -59,7 +59,7 @@ describe("the 14-night threshold", () => {
     const v = trendsFromDaily(run("2026-10-26", TREND_NIGHTS), NOW);
     expect(v.charts?.map((c) => c.title)).toEqual([
       "Broken and Attention sites, each night",
-      "Checks run, every kind, each night",
+      "Checks run on sites, each night",
       "Submissions the client was emailed about, RSVPs included, each night",
       "Vulnerabilities: sites with an alert open, and sites cleared",
     ]);
@@ -657,5 +657,40 @@ describe("review round 4", () => {
     );
     const g = trendGeometry(chart(v, /^Broken/));
     for (const l of g.lines) for (const p of l.points) expect(p.y).toBeLessThanOrEqual(g.height);
+  });
+  it("a block hand-written as an array reads as unread, never as an empty one (round 5, T1)", () => {
+    const bad = {
+      sites: { value: { cards: 5, tiers: [], preLaunch: 0, setup: 0 } },
+      events: { value: [] },
+      signals: { value: [] },
+    } as never;
+    const nights = run("2026-10-26", 14, (_, i) =>
+      i === 3 ? bad : { ...tiers(2, 3), events: { value: { vuln_cleared: 2 } } },
+    );
+    const v = trendsFromDaily(nights, NOW);
+    const at = 10;
+    for (const [title, s] of [
+      [/^Broken/, 0],
+      [/^Broken/, 1],
+      [/^Vulnerabilities/, 0],
+      [/^Vulnerabilities/, 1],
+    ] as const)
+      expect(chart(v, title).series[s]!.points[at]!.note, `${title} ${s}`).toBe(
+        "could not be read that night",
+      );
+  });
+
+  it("an infinite count reads as unread (round 5, T2)", () => {
+    const nights = run("2026-10-26", 14, (_, i) =>
+      i === 0 ? { coverage: { value: { lighthouse_at: { value: Infinity } } } } : {},
+    );
+    const c = chart(trendsFromDaily(nights, NOW), /^Checks run/);
+    expect(c.series[0]!.points.at(-1)!.note).toBe("could not be read that night");
+  });
+
+  it("a night whose coverage block holds no check ran none: a real 0 (round 5, T3)", () => {
+    const nights = run("2026-10-26", 14, (_, i) => (i === 0 ? { coverage: { value: {} } } : {}));
+    const c = chart(trendsFromDaily(nights, NOW), /^Checks run/);
+    expect(c.series[0]!.points.at(-1)!.value).toBe(0);
   });
 });

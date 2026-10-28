@@ -531,5 +531,44 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "42-array-block-as-empty",
+    "why": "A block hand-written as an array reads as an empty object, every key 0 (review round 5, T1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": " && !Array.isArray(v) ?",
+        "replace": " ?"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-infinite-count-read",
+    "why": "An infinite count is drawn (review round 5, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Number.isFinite(v) && v >= 0",
+        "replace": "!Number.isNaN(v) && v >= 0"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-no-checks-unread",
+    "why": "A coverage block holding no check reads as unread, not as 0 (review round 5, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "all.some((v) => v === null) ? null",
+        "replace": "all.length === 0 || all.some((v) => v === null) ? null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]
