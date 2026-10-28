@@ -187,8 +187,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  const top = r1(Math.min(y, zero - MIN_COLUMN));",
-        "replace": "  const top = r1(y);"
+        "find": "        const top = r1(Math.min(yAt(p.value), zero - MIN_COLUMN));",
+        "replace": "        const top = r1(yAt(p.value));"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",

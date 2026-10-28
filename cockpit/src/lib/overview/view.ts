@@ -1522,9 +1522,8 @@ const r1 = (n: number): number => Math.round(n * 10) / 10;
  *  only a night with no value is empty (review round 1). */
 export const MIN_COLUMN = 2;
 
-/** A column from the zero line up to `y`: rounded at the data end, square at the base. */
-function column(left: number, w: number, zero: number, y: number): string {
-  const top = r1(Math.min(y, zero - MIN_COLUMN));
+/** A column from the zero line up to `top`: rounded at the data end, square at the base. */
+function column(left: number, w: number, zero: number, top: number): string {
   const r = Math.min(4, w / 2, zero - top);
   const right = r1(left + w);
   return `M${left},${zero}V${r1(top + r)}Q${left},${top} ${r1(left + r)},${top}H${r1(right - r)}Q${right},${top} ${right},${r1(top + r)}V${zero}Z`;
@@ -1552,12 +1551,12 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
     if (s.bars) {
       s.points.forEach((p, i) => {
         if (p.value === null) return;
-        const y = yAt(p.value);
+        const top = r1(Math.min(yAt(p.value), zero - MIN_COLUMN));
         bars.push({
           series: si,
           x: xAt(i),
-          height: r1(Math.max(zero - y, MIN_COLUMN)),
-          d: column(r1(xAt(i) - barW / 2), barW, zero, y),
+          height: r1(zero - top),
+          d: column(r1(xAt(i) - barW / 2), barW, zero, top),
         });
       });
       return;
