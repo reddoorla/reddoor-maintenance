@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (shown < TREND_NIGHTS) return",
-        "replace": "  if (shown < TREND_NIGHTS - 1) return"
+        "find": "  if (shown < TREND_NIGHTS)\n",
+        "replace": "  if (shown < TREND_NIGHTS - 1)\n"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -291,8 +291,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (shown < TREND_NIGHTS) return collecting(shown, shown < nights.length);",
-        "replace": "  if (nights.length < TREND_NIGHTS) return collecting(nights.length, false);"
+        "find": "  if (shown < TREND_NIGHTS)\n    return collecting(shown, shown < nights.length,",
+        "replace": "  if (nights.length < TREND_NIGHTS)\n    return collecting(nights.length, false,"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
