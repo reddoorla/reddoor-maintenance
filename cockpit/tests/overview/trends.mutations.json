@@ -213,7 +213,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  typeof v === \"number\" && Number.isFinite(v) ? v : null;",
+        "find": "  typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : null;",
         "replace": "  v as number | null;"
       }
     ],
