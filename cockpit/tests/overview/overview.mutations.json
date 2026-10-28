@@ -449,7 +449,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  return nightOf(new Date(now.getTime() - DAY_MS).toISOString());",
+        "find": "  return new Date(today - (p.hour! < 6 ? 2 : 1) * DAY_MS).toISOString().slice(0, 10);",
         "replace": "  return \"0000-00-00\";"
       }
     ],
@@ -683,8 +683,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (it.kind === \"deploy\" && site && !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now))",
-        "replace": "  if (false)"
+        "find": "    it.kind === \"deploy\" &&\n    site &&\n    !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "    false"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
