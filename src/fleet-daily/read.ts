@@ -109,7 +109,7 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
                   behind: deps.value.behind,
                   // A site whose list was not read that night is not in the sum.
                   sitesRead: Object.values(deps.value.sites ?? {}).filter(
-                    (x) => x.packages !== null,
+                    (x) => x?.packages != null,
                   ).length,
                 },
               }
