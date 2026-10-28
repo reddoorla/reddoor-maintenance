@@ -161,7 +161,7 @@
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "        sites: rest.sites ?? NOT_IN_ROW,\n",
+        "find": "        sites: measured(rest.sites),\n",
         "replace": ""
       }
     ],
