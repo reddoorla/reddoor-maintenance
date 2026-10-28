@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (nights.length < TREND_NIGHTS)\n",
-        "replace": "  if (nights.length < TREND_NIGHTS - 1)\n"
+        "find": "  if (shown < TREND_NIGHTS) return",
+        "replace": "  if (shown < TREND_NIGHTS - 1) return"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
