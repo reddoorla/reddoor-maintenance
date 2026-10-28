@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    c.sites.value === null ? null :",
-        "replace": "    c.sites.value === null ? 0 :"
+        "find": "keyOf(keyed(c.sites.value)?.[\"tiers\"], t)",
+        "replace": "(c.sites.value === null ? 0 : keyOf(keyed(c.sites.value)?.[\"tiers\"], t))"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
