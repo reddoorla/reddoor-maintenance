@@ -605,7 +605,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (d === null) return { ok: false, text: \"Domain does not answer\" };",
+        "find": "  if (d === null) return { ok: false, text: \"Domain does not answer, or no working certificate\" };",
         "replace": "  if (d === null) return { ok: null, text: \"Not checked lately\" };"
       }
     ],
@@ -636,6 +636,136 @@
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "35-expired-cert-runs-out",
+    "why": "(review round 5, R5-1) An expired certificate reads 'runs out within 7 days' in section 1",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (d !== null && d < 0) return \"its security certificate has expired\";",
+        "replace": "    if (false) return \"its security certificate has expired\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-domain-half-said",
+    "why": "(review round 5, R5-2) A domain with no usable certificate reads only 'the domain does not answer', beside All live",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  domain: \"the domain does not answer, or has no working security certificate\",",
+        "replace": "  domain: \"the domain does not answer\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "37-unread-reports-nothing-needs",
+    "why": "(review round 5, R5-3) A failed reports read leaves 'Nothing needs attention.'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!reportsRead)",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-stale-deploy-undated",
+    "why": "(review round 5, R5-4) A failed deploy read too long ago is said in section 1 as if current",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (it.kind === \"deploy\" && site && !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now))",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-stepless-night-zero-of-zero",
+    "why": "(review round 5, R5-5) A night with no step results reads '0 of 0 nightly steps ran to the end'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "              results.length === 0",
+        "replace": "              false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-expected-night-fixed-hours",
+    "why": "(review round 5, R5-6) The expected night subtracts fixed hours, an hour off on the days the clock changes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const p = pacificParts(now.getTime());\n  const today = Date.UTC(p.year!, p.month! - 1, p.day!);\n  return new Date(today - (p.hour! < 6 ? 2 : 1) * DAY_MS).toISOString().slice(0, 10);",
+        "replace": "  return new Date(now.getTime() - 30 * 3600_000).toLocaleDateString(\"en-CA\", { timeZone: \"America/Los_Angeles\" });"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-typed-number-in-words",
+    "why": "(review round 5, R5-7) A number typed into the page's words, beside a binding",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}.</span>",
+        "replace": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}, 30 nights a month.</span>"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-unread-nights-as-empty",
+    "why": "(review round 5, R5-8) A failed fleet_daily read becomes [] ('not yet collected') instead of null ('not readable')",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "read<CockpitSnapshot[\"nights\"]>(\"fleet-daily\", () => readOverviewNights(db), null),",
+        "replace": "read<CockpitSnapshot[\"nights\"]>(\"fleet-daily\", () => readOverviewNights(db), []),"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-reader-returns-none",
+    "why": "(review round 5, R5-8) The overview's reader returns no nights",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const rows = await readRecentRows(db, OVERVIEW_NIGHTS);",
+        "replace": "  const rows = (await readRecentRows(db, OVERVIEW_NIGHTS)).slice(0, 0);"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-reader-oldest-first",
+    "why": "(review round 5, R5-8) The overview's reader returns the nights oldest first",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  return rows.map(({ night, counts }) => {",
+        "replace": "  return [...rows].reverse().map(({ night, counts }) => {"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
     "expect": "red"
   }
 ]

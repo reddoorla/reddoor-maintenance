@@ -7,6 +7,8 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
+import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
+import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
 /**
  * The cockpit navigates without a server round trip (home base
@@ -139,6 +141,34 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
+  // Review round 5 (R5-8): two fleet_daily nights, the newest the one expected by now,
+  // so the overview's windowed counts and reliability are figures, not "not yet
+  // collected", and the 390px check lays out their longest lines.
+  const newest = expectedNight(new Date());
+  const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  for (const [night, merged] of [
+    [before, 600],
+    [newest, 612],
+  ] as const)
+    await db
+      .insertInto("fleet_daily")
+      .values({
+        night,
+        counts: JSON.stringify({
+          steps: Object.fromEntries(
+            NIGHTLIES.map((n: { file: string }) => [
+              n.file,
+              { outcome: "completed", runId: 1, conclusion: "success" },
+            ]),
+          ),
+          prsMerged: { value: merged },
+          events: { value: { pr_automerged: merged / 6, vuln_cleared: 3 } },
+        }),
+        written_at: new Date().toISOString(),
+      })
+      .execute();
   await db.destroy();
 }
 
@@ -269,6 +299,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
     expect(new URL(page.url()).pathname).toBe("/");
     expect(hops).toEqual([["/", 200]]);
+    // fleet_daily reached the page through the real loader (review round 5, R5-8).
+    await expect
+      .poll(() => page.locator("body").textContent())
+      .toContain(
+        `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
+      );
   });
 
   // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with

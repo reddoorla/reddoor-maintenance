@@ -25,6 +25,7 @@ import { isHttpError, type RequestEvent } from "@sveltejs/kit";
 import { load as homeLoad } from "../../src/routes/triage/+page.js";
 import { handle } from "../../src/hooks.server.js";
 import { runLayout, runPage } from "../_helpers/snapshot-load.js";
+import { overviewFromSnapshot, UNREADABLE } from "../../src/lib/overview/view.js";
 
 /**
  * The snapshot itself (home base `briefs/2026-10-21-cockpit-one-snapshot.md`, PR 1):
@@ -474,5 +475,41 @@ describe("no page reads the store on its own", () => {
         /export const load\b/,
       );
     }
+  });
+});
+
+describe("the overview's fleet_daily nights through the real loader (P1-78g, review round 5, R5-8)", () => {
+  const put = async (night: string, counts: object) => {
+    const db = await openDb({ url });
+    await db
+      .insertInto("fleet_daily")
+      .values({ night, counts: JSON.stringify(counts), written_at: `${night}T07:00:00.000Z` })
+      .execute();
+    await db.destroy();
+  };
+  const steps = { "fleet-security.yml": { outcome: "completed", runId: 1, conclusion: "success" } };
+
+  it("reads the nights newest first, each with its counts, and the overview shows them", async () => {
+    await put("2026-10-18", { steps, prsMerged: { value: 600 } });
+    await put("2026-10-19", { steps, prsMerged: { value: 610 } });
+    const c = await countingClient();
+    const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
+    expect(s.gaps).toEqual([]);
+    expect(s.nights?.map((n) => n.night)).toEqual(["2026-10-19", "2026-10-18"]);
+    expect(s.nights?.[0]?.counts.prsMerged).toEqual({ value: 610 });
+    // Through to the page's model: a figure, not "not yet collected".
+    const v = overviewFromSnapshot(s, NOW);
+    expect(v.nightly.reliability).toBe(
+      "2 of 2 nightly steps ran to the end over the last 2 nights",
+    );
+  });
+
+  it("a failing fleet_daily read is 'not readable' (null), never 'not yet collected' ([])", async () => {
+    await put("2026-10-19", { steps });
+    const c = await countingClient((sql) => sql.includes('from "fleet_daily"'));
+    const s = await loadCockpitSnapshot(await batchedDb(c.client), NOW, "https://dash.example");
+    expect(s.nights).toBeNull();
+    expect(s.gaps).toContain("fleet-daily");
+    expect(overviewFromSnapshot(s, NOW).nightly.reliability).toBe(UNREADABLE);
   });
 });

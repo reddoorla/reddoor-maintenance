@@ -45,7 +45,6 @@ import type { StepResult } from "../../../../src/fleet-daily/types.js";
 import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
-import { nightOf } from "../../../../src/fleet-daily/core.js";
 
 /**
  * P1-78g: the overview at `/` as render-ready data (workspace
@@ -168,7 +167,7 @@ function ageOf(since: string | undefined | null, now: Date): string | null {
 const BROKEN_IN_PLAIN_WORDS: Partial<Record<AttentionItem["kind"], string>> = {
   uptime: "a page on the site did not answer at the last check",
   url: "the site's address does not answer",
-  domain: "the domain does not answer",
+  domain: "the domain does not answer, or has no working security certificate",
   cert: "its security certificate runs out within 7 days",
   deploy: "the latest deploy failed",
   "function-health": "a server function (the code behind forms and similar) is failing",
@@ -180,12 +179,39 @@ const BROKEN_IN_PLAIN_WORDS: Partial<Record<AttentionItem["kind"], string>> = {
   turnstile: "the form's spam check is turning people away",
 };
 
-function plainReasons(items: readonly AttentionItem[]): string | null {
-  const words = [...new Set(items.map((it) => BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title))];
+/** One item's words. Two kinds say what the site's own reading says, so section 1
+ *  never contradicts the site's cells: an expired certificate is "expired", and a
+ *  failed deploy read too long ago is dated as an old reading, since the deploy
+ *  collector has no freshness gate of its own (review round 5, R5-1, R5-4). */
+function plainWords(it: AttentionItem, site: WebsiteRow | undefined, now: Date): string {
+  if (it.kind === "cert" && site?.domainCheckedAt) {
+    const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt, now);
+    if (d !== null && d < 0) return "its security certificate has expired";
+  }
+  if (
+    it.kind === "deploy" &&
+    site &&
+    !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)
+  )
+    return `the latest deploy had failed at the last check, ${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : "date not recorded"}; not checked since`;
+  return BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title;
+}
+
+function plainReasons(
+  items: readonly AttentionItem[],
+  site: WebsiteRow | undefined,
+  now: Date,
+): string | null {
+  const words = [...new Set(items.map((it) => plainWords(it, site, now)))];
   return words.length > 0 ? words.join("; ") : null;
 }
 
-function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView {
+function statusView(
+  model: CockpitModel,
+  live: LiveRow[],
+  reportsRead: boolean,
+  now: Date,
+): StatusView {
   const feed = buildNeedsYouFeed(model);
   const cards = new Map(model.cards.map((c) => [c.site.name, c]));
   const cardless = (model.cardless ?? []).filter((i) => i.waiting !== true);
@@ -201,14 +227,16 @@ function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView
         reasons:
           plainReasons(
             (cards.get(i.siteName)?.items ?? []).filter((it) => itemLevel(it) === "broken"),
+            cards.get(i.siteName)?.site,
+            now,
           ) ?? i.reasons.join(" · "),
         age: ageOf(i.since, now),
       })),
     ...cardlessAt("broken").map((i) => ({
       key: i.key,
       siteName: i.siteName || "The fleet",
-      url: TRIAGE_PATH,
-      reasons: plainReasons([i]) ?? i.title,
+      url: `${TRIAGE_PATH}#cardless`,
+      reasons: plainReasons([i], undefined, now) ?? i.title,
       age: ageOf(i.firstFlaggedAt, now),
     })),
   ];
@@ -298,6 +326,14 @@ function statusView(model: CockpitModel, live: LiveRow[], now: Date): StatusView
       // The Triage page has an approval group only for sites with nothing worse;
       // otherwise the drafts sit in this page's own per-site table.
       href: approvalThere ? toGroup("approval") : "#ov-reports",
+    });
+  // A failed reports read is no drafts waiting: say it, and never "Nothing needs
+  // attention" without it (review round 5, R5-3).
+  if (!reportsRead)
+    levels.push({
+      text: `Reports waiting for your yes: ${UNREADABLE}.`,
+      term: "Waiting for your yes",
+      href: "#ov-reports",
     });
   parts.push(...(levels.length > 0 ? levels : [{ text: "Nothing needs attention.", term: LEVEL }]));
   const cls =
@@ -431,7 +467,7 @@ export function domainCell(site: WebsiteRow, now: Date): Cell {
   if (!freshWithin(site.domainCheckedAt, PRODUCTION_STALE_DAYS, now))
     return { ok: null, text: "Not checked lately" };
   const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt!, now);
-  if (d === null) return { ok: false, text: "Domain does not answer" };
+  if (d === null) return { ok: false, text: "Domain does not answer, or no working certificate" };
   if (d < 0) return { ok: false, text: "Certificate expired" };
   return { ok: d > CERT_ATTENTION_DAYS, text: `${count(d, "day", "days")} left` };
 }
@@ -495,7 +531,7 @@ function liveRows(
         forms: formsCell(c.site, now),
         lastLead:
           subs === null
-            ? UNREADABLE
+            ? `last lead ${UNREADABLE}`
             : last === undefined
               ? "no real lead yet"
               : // An RSVP or a signup is a real submission, not a lead.
@@ -820,7 +856,11 @@ export function windowed(
  *  Pacific time, from 6am the morning after it. Before 6am, the night before that,
  *  so a run still going is never counted as missing. */
 export function expectedNight(now: Date): string {
-  return nightOf(new Date(now.getTime() - DAY_MS).toISOString());
+  // By the Pacific clock, not 24 fixed hours: a day the clock changes is 23 or 25
+  // hours long, and 6am is 6am on it too (review round 5, R5-6).
+  const p = pacificParts(now.getTime());
+  const today = Date.UTC(p.year!, p.month! - 1, p.day!);
+  return new Date(today - (p.hour! < 6 ? 2 : 1) * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** How many nights after `night` up to the expected one have no count: 0 when
@@ -852,7 +892,7 @@ function overNights(
       : NOT_YET;
   return lag > 0
     ? `${w.value} over the ${count(w.nights, "night", "nights")} to the night of ${nightLabel(newest.night)}${since}`
-    : `${w.value} over the last ${count(w.nights, "night", "nights")}`;
+    : `${w.value} over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`;
 }
 
 /** A running total of one event type. A type missing from a measured total did not
@@ -1086,7 +1126,12 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
         ? NOT_YET
         : window.length === 0
           ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newest.night)}`
-          : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
+          : `${
+              // A night written with no finished step is never "0 of 0" (review round 5, R5-5).
+              results.length === 0
+                ? "no nightly step had finished"
+                : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end`
+            } ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
   };
 }
 
@@ -1104,7 +1149,7 @@ export type UpkeepView = {
  *  wait is over. Plain words; the How-we-count line glosses the two rules. */
 function openText(item: AttentionItem | undefined, waiting: boolean, n: number, now: Date): string {
   const it = n === 1 ? "it is" : "they are";
-  if (item === undefined) return "no alert is raised yet, and the site's page shows the reading";
+  if (item === undefined) return "not flagged to us yet; the site's own page shows the reading";
   if (item.autoFixExhausted === true)
     return `the automatic update tried and gave up, so ${it} ours to fix by hand`;
   const since = item.firstFlaggedAt;
@@ -1224,7 +1269,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
   const status = (r: SubmissionRow) => storedStatus(s, r);
   const live = liveRows(model, s.submissions, status, now);
   return {
-    status: statusView(model, live, now),
+    status: statusView(model, live, s.reports !== null, now),
     live,
     leads: leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now),
     reports: reportsView(model, s.reports, now),
@@ -1311,7 +1356,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Reports sent",
-    text: 'Reports that went out to clients, less the August test sends (approved by "test send via Claude"). Approved first means one of us said yes before it went; the rest went without that yes.',
+    text: 'Reports that went out to clients, less every test send (approved by "test send via Claude", as the August ones were). Approved first means one of us said yes before it went; the rest went without that yes.',
   },
   {
     term: "Checks per report",

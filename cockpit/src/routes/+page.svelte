@@ -102,7 +102,7 @@
         >{/if}
     </p>
     <table class="ov-table ov-leads-totals">
-      <thead><tr><th></th><th>This month</th><th>All time</th></tr></thead>
+      <thead><tr><td></td><th>This month</th><th>All time</th></tr></thead>
       <tbody>
         <tr data-term="Accepted as real"
           ><th scope="row">Accepted as real</th><td data-label="This month"
@@ -218,7 +218,7 @@
         .sendsAt}.</span
     >
     <span data-term="Scale">Scale: {v.nightly.scale}.</span>
-    <span data-term="Runs completed">Reliability: {v.nightly.reliability}.</span>
+    <span data-term="Runs completed">Runs completed: {v.nightly.reliability}.</span>
   </p>
   <ol class="ov-steps" data-term="Steps">
     {#each v.nightly.steps as s (s.label)}
@@ -277,8 +277,7 @@
     of us promotes staging.
   </p>
   <p data-term="PRs merged">
-    Changes merged into the maintenance stack (the code that runs these checks and sends the
-    reports): {v.prsMerged}.
+    PRs merged into the maintenance stack (the code that runs these checks and sends the reports): {v.prsMerged}.
   </p>
 </section>
 

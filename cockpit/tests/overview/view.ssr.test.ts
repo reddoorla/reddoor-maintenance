@@ -907,7 +907,7 @@ describe("review round 2", () => {
       {
         key: "deadletter:ghost-site",
         siteName: "(unknown site: ghost-site)",
-        url: "/triage",
+        url: "/triage#cardless",
         reasons: "leads are stuck and have not reached the client",
         age: "flagged today",
       },
@@ -1235,9 +1235,12 @@ describe("review round 4", () => {
     const v = sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: null }));
     // The ladder names it Broken (collectDomainAlerts); the cell agrees, in plain words.
     expect(v.status.broken.map((b) => [b.siteName, b.reasons])).toEqual([
-      ["Acme", "the domain does not answer"],
+      ["Acme", "the domain does not answer, or has no working security certificate"],
     ]);
-    expect(v.live[0]!.domain).toEqual({ ok: false, text: "Domain does not answer" });
+    expect(v.live[0]!.domain).toEqual({
+      ok: false,
+      text: "Domain does not answer, or no working certificate",
+    });
     // A stale check with no days is still unknown, never Broken.
     expect(
       sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: null, domainCheckedAt: STALE }))
@@ -1435,5 +1438,95 @@ describe("review round 4", () => {
     expect(lead("2026-10-27T13:00:00.000Z")).toBe("last real lead 5 hours ago");
     expect(lead("2026-09-27T12:00:00.000Z")).toBe("last real lead 1 month ago");
     expect(lead("2026-10-27T17:59:30.000Z")).toBe("last real lead just now");
+  });
+});
+
+describe("review round 5", () => {
+  const sites = (...xs: WebsiteRow[]) => overviewFromSnapshot(snapshot({ sites: xs }), NOW);
+  const reasonsOf = (v: ReturnType<typeof sites>) =>
+    v.status.broken.map((b) => [b.siteName, b.reasons]);
+
+  it("an expired certificate reads as expired in section 1, as its cell does (R5-1)", () => {
+    const v = sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: -2 }));
+    expect(reasonsOf(v)).toEqual([["Acme", "its security certificate has expired"]]);
+    expect(v.live[0]!.domain).toEqual({ ok: false, text: "Certificate expired" });
+    // Not yet expired, but within 7 days: the other words.
+    expect(reasonsOf(sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: 3 })))).toEqual([
+      ["Acme", "its security certificate runs out within 7 days"],
+    ]);
+  });
+
+  it("a domain with no usable certificate is said in both halves, beside a live site (R5-2)", () => {
+    const v = sites(healthy({ id: "recA", name: "Acme", certDaysRemaining: null }));
+    expect(reasonsOf(v)).toEqual([
+      ["Acme", "the domain does not answer, or has no working security certificate"],
+    ]);
+    expect(v.live[0]!.domain).toEqual({
+      ok: false,
+      text: "Domain does not answer, or no working certificate",
+    });
+  });
+
+  it("a failed reports read is said in the status line, never 'Nothing needs attention' (R5-3)", () => {
+    const v = overviewFromSnapshot(snapshot({ reports: null, gaps: ["reports"] }), NOW);
+    expect(v.status.line).toBe(
+      "2 sites in our care. All live at the last check, Oct 26, 11:30pm PT. Reports waiting for your yes: not readable.",
+    );
+    expect(v.status.line).not.toContain("Nothing needs attention");
+    // With the read there and nothing waiting, the line is unchanged.
+    expect(overviewFromSnapshot(snapshot(), NOW).status.line).toContain("Nothing needs attention.");
+  });
+
+  it("a stale failed deploy in section 1 is dated as an old reading, as its cell says (R5-4)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recB", name: "Bravo", deployStatus: "error", deployCheckedAt: STALE }),
+        ],
+        digest: { "deploy:recB": { metric: 1, firstFlaggedAt: "2026-10-19" } },
+      }),
+      NOW,
+    );
+    expect(reasonsOf(v)).toEqual([
+      [
+        "Bravo",
+        "the latest deploy had failed at the last check, Oct 19, 11:30pm PT; not checked since",
+      ],
+    ]);
+    expect(v.live.find((r) => r.siteName === "Bravo")!.deploy.text).toBe("Not checked lately");
+    // A fresh failed deploy keeps the plain words.
+    const fresh = sites(healthy({ id: "recB", name: "Bravo", deployStatus: "error" }));
+    expect(reasonsOf(fresh)).toEqual([["Bravo", "the latest deploy failed"]]);
+  });
+
+  it("a night with no step results never reads '0 of 0' (R5-5)", () => {
+    const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW);
+    expect(v.nightly.reliability).toBe(
+      "no nightly step had finished on the 1 night counted so far",
+    );
+    expect(v.nightly.reliability).not.toMatch(/\b0 of\b/);
+    // A stepless night inside a window: the counted nights still say what finished.
+    const two = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: {} }), night("2026-10-25")] }),
+      NOW,
+    );
+    expect(two.nightly.reliability).toBe(
+      `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end over the last 2 nights`,
+    );
+  });
+
+  it("last night is expected from 6am Pacific by the clock, on the days the clock changes (R5-6)", () => {
+    // Nov 1 (PDT ends at 2am): 5:30am PST is 13:30Z, before 6am, so the night of Oct 30.
+    expect(expectedNight(new Date("2026-11-01T13:30:00Z"))).toBe("2026-10-30");
+    expect(expectedNight(new Date("2026-11-01T14:00:00Z"))).toBe("2026-10-31");
+    expect(expectedNight(new Date("2026-11-02T13:30:00Z"))).toBe("2026-10-31");
+    expect(expectedNight(new Date("2026-11-02T14:00:00Z"))).toBe("2026-11-01");
+    expect(expectedNight(new Date("2026-11-05T13:59:00Z"))).toBe("2026-11-03");
+    expect(expectedNight(new Date("2026-11-05T14:00:00Z"))).toBe("2026-11-04");
+    // Mar 8 (PDT starts at 2am): 6:30am PDT is 13:30Z, after 6am, so the night of Mar 7.
+    expect(expectedNight(new Date("2026-03-08T13:30:00Z"))).toBe("2026-03-07");
+    expect(expectedNight(new Date("2026-03-09T13:30:00Z"))).toBe("2026-03-08");
+    expect(expectedNight(new Date("2026-03-09T12:59:00Z"))).toBe("2026-03-07");
   });
 });

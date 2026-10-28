@@ -475,7 +475,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       `The nightly starts at ${sent("nightly.startsAt")}. Approved reports send at ${sent("nightly.sendsAt")}.`,
     );
     expect(span("Scale")).toBe(`Scale: ${sent("nightly.scale")}.`);
-    expect(span("Runs completed")).toBe(`Reliability: ${sent("nightly.reliability")}.`);
+    expect(span("Runs completed")).toBe(`Runs completed: ${sent("nightly.reliability")}.`);
     const steps = SDOC.querySelectorAll(".ov-steps li");
     expect(steps.length).toBe(SV.nightly.steps.length);
     steps.forEach((li, i) => {
@@ -506,7 +506,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       ),
     );
     expect(one('p[data-term="PRs merged"]')).toBe(
-      `Changes merged into the maintenance stack (the code that runs these checks and sends the reports): ${sent("prsMerged")}.`,
+      `PRs merged into the maintenance stack (the code that runs these checks and sends the reports): ${sent("prsMerged")}.`,
     );
     expect(one('.ov-how p[data-term="Nights counted"]')).toBe(
       `The nightly has written ${sent("nightsCollected")} of counts so far.`,
@@ -701,5 +701,40 @@ describe("review round 4: emphasis, the none-open sentence, and the shipping cop
     expect(ship).toContain("each as a pull request (PR)");
     expect(ship).toContain("when one of us promotes staging");
     expect(ship).not.toContain("when you promote");
+  });
+});
+
+/** The digit runs a visitor reads outside How we count: the page's own words, where
+ *  every number must be a binding. */
+function boundNumbers(doc: HTMLElement): string[] {
+  const runs: string[] = [];
+  const walk = (n: Node) => {
+    if (n instanceof TextNode) runs.push(n.text);
+    else if (!(n as HTMLElement).classList?.contains("ov-how"))
+      for (const c of n.childNodes) walk(c);
+  };
+  for (const el of doc.querySelectorAll("h1, section, details")) walk(el);
+  return runs.join(" | ").match(/\d+/g) ?? [];
+}
+
+describe("no count is typed into the page, over the sentinel render (review round 5, R5-7)", () => {
+  // In the sentinel render every number the view hands over is 70001 or above, so a
+  // digit run that is not one of them (or the one count the page derives, how many
+  // checks) was typed into the template, whatever value it has. The one constant
+  // allowed is a unit, not a count: Lighthouse scores "out of 100".
+  const allowed = new Set([...S.at.values(), String(SV.reports.checks.length), "100"]);
+
+  it("every digit run outside How we count is a sentinel", () => {
+    const shown = boundNumbers(SDOC);
+    expect(shown.length).toBeGreaterThan(20);
+    expect(shown.filter((d) => !allowed.has(d))).toEqual([]);
+  });
+
+  it("is an instrument that can fail: a number typed into the words is caught", () => {
+    const typed = pageHtml(SV).replace(
+      `<section`,
+      `<section><p>Each one is proven by one of the 8 steps, 30 nights a month.</p></section><section`,
+    );
+    expect(boundNumbers(parse(typed)).filter((d) => !allowed.has(d))).toEqual(["8", "30"]);
   });
 });
