@@ -41,13 +41,22 @@ describe("readOverviewNights guards every block it reads", () => {
 
   it("strips the package lists and keeps a failed deps reading's reason", async () => {
     await put("2026-10-25", {
-      deps: { value: { behind: 4, sites: { recA: { name: "A", packages: ["x@1"] } } } },
+      deps: {
+        value: {
+          behind: 4,
+          sites: {
+            recA: { name: "A", packages: ["x@1"] },
+            // Not read that night: not one of the sites the sum covers (round 3, O5).
+            recB: { name: "B", packages: null },
+          },
+        },
+      },
     });
     await put("2026-10-26", { deps: { value: null, reason: "deps: read failed" } });
     const nights = await readOverviewNights(db);
     expect(nights.map((n) => [n.night, n.counts.deps])).toEqual([
       ["2026-10-26", { value: null, reason: "deps: read failed" }],
-      ["2026-10-25", { value: { behind: 4 } }],
+      ["2026-10-25", { value: { behind: 4, sitesRead: 1 } }],
     ]);
   });
 });

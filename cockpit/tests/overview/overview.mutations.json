@@ -114,13 +114,13 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (newest === undefined) return null;",
-        "replace": "  if (newest === undefined) return { value: 0, nights: 0 };"
+        "find": "  if (newest === undefined) return NOT_YET;\n  const lag",
+        "replace": "  if (newest === undefined) return \"0 over the last 0 nights\";\n  const lag"
       },
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      : window.length === 0\n        ? NOT_YET",
-        "replace": "      : window.length === 0\n        ? \"0 of 0 runs green\""
+        "find": "      : newest === undefined\n        ? NOT_YET",
+        "replace": "      : newest === undefined\n        ? \"0 of 0 runs green\""
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -205,8 +205,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{v.leads.allTime.submissions} submissions",
-        "replace": ">705 submissions"
+        "find": ">{v.leads.allTime.submissions}\n        {v.leads.allTime.submissions === 1",
+        "replace": ">705\n        {v.leads.allTime.submissions === 1"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -218,8 +218,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "{v.leads.allTime.accepted} were accepted as real,",
-        "replace": "10 were accepted as real,"
+        "find": ">{v.leads.allTime.accepted}\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}",
+        "replace": ">10\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -257,7 +257,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      href: groups.has(\"approval\") ? toGroup(\"approval\") : \"#ov-reports\",",
+        "find": "      href: approvalThere ? toGroup(\"approval\") : \"#ov-reports\",",
         "replace": "      href: toGroup(\"approval\"),"
       }
     ],
@@ -337,6 +337,149 @@
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A-upkeep-swap",
+    "why": "(review round 3, T1) The page binds the sites cleared into the dependency updates line",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.automerged}.",
+        "replace": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.vulnsCleared}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B-scale-reliability",
+    "why": "(review round 3, T1) The page shows reliability as the scale",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Scale: {v.nightly.scale}.",
+        "replace": "Scale: {v.nightly.reliability}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C-prs-automerged",
+    "why": "(review round 3, T1) The page shows the dependency updates as the changes merged",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "reports): {v.prsMerged}.",
+        "replace": "reports): {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "D-deploy-domain",
+    "why": "(review round 3, T1) The Deploy cell shows the certificate's text",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{r.deploy.text}</td",
+        "replace": ">{r.domain.text}</td"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "L-lastfinished-outcome",
+    "why": "(review round 3, T1) A step's Last finished shows its outcome",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Last finished: {s.lastFinished}.",
+        "replace": "Last finished: {s.outcome}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "O-open-vulns-dropped",
+    "why": "(review round 3, T1) The page shows no open vulnerability",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if v.upkeep.open.length > 0}",
+        "replace": "{#if false}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-depsbehind-automerged",
+    "why": "(review round 3, T1) The page shows the dependency updates as the upgrades waiting",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Major-version upgrades waiting: {v.upkeep.depsBehind}.",
+        "replace": "Major-version upgrades waiting: {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "Q-steps-sites-outcome",
+    "why": "(review round 3, T1) A step's Reached shows its outcome",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "Reached: {s.sites}.",
+        "replace": "Reached: {s.outcome}."
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-windows-from-newest-row",
+    "why": "(review round 3, C1) Windows and reliability are measured from the newest row, ignoring the nights missing up to now",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  return nightOf(new Date(now.getTime() - DAY_MS).toISOString());",
+        "replace": "  return \"0000-00-00\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-approval-over-every-site",
+    "why": "(review round 3, C3) The waiting count takes drafts on sites the per-site table does not list",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const approval = model.pending.filter((p) => inCareNames.has(p.siteName)).length;",
+        "replace": "  const approval = model.pending.length;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-form-fail-as-verdict",
+    "why": "(review round 3, O1) A failed form test is shown as a plain verdict",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (site.formE2eOk === \"fail\") return { ok: null, text: FORM_TEST_FAILED };",
+        "replace": "  if (site.formE2eOk === \"fail\") return { ok: false, text: \"Test failed\" };"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {

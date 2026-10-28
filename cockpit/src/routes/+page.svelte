@@ -81,10 +81,15 @@
   {:else}
     <p>
       <span data-term="Submissions"
-        >{v.leads.allTime.submissions} submissions{#if v.leads.since}&nbsp;since {v.leads
-            .since}{/if}.</span
+        >{v.leads.allTime.submissions}
+        {v.leads.allTime.submissions === 1
+          ? "submission"
+          : "submissions"}{#if v.leads.since}&nbsp;since {v.leads.since}{/if}.</span
       >
-      <span data-term="Accepted as real">{v.leads.allTime.accepted} were accepted as real,</span>
+      <span data-term="Accepted as real"
+        >{v.leads.allTime.accepted}
+        {v.leads.allTime.accepted === 1 ? "was" : "were"} accepted as real,</span
+      >
       <span data-term="Client notified"
         >and the client was notified of {v.leads.allTime.notified}.</span
       >
@@ -92,7 +97,8 @@
           >Of the {v.leads.allTime.submissions} submissions, {v.leads.biggest.submissions} ({v.leads
             .biggest.share}%) came from one site, {v.leads.biggest.siteName}, through {v.leads
             .biggest.formKind}; {v.leads.biggest.accepted} of the {v.leads.allTime.accepted} accepted
-          are from it. Every site's own count is in the table below.</span
+          {v.leads.biggest.accepted === 1 ? "is" : "are"} from it. Every site's own count is in the table
+          below.</span
         >{/if}
     </p>
     <table class="ov-table ov-leads-totals">
@@ -230,7 +236,7 @@
   <h2 id="ov-upkeep">Upkeep</h2>
   <ul>
     <li data-term="Dependency updates merged">
-      Renovate's dependency updates merged: {v.upkeep.automerged}.
+      Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.automerged}.
     </li>
     <li data-term="Sites cleared of vulnerabilities">
       Sites cleared of every critical or high vulnerability: {v.upkeep.vulnsCleared}.
@@ -243,7 +249,7 @@
   {#if v.upkeep.open.length > 0}
     <ul data-term="Open now">
       {#each v.upkeep.open as o (o.siteId)}
-        <li>{o.siteName}: {o.text}.</li>
+        <li>{o.siteName} {o.text}.</li>
       {/each}
     </ul>
   {:else}

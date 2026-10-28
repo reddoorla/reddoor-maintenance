@@ -61,7 +61,8 @@ export type OverviewNight = {
   night: string;
   /** `run` is null on a row that does not carry it (review round 2). */
   counts: Omit<FleetDailyCounts, "deps" | "run"> & {
-    deps: Measured<{ behind: number }>;
+    /** `sitesRead`: how many sites' package lists that night's count adds up. */
+    deps: Measured<{ behind: number; sitesRead: number }>;
     run: FleetDailyCounts["run"] | null;
   };
 };
@@ -90,7 +91,18 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         screenouts: rest.screenouts ?? NOT_IN_ROW,
         events: rest.events ?? NOT_IN_ROW,
         prsMerged: rest.prsMerged ?? NOT_IN_ROW,
-        deps: deps?.value != null ? { value: { behind: deps.value.behind } } : (deps ?? NOT_IN_ROW),
+        deps:
+          deps?.value != null
+            ? {
+                value: {
+                  behind: deps.value.behind,
+                  // A site whose list was not read that night is not in the sum.
+                  sitesRead: Object.values(deps.value.sites ?? {}).filter(
+                    (x) => x.packages !== null,
+                  ).length,
+                },
+              }
+            : (deps ?? NOT_IN_ROW),
       },
     };
   });

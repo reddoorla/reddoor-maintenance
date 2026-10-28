@@ -99,7 +99,7 @@ export function night(date: string, over: Partial<OverviewNight["counts"]> = {})
           form_e2e_checked_at: { value: 1 },
         },
       },
-      deps: { value: { behind: 5 } },
+      deps: { value: { behind: 5, sitesRead: 2 } },
       leads: { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: 0 } },
       screenouts: { value: { honeypot: 240, tooFast: 8 } },
       reportsSent: { value: 3 },

@@ -267,12 +267,18 @@ describe("the overview's stylesheet (T5)", () => {
 });
 
 /**
- * Review round 2 (T1, T2): the sentinel render. Every number the view hands the page
- * (a number, or a count carried as text, "248") becomes its own distinct sentinel,
- * and each is asserted in its labelled cell. A count typed into the page, even one
- * that matches a fixture value, and a binding to the wrong field (all time in the
- * This-month column) both fail here: the digit check above cannot see either.
+ * Review round 2 (T1, T2), widened in round 3 (T1): the sentinel render. Every leaf the
+ * view hands the page becomes its own distinct sentinel: a number becomes a number
+ * (70001, 70002, …), and a string becomes a marker naming its own path
+ * (`⟦upkeep.automerged⟧`, indices as letters so a marker holds no digit). Each is
+ * asserted in its labelled element. A count typed into the page, even one that
+ * matches a fixture value, and a binding to the wrong field (all time in the
+ * This-month column, the deploy cell showing the certificate, a count carried inside
+ * words) all fail here: the digit check above cannot see any of them.
  */
+const letters = (i: number): string =>
+  (i >= 26 ? letters(Math.floor(i / 26) - 1) : "") + String.fromCharCode(97 + (i % 26));
+
 function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, string> } {
   const at = new Map<string, string>();
   let next = 70001;
@@ -282,12 +288,12 @@ function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, 
       at.set(path, String(n));
       return n;
     }
-    if (typeof v === "string" && /^\d+$/.test(v)) {
-      const n = String(next++);
-      at.set(path, n);
-      return n;
+    if (typeof v === "string") {
+      const m = `⟦${path}⟧`;
+      at.set(path, m);
+      return m;
     }
-    if (Array.isArray(v)) return v.map((x, i) => walk(x, `${path}[${i}]`));
+    if (Array.isArray(v)) return v.map((x, i) => walk(x, `${path}[${letters(i)}]`));
     if (v !== null && typeof v === "object")
       return Object.fromEntries(
         Object.entries(v).map(([k, x]) => [k, walk(x, path ? `${path}.${k}` : k)]),
@@ -297,7 +303,16 @@ function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, 
   return { view: walk(view, "") as OverviewView, at };
 }
 
-const S = sentinelize(VIEW);
+/** The page's fixture, with an open vulnerability on Bravo, so "Open now" has a row. */
+const SNAP_OPEN = {
+  ...SNAP,
+  sites: SNAP.sites!.map((x) =>
+    x.id === "recB"
+      ? { ...x, securityVulnsHigh: 2, lastSecurityAuditAt: FRESH, securityAdvisories: [] }
+      : x,
+  ),
+};
+const S = sentinelize(overviewFromSnapshot(SNAP_OPEN, NOW));
 const SV = S.view;
 const SDOC = parse(pageHtml(SV));
 const sent = (path: string): string => {
@@ -305,36 +320,76 @@ const sent = (path: string): string => {
   if (v === undefined) throw new Error(`no sentinel at ${path}`);
   return v;
 };
+const one = (sel: string): string => {
+  const el = SDOC.querySelector(sel);
+  if (el === null) throw new Error(`no element ${sel}`);
+  return text(el);
+};
 
-describe("the sentinel render: each number in its labelled cell (T1, T2)", () => {
-  it("gives every number in the view its own sentinel", () => {
+describe("the sentinel render: each leaf in its labelled element (T1, T2; round 3 T1)", () => {
+  it("gives every leaf in the view its own sentinel", () => {
     // Enough to mean something, and none repeated.
-    expect(S.at.size).toBeGreaterThan(40);
+    expect(S.at.size).toBeGreaterThan(150);
     expect(new Set(S.at.values()).size).toBe(S.at.size);
+    // The fixture reaches the open-vulnerability list.
+    expect(SV.upkeep.open).toHaveLength(1);
   });
 
-  it("shows every sentinel the page renders, so no count is typed in its place", () => {
+  it("shows every sentinel the page renders as text, so none is typed in its place", () => {
     const shown = new Set(shownNumbers(SDOC));
-    // Numbers the view carries that the page does not show: the status counts reach
-    // it only inside the status line's text, this month's submissions and the test
-    // sends are worked out but not shown.
+    const words = pageText(SDOC);
+    // Leaves the page does not show as text: the status counts reach it only inside
+    // the status line's parts (and the line itself is those parts joined), this
+    // month's submissions and the test sends are worked out but not shown, and ids,
+    // links, classes, terms and raw stamps are attributes or keys.
     const unrendered = (p: string) =>
       p.startsWith("status.counts.") ||
+      p === "status.line" ||
+      p === "status.cls" ||
       p === "leads.thisMonth.submissions" ||
-      p === "reports.sent.testSends";
+      p === "reports.sent.testSends" ||
+      /\.(siteId|key|url|href|term|tier|atIso)$/.test(p);
+    let checked = 0;
     for (const [path, v] of S.at) {
       if (unrendered(path)) continue;
-      expect.soft(shown.has(v), `${path} (${v}) is on the page`).toBe(true);
+      checked++;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
+    expect(checked).toBeGreaterThan(120);
+  });
+
+  it("the status line and the Broken list read their own fields", () => {
+    const parts = SDOC.querySelectorAll(".ov-line > span[data-term]").map(text);
+    expect(parts).toEqual(SV.status.parts.map((_, i) => sent(`status.parts[${letters(i)}].text`)));
+    expect(SDOC.querySelectorAll(".ov-list.broken li").map(text)).toEqual(
+      SV.status.broken.map((b, i) => {
+        const p = `status.broken[${letters(i)}]`;
+        return `${sent(`${p}.siteName`)}: ${sent(`${p}.reasons`)}${b.age ? `, ${sent(`${p}.age`)}` : ""}`;
+      }),
+    );
+  });
+
+  it("each Live-table cell reads its own field", () => {
+    const rows = SDOC.querySelectorAll(".ov-live tbody tr");
+    expect(rows.length).toBe(SV.live.length);
+    rows.forEach((tr, i) => {
+      const p = `live[${letters(i)}]`;
+      const cell = (label: string) => text(tr.querySelector(`td[data-label="${label}"]`)!);
+      expect(text(tr.querySelector("th")!)).toBe(sent(`${p}.siteName`));
+      expect(cell("Live")).toBe(`${sent(`${p}.live.text`)}, checked ${sent(`${p}.live.at`)}`);
+      expect(cell("Certificate")).toBe(sent(`${p}.domain.text`));
+      expect(cell("Deploy")).toBe(sent(`${p}.deploy.text`));
+      expect(cell("Forms")).toBe(`${sent(`${p}.forms.text`)}; ${sent(`${p}.lastLead`)}`);
+      expect(cell("Level")).toBe(sent(`${p}.level.text`));
+    });
   });
 
   it("the leads headline reads each count from its own field", () => {
     const span = (term: string) =>
-      text(
-        SDOC.querySelector(`section[aria-labelledby="ov-leads"] > p span[data-term="${term}"]`)!,
-      );
-    expect(span("Submissions")).toMatch(
-      new RegExp(`^${sent("leads.allTime.submissions")} submissions`),
+      one(`section[aria-labelledby="ov-leads"] > p span[data-term="${term}"]`);
+    expect(span("Submissions")).toBe(
+      `${sent("leads.allTime.submissions")} submissions since ${sent("leads.since")}.`,
     );
     expect(span("Accepted as real")).toBe(
       `${sent("leads.allTime.accepted")} were accepted as real,`,
@@ -343,7 +398,7 @@ describe("the sentinel render: each number in its labelled cell (T1, T2)", () =>
       `and the client was notified of ${sent("leads.allTime.notified")}.`,
     );
     expect(span("Biggest share")).toBe(
-      `Of the ${sent("leads.allTime.submissions")} submissions, ${sent("leads.biggest.submissions")} (${sent("leads.biggest.share")}%) came from one site, Rsvp Site, through an RSVP form; ${sent("leads.biggest.accepted")} of the ${sent("leads.allTime.accepted")} accepted are from it. Every site's own count is in the table below.`,
+      `Of the ${sent("leads.allTime.submissions")} submissions, ${sent("leads.biggest.submissions")} (${sent("leads.biggest.share")}%) came from one site, ${sent("leads.biggest.siteName")}, through ${sent("leads.biggest.formKind")}; ${sent("leads.biggest.accepted")} of the ${sent("leads.allTime.accepted")} accepted are from it. Every site's own count is in the table below.`,
     );
   });
 
@@ -365,7 +420,7 @@ describe("the sentinel render: each number in its labelled cell (T1, T2)", () =>
       expect(row(term), term).toEqual([sent(`leads.thisMonth.${f}`), sent(`leads.allTime.${f}`)]);
     expect(row("Stopped before storage")).toEqual([
       sent("leads.stoppedThisMonth"),
-      `${sent("leads.stoppedAllTime")}, as of Oct 26`,
+      `${sent("leads.stoppedAllTime")}, as of ${sent("leads.stoppedAsOf")}`,
     ]);
   });
 
@@ -373,27 +428,126 @@ describe("the sentinel render: each number in its labelled cell (T1, T2)", () =>
     const rows = SDOC.querySelectorAll(".ov-leads-sites tbody tr");
     expect(rows.length).toBe(SV.leads.perSite.length);
     rows.forEach((tr, i) => {
+      const p = `leads.perSite[${letters(i)}]`;
       const cell = (label: string) => text(tr.querySelector(`td[data-label="${label}"]`)!);
-      expect(cell("Submissions")).toBe(sent(`leads.perSite[${i}].submissions`));
-      expect(cell("Accepted")).toBe(sent(`leads.perSite[${i}].accepted`));
-      expect(cell("Notified")).toBe(sent(`leads.perSite[${i}].notified`));
-      expect(cell("Screened")).toBe(sent(`leads.perSite[${i}].screened`));
-      expect(cell("By hand")).toBe(sent(`leads.perSite[${i}].byHand`));
+      expect(text(tr.querySelector("th")!)).toBe(sent(`${p}.siteName`));
+      expect(cell("Submissions")).toBe(sent(`${p}.submissions`));
+      expect(cell("Accepted")).toBe(sent(`${p}.accepted`));
+      expect(cell("Notified")).toBe(sent(`${p}.notified`));
+      expect(cell("Screened")).toBe(sent(`${p}.screened`));
+      expect(cell("By hand")).toBe(sent(`${p}.byHand`));
     });
   });
 
-  it("the reports sentence, the medians and the per-site waiting read their own fields", () => {
-    expect(text(SDOC.querySelector('p[data-term="Reports sent"]')!)).toBe(
+  it("the reports section reads each field: checks, medians, sends, due and waiting", () => {
+    const dts = SDOC.querySelectorAll(".ov-checks dt").map(text);
+    const dds = SDOC.querySelectorAll(".ov-checks dd").map(text);
+    expect(dts).toEqual(
+      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].name`)),
+    );
+    expect(dds).toEqual(
+      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].proof`)),
+    );
+    expect(one('p[data-term="Reports sent"]')).toBe(
       `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before sending, and ${sent("reports.sent.aroundGate")} without that yes.`,
     );
-    const lh = text(SDOC.querySelector('p[data-term="Lighthouse"]')!);
-    SV.reports.lighthouse.forEach((l, i) =>
-      expect(lh).toContain(`${l.label} ${sent(`reports.lighthouse[${i}].median`)}`),
+    const lh = one('p[data-term="Lighthouse"]');
+    SV.reports.lighthouse.forEach((_, i) =>
+      expect(lh).toContain(
+        `${sent(`reports.lighthouse[${letters(i)}].label`)} ${sent(`reports.lighthouse[${letters(i)}].median`)}`,
+      ),
     );
-    const waiting = SDOC.querySelectorAll('.ov-due td[data-label="Waiting"]').map(text);
-    expect(waiting).toEqual(
-      SV.reports.perSite.map((_, i) => sent(`reports.perSite[${i}].waiting`)),
+    expect(lh).toContain(`, from audits as old as ${sent("reports.lighthouseAsOf")}.`);
+    const rows = SDOC.querySelectorAll(".ov-due tbody tr");
+    expect(rows.length).toBe(SV.reports.perSite.length);
+    rows.forEach((tr, i) => {
+      const p = `reports.perSite[${letters(i)}]`;
+      expect(text(tr.querySelector("th")!)).toBe(sent(`${p}.siteName`));
+      expect(text(tr.querySelector('td[data-label="Next due"]')!)).toBe(sent(`${p}.nextDue`));
+      expect(text(tr.querySelector('td[data-label="Waiting"]')!)).toBe(sent(`${p}.waiting`));
+    });
+  });
+
+  it("the nightly section reads its times, scale, reliability and each step's slots", () => {
+    const span = (term: string) =>
+      one(`section[aria-labelledby="ov-nightly"] span[data-term="${term}"]`);
+    expect(span("Times")).toBe(
+      `The nightly starts at ${sent("nightly.startsAt")}. Approved reports send at ${sent("nightly.sendsAt")}.`,
     );
+    expect(span("Scale")).toBe(`Scale: ${sent("nightly.scale")}.`);
+    expect(span("Runs green")).toBe(`Reliability: ${sent("nightly.reliability")}.`);
+    const steps = SDOC.querySelectorAll(".ov-steps li");
+    expect(steps.length).toBe(SV.nightly.steps.length);
+    steps.forEach((li, i) => {
+      const p = `nightly.steps[${letters(i)}]`;
+      expect(text(li.querySelector(".ov-step-name")!)).toBe(sent(`${p}.label`));
+      expect(text(li.querySelector(".muted")!)).toBe(
+        `${sent("nightly.nightOf")}: ${sent(`${p}.outcome`)}. Last finished: ${sent(`${p}.lastFinished`)}. Reached: ${sent(`${p}.sites`)}.`,
+      );
+    });
+  });
+
+  it("the upkeep lines, the open vulnerabilities and the changes merged read their own fields", () => {
+    const li = (term: string) =>
+      one(`section[aria-labelledby="ov-upkeep"] li[data-term="${term}"]`);
+    expect(li("Dependency updates merged")).toBe(
+      `Dependency updates merged (opened by Renovate, our update bot): ${sent("upkeep.automerged")}.`,
+    );
+    expect(li("Sites cleared of vulnerabilities")).toBe(
+      `Sites cleared of every critical or high vulnerability: ${sent("upkeep.vulnsCleared")}.`,
+    );
+    expect(li("Major-version upgrades waiting")).toBe(
+      `Major-version upgrades waiting: ${sent("upkeep.depsBehind")}.`,
+    );
+    expect(SDOC.querySelectorAll('ul[data-term="Open now"] li').map(text)).toEqual(
+      SV.upkeep.open.map(
+        (_, i) =>
+          `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
+      ),
+    );
+    expect(one('p[data-term="PRs merged"]')).toBe(
+      `Changes merged into the maintenance stack (the code that runs these checks and sends the reports): ${sent("prsMerged")}.`,
+    );
+    expect(one('.ov-how p[data-term="Nights counted"]')).toBe(
+      `The nightly has written ${sent("nightsCollected")} of counts so far.`,
+    );
+  });
+});
+
+describe("review round 3: the page reads right for one, and for a form test not yet trusted", () => {
+  it("one submission and one accepted read in the singular (O7)", () => {
+    const doc = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            submissions: [
+              makeSubmissionRow({ id: "a1", siteId: "recA", status: "new", submittedAt: FRESH }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    expect(pageText(doc)).toContain(
+      "1 submission since Oct 26, 2026. 1 was accepted as real, and the client was notified of 0.",
+    );
+  });
+
+  it("a failed form test is in the unknown style, and says it is not yet a verdict (O1)", () => {
+    const doc = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eOk: "fail" })] }),
+          NOW,
+        ),
+      ),
+    );
+    const td = doc.querySelector('.ov-live td[data-label="Forms"]')!;
+    expect(td.getAttribute("class")).toBe("unknown");
+    expect(text(td)).toBe(
+      "Test failed, but the test itself is being fixed, so this is not yet a verdict; no real lead yet",
+    );
+    expect(text(doc.querySelector('.ov-live td[data-label="Level"]')!)).toBe("OK");
   });
 });
 

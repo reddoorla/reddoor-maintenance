@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   overviewFromSnapshot,
   CHECK_PROOF,
+  FORM_TEST_FAILED,
   HOW_WE_COUNT,
   LADDER_LINES,
   NIGHTLY_STEPS,
   NOT_YET,
   UNREADABLE,
+  expectedNight,
   liveCell,
   outcomeText,
   pacificMonthStart,
@@ -334,9 +336,14 @@ describe("section 5: what runs every night", () => {
 describe("sections 6 and 7: windows over fleet_daily", () => {
   it("one night alone has nothing to subtract", () => {
     const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW);
-    expect(v.upkeep.automerged).toBe(NOT_YET);
+    // Review round 3 (O4): it says when counting started, never 0, and agrees with
+    // How we count's one night.
+    expect(v.upkeep.automerged).toBe(
+      "counting started on the night of Oct 26; the first figure comes after a second night",
+    );
+    // Review round 3 (O5): dated, and how many sites the sum covers.
     expect(v.upkeep.depsBehind).toBe(
-      "5, added up across our sites (one package behind on three sites counts three times)",
+      "5, added up across the 2 sites read on the night of Oct 26 (one package behind on three sites counts three times)",
     );
   });
 
@@ -389,7 +396,7 @@ describe("sections 6 and 7: windows over fleet_daily", () => {
       {
         siteId: "recA",
         siteName: "Acme",
-        text: expect.stringMatching(/^2 critical or high vulnerabilities: /),
+        text: expect.stringMatching(/^has 2 critical or high vulnerabilities; /),
       },
     ]);
   });
@@ -655,7 +662,7 @@ describe("review round 1: the counts behind every shown number", () => {
     expect(v.status.counts.attention).toBe(0);
     expect(v.status.counts.fleetAttention).toBe(1);
     expect(v.status.parts.map((p) => [p.text, p.href])).toContainEqual([
-      "1 fleet-wide item needs attention too.",
+      "1 item not tied to one site needs attention too.",
       "/triage#cardless",
     ]);
     // Not checked lately reads as such, never "The rest live;".
@@ -687,7 +694,7 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
       {
         siteId: "recA",
         siteName: "Acme",
-        text: "2 critical or high vulnerabilities: we are giving the automatic update until Oct 29; any still open then come to us",
+        text: "has 2 critical or high vulnerabilities; we are giving the automatic update until Oct 29; any still open then come to us",
       },
     ]);
   });
@@ -707,26 +714,26 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
     });
     // The Monday after Oct 26 closes Nov 2 18:00Z; two days on is Nov 4.
     expect(open(transitive, "2026-10-26")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: they sit deeper in the site's packages, so we are giving Monday's weekly package refresh until Nov 4; any still open then come to us",
+      "has 2 critical or high vulnerabilities; they sit deeper in the site's packages, so we are giving Monday's weekly package refresh until Nov 4; any still open then come to us",
     );
   });
 
   it("past its wait: ours this week, with the date it ran out", () => {
     expect(open(vulnSite(), "2026-10-20")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: the automatic update did not clear them by Oct 23, so they are ours to fix this week",
+      "has 2 critical or high vulnerabilities; the automatic update did not clear them by Oct 23, so they are ours to fix this week",
     );
   });
 
   it("the automatic fix gave up: ours by hand", () => {
     expect(open(vulnSite({ securityAutoFixAttempts: 3 }), "2026-10-26")[0]!.text).toBe(
-      "2 critical or high vulnerabilities: the automatic update tried and gave up, so they are ours to fix by hand",
+      "has 2 critical or high vulnerabilities; the automatic update tried and gave up, so they are ours to fix by hand",
     );
   });
 
   it("with no first sighting to read, nothing waits, and it says so", () => {
     const v = overviewFromSnapshot(snapshot({ sites: [vulnSite()] }), NOW);
     expect(v.upkeep.open[0]!.text).toBe(
-      "2 critical or high vulnerabilities: we could not confirm when they were first seen, so they are ours to look at this week",
+      "has 2 critical or high vulnerabilities; we could not confirm when they were first seen, so they are ours to look at this week",
     );
   });
 });
@@ -890,7 +897,7 @@ describe("review round 2", () => {
     expect(v.status.cls).toBe("broken");
     expect(v.status.counts).toMatchObject({ broken: 0, fleetBroken: 1 });
     expect(v.status.parts.map((p) => [p.text, p.href])).toContainEqual([
-      "1 fleet-wide item broken.",
+      "1 item not tied to one site is broken.",
       "/triage#cardless",
     ]);
     expect(v.status.line).not.toContain("site broken");
@@ -951,7 +958,7 @@ describe("review round 2", () => {
       {
         siteId: "recA",
         siteName: "Acme",
-        text: "2 critical or high vulnerabilities at the last security check, Oct 19; not checked lately, so we cannot say what is open now",
+        text: "had 2 critical or high vulnerabilities at the last security check, Oct 19; not checked lately, so we cannot say what is open now",
       },
     ]);
   });
@@ -967,7 +974,7 @@ describe("review round 2", () => {
       NOW,
     );
     expect(v.upkeep.open[0]!.text).toBe(
-      "1 critical or high vulnerability: the automatic update did not clear it by Oct 23, so it is ours to fix this week",
+      "has 1 critical or high vulnerability; the automatic update did not clear it by Oct 23, so it is ours to fix this week",
     );
   });
 
@@ -1074,8 +1081,145 @@ describe("review round 2", () => {
   });
 
   it("the ladder's OK says nothing open, not every check passed (O4)", () => {
+    // Review round 3 (O3): nothing for us to act on, since a vulnerability waiting
+    // on an automatic update leaves a site at OK and is listed under Open now.
     expect(LADDER_LINES.at(-1)).toBe(
-      'OK: nothing open at the last checks. A cell that reads "not checked lately" says what we could not confirm.',
+      'OK: nothing for us to act on at the last checks. A vulnerability waiting on an automatic update is listed under Open now, and a cell that reads "not checked lately" says what we could not confirm.',
     );
+  });
+});
+
+describe("review round 3", () => {
+  const draft = (id: string, siteId: string) =>
+    report({ id, siteId, approvedToSend: false, sentAt: null, approvedAt: null });
+  const days = (from: string, n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      night(new Date(Date.parse(`${from}T00:00:00Z`) - i * 86_400_000).toISOString().slice(0, 10)),
+    );
+
+  it("expects last night's row from 6am Pacific, by the writer's own rule (C1)", () => {
+    // 13:00Z on Oct 27 is 6am PDT: the night of Oct 26 should be written by now.
+    expect(expectedNight(new Date("2026-10-27T13:00:00.000Z"))).toBe("2026-10-26");
+    expect(expectedNight(new Date("2026-10-27T12:59:00.000Z"))).toBe("2026-10-25");
+    expect(expectedNight(NOW)).toBe("2026-10-26");
+  });
+
+  it("a nightly that stopped writing dates every window and counts the nights since (C1)", () => {
+    // NOW is Oct 27; the newest row is Oct 14, so 12 nights have no row.
+    const nights = [
+      night("2026-10-14", {
+        events: { value: { pr_automerged: 168, vuln_cleared: 36 } },
+        prsMerged: { value: 662 },
+      }),
+      night("2026-10-08"),
+    ];
+    const v = overviewFromSnapshot(snapshot({ nights }), NOW);
+    expect(v.upkeep.automerged).toBe(
+      "68 over the 6 nights to the night of Oct 14; no count in the 12 nights since",
+    );
+    expect(v.upkeep.vulnsCleared).toBe(
+      "26 over the 6 nights to the night of Oct 14; no count in the 12 nights since",
+    );
+    expect(v.prsMerged).toBe(
+      "62 over the 6 nights to the night of Oct 14; no count in the 12 nights since",
+    );
+    expect(v.nightly.reliability).toBe(
+      "16 of 16 nightly steps green over the last 19 nights (17 nights not recorded, none since the night of Oct 14)",
+    );
+    expect(v.nightly.nightOf).toBe("Night of Oct 14");
+    expect(v.upkeep.depsBehind).toContain("read on the night of Oct 14");
+    // The reviewer's case: 30 nights of rows ending Oct 14. Never "240 of 240 over
+    // the last 30 nights" with nothing said about the 12 since.
+    const month = overviewFromSnapshot(snapshot({ nights: days("2026-10-14", 30) }), NOW);
+    expect(month.nightly.reliability).toBe(
+      "144 of 144 nightly steps green over the last 30 nights (12 nights not recorded, none since the night of Oct 14)",
+    );
+    // A single stale night says when counting started, and the nights since.
+    const one = overviewFromSnapshot(snapshot({ nights: [night("2026-10-14")] }), NOW);
+    expect(one.prsMerged).toBe(
+      "counting started on the night of Oct 14; the first figure comes after a second night; no count in the 12 nights since",
+    );
+    // Rows all older than the window: said, never "not yet collected".
+    const old = overviewFromSnapshot(snapshot({ nights: [night("2026-09-01")] }), NOW);
+    expect(old.nightly.reliability).toBe(
+      "no night recorded in the last 30; the newest is the night of Sep 1",
+    );
+    // Control: with last night's row in, the windows read as before.
+    const current = overviewFromSnapshot(
+      snapshot({
+        nights: [night("2026-10-26", { prsMerged: { value: 662 } }), night("2026-10-20")],
+      }),
+      NOW,
+    );
+    expect(current.prsMerged).toBe("62 over the last 6 nights");
+    expect(current.nightly.reliability).toBe(
+      "16 of 16 nightly steps green over the last 7 nights (5 nights not recorded)",
+    );
+  });
+
+  it("counts the drafts waiting over the sites in our care, as the table does (C3)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recL", name: "Launchy", status: "launching" }),
+        ],
+        reports: [draft("p1", "recA"), draft("p2", "recL"), draft("p3", "recL")],
+      }),
+      NOW,
+    );
+    expect(v.status.counts.approval).toBe(1);
+    expect(v.status.line).toContain("1 report waits for your yes.");
+    const waiting = v.reports.perSite.reduce((t, r) => t + Number(r.waiting), 0);
+    expect(waiting).toBe(v.status.counts.approval);
+    expect(HOW_WE_COUNT.find((h) => h.term === "Waiting for your yes")!.text).toContain(
+      "on a site in our care",
+    );
+  });
+
+  it("a failed form test is shown, but not as a verdict, and the level is unchanged (O1)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eOk: "fail" })] }),
+      NOW,
+    );
+    expect(v.live[0]!.forms).toEqual({ ok: null, text: FORM_TEST_FAILED });
+    expect(FORM_TEST_FAILED).toBe(
+      "Test failed, but the test itself is being fixed, so this is not yet a verdict",
+    );
+    // The ladder is settled: the form test places no site (collectFormTestAlerts is
+    // not registered), so the level stays OK and the status line says nothing.
+    expect(v.live[0]!.level).toEqual({ tier: "healthy", text: "OK" });
+    expect(v.status.line).toBe(
+      "1 site in our care. It was live at the last check, Oct 26, 11:30pm PT. Nothing needs attention.",
+    );
+    expect(HOW_WE_COUNT.find((h) => h.term === "Forms")!.text).toContain(
+      "does not change the site's level",
+    );
+    // The ladder's Broken example is one that can happen today.
+    expect(LADDER_LINES[0]).toBe(
+      "Broken: a visitor or a client is affected now, such as a site that does not answer, or leads not reaching the client.",
+    );
+    expect(LADDER_LINES[0]).not.toMatch(/form/);
+  });
+
+  it("How we count agrees with the ladder and names one check one way (C2, O2, O9)", () => {
+    const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
+    expect(line("Broken, attention, watch")).toContain("These are the Triage page's counts");
+    expect(line("Certificate")).toContain(
+      "30 days or fewer is shown in bold and puts the site at Attention",
+    );
+    expect(line("Certificate")).not.toContain("only matters");
+    expect(line("Live")).not.toContain("uptime check");
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", certDaysRemaining: 28 })] }),
+      NOW,
+    );
+    expect(v.live[0]!.level.tier).toBe("attention");
+  });
+
+  it("glosses Prismic where the steps name it (O6)", () => {
+    const labels = NIGHTLY_STEPS.map((s) => s.label).filter((l) => l.startsWith("Prismic"));
+    expect(labels).toHaveLength(2);
+    for (const l of labels) expect(l).toMatch(/^Prismic \(the CMS/);
   });
 });

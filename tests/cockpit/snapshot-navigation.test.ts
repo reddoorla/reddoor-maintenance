@@ -323,6 +323,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
 
   // P1-78g's Done-when, review round 1 (T7): everyone signed in sees the same page.
   // The shared password ignores the user name, so two names are two people at the gate.
+  // That also makes this identical by construction: it proves the live server renders
+  // `/` for a signed-in visitor, not that names cannot change it. The evidence for
+  // that, with a control, is cockpit/tests/overview/page.ssr.test.ts "everyone signed
+  // in sees the same page (T7)" (review round 3, T2).
   it("two people signed in get the same overview", async () => {
     const overview = async (user: string) => {
       const page = await signedIn(user);
