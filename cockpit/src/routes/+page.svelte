@@ -31,9 +31,7 @@
     <ul class="ov-list broken" data-term="Broken, attention, watch">
       {#each v.status.broken as b (b.key)}
         <li>
-          <a href={b.url}>{b.siteName}</a>: {b.reasons}{#if b.age}<span class="muted"
-              >, {b.age}</span
-            >{/if}
+          <a href={b.url}>{b.siteName}</a>{#if b.age}{" "}<span class="muted">({b.age})</span>{/if}: {b.reasons}
         </li>
       {/each}
     </ul>

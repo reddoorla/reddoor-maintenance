@@ -100,7 +100,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
   it("names the Broken site in section 1, with its age", () => {
     const li = DOC.querySelectorAll(".ov-status .ov-list.broken li").map(text);
     expect(li).toEqual([
-      "Bravo: a page on the site did not answer at the last check, flagged 2 days ago",
+      "Bravo (first flagged 2 days ago): a page on the site did not answer at the last check",
     ]);
     // Each count links to its own group on the Triage page, and looks like a link.
     const links = DOC.querySelectorAll(".ov-line a").map((a) => [text(a), a.getAttribute("href")]);
@@ -367,7 +367,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     expect(SDOC.querySelectorAll(".ov-list.broken li").map(text)).toEqual(
       SV.status.broken.map((b, i) => {
         const p = `status.broken[${letters(i)}]`;
-        return `${sent(`${p}.siteName`)}: ${sent(`${p}.reasons`)}${b.age ? `, ${sent(`${p}.age`)}` : ""}`;
+        return `${sent(`${p}.siteName`)}${b.age ? ` (${sent(`${p}.age`)})` : ""}: ${sent(`${p}.reasons`)}`;
       }),
     );
   });

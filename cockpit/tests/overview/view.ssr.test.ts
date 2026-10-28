@@ -62,7 +62,7 @@ describe("section 1: the one-line status", () => {
         siteName: "Bravo",
         url: "/s/bravo",
         reasons: "a page on the site did not answer at the last check",
-        age: "flagged 2 days ago",
+        age: "first flagged 2 days ago",
       },
     ]);
     expect(v.status.parts.find((p) => p.text === "1 site broken.")?.href).toBe("/triage#broken");
@@ -909,7 +909,7 @@ describe("review round 2", () => {
         siteName: "(unknown site: ghost-site)",
         url: "/triage#cardless",
         reasons: "leads are stuck and have not reached the client",
-        age: "flagged today",
+        age: "first flagged today",
       },
     ]);
   });
@@ -1051,7 +1051,7 @@ describe("review round 2", () => {
       }),
       NOW,
     );
-    expect(v.status.broken[0]!.age).toBe("flagged today");
+    expect(v.status.broken[0]!.age).toBe("first flagged today");
   });
 
   it("dates the Lighthouse medians by the oldest audit behind them (minor)", () => {
@@ -1519,7 +1519,7 @@ describe("review round 5", () => {
       NOW,
     );
     expect(two.nightly.reliability).toBe(
-      `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end over the last 2 nights (1 night not recorded)`,
+      `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end over the last 2 nights (1 night not recorded, none since the night of Oct 25)`,
     );
     // Steps written while still running are results: none had finished.
     const running = Object.fromEntries(
@@ -1573,7 +1573,7 @@ describe("review round 6 (on the round-5 fix)", () => {
       [
         "Bravo",
         "the latest deploy had failed when last checked (Oct 22, 11:30pm PT, no check since)",
-        "flagged 26 days ago",
+        "first flagged 26 days ago",
       ],
     ]);
     expect(v.status.broken[0]!.reasons).not.toContain(";");
@@ -1640,5 +1640,110 @@ describe("review round 6 (on the round-5 fix)", () => {
     ];
     const v = overviewFromSnapshot(snapshot({ nights }), NOW);
     expect(v.prsMerged).toMatch(/^10 over the night of Oct 14; no count in the 12 nights since$/);
+  });
+});
+
+describe("review round 7 (on the round-6 fix)", () => {
+  // One idea of a recorded night: a row with at least one step result. The lag, the
+  // "none since" night and the empty case all come from it (round 7, R7-1, R7-2).
+  const reliability = (nights: OverviewNight[]) =>
+    overviewFromSnapshot(snapshot({ nights }), NOW).nightly.reliability;
+  const all = `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end`;
+  const nightsFrom = (from: string, n: number, over: Partial<OverviewNight["counts"]> = {}) =>
+    Array.from({ length: n }, (_, i) => {
+      const d = new Date(`${from}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - i);
+      return night(d.toISOString().slice(0, 10), over);
+    });
+  const running = Object.fromEntries(
+    NIGHTLIES.map((n: { file: string }) => [
+      n.file,
+      { outcome: "running" as const, runId: 1, conclusion: null },
+    ]),
+  );
+
+  it.each<[string, OverviewNight[], string]>([
+    [
+      "a stepless newest row is not the night 'none since' names (R7-1)",
+      [night("2026-10-20", { steps: {} }), night("2026-10-19")],
+      `${all} over the last 8 nights (7 nights not recorded, none since the night of Oct 19)`,
+    ],
+    [
+      "rows still written without step results keep the stop signal (R7-1)",
+      [...nightsFrom("2026-10-26", 13, { steps: {} }), ...nightsFrom("2026-10-13", 13)],
+      `${13 * NIGHTLIES.length} of ${13 * NIGHTLIES.length} nightly steps ran to the end over the last 26 nights (13 nights not recorded, none since the night of Oct 13)`,
+    ],
+    [
+      "an all-stepless window with older history is a stopped nightly, not a new one (R7-2)",
+      [night("2026-10-10", { steps: {} }), night("2026-09-20")],
+      "no night recorded in the last 30; the newest is the night of Sep 20",
+    ],
+    [
+      "a newest row with no step results beside old history (R7-2)",
+      [night("2026-10-26", { steps: {} }), night("2026-09-01")],
+      "no night recorded in the last 30; the newest is the night of Sep 1",
+    ],
+    [
+      "an old stepless row alone is dated, never 'not yet collected' (R7-2)",
+      [night("2026-10-14", { steps: {} })],
+      "no night has recorded step results yet; the newest row is the night of Oct 14, none since",
+    ],
+    [
+      "a night whose steps were all still running is said, not counted as measured (R7-4)",
+      [night("2026-10-26", { steps: running }), night("2026-10-25")],
+      `${all} over the last 2 nights (1 night still running when written)`,
+    ],
+    [
+      "two stepless nights beside a full one, plural (R7 minor)",
+      [night("2026-10-26", { steps: {} }), night("2026-10-25", { steps: {} }), night("2026-10-24")],
+      `${all} over the last 3 nights (2 nights not recorded, none since the night of Oct 24)`,
+    ],
+  ])("%s", (_name, nights, want) => {
+    expect(reliability(nights)).toBe(want);
+  });
+
+  it("a fresh stepless row alone is still 'not yet collected' (R6-1 kept)", () => {
+    expect(reliability([night("2026-10-26", { steps: {} })])).toBe(NOT_YET);
+  });
+
+  it("a Broken site's age is the site's, said before its reasons (R7-3)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "recB",
+            name: "Bravo",
+            reachableOk: "fail",
+            deployStatus: "error",
+            deployCheckedAt: "2026-10-23T06:30:00.000Z",
+          }),
+        ],
+        digest: {
+          "uptime:recB": { metric: 1, firstFlaggedAt: "2026-10-01" },
+          "deploy:recB": { metric: 1, firstFlaggedAt: "2026-10-26" },
+        },
+      }),
+      NOW,
+    );
+    expect(v.status.broken[0]!.age).toBe("first flagged 26 days ago");
+    const one = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })],
+        digest: { "uptime:recB": { metric: 1, firstFlaggedAt: "2026-10-26" } },
+      }),
+      NOW,
+    );
+    expect(one.status.broken[0]!.age).toBe("first flagged 1 day ago");
+  });
+
+  it("the deploy gate holds at exactly its window (R7 minor)", () => {
+    const at = new Date(NOW.getTime() - PRODUCTION_STALE_DAYS * 86_400_000).toISOString();
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recB", name: "Bravo", deployStatus: "error", deployCheckedAt: at })],
+      }),
+      NOW,
+    );
+    expect(v.status.broken[0]!.reasons).toBe("the latest deploy failed");
   });
 });

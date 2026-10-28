@@ -159,9 +159,9 @@ export type StatusView = {
 function ageOf(since: string | undefined | null, now: Date): string | null {
   if (!since) return null;
   const days = daysFlagged(since, now);
-  // "Flagged …", so the age is never read as part of a reason ("not checked since,
-  // for 26 days"; review round 6, R6-2).
-  return days === 0 ? "flagged today" : `flagged ${count(days, "day", "days")} ago`;
+  // The site's age, from its oldest open Broken item, said beside its name so it is
+  // never read as the last reason's (review rounds 6 and 7, R6-2, R7-3).
+  return days === 0 ? "first flagged today" : `first flagged ${count(days, "day", "days")} ago`;
 }
 
 /** A Broken item in plain words, for section 1. The triage titles are the operator's
@@ -1105,24 +1105,38 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
     : ran.length === 0
       ? NOT_YET
       : `${count(ran.length, "kind of check", "kinds of check")} ran on the night of ${nightLabel(coverage!.night)}, reaching up to ${count(Math.max(...ran), "site", "sites")}`;
-  // The window ends at the night expected by now, or the newest row if later: nights
-  // the nightly did not write after its newest row count as not recorded (round 3, C1).
-  const lag = newest === undefined ? 0 : nightsSince(newest.night, now);
-  const end = newest === undefined ? undefined : lag > 0 ? expectedNight(now) : newest.night;
-  const window = nights.filter(
+  // One idea of a recorded night: a row with at least one step result. A row with
+  // none (no block, or every step null) is a night not recorded, like a missing one,
+  // and the lag, the "none since" night and the empty case all come from the newest
+  // recorded night, never the newest row (review rounds 6 and 7, R6-1, R7-1, R7-2).
+  const recorded = nights.filter((n) => Object.values(n.counts.steps).some((r) => r != null));
+  const newestRecorded = recorded[0];
+  // The window ends at the night expected by now, or the newest recorded night if
+  // later: nights not recorded after it count as such (round 3, C1).
+  const lag = newestRecorded === undefined ? 0 : nightsSince(newestRecorded.night, now);
+  const end =
+    newestRecorded === undefined ? undefined : lag > 0 ? expectedNight(now) : newestRecorded.night;
+  const window = recorded.filter(
     (n) => end !== undefined && nightsBetween(n.night, end) < WINDOW_NIGHTS,
   );
-  // A night with no step result at all (no block, or every step null) recorded no
-  // steps: it is a night not recorded, never one whose steps did not finish
-  // (review round 6, R6-1).
-  const stepped = window.filter((n) => Object.values(n.counts.steps).some((r) => r != null));
-  const results = stepped.flatMap((n) => Object.values(n.counts.steps)).filter(finished);
+  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);
+  // A night written while every step was still running holds no result yet: said on
+  // its own, never counted as measured (review round 7, R7-4).
+  const stillRunning = window.filter((n) => !Object.values(n.counts.steps).some(finished)).length;
   // Calendar nights, the window's end back to the oldest recorded one; any not
   // recorded are said.
   const span = window.length === 0 ? 0 : nightsBetween(window.at(-1)!.night, end!) + 1;
-  const missing = span - stepped.length;
+  const missing = span - window.length;
   const newestSaid =
-    lag > 0 && newest !== undefined ? `, none since the night of ${nightLabel(newest.night)}` : "";
+    lag > 0 && newestRecorded !== undefined
+      ? `, none since the night of ${nightLabel(newestRecorded.night)}`
+      : "";
+  const notes = [
+    ...(missing > 0 ? [`${count(missing, "night", "nights")} not recorded${newestSaid}`] : []),
+    ...(stillRunning > 0 && results.length > 0
+      ? [`${count(stillRunning, "night", "nights")} still running when written`]
+      : []),
+  ];
   return {
     nightOf: newest === undefined ? "Newest night" : `Night of ${nightLabel(newest.night)}`,
     startsAt: pacificTimeOfCron(NIGHTLY_CRON, now),
@@ -1133,17 +1147,20 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
       ? UNREADABLE
       : newest === undefined
         ? NOT_YET
-        : window.length === 0
-          ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newest.night)}`
-          : stepped.length === 0
-            ? NOT_YET
+        : newestRecorded === undefined
+          ? // Rows, but none with a step result: new only while the newest row is fresh.
+            nightsSince(newest.night, now) > 0
+            ? `no night has recorded step results yet; the newest row is the night of ${nightLabel(newest.night)}, none since`
+            : NOT_YET
+          : window.length === 0
+            ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newestRecorded.night)}`
             : `${
                 // Steps written while still running: none had finished, never "0 of 0"
                 // (review round 5, R5-5).
                 results.length === 0
                   ? "no nightly step had finished"
                   : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end`
-              } ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
+              } ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`,
   };
 }
 
@@ -1161,7 +1178,8 @@ export type UpkeepView = {
  *  wait is over. Plain words; the How-we-count line glosses the two rules. */
 function openText(item: AttentionItem | undefined, waiting: boolean, n: number, now: Date): string {
   const it = n === 1 ? "it is" : "they are";
-  if (item === undefined) return "no alert is open for them, so see the site's own page";
+  if (item === undefined)
+    return `no alert is open for ${n === 1 ? "it" : "them"}, so see the site's own page`;
   if (item.autoFixExhausted === true)
     return `the automatic update tried and gave up, so ${it} ours to fix by hand`;
   const since = item.firstFlaggedAt;
@@ -1317,7 +1335,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Broken, attention, watch",
-    text: "How many sites sit at each level of the ladder (explained in Upkeep below), by each site's worst open item; each count opens that group on the Triage page. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long it has been flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
+    text: "How many sites sit at each level of the ladder (explained in Upkeep below), by each site's worst open item; each count opens that group on the Triage page. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long ago its oldest open Broken item was first flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
   },
   {
     term: "Waiting for your yes",
@@ -1396,7 +1414,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Runs completed",
-    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the tables above. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count is said. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
+    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the tables above. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
   },
   {
     term: "Dependency updates merged",

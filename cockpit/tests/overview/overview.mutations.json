@@ -871,5 +871,96 @@
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "53-lag-from-newest-row",
+    "why": "(review round 7) The lag is taken from the newest row, stepless or not",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const lag = newestRecorded === undefined ? 0 : nightsSince(newestRecorded.night, now);",
+        "replace": "  const lag = newest === undefined ? 0 : nightsSince(newest.night, now);"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-none-since-newest-row",
+    "why": "(review round 7) 'None since' names the newest row, though it recorded no step",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      ? `, none since the night of ${nightLabel(newestRecorded.night)}`",
+        "replace": "      ? `, none since the night of ${nightLabel(newest!.night)}`"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-window-of-rows",
+    "why": "(review round 7) The window counts stepless rows as recorded nights",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const window = recorded.filter(",
+        "replace": "  const window = nights.filter("
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-lone-stale-row-not-yet",
+    "why": "(review round 7) An old row with no step results reads 'not yet collected'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            nightsSince(newest.night, now) > 0",
+        "replace": "            false"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-running-night-unsaid",
+    "why": "(review round 7) A night whose steps were all still running is counted as measured, unsaid",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    ...(stillRunning > 0 && results.length > 0",
+        "replace": "    ...(false && results.length > 0"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-age-without-first",
+    "why": "(review round 7) The site's age reads 'flagged N days ago' again, as a reason's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  return days === 0 ? \"first flagged today\" : `first flagged ${count(days, \"day\", \"days\")} ago`;",
+        "replace": "  return days === 0 ? \"flagged today\" : `flagged ${count(days, \"day\", \"days\")} ago`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-age-after-reasons",
+    "why": "(review round 7) The age is said after the last reason, as if it were that reason's",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "          <a href={b.url}>{b.siteName}</a>{#if b.age}{\" \"}<span class=\"muted\">({b.age})</span>{/if}: {b.reasons}",
+        "replace": "          <a href={b.url}>{b.siteName}</a>: {b.reasons}{#if b.age}, <span class=\"muted\">{b.age}</span>{/if}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]
