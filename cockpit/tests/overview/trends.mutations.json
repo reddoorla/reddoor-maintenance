@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    c.sites.value === null ? null : (c.sites.value.tiers[t] ?? 0);",
-        "replace": "    c.sites.value === null ? 0 : (c.sites.value.tiers[t] ?? 0);"
+        "find": "    c.sites.value === null ? null :",
+        "replace": "    c.sites.value === null ? 0 :"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -79,7 +79,7 @@
   },
   {
     "id": "3c-unread-check-summed-as-zero",
-    "why": "Checks run sums the counts it could read and drops an unread one as zero",
+    "why": "Site checks run sums the counts it could read and drops an unread one as zero",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
@@ -111,6 +111,19 @@
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "      if (p.value === null) close();",
         "replace": "      if (p.value === null) return;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4c-run-never-reset",
+    "why": "A closed run is not cleared, so the next run joins it across the gap (review round 1, T1's surviving mutant)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      run = [];\n",
+        "replace": ""
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -153,6 +166,110 @@
       }
     ],
     "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-fall-drawn",
+    "why": "A fall in a running total is drawn as a negative night (review round 1, C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      return point(v < base ? { value: null, note: fell } : { value: v - base });",
+        "replace": "      return point({ value: v - base });"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-zero-column-invisible",
+    "why": "A night of 0 draws no visible column, the same as a gap (review round 1, C2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const top = r1(Math.min(y, zero - MIN_COLUMN));",
+        "replace": "  const top = r1(y);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-lone-night-lost",
+    "why": "A night alone between gaps draws nothing (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (run.length === 1) dots.push({ series: si, broken: s.broken, x: run[0]!.x, y: run[0]!.y });",
+        "replace": "      if (run.length === 1) run = [];"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-malformed-count-trusted",
+    "why": "A malformed count is taken as stored (review round 1, C3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  typeof v === \"number\" && Number.isFinite(v) ? v : null;",
+        "replace": "  v as number | null;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-page-drops-columns",
+    "why": "The page draws no columns (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each g.bars as b, bi (bi)}",
+        "replace": "{#each [] as b, bi (bi)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-page-drops-a-level-line",
+    "why": "The page draws only the Broken line (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each g.lines as l, li (li)}",
+        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-page-flattens-the-break",
+    "why": "The page draws the earlier-ladder band with no height (review round 1, T2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                height={g.baseline - g.top}\n",
+        "replace": "                height={0}\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-break-rule-faint",
+    "why": "The break rule is drawn in the band's own faint shade (review round 1, T3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-break {\n  stroke: var(--ink-muted);",
+        "replace": ".ov-break {\n  stroke: var(--band);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
   }
 ]
