@@ -1146,7 +1146,7 @@ describe("review round 3", () => {
     // Rows all older than the window: said, never "not yet collected".
     const old = overviewFromSnapshot(snapshot({ nights: [night("2026-09-01")] }), NOW);
     expect(old.nightly.reliability).toBe(
-      "no night recorded in the last 30; the newest is the night of Sep 1",
+      "no night recorded in the last 30; the newest recorded was the night of Sep 1",
     );
     // Control: with last night's row in, the windows read as before.
     const current = overviewFromSnapshot(
@@ -1676,17 +1676,17 @@ describe("review round 7 (on the round-6 fix)", () => {
     [
       "an all-stepless window with older history is a stopped nightly, not a new one (R7-2)",
       [night("2026-10-10", { steps: {} }), night("2026-09-20")],
-      "no night recorded in the last 30; the newest is the night of Sep 20",
+      "no night recorded in the last 30; the newest recorded was the night of Sep 20",
     ],
     [
       "a newest row with no step results beside old history (R7-2)",
       [night("2026-10-26", { steps: {} }), night("2026-09-01")],
-      "no night recorded in the last 30; the newest is the night of Sep 1",
+      "no night recorded in the last 30; the newest recorded was the night of Sep 1",
     ],
     [
       "an old stepless row alone is dated, never 'not yet collected' (R7-2)",
       [night("2026-10-14", { steps: {} })],
-      "no night has recorded step results yet; the newest row is the night of Oct 14, none since",
+      "no night has recorded how its steps went; the nightly last wrote on the night of Oct 14, and nothing since",
     ],
     [
       "a night whose steps were all still running is said, not counted as measured (R7-4)",

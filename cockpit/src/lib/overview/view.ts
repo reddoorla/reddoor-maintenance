@@ -1150,10 +1150,10 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
         : newestRecorded === undefined
           ? // Rows, but none with a step result: new only while the newest row is fresh.
             nightsSince(newest.night, now) > 0
-            ? `no night has recorded step results yet; the newest row is the night of ${nightLabel(newest.night)}, none since`
+            ? `no night has recorded how its steps went; the nightly last wrote on the night of ${nightLabel(newest.night)}, and nothing since`
             : NOT_YET
           : window.length === 0
-            ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newestRecorded.night)}`
+            ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest recorded was the night of ${nightLabel(newestRecorded.night)}`
             : `${
                 // Steps written while still running: none had finished, never "0 of 0"
                 // (review round 5, R5-5).
