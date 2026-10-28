@@ -514,8 +514,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
-        "replace": "  const results = window.flatMap((n) => Object.values(n.counts.steps));"
+        "find": "  const results = stepped.flatMap((n) => Object.values(n.counts.steps)).filter(finished);",
+        "replace": "  const results = stepped.flatMap((n) => Object.values(n.counts.steps));"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
