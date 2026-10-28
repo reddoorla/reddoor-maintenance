@@ -62,7 +62,7 @@ describe("section 1: the one-line status", () => {
         siteName: "Bravo",
         url: "/s/bravo",
         reasons: "a page on the site did not answer at the last check",
-        age: "for 2 days",
+        age: "flagged 2 days ago",
       },
     ]);
     expect(v.status.parts.find((p) => p.text === "1 site broken.")?.href).toBe("/triage#broken");
@@ -1491,7 +1491,7 @@ describe("review round 5", () => {
     expect(reasonsOf(v)).toEqual([
       [
         "Bravo",
-        "the latest deploy had failed at the last check, Oct 19, 11:30pm PT; not checked since",
+        "the latest deploy had failed when last checked (Oct 19, 11:30pm PT, no check since)",
       ],
     ]);
     expect(v.live.find((r) => r.siteName === "Bravo")!.deploy.text).toBe("Not checked lately");
@@ -1500,20 +1500,38 @@ describe("review round 5", () => {
     expect(reasonsOf(fresh)).toEqual([["Bravo", "the latest deploy failed"]]);
   });
 
-  it("a night with no step results never reads '0 of 0' (R5-5)", () => {
-    const v = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW);
-    expect(v.nightly.reliability).toBe(
-      "no nightly step had finished on the 1 night counted so far",
+  it("a night with no step results never reads '0 of 0' (R5-5; round 6, R6-1)", () => {
+    // No step results at all (no block, or every step null) was never collected: it
+    // is not a night of steps that did not finish.
+    const lone = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: {} })] }),
+      NOW,
     );
-    expect(v.nightly.reliability).not.toMatch(/\b0 of\b/);
-    // A stepless night inside a window: the counted nights still say what finished.
+    expect(lone.nightly.reliability).toBe(NOT_YET);
+    const nulls = Object.fromEntries(NIGHTLIES.map((n: { file: string }) => [n.file, null]));
+    expect(
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: nulls })] }), NOW)
+        .nightly.reliability,
+    ).toBe(NOT_YET);
+    // Beside a full night, it is a night not recorded, never counted as measured.
     const two = overviewFromSnapshot(
       snapshot({ nights: [night("2026-10-26", { steps: {} }), night("2026-10-25")] }),
       NOW,
     );
     expect(two.nightly.reliability).toBe(
-      `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end over the last 2 nights`,
+      `${NIGHTLIES.length} of ${NIGHTLIES.length} nightly steps ran to the end over the last 2 nights (1 night not recorded)`,
     );
+    // Steps written while still running are results: none had finished.
+    const running = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "running" as const, runId: 1, conclusion: null },
+      ]),
+    );
+    expect(
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: running })] }), NOW)
+        .nightly.reliability,
+    ).toBe("no nightly step had finished on the 1 night counted so far");
   });
 
   it("last night is expected from 6am Pacific by the clock, on the days the clock changes (R5-6)", () => {
@@ -1528,5 +1546,99 @@ describe("review round 5", () => {
     expect(expectedNight(new Date("2026-03-08T13:30:00Z"))).toBe("2026-03-07");
     expect(expectedNight(new Date("2026-03-09T13:30:00Z"))).toBe("2026-03-08");
     expect(expectedNight(new Date("2026-03-09T12:59:00Z"))).toBe("2026-03-07");
+  });
+});
+
+describe("review round 6 (on the round-5 fix)", () => {
+  const sites = (...xs: WebsiteRow[]) => overviewFromSnapshot(snapshot({ sites: xs }), NOW);
+  const reasonsOf = (v: ReturnType<typeof sites>) =>
+    v.status.broken.map((b) => [b.siteName, b.reasons, b.age]);
+
+  it("a stale failed deploy is one clause, and the age says it is the flag's (R6-2)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "recB",
+            name: "Bravo",
+            deployStatus: "error",
+            deployCheckedAt: "2026-10-23T06:30:00.000Z",
+          }),
+        ],
+        digest: { "deploy:recB": { metric: 1, firstFlaggedAt: "2026-10-01" } },
+      }),
+      NOW,
+    );
+    expect(reasonsOf(v)).toEqual([
+      [
+        "Bravo",
+        "the latest deploy had failed when last checked (Oct 22, 11:30pm PT, no check since)",
+        "flagged 26 days ago",
+      ],
+    ]);
+    expect(v.status.broken[0]!.reasons).not.toContain(";");
+    // With no check date recorded.
+    const undated = sites(
+      healthy({ id: "recB", name: "Bravo", deployStatus: "error", deployCheckedAt: null }),
+    );
+    expect(undated.status.broken[0]!.reasons).toBe(
+      "the latest deploy had failed when last checked (date not recorded, no check since)",
+    );
+    // Just past the cell's freshness window, the words agree with the cell.
+    const past = new Date(NOW.getTime() - (PRODUCTION_STALE_DAYS + 0.5) * 86_400_000).toISOString();
+    const justStale = sites(
+      healthy({ id: "recB", name: "Bravo", deployStatus: "error", deployCheckedAt: past }),
+    );
+    expect(justStale.status.broken[0]!.reasons).toMatch(
+      /^the latest deploy had failed when last checked/,
+    );
+    expect(justStale.live[0]!.deploy.text).toBe("Not checked lately");
+  });
+
+  it("an aged certificate past its last day reads expired in section 1 (R6, R5-1's gap)", () => {
+    // 1 day stored, checked 2.5 days ago: 2 whole days used, so -1 now.
+    const v = sites(
+      healthy({
+        id: "recA",
+        name: "Acme",
+        certDaysRemaining: 1,
+        domainCheckedAt: "2026-10-25T06:30:00.000Z",
+      }),
+    );
+    expect(v.status.broken.map((b) => b.reasons)).toEqual(["its security certificate has expired"]);
+    expect(v.live[0]!.domain.text).toBe("Certificate expired");
+  });
+
+  it("a failed reports read is said beside a Broken site too (R6, R5-3's gap)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })],
+        reports: null,
+        gaps: ["reports"],
+      }),
+      NOW,
+    );
+    expect(v.status.line).toContain("1 site broken.");
+    expect(v.status.line).toContain("Reports waiting for your yes: not readable.");
+    expect(v.status.cls).toBe("broken");
+    // Alone, the level is still worked out from the sites read, which are all fine.
+    expect(overviewFromSnapshot(snapshot({ reports: null }), NOW).status.cls).toBe("ok");
+  });
+
+  it("a failed submissions read reads 'last lead not readable' in the Forms cell", () => {
+    const v = overviewFromSnapshot(snapshot({ submissions: null, gaps: ["submissions"] }), NOW);
+    expect(v.live.map((r) => r.lastLead)).toEqual([
+      "last lead not readable",
+      "last lead not readable",
+    ]);
+  });
+
+  it("a one-night window after a stop says the night, not '1 night'", () => {
+    const nights = [
+      night("2026-10-14", { prsMerged: { value: 610 } }),
+      night("2026-10-13", { prsMerged: { value: 600 } }),
+    ];
+    const v = overviewFromSnapshot(snapshot({ nights }), NOW);
+    expect(v.prsMerged).toMatch(/^10 over the night of Oct 14; no count in the 12 nights since$/);
   });
 });

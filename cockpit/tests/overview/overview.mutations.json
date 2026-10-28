@@ -767,5 +767,109 @@
     ],
     "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "45-stepless-night-counted",
+    "why": "(review round 6, R6-1) A night with no step results counts as a measured night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const stepped = window.filter((n) => Object.values(n.counts.steps).some((r) => r != null));",
+        "replace": "  const stepped = window;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-age-reads-as-duration",
+    "why": "(review round 6, R6-2) The flag's age reads as a duration of the reason ('for 26 days')",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "`flagged ${count(days, \"day\", \"days\")} ago`",
+        "replace": "`for ${count(days, \"day\", \"days\")}`"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "47-deploy-clause-semicolon",
+    "why": "(review round 6, R6-2) The stale-deploy reason carries its own semicolon",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    return `the latest deploy had failed when last checked (${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : \"date not recorded\"}, no check since)`;",
+        "replace": "    return `the latest deploy had failed at the last check, ${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : \"date not recorded\"}; not checked since`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-expired-from-stored-days",
+    "why": "(review round 6, R5-1's gap) Section 1 reads expiry from the stored days, not aged by the days since the check",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const d = certDaysNow(site.certDaysRemaining, site.domainCheckedAt, now);",
+        "replace": "    const d = site.certDaysRemaining;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-unread-reports-only-when-calm",
+    "why": "(review round 6, R5-3's gap) A failed reports read is said only when nothing else is listed",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (!reportsRead)",
+        "replace": "  if (!reportsRead && levels.length === 0)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-deploy-words-own-gate",
+    "why": "(review round 6, R5-4's gap) Section 1's stale-deploy words use a looser gate than the cell",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    site &&\n    !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)",
+        "replace": "    site &&\n    !freshWithin(site.deployCheckedAt, 7, now)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-unread-leads-as-none",
+    "why": "(review round 6) A failed submissions read reads 'no real lead yet'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "            ? `last lead ${UNREADABLE}`",
+        "replace": "            ? \"no real lead yet\""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-lagged-one-night",
+    "why": "(review round 6) A one-night window after a stop reads 'over the 1 night to'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`",
+        "replace": "      ? `${w.value} over the 1 night to the night of ${nightLabel(newest.night)}${since}`"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

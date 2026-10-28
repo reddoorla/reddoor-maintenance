@@ -99,7 +99,9 @@ describe("the overview page, rendered from a real view (T1)", () => {
 
   it("names the Broken site in section 1, with its age", () => {
     const li = DOC.querySelectorAll(".ov-status .ov-list.broken li").map(text);
-    expect(li).toEqual(["Bravo: a page on the site did not answer at the last check, for 2 days"]);
+    expect(li).toEqual([
+      "Bravo: a page on the site did not answer at the last check, flagged 2 days ago",
+    ]);
     // Each count links to its own group on the Triage page, and looks like a link.
     const links = DOC.querySelectorAll(".ov-line a").map((a) => [text(a), a.getAttribute("href")]);
     expect(links).toContainEqual(["1 site broken.", "/triage#broken"]);
@@ -704,37 +706,58 @@ describe("review round 4: emphasis, the none-open sentence, and the shipping cop
   });
 });
 
-/** The digit runs a visitor reads outside How we count: the page's own words, where
- *  every number must be a binding. */
-function boundNumbers(doc: HTMLElement): string[] {
+/** The digit runs a visitor reads outside How we count's definitions: every text node
+ *  under the body, plus `title` and `aria-label`, where every number must be a binding
+ *  (review round 6: the whole body, not three selectors). The page's two fixed
+ *  phrases are taken out by their own words, never by allowing their digits
+ *  page-wide: Lighthouse's scale ("out of 100") and the one count the page derives
+ *  ("carries N checks", from `checks.length`). */
+function boundNumbers(doc: HTMLElement, checks: number): string[] {
   const runs: string[] = [];
   const walk = (n: Node) => {
-    if (n instanceof TextNode) runs.push(n.text);
-    else if (!(n as HTMLElement).classList?.contains("ov-how"))
-      for (const c of n.childNodes) walk(c);
+    if (n instanceof TextNode) {
+      runs.push(n.text);
+      return;
+    }
+    const el = n as HTMLElement;
+    if (el.tagName === "DL" && el.closest(".ov-how") !== null) return;
+    for (const a of ["title", "aria-label"]) {
+      const v = el.getAttribute?.(a);
+      if (v) runs.push(v);
+    }
+    for (const c of n.childNodes) walk(c);
   };
-  for (const el of doc.querySelectorAll("h1, section, details")) walk(el);
-  return runs.join(" | ").match(/\d+/g) ?? [];
+  walk(doc.querySelector("body") ?? doc);
+  return (
+    runs
+      .join(" | ")
+      .replace(/out of 100\b/g, "")
+      .replace(new RegExp(`carries ${checks} checks`, "g"), "")
+      .match(/\d+/g) ?? []
+  );
 }
 
-describe("no count is typed into the page, over the sentinel render (review round 5, R5-7)", () => {
+describe("no count is typed into the page, over the sentinel render (review rounds 5 and 6)", () => {
   // In the sentinel render every number the view hands over is 70001 or above, so a
-  // digit run that is not one of them (or the one count the page derives, how many
-  // checks) was typed into the template, whatever value it has. The one constant
-  // allowed is a unit, not a count: Lighthouse scores "out of 100".
-  const allowed = new Set([...S.at.values(), String(SV.reports.checks.length), "100"]);
+  // digit run that is not one of them was typed into the template, whatever its value.
+  const allowed = new Set(S.at.values());
+  const n = SV.reports.checks.length;
+  const stray = (html: string) => boundNumbers(parse(html), n).filter((d) => !allowed.has(d));
 
-  it("every digit run outside How we count is a sentinel", () => {
-    const shown = boundNumbers(SDOC);
-    expect(shown.length).toBeGreaterThan(20);
-    expect(shown.filter((d) => !allowed.has(d))).toEqual([]);
+  it("every digit run outside How we count's definitions is a sentinel", () => {
+    expect(boundNumbers(SDOC, n).length).toBeGreaterThan(20);
+    expect(stray(pageHtml(SV))).toEqual([]);
   });
 
-  it("is an instrument that can fail: a number typed into the words is caught", () => {
-    const typed = pageHtml(SV).replace(
-      `<section`,
-      `<section><p>Each one is proven by one of the 8 steps, 30 nights a month.</p></section><section`,
-    );
-    expect(boundNumbers(parse(typed)).filter((d) => !allowed.has(d))).toEqual(["8", "30"]);
+  it("is an instrument that can fail: a number typed into an existing element is caught", () => {
+    const html = pageHtml(SV);
+    expect(html).toContain("Runs completed: ");
+    expect(stray(html.replace("Runs completed: ", "Runs completed: 30 nights, "))).toEqual(["30"]);
+    // The page's own fixed values typed elsewhere are caught too.
+    expect(
+      stray(html.replace("Runs completed: ", `Runs completed: ${n} steps, 100 runs, `)),
+    ).toEqual([String(n), "100"]);
+    // And in an attribute.
+    expect(stray(html.replace("<h1", '<h1 title="30 nights a month"'))).toEqual(["30"]);
   });
 });

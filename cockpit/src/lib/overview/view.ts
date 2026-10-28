@@ -159,7 +159,9 @@ export type StatusView = {
 function ageOf(since: string | undefined | null, now: Date): string | null {
   if (!since) return null;
   const days = daysFlagged(since, now);
-  return days === 0 ? "flagged today" : `for ${count(days, "day", "days")}`;
+  // "Flagged …", so the age is never read as part of a reason ("not checked since,
+  // for 26 days"; review round 6, R6-2).
+  return days === 0 ? "flagged today" : `flagged ${count(days, "day", "days")} ago`;
 }
 
 /** A Broken item in plain words, for section 1. The triage titles are the operator's
@@ -193,7 +195,8 @@ function plainWords(it: AttentionItem, site: WebsiteRow | undefined, now: Date):
     site &&
     !freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now)
   )
-    return `the latest deploy had failed at the last check, ${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : "date not recorded"}; not checked since`;
+    // One clause, no semicolon: reasons are joined with "; " (review round 6, R6-2).
+    return `the latest deploy had failed when last checked (${site.deployCheckedAt ? pacificStamp(site.deployCheckedAt) : "date not recorded"}, no check since)`;
   return BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title;
 }
 
@@ -851,8 +854,8 @@ export function windowed(
   return { value: newest.v - base.v, nights: nightsBetween(base.night, newest.night) };
 }
 
-/** The newest night whose row should be written by now, by the writer's own rule
- *  (`nightOf`, src/fleet-daily/core.ts): the night that started yesterday evening,
+/** The newest night whose row should be written by now, as the writer dates its rows
+ *  (`nightOf`, src/fleet-daily/core.ts), read on the Pacific clock: the night that started yesterday evening,
  *  Pacific time, from 6am the morning after it. Before 6am, the night before that,
  *  so a run still going is never counted as missing. */
 export function expectedNight(now: Date): string {
@@ -891,7 +894,9 @@ function overNights(
       ? `counting started on the night of ${nightLabel(newest.night)}; the first figure comes after a second night${since}`
       : NOT_YET;
   return lag > 0
-    ? `${w.value} over the ${count(w.nights, "night", "nights")} to the night of ${nightLabel(newest.night)}${since}`
+    ? w.nights === 1
+      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`
+      : `${w.value} over the ${w.nights} nights to the night of ${nightLabel(newest.night)}${since}`
     : `${w.value} over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`;
 }
 
@@ -1107,11 +1112,15 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
   const window = nights.filter(
     (n) => end !== undefined && nightsBetween(n.night, end) < WINDOW_NIGHTS,
   );
-  const results = window.flatMap((n) => Object.values(n.counts.steps)).filter(finished);
+  // A night with no step result at all (no block, or every step null) recorded no
+  // steps: it is a night not recorded, never one whose steps did not finish
+  // (review round 6, R6-1).
+  const stepped = window.filter((n) => Object.values(n.counts.steps).some((r) => r != null));
+  const results = stepped.flatMap((n) => Object.values(n.counts.steps)).filter(finished);
   // Calendar nights, the window's end back to the oldest recorded one; any not
   // recorded are said.
   const span = window.length === 0 ? 0 : nightsBetween(window.at(-1)!.night, end!) + 1;
-  const missing = span - window.length;
+  const missing = span - stepped.length;
   const newestSaid =
     lag > 0 && newest !== undefined ? `, none since the night of ${nightLabel(newest.night)}` : "";
   return {
@@ -1126,12 +1135,15 @@ function nightlyView(s: CockpitSnapshot, now: Date): NightlyView {
         ? NOT_YET
         : window.length === 0
           ? `no night recorded in the last ${WINDOW_NIGHTS}; the newest is the night of ${nightLabel(newest.night)}`
-          : `${
-              // A night written with no finished step is never "0 of 0" (review round 5, R5-5).
-              results.length === 0
-                ? "no nightly step had finished"
-                : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end`
-            } ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
+          : stepped.length === 0
+            ? NOT_YET
+            : `${
+                // Steps written while still running: none had finished, never "0 of 0"
+                // (review round 5, R5-5).
+                results.length === 0
+                  ? "no nightly step had finished"
+                  : `${results.filter(ranToEnd).length} of ${count(results.length, "nightly step", "nightly steps")} ran to the end`
+              } ${span === 1 ? "on the 1 night counted so far" : `over the last ${span} nights`}${missing > 0 ? ` (${count(missing, "night", "nights")} not recorded${newestSaid})` : ""}`,
   };
 }
 
@@ -1149,7 +1161,7 @@ export type UpkeepView = {
  *  wait is over. Plain words; the How-we-count line glosses the two rules. */
 function openText(item: AttentionItem | undefined, waiting: boolean, n: number, now: Date): string {
   const it = n === 1 ? "it is" : "they are";
-  if (item === undefined) return "not flagged to us yet; the site's own page shows the reading";
+  if (item === undefined) return "no alert is open for them, so see the site's own page";
   if (item.autoFixExhausted === true)
     return `the automatic update tried and gave up, so ${it} ours to fix by hand`;
   const since = item.firstFlaggedAt;
@@ -1317,7 +1329,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Certificate",
-    text: `Days left on the site's security certificate (the padlock), from the nightly domain check: the days it counted, less the whole days since it ran. Not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention; ${CERT_BROKEN_DAYS} or fewer is Broken. Certificates renew on their own around then, so the count should climb back within days. At Attention we confirm it renews; we act only if it does not. If it keeps falling, renewal has failed. "Domain does not answer" means a fresh check found no address or no working certificate: Broken.`,
+    text: `Days left on the site's security certificate (the padlock), from the nightly domain check: the days it counted, less the whole days since it ran. Not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention; ${CERT_BROKEN_DAYS} or fewer is Broken. Certificates renew on their own around then, so the count should climb back within days. At Attention we confirm it renews; we act only if it does not. If it keeps falling, renewal has failed. "Domain does not answer, or no working certificate" means a fresh check found no address or no working certificate: Broken.`,
   },
   {
     term: "Deploy",
@@ -1356,7 +1368,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Reports sent",
-    text: 'Reports that went out to clients, less every test send (approved by "test send via Claude", as the August ones were). Approved first means one of us said yes before it went; the rest went without that yes.',
+    text: 'Reports that went out to clients, less every test send (one whose approval is marked "test send", as the August ones were). Approved first means one of us said yes before it went; the rest went without that yes.',
   },
   {
     term: "Checks per report",
@@ -1404,10 +1416,10 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "PRs merged",
-    text: "Changes merged into the maintenance stack (the code that runs these checks and sends the reports), counted each night.",
+    text: "PRs (pull requests: proposed code changes) merged into the maintenance stack (the code that runs these checks and sends the reports), counted each night.",
   },
   {
     term: "Nights counted",
-    text: `How many nights the nightly has written its counts for; the page reads the newest ${OVERVIEW_NIGHTS}, so past that it says "at least". The counts over a window (dependency updates merged, sites cleared, changes merged) need two nights to subtract; the rest read one night.`,
+    text: `How many nights the nightly has written its counts for; the page reads the newest ${OVERVIEW_NIGHTS}, so past that it says "at least". The counts over a window (dependency updates merged, sites cleared, PRs merged) need two nights to subtract; the rest read one night.`,
   },
 ];

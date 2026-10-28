@@ -142,8 +142,12 @@ async function seed(url: string): Promise<void> {
     } as never)
     .execute();
   // Review round 5 (R5-8): two fleet_daily nights, the newest the one expected by now,
-  // so the overview's windowed counts and reliability are figures, not "not yet
-  // collected", and the 390px check lays out their longest lines.
+  // so fleet_daily reaches `/` through the real loader and the overview's windowed
+  // counts and reliability are figures, not "not yet collected". These are their
+  // short forms; the longer ones (a stopped nightly, nights not recorded) are pinned
+  // in the SSR tests, not laid out here. The newest night is taken at seed time, so a
+  // run that crosses 6am Pacific between seeding and the check would read one night
+  // behind.
   const newest = expectedNight(new Date());
   const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
     .toISOString()
