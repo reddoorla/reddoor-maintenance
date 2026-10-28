@@ -413,7 +413,7 @@ describe("review round 1", () => {
   });
 
   it("a night alone between gaps is a dot, not lost (T2)", () => {
-    const nights = run("2026-10-26", 16, (_, i) => tiers(1, 0)).filter(
+    const nights = run("2026-10-26", 16, () => tiers(1, 0)).filter(
       (n) => n.night !== "2026-10-23" && n.night !== "2026-10-25",
     );
     const c = chart(trendsFromDaily(nights, NOW), /^Broken/);
