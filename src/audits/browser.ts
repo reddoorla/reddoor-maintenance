@@ -35,6 +35,11 @@ export type RouteResult = {
    *  ships these literally. Empty = clean. Optional: a runner that didn't capture it is treated as
    *  clean (undefined ≠ failure), but a token that IS seen is unambiguous corruption. */
   leakedTemplateTokens?: string[];
+  /** The served `<html lang>`, or null when absent. Optional: a runner that didn't capture it
+   *  leaves it undefined, which exempts nothing from the duplicate-title check (#1872). */
+  lang?: string | null;
+  /** The served `<link rel="alternate" hreflang>` hrefs, absolute. Optional, same as `lang`. */
+  alternates?: string[];
 };
 
 export type LinkResult = { url: string; status: number | null };
@@ -51,6 +56,10 @@ export type PageFetch = {
   status: number | null;
   title: string | null;
   metaDescription: string | null;
+  /** The served `<html lang>` and hreflang alternates (see extractLocale). Optional so existing
+   *  fakes stay valid; absent = not captured. */
+  lang?: string | null;
+  alternates?: string[];
 };
 
 /** What a no-follow GET of the base URL observed: the raw status (null = network error/timeout)
@@ -212,6 +221,61 @@ export function extractTitleMeta(html: string): {
   return { title, metaDescription };
 }
 
+/** Pull `<html lang>` + the `<link rel="alternate" hreflang>` hrefs out of raw HTML (SSR truth,
+ *  what search engines read for hreflang), hrefs resolved against `pageUrl`. Only the `<html>`
+ *  tag's lang counts: a `lang` on an inner element says nothing about the page. PURE; exported
+ *  for tests. Feeds the duplicate-title check's translation exemption (#1872). */
+export function extractLocale(
+  html: string,
+  pageUrl: string,
+): { lang: string | null; alternates: string[] } {
+  const htmlTag = /<html\b[^>]*>/i.exec(html)?.[0] ?? "";
+  const langAttr = /\slang\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(htmlTag);
+  const lang = (langAttr?.[2] ?? langAttr?.[3] ?? langAttr?.[4] ?? "").trim() || null;
+  const alternates: string[] = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = /\brel\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+    if (!(rel?.[2] ?? rel?.[3] ?? "").toLowerCase().split(/\s+/).includes("alternate")) continue;
+    if (!/\bhreflang\s*=/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+    const raw = decodeEntities(href?.[2] ?? href?.[3] ?? "").trim();
+    if (!raw) continue;
+    try {
+      alternates.push(new URL(raw, pageUrl).href);
+    } catch {
+      /* skip an unparseable href */
+    }
+  }
+  return { lang, alternates };
+}
+
+/** A url as the hreflang comparison sees it: no fragment, no trailing slash past the root. */
+function hreflangKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    if (u.pathname.length > 1) u.pathname = u.pathname.replace(/\/+$/, "") || "/";
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+/** True when two routes are one page in two languages: each lists the other as an hreflang
+ *  alternate AND their `<html lang>` primary subtags are both present and differ. Both conditions,
+ *  not either: reciprocity alone would excuse a same-language copy, and lang alone would excuse
+ *  two unrelated pages that happen to be in different languages (#1872). */
+function areTranslations(a: RouteResult, b: RouteResult): boolean {
+  const primary = (lang: string | null | undefined) =>
+    (lang ?? "").trim().toLowerCase().split("-")[0] ?? "";
+  const la = primary(a.lang);
+  const lb = primary(b.lang);
+  if (!la || !lb || la === lb) return false;
+  const lists = (from: RouteResult, to: RouteResult) =>
+    (from.alternates ?? []).some((h) => hreflangKey(h) === hreflangKey(to.url));
+  return lists(a, b) && lists(b, a);
+}
+
 /** One plain-fetch re-check of a browser-probed route: what the browser saw vs what a plain GET
  *  (no browser) saw. Kept in the audit details so a WAF-challenged run is visible, not silent. */
 export type Reverification = {
@@ -311,6 +375,10 @@ export async function reverifyRoutes(
       status: fetched.status,
       title: ok ? fetched.title : null,
       metaDescription: ok ? fetched.metaDescription : null,
+      // The challenge page's locale is as worthless as its title: take the served HTML's, and
+      // drop it on a confirmed fail (an omitted locale exempts nothing).
+      lang: ok ? (fetched.lang ?? null) : null,
+      alternates: ok ? (fetched.alternates ?? []) : [],
     };
   }
   for (const i of titleMetaIdx) {
@@ -550,6 +618,8 @@ export function summarizeBrowser(
   // description, AND no two routes share a title. No route sampled → null, not measured (P1-78c).
   // Each violated sub-check is recorded per-URL; duplicate detection runs on NON-empty titles only
   // (an empty title is already its own finding — two blank routes aren't a "duplicate" insight).
+  // A pair that is one page in two languages (areTranslations) is not a duplicate (#1872); a
+  // route still counts when it duplicates ANY other route in its title group.
   const titleMetaProblems: string[] = [];
   for (const r of routes) {
     const t = (r.title ?? "").trim();
@@ -557,14 +627,17 @@ export function summarizeBrowser(
     if (t.length === 0) titleMetaProblems.push(`${r.url}: empty title`);
     if (desc.length === 0) titleMetaProblems.push(`${r.url}: missing meta description`);
   }
-  const byTitle = new Map<string, string[]>();
+  const byTitle = new Map<string, RouteResult[]>();
   for (const r of routes) {
     const t = (r.title ?? "").trim();
     if (t.length === 0) continue;
-    byTitle.set(t, [...(byTitle.get(t) ?? []), r.url]);
+    byTitle.set(t, [...(byTitle.get(t) ?? []), r]);
   }
-  for (const [t, urls] of byTitle) {
-    if (urls.length > 1) titleMetaProblems.push(`duplicate title "${t}": ${urls.join(" + ")}`);
+  for (const [t, group] of byTitle) {
+    const dupes = group.filter((r) => group.some((o) => o !== r && !areTranslations(r, o)));
+    if (dupes.length > 1) {
+      titleMetaProblems.push(`duplicate title "${t}": ${dupes.map((r) => r.url).join(" + ")}`);
+    }
   }
   const titleMetaOk = routes.length === 0 ? null : titleMetaProblems.length === 0;
 
@@ -780,7 +853,12 @@ export function defaultVerifyDeps(): VerifyDeps {
         if (!res.ok || !isHtml) {
           return { status: res.status, title: null, metaDescription: null };
         }
-        return { status: res.status, ...extractTitleMeta(await res.text()) };
+        const html = await res.text();
+        return {
+          status: res.status,
+          ...extractTitleMeta(html),
+          ...extractLocale(html, res.url || url),
+        };
       } catch {
         return { status: null, title: null, metaDescription: null };
       }
@@ -836,6 +914,8 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
           let title: string | null = null;
           let metaDescription: string | null = null;
           let leakedTemplateTokens: string[] = [];
+          let lang: string | null = null;
+          let alternates: string[] = [];
           for (let i = 0; i < desktopEngines.length; i++) {
             const engine = desktopEngines[i]!.engine;
             const browser = browsers[i]!;
@@ -895,6 +975,9 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                 leakedTemplateTokens = [
                   ...new Set(html.match(/%sveltekit\.[a-zA-Z0-9_.]+%/g) ?? []),
                 ];
+                // The same served HTML carries the page's locale: `<html lang>` and its hreflang
+                // alternates, for the duplicate-title check's translation exemption (#1872).
+                ({ lang, alternates } = extractLocale(html, resp?.url() || url));
               }
             } catch {
               ok = false;
@@ -949,6 +1032,8 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             title,
             metaDescription,
             leakedTemplateTokens,
+            lang,
+            alternates,
           });
         }
       } finally {
