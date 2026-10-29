@@ -920,7 +920,7 @@ export type MobileTarget = {
  * visible main landmark (a blank render must not pass on status + no-overflow alone, which is how
  * a broken app.html once slipped past mobile while desktop caught it), and no horizontal overflow.
  *
- * Overflow is read only after `load` and `document.fonts.ready` (capped at STYLE_SETTLE_MS), and
+ * Overflow is read only after `load` and `document.fonts.ready` (STYLE_SETTLE_MS each, the font wait only once `load` has fired), and
  * against the DEVICE's width, not window.innerWidth (#1871). At domcontentloaded a slow stylesheet
  * may not have applied yet, so images sit at their natural widths (a false fail). And Chromium's
  * mobile emulation widens the layout viewport with the page, up to 4x the device width, so
@@ -940,13 +940,19 @@ export async function probeMobile(
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
     status = resp ? resp.status() : null;
     if (!resp || !resp.ok()) return { device, ok: false, status };
-    await page.waitForLoadState("load", { timeout: STYLE_SETTLE_MS }).catch(() => {});
-    let fontsCap: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      page.evaluate("document.fonts ? document.fonts.ready.then(() => 0) : 0").catch(() => 0),
-      new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),
-    ]);
-    clearTimeout(fontsCap);
+    // One cap, not two: a page whose `load` never fires is measured as it stands, with no font wait.
+    const loaded = await page
+      .waitForLoadState("load", { timeout: STYLE_SETTLE_MS })
+      .then(() => true)
+      .catch(() => false);
+    if (loaded) {
+      let fontsCap: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        page.evaluate("document.fonts ? document.fonts.ready.then(() => 0) : 0").catch(() => 0),
+        new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),
+      ]);
+      clearTimeout(fontsCap);
+    }
     const hasMain = await page
       .locator("main, [role=main]")
       .first()

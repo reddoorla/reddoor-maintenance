@@ -5,7 +5,7 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "    await page.waitForLoadState(\"load\", { timeout: STYLE_SETTLE_MS }).catch(() => {});\n    let fontsCap: ReturnType<typeof setTimeout> | undefined;\n    await Promise.race([\n      page.evaluate(\"document.fonts ? document.fonts.ready.then(() => 0) : 0\").catch(() => 0),\n      new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),\n    ]);\n    clearTimeout(fontsCap);\n",
+        "find": "    // One cap, not two: a page whose `load` never fires is measured as it stands, with no font wait.\n    const loaded = await page\n      .waitForLoadState(\"load\", { timeout: STYLE_SETTLE_MS })\n      .then(() => true)\n      .catch(() => false);\n    if (loaded) {\n      let fontsCap: ReturnType<typeof setTimeout> | undefined;\n      await Promise.race([\n        page.evaluate(\"document.fonts ? document.fonts.ready.then(() => 0) : 0\").catch(() => 0),\n        new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),\n      ]);\n      clearTimeout(fontsCap);\n    }\n",
         "replace": ""
       }
     ],

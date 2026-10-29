@@ -1655,6 +1655,11 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     "/precss":
       `${head}<link rel="stylesheet" href="/slow.css"></head>` +
       '<body><main><img src="/big.svg" width="2000" height="100" alt=""></main></body></html>',
+    // No viewport meta: a phone lays it out at ~980px and zooms out. The old innerWidth read
+    // widened with it and passed; the device-width check fails it (review round 1).
+    "/nometa":
+      '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>t</title></head>' +
+      "<body><main><p>Desktop only.</p></main></body></html>",
     "/fits": `${head}</head><body><main><p>Fits.</p></main></body></html>`,
   };
   let server: Server;
@@ -1719,6 +1724,12 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
       expect(over3.reason).toBe(`overflow ${vw + 3}px > ${vw}px`);
     }, 30_000);
   }
+
+  it("fails a page with no viewport meta, which a phone shows zoomed out", async () => {
+    const r = await probeMobile(browser, `${base}/nometa`, targets[0]!);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/^overflow 9\d\dpx > 412px$/);
+  }, 30_000);
 
   it("passes a fitting page, and names a missing page's cause", async () => {
     expect(await probeMobile(browser, `${base}/fits`, targets[0]!)).toEqual({
