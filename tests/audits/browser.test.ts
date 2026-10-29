@@ -1683,7 +1683,7 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
       // /block/<px>: a body exactly <px> wide, for the tolerance edge (vw + 1 passes, vw + 3 fails).
       const block = /^\/block\/(\d+)$/.exec(req.url ?? "");
       const html = block
-        ? `${head}<style>body{margin:0}</style></head><body><main><div style="width:${block[1]}px;height:5px"></div></main></body></html>`
+        ? `${head}<style>body{margin:0}</style></head><body><main><div style="width:${Number(block[1])}px;height:5px"></div></main></body></html>`
         : pages[req.url ?? ""];
       res.writeHead(html ? 200 : 404, { "content-type": "text/html" });
       res.end(html ?? "not found");
