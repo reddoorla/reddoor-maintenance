@@ -1,0 +1,5 @@
+# 2026-10-28 — The launch runbook names the root as the primary domain (P1-91)
+
+At Roalson's DNS cutover, the worker's launch list told the operator to make `www.roalson.com` primary in Netlify, copying Williamson's plan D4. He set `roalson.com` instead. Asked for a case for `www` he had not heard, the worker had only Netlify's: with DNS outside Netlify, the apex has to be an A record to the load balancer `75.2.60.5`, while `www` can be a CNAME straight into the CDN. For a prerendered site with no logins that is too small to weigh, and Roalson's old site already landed on the apex, so keeping it changes nothing Google indexed. He made it general ("that's generally true"), so `docs/runbooks/site-launch.md` now carries it above the ordered list, and step 2 records the apex. The rule and its story landed in the workspace first (`CLAUDE.md` "The fleet", `directives/fleet.md` "Primary domain", commit `56d0023`). Williamson's runbook and verifier still assert `www`; they describe a cutover that shipped and are left as they are.
+
+Usage: not readable (`get_session` returned no `external_metadata.usage`).
