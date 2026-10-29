@@ -1,3 +1,4 @@
+import type { Browser, BrowserContextOptions } from "@playwright/test";
 import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
@@ -19,9 +20,11 @@ export type RouteResult = {
    *  NOTE: `ok` may be an EXCUSAL, not proof of a render — excuseChallengedEngineChecks flips a
    *  WAF-challenged entry to ok:true on a reachable route (see details.excusedEngineChecks). */
   desktop: Array<{ engine: string; ok: boolean; status?: number | null }>;
-  /** Per mobile device: loaded with no JS error and no horizontal overflow. Same `status`
-   *  semantics as desktop, and the same excusal caveat on `ok`. */
-  mobile: Array<{ device: string; ok: boolean; status?: number | null }>;
+  /** Per mobile device: loaded with no JS error, a visible main landmark and no horizontal
+   *  overflow past the device's width once styles apply (probeMobile). Same `status` semantics as
+   *  desktop, and the same excusal caveat on `ok`. `reason` names a failure's measured cause
+   *  (e.g. "overflow 441px > 412px"); optional, as older runners never captured it. */
+  mobile: Array<{ device: string; ok: boolean; status?: number | null; reason?: string }>;
   /** Same-origin links discovered on the page (absolute URLs), for the Links check. */
   links: string[];
   /** HTTP status of the chromium navigation (2xx/3xx = reachable). null = the nav failed/threw. */
@@ -611,7 +614,10 @@ export function summarizeBrowser(
       ? [`${r.url}: no mobile observations`]
       : r.mobile
           .filter((m) => !m.ok)
-          .map((m) => `${r.url} [${m.device}]${fmtEntryStatus(m.status)}`),
+          .map(
+            (m) =>
+              `${r.url} [${m.device}]${fmtEntryStatus(m.status)}${m.reason ? ` (${m.reason})` : ""}`,
+          ),
   );
   const brokenLinkUrls = links
     .filter((l) => isBroken(l.status))
@@ -899,6 +905,81 @@ export function defaultVerifyDeps(): VerifyDeps {
 
 const DESKTOP_VIEWPORT = { width: 1366, height: 900 };
 const PAGE_TIMEOUT_MS = 30_000;
+/** How long the mobile probe waits for `load` and web fonts before measuring anyway. */
+const STYLE_SETTLE_MS = 10_000;
+/** Sub-pixel layouts round scrollWidth up by a pixel; past this many pixels it is real overflow. */
+const OVERFLOW_TOLERANCE_PX = 2;
+
+export type MobileTarget = {
+  device: string;
+  descriptor: BrowserContextOptions & { viewport: { width: number; height: number } };
+};
+
+/**
+ * Loads one route in a mobile-emulated context and checks it renders: a 2xx/3xx, no JS error, a
+ * visible main landmark (a blank render must not pass on status + no-overflow alone, which is how
+ * a broken app.html once slipped past mobile while desktop caught it), and no horizontal overflow.
+ *
+ * Overflow is read only after `load` and `document.fonts.ready` (STYLE_SETTLE_MS each, the font
+ * wait only once `load` has fired), and against the DEVICE's width, not window.innerWidth
+ * (#1871). At domcontentloaded a slow stylesheet
+ * may not have applied yet, so images sit at their natural widths (a false fail). And Chromium's
+ * mobile emulation widens the layout viewport with the page, up to 4x the device width, so
+ * innerWidth grew with scrollWidth and a 600px page read as fitting (a false pass).
+ */
+export async function probeMobile(
+  browser: Browser,
+  url: string,
+  { device, descriptor }: MobileTarget,
+): Promise<RouteResult["mobile"][number]> {
+  const ctx = await browser.newContext({ ...descriptor });
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  let status: number | null = null;
+  try {
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
+    status = resp ? resp.status() : null;
+    if (!resp || !resp.ok()) return { device, ok: false, status };
+    // One cap, not two: a page whose `load` never fires is measured as it stands, with no font wait.
+    const loaded = await page
+      .waitForLoadState("load", { timeout: STYLE_SETTLE_MS })
+      .then(() => true)
+      .catch(() => false);
+    if (loaded) {
+      let fontsCap: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        page.evaluate("document.fonts ? document.fonts.ready.then(() => 0) : 0").catch(() => 0),
+        new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),
+      ]);
+      clearTimeout(fontsCap);
+    }
+    const hasMain = await page
+      .locator("main, [role=main]")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const scrollWidth = (await page
+      .evaluate("document.documentElement.scrollWidth")
+      .catch(() => null)) as number | null;
+    const width = descriptor.viewport.width;
+    const reason =
+      errors.length > 0
+        ? "js error"
+        : !hasMain
+          ? "no visible <main>"
+          : scrollWidth === null
+            ? "width not measured"
+            : scrollWidth > width + OVERFLOW_TOLERANCE_PX
+              ? `overflow ${scrollWidth}px > ${width}px`
+              : null;
+    return reason ? { device, ok: false, status, reason } : { device, ok: true, status };
+  } catch {
+    return { device, ok: false, status, reason: "load failed" };
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
 
 /**
  * Real Playwright runner. Launches chromium/firefox/webkit (desktop) + mobile-emulated chromium &
@@ -914,9 +995,9 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
     { engine: "firefox", type: firefox },
     { engine: "webkit", type: webkit },
   ];
-  const mobileTargets = [
-    { device: "Pixel 7", descriptor: devices["Pixel 7"] },
-    { device: "iPhone 14", descriptor: devices["iPhone 14"] },
+  const mobileTargets: MobileTarget[] = [
+    { device: "Pixel 7", descriptor: devices["Pixel 7"]! },
+    { device: "iPhone 14", descriptor: devices["iPhone 14"]! },
   ];
 
   return {
@@ -1007,38 +1088,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
 
           const mobile: RouteResult["mobile"] = [];
           for (let i = 0; i < mobileTargets.length; i++) {
-            const { device, descriptor } = mobileTargets[i]!;
-            const browser = mobileBrowsers[i]!;
-            const ctx = await browser.newContext({ ...descriptor });
-            const page = await ctx.newPage();
-            const errors: string[] = [];
-            page.on("pageerror", (e) => errors.push(String(e)));
-            let ok = false;
-            let navStatus: number | null = null;
-            try {
-              const resp = await page.goto(url, {
-                waitUntil: "domcontentloaded",
-                timeout: PAGE_TIMEOUT_MS,
-              });
-              navStatus = resp ? resp.status() : null;
-              // Require a visible main landmark on mobile too (mirrors desktop) — otherwise a
-              // fully-blank render passes mobile on status + no-overflow alone (exactly how a
-              // broken app.html slipped past the mobile check while desktop caught it).
-              const hasMain = await page
-                .locator("main, [role=main]")
-                .first()
-                .isVisible()
-                .catch(() => false);
-              const overflow = (await page
-                .evaluate("document.documentElement.scrollWidth > window.innerWidth + 2")
-                .catch(() => true)) as boolean;
-              ok = !!resp && resp.ok() && errors.length === 0 && !overflow && hasMain;
-            } catch {
-              ok = false;
-            } finally {
-              await ctx.close().catch(() => {});
-            }
-            mobile.push({ device, ok, status: navStatus });
+            mobile.push(await probeMobile(mobileBrowsers[i]!, url, mobileTargets[i]!));
           }
 
           results.push({
