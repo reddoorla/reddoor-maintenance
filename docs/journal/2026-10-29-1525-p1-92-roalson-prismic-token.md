@@ -10,4 +10,4 @@ Both brief mutations turned `fleet-prismic-sync — wiring > carries exactly the
 
 The secret itself is the operator's (AUTONOMY.md RED). Until it is set, the nightly stays red on this one site. `docs/runbooks/site-launch.md` does not mention Prismic tokens at all, so a launch has no step that adds a site's `PRISMIC_TOKEN_*` line or mints its secret; that gap is noted on the PR, not fixed here.
 
-Usage: not readable (get_session returned no usage block).
+Usage: not readable
