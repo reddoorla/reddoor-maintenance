@@ -1,0 +1,41 @@
+[
+  {
+    "id": "1871-M1-no-style-wait",
+    "why": "P1-85 M1: overflow is read right after domcontentloaded again, with no wait for load or fonts",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "    await page.waitForLoadState(\"load\", { timeout: STYLE_SETTLE_MS }).catch(() => {});\n    let fontsCap: ReturnType<typeof setTimeout> | undefined;\n    await Promise.race([\n      page.evaluate(\"document.fonts ? document.fonts.ready.then(() => 0) : 0\").catch(() => 0),\n      new Promise((r) => (fontsCap = setTimeout(r, STYLE_SETTLE_MS))),\n    ]);\n    clearTimeout(fontsCap);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1871-M2-innerwidth",
+    "why": "P1-85 M2: scrollWidth is compared against window.innerWidth again, not the device's width",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "    const width = descriptor.viewport.width;",
+        "replace": "    const width = (await page.evaluate(\"window.innerWidth\")) as number;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "1871-M3-no-tolerance",
+    "why": "P1-85 M3: the 2px rounding tolerance drops to 0",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "const OVERFLOW_TOLERANCE_PX = 2;",
+        "replace": "const OVERFLOW_TOLERANCE_PX = 0;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]

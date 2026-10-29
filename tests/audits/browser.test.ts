@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { chromium, devices, type Browser } from "@playwright/test";
 import {
   summarizeBrowser,
   sharedTitleSuffix,
@@ -11,6 +14,7 @@ import {
   excuseChallengedEngineChecks,
   extractTitleMeta,
   extractLocale,
+  probeMobile,
   type RouteResult,
   type LinkResult,
   type BrowserRunner,
@@ -1631,5 +1635,107 @@ describe("canonicalizeBaseUrl", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// #1871 (P1-85): the mobile check was wrong both ways under Chromium's mobile emulation, which the
+// runner uses for BOTH devices. It read overflow at domcontentloaded, before a slow stylesheet
+// applied (false fail), and compared against window.innerWidth, which emulation widens with the
+// page up to 4x the device width (false pass: a 600px-wide page read innerWidth 608). These run the
+// real probe in real Chromium against local fixtures.
+describe("probeMobile — real Chromium, device-width overflow after styles apply (#1871)", () => {
+  const head =
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title>';
+  const pages: Record<string, string> = {
+    // Truly too wide on any phone: a 600px block.
+    "/wide": `${head}</head><body><main><div style="width:600px;height:20px">x</div></main></body></html>`,
+    // Fits once its stylesheet applies; before that the 2000px image is 2000px wide, past the 4x
+    // widening cap on both devices, so the pre-fix read at domcontentloaded failed it.
+    "/precss":
+      `${head}<link rel="stylesheet" href="/slow.css"></head>` +
+      '<body><main><img src="/big.svg" width="2000" height="100" alt=""></main></body></html>',
+    "/fits": `${head}</head><body><main><p>Fits.</p></main></body></html>`,
+  };
+  let server: Server;
+  let base = "";
+  let browser: Browser;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url === "/slow.css") {
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/css" });
+          res.end("img{max-width:100%;height:auto}");
+        }, 1500);
+        return;
+      }
+      if (req.url === "/big.svg") {
+        res.writeHead(200, { "content-type": "image/svg+xml" });
+        res.end('<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="100"></svg>');
+        return;
+      }
+      // /block/<px>: a body exactly <px> wide, for the tolerance edge (vw + 1 passes, vw + 3 fails).
+      const block = /^\/block\/(\d+)$/.exec(req.url ?? "");
+      const html = block
+        ? `${head}<style>body{margin:0}</style></head><body><main><div style="width:${block[1]}px;height:5px"></div></main></body></html>`
+        : pages[req.url ?? ""];
+      res.writeHead(html ? 200 : 404, { "content-type": "text/html" });
+      res.end(html ?? "not found");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    browser = await chromium.launch();
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await new Promise((r) => server?.close(r));
+  });
+
+  const targets = [
+    { device: "Pixel 7", descriptor: devices["Pixel 7"]! },
+    { device: "iPhone 14", descriptor: devices["iPhone 14"]! },
+  ];
+
+  for (const target of targets) {
+    const vw = target.descriptor.viewport.width;
+
+    it(`fails a page that is too wide [${target.device}], and names the width`, async () => {
+      const r = await probeMobile(browser, `${base}/wide`, target);
+      expect(r).toMatchObject({ device: target.device, ok: false, status: 200 });
+      expect(r.reason).toBe(`overflow ${600 + 8}px > ${vw}px`); // + body margin
+    }, 30_000);
+
+    it(`passes a fitting page that only overflows before its CSS loads [${target.device}]`, async () => {
+      const r = await probeMobile(browser, `${base}/precss`, target);
+      expect(r).toEqual({ device: target.device, ok: true, status: 200 });
+    }, 30_000);
+
+    it(`tolerates a 1px rounding overflow but not 3px [${target.device}]`, async () => {
+      expect((await probeMobile(browser, `${base}/block/${vw + 1}`, target)).ok).toBe(true);
+      const over3 = await probeMobile(browser, `${base}/block/${vw + 3}`, target);
+      expect(over3.ok).toBe(false);
+      expect(over3.reason).toBe(`overflow ${vw + 3}px > ${vw}px`);
+    }, 30_000);
+  }
+
+  it("passes a fitting page, and names a missing page's cause", async () => {
+    expect(await probeMobile(browser, `${base}/fits`, targets[0]!)).toEqual({
+      device: "Pixel 7",
+      ok: true,
+      status: 200,
+    });
+    const missing = await probeMobile(browser, `${base}/missing`, targets[0]!);
+    expect(missing).toMatchObject({ ok: false, status: 404 });
+  }, 30_000);
+});
+
+describe("summarizeBrowser — a failing mobile entry carries its measured cause (#1871)", () => {
+  it("appends the reason to the offender string", () => {
+    const r = route("https://a.com/", true, true);
+    r.mobile[0] = { device: "Pixel 7", ok: false, status: 200, reason: "overflow 441px > 412px" };
+    const s = summarizeBrowser([r], [{ url: "https://a.com/x", status: 200 }], { "/": 1 });
+    expect(s.mobileFailures).toEqual(["https://a.com/ [Pixel 7] (overflow 441px > 412px)"]);
   });
 });
