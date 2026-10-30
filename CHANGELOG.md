@@ -1,5 +1,11 @@
 # @reddoorla/maintenance
 
+## 0.111.4
+
+### Patch Changes
+
+- 8f6c325: The browser audit's mobile check reads overflow only after the page has loaded, and against the device's width (#1871). Before, it read `scrollWidth > innerWidth + 2` right after `domcontentloaded`. A stylesheet that had not applied yet left images at their natural widths, which failed fitting pages. And Chromium's mobile emulation, which runs both devices, widens `innerWidth` with the page up to 4× the device width, so a 600px-wide page read as fitting. The probe now waits for `load` and `document.fonts.ready` (10 s cap each; the font wait is skipped when `load` never fires) and compares `scrollWidth` with the descriptor's `viewport.width` (412 for the Pixel 7, 390 for the iPhone 14), keeping the 2px rounding tolerance. A failing device now says why in the offender string: `(overflow 441px > 412px)`, `(no visible <main>)`, `(js error)`, `(width not measured)` or `(load failed)`. Expect pages that really are too wide on a phone to be flagged where they used to pass. So is a page with no `<meta name="viewport">`: a phone lays it out at about 980px and shows it zoomed out.
+
 ## 0.111.3
 
 ### Patch Changes
