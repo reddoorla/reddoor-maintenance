@@ -75,8 +75,8 @@ importers:
         version: 8.72.1(eslint@10.13.0)(typescript@6.0.3)
     devDependencies:
       '@anthropic-ai/sdk':
-        specifier: ^0.137.0
-        version: 0.137.0(zod@4.6.7)
+        specifier: ^1.0.0
+        version: 1.3.0(zod@4.6.7)
       '@changesets/cli':
         specifier: ^3.0.0
         version: 3.0.3
@@ -170,8 +170,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sdk@0.137.0':
-    resolution: {integrity: sha512-YpEnbPz8kWF1BWthwUCnRhci7OvDLSUO8NFKoevoPkjNkK9CJeibZITgxr9vhqOP8Le61e5tNDHFTxw1dc6Png==}
+  '@anthropic-ai/sdk@1.3.0':
+    resolution: {integrity: sha512-k7z9BlLLPxfZH+ov7dS6EnaN/wiZeV8YNT1LZfrpAHIy7oY7pHr4UzirF9f2OlHtFEnRBOX+AZQ91Y5fK+TPTw==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -4173,7 +4173,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@0.137.0(zod@4.6.7)':
+  '@anthropic-ai/sdk@1.3.0(zod@4.6.7)':
     dependencies:
       '@opentelemetry/api': 1.10.0
       json-schema-to-ts: 3.1.1
